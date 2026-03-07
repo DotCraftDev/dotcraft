@@ -1026,14 +1026,6 @@ body {
       </button>
 
       <div class="nav-section">System</div>
-      <button class="nav-tab" data-panel="tools" onclick="switchPanel('tools')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-        <span>Tools</span>
-      </button>
-      <button class="nav-tab" data-panel="config" onclick="switchPanel('config')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span>Config</span>
-      </button>
       <button class="nav-tab" data-panel="settings" onclick="switchPanel('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
         <span>Settings</span>
@@ -1129,29 +1121,6 @@ body {
         </div>
       </div>
 
-      <!-- Tools Panel -->
-      <div class="panel" id="panel-tools">
-        <div class="panel-header">
-          <div class="panel-title">Registered Tools</div>
-        </div>
-        <div class="panel-body">
-          <div class="tool-grid" id="toolGrid"></div>
-        </div>
-      </div>
-
-      <!-- Config Panel -->
-      <div class="panel" id="panel-config">
-        <div class="panel-header">
-          <div class="panel-title">Configuration</div>
-        </div>
-        <div class="panel-body">
-          <table class="config-table" id="configTable">
-            <thead><tr><th>Key</th><th>Value</th></tr></thead>
-            <tbody id="configBody"></tbody>
-          </table>
-        </div>
-      </div>
-
       <!-- Settings Panel -->
       <div class="panel" id="panel-settings">
         <div class="panel-header">
@@ -1226,8 +1195,6 @@ function switchPanel(panel) {
 
   if (panel === 'dashboard') refreshDashboard();
   else if (panel === 'sessions') refreshSessions();
-  else if (panel === 'tools') refreshTools();
-  else if (panel === 'config') refreshConfig();
   else if (panel === 'traces') refreshTraces();
   else if (panel === 'token-usage') refreshTokenUsage();
   else if (panel === 'settings') refreshSettings();
@@ -1600,115 +1567,6 @@ function toggleAutoScroll() {
   const btn = document.getElementById('autoScrollBtn');
   btn.style.borderColor = autoScroll ? 'var(--accent)' : 'var(--border)';
   btn.style.color = autoScroll ? 'var(--accent-light)' : 'var(--text-secondary)';
-}
-
-// Tools
-async function refreshTools() {
-  const data = await fetchJson('/tools');
-  const container = document.getElementById('toolGrid');
-
-  if (!data || !data.tools || data.tools.length === 0) {
-    container.innerHTML = `<div class="empty-state"><p>No tools registered.</p></div>`;
-    return;
-  }
-
-  const seen = new Set();
-  const unique = data.tools.filter(t => {
-    if (seen.has(t.name)) return false;
-    seen.add(t.name);
-    return true;
-  });
-
-  container.innerHTML = unique.map(t => `
-    <div class="tool-card">
-      <div class="tool-icon">${t.icon || '🔧'}</div>
-      <div class="tool-name">${escapeHtml(t.name)}</div>
-    </div>
-  `).join('');
-}
-
-// Config
-async function refreshConfig() {
-  const config = await fetchJson('/config');
-  const tbody = document.getElementById('configBody');
-
-  if (!config) {
-    tbody.innerHTML = '<tr><td colspan="2">Failed to load config</td></tr>';
-    return;
-  }
-
-  let html = '';
-
-  // Core settings
-  html += renderConfigSection('Core', {
-    model: config.model,
-    endPoint: config.endPoint,
-    systemInstructions: config.systemInstructions,
-    maxToolCallRounds: config.maxToolCallRounds,
-    subagentMaxToolCallRounds: config.subagentMaxToolCallRounds,
-    subagentMaxConcurrency: config.subagentMaxConcurrency,
-    compactSessions: config.compactSessions,
-    maxContextTokens: config.maxContextTokens,
-    debugMode: config.debugMode
-  });
-
-  // Tools config
-  html += renderConfigSection('Tools - File', config.tools?.file || {});
-  html += renderConfigSection('Tools - Shell', config.tools?.shell || {});
-  html += renderConfigSection('Tools - Web', config.tools?.web || {});
-
-  // QQ Bot
-  html += renderConfigSection('QQ Bot', config.qqBot || {});
-
-  // Security
-  html += renderConfigSection('Security', config.security || {});
-
-  // Heartbeat
-  html += renderConfigSection('Heartbeat', config.heartbeat || {});
-
-  // WeCom
-  html += renderConfigSection('WeCom', config.weCom || {});
-
-  // WeCom Bot
-  html += renderConfigSection('WeCom Bot', config.weComBot || {});
-
-  // Cron
-  html += renderConfigSection('Cron', config.cron || {});
-
-  // API
-  html += renderConfigSection('API', config.api || {});
-
-  // Dashboard
-  html += renderConfigSection('Dashboard', config.dashBoard || {});
-
-  // MCP Servers
-  if (config.mcpServers && config.mcpServers.length > 0) {
-    html += '<tr class="config-section-header"><td colspan="2">MCP Servers</td></tr>';
-    config.mcpServers.forEach((m, i) => {
-      html += `<tr><td class="config-key">${i + 1}. ${escapeHtml(m.name)}</td><td class="config-value">${escapeHtml(m.transport)} (${m.enabled ? 'enabled' : 'disabled'})</td></tr>`;
-    });
-  } else {
-    html += renderConfigSection('MCP Servers', { servers: '(none configured)' });
-  }
-
-  tbody.innerHTML = html;
-}
-
-function renderConfigSection(title, obj) {
-  if (!obj || Object.keys(obj).length === 0) return '';
-  let html = `<tr class="config-section-header"><td colspan="2">${escapeHtml(title)}</td></tr>`;
-  for (const [k, v] of Object.entries(obj)) {
-    const displayValue = formatConfigValue(v);
-    html += `<tr><td class="config-key">${escapeHtml(k)}</td><td class="config-value">${displayValue}</td></tr>`;
-  }
-  return html;
-}
-
-function formatConfigValue(v) {
-  if (v === null || v === undefined) return '-';
-  if (Array.isArray(v)) return v.length > 0 ? escapeHtml(JSON.stringify(v)) : '(empty)';
-  if (typeof v === 'object') return escapeHtml(JSON.stringify(v));
-  return escapeHtml(String(v));
 }
 
 async function deleteSession(sessionKey) {
@@ -2492,14 +2350,14 @@ async function doLogout() {
 }
 
 function checkAuthEnabled() {
-  fetch('/dashboard/api/config').then(res => {
+  fetch('/dashboard/api/config/edit').then(res => {
     if (res.status === 401) {
       window.location.href = '/dashboard/login';
       return;
     }
     return res.json();
   }).then(data => {
-    if (data && data.dashBoard && data.dashBoard.authEnabled) {
+    if (data && data.authEnabled) {
       document.getElementById('logoutBtn').style.display = '';
     }
   }).catch(() => {});

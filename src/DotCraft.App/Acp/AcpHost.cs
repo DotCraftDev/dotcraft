@@ -33,6 +33,8 @@ public sealed class AcpHost(
     McpClientManager mcpClientManager,
     ModuleRegistry moduleRegistry) : IDotCraftHost
 {
+    private AgentFactory? _agentFactory;
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         var cronTools = sp.GetService<CronTools>();
@@ -57,7 +59,7 @@ public sealed class AcpHost(
 
         AcpHandler? handler = null;
 
-        var agentFactory = new AgentFactory(
+        _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
             memoryStore, skillsLoader, approvalService, blacklist,
             toolProviders: toolProviders,
@@ -91,9 +93,9 @@ public sealed class AcpHost(
             onConsolidatorStatus: AnsiConsole.MarkupLine,
             hookRunner: hookRunner);
 
-        var agent = agentFactory.CreateDefaultAgent();
+        var agent = _agentFactory.CreateDefaultAgent();
         handler = new AcpHandler(
-            transport, sessionStore, agentFactory, agent,
+            transport, sessionStore, _agentFactory, agent,
             approvalService, paths.WorkspacePath,
             customCommandLoader, traceCollector, acpLogger,
             planStore: planStore,
@@ -105,8 +107,9 @@ public sealed class AcpHost(
         AnsiConsole.MarkupLine("[grey][[ACP]][/] ACP agent stopped");
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        return ValueTask.CompletedTask;
+        if (_agentFactory != null)
+            await _agentFactory.DisposeAsync();
     }
 }

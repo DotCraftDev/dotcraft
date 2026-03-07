@@ -9,8 +9,7 @@ DotCraft DashBoard is a built-in Web debugging tool for real-time viewing of req
 | Dashboard | Summary statistics: session count, request count, tool call count, token usage (input/output/total) |
 | Sessions | Session list sorted by recent activity, with detail view and deletion |
 | Trace Timeline | Event timeline for each session, filterable by type (request, response, tool call, token, error) |
-| Tools | Registered tool list with icons |
-| Config | Current bot configuration viewer (model, endpoint, tool call rounds, etc.) |
+| Settings | Configuration file editor with global config viewing and workspace config editing, real-time merge preview |
 | Real-time Updates | Real-time event push to frontend via SSE (Server-Sent Events) |
 
 ---
@@ -173,39 +172,6 @@ Delete all Trace data for a specified session.
 
 Clear all session Trace data.
 
-### GET /api/tools
-
-Get the registered tool list.
-
-**Response example**:
-
-```json
-{
-    "tools": [
-        {"name": "WebSearch", "icon": "🔍"},
-        {"name": "ReadFile", "icon": "📄"},
-        {"name": "Exec", "icon": "💻"}
-    ]
-}
-```
-
-### GET /api/config
-
-Get current bot configuration information.
-
-**Response example**:
-
-```json
-{
-    "model": "gpt-4o-mini",
-    "endPoint": "https://api.openai.com/v1",
-    "maxToolCallRounds": 30,
-    "subagentMaxToolCallRounds": 15,
-    "compactSessions": true,
-    "debugMode": false
-}
-```
-
 ### GET /api/events/stream
 
 SSE (Server-Sent Events) endpoint for real-time Trace event push.
@@ -251,13 +217,14 @@ Displays global statistics cards:
 - Tool call events show duration
 - Supports auto-scroll to latest event (toggleable)
 
-### Tools Page
+### Settings Page
 
-Grid display of all registered tools with their icons.
-
-### Config Page
-
-Table display of current bot key configuration parameters.
+Configuration file editor that supports:
+- View global config (read-only, typically at `~/.craft/config.json`)
+- Edit workspace config (writable, at `.craft/config.json`)
+- Real-time preview of merged global and workspace config
+- Support for tri-state boolean values (inherit/on/off)
+- Requires DotCraft restart after saving config to take effect
 
 ---
 

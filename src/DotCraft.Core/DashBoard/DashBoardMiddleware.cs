@@ -92,124 +92,6 @@ public static class DashBoardMiddleware
             return Results.Json(new { tools }, JsonOptions);
         });
 
-        endpoints.MapGet("/dashboard/api/config", () => Results.Json(new
-        {
-            // Core settings
-            model = config.Model,
-            endPoint = config.EndPoint,
-            systemInstructions = config.SystemInstructions,
-            maxToolCallRounds = config.MaxToolCallRounds,
-            subagentMaxToolCallRounds = config.SubagentMaxToolCallRounds,
-            subagentMaxConcurrency = config.SubagentMaxConcurrency,
-            compactSessions = config.CompactSessions,
-            maxContextTokens = config.MaxContextTokens,
-            memoryWindow = config.MemoryWindow,
-            debugMode = config.DebugMode,
-            // Tools config
-            tools = new
-            {
-                file = new
-                {
-                    requireApprovalOutsideWorkspace = config.Tools.File.RequireApprovalOutsideWorkspace,
-                    maxFileSize = config.Tools.File.MaxFileSize
-                },
-                shell = new
-                {
-                    requireApprovalOutsideWorkspace = config.Tools.Shell.RequireApprovalOutsideWorkspace,
-                    timeout = config.Tools.Shell.Timeout,
-                    maxOutputLength = config.Tools.Shell.MaxOutputLength
-                },
-                web = new
-                {
-                    maxChars = config.Tools.Web.MaxChars,
-                    timeout = config.Tools.Web.Timeout,
-                    searchMaxResults = config.Tools.Web.SearchMaxResults,
-                    searchProvider = config.Tools.Web.SearchProvider
-                }
-            },
-            // QQ Bot config
-            qqBot = new
-            {
-                enabled = config.QQBot.Enabled,
-                host = config.QQBot.Host,
-                port = config.QQBot.Port,
-                accessToken = string.IsNullOrEmpty(config.QQBot.AccessToken) ? "(not set)" : "***",
-                adminUsers = config.QQBot.AdminUsers.Count > 0 ? (object)config.QQBot.AdminUsers : "(none)",
-                whitelistedUsers = config.QQBot.WhitelistedUsers.Count > 0 ? (object)config.QQBot.WhitelistedUsers : "(none)",
-                whitelistedGroups = config.QQBot.WhitelistedGroups.Count > 0 ? (object)config.QQBot.WhitelistedGroups : "(none)",
-                approvalTimeoutSeconds = config.QQBot.ApprovalTimeoutSeconds
-            },
-            // Security config
-            security = new
-            {
-                blacklistedPaths = config.Security.BlacklistedPaths.Count > 0 ? (object)config.Security.BlacklistedPaths : "(none)"
-            },
-            // Heartbeat config
-            heartbeat = new
-            {
-                enabled = config.Heartbeat.Enabled,
-                intervalSeconds = config.Heartbeat.IntervalSeconds,
-                notifyAdmin = config.Heartbeat.NotifyAdmin
-            },
-            // WeCom config
-            weCom = new
-            {
-                enabled = config.WeCom.Enabled,
-                webhookUrl = string.IsNullOrEmpty(config.WeCom.WebhookUrl) ? "(not set)" : "***"
-            },
-            // WeCom Bot config
-            weComBot = new
-            {
-                enabled = config.WeComBot.Enabled,
-                host = config.WeComBot.Host,
-                port = config.WeComBot.Port,
-                adminUsers = config.WeComBot.AdminUsers.Count > 0 ? (object)config.WeComBot.AdminUsers : "(none)",
-                whitelistedUsers = config.WeComBot.WhitelistedUsers.Count > 0 ? (object)config.WeComBot.WhitelistedUsers : "(none)",
-                whitelistedChats = config.WeComBot.WhitelistedChats.Count > 0 ? (object)config.WeComBot.WhitelistedChats : "(none)",
-                approvalTimeoutSeconds = config.WeComBot.ApprovalTimeoutSeconds
-            },
-            // Cron config
-            cron = new
-            {
-                enabled = config.Cron.Enabled,
-                storePath = config.Cron.StorePath
-            },
-            // API config
-            api = new
-            {
-                enabled = config.Api.Enabled,
-                host = config.Api.Host,
-                port = config.Api.Port,
-                apiKey = string.IsNullOrEmpty(config.Api.ApiKey) ? "(not set)" : "***",
-                autoApprove = config.Api.AutoApprove,
-                approvalMode = config.Api.ApprovalMode,
-                approvalTimeoutSeconds = config.Api.ApprovalTimeoutSeconds
-            },
-            enabledTools = config.EnabledTools.Count > 0
-                ? (object)config.EnabledTools
-                : "(all)",
-            enabledToolsSource = config.EnabledTools.Count > 0
-                ? "global"
-                : "all",
-            // Dashboard config
-            dashBoard = new
-            {
-                enabled = config.DashBoard.Enabled,
-                host = config.DashBoard.Host,
-                port = config.DashBoard.Port,
-                authEnabled = DashBoardAuth.IsEnabled(config),
-                username = string.IsNullOrEmpty(config.DashBoard.Username) ? "(not set)" : "***",
-                password = string.IsNullOrEmpty(config.DashBoard.Password) ? "(not set)" : "***"
-            },
-            // MCP servers
-            mcpServers = config.McpServers.Select(m => new
-            {
-                name = m.Name,
-                transport = m.Transport,
-                enabled = m.Enabled
-            })
-        }, JsonOptions));
-
         // Config edit endpoints
         endpoints.MapGet("/dashboard/api/config/edit", () =>
         {
@@ -237,13 +119,25 @@ public static class DashBoardMiddleware
             MaskSensitiveFields(workspaceObj);
             MaskSensitiveFields(mergedObj);
 
+            // Check if authentication is enabled (Username and Password configured)
+            bool authEnabled = false;
+            if (mergedObj.TryGetPropertyValue("DashBoard", out var dashBoardNode) && dashBoardNode is JsonObject dashBoardObj)
+            {
+                var usernameKey = FindKey(dashBoardObj, "Username");
+                var passwordKey = FindKey(dashBoardObj, "Password");
+                authEnabled = usernameKey != null && passwordKey != null &&
+                              dashBoardObj[usernameKey] is JsonValue usernameVal && usernameVal.ToString().Length > 0 &&
+                              dashBoardObj[passwordKey] is JsonValue passwordVal && passwordVal.ToString().Length > 0;
+            }
+
             return Results.Json(new
             {
                 global = globalObj,
                 workspace = workspaceObj,
                 merged = mergedObj,
                 globalPath = globalConfigPath,
-                workspacePath = workspaceConfigPath
+                workspacePath = workspaceConfigPath,
+                authEnabled
             }, RawJsonOptions);
         });
 

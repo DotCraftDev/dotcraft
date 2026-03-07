@@ -84,9 +84,10 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        return ValueTask.CompletedTask;
+        if (_agentFactory != null)
+            await _agentFactory.DisposeAsync();
     }
 
     #region Message Handlers

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
@@ -81,4 +82,10 @@ public sealed class ToolProviderContext
     /// Available when running in ACP mode (connected to Unity/IDE client).
     /// </summary>
     public IAcpExtensionProxy? AcpExtensionProxy { get; init; }
+
+    /// <summary>
+    /// Collection of disposable resources created by tool providers.
+    /// These resources will be disposed when the application shuts down.
+    /// </summary>
+    public ConcurrentBag<IAsyncDisposable> DisposableResources { get; } = [];
 }

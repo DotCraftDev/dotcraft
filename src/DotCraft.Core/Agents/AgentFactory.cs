@@ -22,7 +22,7 @@ namespace DotCraft.Agents;
 /// Factory for creating AI agents with tool aggregation from providers.
 /// Tools are aggregated from registered <see cref="IAgentToolProvider"/> instances.
 /// </summary>
-public sealed class AgentFactory
+public sealed class AgentFactory : IAsyncDisposable
 {
     private readonly AppConfig _config;
     private readonly MemoryStore _memoryStore;
@@ -407,5 +407,17 @@ public sealed class AgentFactory
         return config.EnabledTools.Count == 0
             ? []
             : new HashSet<string>(config.EnabledTools, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Disposes all resources created by tool providers.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var disposable in _toolProviderContext.DisposableResources)
+        {
+            await disposable.DisposeAsync();
+        }
+        _toolProviderContext.DisposableResources.Clear();
     }
 }
