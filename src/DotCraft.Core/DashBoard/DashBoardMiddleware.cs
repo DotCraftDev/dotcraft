@@ -95,24 +95,24 @@ public static class DashBoardMiddleware
         // Config edit endpoints
         endpoints.MapGet("/dashboard/api/config/edit", () =>
         {
-            var globalConfigPath = System.IO.Path.Combine(
+            var globalConfigPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 ".craft",
                 "config.json");
-            var workspaceConfigPath = System.IO.Path.Combine(paths.CraftPath, "config.json");
+            var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
 
-            var globalRaw = System.IO.File.Exists(globalConfigPath)
-                ? System.IO.File.ReadAllText(globalConfigPath) : "{}";
-            var workspaceRaw = System.IO.File.Exists(workspaceConfigPath)
-                ? System.IO.File.ReadAllText(workspaceConfigPath) : "{}";
+            var globalRaw = File.Exists(globalConfigPath)
+                ? File.ReadAllText(globalConfigPath) : "{}";
+            var workspaceRaw = File.Exists(workspaceConfigPath)
+                ? File.ReadAllText(workspaceConfigPath) : "{}";
 
             var globalObj = (JsonObject)(JsonNode.Parse(globalRaw) ?? new JsonObject());
             var workspaceObj = (JsonObject)(JsonNode.Parse(workspaceRaw) ?? new JsonObject());
 
             // Compute merged result before masking
             var mergedObj = (JsonObject)MergeNodes(
-                (JsonNode)JsonNode.Parse(globalRaw)! ?? new JsonObject(),
-                (JsonNode)JsonNode.Parse(workspaceRaw)! ?? new JsonObject());
+                JsonNode.Parse(globalRaw) ?? new JsonObject(),
+                JsonNode.Parse(workspaceRaw) ?? new JsonObject());
 
             // Mask all sensitive fields in all three views
             MaskSensitiveFields(globalObj);
@@ -143,12 +143,12 @@ public static class DashBoardMiddleware
 
         endpoints.MapPost("/dashboard/api/config/workspace", async ctx =>
         {
-            var workspaceConfigPath = System.IO.Path.Combine(paths.CraftPath, "config.json");
-            var dir = System.IO.Path.GetDirectoryName(workspaceConfigPath);
+            var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
+            var dir = Path.GetDirectoryName(workspaceConfigPath);
             if (!string.IsNullOrEmpty(dir))
-                System.IO.Directory.CreateDirectory(dir);
+                Directory.CreateDirectory(dir);
 
-            using var reader = new System.IO.StreamReader(ctx.Request.Body);
+            using var reader = new StreamReader(ctx.Request.Body);
             var body = await reader.ReadToEndAsync();
 
             JsonObject postedObj;
@@ -164,14 +164,14 @@ public static class DashBoardMiddleware
             }
 
             // Read the existing file so we can preserve sentinel-masked sensitive values
-            var existingObj = System.IO.File.Exists(workspaceConfigPath)
-                ? (JsonObject)(JsonNode.Parse(System.IO.File.ReadAllText(workspaceConfigPath)) ?? new JsonObject())
+            var existingObj = File.Exists(workspaceConfigPath)
+                ? (JsonObject)(JsonNode.Parse(await File.ReadAllTextAsync(workspaceConfigPath)) ?? new JsonObject())
                 : new JsonObject();
 
             RestoreSentinels(postedObj, existingObj);
 
-            var output = postedObj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-            await System.IO.File.WriteAllTextAsync(workspaceConfigPath, output);
+            var output = postedObj.ToJsonString(RawJsonOptions);
+            await File.WriteAllTextAsync(workspaceConfigPath, output);
             await ctx.Response.WriteAsJsonAsync(new { success = true, path = workspaceConfigPath });
         });
 
