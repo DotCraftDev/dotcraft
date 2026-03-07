@@ -119,13 +119,25 @@ public static class DashBoardMiddleware
             MaskSensitiveFields(workspaceObj);
             MaskSensitiveFields(mergedObj);
 
+            // Check if authentication is enabled (Username and Password configured)
+            bool authEnabled = false;
+            if (mergedObj.TryGetPropertyValue("DashBoard", out var dashBoardNode) && dashBoardNode is JsonObject dashBoardObj)
+            {
+                var usernameKey = FindKey(dashBoardObj, "Username");
+                var passwordKey = FindKey(dashBoardObj, "Password");
+                authEnabled = usernameKey != null && passwordKey != null &&
+                              dashBoardObj[usernameKey] is JsonValue usernameVal && usernameVal.ToString().Length > 0 &&
+                              dashBoardObj[passwordKey] is JsonValue passwordVal && passwordVal.ToString().Length > 0;
+            }
+
             return Results.Json(new
             {
                 global = globalObj,
                 workspace = workspaceObj,
                 merged = mergedObj,
                 globalPath = globalConfigPath,
-                workspacePath = workspaceConfigPath
+                workspacePath = workspaceConfigPath,
+                authEnabled
             }, RawJsonOptions);
         });
 

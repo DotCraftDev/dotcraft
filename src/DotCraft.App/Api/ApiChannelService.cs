@@ -553,5 +553,7 @@ public sealed class ApiChannelService(
     {
         if (_webApp != null)
             await _webApp.DisposeAsync();
+        if (_agentFactory != null)
+            await _agentFactory.DisposeAsync();
     }
 }

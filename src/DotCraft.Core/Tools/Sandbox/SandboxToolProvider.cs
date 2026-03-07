@@ -24,8 +24,9 @@ public sealed class SandboxToolProvider : IAgentToolProvider
 
         var tools = new List<AITool>();
 
-        // Create sandbox session manager
+        // Create sandbox session manager and register for disposal
         var sandboxManager = new SandboxSessionManager(sandboxConfig, context.WorkspacePath);
+        context.DisposableResources.Add(sandboxManager);
 
         // Sandbox shell tools (replaces ShellTools)
         var shellTools = new SandboxShellTools(

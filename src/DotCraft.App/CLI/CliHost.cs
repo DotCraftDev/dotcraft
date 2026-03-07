@@ -35,6 +35,8 @@ public sealed class CliHost(
     ConsoleApprovalService cliApprovalService,
     ModuleRegistry moduleRegistry) : IDotCraftHost
 {
+    private AgentFactory? _agentFactory;
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         var cronTools = sp.GetService<CronTools>();
@@ -51,7 +53,7 @@ public sealed class CliHost(
 
         var planStore = new PlanStore(paths.CraftPath);
 
-        var agentFactory = new AgentFactory(
+        _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
             memoryStore, skillsLoader, cliApprovalService, blacklist,
             toolProviders: toolProviders,
@@ -79,9 +81,9 @@ public sealed class CliHost(
             hookRunner: hookRunner);
 
         var modeManager = new AgentModeManager();
-        var agent = agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
+        var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
         var sessionGate = sp.GetRequiredService<SessionGate>();
-        var runner = new AgentRunner(agent, sessionStore, agentFactory, traceCollector, sessionGate, hookRunner);
+        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner);
 
         DashBoardServer? dashBoardServer = null;
         string? dashBoardUrl = null;
@@ -102,7 +104,7 @@ public sealed class CliHost(
         var repl = new ReplHost(agent, sessionStore, skillsLoader,
             paths.WorkspacePath, paths.CraftPath,
             heartbeatService: heartbeatService, cronService: cronService,
-            agentFactory: agentFactory, mcpClientManager: mcpClientManager,
+            agentFactory: _agentFactory, mcpClientManager: mcpClientManager,
             dashBoardUrl: dashBoardUrl,
             languageService: languageService, tokenUsageStore: tokenUsageStore,
             customCommandLoader: customCommandLoader,
@@ -128,8 +130,9 @@ public sealed class CliHost(
             await dashBoardServer.DisposeAsync();
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        return ValueTask.CompletedTask;
+        if (_agentFactory != null)
+            await _agentFactory.DisposeAsync();
     }
 }

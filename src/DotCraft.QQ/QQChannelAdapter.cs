@@ -81,9 +81,11 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         _client.OnPrivateMessage += HandlePrivateMessageAsync;
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        return _client.DisposeAsync();
+        await _client.DisposeAsync();
+        if (_agentFactory != null)
+            await _agentFactory.DisposeAsync();
     }
 
     private async Task HandleGroupMessageAsync(OneBotMessageEvent evt)

@@ -242,7 +242,11 @@ public sealed class SandboxFileTools
     {
         if (path.StartsWith('/'))
             return path;
-        return "/workspace/" + path.TrimStart('.', '/');
+        if (path.StartsWith(".."))
+            throw new ArgumentException("Path traversal not allowed");
+        if (path.StartsWith("./"))
+            return "/workspace/" + path[2..];
+        return "/workspace/" + path;
     }
 
     private static string FormatCommandOutput(OpenSandbox.Models.Execution execution)

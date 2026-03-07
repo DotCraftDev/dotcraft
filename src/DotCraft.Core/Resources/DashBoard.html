@@ -2357,7 +2357,7 @@ function checkAuthEnabled() {
     }
     return res.json();
   }).then(data => {
-    if (data && data.merged && data.merged.DashBoard && data.merged.DashBoard.Enabled) {
+    if (data && data.authEnabled) {
       document.getElementById('logoutBtn').style.display = '';
     }
   }).catch(() => {});

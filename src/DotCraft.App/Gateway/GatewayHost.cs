@@ -34,6 +34,7 @@ public sealed class GatewayHost : IDotCraftHost
     private readonly IReadOnlyList<IChannelService> _channels;
     private readonly MessageRouter _router;
     private readonly ModuleRegistry _moduleRegistry;
+    private AgentFactory? _sharedAgentFactory;
 
     public GatewayHost(
         IServiceProvider sp,
@@ -226,7 +227,7 @@ public sealed class GatewayHost : IDotCraftHost
         // Prefer the QQ channel client so channel-specific tools (voice, file) are available in cron/heartbeat
         var channelClient = _channels.FirstOrDefault(ch => ch.ChannelClient != null)?.ChannelClient;
 
-        var agentFactory = new AgentFactory(
+        _sharedAgentFactory = new AgentFactory(
             _paths.CraftPath, _paths.WorkspacePath, _config,
             memoryStore, _skillsLoader, approvalService, pathBlacklist,
             toolProviders: toolProviders,
@@ -253,9 +254,9 @@ public sealed class GatewayHost : IDotCraftHost
             onConsolidatorStatus: AnsiConsole.MarkupLine,
             hookRunner: hookRunner);
 
-        var agent = agentFactory.CreateDefaultAgent();
+        var agent = _sharedAgentFactory.CreateDefaultAgent();
         var sessionGate = _sp.GetRequiredService<SessionGate>();
-        var runner = new AgentRunner(agent, _sessionStore, agentFactory, traceCollector, sessionGate, hookRunner);
+        var runner = new AgentRunner(agent, _sessionStore, _sharedAgentFactory, traceCollector, sessionGate, hookRunner);
         return runner.RunAsync;
     }
 
@@ -315,8 +316,14 @@ public sealed class GatewayHost : IDotCraftHost
         return new ApprovalContext { UserId = payload.CreatorId, Source = source, GroupId = groupId };
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        return ValueTask.CompletedTask;
+        // Dispose channels
+        foreach (var ch in _channels)
+            await ch.DisposeAsync();
+        
+        // Dispose shared agent factory
+        if (_sharedAgentFactory != null)
+            await _sharedAgentFactory.DisposeAsync();
     }
 }
