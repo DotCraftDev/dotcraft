@@ -54,10 +54,10 @@ public static class StatusPanel
         grid.AddRow(
             new Markup("[blue]/load[/]"),
             new Markup($"[grey]{Strings.CmdLoad(lang)}[/]"),
-            new Markup("[blue]/config[/]"),
-            new Markup($"[grey]{Strings.CmdConfig(lang)}[/]"),
-            new Markup("[blue]/commands[/]"),
-            new Markup($"[grey]{Strings.CmdCommands(lang)}[/]"));
+            new Markup("[blue]/agent[/]"),
+            new Markup($"[grey]{Strings.CmdAgent(lang)}[/]"),
+            new Markup("[blue]/plan[/]"),
+            new Markup($"[grey]{Strings.CmdPlan(lang)}[/]"));
 
         var panel = new Panel(grid)
         {
@@ -214,13 +214,14 @@ public static class StatusPanel
         grid.AddRow("  /load", Strings.CmdLoad(lang));
         grid.AddRow("  /delete", Strings.CmdDelete(lang));
         grid.AddRow("  /init", Strings.CmdInit(lang));
-        grid.AddRow("  /config", Strings.CmdConfig(lang));
         grid.AddRow("  /debug", Strings.CmdDebug(lang));
         grid.AddRow("  /skills", Strings.CmdSkills(lang));
         grid.AddRow("  /mcp", Strings.CmdMcp(lang));
         grid.AddRow("  /sessions", Strings.CmdSessions(lang));
         grid.AddRow("  /memory", Strings.CmdMemory(lang));
         grid.AddRow("  /lang", Strings.CmdLang(lang));
+        grid.AddRow("  /agent", Strings.CmdAgent(lang));
+        grid.AddRow("  /plan", Strings.CmdPlan(lang));
         grid.AddRow("  /heartbeat trigger", Strings.CmdHeartbeat(lang));
         grid.AddRow("  /cron list", Strings.CmdCronList(lang));
         grid.AddRow("  /cron remove <id>", Strings.CmdCronRemove(lang));

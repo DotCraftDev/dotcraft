@@ -4,7 +4,6 @@ using DotCraft.CLI.Rendering;
 using DotCraft.Commands;
 using DotCraft.Commands.Custom;
 using DotCraft.Diagnostics;
-using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
@@ -22,7 +21,7 @@ using Spectre.Console;
 namespace DotCraft.CLI;
 
 public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoader skillsLoader, 
-    string workspacePath = "", string dotCraftPath = "", AppConfig? config = null, 
+    string workspacePath = "", string dotCraftPath = "",
     HeartbeatService? heartbeatService = null, CronService? cronService = null,
     AgentFactory? agentFactory = null, McpClientManager? mcpClientManager = null,
     string? dashBoardUrl = null,
@@ -32,7 +31,6 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
     PlanStore? planStore = null,
     HookRunner? hookRunner = null)
 {
-    private readonly AppConfig _config = config ?? new AppConfig();
     private readonly LanguageService _lang = languageService ?? new LanguageService();
     private readonly AgentModeManager _modeManager = modeManager ?? new AgentModeManager();
 
@@ -396,7 +394,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
     [
         "/exit", "/help", "/clear", "/new", "/load", "/delete",
         "/init", "/skills", "/mcp", "/sessions", "/memory",
-        "/config", "/debug", "/heartbeat", "/cron", "/lang", "/commands",
+        "/debug", "/heartbeat", "/cron", "/lang", "/commands",
         "/plan", "/agent"
     ];
 
@@ -463,10 +461,6 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
             case "/memory":
                 HandleMemoryCommand();
-                return (true, false, null);
-
-            case "/config":
-                HandleConfigCommand();
                 return (true, false, null);
 
             case "/debug":
@@ -551,33 +545,6 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
         {
             AnsiConsole.MarkupLine($"[red]✗[/] {Strings.InitFailed(_lang)}: {result}\n");
         }
-    }
-
-    private void HandleConfigCommand()
-    {
-        AnsiConsole.MarkupLine($"\n[blue]📋 {Strings.CurrentConfig(_lang)}[/]");
-        var configPath = Path.Combine(dotCraftPath, "config.json");
-
-        // Show current config
-        var table = new Table();
-        table.Border(TableBorder.Rounded);
-        table.AddColumn($"[grey]{Strings.ConfigItem(_lang)}[/]");
-        table.AddColumn("[grey]值[/]");
-
-        table.AddRow("API Key", string.IsNullOrWhiteSpace(_config.ApiKey) ? $"[red]{Strings.NotConfigured(_lang)}[/]" : $"[green]{Strings.Configured(_lang)}[/]");
-        table.AddRow("Model", _config.Model.EscapeMarkup());
-        table.AddRow("Endpoint", _config.EndPoint.EscapeMarkup());
-        table.AddRow("System Instructions", 
-            _config.SystemInstructions.Length > 50 
-                ? _config.SystemInstructions.Substring(0, 50) + "..." 
-                : _config.SystemInstructions.EscapeMarkup());
-
-        AnsiConsole.Write(table);
-        AnsiConsole.MarkupLine($"\n[grey]{Strings.ConfigFilePath(_lang)}: {configPath.EscapeMarkup()}[/]");
-
-        // Offer to edit
-        AnsiConsole.MarkupLine($"\n[yellow]{Strings.ConfigTip(_lang)}[/]: {Strings.ConfigEditTip(_lang)}");
-        AnsiConsole.WriteLine();
     }
 
     private void HandleMemoryCommand()
