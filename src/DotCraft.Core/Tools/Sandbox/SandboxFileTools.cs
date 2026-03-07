@@ -242,7 +242,7 @@ public sealed class SandboxFileTools
     {
         if (path.StartsWith('/'))
             return path;
-        if (path.StartsWith(".."))
+        if (path.StartsWith("..") || path.Contains("/../") || path.EndsWith("/.."))
             throw new ArgumentException("Path traversal not allowed");
         if (path.StartsWith("./"))
             return "/workspace/" + path[2..];
