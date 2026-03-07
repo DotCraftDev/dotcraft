@@ -25,6 +25,8 @@ public static class Strings
     public static string CmdCronToggle(LanguageService lang) => lang.GetString("启用/禁用定时任务", "Enable/disable a cron job");
     public static string CmdLang(LanguageService lang) => lang.GetString("切换语言 (中/英)", "Switch language (Chinese/English)");
     public static string CmdCommands(LanguageService lang) => lang.GetString("显示自定义命令列表", "Show custom commands");
+    public static string CmdAgent(LanguageService lang) => lang.GetString("切换到 Agent 模式", "Switch to Agent mode");
+    public static string CmdPlan(LanguageService lang) => lang.GetString("切换到 Plan 模式", "Switch to Plan mode");
 
     // Welcome screen
     public static string CurrentSession(LanguageService lang) => lang.GetString("当前会话", "Current session");
