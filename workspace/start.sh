@@ -8,4 +8,4 @@ cd ..
 dotnet build
 
 cd Workspace
-dotnet ../DotCraft/bin/Debug/net10.0/DotCraft.dll
+dotnet ../src/DotCraft.App/bin/Debug/net10.0/dotcraft.dll
