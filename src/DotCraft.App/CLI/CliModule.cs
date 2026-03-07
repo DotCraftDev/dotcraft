@@ -1,0 +1,55 @@
+using DotCraft.Abstractions;
+using DotCraft.CLI.Factories;
+using DotCraft.Configuration;
+using DotCraft.Hosting;
+using DotCraft.Modules;
+using DotCraft.Security;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DotCraft.CLI;
+
+/// <summary>
+/// CLI module for interactive console-based interaction.
+/// This is the default module when no other modules are enabled.
+/// Priority: 0 (lowest - used as fallback)
+/// </summary>
+[DotCraftModule("cli", Priority = 0, Description = "CLI module for interactive console-based interaction (default fallback)")]
+public sealed partial class CliModule : ModuleBase
+{
+    /// <inheritdoc />
+    public override bool IsEnabled(AppConfig config) => true;
+
+    /// <inheritdoc />
+    public override void ConfigureServices(IServiceCollection services, ModuleContext context)
+    {
+        // Register ConsoleApprovalService (depends on ApprovalStore from AddDotCraft)
+        services.AddSingleton(sp =>
+        {
+            var approvalStore = sp.GetRequiredService<ApprovalStore>();
+            var factory = new ConsoleApprovalServiceFactory();
+            return (ConsoleApprovalService)factory.Create(new ApprovalServiceContext
+            {
+                Config = context.Config,
+                WorkspacePath = context.Paths.WorkspacePath,
+                ApprovalStore = approvalStore
+            });
+        });
+    }
+
+    /// <inheritdoc />
+    public override IEnumerable<IAgentToolProvider> GetToolProviders()
+        => [];
+}
+
+/// <summary>
+/// Host factory for CLI mode.
+/// </summary>
+[HostFactory("cli")]
+public sealed class CliHostFactory : IHostFactory
+{
+    /// <inheritdoc />
+    public IDotCraftHost CreateHost(IServiceProvider serviceProvider, ModuleContext context)
+    {
+        return ActivatorUtilities.CreateInstance<CliHost>(serviceProvider);
+    }
+}

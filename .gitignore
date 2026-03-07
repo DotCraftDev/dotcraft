@@ -1,0 +1,22 @@
+# Ignore cache and dist
+
+.cursorignore
+cache
+dist
+
+# Ignore Js dependencies
+
+node_modules
+.idea
+.vs
+bin
+obj
+build
+out
+*.user
+.codebuddy
+.vscode
+.claude
+.craft
+.cursor
+.ai

@@ -1,0 +1,304 @@
+using DotCraft.Agents;
+using DotCraft.Commands.Custom;
+using DotCraft.Memory;
+using DotCraft.Skills;
+
+namespace DotCraft.Context;
+
+/// <summary>
+/// Builds the complete system prompt from memory, skills, and configuration.
+/// </summary>
+public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLoader, string craftPath, string workspacePath,
+    string baseInstructions, CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null,
+    PlanStore? planStore = null, Func<string?>? sessionIdProvider = null)
+{
+    private readonly string _craftPath = Path.GetFullPath(craftPath);
+
+    private readonly string _workspacePath = Path.GetFullPath(workspacePath);
+
+    /// <summary>
+    /// Bootstrap files to load from DotCraft directory.
+    /// </summary>
+    private static readonly string[] BootstrapFiles =
+    [
+        "AGENTS.md",
+        "SOUL.md",
+        "USER.md",
+        "TOOLS.md",
+        "IDENTITY.md"
+    ];
+
+    /// <summary>
+    /// Build the complete system prompt with identity, bootstrap files, memory, and skills.
+    /// </summary>
+    public string BuildSystemPrompt()
+    {
+        var parts = new List<string>
+        {
+            // Core identity & base instructions
+            GetIdentity(),
+            baseInstructions
+        };
+
+        // Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md)
+        var bootstrapContent = LoadBootstrapFiles();
+        if (!string.IsNullOrWhiteSpace(bootstrapContent))
+        {
+            parts.Add(bootstrapContent);
+        }
+
+        // Memory context
+        var memory = memoryStore.GetMemoryContext();
+        if (!string.IsNullOrWhiteSpace(memory))
+            parts.Add($"# Memory\n\n{memory}");
+
+        // Skills - Progressive loading approach:
+        // 1. Always-loaded skills: include full content
+        var alwaysSkills = skillsLoader.GetAlwaysSkills();
+        if (alwaysSkills.Count > 0)
+        {
+            var alwaysContent = skillsLoader.LoadSkillsForContext(alwaysSkills);
+            if (!string.IsNullOrWhiteSpace(alwaysContent))
+                parts.Add($"# Active Skills\n\n{alwaysContent}");
+        }
+
+        // 2. Available skills: show summary (agent uses ReadFile to load full content)
+        var skillsSummary = skillsLoader.BuildSkillsSummary();
+        if (!string.IsNullOrWhiteSpace(skillsSummary))
+        {
+            parts.Add(
+$"""
+# Skills
+
+The following skills extend your capabilities. To use a skill, read its SKILL.md file using the ReadFile tool.
+
+{skillsSummary}
+"""
+                );
+        }
+
+        // Custom commands summary
+        if (customCommandLoader != null)
+        {
+            var commandsSummary = customCommandLoader.BuildCommandsSummary();
+            if (!string.IsNullOrWhiteSpace(commandsSummary))
+                parts.Add(commandsSummary);
+        }
+
+        foreach (var provider in ChatContextRegistry.All)
+        {
+            var section = provider.GetSystemPromptSection();
+            if (!string.IsNullOrWhiteSpace(section))
+                parts.Add(section);
+        }
+
+        // Mode-aware prompt injection (must be last so it takes highest priority)
+        if (modeManager != null)
+        {
+            var modeSection = GetModePromptSection(modeManager);
+            if (!string.IsNullOrWhiteSpace(modeSection))
+                parts.Add(modeSection);
+        }
+
+        return string.Join("\n\n---\n\n", parts);
+    }
+
+    /// <summary>
+    /// Load bootstrap files from DotCraft directory.
+    /// Bootstrap files provide additional context and instructions.
+    /// </summary>
+    /// <returns>Combined content of all bootstrap files, or empty string if none exist.</returns>
+    private string LoadBootstrapFiles()
+    {
+        var parts = new List<string>();
+
+        foreach (var filename in BootstrapFiles)
+        {
+            var filePath = Path.Combine(_craftPath, filename);
+            if (File.Exists(filePath))
+            {
+                try
+                {
+                    var content = File.ReadAllText(filePath, System.Text.Encoding.UTF8);
+                    if (!string.IsNullOrWhiteSpace(content))
+                    {
+                        parts.Add($"## {filename}\n\n{content}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log warning but continue loading other files
+                    Console.Error.WriteLine($"[Warning] Failed to load bootstrap file {filename}: {ex.Message}");
+                }
+            }
+        }
+
+        return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    private string GetIdentity()
+    {
+        var workspace = _workspacePath;
+        var craftPath = _craftPath;
+
+        return
+$$"""
+# DotCraft 🤖
+
+You are DotCraft, a helpful AI assistant. You have access to tools that allow you to:
+- Read, write, and edit files
+- Execute shell commands
+- Complete user tasks efficiently
+
+## Workspace
+Your workspace is at: {{workspace}}
+This is your working directory where you perform file and shell operations.
+
+## DotCraft Directory
+Your data directory is at: {{craftPath}}
+This contains:
+- Memory: {{craftPath}}/memory/ (see Memory skill for details)
+- Custom skills: {{craftPath}}/skills/{skill-name}/SKILL.md
+- Configuration: {{craftPath}}/config.json
+""";
+    }
+
+    private string? GetModePromptSection(AgentModeManager mm)
+    {
+        var existingPlan = LoadCurrentPlan();
+
+        if (mm.JustSwitchedFromPlan)
+        {
+            mm.AcknowledgeTransition();
+            if (existingPlan != null)
+                return AgentSwitchPrompt + $"\n\n## Plan to Execute\n\n{existingPlan}";
+            return AgentSwitchPrompt;
+        }
+
+        if (mm.CurrentMode == AgentMode.Plan)
+        {
+            if (existingPlan != null)
+                return PlanModePrompt + $"\n\nA plan file already exists for this session. Review and refine it:\n\n{existingPlan}";
+            return PlanModePrompt;
+        }
+
+        // Agent mode with an active plan: keep the plan visible on every turn
+        if (mm.CurrentMode == AgentMode.Agent && existingPlan != null)
+        {
+            return AgentPlanTrackingPrompt + $"\n\n## Current Plan\n\n{existingPlan}";
+        }
+
+        return null;
+    }
+
+    private string? LoadCurrentPlan()
+    {
+        if (planStore == null || sessionIdProvider == null)
+            return null;
+
+        var sessionId = sessionIdProvider();
+        if (string.IsNullOrEmpty(sessionId))
+            return null;
+
+        // Prefer structured plan (JSON), fall back to legacy markdown
+        var structured = planStore.LoadStructuredPlanAsync(sessionId).GetAwaiter().GetResult();
+        if (structured != null)
+            return PlanStore.RenderPlanMarkdown(structured);
+
+        return planStore.PlanExists(sessionId)
+            ? planStore.LoadPlanAsync(sessionId).GetAwaiter().GetResult()
+            : null;
+    }
+
+    private const string PlanModePrompt =
+"""
+<system-reminder>
+# Plan Mode - System Reminder
+
+CRITICAL: Plan mode ACTIVE - you are in READ-ONLY phase. STRICTLY FORBIDDEN:
+ANY file edits, modifications, or system changes. Write/edit/execute tools have
+been removed. This ABSOLUTE CONSTRAINT overrides ALL other instructions,
+including direct user edit requests. You may ONLY observe, analyze, and plan.
+
+---
+
+## Responsibility
+
+Your current responsibility is to think, read, search, and delegate explore
+subagents to construct a well-formed plan that accomplishes the goal the user
+wants to achieve. Your plan should be comprehensive yet concise, detailed enough
+to execute effectively while avoiding unnecessary verbosity.
+
+Ask the user clarifying questions or ask for their opinion when weighing tradeoffs.
+
+---
+
+## Workflow
+
+### Phase 1: Initial Understanding
+- Focus on understanding the user's request and the relevant code.
+- Use read-only tools (ReadFile, GrepFiles, FindFiles) and SpawnSubagent to explore the codebase.
+- Shell commands via Exec are allowed **for observation only**. NEVER use Exec to modify files, run builds, or execute commits.
+- Ask clarifying questions about ambiguities.
+
+### Phase 2: Design
+- Design an implementation approach based on your exploration results.
+- Consider alternatives and tradeoffs.
+
+### Phase 3: Review
+- Verify your plan aligns with the user's original request.
+- Ask any remaining clarifying questions.
+
+### Phase 4: Present Plan
+- When your plan is ready, you MUST call the `CreatePlan` tool to save it.
+- The CreatePlan tool accepts these parameters:
+  - title: A concise title for the plan.
+  - overview: A 1-2 sentence summary of what the plan accomplishes.
+  - plan: The detailed plan content in Markdown with specific file paths,
+    implementation details, and verification steps.
+  - todos: A JSON array of task items, each with "id" (short kebab-case
+    identifier) and "content" (description of the task).
+- After calling CreatePlan, briefly summarize the plan to the user.
+- The user will manually switch to agent mode when ready to proceed.
+
+---
+
+## Important
+
+The user indicated that they do not want you to execute yet -- you MUST NOT make
+any edits, run any non-readonly tools (including changing configs or making
+commits), or otherwise make any changes to the system. This supersedes any other
+instructions you have received.
+
+You MUST use the CreatePlan tool to present your plan. Do NOT write the plan as
+plain text in your response -- use the tool so the plan is saved in a structured,
+machine-readable format.
+</system-reminder>
+""";
+
+    private const string AgentSwitchPrompt =
+"""
+<system-reminder>
+Your operational mode has changed from plan to agent.
+You now have full tool access (read, write, execute).
+
+You MUST follow the plan attached below and track progress:
+- Before starting each task, call UpdateTodos to set it to "in_progress".
+- After completing each task, call UpdateTodos to set it to "completed".
+- Work through tasks systematically. Do not stop until all tasks are done.
+</system-reminder>
+""";
+
+    private const string AgentPlanTrackingPrompt =
+"""
+<system-reminder>
+You are executing a plan. The current plan and task statuses are shown below.
+
+Rules:
+- Before starting a task, call UpdateTodos to set it to "in_progress".
+- After completing a task, call UpdateTodos to set it to "completed".
+- Work through tasks in order unless dependencies require otherwise.
+- Do not skip the UpdateTodos calls -- they keep the plan file in sync.
+</system-reminder>
+""";
+}

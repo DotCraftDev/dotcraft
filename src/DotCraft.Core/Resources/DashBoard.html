@@ -1,0 +1,2519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DotCraft DashBoard</title>
+<style>
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #161822;
+  --bg-tertiary: #1c1e2e;
+  --bg-card: #1e2030;
+  --bg-hover: #252840;
+  --border: #2a2d42;
+  --border-active: #4a4d6a;
+  --text-primary: #e4e6f0;
+  --text-secondary: #9498b3;
+  --text-muted: #6b6f8a;
+  --accent: #7c5cfc;
+  --accent-light: #9b82fc;
+  --accent-dim: rgba(124,92,252,0.15);
+  --success: #34d399;
+  --success-dim: rgba(52,211,153,0.12);
+  --warning: #fbbf24;
+  --warning-dim: rgba(251,191,36,0.12);
+  --error: #f87171;
+  --error-dim: rgba(248,113,113,0.12);
+  --info: #60a5fa;
+  --info-dim: rgba(96,165,250,0.12);
+  --cyan: #22d3ee;
+  --cyan-dim: rgba(34,211,238,0.12);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 2px 12px rgba(0,0,0,0.25);
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-active); }
+
+/* Layout */
+.app { display: flex; flex-direction: column; height: 100vh; }
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-light);
+  letter-spacing: -0.5px;
+}
+
+.logo-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 2px 8px;
+  background: var(--accent-dim);
+  border-radius: 4px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logout-btn {
+  padding: 4px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.logout-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background: var(--error-dim);
+}
+
+.live-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse 2s infinite;
+  display: inline-block;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.status-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Nav tabs */
+.nav-tabs {
+  display: flex;
+  flex-direction: column;
+  width: 200px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.nav-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+  border: none;
+  background: none;
+  text-align: left;
+  width: 100%;
+}
+
+.nav-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nav-tab.active { background: var(--accent-dim); color: var(--accent-light); font-weight: 500; }
+
+.nav-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.nav-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  padding: 16px 14px 6px;
+}
+
+/* Content area */
+.content-area {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel { display: none; flex-direction: column; height: 100%; overflow: hidden; }
+.panel.active { display: flex; }
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+/* Stats cards */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: border-color var(--transition);
+}
+
+.stat-card:hover { border-color: var(--border-active); }
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value.accent { color: var(--accent-light); }
+.stat-value.success { color: var(--success); }
+.stat-value.warning { color: var(--warning); }
+.stat-value.info { color: var(--info); }
+
+/* Session list */
+.session-list { display: flex; flex-direction: column; gap: 8px; }
+
+.session-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  width: 100%;
+}
+
+.session-card:hover { border-color: var(--accent); background: var(--bg-hover); }
+.session-card.active { border-color: var(--accent); background: var(--accent-dim); }
+
+.session-info { display: flex; flex-direction: column; gap: 4px; }
+
+.session-key {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.session-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 12px;
+}
+
+.session-stats {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.session-stat {
+  text-align: right;
+  font-size: 12px;
+}
+
+.session-stat-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-stat-label { color: var(--text-muted); }
+
+.session-metadata {
+  width: 100%;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.session-meta-line {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.session-tools-inline {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Trace timeline */
+.trace-timeline { display: flex; flex-direction: column; gap: 4px; }
+
+.trace-event {
+  display: flex;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  transition: background var(--transition);
+  align-items: flex-start;
+  border-left: 3px solid transparent;
+}
+
+.trace-event:hover { background: var(--bg-hover); }
+
+.trace-event.type-Request { border-left-color: var(--info); }
+.trace-event.type-Response { border-left-color: var(--success); }
+.trace-event.type-ToolCallStarted { border-left-color: var(--warning); }
+.trace-event.type-ToolCallCompleted { border-left-color: var(--accent); }
+.trace-event.type-TokenUsage { border-left-color: var(--cyan); }
+.trace-event.type-Error { border-left-color: var(--error); }
+.trace-event.type-ContextCompaction { border-left-color: var(--text-muted); }
+
+.trace-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 80px;
+  padding-top: 2px;
+}
+
+.trace-icon {
+  font-size: 16px;
+  min-width: 24px;
+  text-align: center;
+  padding-top: 1px;
+}
+
+.trace-body { flex: 1; min-width: 0; }
+
+.trace-label {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.trace-label.request { color: var(--info); }
+.trace-label.response { color: var(--success); }
+.trace-label.tool-start { color: var(--warning); }
+.trace-label.tool-complete { color: var(--accent-light); }
+.trace-label.token { color: var(--cyan); }
+.trace-label.error { color: var(--error); }
+.trace-label.compaction { color: var(--text-muted); }
+
+.trace-content {
+  font-size: 13px;
+  color: var(--text-secondary);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.trace-detail {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid var(--border);
+}
+
+.trace-duration {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.trace-tokens-inline {
+  display: inline-flex;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.trace-tokens-inline .in { color: var(--info); }
+.trace-tokens-inline .out { color: var(--success); }
+
+/* Tool grid */
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.tool-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color var(--transition);
+}
+
+.tool-card:hover { border-color: var(--border-active); }
+
+.tool-icon { font-size: 22px; }
+
+.tool-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Config table */
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.config-table th, .config-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 500;
+  background: var(--bg-card);
+}
+
+.config-table td {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.config-key { color: var(--accent-light); }
+.config-value { color: var(--text-primary); }
+.config-section-header { background: var(--bg-tertiary) !important; }
+.config-section-header td { font-weight: 600; color: var(--text-primary) !important; padding-top: 16px; border-bottom: 2px solid var(--border) !important; }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+
+.btn:hover { border-color: var(--border-active); color: var(--text-primary); background: var(--bg-hover); }
+
+.btn-danger { border-color: rgba(248,113,113,0.3); color: var(--error); }
+.btn-danger:hover { background: var(--error-dim); border-color: var(--error); }
+
+.btn-accent { border-color: rgba(124,92,252,0.3); color: var(--accent-light); }
+.btn-accent:hover { background: var(--accent-dim); border-color: var(--accent); }
+
+/* Badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge-accent { background: var(--accent-dim); color: var(--accent-light); }
+.badge-success { background: var(--success-dim); color: var(--success); }
+.badge-warning { background: var(--warning-dim); color: var(--warning); }
+.badge-info { background: var(--info-dim); color: var(--info); }
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.empty-state svg { margin-bottom: 16px; opacity: 0.4; }
+.empty-state p { font-size: 14px; }
+
+/* Collapsible */
+.collapsible-toggle {
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.collapsible-toggle::before {
+  content: '▶';
+  font-size: 10px;
+  transition: transform var(--transition);
+  display: inline-block;
+}
+
+.collapsible-toggle.open::before { transform: rotate(90deg); }
+
+.collapsible-content {
+  display: none;
+  margin-top: 6px;
+}
+
+.collapsible-content.open { display: block; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .nav-tabs { width: 56px; padding: 8px 4px; }
+  .nav-tab span { display: none; }
+  .nav-tab { justify-content: center; padding: 10px; }
+  .nav-section { display: none; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Filter bar */
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+}
+
+.filter-chip:hover { border-color: var(--border-active); color: var(--text-primary); }
+.filter-chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent-light); }
+
+/* Back button */
+.back-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 4px 0;
+  transition: color var(--transition);
+}
+
+.back-btn:hover { color: var(--text-primary); }
+
+/* Settings panel */
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.settings-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-col {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.settings-col-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.settings-col-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-col-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-col-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.settings-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.settings-label-readonly {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.settings-value-readonly {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  word-break: break-all;
+  opacity: 0.7;
+}
+
+.settings-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 6px 10px;
+  width: 100%;
+  transition: border-color var(--transition);
+  font-family: var(--font-sans);
+}
+
+.settings-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.settings-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 6px 10px;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.settings-select:focus { outline: none; border-color: var(--accent); }
+
+.settings-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.settings-input-wrap .settings-input {
+  padding-right: 36px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: color var(--transition);
+}
+
+.password-toggle-btn:hover { color: var(--text-primary); }
+
+.toggle-switch-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  top: 2px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform var(--transition), background var(--transition);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+  background: var(--accent-light);
+}
+
+.toggle-label-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.settings-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 0;
+}
+
+/* Preview and actions area */
+.settings-bottom {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.settings-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.settings-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.settings-preview-body {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.settings-preview-row {
+  display: flex;
+  gap: 8px;
+}
+
+.preview-key { color: var(--accent-light); }
+.preview-val { color: var(--text-primary); }
+.preview-source { color: var(--text-muted); font-size: 11px; }
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: var(--accent-light);
+  border-color: var(--accent-light);
+  color: #fff;
+}
+
+.settings-status {
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.settings-status.success { color: var(--success); }
+.settings-status.error { color: var(--error); }
+
+/* Accordion sections */
+.settings-accordion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.settings-accordion > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  transition: background var(--transition);
+}
+
+.settings-accordion > summary::-webkit-details-marker { display: none; }
+.settings-accordion > summary::before {
+  content: '▶';
+  font-size: 9px;
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+.settings-accordion[open] > summary::before { transform: rotate(90deg); }
+.settings-accordion > summary:hover { background: var(--bg-hover); color: var(--text-primary); }
+.settings-accordion[open] > summary { color: var(--accent-light); }
+
+.settings-accordion-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent-dim);
+  color: var(--accent-light);
+}
+
+.settings-accordion-body {
+  padding: 12px;
+  background: var(--bg-card);
+}
+
+/* JSON textarea */
+.settings-json-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.settings-json-error {
+  font-size: 11px;
+  color: var(--error);
+  margin-top: 3px;
+}
+
+/* Tristate bool */
+.tristate-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.tristate-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background var(--transition), color var(--transition);
+}
+
+.tristate-btn + .tristate-btn { border-left: 1px solid var(--border); }
+.tristate-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tristate-btn.active { background: var(--accent-dim); color: var(--accent-light); font-weight: 600; }
+.tristate-btn[data-val="true"].active { background: var(--success-dim); color: var(--success); }
+.tristate-btn[data-val="false"].active { background: var(--error-dim); color: var(--error); }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">DotCraft</div>
+      <span class="logo-sub">DashBoard</span>
+    </div>
+    <div class="header-right">
+      <span class="status-label"><span class="live-dot" id="liveDot"></span><span id="statusText">Connecting...</span></span>
+      <button class="logout-btn" id="logoutBtn" title="Logout" style="display:none" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+
+  <div class="main-content">
+    <nav class="nav-tabs">
+      <div class="nav-section">Overview</div>
+      <button class="nav-tab active" data-panel="dashboard" onclick="switchPanel('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Dashboard</span>
+      </button>
+
+      <div class="nav-section">Analytics</div>
+      <button class="nav-tab" data-panel="token-usage" onclick="switchPanel('token-usage')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+        <span>Token Usage</span>
+      </button>
+
+      <div class="nav-section">Debug</div>
+      <button class="nav-tab" data-panel="traces" onclick="switchPanel('traces')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Traces</span>
+      </button>
+      <button class="nav-tab" data-panel="sessions" onclick="switchPanel('sessions')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Sessions</span>
+      </button>
+
+      <div class="nav-section">System</div>
+      <button class="nav-tab" data-panel="tools" onclick="switchPanel('tools')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <span>Tools</span>
+      </button>
+      <button class="nav-tab" data-panel="config" onclick="switchPanel('config')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Config</span>
+      </button>
+      <button class="nav-tab" data-panel="settings" onclick="switchPanel('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <div class="content-area">
+      <!-- Dashboard Panel -->
+      <div class="panel active" id="panel-dashboard">
+        <div class="panel-header">
+          <div class="panel-title">Dashboard</div>
+          <button class="btn btn-accent" onclick="refreshAll()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div class="panel-body">
+          <div class="stats-grid" id="statsGrid">
+            <div class="stat-card"><div class="stat-label">Sessions</div><div class="stat-value accent" id="statSessions">-</div></div>
+            <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value info" id="statRequests">-</div></div>
+            <div class="stat-card"><div class="stat-label">Total Responses</div><div class="stat-value info" id="statResponses">-</div></div>
+            <div class="stat-card"><div class="stat-label">Tool Calls</div><div class="stat-value warning" id="statToolCalls">-</div></div>
+            <div class="stat-card"><div class="stat-label">Errors</div><div class="stat-value" style="color:var(--error)" id="statErrors">-</div></div>
+            <div class="stat-card"><div class="stat-label">Avg Tool Latency</div><div class="stat-value" id="statAvgToolMs">-</div></div>
+            <div class="stat-card"><div class="stat-label">Input Tokens</div><div class="stat-value" id="statInputTokens">-</div></div>
+            <div class="stat-card"><div class="stat-label">Output Tokens</div><div class="stat-value" id="statOutputTokens">-</div></div>
+            <div class="stat-card"><div class="stat-label">Total Tokens</div><div class="stat-value success" id="statTotalTokens">-</div></div>
+          </div>
+          <h3 style="margin-bottom:12px;font-size:14px;color:var(--text-secondary)">Recent Activity</h3>
+          <div id="recentActivity"></div>
+        </div>
+      </div>
+
+      <!-- Traces Panel -->
+      <div class="panel" id="panel-traces">
+        <div class="panel-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="panel-title" id="tracePanelTitle">Traces</div>
+            <div class="filter-bar" id="traceFilters">
+              <button class="filter-chip active" data-filter="all" onclick="setTraceFilter('all')">All</button>
+              <button class="filter-chip" data-filter="Request" onclick="setTraceFilter('Request')">Requests</button>
+              <button class="filter-chip" data-filter="Response" onclick="setTraceFilter('Response')">Responses</button>
+              <button class="filter-chip" data-filter="Tool" onclick="setTraceFilter('Tool')">Tools</button>
+              <button class="filter-chip" data-filter="TokenUsage" onclick="setTraceFilter('TokenUsage')">Tokens</button>
+              <button class="filter-chip" data-filter="Error" onclick="setTraceFilter('Error')">Errors</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="toggleAutoScroll()" id="autoScrollBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+              Auto-scroll
+            </button>
+          </div>
+        </div>
+        <div class="panel-body" id="traceBody">
+          <div class="trace-timeline" id="traceTimeline"></div>
+        </div>
+      </div>
+
+      <!-- Sessions Panel -->
+      <div class="panel" id="panel-sessions">
+        <div class="panel-header">
+          <div class="panel-title">Sessions</div>
+          <button class="btn btn-danger" onclick="clearAllSessions()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Clear All Traces
+          </button>
+        </div>
+        <div class="panel-body">
+          <div class="session-list" id="sessionList"></div>
+        </div>
+      </div>
+
+      <!-- Token Usage Panel -->
+      <div class="panel" id="panel-token-usage">
+        <div class="panel-header">
+          <div class="panel-title">Token Usage by User</div>
+          <button class="btn btn-accent" onclick="refreshTokenUsage()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div class="panel-body">
+          <div class="stats-grid" id="tokenUsageStats"></div>
+          <div class="filter-bar" style="margin-bottom:16px">
+            <button class="filter-chip active" data-tusrc="all" onclick="setTokenUsageFilter('all')">All</button>
+            <button class="filter-chip" data-tusrc="qq" onclick="setTokenUsageFilter('qq')">QQ</button>
+            <button class="filter-chip" data-tusrc="wecom" onclick="setTokenUsageFilter('wecom')">WeCom</button>
+            <button class="filter-chip" data-tusrc="api" onclick="setTokenUsageFilter('api')">API</button>
+            <button class="filter-chip" data-tusrc="cli" onclick="setTokenUsageFilter('cli')">CLI</button>
+          </div>
+          <div id="tokenUsageContent"></div>
+        </div>
+      </div>
+
+      <!-- Tools Panel -->
+      <div class="panel" id="panel-tools">
+        <div class="panel-header">
+          <div class="panel-title">Registered Tools</div>
+        </div>
+        <div class="panel-body">
+          <div class="tool-grid" id="toolGrid"></div>
+        </div>
+      </div>
+
+      <!-- Config Panel -->
+      <div class="panel" id="panel-config">
+        <div class="panel-header">
+          <div class="panel-title">Configuration</div>
+        </div>
+        <div class="panel-body">
+          <table class="config-table" id="configTable">
+            <thead><tr><th>Key</th><th>Value</th></tr></thead>
+            <tbody id="configBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Settings Panel -->
+      <div class="panel" id="panel-settings">
+        <div class="panel-header">
+          <div class="panel-title">Settings</div>
+          <button class="btn btn-accent" onclick="refreshSettings()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div class="panel-body">
+          <div class="settings-layout">
+            <div class="settings-top">
+              <!-- Global config (read-only) -->
+              <div class="settings-col">
+                <div class="settings-col-header">
+                  <div class="settings-col-title">Global Config <span style="font-weight:400;color:var(--text-muted)">(read-only)</span></div>
+                  <div class="settings-col-path" id="settingsGlobalPath">~/.craft/config.json</div>
+                </div>
+                <div class="settings-col-body" id="settingsGlobalBody">
+                  <div class="empty-state"><p>Loading...</p></div>
+                </div>
+              </div>
+              <!-- Workspace config (editable) -->
+              <div class="settings-col">
+                <div class="settings-col-header">
+                  <div class="settings-col-title">Workspace Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span></div>
+                  <div class="settings-col-path" id="settingsWorkspacePath">.craft/config.json</div>
+                </div>
+                <div class="settings-col-body" id="settingsFormContainer">
+                  <div class="empty-state"><p>Loading...</p></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-bottom">
+              <div class="settings-preview-header">
+                <div class="settings-preview-title">Effective Config (merged preview)</div>
+              </div>
+              <div class="settings-preview-body" id="settingsPreview">
+                <span style="color:var(--text-muted)">Load settings to see preview...</span>
+              </div>
+              <div class="settings-actions">
+                <button class="btn btn-primary" onclick="saveWorkspaceConfig()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  Save
+                </button>
+                <button class="btn" onclick="cancelSettings()">Cancel</button>
+                <span class="settings-status" id="settingsStatus"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/dashboard/api';
+let currentPanel = 'dashboard';
+let currentFilter = 'all';
+let autoScroll = true;
+let selectedSession = null;
+let eventSource = null;
+let allTraceEvents = [];
+let allSessions = [];
+
+function switchPanel(panel) {
+  currentPanel = panel;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.panel === panel));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + panel));
+
+  if (panel === 'dashboard') refreshDashboard();
+  else if (panel === 'sessions') refreshSessions();
+  else if (panel === 'tools') refreshTools();
+  else if (panel === 'config') refreshConfig();
+  else if (panel === 'traces') refreshTraces();
+  else if (panel === 'token-usage') refreshTokenUsage();
+  else if (panel === 'settings') refreshSettings();
+}
+
+async function fetchJson(url) {
+  try {
+    const res = await fetch(API + url);
+    return await res.json();
+  } catch(e) {
+    console.error('Fetch error:', e);
+    return null;
+  }
+}
+
+function formatNumber(n) {
+  if (n == null) return '-';
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+function formatDurationMs(ms) {
+  if (ms == null || Number.isNaN(ms)) return '-';
+  if (ms < 1000) return ms.toFixed(0) + 'ms';
+  return (ms / 1000).toFixed(2) + 's';
+}
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+}
+
+function formatRelative(ts) {
+  const now = Date.now();
+  const diff = now - new Date(ts).getTime();
+  if (diff < 60000) return Math.floor(diff/1000) + 's ago';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+  return Math.floor(diff/86400000) + 'd ago';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function truncate(text, max) {
+  if (!text) return '';
+  return text.length > max ? text.substring(0, max) + '...' : text;
+}
+
+function getSessionByKey(sessionKey) {
+  return allSessions.find(s => s.sessionKey === sessionKey) || null;
+}
+
+function renderFinishReasonBadge(reason) {
+  if (!reason) return '';
+  const lc = reason.toLowerCase();
+  let cls;
+  if (lc === 'stop') cls = 'badge-success';
+  else if (lc === 'length') cls = 'badge-warning';
+  else if (lc === 'toolcalls' || lc === 'tool_calls') cls = 'badge-info';
+  else if (lc === 'contentfilter' || lc === 'content_filter') cls = 'badge-accent';
+  else cls = 'badge-info';
+  return `<span class="badge ${cls}" title="Finish reason">⏹ ${escapeHtml(reason)}</span>`;
+}
+
+function renderToolBadges(toolNames) {
+  if (!toolNames || toolNames.length === 0) {
+    return '<span style="color:var(--text-muted);font-size:12px">No tools recorded.</span>';
+  }
+  return toolNames.map(name => `<span class="badge badge-info">${escapeHtml(name)}</span>`).join(' ');
+}
+
+function renderSessionMetadata(session, idPrefix) {
+  const prompt = session.finalSystemPrompt || '';
+  const promptToggleId = `${idPrefix}-prompt`;
+  const promptPreview = prompt ? escapeHtml(truncate(prompt, 120)) : '<span style="color:var(--text-muted)">Not captured yet.</span>';
+  const tools = renderToolBadges(session.toolNames || []);
+
+  return `<div class="session-metadata" onclick="event.stopPropagation()">
+    <div class="session-meta-line">
+      <span style="color:var(--text-secondary)">System prompt:</span> ${promptPreview}
+      ${prompt ? `<span class="collapsible-toggle" style="margin-left:8px" onclick="toggleDetail('${promptToggleId}', this)" data-label="System prompt">Full</span>` : ''}
+    </div>
+    ${prompt ? `
+      <div class="collapsible-content" id="${promptToggleId}">
+        <div class="trace-detail" style="margin-top:6px;max-height:140px">${prompt ? escapeHtml(prompt) : promptPreview}</div>
+      </div>
+    ` : ''}
+    <div class="session-meta-line">
+      <span style="color:var(--text-secondary)">Tools (${(session.toolNames || []).length}):</span>
+    </div>
+    <div class="session-tools-inline">${tools}</div>
+  </div>`;
+}
+
+// Dashboard
+async function refreshDashboard() {
+  const summary = await fetchJson('/summary');
+  if (!summary) return;
+
+  document.getElementById('statSessions').textContent = formatNumber(summary.sessionCount);
+  document.getElementById('statRequests').textContent = formatNumber(summary.totalRequests);
+  document.getElementById('statResponses').textContent = formatNumber(summary.totalResponses);
+  document.getElementById('statToolCalls').textContent = formatNumber(summary.totalToolCalls);
+  document.getElementById('statErrors').textContent = formatNumber(summary.totalErrors);
+  document.getElementById('statAvgToolMs').textContent = formatDurationMs(summary.avgToolDurationMs || 0);
+  document.getElementById('statInputTokens').textContent = formatNumber(summary.totalInputTokens);
+  document.getElementById('statOutputTokens').textContent = formatNumber(summary.totalOutputTokens);
+  document.getElementById('statTotalTokens').textContent = formatNumber(summary.totalTokens);
+
+  const sessions = await fetchJson('/sessions');
+  if (sessions && sessions.length > 0) {
+    allSessions = sessions;
+    const recent = sessions.slice(0, 5);
+    document.getElementById('recentActivity').innerHTML = recent.map(s => `
+      <div class="session-card" onclick="viewSessionTraces('${escapeHtml(s.sessionKey)}')">
+        <div class="session-main">
+          <div class="session-info">
+            <div class="session-key" style="display:flex;align-items:center;gap:8px">${escapeHtml(s.sessionKey)} ${renderFinishReasonBadge(s.lastFinishReason)}</div>
+            <div class="session-meta">
+              <span>Last active: ${formatRelative(s.lastActivityAt)}</span>
+            </div>
+          </div>
+          <div class="session-stats">
+            <div class="session-stat"><div class="session-stat-value">${s.requestCount}</div><div class="session-stat-label">requests</div></div>
+            <div class="session-stat"><div class="session-stat-value">${s.responseCount || 0}</div><div class="session-stat-label">responses</div></div>
+            <div class="session-stat"><div class="session-stat-value">${s.toolCallCount}</div><div class="session-stat-label">tools</div></div>
+            <div class="session-stat"><div class="session-stat-value" style="color:var(--error)">${s.errorCount || 0}</div><div class="session-stat-label">errors</div></div>
+            <div class="session-stat"><div class="session-stat-value">${formatDurationMs(s.avgToolDurationMs || 0)}</div><div class="session-stat-label">avg tool</div></div>
+            <div class="session-stat"><div class="session-stat-value">${formatNumber(s.totalInputTokens + s.totalOutputTokens)}</div><div class="session-stat-label">tokens</div></div>
+          </div>
+        </div>
+        ${renderSessionMetadata(s, 'recent-' + encodeURIComponent(s.sessionKey))}
+      </div>
+    `).join('');
+  } else {
+    allSessions = [];
+    document.getElementById('recentActivity').innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <p>No trace data yet. Start using DotCraft to see activity here.</p>
+      </div>`;
+  }
+}
+
+// Sessions
+async function refreshSessions() {
+  const sessions = await fetchJson('/sessions');
+  const container = document.getElementById('sessionList');
+  allSessions = sessions || [];
+
+  if (!sessions || sessions.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <p>No sessions recorded yet.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = sessions.map(s => `
+    <div class="session-card" onclick="viewSessionTraces('${escapeHtml(s.sessionKey)}')">
+      <div class="session-main">
+        <div class="session-info">
+          <div class="session-key" style="display:flex;align-items:center;gap:8px">${escapeHtml(s.sessionKey)} ${renderFinishReasonBadge(s.lastFinishReason)}</div>
+          <div class="session-meta">
+            <span>Started: ${new Date(s.startedAt).toLocaleString()}</span>
+            <span>Last: ${formatRelative(s.lastActivityAt)}</span>
+          </div>
+        </div>
+        <div class="session-stats">
+          <div class="session-stat"><div class="session-stat-value" style="color:var(--info)">${s.requestCount}</div><div class="session-stat-label">requests</div></div>
+          <div class="session-stat"><div class="session-stat-value" style="color:var(--info)">${s.responseCount || 0}</div><div class="session-stat-label">responses</div></div>
+          <div class="session-stat"><div class="session-stat-value" style="color:var(--warning)">${s.toolCallCount}</div><div class="session-stat-label">tools</div></div>
+          <div class="session-stat"><div class="session-stat-value" style="color:var(--error)">${s.errorCount || 0}</div><div class="session-stat-label">errors</div></div>
+          <div class="session-stat"><div class="session-stat-value">${formatDurationMs(s.avgToolDurationMs || 0)}</div><div class="session-stat-label">avg tool</div></div>
+          <div class="session-stat"><div class="session-stat-value" style="color:var(--success)">${formatNumber(s.totalTokens)}</div><div class="session-stat-label">tokens</div></div>
+          <button class="btn btn-danger" onclick="event.stopPropagation();deleteSession('${escapeHtml(s.sessionKey)}')" title="Delete traces">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+      ${renderSessionMetadata(s, 'session-' + encodeURIComponent(s.sessionKey))}
+    </div>
+  `).join('');
+}
+
+async function viewSessionTraces(sessionKey) {
+  selectedSession = sessionKey;
+  switchPanel('traces');
+  const session = getSessionByKey(sessionKey);
+  const promptPreview = session?.finalSystemPrompt ? escapeHtml(truncate(session.finalSystemPrompt, 200)) : 'Not captured';
+  const toolCount = session?.toolNames ? session.toolNames.length : 0;
+  document.getElementById('tracePanelTitle').innerHTML = `
+    <button class="back-btn" onclick="selectedSession=null;switchPanel('sessions')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div style="display:flex;align-items:center;gap:8px">Traces: <span style="color:var(--accent-light);font-family:var(--font-mono)">${escapeHtml(sessionKey)}</span>${renderFinishReasonBadge(session?.lastFinishReason)}</div>
+      <div style="font-size:12px;color:var(--text-muted)">System prompt: ${promptPreview}</div>
+      <div style="font-size:12px;color:var(--text-muted)">Tools: ${toolCount}</div>
+    </div>
+  `;
+  await refreshTraces();
+}
+
+async function refreshTraces() {
+  let events;
+  if (selectedSession) {
+    events = await fetchJson('/sessions/' + encodeURIComponent(selectedSession) + '/events');
+  } else {
+    const sessions = await fetchJson('/sessions');
+    if (!sessions || sessions.length === 0) {
+      renderTraceTimeline([]);
+      return;
+    }
+    events = [];
+    for (const s of sessions.slice(0, 10)) {
+      const se = await fetchJson('/sessions/' + encodeURIComponent(s.sessionKey) + '/events');
+      if (se) events.push(...se);
+    }
+    events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    document.getElementById('tracePanelTitle').textContent = 'Traces (All Sessions)';
+  }
+
+  allTraceEvents = events || [];
+  renderTraceTimeline(allTraceEvents);
+}
+
+function renderTraceTimeline(events) {
+  const container = document.getElementById('traceTimeline');
+
+  const filtered = currentFilter === 'all' ? events : events.filter(e => {
+    if (currentFilter === 'Tool') return e.type === 'ToolCallStarted' || e.type === 'ToolCallCompleted';
+    return e.type === currentFilter;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <p>No trace events${currentFilter !== 'all' ? ' matching filter' : ''} yet.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(e => renderTraceEvent(e)).join('');
+
+  if (autoScroll) {
+    const body = document.getElementById('traceBody');
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function renderTraceEvent(e) {
+  const time = formatTime(e.timestamp);
+  const evtId = 'evt-' + e.id;
+  const meta = [];
+  if (e.callId) meta.push(`<span class="badge badge-warning">call: ${escapeHtml(e.callId)}</span>`);
+  if (e.responseId) meta.push(`<span class="badge badge-info">response: ${escapeHtml(e.responseId)}</span>`);
+  if (e.modelId) meta.push(`<span class="badge badge-accent">${escapeHtml(e.modelId)}</span>`);
+  if (e.finishReason) meta.push(`<span class="badge badge-success">finish: ${escapeHtml(e.finishReason)}</span>`);
+  const metaLine = meta.length > 0
+    ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${meta.join('')}</div>`
+    : '';
+
+  switch (e.type) {
+    case 'Request':
+      return `<div class="trace-event type-Request">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">💬</div>
+        <div class="trace-body">
+          <div class="trace-label request">Request${e.sessionKey && !selectedSession ? ' <span class="badge badge-info">' + escapeHtml(e.sessionKey) + '</span>' : ''}</div>
+          <div class="trace-content">${escapeHtml(truncate(e.content, 500))}</div>
+          ${metaLine}
+          ${e.content && e.content.length > 500 ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Show full</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.content)}</div>` : ''}
+        </div></div>`;
+
+    case 'Response':
+      return `<div class="trace-event type-Response">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">✨</div>
+        <div class="trace-body">
+          <div class="trace-label response">Response${e.sessionKey && !selectedSession ? ' <span class="badge badge-success">' + escapeHtml(e.sessionKey) + '</span>' : ''}</div>
+          <div class="trace-content">${escapeHtml(truncate(e.content, 500))}</div>
+          ${metaLine}
+          ${e.metadataJson ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}-meta', this)">Metadata</div><div class="collapsible-content trace-detail" id="${evtId}-meta">${escapeHtml(e.metadataJson)}</div>` : ''}
+          ${e.content && e.content.length > 500 ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Show full</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.content)}</div>` : ''}
+        </div></div>`;
+
+    case 'ToolCallStarted':
+      return `<div class="trace-event type-ToolCallStarted">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">${e.toolIcon || '🔧'}</div>
+        <div class="trace-body">
+          <div class="trace-label tool-start">${escapeHtml(e.toolName || 'Tool')} <span class="badge badge-warning">started</span></div>
+          ${metaLine}
+          ${e.toolArguments ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Arguments</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.toolArguments)}</div>` : ''}
+        </div></div>`;
+
+    case 'ToolCallCompleted':
+      const dur = e.durationMs != null ? `<div class="trace-duration">${e.durationMs.toFixed(0)}ms</div>` : '';
+      return `<div class="trace-event type-ToolCallCompleted">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">${e.toolIcon || '✅'}</div>
+        <div class="trace-body">
+          <div class="trace-label tool-complete">${escapeHtml(e.toolName || 'Tool')} <span class="badge badge-accent">completed</span></div>
+          ${dur}
+          ${metaLine}
+          ${e.toolResult ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Result</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.toolResult)}</div>` : ''}
+        </div></div>`;
+
+    case 'TokenUsage':
+      return `<div class="trace-event type-TokenUsage">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">📊</div>
+        <div class="trace-body">
+          <div class="trace-label token">Token Usage</div>
+          <div class="trace-tokens-inline">
+            <span class="in">↑ ${formatNumber(e.inputTokens)} input</span>
+            <span class="out">↓ ${formatNumber(e.outputTokens)} output</span>
+            <span style="color:var(--text-muted)">= ${formatNumber(e.totalTokens)} total</span>
+          </div>
+        </div></div>`;
+
+    case 'Error':
+      return `<div class="trace-event type-Error">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">❌</div>
+        <div class="trace-body">
+          <div class="trace-label error">Error</div>
+          <div class="trace-content" style="color:var(--error)">${escapeHtml(e.content || '')}</div>
+        </div></div>`;
+
+    case 'ContextCompaction':
+      return `<div class="trace-event type-ContextCompaction">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">🗜️</div>
+        <div class="trace-body">
+          <div class="trace-label compaction">Context Compaction</div>
+          <div class="trace-content">${escapeHtml(e.content || '')}</div>
+        </div></div>`;
+
+    default:
+      return '';
+  }
+}
+
+function toggleDetail(id, toggle) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.classList.toggle('open');
+    toggle.classList.toggle('open');
+    toggle.textContent = el.classList.contains('open') ? 'Hide' : toggle.dataset.label || (el.classList.contains('open') ? 'Hide' : 'Show full');
+  }
+}
+
+function setTraceFilter(filter) {
+  currentFilter = filter;
+  document.querySelectorAll('#traceFilters .filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === filter));
+  renderTraceTimeline(allTraceEvents);
+}
+
+function toggleAutoScroll() {
+  autoScroll = !autoScroll;
+  const btn = document.getElementById('autoScrollBtn');
+  btn.style.borderColor = autoScroll ? 'var(--accent)' : 'var(--border)';
+  btn.style.color = autoScroll ? 'var(--accent-light)' : 'var(--text-secondary)';
+}
+
+// Tools
+async function refreshTools() {
+  const data = await fetchJson('/tools');
+  const container = document.getElementById('toolGrid');
+
+  if (!data || !data.tools || data.tools.length === 0) {
+    container.innerHTML = `<div class="empty-state"><p>No tools registered.</p></div>`;
+    return;
+  }
+
+  const seen = new Set();
+  const unique = data.tools.filter(t => {
+    if (seen.has(t.name)) return false;
+    seen.add(t.name);
+    return true;
+  });
+
+  container.innerHTML = unique.map(t => `
+    <div class="tool-card">
+      <div class="tool-icon">${t.icon || '🔧'}</div>
+      <div class="tool-name">${escapeHtml(t.name)}</div>
+    </div>
+  `).join('');
+}
+
+// Config
+async function refreshConfig() {
+  const config = await fetchJson('/config');
+  const tbody = document.getElementById('configBody');
+
+  if (!config) {
+    tbody.innerHTML = '<tr><td colspan="2">Failed to load config</td></tr>';
+    return;
+  }
+
+  let html = '';
+
+  // Core settings
+  html += renderConfigSection('Core', {
+    model: config.model,
+    endPoint: config.endPoint,
+    systemInstructions: config.systemInstructions,
+    maxToolCallRounds: config.maxToolCallRounds,
+    subagentMaxToolCallRounds: config.subagentMaxToolCallRounds,
+    subagentMaxConcurrency: config.subagentMaxConcurrency,
+    compactSessions: config.compactSessions,
+    maxContextTokens: config.maxContextTokens,
+    debugMode: config.debugMode
+  });
+
+  // Tools config
+  html += renderConfigSection('Tools - File', config.tools?.file || {});
+  html += renderConfigSection('Tools - Shell', config.tools?.shell || {});
+  html += renderConfigSection('Tools - Web', config.tools?.web || {});
+
+  // QQ Bot
+  html += renderConfigSection('QQ Bot', config.qqBot || {});
+
+  // Security
+  html += renderConfigSection('Security', config.security || {});
+
+  // Heartbeat
+  html += renderConfigSection('Heartbeat', config.heartbeat || {});
+
+  // WeCom
+  html += renderConfigSection('WeCom', config.weCom || {});
+
+  // WeCom Bot
+  html += renderConfigSection('WeCom Bot', config.weComBot || {});
+
+  // Cron
+  html += renderConfigSection('Cron', config.cron || {});
+
+  // API
+  html += renderConfigSection('API', config.api || {});
+
+  // Dashboard
+  html += renderConfigSection('Dashboard', config.dashBoard || {});
+
+  // MCP Servers
+  if (config.mcpServers && config.mcpServers.length > 0) {
+    html += '<tr class="config-section-header"><td colspan="2">MCP Servers</td></tr>';
+    config.mcpServers.forEach((m, i) => {
+      html += `<tr><td class="config-key">${i + 1}. ${escapeHtml(m.name)}</td><td class="config-value">${escapeHtml(m.transport)} (${m.enabled ? 'enabled' : 'disabled'})</td></tr>`;
+    });
+  } else {
+    html += renderConfigSection('MCP Servers', { servers: '(none configured)' });
+  }
+
+  tbody.innerHTML = html;
+}
+
+function renderConfigSection(title, obj) {
+  if (!obj || Object.keys(obj).length === 0) return '';
+  let html = `<tr class="config-section-header"><td colspan="2">${escapeHtml(title)}</td></tr>`;
+  for (const [k, v] of Object.entries(obj)) {
+    const displayValue = formatConfigValue(v);
+    html += `<tr><td class="config-key">${escapeHtml(k)}</td><td class="config-value">${displayValue}</td></tr>`;
+  }
+  return html;
+}
+
+function formatConfigValue(v) {
+  if (v === null || v === undefined) return '-';
+  if (Array.isArray(v)) return v.length > 0 ? escapeHtml(JSON.stringify(v)) : '(empty)';
+  if (typeof v === 'object') return escapeHtml(JSON.stringify(v));
+  return escapeHtml(String(v));
+}
+
+async function deleteSession(sessionKey) {
+  if (!confirm('Delete trace data for session "' + sessionKey + '"?')) return;
+  await fetch(API + '/sessions/' + encodeURIComponent(sessionKey), { method: 'DELETE' });
+  refreshSessions();
+}
+
+async function clearAllSessions() {
+  if (!confirm('Clear ALL trace data?')) return;
+  await fetch(API + '/sessions', { method: 'DELETE' });
+  refreshSessions();
+  refreshDashboard();
+}
+
+function refreshAll() {
+  refreshDashboard();
+}
+
+let tokenUsageFilter = 'all';
+
+function setTokenUsageFilter(filter) {
+  tokenUsageFilter = filter;
+  document.querySelectorAll('[data-tusrc]').forEach(c => c.classList.toggle('active', c.dataset.tusrc === filter));
+  refreshTokenUsage();
+}
+
+async function refreshTokenUsage() {
+  const summary = await fetchJson('/token-usage/summary');
+  const statsEl = document.getElementById('tokenUsageStats');
+
+  if (!summary) {
+    statsEl.innerHTML = '<div class="empty-state"><p>Token usage tracking not available.</p></div>';
+    document.getElementById('tokenUsageContent').innerHTML = '';
+    return;
+  }
+
+  const qqTotal = (summary.qqTotalInputTokens || 0) + (summary.qqTotalOutputTokens || 0);
+  const wecomTotal = (summary.weComTotalInputTokens || 0) + (summary.weComTotalOutputTokens || 0);
+  const apiTotal = (summary.apiTotalInputTokens || 0) + (summary.apiTotalOutputTokens || 0);
+  const cliTotal = (summary.cliTotalInputTokens || 0) + (summary.cliTotalOutputTokens || 0);
+
+  statsEl.innerHTML = `
+    <div class="stat-card"><div class="stat-label">QQ Users (Private)</div><div class="stat-value accent">${summary.qqPrivateUserCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">QQ Groups</div><div class="stat-value info">${summary.qqGroupCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">QQ Total Tokens</div><div class="stat-value warning">${formatNumber(qqTotal)}</div></div>
+    <div class="stat-card"><div class="stat-label">WeCom Users</div><div class="stat-value accent">${summary.weComUserCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">WeCom Total Tokens</div><div class="stat-value success">${formatNumber(wecomTotal)}</div></div>
+    <div class="stat-card"><div class="stat-label">API Users</div><div class="stat-value accent">${summary.apiUserCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">API Total Tokens</div><div class="stat-value info">${formatNumber(apiTotal)}</div></div>
+    <div class="stat-card"><div class="stat-label">CLI Total Tokens</div><div class="stat-value warning">${formatNumber(cliTotal)}</div></div>
+    <div class="stat-card"><div class="stat-label">All Total Tokens</div><div class="stat-value success">${formatNumber(qqTotal + wecomTotal + apiTotal + cliTotal)}</div></div>
+  `;
+
+  let html = '';
+
+  if (tokenUsageFilter === 'all' || tokenUsageFilter === 'qq') {
+    const qqPrivate = await fetchJson('/token-usage/qq/private');
+    const qqGroups = await fetchJson('/token-usage/qq/groups');
+
+    html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">QQ Private Users</h3>';
+    if (qqPrivate && qqPrivate.length > 0) {
+      html += renderUserTable(qqPrivate, 'QQ');
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No private user data yet.</div>';
+    }
+
+    html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">QQ Groups</h3>';
+    if (qqGroups && qqGroups.length > 0) {
+      qqGroups.forEach(g => {
+        const gName = g.groupName || ('Group ' + g.groupId);
+        const gId = 'tug-' + g.groupId;
+        html += `<div class="session-card" style="flex-direction:column;align-items:stretch;cursor:default;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div class="session-key">${escapeHtml(gName)}</div>
+              <div class="session-meta"><span>Group ID: ${g.groupId}</span><span>Last active: ${formatRelative(g.lastActiveAt)}</span></div>
+            </div>
+            <div class="session-stats">
+              <div class="session-stat"><div class="session-stat-value" style="color:var(--info)">${formatNumber(g.totalInputTokens)}</div><div class="session-stat-label">input</div></div>
+              <div class="session-stat"><div class="session-stat-value" style="color:var(--success)">${formatNumber(g.totalOutputTokens)}</div><div class="session-stat-label">output</div></div>
+              <div class="session-stat"><div class="session-stat-value" style="color:var(--warning)">${formatNumber(g.totalTokens)}</div><div class="session-stat-label">total</div></div>
+              <div class="session-stat"><div class="session-stat-value">${g.totalRequestCount}</div><div class="session-stat-label">requests</div></div>
+            </div>
+          </div>
+          <div style="margin-top:8px">
+            <div class="collapsible-toggle" onclick="toggleDetail('${gId}', this)">Members (${g.users ? g.users.length : 0})</div>
+            <div class="collapsible-content" id="${gId}" style="margin-top:8px">
+              ${g.users && g.users.length > 0 ? renderUserTable(g.users, 'QQ') : '<div style="color:var(--text-muted);font-size:12px">No user data.</div>'}
+            </div>
+          </div>
+        </div>`;
+      });
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No group data yet.</div>';
+    }
+  }
+
+  if (tokenUsageFilter === 'all' || tokenUsageFilter === 'wecom') {
+    const wecomUsers = await fetchJson('/token-usage/wecom');
+    html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">WeCom Users</h3>';
+    if (wecomUsers && wecomUsers.length > 0) {
+      html += renderUserTable(wecomUsers, 'WeCom');
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No WeCom user data yet.</div>';
+    }
+  }
+
+  if (tokenUsageFilter === 'all' || tokenUsageFilter === 'api') {
+    const apiUsers = await fetchJson('/token-usage/api');
+    html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">API Users</h3>';
+    if (apiUsers && apiUsers.length > 0) {
+      html += renderUserTable(apiUsers, 'API');
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No API user data yet.</div>';
+    }
+  }
+
+  if (tokenUsageFilter === 'all' || tokenUsageFilter === 'cli') {
+    const cliUsers = await fetchJson('/token-usage/cli');
+    html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">CLI Users</h3>';
+    if (cliUsers && cliUsers.length > 0) {
+      html += renderUserTable(cliUsers, 'CLI');
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No CLI user data yet.</div>';
+    }
+  }
+
+  document.getElementById('tokenUsageContent').innerHTML = html;
+}
+
+function renderUserTable(users, source) {
+  const idLabel = source === 'WeCom' ? 'UID' : source === 'API' ? 'Session' : source === 'CLI' ? 'User' : 'QQ';
+  let html = `<table class="config-table" style="margin-bottom:16px">
+    <thead><tr><th>${idLabel}</th><th>Name</th><th>Input Tokens</th><th>Output Tokens</th><th>Total Tokens</th><th>Requests</th><th>Last Active</th></tr></thead><tbody>`;
+  users.forEach(u => {
+    html += `<tr>
+      <td class="config-key">${escapeHtml(u.userId)}</td>
+      <td class="config-value">${escapeHtml(u.displayName || '-')}</td>
+      <td style="color:var(--info);font-family:var(--font-mono)">${formatNumber(u.totalInputTokens)}</td>
+      <td style="color:var(--success);font-family:var(--font-mono)">${formatNumber(u.totalOutputTokens)}</td>
+      <td style="color:var(--warning);font-weight:600;font-family:var(--font-mono)">${formatNumber(u.totalTokens)}</td>
+      <td style="font-family:var(--font-mono)">${u.requestCount}</td>
+      <td style="color:var(--text-muted);font-size:12px">${formatRelative(u.lastActiveAt)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+// SSE
+function connectSSE() {
+  if (eventSource) eventSource.close();
+
+  eventSource = new EventSource(API + '/events/stream');
+
+  eventSource.onopen = () => {
+    document.getElementById('statusText').textContent = 'Connected';
+    document.getElementById('liveDot').style.background = 'var(--success)';
+  };
+
+  eventSource.onmessage = (event) => {
+    try {
+      const evt = JSON.parse(event.data);
+      allTraceEvents.push(evt);
+
+      if (currentPanel === 'traces') {
+        const container = document.getElementById('traceTimeline');
+        const emptyState = container.querySelector('.empty-state');
+        if (emptyState) emptyState.remove();
+
+        const shouldShow = currentFilter === 'all' ||
+          (currentFilter === 'Tool' && (evt.type === 'ToolCallStarted' || evt.type === 'ToolCallCompleted')) ||
+          evt.type === currentFilter;
+
+        if (shouldShow) {
+          container.insertAdjacentHTML('beforeend', renderTraceEvent(evt));
+          if (autoScroll) {
+            const body = document.getElementById('traceBody');
+            body.scrollTop = body.scrollHeight;
+          }
+        }
+      }
+
+      if (currentPanel === 'dashboard') {
+        refreshDashboard();
+      }
+    } catch(e) {
+      console.error('SSE parse error:', e);
+    }
+  };
+
+  eventSource.onerror = () => {
+    document.getElementById('statusText').textContent = 'Disconnected';
+    document.getElementById('liveDot').style.background = 'var(--error)';
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+// ─── CONFIG SCHEMA ────────────────────────────────────────────────────────────
+// Each section: { section, path?, fields[] }
+// Each field:   { key, type, sensitive?, options?, min?, max?, hint? }
+// types: text | number | bool | password | select | textarea | json
+const CONFIG_SCHEMA = [
+  {
+    section: 'Core',
+    fields: [
+      { key: 'ApiKey',                    type: 'password', sensitive: true, hint: 'Leave blank to inherit from global' },
+      { key: 'Model',                     type: 'text' },
+      { key: 'EndPoint',                  type: 'text' },
+      { key: 'SystemInstructions',        type: 'textarea' },
+      { key: 'Language',                  type: 'select', options: ['Chinese', 'English'] },
+      { key: 'MaxToolCallRounds',         type: 'number', min: 1 },
+      { key: 'SubagentMaxToolCallRounds', type: 'number', min: 1 },
+      { key: 'SubagentMaxConcurrency',    type: 'number', min: 1 },
+      { key: 'MaxSessionQueueSize',       type: 'number', min: 0, hint: '0 = unlimited' },
+      { key: 'CompactSessions',           type: 'bool' },
+      { key: 'MaxContextTokens',          type: 'number', min: 0, hint: '0 = disable compaction' },
+      { key: 'MemoryWindow',              type: 'number', min: 0, hint: '0 = disable consolidation' },
+      { key: 'DebugMode',                 type: 'bool' },
+      { key: 'EnabledTools',              type: 'json', hint: 'JSON array of tool names, e.g. ["Shell","File"]. Empty = all enabled.' },
+    ]
+  },
+  {
+    section: 'Tools \u203a File',
+    path: ['Tools', 'File'],
+    fields: [
+      { key: 'RequireApprovalOutsideWorkspace', type: 'bool' },
+      { key: 'MaxFileSize', type: 'number', min: 0, hint: 'bytes, default 10485760 (10 MB)' },
+    ]
+  },
+  {
+    section: 'Tools \u203a Shell',
+    path: ['Tools', 'Shell'],
+    fields: [
+      { key: 'RequireApprovalOutsideWorkspace', type: 'bool' },
+      { key: 'Timeout',         type: 'number', min: 0, hint: 'seconds' },
+      { key: 'MaxOutputLength', type: 'number', min: 0, hint: 'characters' },
+    ]
+  },
+  {
+    section: 'Tools \u203a Web',
+    path: ['Tools', 'Web'],
+    fields: [
+      { key: 'MaxChars',        type: 'number', min: 0 },
+      { key: 'Timeout',         type: 'number', min: 0, hint: 'seconds' },
+      { key: 'SearchMaxResults',type: 'number', min: 1, max: 10 },
+      { key: 'SearchProvider',  type: 'select', options: ['Exa', 'Bing'] },
+    ]
+  },
+  {
+    section: 'Tools \u203a Sandbox',
+    path: ['Tools', 'Sandbox'],
+    fields: [
+      { key: 'Enabled',               type: 'bool' },
+      { key: 'Domain',                type: 'text' },
+      { key: 'ApiKey',                type: 'password', sensitive: true },
+      { key: 'UseHttps',              type: 'bool' },
+      { key: 'Image',                 type: 'text' },
+      { key: 'TimeoutSeconds',        type: 'number', min: 0 },
+      { key: 'Cpu',                   type: 'text' },
+      { key: 'Memory',                type: 'text' },
+      { key: 'NetworkPolicy',         type: 'select', options: ['allow', 'deny', 'custom'] },
+      { key: 'AllowedEgressDomains',  type: 'json', hint: 'JSON array of domain strings' },
+      { key: 'IdleTimeoutSeconds',    type: 'number', min: 0 },
+      { key: 'SyncWorkspace',         type: 'bool' },
+    ]
+  },
+  {
+    section: 'QQ Bot',
+    path: ['QQBot'],
+    fields: [
+      { key: 'Enabled',               type: 'bool' },
+      { key: 'Host',                  type: 'text' },
+      { key: 'Port',                  type: 'number', min: 1, max: 65535 },
+      { key: 'AccessToken',           type: 'password', sensitive: true },
+      { key: 'AdminUsers',            type: 'json', hint: 'JSON array of QQ user IDs (numbers)' },
+      { key: 'WhitelistedUsers',      type: 'json', hint: 'JSON array of QQ user IDs' },
+      { key: 'WhitelistedGroups',     type: 'json', hint: 'JSON array of QQ group IDs' },
+      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0 },
+    ]
+  },
+  {
+    section: 'WeCom',
+    path: ['WeCom'],
+    fields: [
+      { key: 'Enabled',    type: 'bool' },
+      { key: 'WebhookUrl', type: 'password', sensitive: true, hint: 'Full webhook URL including key' },
+    ]
+  },
+  {
+    section: 'WeCom Bot',
+    path: ['WeComBot'],
+    fields: [
+      { key: 'Enabled',               type: 'bool' },
+      { key: 'Host',                  type: 'text' },
+      { key: 'Port',                  type: 'number', min: 1, max: 65535 },
+      { key: 'AdminUsers',            type: 'json', hint: 'JSON array of WeCom userId strings' },
+      { key: 'WhitelistedUsers',      type: 'json', hint: 'JSON array of WeCom userId strings' },
+      { key: 'WhitelistedChats',      type: 'json', hint: 'JSON array of chat IDs' },
+      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0 },
+      { key: 'Robots',                type: 'json', hint: 'JSON array of robot configs [{Path, Token, AesKey}]' },
+    ]
+  },
+  {
+    section: 'API',
+    path: ['Api'],
+    fields: [
+      { key: 'Enabled',               type: 'bool' },
+      { key: 'Host',                  type: 'text' },
+      { key: 'Port',                  type: 'number', min: 1, max: 65535 },
+      { key: 'ApiKey',                type: 'password', sensitive: true },
+      { key: 'AutoApprove',           type: 'bool' },
+      { key: 'ApprovalMode',          type: 'select', options: ['', 'auto', 'reject', 'interactive'], hint: 'When set, takes precedence over AutoApprove' },
+      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0 },
+    ]
+  },
+  {
+    section: 'Dashboard',
+    path: ['DashBoard'],
+    fields: [
+      { key: 'Enabled',  type: 'bool' },
+      { key: 'Host',     type: 'text' },
+      { key: 'Port',     type: 'number', min: 1, max: 65535 },
+      { key: 'Username', type: 'text' },
+      { key: 'Password', type: 'password', sensitive: true },
+    ]
+  },
+  {
+    section: 'Heartbeat',
+    path: ['Heartbeat'],
+    fields: [
+      { key: 'Enabled',        type: 'bool' },
+      { key: 'IntervalSeconds',type: 'number', min: 1 },
+      { key: 'NotifyAdmin',    type: 'bool' },
+    ]
+  },
+  {
+    section: 'Cron',
+    path: ['Cron'],
+    fields: [
+      { key: 'Enabled',  type: 'bool' },
+      { key: 'StorePath',type: 'text' },
+    ]
+  },
+  {
+    section: 'Security',
+    path: ['Security'],
+    fields: [
+      { key: 'BlacklistedPaths', type: 'json', hint: 'JSON array of path strings' },
+    ]
+  },
+  {
+    section: 'MCP Servers',
+    rootKey: 'McpServers',
+    fields: [
+      { key: 'McpServers', type: 'json', hint: 'JSON array of MCP server configs [{Name, Transport, Enabled, ...}]' },
+    ]
+  },
+  {
+    section: 'ACP',
+    path: ['Acp'],
+    fields: [
+      { key: 'Enabled', type: 'bool' },
+    ]
+  },
+  {
+    section: 'Hooks',
+    path: ['Hooks'],
+    fields: [
+      { key: 'Enabled', type: 'bool' },
+    ]
+  },
+];
+
+// ─── SETTINGS STATE ───────────────────────────────────────────────────────────
+let settingsGlobalConfig = null;
+let settingsWorkspaceConfig = null;
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+
+// Get a nested value from data using section path + field key
+// Case-insensitive property getter (config files may use camelCase or PascalCase)
+function ciGet(obj, key) {
+  if (obj == null || typeof obj !== 'object') return undefined;
+  if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+  const lower = key.toLowerCase();
+  for (const k of Object.keys(obj)) {
+    if (k.toLowerCase() === lower) return obj[k];
+  }
+  return undefined;
+}
+
+function schemaGetValue(data, section, fieldKey) {
+  if (!data) return undefined;
+  if (section.rootKey) return ciGet(data, section.rootKey);
+  let obj = data;
+  if (section.path) {
+    for (const p of section.path) {
+      if (obj == null) return undefined;
+      obj = ciGet(obj, p);
+    }
+  }
+  return ciGet(obj, fieldKey);
+}
+
+// Build a field element ID
+function sfId(sectionIdx, fieldKey) {
+  return `sf-${sectionIdx}-${fieldKey.toLowerCase()}`;
+}
+
+// Count fields that have a value in the workspace data for a section
+function countSectionWorkspaceValues(section, workspaceData) {
+  let count = 0;
+  for (const f of section.fields) {
+    const v = schemaGetValue(workspaceData, section, f.key);
+    if (v !== undefined && v !== null) count++;
+  }
+  return count;
+}
+
+// ─── RENDER GLOBAL PANEL (read-only) ─────────────────────────────────────────
+function renderGlobalPanel(globalData) {
+  let html = '';
+  for (const section of CONFIG_SCHEMA) {
+    let sectionHtml = '';
+    for (const field of section.fields) {
+      const rawVal = schemaGetValue(globalData, section, field.key);
+      if (rawVal === undefined) continue; // not in global config at all
+
+      let display;
+      if (rawVal === null) {
+        display = '(null)';
+      } else if (typeof rawVal === 'object') {
+        display = JSON.stringify(rawVal);
+      } else {
+        display = String(rawVal);
+      }
+      sectionHtml += `<div class="settings-field">
+        <div class="settings-label-readonly">${escapeHtml(field.key)}</div>
+        <div class="settings-value-readonly">${escapeHtml(display)}</div>
+      </div>`;
+    }
+    if (!sectionHtml) continue; // section not present in global config
+
+    const isOpen = sectionHtml.length > 0;
+    html += `<details class="settings-accordion"${isOpen ? ' open' : ''}>
+      <summary>${escapeHtml(section.section)}</summary>
+      <div class="settings-accordion-body">${sectionHtml}</div>
+    </details>`;
+  }
+
+  document.getElementById('settingsGlobalBody').innerHTML =
+    html || '<div class="settings-hint" style="padding:8px">No global config found.</div>';
+}
+
+// ─── RENDER WORKSPACE FORM (editable) ────────────────────────────────────────
+function renderWorkspaceForm(workspaceData) {
+  let html = '';
+  CONFIG_SCHEMA.forEach((section, sectionIdx) => {
+    const valueCount = countSectionWorkspaceValues(section, workspaceData);
+    const shouldOpen = valueCount > 0;
+    const badgeHtml = valueCount > 0
+      ? `<span class="settings-accordion-badge">${valueCount} set</span>` : '';
+
+    let fieldsHtml = '';
+    for (const field of section.fields) {
+      const id = sfId(sectionIdx, field.key);
+      const rawVal = schemaGetValue(workspaceData, section, field.key);
+      fieldsHtml += renderFormField(id, field, rawVal, sectionIdx);
+    }
+
+    html += `<details class="settings-accordion"${shouldOpen ? ' open' : ''} data-section-idx="${sectionIdx}">
+      <summary>${escapeHtml(section.section)}${badgeHtml}</summary>
+      <div class="settings-accordion-body">${fieldsHtml}</div>
+    </details>`;
+  });
+
+  const container = document.getElementById('settingsFormContainer');
+  container.innerHTML = html;
+
+  // Attach live-preview listeners to all inputs / selects / textareas
+  container.querySelectorAll('input, select, textarea').forEach(el => {
+    el.addEventListener('input', updateSettingsPreview);
+    el.addEventListener('change', updateSettingsPreview);
+  });
+}
+
+function renderFormField(id, field, rawVal, sectionIdx) {
+  const hint = field.hint ? `<div class="settings-hint">${escapeHtml(field.hint)}</div>` : '';
+
+  if (field.type === 'bool') {
+    // Tristate: unset (inherit), true, false
+    let state = ''; // default = inherit
+    if (rawVal === true || rawVal === 'true') state = 'true';
+    else if (rawVal === false || rawVal === 'false') state = 'false';
+    return `<div class="settings-field">
+      <div class="settings-label">${escapeHtml(field.key)}</div>
+      <div class="tristate-toggle" id="${id}" data-value="${state}">
+        <button type="button" class="tristate-btn${state === '' ? ' active' : ''}" data-val=""
+          onclick="tristateSet('${id}','')">inherit</button>
+        <button type="button" class="tristate-btn${state === 'true' ? ' active' : ''}" data-val="true"
+          onclick="tristateSet('${id}','true')">on</button>
+        <button type="button" class="tristate-btn${state === 'false' ? ' active' : ''}" data-val="false"
+          onclick="tristateSet('${id}','false')">off</button>
+      </div>${hint}
+    </div>`;
+  }
+
+  if (field.type === 'password') {
+    const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
+    return `<div class="settings-field">
+      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+      <div class="settings-input-wrap">
+        <input class="settings-input" type="password" id="${id}" value="${escapeHtml(val)}"
+          placeholder="(inherit from global)" autocomplete="off">
+        <button type="button" class="password-toggle-btn"
+          onclick="togglePasswordVisibility('${id}',this)" title="Show/hide">&#128065;</button>
+      </div>${hint}
+    </div>`;
+  }
+
+  if (field.type === 'select') {
+    const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
+    const options = ['', ...(field.options || [])].map(o => {
+      const label = o === '' ? '(inherit from global)' : o;
+      const selected = o === val ? ' selected' : '';
+      return `<option value="${escapeHtml(o)}"${selected}>${escapeHtml(label)}</option>`;
+    }).join('');
+    return `<div class="settings-field">
+      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+      <select class="settings-select" id="${id}">${options}</select>${hint}
+    </div>`;
+  }
+
+  if (field.type === 'textarea') {
+    const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
+    return `<div class="settings-field">
+      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+      <textarea class="settings-input" id="${id}" rows="3"
+        placeholder="(inherit from global)">${escapeHtml(val)}</textarea>${hint}
+    </div>`;
+  }
+
+  if (field.type === 'json') {
+    let val = '';
+    if (rawVal !== undefined && rawVal !== null) {
+      val = typeof rawVal === 'string' ? rawVal : JSON.stringify(rawVal, null, 2);
+    }
+    return `<div class="settings-field">
+      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+      <textarea class="settings-input settings-json-input" id="${id}" rows="3"
+        placeholder="(inherit from global, enter valid JSON)"
+        spellcheck="false">${escapeHtml(val)}</textarea>
+      <div class="settings-json-error" id="${id}-err"></div>${hint}
+    </div>`;
+  }
+
+  // text / number
+  const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
+  const minAttr = field.min !== undefined ? ` min="${field.min}"` : '';
+  const maxAttr = field.max !== undefined ? ` max="${field.max}"` : '';
+  return `<div class="settings-field">
+    <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+    <input class="settings-input" type="${field.type === 'number' ? 'number' : 'text'}"
+      id="${id}" value="${escapeHtml(val)}"
+      placeholder="(inherit from global)"${minAttr}${maxAttr}>
+    ${hint}
+  </div>`;
+}
+
+function tristateSet(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.dataset.value = val;
+  el.querySelectorAll('.tristate-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.val === val);
+  });
+  updateSettingsPreview();
+}
+
+// ─── COLLECT WORKSPACE FORM ───────────────────────────────────────────────────
+function collectWorkspaceForm() {
+  const result = {};
+  let hasJsonError = false;
+
+  CONFIG_SCHEMA.forEach((section, sectionIdx) => {
+    for (const field of section.fields) {
+      const id = sfId(sectionIdx, field.key);
+      const el = document.getElementById(id);
+      if (!el) continue;
+
+      let value = undefined;
+
+      if (field.type === 'bool') {
+        const state = el.dataset.value;
+        if (state === '') continue; // inherit
+        value = state === 'true';
+      } else if (field.type === 'json') {
+        const raw = el.value.trim();
+        if (!raw) continue; // inherit
+        try {
+          value = JSON.parse(raw);
+          const errEl = document.getElementById(id + '-err');
+          if (errEl) errEl.textContent = '';
+        } catch (e) {
+          const errEl = document.getElementById(id + '-err');
+          if (errEl) errEl.textContent = 'Invalid JSON: ' + e.message;
+          hasJsonError = true;
+          continue;
+        }
+      } else if (field.type === 'number') {
+        const raw = el.value.trim();
+        if (raw === '') continue; // inherit
+        value = Number(raw);
+      } else {
+        // text, password, textarea, select
+        const raw = el.value;
+        if (raw === '') continue; // inherit
+        value = raw;
+      }
+
+      // Set value at the correct nested path
+      setNestedValue(result, section, field.key, value);
+    }
+  });
+
+  if (hasJsonError) return null; // signal validation error
+  return result;
+}
+
+function setNestedValue(result, section, fieldKey, value) {
+  if (section.rootKey) {
+    result[section.rootKey] = value;
+    return;
+  }
+  let obj = result;
+  if (section.path) {
+    for (const p of section.path) {
+      if (!obj[p]) obj[p] = {};
+      obj = obj[p];
+    }
+  }
+  obj[fieldKey] = value;
+}
+
+// ─── SETTINGS PREVIEW ────────────────────────────────────────────────────────
+function updateSettingsPreview() {
+  if (!settingsGlobalConfig) return;
+
+  const workspacePartial = collectWorkspaceForm();
+  if (!workspacePartial) {
+    document.getElementById('settingsPreview').innerHTML =
+      '<span style="color:var(--error)">Fix JSON errors before preview updates.</span>';
+    return;
+  }
+
+  // Build a flat list of changed / notable fields for display
+  let rows = [];
+
+  CONFIG_SCHEMA.forEach(section => {
+    for (const field of section.fields) {
+      const globalVal = schemaGetValue(settingsGlobalConfig, section, field.key);
+      const workspaceVal = schemaGetValue(workspacePartial, section, field.key);
+      const hasWorkspace = workspaceVal !== undefined;
+
+      const effectiveVal = hasWorkspace ? workspaceVal : globalVal;
+      if (effectiveVal === undefined) continue;
+
+      const label = section.path
+        ? section.path.join('.') + '.' + field.key
+        : (section.rootKey || field.key);
+      const display = typeof effectiveVal === 'object'
+        ? JSON.stringify(effectiveVal) : String(effectiveVal);
+      const source = hasWorkspace
+        ? '<span class="preview-source">\u2190 workspace</span>'
+        : '<span class="preview-source">\u2190 global</span>';
+
+      rows.push(`<div class="settings-preview-row">
+        <span class="preview-key">${escapeHtml(label)}:</span>
+        <span class="preview-val">${escapeHtml(display)}</span>${source}
+      </div>`);
+    }
+  });
+
+  document.getElementById('settingsPreview').innerHTML =
+    rows.length ? rows.join('') : '<span style="color:var(--text-muted)">No values configured.</span>';
+}
+
+// ─── REFRESH SETTINGS ─────────────────────────────────────────────────────────
+async function refreshSettings() {
+  const data = await fetchJson('/config/edit');
+  if (!data) {
+    document.getElementById('settingsGlobalBody').innerHTML =
+      '<div class="empty-state"><p>Failed to load config.</p></div>';
+    document.getElementById('settingsFormContainer').innerHTML =
+      '<div class="empty-state"><p>Failed to load config.</p></div>';
+    return;
+  }
+
+  settingsGlobalConfig = data.global || {};
+  settingsWorkspaceConfig = data.workspace || {};
+
+  if (data.globalPath) {
+    document.getElementById('settingsGlobalPath').textContent = data.globalPath;
+    document.getElementById('settingsGlobalPath').title = data.globalPath;
+  }
+  if (data.workspacePath) {
+    document.getElementById('settingsWorkspacePath').textContent = data.workspacePath;
+    document.getElementById('settingsWorkspacePath').title = data.workspacePath;
+  }
+
+  renderGlobalPanel(settingsGlobalConfig);
+  renderWorkspaceForm(settingsWorkspaceConfig);
+  updateSettingsPreview();
+}
+
+// ─── SAVE / RESTART ───────────────────────────────────────────────────────────
+async function saveWorkspaceConfig() {
+  const data = collectWorkspaceForm();
+  const statusEl = document.getElementById('settingsStatus');
+
+  if (data === null) {
+    statusEl.textContent = 'Fix JSON errors before saving.';
+    statusEl.className = 'settings-status error';
+    return;
+  }
+
+  statusEl.textContent = 'Saving...';
+  statusEl.className = 'settings-status';
+
+  try {
+    const res = await fetch(API + '/config/workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) {
+      statusEl.textContent = 'Saved. Please restart DotCraft manually to apply changes.';
+      statusEl.className = 'settings-status success';
+      settingsWorkspaceConfig = data;
+    } else {
+      const err = await res.json().catch(() => ({}));
+      statusEl.textContent = 'Save failed: ' + (err.error || res.status);
+      statusEl.className = 'settings-status error';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Save failed: ' + e.message;
+    statusEl.className = 'settings-status error';
+  }
+
+  setTimeout(() => { statusEl.textContent = ''; }, 8000);
+}
+
+function cancelSettings() {
+  if (settingsWorkspaceConfig !== null) {
+    renderWorkspaceForm(settingsWorkspaceConfig);
+    updateSettingsPreview();
+  }
+  document.getElementById('settingsStatus').textContent = '';
+}
+
+function togglePasswordVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '\uD83D\uDE48';
+  } else {
+    input.type = 'password';
+    btn.textContent = '\uD83D\uDC41';
+  }
+}
+
+async function doLogout() {
+  try {
+    await fetch('/dashboard/logout', { method: 'POST' });
+  } finally {
+    window.location.href = '/dashboard/login';
+  }
+}
+
+function checkAuthEnabled() {
+  fetch('/dashboard/api/config').then(res => {
+    if (res.status === 401) {
+      window.location.href = '/dashboard/login';
+      return;
+    }
+    return res.json();
+  }).then(data => {
+    if (data && data.dashBoard && data.dashBoard.authEnabled) {
+      document.getElementById('logoutBtn').style.display = '';
+    }
+  }).catch(() => {});
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', () => {
+  refreshDashboard();
+  connectSSE();
+  checkAuthEnabled();
+  document.getElementById('autoScrollBtn').style.borderColor = 'var(--accent)';
+  document.getElementById('autoScrollBtn').style.color = 'var(--accent-light)';
+});
+</script>
+
+</body>
+</html>

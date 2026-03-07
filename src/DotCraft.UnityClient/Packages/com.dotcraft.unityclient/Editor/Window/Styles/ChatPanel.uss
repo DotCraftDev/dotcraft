@@ -1,0 +1,488 @@
+/* Chat Panel Styles */
+
+/* ── Message Item ── */
+.message-item {
+    flex-direction: row;
+    align-items: flex-start;
+    margin: 6px 8px;
+    padding: 10px;
+    border-radius: 6px;
+}
+
+.message-body {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+/* ── Avatar ── */
+.message-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 12px;
+    margin-right: 8px;
+    flex-shrink: 0;
+    -unity-text-align: middle-center;
+    font-size: 12px;
+    -unity-font-style: bold;
+    color: white;
+    background-color: #666;
+}
+
+.message-item.user .message-avatar {
+    background-color: #2196F3;
+}
+
+.message-item.agent .message-avatar {
+    background-color: #4CAF50;
+}
+
+.message-item.thinking .message-avatar {
+    background-color: #9E9E9E;
+}
+
+/* ── User Message ── */
+.message-item.user {
+    background-color: rgba(33, 150, 243, 0.08);
+    border-left-width: 3px;
+    border-left-color: #2196F3;
+}
+
+/* ── Agent Message ── */
+.message-item.agent {
+    background-color: rgba(76, 175, 80, 0.08);
+    border-left-width: 3px;
+    border-left-color: #4CAF50;
+}
+
+/* ── Thinking Message ── */
+.message-item.thinking {
+    background-color: rgba(158, 158, 158, 0.06);
+    border-left-width: 3px;
+    border-left-color: #9E9E9E;
+}
+
+.message-item.thinking.collapsed .message-content-container {
+    display: none;
+}
+
+/* ── Message Header ── */
+.message-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.message-sender {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: #999;
+    margin-right: 8px;
+}
+
+.message-time {
+    font-size: 10px;
+    color: #777;
+    flex-grow: 1;
+}
+
+/* ── Collapse Toggle (for Thinking messages) ── */
+.message-collapse-toggle {
+    background-color: transparent;
+    border-width: 0;
+    width: 18px;
+    height: 18px;
+    -unity-text-align: middle-center;
+    font-size: 10px;
+    color: #888;
+    border-radius: 3px;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.message-collapse-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Message Content ── */
+.message-content {
+    font-size: 13px;
+    color: var(--unity-colors-default_text);
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+.message-content-container {
+    /* Container wrapping message body text */
+}
+
+/* ── Code Block with Copy Button ── */
+.code-block-container {
+    margin: 6px 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: rgba(0, 0, 0, 0.25);
+}
+
+.code-block-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background-color: rgba(0, 0, 0, 0.15);
+}
+
+.code-block-language {
+    font-size: 10px;
+    color: #888;
+    -unity-font-style: italic;
+}
+
+.code-block-copy-button {
+    background-color: transparent;
+    border-width: 0;
+    font-size: 10px;
+    color: #888;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.code-block-copy-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #CCC;
+}
+
+/* ── Tool Call ── */
+.tool-call {
+    background-color: rgba(0, 0, 0, 0.12);
+    border-radius: 6px;
+    margin: 4px 8px;
+    overflow: hidden;
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.15);
+}
+
+.tool-call-header {
+    flex-direction: row;
+    align-items: center;
+    padding: 6px 10px;
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+.tool-call-icon {
+    width: 18px;
+    height: 18px;
+    margin-right: 6px;
+    background-color: #666;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+/* ── Tool Call Spinner ── */
+.tool-call-spinner {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    border-width: 2px;
+    border-color: rgba(33, 150, 243, 0.3);
+    border-top-color: #2196F3;
+    border-radius: 7px;
+    flex-shrink: 0;
+}
+
+.tool-call-title {
+    font-size: 12px;
+    -unity-font-style: bold;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Tool Call Duration ── */
+.tool-call-duration {
+    font-size: 10px;
+    color: #777;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.tool-call-status {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.tool-call-status.pending {
+    background-color: rgba(255, 193, 7, 0.2);
+    color: #FFC107;
+}
+
+.tool-call-status.in_progress {
+    background-color: rgba(33, 150, 243, 0.2);
+    color: #64B5F6;
+}
+
+.tool-call-status.completed {
+    background-color: rgba(76, 175, 80, 0.2);
+    color: #81C784;
+}
+
+.tool-call-status.failed {
+    background-color: rgba(244, 67, 54, 0.2);
+    color: #EF5350;
+}
+
+.tool-call-body {
+    padding: 8px;
+    display: none;
+}
+
+.tool-call-body.expanded {
+    display: block;
+}
+
+.tool-call-input,
+.tool-call-output {
+    margin-bottom: 8px;
+}
+
+.tool-call-label {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: #888;
+    margin-bottom: 2px;
+}
+
+.tool-call-code {
+    font-size: 11px;
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 6px;
+    border-radius: 3px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* ── Tool Call File Links ── */
+.tool-call-files {
+    margin-top: 4px;
+}
+
+.tool-call-file-link {
+    font-size: 11px;
+    color: #64B5F6;
+    padding: 2px 0;
+}
+
+.tool-call-file-link:hover {
+    color: #90CAF9;
+}
+
+/* ── Plan Entry ── */
+.plan-container {
+    background-color: rgba(156, 39, 176, 0.08);
+    border-radius: 6px;
+    padding: 10px;
+    margin: 4px 8px;
+    border-width: 1px;
+    border-color: rgba(156, 39, 176, 0.2);
+}
+
+.plan-title {
+    font-size: 12px;
+    -unity-font-style: bold;
+    color: #CE93D8;
+    margin-bottom: 6px;
+}
+
+.plan-entry {
+    flex-direction: row;
+    align-items: flex-start;
+    margin: 3px 0;
+}
+
+/* Plan status icons replace plain bullets */
+.plan-status-icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 6px;
+    margin-top: 1px;
+    -unity-text-align: middle-center;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.plan-status-icon.pending {
+    color: #777;
+}
+
+.plan-status-icon.in_progress {
+    color: #64B5F6;
+}
+
+.plan-status-icon.completed {
+    color: #81C784;
+}
+
+.plan-status-icon.failed {
+    color: #EF5350;
+}
+
+/* Legacy bullet kept for backward compat */
+.plan-bullet {
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    margin-right: 6px;
+    margin-top: 4px;
+}
+
+.plan-bullet.high {
+    background-color: #F44336;
+}
+
+.plan-bullet.medium {
+    background-color: #FFC107;
+}
+
+.plan-bullet.low {
+    background-color: #4CAF50;
+}
+
+.plan-text {
+    font-size: 12px;
+    flex-grow: 1;
+}
+
+.plan-text.completed {
+    color: #777;
+}
+
+/* ── Inline Approval Card ── */
+.approval-inline {
+    background-color: rgba(255, 152, 0, 0.08);
+    border-width: 1px;
+    border-color: rgba(255, 152, 0, 0.3);
+    border-left-width: 3px;
+    border-left-color: #FF9800;
+    border-radius: 6px;
+    margin: 6px 8px;
+    padding: 10px;
+}
+
+.approval-inline-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.approval-inline-icon {
+    width: 20px;
+    height: 20px;
+    -unity-text-align: middle-center;
+    font-size: 14px;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+
+.approval-inline-title {
+    font-size: 13px;
+    -unity-font-style: bold;
+    color: #FFB74D;
+}
+
+.approval-inline-description {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+
+.approval-inline-kind {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 2px;
+}
+
+.approval-inline-details {
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.approval-inline-buttons {
+    flex-direction: row;
+    justify-content: flex-end;
+}
+
+.approval-inline-button {
+    margin-left: 6px;
+    padding: 5px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    -unity-font-style: bold;
+}
+
+.approval-inline-button.allow {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.approval-inline-button.allow:hover {
+    background-color: #388E3C;
+}
+
+.approval-inline-button.allow-always {
+    background-color: #2196F3;
+    color: white;
+}
+
+.approval-inline-button.allow-always:hover {
+    background-color: #1976D2;
+}
+
+.approval-inline-button.reject {
+    background-color: rgba(244, 67, 54, 0.15);
+    color: #EF5350;
+    border-width: 1px;
+    border-color: rgba(244, 67, 54, 0.3);
+}
+
+.approval-inline-button.reject:hover {
+    background-color: rgba(244, 67, 54, 0.25);
+}
+
+.approval-inline-button:disabled {
+    opacity: 0.5;
+}
+
+.approval-inline.responded {
+    opacity: 0.6;
+}
+
+/* ── Foldout ── */
+.foldout {
+    cursor: link;
+}
+
+.foldout-header {
+    flex-direction: row;
+    align-items: center;
+}
+
+.foldout-arrow {
+    width: 12px;
+    height: 12px;
+    margin-right: 4px;
+    background-color: transparent;
+    -unity-background-image-tint-color: #888;
+}
+
+.foldout-content {
+    display: none;
+    padding-left: 16px;
+}
+
+.foldout-content.expanded {
+    display: block;
+}

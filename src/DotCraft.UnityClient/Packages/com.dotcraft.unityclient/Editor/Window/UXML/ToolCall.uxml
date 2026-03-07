@@ -1,0 +1,23 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <ui:VisualElement class="tool-call" name="tool-call">
+        <ui:VisualElement class="tool-call-header" name="tool-call-header">
+            <ui:VisualElement class="tool-call-icon" />
+            <ui:VisualElement class="tool-call-spinner" name="tool-call-spinner" style="display: none;" />
+            <ui:Label class="tool-call-title" name="tool-call-title" />
+            <ui:VisualElement style="flex-grow: 1;" />
+            <ui:Label class="tool-call-duration" name="tool-call-duration" />
+            <ui:Label class="tool-call-status" name="tool-call-status" />
+        </ui:VisualElement>
+        <ui:VisualElement class="tool-call-body" name="tool-call-body">
+            <ui:VisualElement class="tool-call-input">
+                <ui:Label class="tool-call-label" text="Input" />
+                <ui:Label class="tool-call-code" name="tool-call-input-code" />
+            </ui:VisualElement>
+            <ui:VisualElement class="tool-call-output">
+                <ui:Label class="tool-call-label" text="Output" />
+                <ui:Label class="tool-call-code" name="tool-call-output-code" />
+            </ui:VisualElement>
+            <ui:VisualElement class="tool-call-files" name="tool-call-files" style="display: none;" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

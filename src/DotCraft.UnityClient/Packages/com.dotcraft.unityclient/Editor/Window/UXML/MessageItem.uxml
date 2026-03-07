@@ -1,0 +1,15 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <ui:VisualElement class="message-item" name="message-item">
+        <ui:VisualElement class="message-avatar" name="message-avatar" />
+        <ui:VisualElement class="message-body">
+            <ui:VisualElement class="message-header">
+                <ui:Label class="message-sender" name="message-sender" />
+                <ui:Label class="message-time" name="message-time" />
+                <ui:Button class="message-collapse-toggle" name="message-collapse-toggle" style="display: none;" />
+            </ui:VisualElement>
+            <ui:VisualElement class="message-content" name="message-content">
+                <ui:Label text="Message content here" name="message-text" style="white-space: normal;" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

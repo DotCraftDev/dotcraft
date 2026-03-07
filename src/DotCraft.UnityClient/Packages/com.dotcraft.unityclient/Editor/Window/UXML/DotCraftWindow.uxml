@@ -1,0 +1,61 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <ui:VisualElement class="toolbar" name="toolbar">
+        <ui:VisualElement class="toolbar-left">
+            <ui:VisualElement class="status-indicator disconnected" name="status-indicator" />
+            <ui:Label text="Disconnected" name="status-label" class="status-label" />
+        </ui:VisualElement>
+        <ui:VisualElement class="toolbar-right">
+            <ui:Button text="Sessions" name="session-button" class="session-button" tooltip="Open session manager" />
+            <ui:Button text="+" name="new-session-button" class="toolbar-icon-button new-session-button" tooltip="Create a new session" />
+            <ui:Button text="⚙" name="settings-button" class="toolbar-icon-button settings-button" tooltip="Open DotCraft Settings" />
+            <ui:Button text="Connect" name="connect-button" class="connect-button" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+
+    <ui:VisualElement class="chat-container" name="chat-container">
+        <!-- Welcome panel shown when no messages -->
+        <ui:VisualElement class="welcome-panel" name="welcome-panel">
+            <ui:Label text="DotCraft" class="welcome-title" />
+            <ui:Label text="Your AI assistant for Unity" class="welcome-subtitle" />
+            <ui:VisualElement class="welcome-suggestions" name="welcome-suggestions">
+                <ui:Button text="Explain this scene" name="suggest-explain" class="suggestion-button" />
+                <ui:Button text="Fix console errors" name="suggest-fix" class="suggestion-button" />
+                <ui:Button text="Optimize performance" name="suggest-optimize" class="suggestion-button" />
+                <ui:Button text="Help me with a script" name="suggest-script" class="suggestion-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <ui:ScrollView class="message-list" name="message-list" />
+
+        <!-- Typing indicator shown during agent streaming -->
+        <ui:VisualElement class="typing-indicator" name="typing-indicator" style="display: none;">
+            <ui:VisualElement class="typing-dot typing-dot-1" />
+            <ui:VisualElement class="typing-dot typing-dot-2" />
+            <ui:VisualElement class="typing-dot typing-dot-3" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+
+    <ui:VisualElement class="input-area">
+        <ui:VisualElement class="attachments-container" name="attachments-container" />
+
+        <ui:VisualElement class="input-wrapper">
+            <ui:VisualElement class="mode-selector" name="mode-selector">
+                <!-- Mode toggle buttons created dynamically -->
+            </ui:VisualElement>
+            <ui:ScrollView class="input-scroll" name="input-scroll">
+                <ui:TextField multiline="true" name="input-field" />
+            </ui:ScrollView>
+        </ui:VisualElement>
+
+        <ui:VisualElement class="button-row">
+            <ui:VisualElement class="config-row" name="config-row">
+                <!-- Model popup created dynamically in C# code -->
+            </ui:VisualElement>
+
+            <ui:VisualElement style="flex-direction: row; flex-shrink: 0; align-items: center;">
+                <ui:Button text="Stop" name="stop-button" class="stop-button" style="display: none;" />
+                <ui:Button text="Send" name="send-button" class="send-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

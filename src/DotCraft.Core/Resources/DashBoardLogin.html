@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DotCraft DashBoard — Login</title>
+<style>
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #161822;
+  --bg-card: #1e2030;
+  --border: #2a2d42;
+  --border-active: #4a4d6a;
+  --text-primary: #e4e6f0;
+  --text-secondary: #9498b3;
+  --text-muted: #6b6f8a;
+  --accent: #7c5cfc;
+  --accent-light: #9b82fc;
+  --accent-dim: rgba(124,92,252,0.15);
+  --error: #f87171;
+  --error-dim: rgba(248,113,113,0.12);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 2px 12px rgba(0,0,0,0.25);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 40px 36px 36px;
+  width: 380px;
+  box-shadow: var(--shadow);
+}
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.login-logo {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent-light);
+  letter-spacing: -0.5px;
+}
+.login-logo-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 2px 8px;
+  background: var(--accent-dim);
+  border-radius: 4px;
+  margin-left: 8px;
+}
+.login-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: 10px;
+}
+.form-group {
+  margin-bottom: 18px;
+}
+.form-group label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.form-group input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color var(--transition);
+}
+.form-group input:focus {
+  border-color: var(--accent);
+}
+.form-group input::placeholder {
+  color: var(--text-muted);
+}
+.login-btn {
+  width: 100%;
+  padding: 11px 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition);
+  margin-top: 6px;
+}
+.login-btn:hover { background: var(--accent-light); }
+.login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.error-msg {
+  background: var(--error-dim);
+  color: var(--error);
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  margin-bottom: 18px;
+  display: none;
+  text-align: center;
+}
+.error-msg.visible { display: block; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="login-header">
+    <span class="login-logo">DotCraft</span><span class="login-logo-sub">DashBoard</span>
+    <div class="login-desc">Please sign in to continue</div>
+  </div>
+  <div class="error-msg" id="errorMsg"></div>
+  <form id="loginForm" autocomplete="on">
+    <div class="form-group">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" placeholder="Enter username" autocomplete="username" required autofocus>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Enter password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="login-btn" id="loginBtn">Sign In</button>
+  </form>
+</div>
+<script>
+const form = document.getElementById('loginForm');
+const errorMsg = document.getElementById('errorMsg');
+const loginBtn = document.getElementById('loginBtn');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorMsg.classList.remove('visible');
+  loginBtn.disabled = true;
+  loginBtn.textContent = 'Signing in...';
+  try {
+    const res = await fetch('/dashboard/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value
+      })
+    });
+    if (res.ok) {
+      window.location.href = '/dashboard/';
+    } else {
+      const data = await res.json().catch(() => null);
+      errorMsg.textContent = data?.error || 'Invalid username or password';
+      errorMsg.classList.add('visible');
+    }
+  } catch {
+    errorMsg.textContent = 'Network error, please try again';
+    errorMsg.classList.add('visible');
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = 'Sign In';
+  }
+});
+</script>
+</body>
+</html>

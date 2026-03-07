@@ -1,0 +1,140 @@
+/* Approval Panel Styles */
+/* NOTE: The floating overlay approval-panel is kept for backward compatibility.
+   New inline approval cards use .approval-inline classes defined in ChatPanel.uss. */
+
+.approval-panel {
+    background-color: rgba(255, 152, 0, 0.12);
+    border-width: 1px;
+    border-color: rgba(255, 152, 0, 0.4);
+    border-radius: 6px;
+    margin: 8px;
+    padding: 12px;
+}
+
+.approval-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.approval-icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    background-color: #FF9800;
+    border-radius: 10px;
+}
+
+.approval-title {
+    font-size: 14px;
+    -unity-font-style: bold;
+    color: #FFB74D;
+}
+
+.approval-description {
+    margin-bottom: 8px;
+    padding: 8px;
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+
+.approval-kind {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 4px;
+}
+
+.approval-details {
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.approval-buttons {
+    flex-direction: row;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.approval-button {
+    margin-left: 8px;
+    padding: 6px 16px;
+    border-radius: 4px;
+    -unity-font-style: bold;
+}
+
+.approval-button.allow {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.approval-button.allow:hover {
+    background-color: #388E3C;
+}
+
+.approval-button.allow-always {
+    background-color: #2196F3;
+    color: white;
+}
+
+.approval-button.allow-always:hover {
+    background-color: #1976D2;
+}
+
+.approval-button.reject {
+    background-color: rgba(244, 67, 54, 0.15);
+    color: #EF5350;
+    border-width: 1px;
+    border-color: rgba(244, 67, 54, 0.3);
+}
+
+.approval-button.reject:hover {
+    background-color: rgba(244, 67, 54, 0.25);
+}
+
+/* Auth Panel */
+.auth-panel {
+    background-color: rgba(156, 39, 176, 0.15);
+    border-width: 1px;
+    border-color: rgba(156, 39, 176, 0.5);
+    border-radius: 4px;
+    margin: 8px;
+    padding: 12px;
+}
+
+.auth-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #9C27B0;
+    margin-bottom: 8px;
+}
+
+.auth-method {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+    padding: 8px;
+    margin-bottom: 8px;
+}
+
+.auth-method-name {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.auth-method-desc {
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+}
+
+.auth-select-button {
+    background-color: #9C27B0;
+    color: white;
+    border-radius: 3px;
+    padding: 4px 12px;
+    margin-top: 4px;
+}
+
+.auth-select-button:hover {
+    background-color: #7B1FA2;
+}

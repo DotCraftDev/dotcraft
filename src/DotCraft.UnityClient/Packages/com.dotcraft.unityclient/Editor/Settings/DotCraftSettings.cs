@@ -1,0 +1,213 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using UnityEditor;
+using UnityEngine;
+
+namespace DotCraft.Editor.Settings
+{
+    /// <summary>
+    /// Configuration settings for DotCraft Unity Client.
+    /// Stored in UserSettings/DotCraftSettings.json (per-user, not in version control).
+    /// </summary>
+    [Serializable]
+    public sealed class DotCraftSettings
+    {
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
+        private static DotCraftSettings _instance;
+        private static readonly string SettingsPath = "UserSettings/DotCraftSettings.json";
+
+        public static DotCraftSettings Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = LoadOrCreate();
+                }
+                return _instance;
+            }
+        }
+
+        /// <summary>
+        /// Command to execute DotCraft (e.g., "dotnet" or full path to executable).
+        /// </summary>
+        [JsonPropertyName("dotCraftCommand")]
+        public string DotCraftCommand { get; set; } = "dotcraft";
+
+        /// <summary>
+        /// Arguments passed to DotCraft command.
+        /// Example: "run --project /path/to/DotCraft -- --acp"
+        /// </summary>
+        [JsonPropertyName("dotCraftArguments")]
+        public string DotCraftArguments { get; set; } = "-acp";
+
+        /// <summary>
+        /// Working directory for DotCraft process. Defaults to Unity project root.
+        /// </summary>
+        [JsonPropertyName("workspacePath")]
+        public string WorkspacePath { get; set; } = "";
+
+        /// <summary>
+        /// Environment variables to inject into DotCraft process.
+        /// Use for API keys and other configuration.
+        /// </summary>
+        [JsonPropertyName("environmentVariables")]
+        public Dictionary<string, string> EnvironmentVariables { get; set; } = new();
+
+        /// <summary>
+        /// Automatically reconnect after Domain Reload.
+        /// </summary>
+        [JsonPropertyName("autoReconnect")]
+        public bool AutoReconnect { get; set; } = true;
+
+        /// <summary>
+        /// Enable verbose logging for debugging.
+        /// </summary>
+        [JsonPropertyName("verboseLogging")]
+        public bool VerboseLogging { get; set; } = false;
+
+        /// <summary>
+        /// Timeout in seconds for ACP requests.
+        /// </summary>
+        [JsonPropertyName("requestTimeoutSeconds")]
+        public int RequestTimeoutSeconds { get; set; } = 30;
+
+        /// <summary>
+        /// Maximum number of messages to keep in chat history.
+        /// </summary>
+        [JsonPropertyName("maxHistoryMessages")]
+        public int MaxHistoryMessages { get; set; } = 1000;
+
+        /// <summary>
+        /// Gets the effective workspace path (falls back to project root).
+        /// </summary>
+        [JsonIgnore]
+        public string EffectiveWorkspacePath =>
+            string.IsNullOrEmpty(WorkspacePath)
+                ? Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath
+                : WorkspacePath;
+
+        /// <summary>
+        /// Loads settings from file, or creates default settings if file doesn't exist.
+        /// </summary>
+        public static DotCraftSettings LoadOrCreate()
+        {
+            if (File.Exists(SettingsPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(SettingsPath);
+                    var settings = JsonSerializer.Deserialize<DotCraftSettings>(json, JsonOptions);
+                    return settings ?? new DotCraftSettings();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[DotCraft] Failed to load settings: {ex.Message}. Using defaults.");
+                    return new DotCraftSettings();
+                }
+            }
+            return new DotCraftSettings();
+        }
+
+        /// <summary>
+        /// Saves settings to file.
+        /// </summary>
+        public void Save()
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(SettingsPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var json = JsonSerializer.Serialize(this, JsonOptions);
+                File.WriteAllText(SettingsPath, json);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[DotCraft] Failed to save settings: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Validates settings and returns any errors.
+        /// </summary>
+        public List<string> Validate()
+        {
+            var errors = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(DotCraftCommand))
+            {
+                errors.Add("DotCraft command is not configured.");
+            }
+
+            if (string.IsNullOrWhiteSpace(DotCraftArguments))
+            {
+                errors.Add("DotCraft arguments are not configured.");
+            }
+
+            if (RequestTimeoutSeconds < 1 || RequestTimeoutSeconds > 300)
+            {
+                errors.Add("Request timeout must be between 1 and 300 seconds.");
+            }
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Checks whether the effective workspace contains a .craft directory.
+        /// Returns true when the workspace is ready; false otherwise, with a human-readable
+        /// message that explains what is missing and how to fix it.
+        /// </summary>
+        public bool ValidateWorkspace(out string errorMessage)
+        {
+            var workspace = EffectiveWorkspacePath;
+
+            if (string.IsNullOrEmpty(workspace) || !Directory.Exists(workspace))
+            {
+                errorMessage = $"Workspace directory does not exist: \"{workspace}\".\n" +
+                               "Set a valid Workspace Path in Project Settings > DotCraft.";
+                return false;
+            }
+
+            var craftDir = Path.Combine(workspace, ".craft");
+            if (!Directory.Exists(craftDir))
+            {
+                errorMessage = $"The workspace \"{workspace}\" does not contain a .craft directory.\n" +
+                               "Run `dotcraft` in that directory first, " +
+                               "or change the Workspace Path in Project Settings > DotCraft to a directory " +
+                               "that already has a .craft folder.";
+                return false;
+            }
+
+            errorMessage = null;
+            return true;
+        }
+
+        /// <summary>
+        /// Resets settings to defaults.
+        /// </summary>
+        public void ResetToDefaults()
+        {
+            DotCraftCommand = "dotcraft";
+            DotCraftArguments = "-acp";
+            WorkspacePath = "";
+            EnvironmentVariables = new Dictionary<string, string>();
+            AutoReconnect = true;
+            VerboseLogging = false;
+            RequestTimeoutSeconds = 30;
+            MaxHistoryMessages = 1000;
+        }
+    }
+}

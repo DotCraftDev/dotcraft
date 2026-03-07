@@ -1,0 +1,469 @@
+/* DotCraft Global Styles */
+
+.unity-editor-window {
+    background-color: var(--unity-colors-window_background);
+}
+
+/* ── Toolbar (replaces connection-status) ── */
+.toolbar {
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 8px;
+    background-color: rgba(0, 0, 0, 0.12);
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.25);
+    min-height: 28px;
+}
+
+.toolbar-left {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.toolbar-right {
+    flex-direction: row;
+    align-items: center;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.session-button {
+    margin-right: 4px;
+    padding: 2px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.session-button.selected {
+    background-color: rgba(33, 150, 243, 0.18);
+    border-color: rgba(33, 150, 243, 0.45);
+}
+
+.new-session-button {
+    font-size: 16px;
+    -unity-font-style: bold;
+}
+
+.session-popup-layer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 28px;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.01);
+}
+
+.session-popup-panel {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 320px;
+    max-height: 320px;
+    padding: 8px;
+    background-color: var(--unity-colors-window_background);
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.3);
+    border-radius: 6px;
+}
+
+.session-popup-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.session-popup-title {
+    font-size: 12px;
+    -unity-font-style: bold;
+    color: var(--unity-colors-default_text);
+}
+
+.session-list-container {
+    max-height: 260px;
+    background-color: rgba(0, 0, 0, 0.08);
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.25);
+    border-radius: 4px;
+    padding: 4px;
+}
+
+.session-row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.session-row.selected {
+    background-color: rgba(33, 150, 243, 0.08);
+    border-radius: 4px;
+}
+
+.session-select-button {
+    flex-grow: 1;
+    margin-right: 4px;
+    -unity-text-align: middle-left;
+    font-size: 11px;
+}
+
+.session-select-button.selected {
+    border-color: rgba(33, 150, 243, 0.45);
+}
+
+.session-delete-button {
+    flex-shrink: 0;
+    font-size: 10px;
+    padding: 1px 6px;
+}
+
+.session-info-label {
+    font-size: 11px;
+    color: rgba(180, 180, 180, 0.8);
+    padding: 4px 2px;
+}
+
+/* Backward compatibility: old class name maps to toolbar */
+.connection-status {
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 8px;
+    background-color: rgba(0, 0, 0, 0.12);
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(128, 128, 128, 0.25);
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.status-indicator.connected {
+    background-color: #4CAF50;
+}
+
+.status-indicator.connecting {
+    background-color: #FFC107;
+}
+
+.status-indicator.disconnected {
+    background-color: #F44336;
+}
+
+.status-label {
+    font-size: 11px;
+    color: var(--unity-colors-default_text);
+}
+
+.toolbar-icon-button {
+    background-color: transparent;
+    border-width: 0;
+    width: 24px;
+    height: 24px;
+    margin-right: 4px;
+    border-radius: 3px;
+    -unity-text-align: middle-center;
+    font-size: 14px;
+    color: var(--unity-colors-default_text);
+}
+
+.toolbar-icon-button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.settings-button {
+    /* Gear icon via Unicode */
+}
+
+.connect-button {
+    padding: 2px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+/* ── Chat Container ── */
+.chat-container {
+    flex-grow: 1;
+    flex-shrink: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.message-list {
+    flex-grow: 1;
+    overflow: scroll;
+}
+
+/* ── Welcome Panel ── */
+.welcome-panel {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+}
+
+.welcome-title {
+    font-size: 24px;
+    -unity-font-style: bold;
+    color: var(--unity-colors-default_text);
+    margin-bottom: 4px;
+}
+
+.welcome-subtitle {
+    font-size: 13px;
+    color: rgba(180, 180, 180, 0.7);
+    margin-bottom: 24px;
+}
+
+.welcome-suggestions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 420px;
+}
+
+.suggestion-button {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.25);
+    border-radius: 16px;
+    padding: 6px 14px;
+    margin: 4px;
+    font-size: 12px;
+    color: var(--unity-colors-default_text);
+}
+
+.suggestion-button:hover {
+    background-color: rgba(33, 150, 243, 0.15);
+    border-color: rgba(33, 150, 243, 0.4);
+}
+
+/* ── Typing Indicator ── */
+.typing-indicator {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 16px;
+    flex-shrink: 0;
+}
+
+.typing-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background-color: rgba(180, 180, 180, 0.5);
+    margin-right: 4px;
+}
+
+.typing-dot-1 {
+    opacity: 0.4;
+}
+
+.typing-dot-2 {
+    opacity: 0.6;
+}
+
+.typing-dot-3 {
+    opacity: 0.8;
+}
+
+/* ── Input Area ── */
+.input-area {
+    flex-shrink: 0;
+    padding: 8px;
+    background-color: rgba(0, 0, 0, 0.05);
+    border-top-width: 1px;
+    border-top-color: rgba(128, 128, 128, 0.3);
+}
+
+.input-wrapper {
+    flex-direction: row;
+    align-items: flex-start;
+    margin-bottom: 6px;
+}
+
+.input-scroll {
+    flex-grow: 1;
+    min-height: 60px;
+    max-height: 150px;
+    padding: 4px;
+    background-color: var(--unity-colors-input_background);
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.5);
+    border-radius: 6px;
+}
+
+/* Legacy selector kept for compatibility */
+.input-field {
+    min-height: 60px;
+    max-height: 150px;
+    margin-bottom: 8px;
+    padding: 4px;
+    background-color: var(--unity-colors-input_background);
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.5);
+    border-radius: 6px;
+}
+
+/* ── Mode Selector (pill toggle in input area) ── */
+.mode-selector {
+    flex-direction: column;
+    align-items: center;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.mode-toggle-button {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    -unity-font-style: bold;
+    border-width: 1px;
+    border-color: rgba(128, 128, 128, 0.3);
+    background-color: rgba(0, 0, 0, 0.1);
+    color: rgba(180, 180, 180, 0.7);
+    margin-bottom: 2px;
+    min-width: 52px;
+}
+
+.mode-toggle-button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.mode-toggle-button.selected {
+    background-color: rgba(33, 150, 243, 0.2);
+    border-color: #2196F3;
+    color: #64B5F6;
+}
+
+/* ── Button Styles ── */
+.button-row {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.send-button {
+    background-color: #2196F3;
+    color: white;
+    border-radius: 4px;
+    padding: 6px 16px;
+    -unity-font-style: bold;
+}
+
+.send-button:hover {
+    background-color: #1976D2;
+}
+
+.send-button:disabled {
+    background-color: rgba(128, 128, 128, 0.3);
+    color: rgba(128, 128, 128, 0.7);
+}
+
+.stop-button {
+    background-color: #F44336;
+    color: white;
+    border-radius: 4px;
+    padding: 6px 16px;
+    -unity-font-style: bold;
+}
+
+.stop-button:hover {
+    background-color: #D32F2F;
+}
+
+/* ── Config Row ── */
+.config-row {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.config-popup {
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 1;
+    margin-right: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+/* Fix: remove large gap between PopupField label and dropdown button */
+.config-popup .unity-base-popup-field__label {
+    flex-shrink: 0;
+    flex-grow: 0;
+    min-width: 0;
+    margin-right: 4px;
+    font-size: 11px;
+    color: rgba(180, 180, 180, 0.7);
+}
+
+.config-popup .unity-base-popup-field__popup {
+    flex-shrink: 0;
+    min-width: 80px;
+}
+
+/* ── Attachments ── */
+.attachments-container {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+
+.attachment-item {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(33, 150, 243, 0.15);
+    border-radius: 12px;
+    padding: 2px 8px;
+    margin-right: 4px;
+    margin-bottom: 2px;
+}
+
+.attachment-name {
+    font-size: 11px;
+    color: #64B5F6;
+    margin-right: 4px;
+}
+
+.remove-attachment {
+    background-color: transparent;
+    border-width: 0;
+    color: #888;
+    font-size: 12px;
+    padding: 0 4px;
+}
+
+.remove-attachment:hover {
+    color: #F44336;
+}
+
+/* ── Workspace validation banner ── */
+.workspace-banner {
+    flex-direction: column;
+    padding: 8px 10px;
+    background-color: rgba(211, 47, 47, 0.18);
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(211, 47, 47, 0.45);
+}
+
+.workspace-banner-label {
+    font-size: 11px;
+    color: #EF9A9A;
+    white-space: normal;
+}
+
+.workspace-banner-buttons {
+    flex-direction: row;
+    margin-top: 6px;
+}
+
+.workspace-banner-action {
+    font-size: 11px;
+    padding: 2px 8px;
+    margin-right: 6px;
+    border-radius: 3px;
+}

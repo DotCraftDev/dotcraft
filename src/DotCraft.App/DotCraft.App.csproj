@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DotCraft</RootNamespace>
+
+    <!-- Version Information -->
+    <AssemblyVersion>0.0.1.0</AssemblyVersion>
+    <Version>0.0.1.0</Version>
+    <AssemblyName>dotcraft</AssemblyName>
+    <AssemblyTitle>DotCraft</AssemblyTitle>
+    <ProductName>DotCraft</ProductName>
+    <ApplicationIcon>Resources\favicon.ico</ApplicationIcon>
+
+    <!-- Emit compiler generated files for debugging -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!-- Tells DotCraft.Gen to emit the ModuleRegistrations class in this assembly -->
+    <DotCraftGenerateModuleRegistrations>true</DotCraftGenerateModuleRegistrations>
+  </PropertyGroup>
+
+  <!-- Optional module switches (set to false to exclude from build) -->
+  <PropertyGroup>
+    <IncludeModuleQQ Condition="'$(IncludeModuleQQ)' == ''">true</IncludeModuleQQ>
+    <IncludeModuleWeCom Condition="'$(IncludeModuleWeCom)' == ''">true</IncludeModuleWeCom>
+    <IncludeModuleUnity Condition="'$(IncludeModuleUnity)' == ''">true</IncludeModuleUnity>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugSymbols>False</DebugSymbols>
+    <DebugType>None</DebugType>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Resources\favicon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TextCopy" Version="6.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotCraft.Core\DotCraft.Core.csproj" />
+    <ProjectReference Include="..\DotCraft.QQ\DotCraft.QQ.csproj" Condition="'$(IncludeModuleQQ)' == 'true'" />
+    <ProjectReference Include="..\DotCraft.Unity\DotCraft.Unity.csproj" Condition="'$(IncludeModuleUnity)' == 'true'" />
+    <ProjectReference Include="..\DotCraft.WeCom\DotCraft.WeCom.csproj" Condition="'$(IncludeModuleWeCom)' == 'true'" />
+  </ItemGroup>
+
+  <!-- Source Generator Reference -->
+  <ItemGroup>
+    <ProjectReference Include="..\DotCraft.Gen\DotCraft.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <CompilerVisibleProperty Include="DotCraftGenerateModuleRegistrations" />
+  </ItemGroup>
+
+</Project>

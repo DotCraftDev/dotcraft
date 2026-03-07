@@ -1,0 +1,75 @@
+using DotCraft.Abstractions;
+using DotCraft.Agents;
+using Microsoft.Extensions.AI;
+
+namespace DotCraft.Tools.Sandbox;
+
+/// <summary>
+/// Provides sandbox-isolated tools as an alternative to <see cref="CoreToolProvider"/>.
+/// When sandbox mode is enabled, this provider supplies shell and file tools that
+/// execute inside an OpenSandbox container instead of on the host machine.
+/// Web tools and agent tools remain unchanged (they don't need isolation).
+/// </summary>
+public sealed class SandboxToolProvider : IAgentToolProvider
+{
+    /// <inheritdoc />
+    public int Priority => 10; // Same priority as CoreToolProvider
+
+    /// <inheritdoc />
+    public IEnumerable<AITool> CreateTools(ToolProviderContext context)
+    {
+        var sandboxConfig = context.Config.Tools.Sandbox;
+        if (!sandboxConfig.Enabled)
+            return [];
+
+        var tools = new List<AITool>();
+
+        // Create sandbox session manager
+        var sandboxManager = new SandboxSessionManager(sandboxConfig, context.WorkspacePath);
+
+        // Sandbox shell tools (replaces ShellTools)
+        var shellTools = new SandboxShellTools(
+            sandboxManager,
+            context.Config.Tools.Shell.Timeout,
+            context.Config.Tools.Shell.MaxOutputLength);
+        tools.Add(AIFunctionFactory.Create(shellTools.Exec));
+
+        // Sandbox file tools (replaces FileTools)
+        var fileTools = new SandboxFileTools(
+            sandboxManager,
+            context.Config.Tools.File.MaxFileSize);
+        tools.Add(AIFunctionFactory.Create(fileTools.ReadFile));
+        tools.Add(AIFunctionFactory.Create(fileTools.WriteFile));
+        tools.Add(AIFunctionFactory.Create(fileTools.EditFile));
+        tools.Add(AIFunctionFactory.Create(fileTools.GrepFiles));
+        tools.Add(AIFunctionFactory.Create(fileTools.FindFiles));
+
+        // Sandbox sync tools (pull changes back to host)
+        var syncTools = new SandboxSyncTools(sandboxManager, context.WorkspacePath, context.ApprovalService);
+        tools.Add(AIFunctionFactory.Create(syncTools.SyncToHost));
+        tools.Add(AIFunctionFactory.Create(syncTools.ListModifiedFiles));
+
+        // Agent tools (subagent spawning) — still needed, uses sandbox-aware manager
+        var subAgentManager = new SubAgentManager(
+            context.ChatClient,
+            context.WorkspacePath,
+            context.Config.SubagentMaxToolCallRounds,
+            maxConcurrency: context.Config.SubagentMaxConcurrency,
+            shellTimeout: context.Config.Tools.Shell.Timeout,
+            blacklist: context.PathBlacklist,
+            sandboxManager: sandboxManager);
+        var agentTools = new AgentTools(subAgentManager);
+        tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
+
+        // Web tools — no isolation needed, reuse as-is
+        var webTools = new WebTools(
+            context.Config.Tools.Web.MaxChars,
+            context.Config.Tools.Web.Timeout,
+            context.Config.Tools.Web.SearchMaxResults,
+            context.Config.Tools.Web.SearchProvider);
+        tools.Add(AIFunctionFactory.Create(webTools.WebSearch));
+        tools.Add(AIFunctionFactory.Create(webTools.WebFetch));
+
+        return tools;
+    }
+}

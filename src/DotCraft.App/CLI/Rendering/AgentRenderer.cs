@@ -1,0 +1,654 @@
+using System.Text;
+using System.Threading.Channels;
+using DotCraft.Abstractions;
+using DotCraft.Diagnostics;
+using Spectre.Console;
+
+namespace DotCraft.CLI.Rendering;
+
+/// <summary>
+/// Core renderer for agent display.
+/// Owns all Spectre.Console output and runs a single render loop.
+///
+/// Goal:
+/// - When a tool starts: show a live <see cref="AnsiConsole.Status"/> spinner.
+/// - When the tool completes: stop the spinner and emit a history.
+/// - Stream model response chunks as normal text (kept as history).
+/// - Handle approval prompts by pausing/resuming rendering.
+/// </summary>
+public sealed class AgentRenderer : IRenderControl, IDisposable
+{
+    private readonly Channel<RenderEvent> _eventQueue = Channel.CreateUnbounded<RenderEvent>(new UnboundedChannelOptions
+    {
+        SingleReader = true,
+        SingleWriter = false
+    });
+    
+    private Task? _renderTask;
+    
+    private CancellationTokenSource? _cancellationTokenSource;
+
+    private RenderState _currentState = RenderState.Idle;
+
+    private string? _currentToolIcon;
+    
+    private string? _currentToolTitle;
+    
+    private string? _currentToolContent;
+    
+    private string? _currentToolAdditional;
+
+    private string? _currentFormattedDisplay;
+
+    private readonly StringBuilder _responseBuffer = new();
+    private MarkdownConsoleRenderer.StreamSession? _markdownStreamSession;
+    private bool _hasPendingUsage;
+    private long _pendingInputTokens;
+    private long _pendingOutputTokens;
+    
+    private bool _disposed;
+
+    // For approval handling - action to execute on the render thread while paused
+    private volatile Func<object?>? _pausedAction;
+    private volatile TaskCompletionSource<object?>? _pausedActionResultTcs;
+
+    private enum RenderState
+    {
+        Idle,
+        ToolExecuting,
+        Responding,
+        ApprovalPaused
+    }
+
+    /// <summary>
+    /// Start the rendering loop.
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        if (_renderTask != null)
+        {
+            throw new InvalidOperationException("Renderer already started");
+        }
+
+        _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _renderTask = Task.Run(() => RenderLoopAsync(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Synchronously enqueue a debug message. Safe to call from any thread.
+    /// During an active Status spinner session the event lands in the buffered list
+    /// and is printed after the spinner closes, preventing console corruption.
+    /// </summary>
+    public void TryEnqueueDebug(string message) =>
+        _eventQueue.Writer.TryWrite(RenderEvent.DebugMessage(message));
+
+    /// <summary>
+    /// Send a rendering event.
+    /// </summary>
+    public async ValueTask SendEventAsync(RenderEvent evt, CancellationToken cancellationToken = default)
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(AgentRenderer));
+        }
+
+        await _eventQueue.Writer.WriteAsync(evt, cancellationToken);
+    }
+
+    /// <summary>
+    /// Consume event stream and send to renderer.
+    /// </summary>
+    public async Task ConsumeEventsAsync(IAsyncEnumerable<RenderEvent> events, CancellationToken cancellationToken = default)
+    {
+        await foreach (var evt in events.WithCancellation(cancellationToken))
+        {
+            await SendEventAsync(evt, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Stop the rendering loop gracefully (drain queued events).
+    /// </summary>
+    public async Task StopAsync()
+    {
+        if (_renderTask == null)
+        {
+            return;
+        }
+
+        // Signal completion; do NOT cancel here, otherwise we may drop queued events.
+        _eventQueue.Writer.TryComplete();
+
+        try
+        {
+            await _renderTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected if outer cancellation token was canceled.
+        }
+    }
+
+    /// <summary>
+    /// Pause rendering, execute an action on the render thread, then resume.
+    /// This ensures the action has exclusive console access without cross-thread
+    /// live rendering conflicts with Spectre.Console (IRenderControl implementation).
+    /// </summary>
+    public async Task<T> ExecuteWhilePausedAsync<T>(Func<T> action, CancellationToken cancellationToken = default)
+    {
+        var resultTcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Store action and TCS BEFORE sending the event to avoid a race where
+        // the render loop processes the event before fields are set.
+        // The Channel write in SendEventAsync provides the memory barrier.
+        _pausedAction = () => action();
+        _pausedActionResultTcs = resultTcs;
+
+        // Send approval required event to pause the Status spinner
+        await SendEventAsync(RenderEvent.ApprovalRequest(), cancellationToken);
+
+        // Wait for the render loop to execute the action and return the result
+        var result = await resultTcs.Task;
+        return (T)result!;
+    }
+
+    private async Task RenderLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var reader = _eventQueue.Reader;
+
+            while (await reader.WaitToReadAsync(cancellationToken))
+            {
+                while (reader.TryRead(out var evt))
+                {
+                    if (evt.Type == RenderEventType.ToolCallStarted)
+                    {
+                        await RunToolStatusSessionAsync(evt, cancellationToken);
+                        continue;
+                    }
+
+                    ProcessNonToolStartEvent(evt);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Clean shutdown
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Renderer error: {Markup.Escape(ex.Message)}[/]");
+#if DEBUG
+            AnsiConsole.WriteException(ex);
+#endif
+        }
+    }
+
+    /// <summary>
+    /// Enters a live Status spinner session until a ToolCallCompleted arrives.
+    /// The session keeps consuming the shared event queue, and buffers non-tool events
+    /// to be rendered after the status is closed (to keep the console stable).
+    /// </summary>
+    private async Task RunToolStatusSessionAsync(RenderEvent toolStarted, CancellationToken cancellationToken)
+    {
+        CleanupCurrentState();
+
+        _currentState = RenderState.ToolExecuting;
+        _currentToolIcon = toolStarted.Icon;
+        _currentToolTitle = toolStarted.Title;
+        _currentToolContent = toolStarted.Content;
+        _currentToolAdditional = toolStarted.AdditionalInfo;
+        _currentFormattedDisplay = toolStarted.FormattedDisplay;
+
+        // Fallback: if neither tool name nor icon is present, use defaults
+        // so the spinner still works for unregistered or parallel tool calls.
+        if (string.IsNullOrWhiteSpace(_currentToolTitle) && string.IsNullOrWhiteSpace(_currentToolIcon))
+        {
+            _currentToolIcon = "🔧";
+            _currentToolTitle = "Tool";
+        }
+
+        var reader = _eventQueue.Reader;
+        RenderEvent? toolCompleted = null;
+        var buffered = new List<RenderEvent>(capacity: 8);
+
+        var initialStatus = BuildToolStatusMarkup();
+
+        try
+        {
+            await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(new Style(Color.Yellow))
+                .StartAsync(initialStatus, async ctx =>
+                {
+                    ctx.Status = initialStatus;
+
+                    while (!cancellationToken.IsCancellationRequested)
+                    {
+                        // Wait for more events
+                        if (!await reader.WaitToReadAsync(cancellationToken))
+                        {
+                            break;
+                        }
+
+                        while (reader.TryRead(out var evt))
+                        {
+                            switch (evt.Type)
+                            {
+                                case RenderEventType.ThinkingStep:
+                                    // Treat thinking steps during tool execution as status updates
+                                    _currentToolIcon = evt.Icon ?? _currentToolIcon;
+                                    _currentToolTitle = evt.Title ?? _currentToolTitle;
+                                    _currentToolContent = evt.Content;
+                                    ctx.Status = BuildToolStatusMarkup();
+                                    break;
+
+                                case RenderEventType.ToolCallStarted:
+                                    // Nested/second tool start: treat as a new status target
+                                    _currentToolIcon = evt.Icon ?? _currentToolIcon;
+                                    _currentToolTitle = evt.Title ?? _currentToolTitle;
+                                    _currentToolContent = evt.Content;
+                                    _currentToolAdditional = evt.AdditionalInfo ?? _currentToolAdditional;
+                                    _currentFormattedDisplay = evt.FormattedDisplay ?? _currentFormattedDisplay;
+                                    ctx.Status = BuildToolStatusMarkup();
+                                    break;
+
+                                case RenderEventType.ToolCallCompleted:
+                                    toolCompleted = evt;
+                                    return;
+
+                                case RenderEventType.ApprovalRequired:
+                                    // Pause for approval prompt.
+                                    // The paused action and result TCS are already set by
+                                    // ExecuteWhilePausedAsync before it sent this event,
+                                    // and the Channel write provides the memory barrier.
+                                    _currentState = RenderState.ApprovalPaused;
+                                    
+                                    // Exit Status context temporarily
+                                    return;
+
+                                default:
+                                    buffered.Add(evt);
+                                    break;
+                            }
+                        }
+                    }
+                });
+        }
+        catch (OperationCanceledException)
+        {
+            // If canceled during a tool call, just exit.
+        }
+
+        // If we paused for approval, execute the paused action on the render thread
+        if (_currentState == RenderState.ApprovalPaused)
+        {
+            // Execute the paused action on the render thread (same thread as Status)
+            // to avoid cross-thread Spectre.Console live rendering issues
+            var action = _pausedAction;
+            var resultTcs = _pausedActionResultTcs;
+            _pausedAction = null;
+            _pausedActionResultTcs = null;
+
+            if (action != null && resultTcs != null)
+            {
+                try
+                {
+                    var result = action();
+                    resultTcs.TrySetResult(result);
+                }
+                catch (Exception ex)
+                {
+                    resultTcs.TrySetException(ex);
+                }
+            }
+
+            // Resume tool status session
+            _currentState = RenderState.ToolExecuting;
+
+            // Re-enter status spinner and wait for completion
+            await RunToolStatusSessionAsync(
+                RenderEvent.ToolStarted(_currentToolIcon, _currentToolTitle, _currentToolContent ?? string.Empty, _currentToolAdditional, _currentFormattedDisplay),
+                cancellationToken);
+            return;
+        }
+
+        // Emit the tool history line after Status closes.
+        if (toolCompleted != null)
+        {
+            WriteToolHistoryLine(toolCompleted);
+        }
+
+        // Reset tool state
+        _currentState = RenderState.Idle;
+        _currentToolIcon = null;
+        _currentToolTitle = null;
+        _currentToolContent = null;
+        _currentToolAdditional = null;
+        _currentFormattedDisplay = null;
+
+        // Replay buffered events
+        foreach (var evt in buffered)
+        {
+            ProcessNonToolStartEvent(evt);
+        }
+    }
+
+    private void ProcessNonToolStartEvent(RenderEvent evt)
+    {
+        switch (evt.Type)
+        {
+            case RenderEventType.ToolCallCompleted:
+                // In case a completed event arrives without an active status session.
+                WriteToolHistoryLine(evt);
+                break;
+
+            case RenderEventType.ResponseChunk:
+                HandleResponseChunk(evt);
+                break;
+
+            case RenderEventType.ThinkingStep:
+                HandleThinkingStep(evt);
+                break;
+
+            case RenderEventType.Warning:
+                HandleWarning(evt);
+                break;
+
+            case RenderEventType.Error:
+                HandleError(evt);
+                break;
+
+            case RenderEventType.Complete:
+                HandleComplete(evt);
+                break;
+
+            case RenderEventType.Usage:
+                HandleUsage(evt);
+                break;
+
+            case RenderEventType.Debug:
+                AnsiConsole.MarkupLine($"[dim]{Markup.Escape(evt.Content)}[/]");
+                break;
+
+            case RenderEventType.ApprovalRequired:
+            case RenderEventType.ApprovalCompleted:
+                break;
+        }
+    }
+
+    private string BuildToolStatusMarkup()
+    {
+        if (string.IsNullOrWhiteSpace(_currentToolTitle) && string.IsNullOrWhiteSpace(_currentToolIcon))
+            return "[red]Error: Invalid tool call (missing tool name/icon).[/]";
+
+        var icon = string.IsNullOrWhiteSpace(_currentToolIcon) ? string.Empty : _currentToolIcon;
+        var segmentMaxLength = GetStatusSegmentMaxLength();
+
+        // Use human-readable formatted display when available; fall back to raw title
+        var displayText = !string.IsNullOrWhiteSpace(_currentFormattedDisplay)
+            ? NormalizeInlineText(TruncateText(_currentFormattedDisplay!, segmentMaxLength * 2))
+            : NormalizeInlineText(_currentToolTitle ?? string.Empty);
+
+        var sb = new StringBuilder();
+        sb.Append($"[yellow]{Markup.Escape((icon + " " + displayText).Trim())}[/]");
+
+        // Show thinking-step content in grey when it arrives mid-execution
+        if (!string.IsNullOrWhiteSpace(_currentToolContent))
+        {
+            var displayContent = DebugModeService.IsEnabled()
+                ? _currentToolContent
+                : TruncateText(_currentToolContent!, segmentMaxLength);
+            sb.Append($" [grey]{Markup.Escape(NormalizeInlineText(displayContent))}[/]");
+        }
+
+        // In debug mode, also show raw args
+        if (DebugModeService.IsEnabled() && !string.IsNullOrWhiteSpace(_currentToolAdditional))
+        {
+            var debugArgs = NormalizeInlineText(TruncateText(_currentToolAdditional!, segmentMaxLength));
+            sb.Append($" [dim]({Markup.Escape(debugArgs)})[/]");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Convert a tool completion into a single-line history record followed by an
+    /// indented result line. Uses the last known tool state as fallback.
+    /// </summary>
+    private void WriteToolHistoryLine(RenderEvent evt)
+    {
+        var icon = evt.Icon ?? _currentToolIcon;
+        var title = evt.Title ?? _currentToolTitle;
+
+        // Fallback when parallel tool calls complete after state has been reset
+        if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(icon))
+        {
+            icon = "🔧";
+            title = "Tool";
+        }
+
+        var formattedDisplay = evt.FormattedDisplay ?? _currentFormattedDisplay;
+        var rawArgs = evt.Content; // argsJson stored in Content
+        var result = evt.AdditionalInfo;
+
+        // Prefer human-readable formatted display; fall back to tool name
+        var displayText = !string.IsNullOrWhiteSpace(formattedDisplay)
+            ? formattedDisplay
+            : title ?? "Tool";
+
+        var line = new StringBuilder();
+        line.Append($"[yellow]{Markup.Escape($"{icon} {displayText}")}[/]");
+
+        // In debug mode, append raw args for diagnostics
+        if (DebugModeService.IsEnabled() && !string.IsNullOrWhiteSpace(rawArgs))
+        {
+            var debugArgs = NormalizeInlineText(TruncateText(rawArgs, 120));
+            line.Append($" [dim]{Markup.Escape(debugArgs)}[/]");
+        }
+
+        AnsiConsole.MarkupLine(line.ToString());
+
+        // Result on an indented sub-line
+        if (!string.IsNullOrWhiteSpace(result))
+        {
+            var resultLine = NormalizeInlineText(TruncateText(result, 200));
+            AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(resultLine)}[/]");
+        }
+    }
+
+    private void HandleResponseChunk(RenderEvent evt)
+    {
+        // Use IsNullOrEmpty (not IsNullOrWhiteSpace) so that whitespace-only chunks
+        // containing newlines are passed through to the markdown stream session.
+        // These newlines are structurally significant for markdown block parsing.
+        if (string.IsNullOrEmpty(evt.Content))
+        {
+            return;
+        }
+
+        if (_currentState != RenderState.Responding)
+        {
+            CleanupCurrentState();
+            _currentState = RenderState.Responding;
+            _responseBuffer.Clear();
+            _hasPendingUsage = false;
+            _markdownStreamSession = MarkdownConsoleRenderer.CreateStreamSession();
+            AnsiConsole.WriteLine();
+        }
+
+        _responseBuffer.Append(evt.Content);
+        _markdownStreamSession ??= MarkdownConsoleRenderer.CreateStreamSession();
+        _markdownStreamSession.Append(evt.Content);
+    }
+
+    private void HandleThinkingStep(RenderEvent evt)
+    {
+        // If tool session is active, thinking steps will be consumed inside the status session.
+        if (_currentState == RenderState.ToolExecuting)
+        {
+            return;
+        }
+
+        var icon = evt.Icon ?? "💭";
+        var title = evt.Title ?? "Thinking";
+        var color = evt.Color ?? "cyan";
+
+        AnsiConsole.MarkupLine($"[{color}]{Markup.Escape($"{icon} {title}")}[/] [dim]{Markup.Escape(evt.Content)}[/]");
+    }
+
+    private void HandleWarning(RenderEvent evt)
+    {
+        CleanupCurrentState();
+        var color = evt.Color ?? "yellow";
+        AnsiConsole.MarkupLine($"[{color}]⚠ {Markup.Escape(evt.Content)}[/]");
+        _currentState = RenderState.Idle;
+    }
+
+    private void HandleError(RenderEvent evt)
+    {
+        CleanupCurrentState();
+        var color = evt.Color ?? "red";
+        AnsiConsole.MarkupLine($"[{color}]✗ {Markup.Escape(evt.Content)}[/]");
+        _currentState = RenderState.Idle;
+    }
+
+    private void HandleUsage(RenderEvent evt)
+    {
+        var parts = evt.Content.Split(',');
+        if (!(parts.Length >= 2 &&
+              long.TryParse(parts[0], out var input) &&
+              long.TryParse(parts[1], out var output)))
+        {
+            return;
+        }
+
+        if (_currentState == RenderState.Responding)
+        {
+            // Delay usage output until markdown stream is fully flushed.
+            _pendingInputTokens = input;
+            _pendingOutputTokens = output;
+            _hasPendingUsage = true;
+            return;
+        }
+
+        PrintUsage(input, output);
+    }
+
+    private void HandleComplete(RenderEvent _)
+    {
+        if (_currentState == RenderState.Responding && _responseBuffer.Length > 0)
+        {
+            _markdownStreamSession?.Complete();
+            _markdownStreamSession = null;
+            _responseBuffer.Clear();
+            FlushPendingUsageIfAny();
+            AnsiConsole.WriteLine();
+            _currentState = RenderState.Idle;
+            return;
+        }
+
+        CleanupCurrentState();
+        FlushPendingUsageIfAny();
+        AnsiConsole.WriteLine();
+        _currentState = RenderState.Idle;
+    }
+
+    private void CleanupCurrentState()
+    {
+        if (_currentState == RenderState.Responding && _responseBuffer.Length > 0)
+        {
+            _markdownStreamSession?.Complete();
+            _markdownStreamSession = null;
+            AnsiConsole.WriteLine();
+            _responseBuffer.Clear();
+        }
+    }
+
+    private static string TruncateText(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        return text[..maxLength] + "...";
+    }
+
+    private static string NormalizeInlineText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        // Status spinner is a single-line live render; embedded newlines
+        // break cursor overwrite and cause line-by-line growth.
+        return text.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
+    }
+
+    private static int GetStatusSegmentMaxLength()
+    {
+        try
+        {
+            // Keep each segment short enough to reduce terminal auto-wrap.
+            // Reserve width for icon/title/spinner and markup overhead.
+            var width = Console.WindowWidth;
+            if (width <= 0)
+            {
+                return 60;
+            }
+
+            return Math.Clamp(width / 3, 24, 60);
+        }
+        catch
+        {
+            // Console width may be unavailable in some hosts.
+            return 60;
+        }
+    }
+
+    private static void PrintUsage(long inputTokens, long outputTokens)
+    {
+        AnsiConsole.MarkupLine($"[blue]↑ {inputTokens} input[/] [green]↓ {outputTokens} output[/]");
+    }
+
+    private void FlushPendingUsageIfAny()
+    {
+        if (!_hasPendingUsage)
+        {
+            return;
+        }
+
+        PrintUsage(_pendingInputTokens, _pendingOutputTokens);
+        _hasPendingUsage = false;
+        _pendingInputTokens = 0;
+        _pendingOutputTokens = 0;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+
+        _eventQueue.Writer.TryComplete();
+        _cancellationTokenSource?.Cancel();
+        _cancellationTokenSource?.Dispose();
+
+        try
+        {
+            _renderTask?.Wait(TimeSpan.FromSeconds(1));
+        }
+        catch
+        {
+            // Ignore errors during disposal
+        }
+    }
+}
+

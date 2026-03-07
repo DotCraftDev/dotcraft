@@ -1,0 +1,24 @@
+{
+    "name": "com.dotcraft.unityclient",
+    "version": "0.1.0",
+    "displayName": "DotCraft Unity Client",
+    "description": "DotCraft AI Agent integration for Unity Editor using Agent Client Protocol (ACP). Provides intelligent code assistance, file operations, terminal commands, and Unity-specific tools.",
+    "unity": "2022.3",
+    "unityRelease": "0f1",
+    "documentationUrl": "https://github.com/dotcraft/dotcraft-unity",
+    "licensesUrl": "https://github.com/dotcraft/dotcraft-unity/blob/main/LICENSE",
+    "keywords": [
+        "ai",
+        "agent",
+        "copilot",
+        "assistant",
+        "dotcraft",
+        "acp"
+    ],
+    "author": {
+        "name": "DotCraft",
+        "url": "https://github.com/dotcraft"
+    },
+    "dependencies": {},
+    "samples": []
+}
