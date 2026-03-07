@@ -30,12 +30,6 @@ namespace DotCraft.Editor.Window
         private Button _connectButton;
         private VisualElement _chatContainer;
         private ScrollView _messageList;
-        private VisualElement _approvalPanel;
-        private Label _approvalKind;
-        private Label _approvalDetails;
-        private Button _allowButton;
-        private Button _allowAlwaysButton;
-        private Button _rejectButton;
         private VisualElement _attachmentsContainer;
         private TextField _inputField;
         private Button _sendButton;
@@ -67,10 +61,6 @@ namespace DotCraft.Editor.Window
 
         // Slash commands state (kept for future autocomplete support)
         private List<AcpSlashCommand> _availableCommands = new();
-
-        // Permission request state
-        private RequestPermissionParams _pendingPermissionRequest;
-        private Action<RequestPermissionResult> _permissionResponseHandler;
 
         // Workspace validation banner
         private VisualElement _workspaceBanner;
@@ -158,12 +148,6 @@ namespace DotCraft.Editor.Window
             _connectButton = _root.Q<Button>("connect-button");
             _chatContainer = _root.Q<VisualElement>("chat-container");
             _messageList = _root.Q<ScrollView>("message-list");
-            _approvalPanel = _root.Q<VisualElement>("approval-panel");
-            _approvalKind = _root.Q<Label>("approval-kind");
-            _approvalDetails = _root.Q<Label>("approval-details");
-            _allowButton = _root.Q<Button>("allow-button");
-            _allowAlwaysButton = _root.Q<Button>("allow-always-button");
-            _rejectButton = _root.Q<Button>("reject-button");
             _attachmentsContainer = _root.Q<VisualElement>("attachments-container");
             _inputField = _root.Q<TextField>("input-field");
             _sendButton = _root.Q<Button>("send-button");
@@ -244,21 +228,6 @@ namespace DotCraft.Editor.Window
             if (_stopButton != null)
             {
                 _stopButton.clicked += () => _client?.Cancel();
-            }
-
-            if (_allowButton != null)
-            {
-                _allowButton.clicked += () => HandlePermissionResponse(AcpPermissionKind.AllowOnce);
-            }
-
-            if (_allowAlwaysButton != null)
-            {
-                _allowAlwaysButton.clicked += () => HandlePermissionResponse(AcpPermissionKind.AllowAlways);
-            }
-
-            if (_rejectButton != null)
-            {
-                _rejectButton.clicked += () => HandlePermissionResponse(AcpPermissionKind.RejectOnce);
             }
 
             // Settings gear button → opens DotCraft project settings
@@ -674,51 +643,13 @@ namespace DotCraft.Editor.Window
         {
             MainThreadDispatcher.RunOrEnqueue(() =>
             {
-                // Use inline approval card in the chat flow instead of floating overlay
-                if (_chatPanel != null)
-                {
-                    _chatPanel.HandleApprovalRequest(request, responseHandler);
-                    _scrollDirty = true;
-
-                    // Bring window to front
-                    EditorApplication.delayCall += Focus;
-                    return;
-                }
-
-                // Fallback to floating overlay if chat panel is not available
-                _pendingPermissionRequest = request;
-                _permissionResponseHandler = responseHandler;
-
-                if (_approvalKind != null)
-                    _approvalKind.text = request.ToolCall?.Kind ?? "unknown";
-                if (_approvalDetails != null)
-                    _approvalDetails.text = request.ToolCall?.Title ?? "Permission required";
-                if (_approvalPanel != null)
-                    _approvalPanel.style.display = DisplayStyle.Flex;
+                // Use inline approval card in the chat flow
+                _chatPanel?.HandleApprovalRequest(request, responseHandler);
+                _scrollDirty = true;
 
                 // Bring window to front
                 EditorApplication.delayCall += Focus;
             });
-        }
-
-        private void HandlePermissionResponse(string kind)
-        {
-            var option = _pendingPermissionRequest?.Options?.Find(o => o.Kind == kind);
-            if (option == null || _permissionResponseHandler == null) return;
-
-            _permissionResponseHandler(new RequestPermissionResult
-            {
-                Outcome = new PermissionOutcome
-                {
-                    Outcome = "selected",
-                    OptionId = option.OptionId
-                }
-            });
-
-            _pendingPermissionRequest = null;
-            _permissionResponseHandler = null;
-            if (_approvalPanel != null)
-                _approvalPanel.style.display = DisplayStyle.None;
         }
 
         private void HandleConnectionStateChanged(bool connected)
@@ -1041,24 +972,6 @@ namespace DotCraft.Editor.Window
             _chatContainer = UIHelper.CreateElement("chat-container");
             _messageList = UIHelper.CreateScrollView("message-list");
             _chatContainer.Add(_messageList);
-
-            // Approval panel
-            _approvalPanel = UIHelper.CreateElement("approval-panel");
-            _approvalPanel.style.display = DisplayStyle.None;
-            _approvalKind = UIHelper.CreateLabel("", "approval-kind");
-            _approvalDetails = UIHelper.CreateLabel("", "approval-details");
-            _approvalPanel.Add(_approvalKind);
-            _approvalPanel.Add(_approvalDetails);
-
-            var buttonRow = UIHelper.CreateElement("approval-buttons");
-            _rejectButton = UIHelper.CreateButton("Reject", "approval-button", "reject");
-            _allowAlwaysButton = UIHelper.CreateButton("Allow Always", "approval-button", "allow-always");
-            _allowButton = UIHelper.CreateButton("Allow", "approval-button", "allow");
-            buttonRow.Add(_rejectButton);
-            buttonRow.Add(_allowAlwaysButton);
-            buttonRow.Add(_allowButton);
-            _approvalPanel.Add(buttonRow);
-            _chatContainer.Add(_approvalPanel);
             _root.Add(_chatContainer);
 
             // Input area

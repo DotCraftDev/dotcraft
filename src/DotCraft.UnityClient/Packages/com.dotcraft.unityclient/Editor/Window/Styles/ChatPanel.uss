@@ -109,7 +109,6 @@
     font-size: 13px;
     color: var(--unity-colors-default_text);
     white-space: normal;
-    word-wrap: break-word;
 }
 
 .message-content-container {
@@ -239,7 +238,7 @@
 }
 
 .tool-call-body.expanded {
-    display: block;
+    display: flex;
 }
 
 .tool-call-input,
@@ -259,8 +258,7 @@
     background-color: rgba(0, 0, 0, 0.2);
     padding: 6px;
     border-radius: 3px;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    white-space: normal;
 }
 
 /* ── Tool Call File Links ── */
@@ -372,8 +370,9 @@
 
 .approval-inline-header {
     flex-direction: row;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 6px;
+    flex-wrap: wrap;
 }
 
 .approval-inline-icon {
@@ -389,6 +388,9 @@
     font-size: 13px;
     -unity-font-style: bold;
     color: #FFB74D;
+    white-space: normal;
+    flex-shrink: 1;
+    flex-grow: 1;
 }
 
 .approval-inline-description {
@@ -406,8 +408,7 @@
 
 .approval-inline-details {
     font-size: 12px;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    white-space: normal;
 }
 
 .approval-inline-buttons {
@@ -484,5 +485,5 @@
 }
 
 .foldout-content.expanded {
-    display: block;
+    display: flex;
 }
