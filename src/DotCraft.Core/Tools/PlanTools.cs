@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using DotCraft.Diagnostics;
 using DotCraft.Memory;
 
@@ -19,7 +18,7 @@ public sealed class PlanTools(
         [Description("A concise title for the plan.")] string title,
         [Description("A 1-2 sentence summary of what the plan accomplishes.")] string overview,
         [Description("The detailed plan content in Markdown. Include specific file paths, implementation details, and verification steps.")] string plan,
-        [Description("A JSON array of task items, each with 'id' (short kebab-case identifier), 'content' (description), and optional 'priority' (high/medium/low, default medium). Example: [{\"id\":\"add-auth\",\"content\":\"Add authentication middleware\",\"priority\":\"high\"}]")] string? todos = null)
+        [Description("Actionable task items. Each item has 'id' (short kebab-case) and 'content' (task description).")] List<PlanTodoInput> todos)
     {
         try
         {
@@ -30,7 +29,16 @@ public sealed class PlanTools(
                 return "Error: No active session.";
             }
 
-            var todoList = ParseTodos(todos);
+            var todoList = todos
+                .Where(t => !string.IsNullOrWhiteSpace(t.Id) && !string.IsNullOrWhiteSpace(t.Content))
+                .Select(t => new PlanTodo
+                {
+                    Id = t.Id.Trim(),
+                    Content = t.Content.Trim(),
+                    Priority = PlanTodoPriority.Medium,
+                    Status = PlanTodoStatus.Pending
+                })
+                .ToList();
 
             var now = DateTimeOffset.UtcNow;
             var existing = await planStore.LoadStructuredPlanAsync(sessionId);
@@ -63,8 +71,8 @@ public sealed class PlanTools(
     [Description("Update the status of one or more tasks in the current plan. Call this to mark tasks as in_progress when you start working on them and completed when done.")]
     [Tool(Icon = "✅", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.UpdateTodos))]
     public async Task<string> UpdateTodos(
-        [Description("A JSON array of status updates. Each item has 'id' (task id) and 'status' (pending | in_progress | completed | cancelled). Example: [{\"id\":\"add-auth\",\"status\":\"completed\"}]")]
-        string updates)
+        [Description("Status updates. Each item has 'id' (task id) and 'status' (pending | in_progress | completed | cancelled).")]
+        List<TodoStatusUpdateInput> updates)
     {
         try
         {
@@ -82,28 +90,14 @@ public sealed class PlanTools(
                 return "Error: No plan exists for the current session. Create a plan first using CreatePlan in plan mode.";
             }
 
-            List<TodoStatusUpdate>? parsed;
-            try
-            {
-                parsed = JsonSerializer.Deserialize<List<TodoStatusUpdate>>(updates, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-            }
-            catch (JsonException ex)
-            {
-                DebugModeService.LogIfEnabled($"[PlanTools] UpdateTodos: JSON parse error - {ex.Message}");
-                return "Error: Invalid JSON. Expected [{\"id\":\"...\",\"status\":\"...\"}].";
-            }
-
-            if (parsed == null || parsed.Count == 0)
+            if (updates.Count == 0)
             {
                 DebugModeService.LogIfEnabled("[PlanTools] UpdateTodos: No updates provided");
                 return "Error: No updates provided.";
             }
 
             var results = new List<string>();
-            foreach (var upd in parsed)
+            foreach (var upd in updates)
             {
                 if (string.IsNullOrWhiteSpace(upd.Id) || string.IsNullOrWhiteSpace(upd.Status))
                     continue;
@@ -145,59 +139,22 @@ public sealed class PlanTools(
             return $"Error: Failed to update todos - {ex.Message}";
         }
     }
+}
 
-    private sealed class TodoStatusUpdate
-    {
-        public string? Id { get; set; }
-        public string? Status { get; set; }
-    }
+/// <summary>
+/// Input DTO for a single todo item in CreatePlan.
+/// </summary>
+public sealed class PlanTodoInput
+{
+    public string Id { get; set; } = "";
+    public string Content { get; set; } = "";
+}
 
-    private static List<PlanTodo> ParseTodos(string? todosJson)
-    {
-        if (string.IsNullOrWhiteSpace(todosJson))
-            return [];
-
-        try
-        {
-            var items = JsonSerializer.Deserialize<List<TodoInput>>(todosJson, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            if (items == null)
-                return [];
-
-            return items
-                .Where(i => !string.IsNullOrWhiteSpace(i.Id) && !string.IsNullOrWhiteSpace(i.Content))
-                .Select(i => new PlanTodo
-                {
-                    Id = i.Id!.Trim(),
-                    Content = i.Content!.Trim(),
-                    Priority = NormalizePriority(i.Priority),
-                    Status = PlanTodoStatus.Pending
-                })
-                .ToList();
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
-    private static string NormalizePriority(string? priority)
-    {
-        return priority?.Trim().ToLowerInvariant() switch
-        {
-            PlanTodoPriority.High => PlanTodoPriority.High,
-            PlanTodoPriority.Low => PlanTodoPriority.Low,
-            _ => PlanTodoPriority.Medium
-        };
-    }
-
-    private sealed class TodoInput
-    {
-        public string? Id { get; set; }
-        public string? Content { get; set; }
-        public string? Priority { get; set; }
-    }
+/// <summary>
+/// Input DTO for a single todo status update in UpdateTodos.
+/// </summary>
+public sealed class TodoStatusUpdateInput
+{
+    public string Id { get; set; } = "";
+    public string Status { get; set; } = "";
 }
