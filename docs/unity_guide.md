@@ -125,6 +125,7 @@ Unity 集成包含两个组件：
 | **Verbose Logging** | `false` | 将 DotCraft stderr 输出到 Unity Console |
 | **Request Timeout (s)** | `30` | ACP 请求的最大等待时间（5–120 秒） |
 | **Max History Messages** | `1000` | 聊天视图中的最大消息数 |
+| **Enable Builtin Unity Tools** | `true` | 启用内置 `_unity/*` 扩展方法。使用外部 Unity 集成时可关闭 |
 
 ### 通过环境变量配置 API 密钥
 
@@ -190,18 +191,54 @@ SkillsForUnity 提供 100+ Unity 编辑器技能，包括：
 
 ### 架构对比
 
-| 特性 | DotCraft 内置工具 | SkillsForUnity |
-|------|------------------|----------------|
-| **安装复杂度** | 开箱即用 | 需要启动 HTTP 服务器 |
-| **功能范围** | 4 个只读工具 | 100+ 技能 |
-| **通信方式** | ACP 协议（stdio） | HTTP REST API |
-| **适用场景** | 理解项目状态 | 完整 Unity 操作 |
+| 特性 | DotCraft 内置工具 | SkillsForUnity | unity-mcp |
+|------|------------------|----------------|-----------|
+| **安装复杂度** | 开箱即用 | 需要启动 HTTP 服务器 | 需要 Python + HTTP 服务器 |
+| **功能范围** | 4 个只读工具 | 100+ 技能 | 30+ 工具 |
+| **通信方式** | ACP 协议（stdio） | HTTP REST API | MCP 协议（HTTP/stdio） |
+| **跨 IDE 支持** | 仅 DotCraft | 多种 IDE | 多种 IDE |
+| **适用场景** | 理解项目状态 | 完整 Unity 操作 | 跨平台 Unity 操作 |
+
+## 扩展功能：unity-mcp
+
+[unity-mcp](https://github.com/CoplayDev/unity-mcp) 是另一个 Unity 集成方案，采用 MCP (Model Context Protocol) 协议，支持多种 AI IDE。
+
+### unity-mcp 功能
+
+unity-mcp 提供 30+ Unity 操作工具，包括：
+
+- **场景管理**：加载、保存、创建、查询层级
+- **GameObject 管理**：创建、修改、变换、删除
+- **组件操作**：添加、移除、配置
+- **资源管理**：创建、修改、搜索
+- **材质/Prefab/脚本管理**
+- **批量执行**：批量操作效率提升 10-100 倍
+- **控制台读取**：获取 Unity Console 输出
+- **测试运行**：运行 Unity 测试
+
+### 安装 unity-mcp
+
+**前置要求**：
+- Unity 2021.3 LTS 或更高版本
+- Python 3.10+ 和 [uv](https://docs.astral.sh/uv/) 包管理器
+
+**安装步骤**：
+
+1. 在 Unity 中打开 **Window → Package Manager**
+2. 点击 **+ → Add package from git URL**
+3. 输入：`https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#main`
+4. 打开 **Window → MCP for Unity**，点击 **Start Server**
+5. 从下拉菜单选择 MCP 客户端并点击 **Configure**
 
 ### 推荐使用方式
 
 1. **基础使用**：DotCraft 内置的只读工具满足日常项目理解需求
-2. **高级操作**：安装 SkillsForUnity 获得完整的 Unity 编辑器控制能力
-3. **组合使用**：两种方案可以同时安装，互补使用
+2. **高级操作**：安装 SkillsForUnity 或 unity-mcp 获得完整的 Unity 编辑器控制能力
+3. **关闭内置工具**：如使用外部 Unity 集成，可在 **Project Settings → DotCraft** 中关闭 **Enable Builtin Unity Tools**
+4. **选择建议**：
+   - **SkillsForUnity**：功能最丰富（100+ 技能），适合深度 Unity 开发
+   - **unity-mcp**：MCP 协议兼容，适合跨 AI IDE 使用
+   - **内置工具**：最简单，适合快速上手
 
 ## 权限审批
 
@@ -277,11 +314,13 @@ AI: [使用 unity_get_project_info 工具]
 - 在初始设置期间使用 **Verbose Logging** 诊断连接问题
 - 为 API 密钥配置环境变量，而不是修改全局配置
 - 可将工作区路径设置为父目录，以便在多个 Unity 项目间共享记忆
-- 安装 SkillsForUnity 获得完整的 Unity 编辑器操作能力
+- 使用 SkillsForUnity 或 unity-mcp 获得完整的 Unity 编辑器操作能力
+- 如使用外部 Unity 集成，可在设置中关闭内置 Unity 工具
 
 ## 相关链接
 
 - [配置指南](./config_guide.md) - DotCraft 配置选项
 - [ACP 模式指南](./acp_guide.md) - Agent Client Protocol 详情
 - [Unity 客户端 README](https://github.com/DotCraftDev/DotCraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - 包文档
-- [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - 完整 Unity 操作技能库
+- [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - HTTP REST API 方式的 Unity 技能库
+- [unity-mcp](https://github.com/CoplayDev/unity-mcp) - MCP 协议方式的 Unity 集成工具

@@ -125,6 +125,7 @@ Open **Edit → Project Settings → DotCraft** to configure:
 | **Verbose Logging** | `false` | Print DotCraft stderr to Unity Console |
 | **Request Timeout (s)** | `30` | Maximum wait time for ACP requests (5–120 s) |
 | **Max History Messages** | `1000` | Maximum messages in chat view |
+| **Enable Builtin Unity Tools** | `true` | Enable built-in `_unity/*` extension methods. Disable when using external Unity integration |
 
 ### Configuring API Keys via Environment Variables
 
@@ -190,18 +191,54 @@ SkillsForUnity provides 100+ Unity Editor skills, including:
 
 ### Architecture Comparison
 
-| Feature | DotCraft Built-in Tools | SkillsForUnity |
-|---------|------------------------|----------------|
-| **Installation** | Works out-of-the-box | Requires HTTP server startup |
-| **Scope** | 4 read-only tools | 100+ skills |
-| **Communication** | ACP protocol (stdio) | HTTP REST API |
-| **Use Case** | Understanding project state | Full Unity operations |
+| Feature | DotCraft Built-in Tools | SkillsForUnity | unity-mcp |
+|---------|------------------------|----------------|-----------|
+| **Installation** | Works out-of-the-box | Requires HTTP server startup | Requires Python + HTTP server |
+| **Scope** | 4 read-only tools | 100+ skills | 30+ tools |
+| **Communication** | ACP protocol (stdio) | HTTP REST API | MCP protocol (HTTP/stdio) |
+| **Cross-IDE Support** | DotCraft only | Multiple IDEs | Multiple IDEs |
+| **Use Case** | Understanding project state | Full Unity operations | Cross-platform Unity operations |
+
+## Extended Capabilities: unity-mcp
+
+[unity-mcp](https://github.com/CoplayDev/unity-mcp) is another Unity integration solution using the MCP (Model Context Protocol), supporting multiple AI IDEs.
+
+### unity-mcp Features
+
+unity-mcp provides 30+ Unity operation tools, including:
+
+- **Scene Management**: Load, save, create, query hierarchy
+- **GameObject Management**: Create, modify, transform, delete
+- **Component Operations**: Add, remove, configure
+- **Asset Management**: Create, modify, search
+- **Material/Prefab/Script Management**
+- **Batch Execution**: 10-100x faster batch operations
+- **Console Reading**: Get Unity Console output
+- **Test Running**: Run Unity tests
+
+### Installing unity-mcp
+
+**Prerequisites**:
+- Unity 2021.3 LTS or later
+- Python 3.10+ and [uv](https://docs.astral.sh/uv/) package manager
+
+**Installation Steps**:
+
+1. Open **Window → Package Manager** in Unity
+2. Click **+ → Add package from git URL**
+3. Enter: `https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#main`
+4. Open **Window → MCP for Unity** and click **Start Server**
+5. Select MCP client from dropdown and click **Configure**
 
 ### Recommended Usage
 
 1. **Basic Usage**: DotCraft's built-in read-only tools meet daily project understanding needs
-2. **Advanced Operations**: Install SkillsForUnity for complete Unity Editor control
-3. **Combined Use**: Both solutions can be installed simultaneously for complementary functionality
+2. **Advanced Operations**: Install SkillsForUnity or unity-mcp for complete Unity Editor control
+3. **Disable Built-in Tools**: If using external Unity integration, disable **Enable Builtin Unity Tools** in **Project Settings → DotCraft**
+4. **Selection Guide**:
+   - **SkillsForUnity**: Most feature-rich (100+ skills), ideal for deep Unity development
+   - **unity-mcp**: MCP protocol compatible, ideal for cross-AI-IDE usage
+   - **Built-in Tools**: Simplest option, ideal for quick start
 
 ## Permission Approval
 
@@ -277,11 +314,13 @@ AI: [Uses unity_get_project_info tool]
 - Use **Verbose Logging** during initial setup to diagnose connection issues
 - Configure environment variables for API keys instead of modifying global config
 - The workspace path can be set to a parent directory to share memory across multiple Unity projects
-- Install SkillsForUnity for complete Unity Editor operation capabilities
+- Install SkillsForUnity or unity-mcp for complete Unity Editor operation capabilities
+- Disable built-in Unity tools in settings when using external Unity integration
 
 ## See Also
 
 - [Configuration Guide](./config_guide.md) - DotCraft configuration options
 - [ACP Mode Guide](./acp_guide.md) - Agent Client Protocol details
 - [Unity Client README](https://github.com/DotCraftDev/DotCraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - Package documentation
-- [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - Complete Unity operation skill library
+- [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - HTTP REST API based Unity skill library
+- [unity-mcp](https://github.com/CoplayDev/unity-mcp) - MCP protocol based Unity integration tool
