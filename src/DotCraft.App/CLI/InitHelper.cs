@@ -31,10 +31,10 @@ public static class InitHelper
     {
         var langSuffix = language == Language.Chinese ? "zh" : "en";
         var extension = templateName == "gitignore" ? "" : ".md";
-        var resourceName = $"DotCraft.Resources.Templates.{templateName}.{langSuffix}{extension}";
+        var resourceName = $"DotCraft.Resources.Templates.{templateName}_{langSuffix}{extension}";
 
-        using var stream = Assembly.GetExecutingAssembly()
-            .GetManifestResourceStream(resourceName);
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
 
         if (stream == null)
         {
