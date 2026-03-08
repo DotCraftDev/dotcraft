@@ -16,9 +16,9 @@
 
 <table>
 <tr>
-<td width="33%" align="center"><b>🪶 轻量极简</b><br/>C# 编写，基于 .NET 10 构建，单文件，无复杂依赖。</td>
-<td width="33%" align="center"><b>🚀 一键部署</b><br/>无需复杂的配置流程。</td>
-<td width="33%" align="center"><b>🔒 安全审批</b><br/>多层安全防护+审批流程，高危操作可控。</td>
+<td width="33%" align="center"><b>🚀 随心所欲启动</b><br/>终端聊天、多通道网关、编辑器集成 — 你想怎么用就怎么用</td>
+<td width="33%" align="center"><b>🔗 无缝嵌入编辑器</b><br/>原生支持 ACP 协议，在熟悉的 IDE 里直接召唤 AI 助手</td>
+<td width="33%" align="center"><b>🔐 安全可控</b><br/>隔离 + 审批，敏感操作有保障</td>
 </tr>
 </table>
 
@@ -37,68 +37,79 @@
 
 ```mermaid
 flowchart TB
-    subgraph channels [Channels]
-        CLI[CLI REPL]
-        QQ[QQ Bot]
-        WeCom[WeCom Bot]
-        API[API Service]
-        ACP["ACP (Editor/IDE)"]
+    App["App"]
+
+    subgraph hosts [运行模式]
+        direction LR
+        CliHost["CLI Host (REPL)"]
+        GatewayHost["Gateway Host"]
+        AcpHost["ACP Host (IDE)"]
     end
 
-    subgraph gateway [Gateway]
-        MsgRouter[MessageRouter]
-        SessGate[SessionGate]
+    subgraph modules [Gateway Channels]
+        direction LR
+        QQModule["QQ Bot"]
+        WeComModule["企业微信"]
+        ApiModule["API Service"]
     end
 
-    subgraph core [Core]
-        AgentFactory[AgentFactory]
-        AgentRunner[AgentRunner]
-        PromptBuilder[PromptBuilder]
+    AgentCore["Agent Core"]
+    Tools["Tools"]
+    Sandbox["沙箱 (可选)"]
+
+    subgraph infra [基础设施]
+        direction LR
+        Session["Session"]
+        Memory["Memory"]
+        Hooks["Hooks"]
+        Skills["Skills"]
+        MCP["MCP"]
     end
 
-    subgraph workspace [Workspace]
-        SessionStore["SessionStore (per-channel isolated)"]
-        MemoryStore["MemoryStore (shared)"]
-        Skills[Skills]
-        Commands[Commands]
-        Hooks[Hooks]
-        Config[config.json]
-    end
+    App --> CliHost
+    App --> GatewayHost
+    App --> AcpHost
 
-    subgraph tools [Tools]
-        FileTools[File R/W]
-        ShellTools[Shell]
-        WebTools[Web]
-        SubAgent[SubAgent]
-        MCPServers[MCP Servers]
-    end
+    CliHost --> AgentCore
+    AcpHost --> AgentCore
+    GatewayHost --> modules
+    modules --> AgentCore
 
-    subgraph sandbox ["沙箱 (OpenSandbox)"]
-        SandboxShell[Shell]
-        SandboxFile[File R/W]
-        SandboxSync[Sync to Host]
-    end
+    AgentCore --> Tools
+    AgentCore --> infra
+    MCP --> Tools
+    Tools -->|"隔离执行"| Sandbox
 
-    channels -->|requests| gateway
-    gateway --> core
-    core --> workspace
-    core --> tools
-    core -->|"隔离执行"| sandbox
-    MsgRouter -->|route delivery| channels
-
-    classDef channelStyle fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
-    classDef gatewayStyle fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef entryStyle fill:#f3f4f6,stroke:#6b7280,color:#1f2937
+    classDef hostStyle fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef moduleStyle fill:#fef3c7,stroke:#f59e0b,color:#78350f
     classDef coreStyle fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
-    classDef workspaceStyle fill:#d1fae5,stroke:#10b981,color:#064e3b
     classDef toolStyle fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+    classDef infraStyle fill:#d1fae5,stroke:#10b981,color:#064e3b
     classDef sandboxStyle fill:#fef9c3,stroke:#ca8a04,color:#713f12
 
-    class CLI,QQ,WeCom,API,ACP channelStyle
-    class MsgRouter,SessGate gatewayStyle
-    class AgentFactory,AgentRunner,PromptBuilder coreStyle
-    class SessionStore,MemoryStore,Skills,Commands,Hooks,Config workspaceStyle
-    class FileTools,ShellTools,WebTools,SubAgent,MCPServers toolStyle
-    class SandboxShell,SandboxFile,SandboxSync sandboxStyle
+    class App entryStyle
+    class CliHost,GatewayHost,AcpHost hostStyle
+    class QQModule,WeComModule,ApiModule moduleStyle
+    class AgentCore coreStyle
+    class Tools toolStyle
+    class Session,Memory,Hooks,Skills,Config infraStyle
+    class Sandbox sandboxStyle
+
+    classDef hostStyle fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef moduleStyle fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef coreStyle fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
+    classDef toolStyle fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+    classDef infraStyle fill:#d1fae5,stroke:#10b981,color:#064e3b
+    classDef sandboxStyle fill:#fef9c3,stroke:#ca8a04,color:#713f12
+
+    class Program,HostBuilder entryStyle
+    class CliHost,GatewayHost,AcpHost hostStyle
+    class QQModule,WeComModule,ApiModule,AcpModule moduleStyle
+    class AgentFactory,AgentRunner,SessionGate,MessageRouter coreStyle
+    class CoreTools,SubAgent,MCP,ChannelTools toolStyle
+    class SessionStore,MemoryStore,Hooks,Skills,Config infraStyle
+    class OpenSandbox sandboxStyle
 ```
 
 ## 🧬 设计

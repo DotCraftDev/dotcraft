@@ -16,9 +16,9 @@
 
 <table>
 <tr>
-<td width="33%" align="center"><b>🪶 Lightweight & Minimal</b><br/>Written in C#，built on .NET 10, single-file, no complex dependencies.</td>
-<td width="33%" align="center"><b>🚀 One-Click Deployment</b><br/>No complicated configuration process required.</td>
-<td width="33%" align="center"><b>🔒 Secure Approval</b><br/>Multi-layer security with approval flow for high-risk operations.</td>
+<td width="33%" align="center"><b>🚀 Start Your Way</b><br/>Terminal, Gateway, or IDE — pick what fits you</td>
+<td width="33%" align="center"><b>🔗 Seamless IDE Integration</b><br/>ACP-native support for JetBrains, Obsidian, Unity and more</td>
+<td width="33%" align="center"><b>🔐 Secure & Controlled</b><br/>Workspace isolation + approval flow for sensitive operations</td>
 </tr>
 </table>
 
@@ -37,68 +37,69 @@
 
 ```mermaid
 flowchart TB
-    subgraph channels [Channels]
-        CLI[CLI REPL]
-        QQ[QQ Bot]
-        WeCom[WeCom Bot]
-        API[API Service]
-        ACP["ACP (Editor/IDE)"]
+    App["App"]
+
+    subgraph hosts [Runtime Modes]
+        direction LR
+        CliHost["CLI Host (REPL)"]
+        GatewayHost["Gateway Host"]
+        AcpHost["ACP Host (IDE)"]
     end
 
-    subgraph gateway [Gateway]
-        MsgRouter[MessageRouter]
-        SessGate[SessionGate]
+    subgraph modules [Gateway Channels]
+        direction LR
+        QQModule["QQ Bot"]
+        WeComModule["WeCom Bot"]
+        ApiModule["API Service"]
     end
 
-    subgraph core [Core]
-        AgentFactory[AgentFactory]
-        AgentRunner[AgentRunner]
-        PromptBuilder[PromptBuilder]
+    AgentCore["Agent Core"]
+    Tools["Tools"]
+    Sandbox["Sandbox (Optional)"]
+
+    subgraph infra [Infrastructure]
+        direction LR
+        Session["Session"]
+        Memory["Memory"]
+        Hooks["Hooks"]
+        Skills["Skills"]
+        MCP["MCP"]
     end
 
-    subgraph workspace [Workspace]
-        SessionStore["SessionStore (per-channel isolated)"]
-        MemoryStore["MemoryStore (shared)"]
-        Skills[Skills]
-        Commands[Commands]
-        Hooks[Hooks]
-        Config[config.json]
-    end
+    App --> CliHost
+    App --> GatewayHost
+    App --> AcpHost
 
-    subgraph tools [Tools]
-        FileTools[File R/W]
-        ShellTools[Shell]
-        WebTools[Web]
-        SubAgent[SubAgent]
-        MCPServers[MCP Servers]
-    end
+    CliHost --> AgentCore
+    AcpHost --> AgentCore
+    GatewayHost --> modules
+    modules --> AgentCore
 
-    subgraph sandbox ["Sandbox (OpenSandbox)"]
-        SandboxShell[Shell]
-        SandboxFile[File R/W]
-        SandboxSync[Sync to Host]
-    end
+    AgentCore --> Tools
+    AgentCore --> infra
+    MCP --> Tools
+    Tools -->|"isolated execution"| Sandbox
 
-    channels -->|requests| gateway
-    gateway --> core
-    core --> workspace
-    core --> tools
-    core -->|"isolated execution"| sandbox
-    MsgRouter -->|route delivery| channels
-
-    classDef channelStyle fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
-    classDef gatewayStyle fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef entryStyle fill:#f3f4f6,stroke:#6b7280,color:#1f2937
+    classDef hostStyle fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef moduleStyle fill:#fef3c7,stroke:#f59e0b,color:#78350f
     classDef coreStyle fill:#ede9fe,stroke:#8b5cf6,color:#3b0764
-    classDef workspaceStyle fill:#d1fae5,stroke:#10b981,color:#064e3b
     classDef toolStyle fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+    classDef infraStyle fill:#d1fae5,stroke:#10b981,color:#064e3b
     classDef sandboxStyle fill:#fef9c3,stroke:#ca8a04,color:#713f12
 
-    class CLI,QQ,WeCom,API,ACP channelStyle
-    class MsgRouter,SessGate gatewayStyle
-    class AgentFactory,AgentRunner,PromptBuilder coreStyle
-    class SessionStore,MemoryStore,Skills,Commands,Hooks,Config workspaceStyle
-    class FileTools,ShellTools,WebTools,SubAgent,MCPServers toolStyle
-    class SandboxShell,SandboxFile,SandboxSync sandboxStyle
+    class App entryStyle
+    class CliHost,GatewayHost,AcpHost hostStyle
+    class QQModule,WeComModule,ApiModule moduleStyle
+    class AgentCore coreStyle
+    class Tools toolStyle
+    class Session,Memory,Hooks,Skills,Config infraStyle
+    class Sandbox sandboxStyle
+
+    class AgentFactory,AgentRunner,SessionGate,MessageRouter coreStyle
+    class CoreTools,SubAgent,MCP,ChannelTools toolStyle
+    class SessionStore,MemoryStore,Hooks,Skills,Config infraStyle
+    class OpenSandbox sandboxStyle
 ```
 
 ## 🧬 Design
