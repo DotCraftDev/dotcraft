@@ -5,8 +5,9 @@ using Microsoft.Extensions.AI;
 namespace DotCraft.Unity;
 
 /// <summary>
-/// Provides Unity-specific tools that use ACP extension methods (_unity/*).
-/// These tools allow the AI agent to interact with the Unity Editor.
+/// Provides Unity-specific read-only tools that use ACP extension methods (_unity/*).
+/// These tools allow the AI agent to understand the Unity project state.
+/// For full Unity manipulation capabilities, install SkillsForUnity package.
 /// </summary>
 public sealed class UnityAcpToolProvider : IAgentToolProvider
 {
@@ -37,7 +38,7 @@ public sealed class UnityAcpToolProvider : IAgentToolProvider
             yield break;
         }
 
-        // Scene tools
+        // Scene tools (read-only)
         yield return AIFunctionFactory.Create(
             (string? query, bool includeComponents, int maxDepth, CancellationToken ct) =>
                 CallExtensionAsync<UnitySceneQueryResult>(proxy, "_unity/scene_query",
@@ -53,39 +54,7 @@ public sealed class UnityAcpToolProvider : IAgentToolProvider
             name: "unity_get_selection",
             description: "Get currently selected objects in Unity Editor. Returns array of selected GameObjects with their paths and components.");
 
-        yield return AIFunctionFactory.Create(
-            (string[] objectPaths, CancellationToken ct) =>
-                CallExtensionAsync<UnityOperationResult>(proxy, "_unity/set_selection",
-                    new { objectPaths }, ct),
-            name: "unity_set_selection",
-            description: "Set selection in Unity Editor. Pass array of object paths (e.g., ['/Main Camera', '/Directional Light']).");
-
-        yield return AIFunctionFactory.Create(
-            (string name, string? parentPath, string[]? components, float[]? position, CancellationToken ct) =>
-                CallExtensionAsync<UnityCreateGameObjectResult>(proxy, "_unity/create_gameobject",
-                    new { name, parentPath, components, position }, ct),
-            name: "unity_create_gameobject",
-            description: "Create a new GameObject in the Unity scene. " +
-                         "'name' is required. Optionally specify 'parentPath', 'components' array (e.g., ['Rigidbody', 'BoxCollider']), " +
-                         "and 'position' as [x, y, z].");
-
-        yield return AIFunctionFactory.Create(
-            (string objectPath, string componentType, Dictionary<string, object>? properties, CancellationToken ct) =>
-                CallExtensionAsync<UnityOperationResult>(proxy, "_unity/modify_component",
-                    new { objectPath, componentType, properties }, ct),
-            name: "unity_modify_component",
-            description: "Modify properties of a component on a GameObject. " +
-                         "'objectPath' is the hierarchy path, 'componentType' is the full component name, " +
-                         "'properties' is a dictionary of property names and values to set.");
-
-        yield return AIFunctionFactory.Create(
-            (string objectPath, CancellationToken ct) =>
-                CallExtensionAsync<UnityOperationResult>(proxy, "_unity/delete_gameobject",
-                    new { objectPath }, ct),
-            name: "unity_delete_gameobject",
-            description: "Delete a GameObject from the scene by its hierarchy path.");
-
-        // Console tools
+        // Console tools (read-only)
         yield return AIFunctionFactory.Create(
             (string[]? types, int limit, CancellationToken ct) =>
                 CallExtensionAsync<UnityConsoleLogsResult>(proxy, "_unity/get_console_logs",
@@ -95,41 +64,7 @@ public sealed class UnityAcpToolProvider : IAgentToolProvider
                          "'types' filters by log type: ['error', 'warning', 'log'] (default all). " +
                          "'limit' sets max entries to return (default 50).");
 
-        // Editor tools
-        yield return AIFunctionFactory.Create(
-            (string menuPath, CancellationToken ct) =>
-                CallExtensionAsync<UnityOperationResult>(proxy, "_unity/execute_menu_item",
-                    new { menuPath }, ct),
-            name: "unity_execute_menu_item",
-            description: "Execute a Unity Editor menu item by its path. " +
-                         "Example: 'GameObject/3D Object/Cube' or 'Assets/Create/C# Script'.");
-
-        // Asset tools
-        yield return AIFunctionFactory.Create(
-            (string assetPath, CancellationToken ct) =>
-                CallExtensionAsync<UnityAssetInfoResult>(proxy, "_unity/get_asset_info",
-                    new { assetPath }, ct),
-            name: "unity_get_asset_info",
-            description: "Get metadata about a Unity asset at the specified path (e.g., 'Assets/Prefabs/Player.prefab'). " +
-                         "Returns asset type, dependencies, and import settings.");
-
-        yield return AIFunctionFactory.Create(
-            (string assetPath, CancellationToken ct) =>
-                CallExtensionAsync<UnityOperationResult>(proxy, "_unity/import_asset",
-                    new { assetPath }, ct),
-            name: "unity_import_asset",
-            description: "Trigger AssetDatabase.ImportAsset for the specified asset path. " +
-                         "Useful after modifying asset files externally.");
-
-        yield return AIFunctionFactory.Create(
-            (string filter, string[]? searchInFolders, CancellationToken ct) =>
-                CallExtensionAsync<UnityFindAssetsResult>(proxy, "_unity/find_assets",
-                    new { filter, searchInFolders }, ct),
-            name: "unity_find_assets",
-            description: "Search for Unity assets using AssetDatabase.FindAssets. " +
-                         "'filter' is the search query (e.g., 't:Prefab', 'l:Audio'). " +
-                         "'searchInFolders' limits search scope.");
-
+        // Project info (read-only)
         yield return AIFunctionFactory.Create(
             (CancellationToken ct) =>
                 CallExtensionAsync<UnityProjectInfoResult>(proxy, "_unity/get_project_info", null, ct),
@@ -188,18 +123,6 @@ public sealed class UnityAcpToolProvider : IAgentToolProvider
         public List<UnityGameObjectInfo> SelectedObjects { get; set; } = new();
     }
 
-    public sealed class UnityCreateGameObjectResult
-    {
-        public int InstanceId { get; set; }
-        public string Path { get; set; } = "";
-    }
-
-    public sealed class UnityOperationResult
-    {
-        public bool Success { get; set; }
-        public string? Error { get; set; }
-    }
-
     public sealed class UnityConsoleLogsResult
     {
         public List<UnityConsoleLogEntry> Logs { get; set; } = new();
@@ -211,27 +134,6 @@ public sealed class UnityAcpToolProvider : IAgentToolProvider
         public string Message { get; set; } = "";
         public string? StackTrace { get; set; }
         public int Count { get; set; }
-    }
-
-    public sealed class UnityAssetInfoResult
-    {
-        public string Path { get; set; } = "";
-        public string Type { get; set; } = "";
-        public long Size { get; set; }
-        public List<string> Dependencies { get; set; } = new();
-        public Dictionary<string, object>? ImportSettings { get; set; }
-    }
-
-    public sealed class UnityFindAssetsResult
-    {
-        public List<UnityAssetReference> Assets { get; set; } = new();
-    }
-
-    public sealed class UnityAssetReference
-    {
-        public string Path { get; set; } = "";
-        public string Name { get; set; } = "";
-        public string Type { get; set; } = "";
     }
 
     public sealed class UnityProjectInfoResult

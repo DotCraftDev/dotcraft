@@ -516,10 +516,14 @@ namespace DotCraft.Editor.Connection
 
             // Extension method handler for _unity/*
             // Method name is passed separately - no longer injected into params
-            _transport.RegisterExtensionHandler("_unity/", async (method, paramsJson) =>
+            // Only register if built-in Unity tools are enabled
+            if (_settings.EnableBuiltinUnityTools)
             {
-                return await _extensionRouter.HandleAsync(method, paramsJson);
-            });
+                _transport.RegisterExtensionHandler("_unity/", async (method, paramsJson) =>
+                {
+                    return await _extensionRouter.HandleAsync(method, paramsJson);
+                });
+            }
         }
 
         private async Task<InitializeResult> InitializeAsync(CancellationToken ct)
@@ -531,7 +535,7 @@ namespace DotCraft.Editor.Connection
                 {
                     Fs = FsCapabilities.All,
                     Terminal = TerminalCapabilities.All,
-                    Extensions = new[] { "_unity" }
+                    Extensions = _settings.EnableBuiltinUnityTools ? new[] { "_unity" } : Array.Empty<string>()
                 },
                 ClientInfo = new ClientInfo
                 {

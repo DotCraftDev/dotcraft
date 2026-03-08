@@ -88,6 +88,13 @@ namespace DotCraft.Editor.Settings
         public int MaxHistoryMessages { get; set; } = 1000;
 
         /// <summary>
+        /// Enable built-in Unity tools (_unity/* extension methods).
+        /// Disable if using external Unity integration.
+        /// </summary>
+        [JsonPropertyName("enableBuiltinUnityTools")]
+        public bool EnableBuiltinUnityTools { get; set; } = true;
+
+        /// <summary>
         /// Gets the effective workspace path (falls back to project root).
         /// </summary>
         [JsonIgnore]
@@ -208,6 +215,7 @@ namespace DotCraft.Editor.Settings
             VerboseLogging = false;
             RequestTimeoutSeconds = 30;
             MaxHistoryMessages = 1000;
+            EnableBuiltinUnityTools = true;
         }
     }
 }

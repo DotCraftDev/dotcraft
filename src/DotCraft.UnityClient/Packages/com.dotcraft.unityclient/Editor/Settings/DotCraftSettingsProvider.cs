@@ -161,6 +161,22 @@ namespace DotCraft.Editor.Settings
 
             EditorGUILayout.Space(10);
 
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("Unity Tools", EditorStyles.boldLabel);
+                EditorGUI.indentLevel++;
+
+                _settings.EnableBuiltinUnityTools = EditorGUILayout.Toggle(
+                    new GUIContent("Enable Builtin Tools",
+                        "Enable built-in _unity/* extension methods for reading Unity state. " +
+                        "Disable if using external Unity integration."),
+                    _settings.EnableBuiltinUnityTools);
+
+                EditorGUI.indentLevel--;
+            }
+
+            EditorGUILayout.Space(10);
+
             // General settings validation
             var errors = _settings.Validate();
             if (errors.Count > 0)
