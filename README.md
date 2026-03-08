@@ -296,7 +296,7 @@ Placeholders: `$ARGUMENTS` expands to the full argument string, `$1`, `$2`, etc.
 
 DotCraft provides seamless integration with the Unity Editor through the Agent Client Protocol (ACP). The integration consists of two components:
 
-1. **Server-side Module** (`DotCraft.Unity`): Provides 13 specialized tools for scene manipulation, asset management, and editor operations
+1. **Server-side Module** (`DotCraft.Unity`): Provides 4 read-only tools for understanding Unity project state
 2. **Unity Client Package** (`com.dotcraft.unityclient`): Unity Editor extension with in-editor chat interface
 
 #### Installing the Unity Client Package
@@ -325,12 +325,14 @@ Clone the repository and add from disk: **+ → Add package from disk**, select 
 
 #### Features
 
-- **Scene Tools**: Query hierarchy, create/delete GameObjects, modify components, manage selections
-- **Asset Tools**: Get asset info, import assets, search asset database
-- **Editor Tools**: Execute menu items, get console logs, retrieve project info
+- **Scene Tools**: Query scene hierarchy, get current selection
+- **Console Tools**: Retrieve Unity Console log entries
+- **Project Tools**: Get Unity version, project name, and packages
 - **Permission Approval**: Interactive approval panel for high-risk operations
 - **Asset Attachment**: Drag Unity assets to attach them to messages
 - **Auto Reconnect**: Automatically reconnects after Domain Reload
+
+For full Unity manipulation capabilities (create, modify, delete GameObjects, etc.), install [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) or [unity-mcp](https://github.com/CoplayDev/unity-mcp).
 
 For detailed configuration and troubleshooting, see the [Unity Integration Guide](./docs/en/unity_guide.md).
 

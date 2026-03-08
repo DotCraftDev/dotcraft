@@ -306,7 +306,7 @@ $ARGUMENTS
 
 DotCraft 通过 Agent Client Protocol (ACP) 与 Unity 编辑器无缝集成。集成包含两个组件：
 
-1. **服务端模块** (`DotCraft.Unity`)：提供 13 个专用工具，支持场景操作、资源管理和编辑器功能
+1. **服务端模块** (`DotCraft.Unity`)：提供 4 个只读工具，帮助 AI 理解 Unity 项目状态
 2. **Unity 客户端包** (`com.dotcraft.unityclient`)：Unity 编辑器扩展，提供编辑器内聊天界面
 
 #### 安装 Unity 客户端包
@@ -335,12 +335,14 @@ https://github.com/DotCraftDev/DotCraft.git?path=src/DotCraft.UnityClient/Packag
 
 #### 功能特性
 
-- **场景工具**：查询层级结构、创建/删除 GameObject、修改组件、管理选择
-- **资源工具**：获取资源信息、导入资源、搜索资源数据库
-- **编辑器工具**：执行菜单项、获取控制台日志、检索项目信息
+- **场景工具**：查询场景层级、获取当前选中对象
+- **控制台工具**：获取 Unity Console 日志条目
+- **项目工具**：获取 Unity 版本、项目名称和包信息
 - **权限审批**：交互式审批面板，处理高风险操作
 - **资源附加**：拖拽 Unity 资源到消息中附加它们
 - **自动重连**：Domain Reload 后自动重新连接
+
+如需完整的 Unity 操作能力（创建、修改、删除 GameObject 等），请安装 [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) 或 [unity-mcp](https://github.com/CoplayDev/unity-mcp)。
 
 详细配置和故障排除请参阅 [Unity 集成指南](./docs/unity_guide.md)。
 
