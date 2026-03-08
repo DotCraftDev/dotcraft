@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -21,13 +22,51 @@ public static class InitHelper
     };
 
     /// <summary>
+    /// 从嵌入资源读取模板内容
+    /// </summary>
+    /// <param name="templateName">模板名称（如 AGENTS, USER, MEMORY, gitignore）</param>
+    /// <param name="language">语言</param>
+    /// <returns>模板内容</returns>
+    private static string GetTemplateContent(string templateName, Language language)
+    {
+        var langSuffix = language == Language.Chinese ? "zh" : "en";
+        var extension = templateName == "gitignore" ? "" : ".md";
+        var resourceName = $"DotCraft.Resources.Templates.{templateName}_{langSuffix}{extension}";
+
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+
+        if (stream == null)
+        {
+            throw new InvalidOperationException($"Template resource not found: {resourceName}");
+        }
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>
     /// 选择语言
     /// </summary>
     public static Language SelectLanguage()
     {
+        // 显示欢迎面板
+        Console.WriteLine();
+        var welcomePanel = new Panel(
+            new Markup(
+                "[cyan]Welcome to DotCraft![/]\n\n" +
+                "[grey]请选择语言 / Please select language:[/]"))
+        {
+            Header = new PanelHeader("[cyan]🌐 Language Selection[/]"),
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(Color.Cyan),
+            Padding = new Padding(1, 0, 1, 0)
+        };
+        AnsiConsole.Write(welcomePanel);
+        Console.WriteLine();
+
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
-                .Title("请选择语言 / Please select language:")
                 .AddChoices("中文 (Chinese)", "English"));
 
         return choice == "中文 (Chinese)" ? Language.Chinese : Language.English;
@@ -59,6 +98,9 @@ public static class InitHelper
         
         AnsiConsole.MarkupLine($"[blue]🚀 {lang.GetString("开始初始化 DotCraft 工作区...", "Initializing DotCraft workspace...")}[/]");
 
+        // 收集创建的文件用于表格显示
+        var createdItems = new List<(string Status, string Path)>();
+
         try
         {
             // 创建工作区目录结构
@@ -74,7 +116,7 @@ public static class InitHelper
             foreach (var dir in directories)
             {
                 Directory.CreateDirectory(dir);
-                AnsiConsole.MarkupLine($"  [green]✓[/] {dir.EscapeMarkup()}");
+                createdItems.Add(("[green]✓[/]", dir.EscapeMarkup()));
             }
 
             // 创建配置文件（只保存用户设置的字段，避免覆盖全局配置）
@@ -99,216 +141,43 @@ public static class InitHelper
             var json = workspaceNode.ToJsonString(JsonOptions);
             string configPath = Path.Combine(workspacePath, "config.json");
             File.WriteAllText(configPath, json, System.Text.Encoding.UTF8);
-            AnsiConsole.MarkupLine($"  [green]✓[/] {configPath.EscapeMarkup()}");
+            createdItems.Add(("[green]✓[/]", configPath.EscapeMarkup()));
 
             // 创建模板文件
-            var agentsContent = language == Language.Chinese
-                ? """
-# DotCraft 智能体指令
-
-你是 DotCraft，一个简洁、可靠的 CLI 智能体。必要时调用工具完成任务。
-
-## 核心原则
-
-- **简洁明了**: 提供清晰、直接的回答，避免冗余
-- **准确可靠**: 确保信息的准确性和可靠性
-- **安全优先**: 操作文件系统和执行命令时保持谨慎
-- **用户友好**: 解释你的行动，让用户了解你的工作过程
-
-## 工作流程
-
-1. **理解用户需求**: 仔细分析用户的问题和需求
-2. **规划行动**: 确定是否需要调用工具（如读取文件、执行命令等）
-3. **执行任务**: 调用适当的工具完成任务
-4. **反馈结果**: 清晰地向用户报告结果
-5. **记录重要信息**: 将重要信息保存到记忆中
-"""
-                : """
-# DotCraft Agent Instructions
-
-You are DotCraft, a concise and reliable CLI agent. Use tools when necessary to complete tasks.
-
-## Core Principles
-
-- **Concise and Clear**: Provide clear, direct answers without redundancy
-- **Accurate and Reliable**: Ensure accuracy and reliability of information
-- **Security First**: Be cautious when operating on the file system and executing commands
-- **User Friendly**: Explain your actions to keep users informed of your work process
-
-## Workflow
-
-1. **Understand User Needs**: Carefully analyze user questions and requirements
-2. **Plan Actions**: Determine if tools need to be called (e.g., reading files, executing commands)
-3. **Execute Tasks**: Call appropriate tools to complete tasks
-4. **Report Results**: Clearly report results to the user
-5. **Record Important Information**: Save important information to memory
-""";
-            
+            var agentsContent = GetTemplateContent("AGENTS", language);
             var agentsPath = Path.Combine(workspacePath, "AGENTS.md");
             File.WriteAllText(agentsPath, agentsContent, System.Text.Encoding.UTF8);
-            AnsiConsole.MarkupLine("  [green]✓[/] AGENTS.md");
+            createdItems.Add(("[green]✓[/]", "AGENTS.md"));
 
-            var userContent = language == Language.Chinese
-                ? """
-# 用户信息模板
-
-在此文件中记录关于用户的重要信息，帮助 DotCraft 更好地理解你的需求。
-
-## 偏好设置
-
-- **编程语言**: (如：C#, Python, JavaScript)
-- **代码风格**: (如：简洁/详细，注重可读性/性能)
-- **沟通风格**: (如：正式/随意，简洁/详细)
-- **时区**: (如：UTC+8)
-- **语言**: (如：中文, English)
-
-## 项目信息
-
-- **项目类型**: (如：Web应用，桌面应用，库)
-- **主要技术栈**: (列出主要使用的技术)
-- **开发环境**: (如：Visual Studio, VS Code, Rider)
-"""
-                : """
-# User Information Template
-
-Record important information about the user in this file to help DotCraft better understand your needs.
-
-## Preferences
-
-- **Programming Languages**: (e.g., C#, Python, JavaScript)
-- **Code Style**: (e.g., Concise/Verbose, Readability/Performance focused)
-- **Communication Style**: (e.g., Formal/Casual, Concise/Detailed)
-- **Timezone**: (e.g., UTC+8)
-- **Language**: (e.g., Chinese, English)
-
-## Project Information
-
-- **Project Type**: (e.g., Web App, Desktop App, Library)
-- **Main Tech Stack**: (List main technologies used)
-- **Development Environment**: (e.g., Visual Studio, VS Code, Rider)
-""";
-
+            var userContent = GetTemplateContent("USER", language);
             var userPath = Path.Combine(workspacePath, "USER.md");
             File.WriteAllText(userPath, userContent, System.Text.Encoding.UTF8);
-            AnsiConsole.MarkupLine("  [green]✓[/] USER.md");
+            createdItems.Add(("[green]✓[/]", "USER.md"));
 
-            var memoryContent = language == Language.Chinese
-                ? """
-# 长期记忆
-
-此文件存储需要在会话之间保持的重要信息。
-
-## 用户信息
-
-(关于用户的重要事实)
-
-## 偏好设置
-
-(随时间学习到的用户偏好)
-
-## 重要备注
-
-(需要记住的事项)
-
-## 项目上下文
-
-- 项目名称: ______________
-- 当前目标: ______________
-- 最近进展: ______________
-
-## 关键决策
-
-记录重要的技术决策及其原因：
-
-| 日期 | 决策 | 原因 |
-|------|------|------|
-|      |      |      |
-"""
-                : """
-# Long-term Memory
-
-This file stores important information that needs to persist between sessions.
-
-## User Information
-
-(Important facts about the user)
-
-## Preferences
-
-(User preferences learned over time)
-
-## Important Notes
-
-(Things to remember)
-
-## Project Context
-
-- Project Name: ______________
-- Current Goal: ______________
-- Recent Progress: ______________
-
-## Key Decisions
-
-Record important technical decisions and their reasons:
-
-| Date | Decision | Reason |
-|------|----------|--------|
-|      |          |        |
-""";
-
+            var memoryContent = GetTemplateContent("MEMORY", language);
             var memoryDir = Path.Combine(workspacePath, "memory");
             var memoryPath = Path.Combine(memoryDir, "MEMORY.md");
             File.WriteAllText(memoryPath, memoryContent, System.Text.Encoding.UTF8);
-            AnsiConsole.MarkupLine("  [green]✓[/] memory/MEMORY.md");
+            createdItems.Add(("[green]✓[/]", "memory/MEMORY.md"));
 
-            var gitignoreContent = language == Language.Chinese
-                ? """
-# DotCraft 工作区 - 敏感数据不应提交
-
-# 会话文件（包含对话历史）
-sessions/
-
-# 记忆文件（可能包含敏感信息）
-memory/
-
-# 批准记录（包含用户授权记录）
-security/
-
-# 日志文件
-*.log
-
-# 临时文件
-*.tmp
-*.temp
-"""
-                : """
-# DotCraft Workspace - Sensitive data should not be committed
-
-# Session files (contain conversation history)
-sessions/
-
-# Memory files (may contain sensitive information)
-memory/
-
-# Approval records (contain user authorization records)
-security/
-
-# Log files
-*.log
-
-# Temporary files
-*.tmp
-*.temp
-""";
-
+            var gitignoreContent = GetTemplateContent("gitignore", language);
             var gitignorePath = Path.Combine(workspacePath, ".gitignore");
             File.WriteAllText(gitignorePath, gitignoreContent, System.Text.Encoding.UTF8);
-            AnsiConsole.MarkupLine("  [green]✓[/] .gitignore");
+            createdItems.Add(("[green]✓[/]", ".gitignore"));
 
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[green]✓ {lang.GetString("DotCraft 初始化完成！", "DotCraft initialization complete!")}[/]");
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[grey]{lang.GetString("提示: 将 .craft 目录加入 .gitignore 以避免提交敏感数据", "Tip: Add .craft directory to .gitignore to avoid committing sensitive data")}[/]");
+            // 使用表格显示创建的文件
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .BorderColor(Color.Grey)
+                .AddColumn(new TableColumn(lang.GetString("状态", "Status")).Centered())
+                .AddColumn(new TableColumn(lang.GetString("路径", "Path")).LeftAligned());
+
+            foreach (var item in createdItems)
+            {
+                table.AddRow(item.Status, item.Path);
+            }
+
+            AnsiConsole.Write(table);
 
             return 0;
         }

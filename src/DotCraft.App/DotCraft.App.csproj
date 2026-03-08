@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <Content Include="Resources\favicon.ico" />
+    <EmbeddedResource Include="Resources\Templates\**\*" />
   </ItemGroup>
 
   <ItemGroup>
