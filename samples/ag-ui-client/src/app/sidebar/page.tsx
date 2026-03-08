@@ -1,13 +1,14 @@
 "use client";
 
 import {
-  CopilotChat,
   CopilotKitProvider,
+  CopilotSidebar,
   useConfigureSuggestions,
   useAgentContext,
 } from "@copilotkitnext/react";
 import type { ToolsMenuItem } from "@copilotkitnext/react";
 import { useMemo } from "react";
+import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { ThreadList } from "@/components/ThreadList";
 import { AbortErrorBoundary } from "@/components/AbortErrorBoundary";
@@ -42,7 +43,7 @@ function getDashboardUrl(): string {
   return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? DEFAULT_DASHBOARD_URL;
 }
 
-function ChatWithThreads() {
+function SidebarChat() {
   const { currentThreadId, addThread } = useThreads();
   const suggestionsAvailable = getSuggestionsAvailable();
 
@@ -63,14 +64,12 @@ function ChatWithThreads() {
 
   const toolsMenu = useMemo<(ToolsMenuItem | "-")[]>(
     () => [
-      {
-        label: "New chat",
-        action: () => addThread(),
-      },
+      { label: "New chat", action: () => addThread() },
       "-",
       {
         label: "Open DotCraft Dashboard",
-        action: () => window.open(getDashboardUrl(), "_blank", "noopener,noreferrer"),
+        action: () =>
+          window.open(getDashboardUrl(), "_blank", "noopener,noreferrer"),
       },
       "-",
       {
@@ -96,22 +95,69 @@ function ChatWithThreads() {
   );
 
   return (
-    <>
-      <Nav onNewChat={addThread} />
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-900">
-        <span className="text-sm text-slate-500 dark:text-slate-400">Thread:</span>
-        <ThreadList />
-      </div>
-      <div className="min-h-0 flex-1">
-        <AbortErrorBoundary>
-          <CopilotChat threadId={currentThreadId} input={{ toolsMenu }} />
-        </AbortErrorBoundary>
-      </div>
-    </>
+      <AbortErrorBoundary>
+        <CopilotSidebar
+          threadId={currentThreadId}
+          defaultOpen
+          width="50%"
+          input={{ toolsMenu }}
+        />
+      </AbortErrorBoundary>
   );
 }
 
-export default function DotCraftChatPage() {
+function SidebarLayout() {
+  const { addThread } = useThreads();
+
+  return (
+    <div className="relative min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+      <Nav onNewChat={addThread} />
+      <div className="flex items-center gap-3 border-b border-slate-200 bg-white/80 px-4 py-2 backdrop-blur dark:border-slate-700 dark:bg-slate-900/80">
+        <span className="text-sm text-slate-500 dark:text-slate-400">
+          Thread:
+        </span>
+        <ThreadList />
+        <Link
+          href="/"
+          className="ml-auto text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+        >
+          Full chat
+        </Link>
+      </div>
+      <main className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-12">
+        <section className="space-y-4">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            DotCraft Sidebar
+          </h1>
+          <p className="max-w-2xl text-slate-600 dark:text-slate-300">
+            Chat with DotCraft in a right-aligned sidebar. Use the thread
+            dropdown to switch or create conversations. Open the sidebar with
+            the button in the corner.
+          </p>
+        </section>
+        <section className="grid gap-6 md:grid-cols-2">
+          {[1, 2, 3, 4].map((i) => (
+            <article
+              key={i}
+              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md dark:border-slate-600 dark:bg-slate-800"
+            >
+              <h2 className="text-lg font-medium text-slate-900 dark:text-slate-100">
+                Card {i}
+              </h2>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                Placeholder content. The sidebar pushes this layout instead of
+                overlapping it.
+              </p>
+            </article>
+          ))}
+        </section>
+      </main>
+      <SidebarChat />
+    </div>
+  );
+}
+
+export default function SidebarPage() {
   return (
     <CopilotKitProvider
       runtimeUrl="/api/dotcraft"
@@ -120,9 +166,7 @@ export default function DotCraftChatPage() {
       showDevConsole="auto"
     >
       <ThreadsProvider>
-        <div className="flex h-screen flex-col">
-          <ChatWithThreads />
-        </div>
+        <SidebarLayout />
       </ThreadsProvider>
     </CopilotKitProvider>
   );
