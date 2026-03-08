@@ -1885,6 +1885,18 @@ const CONFIG_SCHEMA = [
     ]
   },
   {
+    section: 'AG-UI',
+    path: ['AgUi'],
+    fields: [
+      { key: 'Enabled',     type: 'bool' },
+      { key: 'Path',        type: 'text', hint: 'Default: /ag-ui' },
+      { key: 'Host',        type: 'text', hint: 'Bind address, default 0.0.0.0' },
+      { key: 'Port',        type: 'number', min: 1, max: 65535 },
+      { key: 'RequireAuth', type: 'bool' },
+      { key: 'ApiKey',      type: 'password', sensitive: true, hint: 'Required when RequireAuth is on' },
+    ]
+  },
+  {
     section: 'Dashboard',
     path: ['DashBoard'],
     fields: [

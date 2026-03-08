@@ -214,6 +214,7 @@ public sealed class GatewayHost : IDotCraftHost
                     "qq"    => ApprovalSource.QQ,
                     "wecom" => ApprovalSource.WeCom,
                     "api"   => ApprovalSource.Api,
+                    "ag-ui" => ApprovalSource.Console,
                     _       => ApprovalSource.Console
                 },
                 ch => ch.ApprovalService!);
@@ -309,6 +310,7 @@ public sealed class GatewayHost : IDotCraftHost
             "qq"    => ApprovalSource.QQ,
             "wecom" => ApprovalSource.WeCom,
             "api"   => ApprovalSource.Api,
+            "ag-ui" => ApprovalSource.Console,
             _       => ApprovalSource.Console
         };
         var groupId = source == ApprovalSource.QQ

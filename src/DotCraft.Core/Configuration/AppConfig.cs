@@ -87,6 +87,8 @@ public sealed class AppConfig
 
     public ApiConfig Api { get; set; } = new();
 
+    public AgUiConfig AgUi { get; set; } = new();
+
     public AcpConfig Acp { get; set; } = new();
 
     public HooksConfig Hooks { get; set; } = new();
@@ -438,6 +440,39 @@ public sealed class AppConfig
         /// </summary>
         public int ApprovalTimeoutSeconds { get; set; } = 120;
 
+    }
+
+    public sealed class AgUiConfig
+    {
+        /// <summary>
+        /// Enable AG-UI protocol server channel.
+        /// </summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>
+        /// AG-UI endpoint path (default: /ag-ui).
+        /// </summary>
+        public string Path { get; set; } = "/ag-ui";
+
+        /// <summary>
+        /// Host to bind the AG-UI HTTP server (default: 0.0.0.0).
+        /// </summary>
+        public string Host { get; set; } = "0.0.0.0";
+
+        /// <summary>
+        /// Port to bind the AG-UI HTTP server (default: 5100).
+        /// </summary>
+        public int Port { get; set; } = 5100;
+
+        /// <summary>
+        /// When true, require Bearer API key for AG-UI requests.
+        /// </summary>
+        public bool RequireAuth { get; set; }
+
+        /// <summary>
+        /// API key for AG-UI when RequireAuth is true.
+        /// </summary>
+        public string? ApiKey { get; set; }
     }
 
     public sealed class AcpConfig
