@@ -13,6 +13,8 @@ namespace DotCraft.Editor.Extensions
     /// <summary>
     /// Routes ACP extension method requests (_unity/*) to registered handlers.
     /// Handlers are executed on the main thread via MainThreadDispatcher.
+    /// Only read-only handlers are provided. For full Unity manipulation capabilities,
+    /// install SkillsForUnity package.
     /// </summary>
     public sealed class ExtensionMethodRouter
     {
@@ -68,34 +70,28 @@ namespace DotCraft.Editor.Extensions
 
         private void RegisterBuiltinHandlers()
         {
-            // Scene handlers
+            // Scene handlers (read-only)
             RegisterHandler("_unity/scene_query", UnitySceneHandlers.HandleSceneQuery);
             RegisterHandler("_unity/get_selection", UnitySceneHandlers.HandleGetSelection);
-            RegisterHandler("_unity/set_selection", UnitySceneHandlers.HandleSetSelection);
-            RegisterHandler("_unity/create_gameobject", UnitySceneHandlers.HandleCreateGameObject);
-            RegisterHandler("_unity/modify_component", UnitySceneHandlers.HandleModifyComponent);
-            RegisterHandler("_unity/delete_gameobject", UnitySceneHandlers.HandleDeleteGameObject);
 
-            // Console handlers
+            // Console handlers (read-only)
             RegisterHandler("_unity/get_console_logs", UnityEditorHandlers.HandleGetConsoleLogs);
 
-            // Editor handlers
-            RegisterHandler("_unity/execute_menu_item", UnityEditorHandlers.HandleExecuteMenuItem);
-
-            // Asset handlers
-            RegisterHandler("_unity/get_asset_info", UnityAssetHandlers.HandleGetAssetInfo);
-            RegisterHandler("_unity/import_asset", UnityAssetHandlers.HandleImportAsset);
-            RegisterHandler("_unity/find_assets", UnityAssetHandlers.HandleFindAssets);
-
-            // Project handlers
+            // Project handlers (read-only)
             RegisterHandler("_unity/get_project_info", UnityProjectHandlers.HandleGetProjectInfo);
         }
     }
 
     #region Scene Handlers
 
+    /// <summary>
+    /// Handles read-only scene query operations.
+    /// </summary>
     public static class UnitySceneHandlers
     {
+        /// <summary>
+        /// Queries the Unity scene hierarchy and returns GameObject information.
+        /// </summary>
         public static Task<object> HandleSceneQuery(JsonElement paramsJson)
         {
             var query = paramsJson.TryGetProperty("query", out var q) ? q.GetString() : null;
@@ -194,6 +190,9 @@ namespace DotCraft.Editor.Extensions
             return info;
         }
 
+        /// <summary>
+        /// Gets the currently selected objects in the Unity Editor.
+        /// </summary>
         public static Task<object> HandleGetSelection(JsonElement _)
         {
             var selected = Selection.gameObjects;
@@ -205,213 +204,6 @@ namespace DotCraft.Editor.Extensions
             }
 
             return Task.FromResult<object>(new { selectedObjects = results });
-        }
-
-        public static Task<object> HandleSetSelection(JsonElement paramsJson)
-        {
-            var paths = paramsJson.TryGetProperty("objectPaths", out var p)
-                ? p.Deserialize<string[]>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                : Array.Empty<string>();
-
-            var objects = new List<GameObject>();
-
-            foreach (var path in paths)
-            {
-                var go = FindGameObjectByPath(path);
-                if (go != null)
-                {
-                    objects.Add(go);
-                }
-            }
-
-            Selection.objects = objects.ToArray();
-
-            return Task.FromResult<object>(new { success = true });
-        }
-
-        public static Task<object> HandleCreateGameObject(JsonElement paramsJson)
-        {
-            var name = paramsJson.TryGetProperty("name", out var n) ? n.GetString() : "New GameObject";
-            var parentPath = paramsJson.TryGetProperty("parentPath", out var pp) ? pp.GetString() : null;
-            var components = paramsJson.TryGetProperty("components", out var c)
-                ? c.Deserialize<string[]>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                : null;
-
-            var go = new GameObject(name);
-
-            // Add components
-            if (components != null)
-            {
-                foreach (var compName in components)
-                {
-                    var compType = Type.GetType(compName) ??
-                                   Type.GetType($"UnityEngine.{compName}, UnityEngine");
-                    if (compType != null)
-                    {
-                        go.AddComponent(compType);
-                    }
-                }
-            }
-
-            // Set parent
-            if (!string.IsNullOrEmpty(parentPath))
-            {
-                var parent = FindGameObjectByPath(parentPath);
-                if (parent != null)
-                {
-                    go.transform.SetParent(parent.transform);
-                }
-            }
-
-            // Set position
-            if (paramsJson.TryGetProperty("position", out var pos))
-            {
-                var posArr = pos.Deserialize<float[]>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (posArr != null && posArr.Length >= 3)
-                {
-                    go.transform.position = new Vector3(posArr[0], posArr[1], posArr[2]);
-                }
-            }
-
-            return Task.FromResult<object>(new
-            {
-                instanceId = go.GetInstanceID(),
-                path = GetGameObjectPath(go)
-            });
-        }
-
-        public static Task<object> HandleModifyComponent(JsonElement paramsJson)
-        {
-            var objectPath = paramsJson.TryGetProperty("objectPath", out var op) ? op.GetString() : "";
-            var componentType = paramsJson.TryGetProperty("componentType", out var ct) ? ct.GetString() : "";
-            var properties = paramsJson.TryGetProperty("properties", out var props)
-                ? props.Deserialize<Dictionary<string, object>>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                : new Dictionary<string, object>();
-
-            var go = FindGameObjectByPath(objectPath);
-            if (go == null)
-            {
-                return Task.FromResult<object>(new { success = false, error = "GameObject not found" });
-            }
-
-            var compType = Type.GetType(componentType) ??
-                          Type.GetType($"UnityEngine.{componentType}, UnityEngine");
-
-            if (compType == null)
-            {
-                return Task.FromResult<object>(new { success = false, error = "Component type not found" });
-            }
-
-            var component = go.GetComponent(compType);
-            if (component == null)
-            {
-                return Task.FromResult<object>(new { success = false, error = "Component not found on object" });
-            }
-
-            var modifiedProps = new List<string>();
-
-            // Use SerializedObject for property modification
-            using (var so = new SerializedObject(component))
-            {
-                foreach (var kvp in properties)
-                {
-                    var prop = so.FindProperty(kvp.Key);
-                    if (prop == null) continue;
-
-                    var value = kvp.Value;
-
-                    switch (prop.propertyType)
-                    {
-                        case SerializedPropertyType.Float:
-                            prop.floatValue = Convert.ToSingle(value);
-                            modifiedProps.Add(kvp.Key);
-                            break;
-                        case SerializedPropertyType.Integer:
-                            prop.intValue = Convert.ToInt32(value);
-                            modifiedProps.Add(kvp.Key);
-                            break;
-                        case SerializedPropertyType.Boolean:
-                            prop.boolValue = Convert.ToBoolean(value);
-                            modifiedProps.Add(kvp.Key);
-                            break;
-                        case SerializedPropertyType.String:
-                            prop.stringValue = value?.ToString() ?? "";
-                            modifiedProps.Add(kvp.Key);
-                            break;
-                    }
-                }
-
-                so.ApplyModifiedProperties();
-            }
-
-            return Task.FromResult<object>(new { success = true, modifiedProperties = modifiedProps });
-        }
-
-        public static Task<object> HandleDeleteGameObject(JsonElement paramsJson)
-        {
-            var objectPath = paramsJson.TryGetProperty("objectPath", out var op) ? op.GetString() : "";
-
-            var go = FindGameObjectByPath(objectPath);
-            if (go == null)
-            {
-                return Task.FromResult<object>(new { success = false, error = "GameObject not found" });
-            }
-
-            UnityEngine.Object.DestroyImmediate(go);
-
-            return Task.FromResult<object>(new { success = true });
-        }
-
-        private static GameObject FindGameObjectByPath(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return null;
-
-            // Path format: "/Parent/Child/Grandchild"
-            var parts = path.Trim('/').Split('/');
-
-            GameObject found = null;
-
-            for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
-            {
-                var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
-                if (!scene.isLoaded) continue;
-
-                foreach (var root in scene.GetRootGameObjects())
-                {
-                    if (root.name == parts[0])
-                    {
-                        found = root;
-                        break;
-                    }
-                }
-
-                if (found != null) break;
-            }
-
-            if (found == null) return null;
-
-            // Traverse path
-            for (int i = 1; i < parts.Length && found != null; i++)
-            {
-                var child = found.transform.Find(parts[i]);
-                found = child?.gameObject;
-            }
-
-            return found;
-        }
-
-        private static string GetGameObjectPath(GameObject go)
-        {
-            var path = go.name;
-            var current = go.transform.parent;
-
-            while (current != null)
-            {
-                path = $"{current.name}/{path}";
-                current = current.parent;
-            }
-
-            return $"/{path}";
         }
 
         private class GameObjectInfo
@@ -506,8 +298,14 @@ namespace DotCraft.Editor.Extensions
         }
     }
 
+    /// <summary>
+    /// Handles read-only Unity Editor operations.
+    /// </summary>
     public static class UnityEditorHandlers
     {
+        /// <summary>
+        /// Gets recent Unity console log entries.
+        /// </summary>
         public static Task<object> HandleGetConsoleLogs(JsonElement paramsJson)
         {
             var types = paramsJson.TryGetProperty("types", out var t)
@@ -520,107 +318,20 @@ namespace DotCraft.Editor.Extensions
 
             return Task.FromResult<object>(new { logs });
         }
-
-        public static Task<object> HandleExecuteMenuItem(JsonElement paramsJson)
-        {
-            var menuPath = paramsJson.TryGetProperty("menuPath", out var mp) ? mp.GetString() : "";
-
-            try
-            {
-                EditorApplication.ExecuteMenuItem(menuPath);
-                return Task.FromResult<object>(new { success = true });
-            }
-            catch (Exception ex)
-            {
-                return Task.FromResult<object>(new { success = false, error = ex.Message });
-            }
-        }
-    }
-
-    #endregion
-
-    #region Asset Handlers
-
-    public static class UnityAssetHandlers
-    {
-        public static Task<object> HandleGetAssetInfo(JsonElement paramsJson)
-        {
-            var assetPath = paramsJson.TryGetProperty("assetPath", out var ap) ? ap.GetString() : "";
-
-            if (string.IsNullOrEmpty(assetPath) || !File.Exists(assetPath))
-            {
-                return Task.FromResult<object>(new { error = "Asset not found" });
-            }
-
-            var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
-            if (asset == null)
-            {
-                return Task.FromResult<object>(new { error = "Failed to load asset" });
-            }
-
-            var info = new
-            {
-                path = assetPath,
-                name = asset.name,
-                type = asset.GetType().Name,
-                size = new FileInfo(assetPath).Length
-            };
-
-            return Task.FromResult<object>(info);
-        }
-
-        public static Task<object> HandleImportAsset(JsonElement paramsJson)
-        {
-            var assetPath = paramsJson.TryGetProperty("assetPath", out var ap) ? ap.GetString() : "";
-
-            try
-            {
-                AssetDatabase.ImportAsset(assetPath);
-                return Task.FromResult<object>(new { success = true });
-            }
-            catch (Exception ex)
-            {
-                return Task.FromResult<object>(new { success = false, error = ex.Message });
-            }
-        }
-
-        public static Task<object> HandleFindAssets(JsonElement paramsJson)
-        {
-            var filter = paramsJson.TryGetProperty("filter", out var f) ? f.GetString() : "";
-            var searchInFolders = paramsJson.TryGetProperty("searchInFolders", out var sif)
-                ? sif.Deserialize<string[]>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                : null;
-
-            var guids = searchInFolders != null && searchInFolders.Length > 0
-                ? AssetDatabase.FindAssets(filter, searchInFolders)
-                : AssetDatabase.FindAssets(filter);
-
-            var assets = new List<object>();
-
-            foreach (var guid in guids)
-            {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
-
-                assets.Add(new
-                {
-                    guid,
-                    path,
-                    name = asset?.name ?? Path.GetFileNameWithoutExtension(path),
-                    type = asset?.GetType().Name ?? "Unknown"
-                });
-            }
-
-            return Task.FromResult<object>(new { assets });
-        }
     }
 
     #endregion
 
     #region Project Handlers
 
+    /// <summary>
+    /// Handles read-only Unity project information queries.
+    /// </summary>
     public static class UnityProjectHandlers
     {
+        /// <summary>
+        /// Gets Unity project information including version and installed packages.
+        /// </summary>
         public static Task<object> HandleGetProjectInfo(JsonElement _)
         {
             var info = new

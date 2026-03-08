@@ -6,7 +6,7 @@ DotCraft provides seamless integration with the Unity Editor through the Agent C
 
 The Unity integration consists of two components:
 
-1. **Server-side Module** (`DotCraft.Unity`): A DotCraft module that provides 13 specialized tools for Unity Editor operations
+1. **Server-side Module** (`DotCraft.Unity`): A DotCraft module that provides 4 read-only tools for understanding Unity project state
 2. **Unity Client Package** (`com.dotcraft.unityclient`): A Unity Editor extension with in-editor chat interface
 
 ```
@@ -134,9 +134,9 @@ To avoid storing secrets in version control:
 2. Under **Environment Variables**, click **+ Add Variable**
 3. Set key to `DOTCRAFT_API_KEY` and paste your API key as the value
 
-## Available Tools
+## Built-in Tools
 
-DotCraft provides 13 Unity-specific tools when connected:
+DotCraft provides 4 Unity read-only tools to help the AI assistant understand project state:
 
 ### Scene Tools
 
@@ -144,10 +144,6 @@ DotCraft provides 13 Unity-specific tools when connected:
 |------|-------------|
 | `unity_scene_query` | Query scene hierarchy with optional component details |
 | `unity_get_selection` | Get currently selected objects in Unity Editor |
-| `unity_set_selection` | Set selection by object paths |
-| `unity_create_gameobject` | Create a new GameObject with optional components |
-| `unity_modify_component` | Modify properties of a component on a GameObject |
-| `unity_delete_gameobject` | Delete a GameObject from the scene |
 
 ### Console Tools
 
@@ -155,20 +151,57 @@ DotCraft provides 13 Unity-specific tools when connected:
 |------|-------------|
 | `unity_get_console_logs` | Retrieve recent Unity Console log entries |
 
-### Editor Tools
+### Project Tools
 
 | Tool | Description |
 |------|-------------|
-| `unity_execute_menu_item` | Execute a Unity Editor menu item by path |
 | `unity_get_project_info` | Get Unity version, project name, and packages |
 
-### Asset Tools
+These read-only tools work out-of-the-box with no additional configuration, enabling the AI assistant to:
+- Understand scene structure and object relationships
+- Know what objects the user is currently focused on
+- View compilation errors and warnings
+- Get project context information
 
-| Tool | Description |
-|------|-------------|
-| `unity_get_asset_info` | Get metadata about an asset (type, dependencies, settings) |
-| `unity_import_asset` | Trigger AssetDatabase.ImportAsset for an asset |
-| `unity_find_assets` | Search for assets using AssetDatabase.FindAssets |
+## Extended Capabilities: SkillsForUnity
+
+For full Unity manipulation capabilities (create, modify, delete GameObjects, execute menus, etc.), we recommend installing the [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) plugin.
+
+### SkillsForUnity Features
+
+SkillsForUnity provides 100+ Unity Editor skills, including:
+
+- **GameObject Management**: Create, delete, batch operations
+- **Component Operations**: Add, modify properties, batch settings
+- **Scene Management**: Create, load, save, screenshots
+- **Asset Operations**: Find, import, manage
+- **UI Building**: Create Canvas, buttons, layouts
+- **Material/Prefab Management**
+- **Editor Control**: Play, stop, undo, menu execution
+- **Advanced Modules**: Cinemachine, Terrain, Animator, NavMesh, Timeline
+
+### Installing SkillsForUnity
+
+1. Open **Window → Package Manager** in Unity
+2. Click **+ → Add package from git URL**
+3. Enter: `https://github.com/BestyAIGC/Unity-Skills.git?path=SkillsForUnity`
+4. After installation, start the HTTP server via **Window → UnitySkills → Start Server**
+5. Install skill descriptions via **Window → UnitySkills → Install to Claude Code**
+
+### Architecture Comparison
+
+| Feature | DotCraft Built-in Tools | SkillsForUnity |
+|---------|------------------------|----------------|
+| **Installation** | Works out-of-the-box | Requires HTTP server startup |
+| **Scope** | 4 read-only tools | 100+ skills |
+| **Communication** | ACP protocol (stdio) | HTTP REST API |
+| **Use Case** | Understanding project state | Full Unity operations |
+
+### Recommended Usage
+
+1. **Basic Usage**: DotCraft's built-in read-only tools meet daily project understanding needs
+2. **Advanced Operations**: Install SkillsForUnity for complete Unity Editor control
+3. **Combined Use**: Both solutions can be installed simultaneously for complementary functionality
 
 ## Permission Approval
 
@@ -208,23 +241,25 @@ AI: [Uses unity_scene_query tool]
     ...
 ```
 
-### Create GameObject
+### Get Console Logs
 
 ```
-User: Create a cube at position (5, 2, 3) with a Rigidbody component
-AI: [Uses unity_create_gameobject tool]
-    Created GameObject "Cube" at /Cube with InstanceId 12345
+User: Check for compilation errors
+AI: [Uses unity_get_console_logs tool with filter "error"]
+    Found 2 errors:
+    - Assets/Scripts/Player.cs(45): error CS0103: 'velocity' does not exist
+    - Assets/Scripts/Enemy.cs(12): error CS0246: Type 'Navigation' not found
 ```
 
-### Search Assets
+### Get Project Info
 
 ```
-User: Find all prefab assets in the project
-AI: [Uses unity_find_assets tool with filter "t:Prefab"]
-    Found 8 prefab assets:
-    - Assets/Prefabs/Player.prefab
-    - Assets/Prefabs/Enemy.prefab
-    ...
+User: What Unity version is this project using?
+AI: [Uses unity_get_project_info tool]
+    Project info:
+    - Unity version: 2022.3.15f1
+    - Project name: MyGame
+    - Installed packages: 12
 ```
 
 ## Troubleshooting
@@ -242,10 +277,11 @@ AI: [Uses unity_find_assets tool with filter "t:Prefab"]
 - Use **Verbose Logging** during initial setup to diagnose connection issues
 - Configure environment variables for API keys instead of modifying global config
 - The workspace path can be set to a parent directory to share memory across multiple Unity projects
-- Tool calls that modify the scene will trigger Unity's undo system, allowing you to revert changes
+- Install SkillsForUnity for complete Unity Editor operation capabilities
 
 ## See Also
 
 - [Configuration Guide](./config_guide.md) - DotCraft configuration options
 - [ACP Mode Guide](./acp_guide.md) - Agent Client Protocol details
 - [Unity Client README](https://github.com/DotCraftDev/DotCraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - Package documentation
+- [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - Complete Unity operation skill library

@@ -56,6 +56,42 @@ Configure the DotCraft global config (`~/.craft/config.json`) with your LLM API 
 3. Type a message in the input field and press **Enter** (or click **Send**)
 4. Click **Stop** to cancel a running request at any time
 
+## Built-in Unity Tools
+
+DotCraft provides 4 read-only Unity tools to help the AI assistant understand your project state:
+
+| Tool | Description |
+|------|-------------|
+| `unity_scene_query` | Query scene hierarchy with optional component details |
+| `unity_get_selection` | Get currently selected objects in Unity Editor |
+| `unity_get_console_logs` | Retrieve recent Unity Console log entries |
+| `unity_get_project_info` | Get Unity version, project name, and packages |
+
+These tools work out-of-the-box with no additional configuration, enabling the AI assistant to:
+- Understand scene structure and object relationships
+- Know what objects you're currently focused on
+- View compilation errors and warnings
+- Get project context information
+
+## Extended Capabilities: SkillsForUnity
+
+For full Unity manipulation capabilities (create, modify, delete GameObjects, execute menus, etc.), we recommend installing [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills).
+
+SkillsForUnity provides 100+ Unity Editor skills including:
+- GameObject management (create, delete, batch operations)
+- Component operations (add, modify properties)
+- Scene management (create, load, save, screenshots)
+- Asset operations (find, import, manage)
+- UI building, material/prefab management
+- Editor control (play, stop, undo, menu execution)
+- Advanced modules (Cinemachine, Terrain, Animator, NavMesh, Timeline)
+
+### Installing SkillsForUnity
+
+1. In **Window → Package Manager**, click **+ → Add package from git URL**
+2. Enter: `https://github.com/BestyAIGC/Unity-Skills.git?path=SkillsForUnity`
+3. After installation, start the HTTP server via **Window → UnitySkills → Start Server**
+
 ## Settings
 
 Open **Edit → Project Settings → DotCraft** to configure the client.
@@ -149,3 +185,9 @@ To create the `.craft/` directory, run `dotcraft` in the workspace directory (or
 | Stuck at "Connecting…" | DotCraft crashed during startup | Enable **Verbose Logging** and check the Unity Console for stderr output |
 | Window disconnects after every compile | **Auto Reconnect** disabled | Enable it in Project Settings |
 | Permission panel never dismisses | Previous approval callback was lost during a Domain Reload | Disconnect and reconnect to start a fresh session |
+
+## See Also
+
+- [Unity Integration Guide](https://github.com/DotCraftDev/DotCraft/blob/master/docs/en/unity_guide.md) - Detailed integration documentation
+- [ACP Mode Guide](https://github.com/DotCraftDev/DotCraft/blob/master/docs/en/acp_guide.md) - Agent Client Protocol details
+- [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - Complete Unity operation skill library
