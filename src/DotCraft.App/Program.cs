@@ -43,12 +43,20 @@ if (!Directory.Exists(botPath))
 
     // Trust folder confirmation
     Console.WriteLine();
-    AnsiConsole.MarkupLine($"[cyan]{lang.GetString("当前工作区路径 / Current workspace path:", "Current workspace path:")}[/]");
-    AnsiConsole.MarkupLine($"  [white]{Markup.Escape(workspacePath)}[/]");
-    Console.WriteLine();
-    AnsiConsole.WriteLine(lang.GetString(
-        "DotCraft 将在此目录创建工作区（.craft 文件夹），用于存储会话、记忆和配置。",
-        "DotCraft will create a workspace (.craft folder) in this directory to store sessions, memory, and configuration."));
+    var trustPanel = new Panel(
+        new Markup(
+            $"[cyan]{lang.GetString("当前工作区路径 / Current workspace path:", "Current workspace path:")}[/]\n" +
+            $"  [white]{Markup.Escape(workspacePath)}[/]\n\n" +
+            lang.GetString(
+                "DotCraft 将在此目录创建工作区（.craft 文件夹），用于存储会话、记忆和配置。",
+                "DotCraft will create a workspace (.craft folder) in this directory to store sessions, memory, and configuration.")))
+    {
+        Header = new PanelHeader($"[cyan]🔐 {lang.GetString("信任文件夹确认", "Trust Folder Confirmation")}[/]"),
+        Border = BoxBorder.Rounded,
+        BorderStyle = new Style(Color.Cyan),
+        Padding = new Padding(1, 0, 1, 0)
+    };
+    AnsiConsole.Write(trustPanel);
     Console.WriteLine();
 
     if (!InitHelper.AskYesNo(
