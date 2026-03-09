@@ -4,7 +4,7 @@ import "@copilotkitnext/react/styles.css";
 import { AbortRejectionHandler } from "@/components/AbortRejectionHandler";
 
 export const metadata: Metadata = {
-  title: "DotCraft AG-UI Client",
+  title: "DotCraft Chat",
   description: "Chat with DotCraft via AG-UI protocol",
 };
 

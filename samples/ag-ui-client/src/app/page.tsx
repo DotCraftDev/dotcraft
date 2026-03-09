@@ -12,12 +12,13 @@ import { useMemo, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { ThreadPanel } from "@/components/ThreadPanel";
 import { AbortErrorBoundary } from "@/components/AbortErrorBoundary";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { ThreadsProvider, useThreads } from "@/contexts/ThreadsContext";
+import { LocaleProvider, useLocale } from "@/lib/i18n";
 import { toolRenderers } from "@/lib/toolRenderers";
 import { useMessagePersistence } from "@/hooks/useMessagePersistence";
+import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { WelcomeScreen } from "@/components/WelcomeScreen";
-
-const DEFAULT_DASHBOARD_URL = "http://localhost:5101/dashboard";
 
 type SuggestionsAvailable =
   | "always"
@@ -38,27 +39,12 @@ function getSuggestionsAvailable(): SuggestionsAvailable {
   return "always";
 }
 
-function getDashboardUrl(): string {
-  if (typeof window !== "undefined") {
-    return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? DEFAULT_DASHBOARD_URL;
-  }
-  return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? DEFAULT_DASHBOARD_URL;
-}
-
-const dotcraftLabels: Partial<CopilotChatLabels> = {
-  chatInputPlaceholder: "向 DotCraft 发送消息...",
-  assistantMessageToolbarCopyMessageLabel: "复制",
-  assistantMessageToolbarThumbsUpLabel: "有用",
-  assistantMessageToolbarThumbsDownLabel: "没用",
-  assistantMessageToolbarRegenerateLabel: "重新生成",
-  userMessageToolbarCopyMessageLabel: "复制",
-  userMessageToolbarEditMessageLabel: "编辑",
-  welcomeMessageText: "你好！我是 DotCraft，有什么可以帮你的？",
-};
 
 function ChatWithThreads() {
   const { currentThreadId, addThread } = useThreads();
   const [panelOpen, setPanelOpen] = useState(false);
+  const { connected, retry } = useBackendHealth();
+  const { t, locale } = useLocale();
   useMessagePersistence(currentThreadId);
   const suggestionsAvailable = getSuggestionsAvailable();
 
@@ -77,23 +63,42 @@ function ChatWithThreads() {
     value: currentThreadId,
   });
 
+  // Re-build labels when locale changes so CopilotKit UI updates immediately.
+  const dotcraftLabels = useMemo<Partial<CopilotChatLabels>>(() => ({
+    chatInputPlaceholder: t("chatPlaceholder"),
+    assistantMessageToolbarCopyMessageLabel: t("copy"),
+    assistantMessageToolbarThumbsUpLabel: t("helpful"),
+    assistantMessageToolbarThumbsDownLabel: t("notHelpful"),
+    assistantMessageToolbarRegenerateLabel: t("regenerate"),
+    assistantMessageToolbarReadAloudLabel: t("readAloud"),
+    assistantMessageToolbarCopyCodeLabel: t("copyCode"),
+    assistantMessageToolbarCopyCodeCopiedLabel: t("copyCodeCopied"),
+    userMessageToolbarCopyMessageLabel: t("copy"),
+    userMessageToolbarEditMessageLabel: t("edit"),
+    chatInputToolbarStartTranscribeButtonLabel: t("startTranscribe"),
+    chatInputToolbarCancelTranscribeButtonLabel: t("cancelTranscribe"),
+    chatInputToolbarFinishTranscribeButtonLabel: t("finishTranscribe"),
+    chatInputToolbarAddButtonLabel: t("addAttachment"),
+    chatInputToolbarToolsButtonLabel: t("toolsMenu"),
+    chatToggleOpenLabel: t("chatToggleOpen"),
+    chatToggleCloseLabel: t("chatToggleClose"),
+    modalHeaderTitle: t("modalHeaderTitle"),
+    welcomeMessageText: t("welcomeSubtitle"),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [locale]); // re-compute when locale changes; t is stable within a locale
+
   const toolsMenu = useMemo<(ToolsMenuItem | "-")[]>(
     () => [
       {
-        label: "新建对话",
+        label: t("newChat"),
         action: () => addThread(),
       },
       "-",
       {
-        label: "打开 DotCraft Dashboard",
-        action: () => window.open(getDashboardUrl(), "_blank", "noopener,noreferrer"),
-      },
-      "-",
-      {
-        label: "建议：列出工作区文件",
+        label: t("suggestListFiles"),
         action: () => {
           const textarea = document.querySelector<HTMLTextAreaElement>(
-            'textarea[placeholder*="message" i], textarea[placeholder*="Type" i], textarea[placeholder*="发送" i]'
+            'textarea[placeholder*="message" i], textarea[placeholder*="Type" i], textarea[placeholder*="发送" i], textarea[placeholder*="Send" i]'
           );
           if (textarea) {
             const value = "List the files in the workspace root.";
@@ -108,12 +113,14 @@ function ChatWithThreads() {
         },
       },
     ],
-    [addThread]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addThread, locale] // re-compute when locale changes
   );
 
   return (
     <div className="flex h-screen flex-col">
       <Nav onMenuToggle={() => setPanelOpen((v) => !v)} menuOpen={panelOpen} />
+      <ConnectionBanner connected={connected} retry={retry} />
       <div className="flex min-h-0 flex-1">
         <ThreadPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
         <main className="min-w-0 flex-1">
@@ -141,9 +148,11 @@ export default function DotCraftChatPage() {
       renderToolCalls={toolRenderers}
       showDevConsole="auto"
     >
-      <ThreadsProvider>
-        <ChatWithThreads />
-      </ThreadsProvider>
+      <LocaleProvider>
+        <ThreadsProvider>
+          <ChatWithThreads />
+        </ThreadsProvider>
+      </LocaleProvider>
     </CopilotKitProvider>
   );
 }

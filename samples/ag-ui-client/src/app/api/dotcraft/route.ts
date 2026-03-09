@@ -82,12 +82,23 @@ async function proxyAgUiRun(
   activeRuns.set(threadId, abortController);
 
   const agUiUrl = getAgUiUrl();
-  const res = await fetch(agUiUrl, {
-    method: "POST",
-    headers: getAgUiHeaders(),
-    body: JSON.stringify(body),
-    signal: abortController.signal,
-  });
+  let res: globalThis.Response;
+  try {
+    res = await fetch(agUiUrl, {
+      method: "POST",
+      headers: getAgUiHeaders(),
+      body: JSON.stringify(body),
+      signal: abortController.signal,
+    });
+  } catch (err) {
+    activeRuns.delete(threadId);
+    // Let abort errors propagate normally — they are handled upstream.
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    return Response.json(
+      { error: "backend_unavailable", message: "Cannot connect to DotCraft backend" },
+      { status: 502 }
+    );
+  }
 
   const responseHeaders = new Headers();
   res.headers.forEach((value, key) => {
@@ -127,6 +138,22 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json(runtimeInfo(), {
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  // Health probe that actually contacts the DotCraft backend.
+  // Uses GET so the server-side session middleware (which only activates on POST) is
+  // not triggered — no empty sessions appear in the dashboard, no tokens are consumed.
+  // Any HTTP response (even 404/405) means the backend process is reachable.
+  if (method === "backend/health") {
+    try {
+      await fetch(getAgUiUrl(), {
+        method: "GET",
+        signal: AbortSignal.timeout(3_000),
+      });
+      return Response.json({ ok: true });
+    } catch {
+      return Response.json({ ok: false, error: "backend_unavailable" }, { status: 502 });
+    }
   }
 
   if (method === "agent/run" && envelope?.body != null) {

@@ -1,15 +1,7 @@
 "use client";
 
 import { useTheme } from "@/hooks/useTheme";
-
-const DEFAULT_DASHBOARD_URL = "http://localhost:5101/dashboard";
-
-function getDashboardUrl(): string {
-  if (typeof window !== "undefined") {
-    return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? DEFAULT_DASHBOARD_URL;
-  }
-  return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? DEFAULT_DASHBOARD_URL;
-}
+import { useLocale, type Locale } from "@/lib/i18n";
 
 type NavProps = {
   onMenuToggle?: () => void;
@@ -35,8 +27,13 @@ function MoonIcon() {
 }
 
 export function Nav({ onMenuToggle, menuOpen }: NavProps) {
-  const dashboardUrl = getDashboardUrl();
-  const { isDark, toggle } = useTheme();
+  const { isDark, toggle: toggleTheme } = useTheme();
+  const { t, locale, setLocale } = useLocale();
+
+  function toggleLocale() {
+    const next: Locale = locale === "zh" ? "en" : "zh";
+    setLocale(next);
+  }
 
   return (
     <nav className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
@@ -44,7 +41,7 @@ export function Nav({ onMenuToggle, menuOpen }: NavProps) {
         <button
           type="button"
           onClick={onMenuToggle}
-          aria-label={menuOpen ? "Close sidebar" : "Open sidebar"}
+          aria-label={menuOpen ? t("closeSidebar") : t("openSidebar")}
           className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200 lg:hidden"
         >
           {menuOpen ? (
@@ -61,19 +58,21 @@ export function Nav({ onMenuToggle, menuOpen }: NavProps) {
       <span className="font-semibold text-slate-900 dark:text-slate-100">
         DotCraft
       </span>
-      <a
-        href={dashboardUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="ml-auto text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-      >
-        Dashboard ↗
-      </a>
+      {/* Locale toggle — ml-auto pushes controls to the right */}
       <button
         type="button"
-        onClick={toggle}
-        aria-label={isDark ? "切换到浅色模式" : "切换到深色模式"}
-        title={isDark ? "切换到浅色模式" : "切换到深色模式"}
+        onClick={toggleLocale}
+        title={t("switchLocale")}
+        className="ml-auto min-w-[2.5rem] rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+      >
+        {t("switchLocale")}
+      </button>
+      {/* Theme toggle */}
+      <button
+        type="button"
+        onClick={toggleTheme}
+        aria-label={isDark ? t("switchToLight") : t("switchToDark")}
+        title={isDark ? t("switchToLight") : t("switchToDark")}
         className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
       >
         {isDark ? <SunIcon /> : <MoonIcon />}

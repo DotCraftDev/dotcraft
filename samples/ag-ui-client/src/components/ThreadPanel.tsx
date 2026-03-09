@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import { useThreads } from "@/contexts/ThreadsContext";
+import { useLocale } from "@/lib/i18n";
 
 type ThreadPanelProps = {
   open: boolean;
@@ -13,6 +14,7 @@ export function ThreadPanel({ open, onClose }: ThreadPanelProps) {
     useThreads();
   const [editingId, setEditingId] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const { t } = useLocale();
 
   const sortedThreads = [...threads].sort((a, b) => b.createdAt - a.createdAt);
 
@@ -44,7 +46,7 @@ export function ThreadPanel({ open, onClose }: ThreadPanelProps) {
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          新建对话
+          {t("newChat")}
         </button>
       </div>
 
@@ -52,36 +54,36 @@ export function ThreadPanel({ open, onClose }: ThreadPanelProps) {
       <nav className="flex-1 overflow-y-auto py-2">
         {sortedThreads.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400 dark:text-slate-500">
-            暂无对话
+            {t("noChats")}
           </p>
         ) : (
-          sortedThreads.map((t) => {
-            const isActive = t.id === currentThreadId;
+          sortedThreads.map((thread) => {
+            const isActive = thread.id === currentThreadId;
             return (
               <div
-                key={t.id}
+                key={thread.id}
                 className={`group relative flex items-center gap-1 px-2 py-1 mx-1 rounded-md ${
                   isActive
                     ? "bg-slate-200 dark:bg-slate-700"
                     : "hover:bg-slate-100 dark:hover:bg-slate-800"
                 }`}
               >
-                {editingId === t.id ? (
+                {editingId === thread.id ? (
                   <input
                     type="text"
-                    defaultValue={t.title ?? t.id}
+                    defaultValue={thread.title ?? thread.id}
                     className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-sm text-slate-800 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         const v = (e.target as HTMLInputElement).value.trim();
-                        if (v) renameThread(t.id, v);
+                        if (v) renameThread(thread.id, v);
                         setEditingId(null);
                       }
                       if (e.key === "Escape") setEditingId(null);
                     }}
                     onBlur={(e) => {
                       const v = e.target.value.trim();
-                      if (v) renameThread(t.id, v);
+                      if (v) renameThread(thread.id, v);
                       setEditingId(null);
                     }}
                     autoFocus
@@ -90,24 +92,24 @@ export function ThreadPanel({ open, onClose }: ThreadPanelProps) {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => handleSelectThread(t.id)}
+                    onClick={() => handleSelectThread(thread.id)}
                     className={`min-w-0 flex-1 truncate py-1 text-left text-sm ${
                       isActive
                         ? "font-medium text-slate-900 dark:text-slate-100"
                         : "text-slate-700 dark:text-slate-300"
                     }`}
                   >
-                    {t.title ?? t.id}
+                    {thread.title ?? thread.id}
                   </button>
                 )}
 
                 {/* Action buttons — visible on hover */}
-                {editingId !== t.id && (
+                {editingId !== thread.id && (
                   <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setEditingId(t.id); }}
-                      title="重命名"
+                      onClick={(e) => { e.stopPropagation(); setEditingId(thread.id); }}
+                      title={t("rename")}
                       className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-600 dark:hover:text-slate-300"
                     >
                       <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -116,8 +118,8 @@ export function ThreadPanel({ open, onClose }: ThreadPanelProps) {
                     </button>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); deleteThread(t.id); }}
-                      title="删除"
+                      onClick={(e) => { e.stopPropagation(); deleteThread(thread.id); }}
+                      title={t("delete")}
                       className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
                     >
                       <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
