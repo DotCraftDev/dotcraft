@@ -85,6 +85,9 @@ public static class CoreToolDisplays
     public static string UpdateTodos(IDictionary<string, object?>? args)
         => "Updated plan tasks";
 
+    public static string TodoWrite(IDictionary<string, object?>? args)
+        => "Updated task list";
+
     public static string ListModifiedFiles(IDictionary<string, object?>? args)
         => "Listed modified files";
 

@@ -228,6 +228,8 @@ public sealed class GatewayHost : IDotCraftHost
         // Prefer the QQ channel client so channel-specific tools (voice, file) are available in cron/heartbeat
         var channelClient = _channels.FirstOrDefault(ch => ch.ChannelClient != null)?.ChannelClient;
 
+        var planStore = new PlanStore(_paths.CraftPath);
+
         _sharedAgentFactory = new AgentFactory(
             _paths.CraftPath, _paths.WorkspacePath, _config,
             memoryStore, _skillsLoader, approvalService, pathBlacklist,
@@ -253,9 +255,10 @@ public sealed class GatewayHost : IDotCraftHost
             traceCollector: traceCollector,
             customCommandLoader: _sp.GetService<CustomCommandLoader>(),
             onConsolidatorStatus: AnsiConsole.MarkupLine,
+            planStore: planStore,
             hookRunner: hookRunner);
 
-        var agent = _sharedAgentFactory.CreateDefaultAgent();
+        var agent = _sharedAgentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionGate = _sp.GetRequiredService<SessionGate>();
         var runner = new AgentRunner(agent, _sessionStore, _sharedAgentFactory, traceCollector, sessionGate, hookRunner);
         return runner.RunAsync;

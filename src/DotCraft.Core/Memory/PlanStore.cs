@@ -91,16 +91,58 @@ public sealed class PlanStore(string botPath)
             sb.AppendLine();
             foreach (var todo in plan.Todos)
             {
-                var checkbox = todo.Status is PlanTodoStatus.Completed ? "[x]" : "[ ]";
+                var icon = todo.Status switch
+                {
+                    PlanTodoStatus.Completed  => "✓",
+                    PlanTodoStatus.InProgress => "●",
+                    PlanTodoStatus.Cancelled  => "✗",
+                    _                         => "○"
+                };
                 var statusTag = todo.Status switch
                 {
-                    PlanTodoStatus.InProgress => " *(in progress)*",
-                    PlanTodoStatus.Cancelled => " *(cancelled)*",
-                    _ => ""
+                    PlanTodoStatus.InProgress => " **(in progress)**",
+                    PlanTodoStatus.Cancelled  => " *(cancelled)*",
+                    _                         => ""
                 };
-                sb.AppendLine($"- {checkbox} `{todo.Id}` — {todo.Content}{statusTag}");
+                sb.AppendLine($"- {icon} `{todo.Id}` — {todo.Content}{statusTag}");
             }
             sb.AppendLine();
+        }
+
+        return sb.ToString().TrimEnd() + "\n";
+    }
+
+    /// <summary>
+    /// Renders a <see cref="StructuredPlan"/> as plain text (no Markdown) suitable for
+    /// channels that do not support rich formatting (e.g. QQ).
+    /// </summary>
+    public static string RenderPlanPlainText(StructuredPlan plan)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"[{plan.Title}]");
+
+        if (plan.Todos.Count == 0)
+        {
+            sb.AppendLine("  (no tasks)");
+            return sb.ToString().TrimEnd() + "\n";
+        }
+
+        foreach (var todo in plan.Todos)
+        {
+            var icon = todo.Status switch
+            {
+                PlanTodoStatus.Completed  => "✓",
+                PlanTodoStatus.InProgress => "●",
+                PlanTodoStatus.Cancelled  => "✗",
+                _                         => "○"
+            };
+            var suffix = todo.Status switch
+            {
+                PlanTodoStatus.InProgress => " (working)",
+                PlanTodoStatus.Cancelled  => " (skipped)",
+                _                         => ""
+            };
+            sb.AppendLine($"  {icon} {todo.Id} — {todo.Content}{suffix}");
         }
 
         return sb.ToString().TrimEnd() + "\n";

@@ -211,7 +211,7 @@ public sealed class AcpHandler(
         if (clientProxy != null)
         {
             clientProxy.Capabilities = _clientCapabilities;
-            _defaultAgent = agentFactory.CreateDefaultAgent();
+            _defaultAgent = agentFactory.CreateAgentForMode(AgentMode.Agent);
         }
 
         transport.SendResponse(request.Id, result);
