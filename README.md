@@ -6,9 +6,11 @@
 
 # DotCraft
 
-**DotCraft** is a lightweight .NET assistant crafting your intelligent workspace across editors, CLI, and chat bots.
+**DotCraft** is a one-stop assistant crafting your intelligent workspace across editors, CLI, and chat bots.
 
-![banner](./docs/images/banner.png)
+![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
+
+![promo](https://github.com/DotCraftDev/resources/raw/master/dotcraft/promo.mp4)
 
 </div>
 
