@@ -14,6 +14,7 @@ import {
   loadLastThreadId,
   saveLastThreadId,
   generateThreadId,
+  clearMessages,
   type ThreadEntry,
 } from "@/lib/threadStorage";
 
@@ -68,12 +69,12 @@ export function ThreadsProvider({ children }: { children: React.ReactNode }) {
 
   const addThread = useCallback((): string => {
     const id = generateThreadId();
-    const entry: ThreadEntry = {
-      id,
-      title: `Chat ${Date.now()}`,
-      createdAt: Date.now(),
-    };
     setThreadsState((prev) => {
+      const entry: ThreadEntry = {
+        id,
+        title: `Chat ${prev.length + 1}`,
+        createdAt: Date.now(),
+      };
       const next = [...prev, entry];
       saveThreads(next);
       return next;
@@ -85,6 +86,7 @@ export function ThreadsProvider({ children }: { children: React.ReactNode }) {
 
   const deleteThread = useCallback(
     (id: string) => {
+      clearMessages(id);
       const remaining = threads.filter((t) => t.id !== id);
       let nextList: ThreadEntry[];
       let nextCurrent: string;

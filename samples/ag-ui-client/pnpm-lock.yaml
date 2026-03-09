@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@copilotkitnext/react':
-        specifier: ^1.51.0
+        specifier: ^1.53.0
         version: 1.53.0(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       next:
         specifier: 15.4.4

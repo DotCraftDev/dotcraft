@@ -13,6 +13,7 @@ import { ThreadList } from "@/components/ThreadList";
 import { AbortErrorBoundary } from "@/components/AbortErrorBoundary";
 import { ThreadsProvider, useThreads } from "@/contexts/ThreadsContext";
 import { toolRenderers } from "@/lib/toolRenderers";
+import { useMessagePersistence } from "@/hooks/useMessagePersistence";
 
 const DEFAULT_DASHBOARD_URL = "http://localhost:5101/dashboard";
 
@@ -44,6 +45,7 @@ function getDashboardUrl(): string {
 
 function ChatWithThreads() {
   const { currentThreadId, addThread } = useThreads();
+  useMessagePersistence(currentThreadId);
   const suggestionsAvailable = getSuggestionsAvailable();
 
   useConfigureSuggestions(
