@@ -48,10 +48,77 @@ function hasUserMessage(body: unknown): boolean {
   return messages.some((m) => m && String(m.role).toLowerCase() === "user");
 }
 
-/** Returns a minimal AG-UI SSE stream (RUN_STARTED + RUN_FINISHED) so CopilotKit gets a valid response without running the agent. */
-function emptyAgUiStream(threadId: string, runId: string): ReadableStream<Uint8Array> {
-  const started = `data: ${JSON.stringify({ type: "RUN_STARTED", threadId, runId })}\n\n`;
-  const finished = `data: ${JSON.stringify({ type: "RUN_FINISHED", threadId, runId })}\n\n`;
+/**
+ * For agent/connect requests, we need to always forward to the backend
+ * to restore session history. This is the key fix for session recovery.
+ * 
+ * The connect request is sent when:
+ * 1. Page loads and needs to restore previous conversation
+ * 2. User switches between threads
+ * 
+ * The backend should return historical events via SSE if the thread exists.
+ */
+async function handleConnect(reqBody: unknown): Promise<Response> {
+  const body = reqBody as RunBody;
+  const threadId = body.threadId ?? "dotcraft-1";
+  const runId = body.runId ?? `run_${Date.now()}`;
+
+  const agUiUrl = getAgUiUrl();
+
+  try {
+    const res = await fetch(agUiUrl, {
+      method: "POST",
+      headers: getAgUiHeaders(),
+      body: JSON.stringify(reqBody),
+    });
+
+    // If backend returns 404 or no content, it means thread doesn't exist
+    // Return empty stream so frontend initializes fresh
+    if (!res.ok || !res.body) {
+      return new Response(createEmptyStream(threadId, runId), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    // Forward the response from backend (including historical messages)
+    const responseHeaders = new Headers();
+    res.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== "content-encoding") {
+        responseHeaders.set(key, value);
+      }
+    });
+
+    return new Response(res.body, {
+      status: res.status,
+      headers: responseHeaders,
+    });
+  } catch (error) {
+    // If connection fails, return empty stream
+    console.error("AG-UI connect failed:", error);
+    return new Response(createEmptyStream(threadId, runId), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
+}
+
+/**
+ * Creates an empty AG-UI SSE stream with RUN_STARTED and RUN_FINISHED events.
+ * Used when no backend is available or thread doesn't exist.
+ */
+function createEmptyStream(threadId: string, runId: string): ReadableStream<Uint8Array> {
+  const started = `event: message_added\ndata: ${JSON.stringify({ type: "RUN_STARTED", threadId, runId })}\n\n`;
+  const finished = `event: message_added\ndata: ${JSON.stringify({ type: "RUN_FINISHED", threadId, runId })}\n\n`;
+  
   return new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(started));
@@ -85,9 +152,13 @@ export async function POST(req: Request): Promise<Response> {
       const body = envelope.body as RunBody;
       const threadId = body.threadId ?? "dotcraft-1";
       const runId = body.runId ?? `run_${Date.now()}`;
-      return new Response(emptyAgUiStream(threadId, runId), {
+      return new Response(createEmptyStream(threadId, runId), {
         status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+        headers: { 
+          "Content-Type": "text/event-stream", 
+          "Cache-Control": "no-cache", 
+          Connection: "keep-alive" 
+        },
       });
     }
     const agUiUrl = getAgUiUrl();
@@ -111,33 +182,9 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (method === "agent/connect" && envelope?.body != null) {
-    if (!hasUserMessage(envelope.body)) {
-      const body = envelope.body as RunBody;
-      const threadId = body.threadId ?? "dotcraft-1";
-      const runId = body.runId ?? `run_${Date.now()}`;
-      return new Response(emptyAgUiStream(threadId, runId), {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
-      });
-    }
-    const agUiUrl = getAgUiUrl();
-    const res = await fetch(agUiUrl, {
-      method: "POST",
-      headers: getAgUiHeaders(),
-      body: JSON.stringify(envelope.body),
-    });
-
-    const responseHeaders = new Headers();
-    res.headers.forEach((value, key) => {
-      if (key.toLowerCase() !== "content-encoding") {
-        responseHeaders.set(key, value);
-      }
-    });
-
-    return new Response(res.body, {
-      status: res.status,
-      headers: responseHeaders,
-    });
+    // Always forward connect requests to backend for session recovery
+    // This is the key fix - previously it checked hasUserMessage and returned empty stream
+    return handleConnect(envelope.body);
   }
 
   if (method === "agent/stop") {
