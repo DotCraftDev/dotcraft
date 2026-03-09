@@ -182,10 +182,18 @@ This contains:
             return PlanModePrompt;
         }
 
-        // Agent mode with an active plan: keep the plan visible on every turn
+        // Agent mode with an active plan: inject both todo guidance and plan tracking.
+        // AgentTodoPrompt is only included when planStore is available (i.e. TodoWrite tool exists).
         if (mm.CurrentMode == AgentMode.Agent && existingPlan != null)
         {
-            return AgentPlanTrackingPrompt + $"\n\n## Current Plan\n\n{existingPlan}";
+            var prefix = planStore != null ? AgentTodoPrompt + "\n\n" : "";
+            return prefix + AgentPlanTrackingPrompt + $"\n\n## Current Plan\n\n{existingPlan}";
+        }
+
+        // Agent mode without a plan: inject todo guidance only when the tool is available.
+        if (mm.CurrentMode == AgentMode.Agent && planStore != null)
+        {
+            return AgentTodoPrompt;
         }
 
         return null;
@@ -209,6 +217,30 @@ This contains:
             ? planStore.LoadPlanAsync(sessionId).GetAwaiter().GetResult()
             : null;
     }
+
+    private const string AgentTodoPrompt =
+"""
+<system-reminder>
+## Task Management
+
+You have access to the TodoWrite tool to manage and plan tasks. Use this tool
+frequently to track your progress and give the user visibility into your work.
+It is critical that you mark todos as completed as soon as you finish a task.
+Do not batch up multiple tasks before marking them as completed.
+
+IMPORTANT: Always use the TodoWrite tool to plan and track tasks throughout the
+conversation unless the request is trivial (fewer than 3 steps).
+
+Example:
+  User: Run the build and fix any type errors
+  Assistant: Uses TodoWrite to create the task list:
+  - Run the build [in_progress]
+  - Fix type errors [pending]
+  After running the build and finding errors, adds specific items for each
+  error, then works through them one by one, marking each as completed
+  before moving to the next.
+</system-reminder>
+""";
 
     private const string PlanModePrompt =
 """
