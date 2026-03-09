@@ -22,3 +22,18 @@ body {
   color: var(--foreground);
   font-family: system-ui, -apple-system, sans-serif;
 }
+
+/* CopilotKit theme overrides — light mode */
+[data-copilotkit] {
+  --primary: oklch(25% 0.02 260);
+  --primary-foreground: oklch(99% 0 0);
+  --ring: oklch(55% 0.15 270);
+}
+
+/* CopilotKit theme overrides — dark mode */
+@media (prefers-color-scheme: dark) {
+  [data-copilotkit] {
+    --primary: oklch(72% 0.18 290);
+    --primary-foreground: oklch(14% 0 0);
+  }
+}

@@ -5,15 +5,17 @@ import {
   CopilotKitProvider,
   useConfigureSuggestions,
   useAgentContext,
+  CopilotChatConfigurationProvider,
 } from "@copilotkitnext/react";
-import type { ToolsMenuItem } from "@copilotkitnext/react";
-import { useMemo } from "react";
+import type { ToolsMenuItem, CopilotChatLabels } from "@copilotkitnext/react";
+import { useMemo, useState } from "react";
 import { Nav } from "@/components/Nav";
-import { ThreadList } from "@/components/ThreadList";
+import { ThreadPanel } from "@/components/ThreadPanel";
 import { AbortErrorBoundary } from "@/components/AbortErrorBoundary";
 import { ThreadsProvider, useThreads } from "@/contexts/ThreadsContext";
 import { toolRenderers } from "@/lib/toolRenderers";
 import { useMessagePersistence } from "@/hooks/useMessagePersistence";
+import { WelcomeScreen } from "@/components/WelcomeScreen";
 
 const DEFAULT_DASHBOARD_URL = "http://localhost:5101/dashboard";
 
@@ -43,8 +45,20 @@ function getDashboardUrl(): string {
   return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? DEFAULT_DASHBOARD_URL;
 }
 
+const dotcraftLabels: Partial<CopilotChatLabels> = {
+  chatInputPlaceholder: "向 DotCraft 发送消息...",
+  assistantMessageToolbarCopyMessageLabel: "复制",
+  assistantMessageToolbarThumbsUpLabel: "有用",
+  assistantMessageToolbarThumbsDownLabel: "没用",
+  assistantMessageToolbarRegenerateLabel: "重新生成",
+  userMessageToolbarCopyMessageLabel: "复制",
+  userMessageToolbarEditMessageLabel: "编辑",
+  welcomeMessageText: "你好！我是 DotCraft，有什么可以帮你的？",
+};
+
 function ChatWithThreads() {
   const { currentThreadId, addThread } = useThreads();
+  const [panelOpen, setPanelOpen] = useState(false);
   useMessagePersistence(currentThreadId);
   const suggestionsAvailable = getSuggestionsAvailable();
 
@@ -66,20 +80,20 @@ function ChatWithThreads() {
   const toolsMenu = useMemo<(ToolsMenuItem | "-")[]>(
     () => [
       {
-        label: "New chat",
+        label: "新建对话",
         action: () => addThread(),
       },
       "-",
       {
-        label: "Open DotCraft Dashboard",
+        label: "打开 DotCraft Dashboard",
         action: () => window.open(getDashboardUrl(), "_blank", "noopener,noreferrer"),
       },
       "-",
       {
-        label: "Suggest: List workspace",
+        label: "建议：列出工作区文件",
         action: () => {
           const textarea = document.querySelector<HTMLTextAreaElement>(
-            'textarea[placeholder*="message" i], textarea[placeholder*="Type" i]'
+            'textarea[placeholder*="message" i], textarea[placeholder*="Type" i], textarea[placeholder*="发送" i]'
           );
           if (textarea) {
             const value = "List the files in the workspace root.";
@@ -98,18 +112,24 @@ function ChatWithThreads() {
   );
 
   return (
-    <>
-      <Nav onNewChat={addThread} />
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-900">
-        <span className="text-sm text-slate-500 dark:text-slate-400">Thread:</span>
-        <ThreadList />
+    <div className="flex h-screen flex-col">
+      <Nav onMenuToggle={() => setPanelOpen((v) => !v)} menuOpen={panelOpen} />
+      <div className="flex min-h-0 flex-1">
+        <ThreadPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+        <main className="min-w-0 flex-1">
+          <AbortErrorBoundary>
+            <CopilotChatConfigurationProvider labels={dotcraftLabels}>
+              <CopilotChat
+                threadId={currentThreadId}
+                input={{ toolsMenu }}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                chatView={{ welcomeScreen: WelcomeScreen as any }}
+              />
+            </CopilotChatConfigurationProvider>
+          </AbortErrorBoundary>
+        </main>
       </div>
-      <div className="min-h-0 flex-1">
-        <AbortErrorBoundary>
-          <CopilotChat threadId={currentThreadId} input={{ toolsMenu }} />
-        </AbortErrorBoundary>
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -122,9 +142,7 @@ export default function DotCraftChatPage() {
       showDevConsole="auto"
     >
       <ThreadsProvider>
-        <div className="flex h-screen flex-col">
-          <ChatWithThreads />
-        </div>
+        <ChatWithThreads />
       </ThreadsProvider>
     </CopilotKitProvider>
   );

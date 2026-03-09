@@ -61,6 +61,55 @@ function emptyAgUiStream(threadId: string, runId: string): ReadableStream<Uint8A
   });
 }
 
+/**
+ * Tracks in-flight backend SSE connections keyed by threadId.
+ * Aborting the controller closes the fetch to the backend, which causes
+ * ASP.NET Core to fire HttpContext.RequestAborted and cancel the running agent.
+ */
+const activeRuns = new Map<string, AbortController>();
+
+/** Proxy a run/connect request to the real backend, wired for abort. */
+async function proxyAgUiRun(
+  body: unknown,
+): Promise<Response> {
+  const runBody = body as RunBody;
+  const threadId = runBody.threadId ?? "dotcraft-1";
+
+  // Abort any previous run for this thread before starting a new one.
+  activeRuns.get(threadId)?.abort();
+
+  const abortController = new AbortController();
+  activeRuns.set(threadId, abortController);
+
+  const agUiUrl = getAgUiUrl();
+  const res = await fetch(agUiUrl, {
+    method: "POST",
+    headers: getAgUiHeaders(),
+    body: JSON.stringify(body),
+    signal: abortController.signal,
+  });
+
+  const responseHeaders = new Headers();
+  res.headers.forEach((value, key) => {
+    if (key.toLowerCase() !== "content-encoding") {
+      responseHeaders.set(key, value);
+    }
+  });
+
+  // Pipe through a TransformStream so we can clean up the map when the stream ends
+  // (naturally or via abort).
+  const { readable, writable } = new TransformStream();
+  res.body!.pipeTo(writable).catch(() => {
+    // Suppress AbortError thrown when the run is stopped mid-stream.
+  }).finally(() => {
+    if (activeRuns.get(threadId) === abortController) {
+      activeRuns.delete(threadId);
+    }
+  });
+
+  return new Response(readable, { status: res.status, headers: responseHeaders });
+}
+
 export async function POST(req: Request): Promise<Response> {
   let envelope: { method?: string; params?: Record<string, unknown>; body?: unknown };
   try {
@@ -90,24 +139,7 @@ export async function POST(req: Request): Promise<Response> {
         headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
       });
     }
-    const agUiUrl = getAgUiUrl();
-    const res = await fetch(agUiUrl, {
-      method: "POST",
-      headers: getAgUiHeaders(),
-      body: JSON.stringify(envelope.body),
-    });
-
-    const responseHeaders = new Headers();
-    res.headers.forEach((value, key) => {
-      if (key.toLowerCase() !== "content-encoding") {
-        responseHeaders.set(key, value);
-      }
-    });
-
-    return new Response(res.body, {
-      status: res.status,
-      headers: responseHeaders,
-    });
+    return proxyAgUiRun(envelope.body);
   }
 
   if (method === "agent/connect" && envelope?.body != null) {
@@ -120,27 +152,18 @@ export async function POST(req: Request): Promise<Response> {
         headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
       });
     }
-    const agUiUrl = getAgUiUrl();
-    const res = await fetch(agUiUrl, {
-      method: "POST",
-      headers: getAgUiHeaders(),
-      body: JSON.stringify(envelope.body),
-    });
-
-    const responseHeaders = new Headers();
-    res.headers.forEach((value, key) => {
-      if (key.toLowerCase() !== "content-encoding") {
-        responseHeaders.set(key, value);
-      }
-    });
-
-    return new Response(res.body, {
-      status: res.status,
-      headers: responseHeaders,
-    });
+    return proxyAgUiRun(envelope.body);
   }
 
   if (method === "agent/stop") {
+    const threadId = envelope.params?.threadId as string | undefined;
+    if (threadId) {
+      const ctrl = activeRuns.get(threadId);
+      if (ctrl) {
+        ctrl.abort();
+        activeRuns.delete(threadId);
+      }
+    }
     return Response.json({ ok: true });
   }
 
