@@ -86,12 +86,27 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
         return SessionStates.GetOrAdd(sessionKey, _ => new SessionCallState());
     }
 
+    /// <summary>
+    /// Resolves the session key for the current call. Never returns null so that
+    /// GetOrCreateState is never given a null key (e.g. when AG-UI requests do not set CurrentSessionKey).
+    /// </summary>
+    private static string ResolveSessionKeyForCurrentCall()
+    {
+        var key = CurrentSessionKey;
+        if (!string.IsNullOrEmpty(key))
+            return key;
+        key = GetActiveSessionKey();
+        if (!string.IsNullOrEmpty(key))
+            return key;
+        return "ag-ui:" + Guid.NewGuid().ToString("N")[..12];
+    }
+
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> chatMessages,
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var sessionKey = CurrentSessionKey!;
+        var sessionKey = ResolveSessionKeyForCurrentCall();
         var messages = chatMessages as IList<ChatMessage> ?? chatMessages.ToList();
         var state = GetOrCreateState(sessionKey);
 
@@ -142,7 +157,7 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var sessionKey = CurrentSessionKey!;
+        var sessionKey = ResolveSessionKeyForCurrentCall();
         var messages = chatMessages as IList<ChatMessage> ?? chatMessages.ToList();
         var state = GetOrCreateState(sessionKey);
 

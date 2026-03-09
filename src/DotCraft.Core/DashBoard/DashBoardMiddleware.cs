@@ -327,6 +327,7 @@ public static class DashBoardMiddleware
         ["Tools", "Sandbox", "ApiKey"],
         ["WeCom", "WebhookUrl"],
         ["DashBoard", "Password"],
+        ["AgUi", "ApiKey"],
     ];
 
     private static void MaskSensitiveFields(JsonObject obj)

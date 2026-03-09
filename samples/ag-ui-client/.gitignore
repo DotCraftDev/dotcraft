@@ -1,0 +1,16 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Next.js
+.next
+out
+
+# Env (keep example)
+.env*.local
+
+# IDE / OS
+.idea
+.DS_Store
+*.log
+npm-debug.log*

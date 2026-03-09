@@ -30,7 +30,7 @@ public sealed class MemoryContextProvider(
     protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
     {
         var systemPrompt = _promptBuilder.BuildSystemPrompt();
-        var sessionKey = TracingChatClient.CurrentSessionKey;
+        var sessionKey = TracingChatClient.CurrentSessionKey ?? TracingChatClient.GetActiveSessionKey();
         if (!string.IsNullOrWhiteSpace(sessionKey))
             traceCollector?.RecordSessionMetadata(sessionKey, systemPrompt, toolNamesProvider?.Invoke());
 
