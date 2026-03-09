@@ -109,7 +109,7 @@ public sealed class WeComChannelService(
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var agentFactory = BuildAgentFactory();
-        var agent = agentFactory.CreateDefaultAgent();
+        var agent = agentFactory.CreateAgentForMode(AgentMode.Agent);
         var traceCollector = sp.GetService<TraceCollector>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 

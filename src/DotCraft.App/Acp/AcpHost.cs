@@ -93,7 +93,7 @@ public sealed class AcpHost(
             onConsolidatorStatus: AnsiConsole.MarkupLine,
             hookRunner: hookRunner);
 
-        var agent = _agentFactory.CreateDefaultAgent();
+        var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         handler = new AcpHandler(
             transport, sessionStore, _agentFactory, agent,
             approvalService, paths.WorkspacePath,
