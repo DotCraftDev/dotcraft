@@ -6,9 +6,11 @@
 
 # DotCraft
 
-**DotCraft** 是一款基于.NET 打造的轻量级智能助理，为您打造跨编辑器、CLI 与聊天机器人的智能工作空间。
+**DotCraft** 是一款一站式智能助理，为您打造跨编辑器、CLI 与聊天机器人的智能工作空间。
 
-![banner](./docs/images/banner.png)
+![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
+
+https://github.com/user-attachments/assets/e583a8fb-cea0-4dc1-9033-593b5e53c2f9
 
 </div>
 
