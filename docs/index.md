@@ -6,6 +6,8 @@
 
 [API 模式指南](./api_guide.md) - OpenAI 兼容 API 服务、工具过滤、SDK 调用示例
 
+[AG-UI 模式指南](./agui_guide.md) - AG-UI 协议 SSE 服务端、CopilotKit 集成
+
 [QQ 机器人使用指南](./qq_bot_guide.md) - NapCat/OneBot V11、权限与审批
 
 [企业微信指南](./wecom_guide.md) - 企业微信推送与机器人模式

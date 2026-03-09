@@ -22,16 +22,14 @@
 </tr>
 </table>
 
-- 🛠️ **Tool Capabilities**: File read/write (workspace-scoped), controlled Shell commands, Web scraping, optional SubAgent delegation
-- 🐳 **Sandbox Isolation**: Run Shell and File tools inside [OpenSandbox](https://github.com/alibaba/OpenSandbox) containers — the container boundary is the security boundary, no regex guards or path blacklists needed
-- 🔌 **MCP Integration**: Connect external tool services via [Model Context Protocol](https://modelcontextprotocol.io/)
-- 🖥️ **ACP Editor Integration**: Works as a native coding agent inside any [ACP](https://agentclientprotocol.com/)-compatible editor (JetBrains IDEs, Obsidian, and more) via stdio JSON-RPC — no cloud dependency, no lock-in
-- 🎮 **Multiple Runtime Modes**: Local REPL, QQ Bot (OneBot V11), WeCom Bot, API Service (OpenAI-compatible), ACP Editor Integration, **Gateway multi-channel concurrent mode**
-- 🎯 **Unity Integration**: Built-in Unity Editor extension with AI-powered scene manipulation, asset management, and console monitoring via ACP protocol
-- 📊 **Dashboard**: Built-in Web UI for real-time monitoring of token usage, session history, and tool call traces; includes a **Settings page** for visually editing all configuration options directly in the browser
-- 🧩 **Skills System**: Dynamically load Skills from workspace
-- 🔗 **Hooks**: Lifecycle event hooks that run Shell commands at key agent execution points (pre/post tool use, session start, prompt filtering, etc.) — inspired by Claude Code and Cursor
-- 📢 **Notification Push**: WeCom group bot and Webhook notifications
+- 🛠️ **Tool Capabilities**: File, Shell, Web, and SubAgent tools
+- 🐳 **Sandbox Isolation**: Secure tool execution with [OpenSandbox](https://github.com/alibaba/OpenSandbox)
+- 🔌 **MCP Integration**: Connect external tools via [Model Context Protocol](https://modelcontextprotocol.io/)
+- 🖥️ **ACP Editor Integration**: Native agent support for [ACP](https://agentclientprotocol.com/)-compatible editors
+- 🎮 **Multiple Runtime Modes**: CLI, API, QQ, WeCom, ACP, AG-UI, Gateway
+- 🎯 **Unity Integration**: Unity Editor extension with scene and asset support
+- 📊 **Dashboard**: Web UI for traces, sessions, and configuration
+- 🧩 **Extensibility**: Skills, Hooks, and notification integrations
 
 ## 🏗️ Architecture
 
@@ -51,6 +49,7 @@ flowchart TB
         QQModule["QQ Bot"]
         WeComModule["WeCom Bot"]
         ApiModule["API Service"]
+        AGUIModule["AG-UI"]
     end
 
     AgentCore["Agent Core"]
@@ -90,7 +89,7 @@ flowchart TB
 
     class App entryStyle
     class CliHost,GatewayHost,AcpHost hostStyle
-    class QQModule,WeComModule,ApiModule moduleStyle
+    class QQModule,WeComModule,ApiModule,AGUIModule moduleStyle
     class AgentCore coreStyle
     class Tools toolStyle
     class Session,Memory,Hooks,Skills,Config infraStyle
@@ -112,6 +111,7 @@ Each channel derives its own session ID so conversations never collide:
 - **WeCom**: `wecom_{chatId}_{userId}`
 - **API**: resolved from `X-Session-Key` header, `user` field in body, or content fingerprint
 - **ACP**: `acp_{sessionId}` (managed by the editor)
+- **AG-UI**: `ag-ui:{threadId}` (from AG-UI `RunAgentInput`)
 
 `SessionGate` provides per-session mutual exclusion — concurrent requests to the same session are serialized, while different sessions run fully in parallel. `MaxSessionQueueSize` controls how many requests can queue per session before the oldest is evicted.
 
@@ -206,6 +206,7 @@ dotcraft
 | QQ Bot | `QQBot.Enabled = true` | OneBot V11 protocol bot |
 | WeCom Bot | `WeComBot.Enabled = true` | WeChat Work bot |
 | ACP Mode | `Acp.Enabled = true` | Editor/IDE integration ([ACP](https://agentclientprotocol.com/)) |
+| AG-UI Mode | `AgUi.Enabled = true` | SSE streaming server ([AG-UI Protocol](https://github.com/ag-ui-protocol/ag-ui)) |
 
 ### Sandbox Isolation (Optional)
 
@@ -342,6 +343,7 @@ For detailed configuration and troubleshooting, see the [Unity Integration Guide
 |----------|-------------|
 | [Configuration Guide](./docs/en/config_guide.md) | Tools, security, blacklists, approval, MCP, Gateway |
 | [API Mode Guide](./docs/en/api_guide.md) | OpenAI-compatible API, tool filtering, SDK examples |
+| [AG-UI Mode Guide](./docs/en/agui_guide.md) | AG-UI Protocol SSE server, CopilotKit integration |
 | [QQ Bot Guide](./docs/en/qq_bot_guide.md) | NapCat / permissions / approval |
 | [WeCom Guide](./docs/en/wecom_guide.md) | WeCom push notifications / bot mode |
 | [ACP Mode Guide](./docs/en/acp_guide.md) | Agent Client Protocol editor/IDE integration (JetBrains, Obsidian, and more) |
@@ -374,6 +376,7 @@ Thanks to [Devin AI](https://devin.ai/) for providing free ACU credits to facili
 - [spectreconsole/spectre.console](https://github.com/spectreconsole/spectre.console)
 - [modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk)
 - [agentclientprotocol/agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol)
+- [ag-ui-protocol/ag-ui](https://github.com/ag-ui-protocol/ag-ui)
 
 ## 📄 License
 

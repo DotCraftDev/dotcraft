@@ -22,16 +22,14 @@
 </tr>
 </table>
 
-- 🛠️ **工具能力**: 文件读写（工作区内）、受控 Shell 命令、Web 抓取、可选子智能体（SubAgent）
-- 🐳 **沙箱隔离**: Shell 和文件工具可在 [OpenSandbox](https://github.com/alibaba/OpenSandbox) 容器内执行——以容器边界作为安全边界，无需正则过滤或路径黑名单
-- 🔌 **MCP 接入**: 支持通过 [Model Context Protocol](https://modelcontextprotocol.io/) 接入外部工具服务
-- 🖥️ **ACP 编辑器集成**: 通过 stdio JSON-RPC 作为原生编码代理运行在任意 [ACP](https://agentclientprotocol.com/) 兼容编辑器中（JetBrains IDE、Obsidian 等），无需云依赖，无厂商锁定
-- 🎯 **运行形态**: 本地 REPL、QQ 机器人（OneBot V11）、企业微信机器人、API 服务（OpenAI 兼容）、ACP 编辑器集成、**Gateway 多 Channel 并发模式**
-- 🎮 **Unity 集成**: 内置 Unity 编辑器扩展，通过 ACP 协议提供 AI 驱动的场景操作、资源管理和控制台监控
-- 📊 **监控面板**: 内置 Web 调试界面，实时监控 Token 使用、会话历史和工具调用追踪；内置 **Settings 配置页**，可直接在浏览器中可视化编辑所有配置项
-- 🧩 **技能系统**: 支持动态加载技能
-- 🔗 **Hooks**: 生命周期事件钩子，在 Agent 执行关键节点自动运行 Shell 命令（工具前/后置、会话启动、提示过滤等）—— 参考 Claude Code 和 Cursor 设计
-- 📢 **通知推送**: 企业微信群机器人和 Webhook 推送
+- 🛠️ **工具能力**: 文件、Shell、Web 与 SubAgent 工具
+- 🐳 **沙箱隔离**: 基于 [OpenSandbox](https://github.com/alibaba/OpenSandbox) 的安全工具执行
+- 🔌 **MCP 接入**: 通过 [Model Context Protocol](https://modelcontextprotocol.io/) 连接外部工具
+- 🖥️ **ACP 编辑器集成**: 原生支持 [ACP](https://agentclientprotocol.com/) 兼容编辑器
+- 🎮 **运行形态**: CLI、API、QQ、企业微信、ACP、AG-UI、Gateway
+- 🎯 **Unity 集成**: Unity 编辑器扩展与场景资源支持
+- 📊 **监控面板**: 会话、调用追踪与配置管理 Web UI
+- 🧩 **扩展能力**: Skills、Hooks 与通知集成
 
 ## 🏗️ 架构
 
@@ -51,6 +49,7 @@ flowchart TB
         QQModule["QQ Bot"]
         WeComModule["企业微信"]
         ApiModule["API Service"]
+        AGUIModule["AG-UI"]
     end
 
     AgentCore["Agent Core"]
@@ -90,7 +89,7 @@ flowchart TB
 
     class App entryStyle
     class CliHost,GatewayHost,AcpHost hostStyle
-    class QQModule,WeComModule,ApiModule moduleStyle
+    class QQModule,WeComModule,ApiModule,AGUIModule moduleStyle
     class AgentCore coreStyle
     class Tools toolStyle
     class Session,Memory,Hooks,Skills,Config infraStyle
@@ -122,6 +121,7 @@ flowchart TB
 - **WeCom**：`wecom_{chatId}_{userId}`
 - **API**：从请求头 `X-Session-Key`、Body 中的 `user` 字段或内容指纹中解析
 - **ACP**：`acp_{sessionId}`（由编辑器管理）
+- **AG-UI**：`ag-ui:{threadId}`（来自 AG-UI `RunAgentInput`）
 
 `SessionGate` 对每个会话提供互斥保护——同一会话的并发请求将被串行化，不同会话则完全并行执行。`MaxSessionQueueSize` 控制每个会话的最大排队请求数，超出时最旧的请求将被丢弃。
 
@@ -216,6 +216,7 @@ dotcraft
 | QQ 机器人 | `QQBot.Enabled = true` | OneBot V11 协议机器人 |
 | 企业微信 | `WeComBot.Enabled = true` | 企业微信机器人 |
 | ACP 模式 | `Acp.Enabled = true` | 编辑器/IDE 集成（[ACP](https://agentclientprotocol.com/)） |
+| AG-UI 模式 | `AgUi.Enabled = true` | SSE 流式服务端（[AG-UI 协议](https://github.com/ag-ui-protocol/ag-ui)） |
 
 ### 沙箱隔离（可选）
 
@@ -352,6 +353,7 @@ https://github.com/DotCraftDev/DotCraft.git?path=src/DotCraft.UnityClient/Packag
 |------|------|
 | [配置指南](./docs/config_guide.md) | 工具、安全、黑名单、审批、MCP、Gateway |
 | [API 模式指南](./docs/api_guide.md) | OpenAI 兼容 API、工具过滤、SDK 示例 |
+| [AG-UI 模式指南](./docs/agui_guide.md) | AG-UI 协议 SSE 服务端、CopilotKit 集成 |
 | [QQ 机器人指南](./docs/qq_bot_guide.md) | NapCat/权限/审批 |
 | [企业微信指南](./docs/wecom_guide.md) | 企业微信推送/机器人模式 |
 | [ACP 模式指南](./docs/acp_guide.md) | Agent Client Protocol 编辑器/IDE 集成（JetBrains、Obsidian 等） |
@@ -384,6 +386,7 @@ https://github.com/DotCraftDev/DotCraft.git?path=src/DotCraft.UnityClient/Packag
 - [spectreconsole/spectre.console](https://github.com/spectreconsole/spectre.console)
 - [modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk)
 - [agentclientprotocol/agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol)
+- [ag-ui-protocol/ag-ui](https://github.com/ag-ui-protocol/ag-ui)
 
 ## 📄 许可证
 

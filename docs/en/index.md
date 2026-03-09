@@ -6,6 +6,8 @@ Read the DotCraft documentation to get started quickly
 
 [API Mode Guide](./api_guide.md) - OpenAI-compatible API service, tool filtering, SDK examples
 
+[AG-UI Mode Guide](./agui_guide.md) - AG-UI Protocol SSE server, CopilotKit integration
+
 [QQ Bot Guide](./qq_bot_guide.md) - NapCat / OneBot V11, permissions & approval
 
 [WeCom Guide](./wecom_guide.md) - WeCom push notifications & bot mode
