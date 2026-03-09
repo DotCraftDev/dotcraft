@@ -50,6 +50,14 @@ export type Messages = {
   // Connection banner
   connectionError: string;
   retry: string;
+  // Approval
+  approvalRequired: string;
+  approvalApproved: string;
+  approvalRejected: string;
+  approve: string;
+  reject: string;
+  fileOperation: string;
+  shellCommand: string;
 };
 
 const zhMessages: Messages = {
@@ -90,6 +98,13 @@ const zhMessages: Messages = {
   suggestListFiles: "建议：列出工作区文件",
   connectionError: "无法连接到 DotCraft 后端，请检查服务是否已启动。",
   retry: "重试",
+  approvalRequired: "需要授权",
+  approvalApproved: "已授权",
+  approvalRejected: "已拒绝",
+  approve: "授权",
+  reject: "拒绝",
+  fileOperation: "文件操作",
+  shellCommand: "Shell 命令",
 };
 
 const enMessages: Messages = {
@@ -130,6 +145,13 @@ const enMessages: Messages = {
   suggestListFiles: "Suggest: List workspace files",
   connectionError: "Cannot connect to DotCraft backend. Please check that the server is running.",
   retry: "Retry",
+  approvalRequired: "Approval Required",
+  approvalApproved: "Approved",
+  approvalRejected: "Rejected",
+  approve: "Approve",
+  reject: "Reject",
+  fileOperation: "File Operation",
+  shellCommand: "Shell Command",
 };
 
 const dictionaries: Record<Locale, Messages> = { zh: zhMessages, en: enMessages };
