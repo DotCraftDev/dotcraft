@@ -15,10 +15,14 @@ using DotCraft.Modules;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Json;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using OpenAI;
 using Spectre.Console;
 
@@ -106,12 +110,36 @@ public sealed class AGUIChannelService(
 
         _agentFactory = BuildAgentFactory();
         var tools = _agentFactory.CreateDefaultTools();
-        var agent = _agentFactory.CreateAgentWithTools(tools);
 
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddAGUI();
+        if (!string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
+            builder.Services.ConfigureHttpJsonOptions(o =>
+                o.SerializerOptions.TypeInfoResolverChain.Add(ApprovalJsonContext.Default));
 
         _webApp = builder.Build();
+
+        AIAgent agent;
+        if (string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            agent = _agentFactory.CreateAgentWithTools(tools);
+        }
+        else
+        {
+            // Wrap sensitive tools so they emit FunctionApprovalRequestContent instead of running.
+            var approvalToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "write_file", "edit_file", "exec" };
+#pragma warning disable MEAI001
+            for (var i = 0; i < tools.Count; i++)
+            {
+                if (tools[i] is AIFunction fn && approvalToolNames.Contains(fn.Name))
+                    tools[i] = new ApprovalRequiredAIFunction(fn);
+            }
+#pragma warning restore MEAI001
+            var baseAgent = _agentFactory.CreateAgentWithTools(tools);
+            var jsonOptions = _webApp.Services.GetRequiredService<IOptions<JsonOptions>>().Value;
+            agent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
+        }
 
         var pathPrefix = path.TrimEnd('/');
         if (agUiConfig.RequireAuth && !string.IsNullOrWhiteSpace(agUiConfig.ApiKey))
@@ -187,6 +215,9 @@ public sealed class AGUIChannelService(
         });
 
         _webApp.MapAGUI(path, agent);
+        // Health probe endpoint — responds to GET so the frontend health check
+        // receives 200 instead of 405 (which MapAGUI only registers for POST).
+        _webApp.MapGet(path, () => Results.Ok(new { status = "ok" }));
 
         var url = $"http://{host}:{port}";
         AnsiConsole.MarkupLine($"[green][[Gateway]][/] AG-UI listening on {Markup.Escape(url)}{Markup.Escape(path)}");

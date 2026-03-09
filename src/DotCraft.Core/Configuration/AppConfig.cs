@@ -473,6 +473,12 @@ public sealed class AppConfig
         /// API key for AG-UI when RequireAuth is true.
         /// </summary>
         public string? ApiKey { get; set; }
+
+        /// <summary>
+        /// Approval mode for sensitive tool operations: "interactive" (request frontend approval, default)
+        /// or "auto" (auto-approve all, matches legacy behavior).
+        /// </summary>
+        public string ApprovalMode { get; set; } = "interactive";
     }
 
     public sealed class AcpConfig

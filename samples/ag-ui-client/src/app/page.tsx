@@ -19,6 +19,7 @@ import { toolRenderers } from "@/lib/toolRenderers";
 import { useMessagePersistence } from "@/hooks/useMessagePersistence";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { WelcomeScreen } from "@/components/WelcomeScreen";
+import { useApprovalAction } from "@/hooks/useApprovalAction";
 
 type SuggestionsAvailable =
   | "always"
@@ -46,6 +47,7 @@ function ChatWithThreads() {
   const { connected, retry } = useBackendHealth();
   const { t, locale } = useLocale();
   useMessagePersistence(currentThreadId);
+  useApprovalAction();
   const suggestionsAvailable = getSuggestionsAvailable();
 
   useConfigureSuggestions(
