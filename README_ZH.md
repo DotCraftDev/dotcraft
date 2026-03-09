@@ -10,7 +10,7 @@
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
 
-![promo](https://github.com/DotCraftDev/resources/raw/master/dotcraft/promo.mp4)
+https://github.com/user-attachments/assets/e583a8fb-cea0-4dc1-9033-593b5e53c2f9
 
 </div>
 
