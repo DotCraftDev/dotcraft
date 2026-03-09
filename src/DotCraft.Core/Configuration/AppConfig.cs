@@ -455,9 +455,9 @@ public sealed class AppConfig
         public string Path { get; set; } = "/ag-ui";
 
         /// <summary>
-        /// Host to bind the AG-UI HTTP server (default: 0.0.0.0).
+        /// Host to bind the AG-UI HTTP server (default: 127.0.0.1).
         /// </summary>
-        public string Host { get; set; } = "0.0.0.0";
+        public string Host { get; set; } = "127.0.0.1";
 
         /// <summary>
         /// Port to bind the AG-UI HTTP server (default: 5100).
