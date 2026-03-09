@@ -1,5 +1,7 @@
 # DotCraft AG-UI Client
 
+**[中文](./README_ZH.md) | English**
+
 A minimal Next.js app that connects to DotCraft's AG-UI server via CopilotKit. Use it to chat with DotCraft from the browser without cloning the CopilotKit monorepo.
 
 ## Prerequisites
