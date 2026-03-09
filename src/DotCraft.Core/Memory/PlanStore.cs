@@ -91,14 +91,20 @@ public sealed class PlanStore(string botPath)
             sb.AppendLine();
             foreach (var todo in plan.Todos)
             {
-                var checkbox = todo.Status is PlanTodoStatus.Completed ? "[x]" : "[ ]";
+                var icon = todo.Status switch
+                {
+                    PlanTodoStatus.Completed  => "✓",
+                    PlanTodoStatus.InProgress => "●",
+                    PlanTodoStatus.Cancelled  => "✗",
+                    _                         => "○"
+                };
                 var statusTag = todo.Status switch
                 {
-                    PlanTodoStatus.InProgress => " *(in progress)*",
-                    PlanTodoStatus.Cancelled => " *(cancelled)*",
-                    _ => ""
+                    PlanTodoStatus.InProgress => " **(in progress)**",
+                    PlanTodoStatus.Cancelled  => " *(cancelled)*",
+                    _                         => ""
                 };
-                sb.AppendLine($"- {checkbox} `{todo.Id}` — {todo.Content}{statusTag}");
+                sb.AppendLine($"- {icon} `{todo.Id}` — {todo.Content}{statusTag}");
             }
             sb.AppendLine();
         }
