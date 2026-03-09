@@ -5,6 +5,7 @@ using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
+using DotCraft.Diagnostics;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
@@ -65,6 +66,8 @@ public sealed class QQChannelService(
         // Collect tool providers from modules
         var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
 
+        var planStore = new PlanStore(paths.CraftPath);
+
         return new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
             memoryStore, skillsLoader, qqApprovalService, blacklist,
@@ -90,6 +93,18 @@ public sealed class QQChannelService(
             traceCollector: traceCollector,
             customCommandLoader: sp.GetService<CustomCommandLoader>(),
             onConsolidatorStatus: AnsiConsole.MarkupLine,
+            planStore: planStore,
+            onPlanUpdated: plan =>
+            {
+                if (!DebugModeService.IsEnabled()) return;
+                var ctx = QQChatContextScope.Current;
+                if (ctx == null) return;
+                var text = PlanStore.RenderPlanPlainText(plan);
+                if (ctx.IsGroupMessage)
+                    _ = qqClient.SendGroupMessageAsync(ctx.GroupId, text);
+                else
+                    _ = qqClient.SendPrivateMessageAsync(ctx.UserId, text);
+            },
             hookRunner: hookRunner);
     }
 

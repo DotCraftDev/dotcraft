@@ -5,6 +5,7 @@ using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
+using DotCraft.Diagnostics;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
@@ -67,6 +68,8 @@ public sealed class WeComChannelService(
         // Collect tool providers from modules
         var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
 
+        var planStore = new PlanStore(paths.CraftPath);
+
         return new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
             memoryStore, skillsLoader, wecomApprovalService, blacklist,
@@ -91,6 +94,15 @@ public sealed class WeComChannelService(
             traceCollector: traceCollector,
             customCommandLoader: sp.GetService<CustomCommandLoader>(),
             onConsolidatorStatus: AnsiConsole.MarkupLine,
+            planStore: planStore,
+            onPlanUpdated: plan =>
+            {
+                if (!DebugModeService.IsEnabled()) return;
+                var pusher = WeComPusherScope.Current;
+                if (pusher == null) return;
+                var md = PlanStore.RenderPlanMarkdown(plan);
+                _ = pusher.PushMarkdownAsync(md);
+            },
             hookRunner: hookRunner);
     }
 
