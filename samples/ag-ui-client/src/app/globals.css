@@ -1,20 +1,21 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode so the in-app toggle works. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
 }
 
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
@@ -30,10 +31,8 @@ body {
   --ring: oklch(55% 0.15 270);
 }
 
-/* CopilotKit theme overrides — dark mode */
-@media (prefers-color-scheme: dark) {
-  [data-copilotkit] {
-    --primary: oklch(72% 0.18 290);
-    --primary-foreground: oklch(14% 0 0);
-  }
+/* CopilotKit theme overrides — dark mode (.dark class activates CopilotKit's dark theme) */
+.dark [data-copilotkit] {
+  --primary: oklch(72% 0.18 290);
+  --primary-foreground: oklch(14% 0 0);
 }
