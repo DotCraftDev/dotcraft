@@ -5,10 +5,9 @@ import {
   CopilotKitProvider,
   useConfigureSuggestions,
   useAgentContext,
-  useCopilotKit,
 } from "@copilotkitnext/react";
 import type { ToolsMenuItem } from "@copilotkitnext/react";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Nav } from "@/components/Nav";
 import { ThreadList } from "@/components/ThreadList";
 import { AbortErrorBoundary } from "@/components/AbortErrorBoundary";
@@ -43,15 +42,9 @@ function getDashboardUrl(): string {
   return process.env.NEXT_PUBLIC_DASHBOARD_URL ?? DEFAULT_DASHBOARD_URL;
 }
 
-/**
- * Component that handles thread switching and connects to the agent.
- * When threadId changes, CopilotKit's useAgent hook will automatically
- * trigger a connect to restore session history.
- */
 function ChatWithThreads() {
   const { currentThreadId, addThread } = useThreads();
   const suggestionsAvailable = getSuggestionsAvailable();
-  const { agent } = useCopilotKit();
 
   useConfigureSuggestions(
     suggestionsAvailable === "disabled"
@@ -63,25 +56,10 @@ function ChatWithThreads() {
         }
   );
 
-  // Send current thread ID to agent context for better debugging
   useAgentContext({
-    description: "Current thread ID",
+    description: "Current thread ID:",
     value: currentThreadId,
   });
-
-  /**
-   * Force reconnect when thread changes.
-   * CopilotKit should handle this automatically via useAgent, but
-   * explicit reconnection ensures session history is properly restored.
-   */
-  useEffect(() => {
-    if (agent && currentThreadId) {
-      // The agent object from useCopilotKit provides the runtime connection
-      // When threadId changes in CopilotChat, it automatically calls connectAgent
-      // We don't need to manually trigger reconnect here as CopilotChat handles it
-      console.log("[DotCraft] Thread changed to:", currentThreadId);
-    }
-  }, [currentThreadId, agent]);
 
   const toolsMenu = useMemo<(ToolsMenuItem | "-")[]>(
     () => [
@@ -126,10 +104,7 @@ function ChatWithThreads() {
       </div>
       <div className="min-h-0 flex-1">
         <AbortErrorBoundary>
-          <CopilotChat 
-            threadId={currentThreadId} 
-            input={{ toolsMenu }} 
-          />
+          <CopilotChat threadId={currentThreadId} input={{ toolsMenu }} />
         </AbortErrorBoundary>
       </div>
     </>
