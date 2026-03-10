@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/e583a8fb-cea0-4dc1-9033-593b5e53c2f9
 - 🐳 **Sandbox Isolation**: Secure tool execution with [OpenSandbox](https://github.com/alibaba/OpenSandbox)
 - 🔌 **MCP Integration**: Connect external tools via [Model Context Protocol](https://modelcontextprotocol.io/)
 - 🖥️ **ACP Editor Integration**: Native agent support for [ACP](https://agentclientprotocol.com/)-compatible editors
-- 🎮 **Multiple Runtime Modes**: CLI, API, QQ, WeCom, ACP, AG-UI, Gateway
+- 🎮 **Multiple Runtime Modes**: CLI, API, QQ, WeCom, ACP, AG-UI, GitHub, Gateway
 - 🎯 **Unity Integration**: Unity Editor extension with scene and asset support
 - 📊 **Dashboard**: Web UI for traces, sessions, and configuration
 - 🧩 **Extensibility**: Skills, Hooks, and notification integrations

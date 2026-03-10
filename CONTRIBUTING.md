@@ -28,23 +28,20 @@ The AI will:
 
 If you prefer to work without AI assistance, simply read the guidelines directly from `samples/skills/dev-guide/`:
 
-1. **Start here**: `samples/skills/dev-guide/SKILL.md` - Core development guidelines
-2. **Architecture reference**: `samples/skills/dev-guide/references/architecture.md` - File and documentation index
-3. **Module development**: `samples/skills/dev-guide/references/module-development.md` - Step-by-step guide with file references
+1. **Start here**: `samples/skills/dev-guide/SKILL.md` - Code style and documentation guidelines
+2. **Module development (norms and checklist)**: `samples/skills/dev-guide/references/module-development-spec.md` - Host/Channel, HITL, tools, config rules
 
 **Quick reference**:
 - **Code style**: See `samples/skills/dev-guide/SKILL.md` → Code Style Guidelines
-- **Where to add features**: See `samples/skills/dev-guide/SKILL.md` → Architecture Guidelines → Where to Add New Features
-- **Create a module**: See `samples/skills/dev-guide/references/module-development.md`
-- **Existing examples**: Check `src/DotCraft.QQ/` (full module) or `src/DotCraft.Unity/` (minimal module)
+- **Create or change a module**: See `samples/skills/dev-guide/references/module-development-spec.md` and use the checklist there; discover implementation from the codebase (e.g. search for `[DotCraftModule(`, `CreateChannelService`, `IApprovalService`).
+- **Existing examples**: Check `src/DotCraft.QQ/` (full channel) or `src/DotCraft.Unity/` (tool-only)
 
 ## What's Covered
 
 The guidelines include:
 
 - ✅ **C# Code Style** - Official conventions with modern features
-- ✅ **Architecture Patterns** - Module structure and placement decisions
-- ✅ **Module Development** - Complete process with references to existing code
+- ✅ **Module Development** - Norms and checklist (Host/Channel, HITL, tools, config) in the spec; implementation discovered from the codebase
 - ✅ **Documentation Requirements** - Bilingual (English + Chinese) standards
 - ✅ **Development Workflow** - Before, during, and after making changes
 

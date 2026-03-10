@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/e583a8fb-cea0-4dc1-9033-593b5e53c2f9
 - 🐳 **沙箱隔离**: 基于 [OpenSandbox](https://github.com/alibaba/OpenSandbox) 的安全工具执行
 - 🔌 **MCP 接入**: 通过 [Model Context Protocol](https://modelcontextprotocol.io/) 连接外部工具
 - 🖥️ **ACP 编辑器集成**: 原生支持 [ACP](https://agentclientprotocol.com/) 兼容编辑器
-- 🎮 **运行形态**: CLI、API、QQ、企业微信、ACP、AG-UI、Gateway
+- 🎮 **运行形态**: CLI、API、QQ、企业微信、ACP、AG-UI、GitHub、Gateway
 - 🎯 **Unity 集成**: Unity 编辑器扩展与场景资源支持
 - 📊 **监控面板**: 会话、调用追踪与配置管理 Web UI
 - 🧩 **扩展能力**: Skills、Hooks 与通知集成
