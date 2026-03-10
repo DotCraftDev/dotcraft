@@ -68,6 +68,7 @@ public sealed class GatewayHost : IDotCraftHost
 
         var traceStore = _sp.GetService<TraceStore>();
         var tokenUsageStore = _sp.GetService<TokenUsageStore>();
+        var orchestratorProviders = _sp.GetServices<IOrchestratorSnapshotProvider>().ToList();
 
         // Dashboard startup is owned by GatewayHost.
         // When an API channel is present the dashboard is mounted on its web app to avoid port conflicts.
@@ -80,11 +81,13 @@ public sealed class GatewayHost : IDotCraftHost
             {
                 var capturedTraceStore = traceStore;
                 var capturedTokenUsageStore = tokenUsageStore;
+                var capturedOrchestratorProviders = orchestratorProviders.Count > 0 ? orchestratorProviders : null;
                 apiChannel.OnConfigureApp = app =>
                 {
                     app.MapDashBoardAuth(_config);
                     app.UseDashBoardAuth(_config);
-                    app.MapDashBoard(capturedTraceStore, _config, _paths, capturedTokenUsageStore);
+                    app.MapDashBoard(capturedTraceStore, _paths, capturedTokenUsageStore,
+                        orchestratorProviders: capturedOrchestratorProviders);
                 };
                 var dashboardUrl = $"http://{_config.Api.Host}:{_config.Api.Port}";
                 AnsiConsole.MarkupLine(
@@ -93,7 +96,8 @@ public sealed class GatewayHost : IDotCraftHost
             else
             {
                 dashBoardServer = new DashBoardServer();
-                dashBoardServer.Start(traceStore, _config, _paths, tokenUsageStore);
+                dashBoardServer.Start(traceStore, _config, _paths, tokenUsageStore,
+                    orchestratorProviders: orchestratorProviders.Count > 0 ? orchestratorProviders : null);
             }
         }
 

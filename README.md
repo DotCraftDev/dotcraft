@@ -48,10 +48,11 @@ flowchart TB
 
     subgraph modules [Gateway Channels]
         direction LR
-        QQModule["QQ Bot"]
-        WeComModule["WeCom Bot"]
-        ApiModule["API Service"]
+        QQModule["QQ"]
+        WeComModule["WeCom"]
+        ApiModule["API"]
         AGUIModule["AG-UI"]
+        GitHubModule["GitHub"]
     end
 
     AgentCore["Agent Core"]
@@ -91,7 +92,7 @@ flowchart TB
 
     class App entryStyle
     class CliHost,GatewayHost,AcpHost hostStyle
-    class QQModule,WeComModule,ApiModule,AGUIModule moduleStyle
+    class QQModule,WeComModule,ApiModule,AGUIModule,GitHubModule moduleStyle
     class AgentCore coreStyle
     class Tools toolStyle
     class Session,Memory,Hooks,Skills,Config infraStyle
@@ -112,7 +113,7 @@ flowchart LR
     Cli["CLI"]
     Ide["ACP / IDE"]
     Api["API / AG-UI"]
-    Bots["QQ / WeCom"]
+    Bots["QQ / WeCom / GitHub"]
     Workspace["ProjectWorkspace (.craft)"]
     Dashboard["Dashboard"]
 
@@ -223,6 +224,10 @@ If you want to expose DotCraft as a service, see the [API Mode Guide](./docs/en/
 
 If you want to connect the same workspace to chat bot entry points, see the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
 
+### GitHub Tracker
+
+If you want DotCraft to automatically poll GitHub issues, create isolated workspaces, dispatch coding agents, and close completed issues, see the [GitHubTracker Guide](./docs/en/github_tracker_guide.md).
+
 ### Unity / ACP
 
 If you want to access DotCraft from editors or Unity, it is best to initialize the target workspace once from the CLI first; if config is still missing, that flow will open the setup-only Dashboard for you. Then see the [ACP Mode Guide](./docs/en/acp_guide.md), the [Unity Integration Guide](./docs/en/unity_guide.md), and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
@@ -247,6 +252,7 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 
 - [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, Gateway
 - [DashBoard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
+- [GitHubTracker Guide](./docs/en/github_tracker_guide.md): GitHub issue polling, isolated workspaces, agent dispatch, and tracker completion flow
 
 **Connect different entry points**
 
@@ -282,6 +288,7 @@ Thanks to [Devin AI](https://devin.ai/) for providing free ACU credits to facili
 - [modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk)
 - [agentclientprotocol/agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol)
 - [ag-ui-protocol/ag-ui](https://github.com/ag-ui-protocol/ag-ui)
+- [openai/symphony](https://github.com/openai/symphony)
 
 ## 📄 License
 

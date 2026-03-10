@@ -1025,6 +1025,12 @@ body {
         <span>Sessions</span>
       </button>
 
+      <div class="nav-section" id="navSectionOrchestrators" style="display:none">Orchestrators</div>
+      <button class="nav-tab" data-panel="github-tracker" id="navTabGithubTracker" style="display:none" onclick="switchPanel('github-tracker')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h.01M15 9h.01M12 17c2 0 3.5-1 4-3H8c.5 2 2 3 4 3z"/></svg>
+        <span>GitHub Tracker</span>
+      </button>
+
       <div class="nav-section">System</div>
       <button class="nav-tab" data-panel="settings" onclick="switchPanel('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -1121,6 +1127,33 @@ body {
         </div>
       </div>
 
+      <!-- GitHub Tracker Panel -->
+      <div class="panel" id="panel-github-tracker">
+        <div class="panel-header">
+          <div class="panel-title">GitHub Tracker</div>
+          <button class="btn btn-accent" onclick="refreshGithubTracker()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div class="panel-body">
+          <div class="stats-grid" id="githubTrackerStats">
+            <div class="stat-card"><div class="stat-label">Running Agents</div><div class="stat-value accent" id="gtRunning">-</div></div>
+            <div class="stat-card"><div class="stat-label">Retrying</div><div class="stat-value warning" id="gtRetrying">-</div></div>
+            <div class="stat-card"><div class="stat-label">Total Input Tokens</div><div class="stat-value" id="gtInputTokens">-</div></div>
+            <div class="stat-card"><div class="stat-label">Total Output Tokens</div><div class="stat-value" id="gtOutputTokens">-</div></div>
+            <div class="stat-card"><div class="stat-label">Total Tokens</div><div class="stat-value success" id="gtTotalTokens">-</div></div>
+            <div class="stat-card"><div class="stat-label">Runtime (h)</div><div class="stat-value info" id="gtSecondsRunning">-</div></div>
+          </div>
+
+          <h3 style="margin:16px 0 10px;font-size:14px;color:var(--text-secondary)">Running Agents</h3>
+          <div id="gtRunningTable"><div class="empty-state">No agents currently running.</div></div>
+
+          <h3 style="margin:16px 0 10px;font-size:14px;color:var(--text-secondary)">Retry Queue</h3>
+          <div id="gtRetryTable"><div class="empty-state">No issues queued for retry.</div></div>
+        </div>
+      </div>
+
       <!-- Settings Panel -->
       <div class="panel" id="panel-settings">
         <div class="panel-header">
@@ -1206,6 +1239,7 @@ function switchPanel(panel) {
   else if (panel === 'traces') refreshTraces();
   else if (panel === 'token-usage') refreshTokenUsage();
   else if (panel === 'settings') refreshSettings();
+  else if (panel === 'github-tracker') refreshGithubTracker();
 }
 
 async function fetchJson(url) {
@@ -1924,6 +1958,64 @@ const CONFIG_SCHEMA = [
     ]
   },
   {
+    section: 'GitHubTracker',
+    path: ['GitHubTracker'],
+    fields: [
+      { key: 'Enabled',      type: 'bool', defaultValue: false },
+      { key: 'WorkflowPath', type: 'text', defaultValue: 'WORKFLOW.md', hint: 'Relative to the workspace root. WORKFLOW.md can override base tracker settings at runtime.' },
+    ]
+  },
+  {
+    section: 'GitHubTracker › Tracker',
+    path: ['GitHubTracker', 'Tracker'],
+    fields: [
+      { key: 'Endpoint',               type: 'text' },
+      { key: 'ApiKey',                 type: 'password', sensitive: true, hint: 'Supports $ENV_VAR indirection' },
+      { key: 'Repository',             type: 'text', hint: 'owner/repo' },
+      { key: 'ActiveStates',           type: 'json', hint: 'JSON array of active state names' },
+      { key: 'TerminalStates',         type: 'json', hint: 'JSON array of terminal state names' },
+      { key: 'GitHubStateLabelPrefix', type: 'text', defaultValue: 'status:' },
+      { key: 'AssigneeFilter',         type: 'text' },
+    ]
+  },
+  {
+    section: 'GitHubTracker › Polling',
+    path: ['GitHubTracker', 'Polling'],
+    fields: [
+      { key: 'IntervalMs', type: 'number', min: 1, defaultValue: 30000 },
+    ]
+  },
+  {
+    section: 'GitHubTracker › Workspace',
+    path: ['GitHubTracker', 'Workspace'],
+    fields: [
+      { key: 'Root', type: 'text', hint: 'Leave blank to use the default github_tracker_workspaces temp directory' },
+    ]
+  },
+  {
+    section: 'GitHubTracker › Agent',
+    path: ['GitHubTracker', 'Agent'],
+    fields: [
+      { key: 'MaxConcurrentAgents', type: 'number', min: 1, defaultValue: 3 },
+      { key: 'MaxTurns',            type: 'number', min: 1, defaultValue: 20 },
+      { key: 'MaxRetryBackoffMs',   type: 'number', min: 0, defaultValue: 300000 },
+      { key: 'TurnTimeoutMs',       type: 'number', min: 0, defaultValue: 3600000 },
+      { key: 'StallTimeoutMs',      type: 'number', defaultValue: 300000, hint: '0 or negative disables stall detection' },
+      { key: 'MaxConcurrentByState',type: 'json', hint: 'JSON object of state->maxConcurrency' },
+    ]
+  },
+  {
+    section: 'GitHubTracker › Hooks',
+    path: ['GitHubTracker', 'Hooks'],
+    fields: [
+      { key: 'AfterCreate',  type: 'text' },
+      { key: 'BeforeRun',    type: 'text' },
+      { key: 'AfterRun',     type: 'text' },
+      { key: 'BeforeRemove', type: 'text' },
+      { key: 'TimeoutMs',    type: 'number', min: 0, defaultValue: 60000 },
+    ]
+  },
+  {
     section: 'Cron',
     path: ['Cron'],
     fields: [
@@ -2510,6 +2602,124 @@ function checkAuthEnabled() {
   }).catch(() => {});
 }
 
+// GitHub Tracker
+let githubTrackerAvailable = false;
+
+async function probeGithubTracker() {
+  try {
+    const res = await fetch('/dashboard/api/orchestrators/github-tracker/state');
+    if (res.ok) {
+      githubTrackerAvailable = true;
+      document.getElementById('navSectionOrchestrators').style.display = '';
+      document.getElementById('navTabGithubTracker').style.display = '';
+    }
+  } catch (_) {}
+}
+
+function fmtTokens(n) {
+  if (n == null) return '-';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+
+function fmtHours(seconds) {
+  if (seconds == null) return '-';
+  return (seconds / 3600).toFixed(2);
+}
+
+function fmtRelative(ms) {
+  const now = Date.now();
+  const diff = ms - now;
+  if (diff <= 0) return 'now';
+  if (diff < 1000) return '<1s';
+  if (diff < 60000) return Math.ceil(diff / 1000) + 's';
+  return Math.ceil(diff / 60000) + 'm';
+}
+
+async function refreshGithubTracker() {
+  if (!githubTrackerAvailable) return;
+  try {
+    const res = await fetch('/dashboard/api/orchestrators/github-tracker/state');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    document.getElementById('gtRunning').textContent = data.runningCount ?? '-';
+    document.getElementById('gtRetrying').textContent = data.retryingCount ?? '-';
+    const t = data.totals || {};
+    document.getElementById('gtInputTokens').textContent = fmtTokens(t.inputTokens);
+    document.getElementById('gtOutputTokens').textContent = fmtTokens(t.outputTokens);
+    document.getElementById('gtTotalTokens').textContent = fmtTokens(t.totalTokens);
+    document.getElementById('gtSecondsRunning').textContent = fmtHours(t.secondsRunning);
+
+    const runningEl = document.getElementById('gtRunningTable');
+    if (!data.running || data.running.length === 0) {
+      runningEl.innerHTML = '<div class="empty-state">No agents currently running.</div>';
+    } else {
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+      html += '<thead><tr style="color:var(--text-secondary)">';
+      html += '<th style="padding:6px 8px;text-align:left">Issue</th>';
+      html += '<th style="padding:6px 8px;text-align:left">State</th>';
+      html += '<th style="padding:6px 8px;text-align:left">Session</th>';
+      html += '<th style="padding:6px 8px;text-align:right">Turns</th>';
+      html += '<th style="padding:6px 8px;text-align:right">Tokens</th>';
+      html += '<th style="padding:6px 8px;text-align:left">Last Event</th>';
+      html += '</tr></thead><tbody>';
+      for (const r of data.running) {
+        const sessionLink = r.sessionId
+          ? `<a href="#" onclick="openSession('${r.sessionId}');return false;" style="color:var(--accent)">${r.sessionId}</a>`
+          : '-';
+        html += `<tr style="border-top:1px solid var(--border)">`;
+        html += `<td style="padding:6px 8px;font-weight:500">${r.identifier}</td>`;
+        html += `<td style="padding:6px 8px"><span style="font-size:11px;padding:2px 6px;border-radius:3px;background:var(--surface-2)">${r.state || '-'}</span></td>`;
+        html += `<td style="padding:6px 8px;font-size:12px">${sessionLink}</td>`;
+        html += `<td style="padding:6px 8px;text-align:right">${r.turnCount ?? 0}</td>`;
+        html += `<td style="padding:6px 8px;text-align:right">${fmtTokens(r.totalTokens)}</td>`;
+        html += `<td style="padding:6px 8px;font-size:12px;color:var(--text-secondary)">${r.lastEvent || '-'}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      runningEl.innerHTML = html;
+    }
+
+    const retryEl = document.getElementById('gtRetryTable');
+    if (!data.retrying || data.retrying.length === 0) {
+      retryEl.innerHTML = '<div class="empty-state">No issues queued for retry.</div>';
+    } else {
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+      html += '<thead><tr style="color:var(--text-secondary)">';
+      html += '<th style="padding:6px 8px;text-align:left">Issue</th>';
+      html += '<th style="padding:6px 8px;text-align:right">Attempt</th>';
+      html += '<th style="padding:6px 8px;text-align:left">Due In</th>';
+      html += '<th style="padding:6px 8px;text-align:left">Reason</th>';
+      html += '</tr></thead><tbody>';
+      for (const r of data.retrying) {
+        html += `<tr style="border-top:1px solid var(--border)">`;
+        html += `<td style="padding:6px 8px;font-weight:500">${r.identifier}</td>`;
+        html += `<td style="padding:6px 8px;text-align:right">${r.attempt}</td>`;
+        html += `<td style="padding:6px 8px">${fmtRelative(r.dueAtMs)}</td>`;
+        html += `<td style="padding:6px 8px;color:var(--text-secondary);font-size:12px">${r.error || '-'}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      retryEl.innerHTML = html;
+    }
+  } catch (e) {
+    console.error('GitHub Tracker refresh failed:', e);
+  }
+}
+
+function openSession(sessionKey) {
+  switchPanel('sessions');
+  setTimeout(() => {
+    const row = document.querySelector(`[data-session-key="${sessionKey}"]`);
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row.click();
+    }
+  }, 200);
+}
+
 // Init
 document.addEventListener('DOMContentLoaded', async () => {
   const settingsData = await refreshSettings();
@@ -2517,6 +2727,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshDashboard();
     connectSSE();
     checkAuthEnabled();
+    probeGithubTracker();
   } else if (settingsData && !settingsHasApiKey) {
     switchPanel('settings');
   }
