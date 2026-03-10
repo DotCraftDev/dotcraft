@@ -58,7 +58,9 @@ public sealed class GatewayHost : IDotCraftHost
         _moduleRegistry = moduleRegistry;
 
         foreach (var ch in _channels)
+        {
             _router.RegisterChannel(ch);
+        }
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
@@ -127,16 +129,16 @@ public sealed class GatewayHost : IDotCraftHost
             if (approvalContext != null)
             {
                 using var _ = ApprovalContextScope.Set(approvalContext);
-                result = await sharedAgentRunner(job.Payload.Message, sessionKey);
+                result = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
             }
             else
             {
-                result = await sharedAgentRunner(job.Payload.Message, sessionKey);
+                result = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
             }
 
             if (job.Payload.Deliver && result != null)
             {
-                var channel = job.Payload.Channel ?? "wecom";
+                var channel = job.Payload.Channel ?? "unknown";
                 var target = job.Payload.To ?? job.Payload.CreatorId ?? "";
                 try
                 {
@@ -159,15 +161,13 @@ public sealed class GatewayHost : IDotCraftHost
         if (_config.Heartbeat.Enabled)
         {
             heartbeatService.Start();
-            AnsiConsole.MarkupLine(
-                $"[green][[Gateway]][/] Heartbeat started (interval: {_config.Heartbeat.IntervalSeconds}s)");
+            AnsiConsole.MarkupLine($"[green][[Gateway]][/] Heartbeat started (interval: {_config.Heartbeat.IntervalSeconds}s)");
         }
 
         if (_config.Cron.Enabled)
         {
             _cronService.Start();
-            AnsiConsole.MarkupLine(
-                $"[green][[Gateway]][/] Cron service started ({_cronService.ListJobs().Count} jobs)");
+            AnsiConsole.MarkupLine($"[green][[Gateway]][/] Cron service started ({_cronService.ListJobs().Count} jobs)");
         }
 
         PrintStartupSummary();
@@ -316,11 +316,9 @@ public sealed class GatewayHost : IDotCraftHost
             "qq"    => ApprovalSource.QQ,
             "wecom" => ApprovalSource.WeCom,
             "api"   => ApprovalSource.Api,
-            "ag-ui" => ApprovalSource.Console,
             _       => ApprovalSource.Console
         };
-        var groupId = source == ApprovalSource.QQ
-            && long.TryParse(payload.CreatorGroupId, out var gid) ? gid : 0L;
+        var groupId = source == ApprovalSource.QQ && long.TryParse(payload.CreatorGroupId, out var gid) ? gid : 0L;
         return new ApprovalContext { UserId = payload.CreatorId, Source = source, GroupId = groupId };
     }
 
