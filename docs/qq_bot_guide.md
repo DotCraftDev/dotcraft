@@ -70,7 +70,7 @@ docker run -d \
     "SystemInstructions": "你是 DotCraft，一个简洁、可靠的 QQ 智能助手。",
     "QQBot": {
         "Enabled": true,
-        "Host": "0.0.0.0",
+        "Host": "127.0.0.1",
         "Port": 6700,
         "AccessToken": "",
         "AdminUsers": [123456789],
@@ -86,11 +86,11 @@ docker run -d \
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `QQBot.Enabled` | 是否启用 QQ 机器人模式 | `false` |
-| `QQBot.Host` | WebSocket 服务器监听地址 | `0.0.0.0` |
+| `QQBot.Host` | WebSocket 服务器监听地址 | `127.0.0.1` |
 | `QQBot.Port` | WebSocket 服务器监听端口 | `6700` |
 | `QQBot.AccessToken` | 鉴权 Token（可选，需与 NapCat 一致） | 空 |
 
-> 如果 NapCat 和 DotCraft 在同一台机器上运行，Host 保持 `0.0.0.0` 即可。
+> 如果 NapCat 和 DotCraft 在同一台机器上运行，Host 保持 `127.0.0.1` 即可。
 
 ### 权限配置项
 
@@ -132,8 +132,8 @@ NapCat 启动后，通过浏览器访问 WebUI 进行配置：
 
 ```
 QQ Bot mode enabled
-OneBot reverse WebSocket server started on ws://0.0.0.0:6700/
-QQ Bot listening on ws://0.0.0.0:6700/
+OneBot reverse WebSocket server started on ws://127.0.0.1:6700/
+QQ Bot listening on ws://127.0.0.1:6700/
 Press Ctrl+C to stop...
 ```
 
@@ -321,7 +321,7 @@ docker run -d \
     "SystemInstructions": "你是 DotCraft，一个简洁、可靠的 QQ 智能助手。",
     "QQBot": {
         "Enabled": true,
-        "Host": "0.0.0.0",
+        "Host": "127.0.0.1",
         "Port": 6700,
         "AccessToken": "your-optional-token",
         "AdminUsers": [123456789],

@@ -7,7 +7,7 @@ using DotCraft.QQ.OneBot;
 
 namespace DotCraft.QQ;
 
-public sealed class OneBotReverseWsServer(string host = "0.0.0.0", int port = 6700, string? accessToken = null)
+public sealed class OneBotReverseWsServer(string host = "127.0.0.1", int port = 6700, string? accessToken = null)
     : IAsyncDisposable
 {
     private HttpListener? _httpListener;

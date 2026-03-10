@@ -70,7 +70,7 @@ Add QQ bot configuration in your DotCraft workspace's `config.json`:
     "SystemInstructions": "You are DotCraft, a concise and reliable QQ intelligent assistant.",
     "QQBot": {
         "Enabled": true,
-        "Host": "0.0.0.0",
+        "Host": "127.0.0.1",
         "Port": 6700,
         "AccessToken": "",
         "AdminUsers": [123456789],
@@ -86,11 +86,11 @@ Add QQ bot configuration in your DotCraft workspace's `config.json`:
 | Config Item | Description | Default |
 |-------------|-------------|---------|
 | `QQBot.Enabled` | Enable QQ bot mode | `false` |
-| `QQBot.Host` | WebSocket server listen address | `0.0.0.0` |
+| `QQBot.Host` | WebSocket server listen address | `127.0.0.1` |
 | `QQBot.Port` | WebSocket server listen port | `6700` |
 | `QQBot.AccessToken` | Auth token (optional, must match NapCat) | empty |
 
-> If NapCat and DotCraft run on the same machine, keep Host as `0.0.0.0`.
+> If NapCat and DotCraft run on the same machine, keep Host as `127.0.0.1`.
 
 ### Permission Configuration
 
@@ -132,8 +132,8 @@ After starting, you will see output like:
 
 ```
 QQ Bot mode enabled
-OneBot reverse WebSocket server started on ws://0.0.0.0:6700/
-QQ Bot listening on ws://0.0.0.0:6700/
+OneBot reverse WebSocket server started on ws://127.0.0.1:6700/
+QQ Bot listening on ws://127.0.0.1:6700/
 Press Ctrl+C to stop...
 ```
 
@@ -321,7 +321,7 @@ docker run -d \
     "SystemInstructions": "You are DotCraft, a concise and reliable QQ intelligent assistant.",
     "QQBot": {
         "Enabled": true,
-        "Host": "0.0.0.0",
+        "Host": "127.0.0.1",
         "Port": 6700,
         "AccessToken": "your-optional-token",
         "AdminUsers": [123456789],

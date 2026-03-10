@@ -1131,12 +1131,20 @@ body {
           </button>
         </div>
         <div class="panel-body">
+          <div id="setupBanner" class="message message-info" style="display:none;margin-bottom:16px">
+            <div>
+              <div style="font-weight:600">Setup Mode</div>
+              <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">
+                Configure the API key and basic settings here, then restart DotCraft to continue normal startup.
+              </div>
+            </div>
+          </div>
           <div class="settings-layout">
             <div class="settings-top">
               <!-- Global config (read-only) -->
               <div class="settings-col">
                 <div class="settings-col-header">
-                  <div class="settings-col-title">Global Config <span style="font-weight:400;color:var(--text-muted)">(read-only)</span></div>
+                  <div class="settings-col-title" id="settingsGlobalTitle">Global Config <span style="font-weight:400;color:var(--text-muted)">(read-only)</span></div>
                   <div class="settings-col-path" id="settingsGlobalPath">~/.craft/config.json</div>
                 </div>
                 <div class="settings-col-body" id="settingsGlobalBody">
@@ -1146,7 +1154,7 @@ body {
               <!-- Workspace config (editable) -->
               <div class="settings-col">
                 <div class="settings-col-header">
-                  <div class="settings-col-title">Workspace Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span></div>
+                  <div class="settings-col-title" id="settingsWorkspaceTitle">Workspace Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span></div>
                   <div class="settings-col-path" id="settingsWorkspacePath">.craft/config.json</div>
                 </div>
                 <div class="settings-col-body" id="settingsFormContainer">
@@ -1163,9 +1171,9 @@ body {
                 <span style="color:var(--text-muted)">Load settings to see preview...</span>
               </div>
               <div class="settings-actions">
-                <button class="btn btn-primary" onclick="saveWorkspaceConfig()">
+                <button class="btn btn-primary" id="settingsSaveBtn" onclick="saveSettings()">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                  Save
+                  Save Workspace
                 </button>
                 <button class="btn" onclick="cancelSettings()">Cancel</button>
                 <span class="settings-status" id="settingsStatus"></span>
@@ -1775,18 +1783,18 @@ const CONFIG_SCHEMA = [
     section: 'Core',
     fields: [
       { key: 'ApiKey',                    type: 'password', sensitive: true, hint: 'Leave blank to inherit from global' },
-      { key: 'Model',                     type: 'text' },
-      { key: 'EndPoint',                  type: 'text' },
-      { key: 'SystemInstructions',        type: 'textarea' },
-      { key: 'Language',                  type: 'select', options: ['Chinese', 'English'] },
-      { key: 'MaxToolCallRounds',         type: 'number', min: 1 },
-      { key: 'SubagentMaxToolCallRounds', type: 'number', min: 1 },
-      { key: 'SubagentMaxConcurrency',    type: 'number', min: 1 },
-      { key: 'MaxSessionQueueSize',       type: 'number', min: 0, hint: '0 = unlimited' },
-      { key: 'CompactSessions',           type: 'bool' },
-      { key: 'MaxContextTokens',          type: 'number', min: 0, hint: '0 = disable compaction' },
-      { key: 'MemoryWindow',              type: 'number', min: 0, hint: '0 = disable consolidation' },
-      { key: 'DebugMode',                 type: 'bool' },
+      { key: 'Model',                     type: 'text', defaultValue: 'gpt-4o-mini' },
+      { key: 'EndPoint',                  type: 'text', defaultValue: 'https://api.openai.com/v1' },
+      { key: 'SystemInstructions',        type: 'textarea', defaultValue: '你是 DotCraft 一个安全可靠的智能体。' },
+      { key: 'Language',                  type: 'select', options: ['Chinese', 'English'], defaultValue: 'Chinese' },
+      { key: 'MaxToolCallRounds',         type: 'number', min: 1, defaultValue: 100 },
+      { key: 'SubagentMaxToolCallRounds', type: 'number', min: 1, defaultValue: 50 },
+      { key: 'SubagentMaxConcurrency',    type: 'number', min: 1, defaultValue: 3 },
+      { key: 'MaxSessionQueueSize',       type: 'number', min: 0, hint: '0 = unlimited', defaultValue: 3 },
+      { key: 'CompactSessions',           type: 'bool', defaultValue: true },
+      { key: 'MaxContextTokens',          type: 'number', min: 0, hint: '0 = disable compaction', defaultValue: 160000 },
+      { key: 'MemoryWindow',              type: 'number', min: 0, hint: '0 = disable consolidation', defaultValue: 50 },
+      { key: 'DebugMode',                 type: 'bool', defaultValue: false },
       { key: 'EnabledTools',              type: 'json', hint: 'JSON array of tool names, e.g. ["Shell","File"]. Empty = all enabled.' },
     ]
   },
@@ -1794,66 +1802,66 @@ const CONFIG_SCHEMA = [
     section: 'Tools \u203a File',
     path: ['Tools', 'File'],
     fields: [
-      { key: 'RequireApprovalOutsideWorkspace', type: 'bool' },
-      { key: 'MaxFileSize', type: 'number', min: 0, hint: 'bytes, default 10485760 (10 MB)' },
+      { key: 'RequireApprovalOutsideWorkspace', type: 'bool', defaultValue: true },
+      { key: 'MaxFileSize', type: 'number', min: 0, hint: 'bytes, default 10485760 (10 MB)', defaultValue: 10485760 },
     ]
   },
   {
     section: 'Tools \u203a Shell',
     path: ['Tools', 'Shell'],
     fields: [
-      { key: 'RequireApprovalOutsideWorkspace', type: 'bool' },
-      { key: 'Timeout',         type: 'number', min: 0, hint: 'seconds' },
-      { key: 'MaxOutputLength', type: 'number', min: 0, hint: 'characters' },
+      { key: 'RequireApprovalOutsideWorkspace', type: 'bool', defaultValue: true },
+      { key: 'Timeout',         type: 'number', min: 0, hint: 'seconds', defaultValue: 300 },
+      { key: 'MaxOutputLength', type: 'number', min: 0, hint: 'characters', defaultValue: 10000 },
     ]
   },
   {
     section: 'Tools \u203a Web',
     path: ['Tools', 'Web'],
     fields: [
-      { key: 'MaxChars',        type: 'number', min: 0 },
-      { key: 'Timeout',         type: 'number', min: 0, hint: 'seconds' },
-      { key: 'SearchMaxResults',type: 'number', min: 1, max: 10 },
-      { key: 'SearchProvider',  type: 'select', options: ['Exa', 'Bing'] },
+      { key: 'MaxChars',        type: 'number', min: 0, defaultValue: 50000 },
+      { key: 'Timeout',         type: 'number', min: 0, hint: 'seconds', defaultValue: 300 },
+      { key: 'SearchMaxResults',type: 'number', min: 1, max: 10, defaultValue: 5 },
+      { key: 'SearchProvider',  type: 'select', options: ['Exa', 'Bing'], defaultValue: 'Exa' },
     ]
   },
   {
     section: 'Tools \u203a Sandbox',
     path: ['Tools', 'Sandbox'],
     fields: [
-      { key: 'Enabled',               type: 'bool' },
-      { key: 'Domain',                type: 'text' },
+      { key: 'Enabled',               type: 'bool', defaultValue: false },
+      { key: 'Domain',                type: 'text', defaultValue: 'localhost:5880' },
       { key: 'ApiKey',                type: 'password', sensitive: true },
-      { key: 'UseHttps',              type: 'bool' },
-      { key: 'Image',                 type: 'text' },
-      { key: 'TimeoutSeconds',        type: 'number', min: 0 },
-      { key: 'Cpu',                   type: 'text' },
-      { key: 'Memory',                type: 'text' },
-      { key: 'NetworkPolicy',         type: 'select', options: ['allow', 'deny', 'custom'] },
+      { key: 'UseHttps',              type: 'bool', defaultValue: false },
+      { key: 'Image',                 type: 'text', defaultValue: 'ubuntu:latest' },
+      { key: 'TimeoutSeconds',        type: 'number', min: 0, defaultValue: 600 },
+      { key: 'Cpu',                   type: 'text', defaultValue: '1' },
+      { key: 'Memory',                type: 'text', defaultValue: '512Mi' },
+      { key: 'NetworkPolicy',         type: 'select', options: ['allow', 'deny', 'custom'], defaultValue: 'allow' },
       { key: 'AllowedEgressDomains',  type: 'json', hint: 'JSON array of domain strings' },
-      { key: 'IdleTimeoutSeconds',    type: 'number', min: 0 },
-      { key: 'SyncWorkspace',         type: 'bool' },
+      { key: 'IdleTimeoutSeconds',    type: 'number', min: 0, defaultValue: 300 },
+      { key: 'SyncWorkspace',         type: 'bool', defaultValue: true },
     ]
   },
   {
     section: 'QQ Bot',
     path: ['QQBot'],
     fields: [
-      { key: 'Enabled',               type: 'bool' },
-      { key: 'Host',                  type: 'text' },
-      { key: 'Port',                  type: 'number', min: 1, max: 65535 },
+      { key: 'Enabled',               type: 'bool', defaultValue: false },
+      { key: 'Host',                  type: 'text', defaultValue: '127.0.0.1' },
+      { key: 'Port',                  type: 'number', min: 1, max: 65535, defaultValue: 6700 },
       { key: 'AccessToken',           type: 'password', sensitive: true },
       { key: 'AdminUsers',            type: 'json', hint: 'JSON array of QQ user IDs (numbers)' },
       { key: 'WhitelistedUsers',      type: 'json', hint: 'JSON array of QQ user IDs' },
       { key: 'WhitelistedGroups',     type: 'json', hint: 'JSON array of QQ group IDs' },
-      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0 },
+      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0, defaultValue: 60 },
     ]
   },
   {
     section: 'WeCom',
     path: ['WeCom'],
     fields: [
-      { key: 'Enabled',    type: 'bool' },
+      { key: 'Enabled',    type: 'bool', defaultValue: false },
       { key: 'WebhookUrl', type: 'password', sensitive: true, hint: 'Full webhook URL including key' },
     ]
   },
@@ -1861,13 +1869,13 @@ const CONFIG_SCHEMA = [
     section: 'WeCom Bot',
     path: ['WeComBot'],
     fields: [
-      { key: 'Enabled',               type: 'bool' },
-      { key: 'Host',                  type: 'text' },
-      { key: 'Port',                  type: 'number', min: 1, max: 65535 },
+      { key: 'Enabled',               type: 'bool', defaultValue: false },
+      { key: 'Host',                  type: 'text', defaultValue: '0.0.0.0' },
+      { key: 'Port',                  type: 'number', min: 1, max: 65535, defaultValue: 9000 },
       { key: 'AdminUsers',            type: 'json', hint: 'JSON array of WeCom userId strings' },
       { key: 'WhitelistedUsers',      type: 'json', hint: 'JSON array of WeCom userId strings' },
       { key: 'WhitelistedChats',      type: 'json', hint: 'JSON array of chat IDs' },
-      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0 },
+      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0, defaultValue: 60 },
       { key: 'Robots',                type: 'json', hint: 'JSON array of robot configs [{Path, Token, AesKey}]' },
     ]
   },
@@ -1875,24 +1883,24 @@ const CONFIG_SCHEMA = [
     section: 'API',
     path: ['Api'],
     fields: [
-      { key: 'Enabled',               type: 'bool' },
-      { key: 'Host',                  type: 'text' },
-      { key: 'Port',                  type: 'number', min: 1, max: 65535 },
+      { key: 'Enabled',               type: 'bool', defaultValue: false },
+      { key: 'Host',                  type: 'text', defaultValue: '127.0.0.1' },
+      { key: 'Port',                  type: 'number', min: 1, max: 65535, defaultValue: 8080 },
       { key: 'ApiKey',                type: 'password', sensitive: true },
-      { key: 'AutoApprove',           type: 'bool' },
+      { key: 'AutoApprove',           type: 'bool', defaultValue: true },
       { key: 'ApprovalMode',          type: 'select', options: ['', 'auto', 'reject', 'interactive'], hint: 'When set, takes precedence over AutoApprove' },
-      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0 },
+      { key: 'ApprovalTimeoutSeconds',type: 'number', min: 0, defaultValue: 120 },
     ]
   },
   {
     section: 'AG-UI',
     path: ['AgUi'],
     fields: [
-      { key: 'Enabled',     type: 'bool' },
-      { key: 'Path',        type: 'text', hint: 'Default: /ag-ui' },
-      { key: 'Host',        type: 'text', hint: 'Bind address, default 0.0.0.0' },
-      { key: 'Port',        type: 'number', min: 1, max: 65535 },
-      { key: 'RequireAuth', type: 'bool' },
+      { key: 'Enabled',     type: 'bool', defaultValue: false },
+      { key: 'Path',        type: 'text', hint: 'Default: /ag-ui', defaultValue: '/ag-ui' },
+      { key: 'Host',        type: 'text', hint: 'Bind address, default 127.0.0.1', defaultValue: '127.0.0.1' },
+      { key: 'Port',        type: 'number', min: 1, max: 65535, defaultValue: 5100 },
+      { key: 'RequireAuth', type: 'bool', defaultValue: false },
       { key: 'ApiKey',      type: 'password', sensitive: true, hint: 'Required when RequireAuth is on' },
     ]
   },
@@ -1900,9 +1908,9 @@ const CONFIG_SCHEMA = [
     section: 'Dashboard',
     path: ['DashBoard'],
     fields: [
-      { key: 'Enabled',  type: 'bool' },
-      { key: 'Host',     type: 'text' },
-      { key: 'Port',     type: 'number', min: 1, max: 65535 },
+      { key: 'Enabled',  type: 'bool', defaultValue: true },
+      { key: 'Host',     type: 'text', defaultValue: '127.0.0.1' },
+      { key: 'Port',     type: 'number', min: 1, max: 65535, defaultValue: 8080 },
       { key: 'Username', type: 'text' },
       { key: 'Password', type: 'password', sensitive: true },
     ]
@@ -1911,17 +1919,17 @@ const CONFIG_SCHEMA = [
     section: 'Heartbeat',
     path: ['Heartbeat'],
     fields: [
-      { key: 'Enabled',        type: 'bool' },
-      { key: 'IntervalSeconds',type: 'number', min: 1 },
-      { key: 'NotifyAdmin',    type: 'bool' },
+      { key: 'Enabled',        type: 'bool', defaultValue: false },
+      { key: 'IntervalSeconds',type: 'number', min: 1, defaultValue: 1800 },
+      { key: 'NotifyAdmin',    type: 'bool', defaultValue: true },
     ]
   },
   {
     section: 'Cron',
     path: ['Cron'],
     fields: [
-      { key: 'Enabled',  type: 'bool' },
-      { key: 'StorePath',type: 'text' },
+      { key: 'Enabled',  type: 'bool', defaultValue: true },
+      { key: 'StorePath',type: 'text', defaultValue: 'cron/jobs.json' },
     ]
   },
   {
@@ -1942,14 +1950,14 @@ const CONFIG_SCHEMA = [
     section: 'ACP',
     path: ['Acp'],
     fields: [
-      { key: 'Enabled', type: 'bool' },
+      { key: 'Enabled', type: 'bool', defaultValue: false },
     ]
   },
   {
     section: 'Hooks',
     path: ['Hooks'],
     fields: [
-      { key: 'Enabled', type: 'bool' },
+      { key: 'Enabled', type: 'bool', defaultValue: true },
     ]
   },
 ];
@@ -1957,6 +1965,8 @@ const CONFIG_SCHEMA = [
 // ─── SETTINGS STATE ───────────────────────────────────────────────────────────
 let settingsGlobalConfig = null;
 let settingsWorkspaceConfig = null;
+let settingsSetupMode = false;
+let settingsHasApiKey = true;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -1986,8 +1996,8 @@ function schemaGetValue(data, section, fieldKey) {
 }
 
 // Build a field element ID
-function sfId(sectionIdx, fieldKey) {
-  return `sf-${sectionIdx}-${fieldKey.toLowerCase()}`;
+function sfId(scope, sectionIdx, fieldKey) {
+  return `sf-${scope}-${sectionIdx}-${fieldKey.toLowerCase()}`;
 }
 
 // Count fields that have a value in the workspace data for a section
@@ -2035,20 +2045,20 @@ function renderGlobalPanel(globalData) {
     html || '<div class="settings-hint" style="padding:8px">No global config found.</div>';
 }
 
-// ─── RENDER WORKSPACE FORM (editable) ────────────────────────────────────────
-function renderWorkspaceForm(workspaceData) {
+// ─── RENDER EDITABLE FORM ─────────────────────────────────────────────────────
+function renderEditableForm(containerId, formData, scope) {
   let html = '';
   CONFIG_SCHEMA.forEach((section, sectionIdx) => {
-    const valueCount = countSectionWorkspaceValues(section, workspaceData);
-    const shouldOpen = valueCount > 0;
+    const valueCount = countSectionWorkspaceValues(section, formData);
+    const shouldOpen = valueCount > 0 || (settingsSetupMode && sectionIdx === 0);
     const badgeHtml = valueCount > 0
       ? `<span class="settings-accordion-badge">${valueCount} set</span>` : '';
 
     let fieldsHtml = '';
     for (const field of section.fields) {
-      const id = sfId(sectionIdx, field.key);
-      const rawVal = schemaGetValue(workspaceData, section, field.key);
-      fieldsHtml += renderFormField(id, field, rawVal, sectionIdx);
+      const id = sfId(scope, sectionIdx, field.key);
+      const rawVal = schemaGetValue(formData, section, field.key);
+      fieldsHtml += renderFormField(id, field, rawVal, scope);
     }
 
     html += `<details class="settings-accordion"${shouldOpen ? ' open' : ''} data-section-idx="${sectionIdx}">
@@ -2057,7 +2067,7 @@ function renderWorkspaceForm(workspaceData) {
     </details>`;
   });
 
-  const container = document.getElementById('settingsFormContainer');
+  const container = document.getElementById(containerId);
   container.innerHTML = html;
 
   // Attach live-preview listeners to all inputs / selects / textareas
@@ -2067,8 +2077,14 @@ function renderWorkspaceForm(workspaceData) {
   });
 }
 
-function renderFormField(id, field, rawVal, sectionIdx) {
-  const hint = field.hint ? `<div class="settings-hint">${escapeHtml(field.hint)}</div>` : '';
+function renderFormField(id, field, rawVal, scope) {
+  const hintText = formatFieldHint(field, scope);
+  const hint = hintText ? `<div class="settings-hint">${escapeHtml(hintText)}</div>` : '';
+  const defaultLabel = formatDefaultValue(field.defaultValue);
+  const isGlobalScope = scope === 'global';
+  const emptyText = isGlobalScope
+    ? (defaultLabel ? `default: ${defaultLabel}` : '(not set)')
+    : '(inherit from global)';
 
   if (field.type === 'bool') {
     // Tristate: unset (inherit), true, false
@@ -2079,7 +2095,7 @@ function renderFormField(id, field, rawVal, sectionIdx) {
       <div class="settings-label">${escapeHtml(field.key)}</div>
       <div class="tristate-toggle" id="${id}" data-value="${state}">
         <button type="button" class="tristate-btn${state === '' ? ' active' : ''}" data-val=""
-          onclick="tristateSet('${id}','')">inherit</button>
+          onclick="tristateSet('${id}','')">${isGlobalScope ? 'default' : 'inherit'}</button>
         <button type="button" class="tristate-btn${state === 'true' ? ' active' : ''}" data-val="true"
           onclick="tristateSet('${id}','true')">on</button>
         <button type="button" class="tristate-btn${state === 'false' ? ' active' : ''}" data-val="false"
@@ -2094,7 +2110,7 @@ function renderFormField(id, field, rawVal, sectionIdx) {
       <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
       <div class="settings-input-wrap">
         <input class="settings-input" type="password" id="${id}" value="${escapeHtml(val)}"
-          placeholder="(inherit from global)" autocomplete="off">
+          placeholder="${escapeHtml(emptyText)}" autocomplete="off">
         <button type="button" class="password-toggle-btn"
           onclick="togglePasswordVisibility('${id}',this)" title="Show/hide">&#128065;</button>
       </div>${hint}
@@ -2104,7 +2120,7 @@ function renderFormField(id, field, rawVal, sectionIdx) {
   if (field.type === 'select') {
     const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
     const options = ['', ...(field.options || [])].map(o => {
-      const label = o === '' ? '(inherit from global)' : o;
+      const label = o === '' ? emptyText : o;
       const selected = o === val ? ' selected' : '';
       return `<option value="${escapeHtml(o)}"${selected}>${escapeHtml(label)}</option>`;
     }).join('');
@@ -2119,7 +2135,7 @@ function renderFormField(id, field, rawVal, sectionIdx) {
     return `<div class="settings-field">
       <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
       <textarea class="settings-input" id="${id}" rows="3"
-        placeholder="(inherit from global)">${escapeHtml(val)}</textarea>${hint}
+        placeholder="${escapeHtml(emptyText)}">${escapeHtml(val)}</textarea>${hint}
     </div>`;
   }
 
@@ -2131,7 +2147,7 @@ function renderFormField(id, field, rawVal, sectionIdx) {
     return `<div class="settings-field">
       <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
       <textarea class="settings-input settings-json-input" id="${id}" rows="3"
-        placeholder="(inherit from global, enter valid JSON)"
+        placeholder="${escapeHtml(isGlobalScope ? (defaultLabel ? `default: ${defaultLabel} (enter valid JSON)` : '(not set, enter valid JSON)') : '(inherit from global, enter valid JSON)')}"
         spellcheck="false">${escapeHtml(val)}</textarea>
       <div class="settings-json-error" id="${id}-err"></div>${hint}
     </div>`;
@@ -2145,9 +2161,39 @@ function renderFormField(id, field, rawVal, sectionIdx) {
     <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
     <input class="settings-input" type="${field.type === 'number' ? 'number' : 'text'}"
       id="${id}" value="${escapeHtml(val)}"
-      placeholder="(inherit from global)"${minAttr}${maxAttr}>
+      placeholder="${escapeHtml(emptyText)}"${minAttr}${maxAttr}>
     ${hint}
   </div>`;
+}
+
+function formatDefaultValue(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function formatFieldHint(field, scope) {
+  const isGlobalScope = scope === 'global';
+  if (!field.hint) {
+    if (isGlobalScope && field.sensitive && field.defaultValue === undefined) {
+      return 'Leave blank if you do not want to set this value yet.';
+    }
+    return '';
+  }
+
+  if (!isGlobalScope) return field.hint;
+
+  if (field.hint === 'Leave blank to inherit from global') {
+    return field.defaultValue !== undefined
+      ? `Leave blank to use the default value (${formatDefaultValue(field.defaultValue)}).`
+      : 'Leave blank if you do not want to set this value yet.';
+  }
+
+  if (field.hint.includes('inherit from global')) {
+    return field.hint.replaceAll('inherit from global', 'use the default value');
+  }
+
+  return field.hint;
 }
 
 function tristateSet(id, val) {
@@ -2160,14 +2206,14 @@ function tristateSet(id, val) {
   updateSettingsPreview();
 }
 
-// ─── COLLECT WORKSPACE FORM ───────────────────────────────────────────────────
-function collectWorkspaceForm() {
+// ─── COLLECT EDITABLE FORM ────────────────────────────────────────────────────
+function collectForm(scope) {
   const result = {};
   let hasJsonError = false;
 
   CONFIG_SCHEMA.forEach((section, sectionIdx) => {
     for (const field of section.fields) {
-      const id = sfId(sectionIdx, field.key);
+      const id = sfId(scope, sectionIdx, field.key);
       const el = document.getElementById(id);
       if (!el) continue;
 
@@ -2229,23 +2275,25 @@ function setNestedValue(result, section, fieldKey, value) {
 function updateSettingsPreview() {
   if (!settingsGlobalConfig) return;
 
-  const workspacePartial = collectWorkspaceForm();
-  if (!workspacePartial) {
+  const workspacePartial = collectForm('workspace');
+  const globalPartial = settingsSetupMode ? collectForm('global') : settingsGlobalConfig;
+  if (!workspacePartial || !globalPartial) {
     document.getElementById('settingsPreview').innerHTML =
       '<span style="color:var(--error)">Fix JSON errors before preview updates.</span>';
     return;
   }
+
+  const effectiveGlobal = settingsSetupMode ? mergeConfig(globalPartial, {}) : settingsGlobalConfig;
+  const effectiveMerged = mergeConfig(effectiveGlobal, workspacePartial);
 
   // Build a flat list of changed / notable fields for display
   let rows = [];
 
   CONFIG_SCHEMA.forEach(section => {
     for (const field of section.fields) {
-      const globalVal = schemaGetValue(settingsGlobalConfig, section, field.key);
+      const globalVal = schemaGetValue(effectiveGlobal, section, field.key);
       const workspaceVal = schemaGetValue(workspacePartial, section, field.key);
-      const hasWorkspace = workspaceVal !== undefined;
-
-      const effectiveVal = hasWorkspace ? workspaceVal : globalVal;
+      const effectiveVal = schemaGetValue(effectiveMerged, section, field.key);
       if (effectiveVal === undefined) continue;
 
       const label = section.path
@@ -2253,9 +2301,9 @@ function updateSettingsPreview() {
         : (section.rootKey || field.key);
       const display = typeof effectiveVal === 'object'
         ? JSON.stringify(effectiveVal) : String(effectiveVal);
-      const source = hasWorkspace
-        ? '<span class="preview-source">\u2190 workspace</span>'
-        : '<span class="preview-source">\u2190 global</span>';
+      let source = '<span class="preview-source">\u2190 global</span>';
+      if (workspaceVal !== undefined) source = '<span class="preview-source">\u2190 workspace</span>';
+      else if (settingsSetupMode && globalVal !== undefined) source = '<span class="preview-source">\u2190 global (edited)</span>';
 
       rows.push(`<div class="settings-preview-row">
         <span class="preview-key">${escapeHtml(label)}:</span>
@@ -2266,6 +2314,35 @@ function updateSettingsPreview() {
 
   document.getElementById('settingsPreview').innerHTML =
     rows.length ? rows.join('') : '<span style="color:var(--text-muted)">No values configured.</span>';
+}
+
+function mergeConfig(base, override) {
+  if (override == null) return deepClone(base ?? {});
+  if (Array.isArray(base) || Array.isArray(override) || typeof base !== 'object' || typeof override !== 'object') {
+    return deepClone(override);
+  }
+
+  const result = deepClone(base ?? {});
+  for (const [key, value] of Object.entries(override)) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && result[key] && typeof result[key] === 'object' && !Array.isArray(result[key])) {
+      result[key] = mergeConfig(result[key], value);
+    } else {
+      result[key] = deepClone(value);
+    }
+  }
+  return result;
+}
+
+function deepClone(value) {
+  if (Array.isArray(value)) return value.map(deepClone);
+  if (value && typeof value === 'object') {
+    const result = {};
+    Object.entries(value).forEach(([key, child]) => {
+      result[key] = deepClone(child);
+    });
+    return result;
+  }
+  return value;
 }
 
 // ─── REFRESH SETTINGS ─────────────────────────────────────────────────────────
@@ -2281,6 +2358,8 @@ async function refreshSettings() {
 
   settingsGlobalConfig = data.global || {};
   settingsWorkspaceConfig = data.workspace || {};
+  settingsSetupMode = !!data.setupMode;
+  settingsHasApiKey = data.hasApiKey !== false;
 
   if (data.globalPath) {
     document.getElementById('settingsGlobalPath').textContent = data.globalPath;
@@ -2291,17 +2370,34 @@ async function refreshSettings() {
     document.getElementById('settingsWorkspacePath').title = data.workspacePath;
   }
 
-  renderGlobalPanel(settingsGlobalConfig);
-  renderWorkspaceForm(settingsWorkspaceConfig);
+  document.getElementById('settingsGlobalTitle').innerHTML = settingsSetupMode
+    ? 'Global Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span>'
+    : 'Global Config <span style="font-weight:400;color:var(--text-muted)">(read-only)</span>';
+  document.getElementById('settingsWorkspaceTitle').innerHTML =
+    'Workspace Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span>';
+  document.getElementById('settingsSaveBtn').innerHTML = settingsSetupMode
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Global + Workspace'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Workspace';
+  document.getElementById('setupBanner').style.display = settingsSetupMode ? '' : 'none';
+
+  if (settingsSetupMode) {
+    renderEditableForm('settingsGlobalBody', settingsGlobalConfig, 'global');
+  } else {
+    renderGlobalPanel(settingsGlobalConfig);
+  }
+  renderEditableForm('settingsFormContainer', settingsWorkspaceConfig, 'workspace');
   updateSettingsPreview();
+  applySetupModeUi();
+  return data;
 }
 
 // ─── SAVE / RESTART ───────────────────────────────────────────────────────────
-async function saveWorkspaceConfig() {
-  const data = collectWorkspaceForm();
+async function saveSettings() {
   const statusEl = document.getElementById('settingsStatus');
+  const workspaceData = collectForm('workspace');
+  const globalData = settingsSetupMode ? collectForm('global') : null;
 
-  if (data === null) {
+  if (workspaceData === null || (settingsSetupMode && globalData === null)) {
     statusEl.textContent = 'Fix JSON errors before saving.';
     statusEl.className = 'settings-status error';
     return;
@@ -2311,18 +2407,37 @@ async function saveWorkspaceConfig() {
   statusEl.className = 'settings-status';
 
   try {
-    const res = await fetch(API + '/config/workspace', {
+    if (settingsSetupMode) {
+      const globalRes = await fetch(API + '/config/global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(globalData)
+      });
+      if (!globalRes.ok) {
+        const err = await globalRes.json().catch(() => ({}));
+        statusEl.textContent = 'Global save failed: ' + (err.error || globalRes.status);
+        statusEl.className = 'settings-status error';
+        return;
+      }
+    }
+
+    const workspaceRes = await fetch(API + '/config/workspace', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify(workspaceData)
     });
-    if (res.ok) {
-      statusEl.textContent = 'Saved. Please restart DotCraft manually to apply changes.';
+
+    if (workspaceRes.ok) {
+      statusEl.textContent = settingsSetupMode
+        ? 'Global and workspace config saved. Please restart DotCraft manually.'
+        : 'Workspace config saved. Please restart DotCraft manually to apply changes.';
       statusEl.className = 'settings-status success';
-      settingsWorkspaceConfig = data;
+      settingsGlobalConfig = globalData ?? settingsGlobalConfig;
+      settingsWorkspaceConfig = workspaceData;
+      await refreshSettings();
     } else {
-      const err = await res.json().catch(() => ({}));
-      statusEl.textContent = 'Save failed: ' + (err.error || res.status);
+      const err = await workspaceRes.json().catch(() => ({}));
+      statusEl.textContent = 'Workspace save failed: ' + (err.error || workspaceRes.status);
       statusEl.className = 'settings-status error';
     }
   } catch (e) {
@@ -2334,11 +2449,32 @@ async function saveWorkspaceConfig() {
 }
 
 function cancelSettings() {
+  if (settingsSetupMode && settingsGlobalConfig !== null) {
+    renderEditableForm('settingsGlobalBody', settingsGlobalConfig, 'global');
+  }
   if (settingsWorkspaceConfig !== null) {
-    renderWorkspaceForm(settingsWorkspaceConfig);
+    renderEditableForm('settingsFormContainer', settingsWorkspaceConfig, 'workspace');
     updateSettingsPreview();
   }
   document.getElementById('settingsStatus').textContent = '';
+}
+
+function applySetupModeUi() {
+  const navTabs = document.querySelectorAll('.nav-tab');
+  if (!settingsSetupMode) {
+    navTabs.forEach(tab => tab.style.display = '');
+    document.getElementById('statusText').textContent = 'Connected';
+    document.getElementById('liveDot').style.display = '';
+    return;
+  }
+
+  navTabs.forEach(tab => {
+    tab.style.display = tab.dataset.panel === 'settings' ? '' : 'none';
+  });
+  document.getElementById('statusText').textContent = 'Setup Mode';
+  document.getElementById('liveDot').style.display = 'none';
+  if (currentPanel !== 'settings')
+    switchPanel('settings');
 }
 
 function togglePasswordVisibility(inputId, btn) {
@@ -2376,10 +2512,15 @@ function checkAuthEnabled() {
 }
 
 // Init
-document.addEventListener('DOMContentLoaded', () => {
-  refreshDashboard();
-  connectSSE();
-  checkAuthEnabled();
+document.addEventListener('DOMContentLoaded', async () => {
+  const settingsData = await refreshSettings();
+  if (!settingsSetupMode) {
+    refreshDashboard();
+    connectSSE();
+    checkAuthEnabled();
+  } else if (settingsData && !settingsHasApiKey) {
+    switchPanel('settings');
+  }
   document.getElementById('autoScrollBtn').style.borderColor = 'var(--accent)';
   document.getElementById('autoScrollBtn').style.color = 'var(--accent-light)';
 });

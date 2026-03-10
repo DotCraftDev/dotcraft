@@ -233,7 +233,7 @@ public sealed class AppConfig
     {
         public bool Enabled { get; set; }
 
-        public string Host { get; set; } = "0.0.0.0";
+        public string Host { get; set; } = "127.0.0.1";
 
         public int Port { get; set; } = 6700;
 
@@ -416,7 +416,7 @@ public sealed class AppConfig
     {
         public bool Enabled { get; set; }
 
-        public string Host { get; set; } = "0.0.0.0";
+        public string Host { get; set; } = "127.0.0.1";
 
         public int Port { get; set; } = 8080;
 
