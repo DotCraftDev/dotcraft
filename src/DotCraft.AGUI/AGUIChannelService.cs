@@ -128,7 +128,7 @@ public sealed class AGUIChannelService(
         {
             // Wrap sensitive tools so they emit FunctionApprovalRequestContent instead of running.
             var approvalToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { "write_file", "edit_file", "exec" };
+                { "WriteFile", "EditFile", "Exec" };
 #pragma warning disable MEAI001
             for (var i = 0; i < tools.Count; i++)
             {
