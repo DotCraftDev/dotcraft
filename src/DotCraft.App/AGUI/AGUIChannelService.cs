@@ -105,7 +105,7 @@ public sealed class AGUIChannelService(
         _ = sessionStore; // reserved for future session key from threadId
         var agUiConfig = config.AgUi;
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
-        var host = string.IsNullOrWhiteSpace(agUiConfig.Host) ? "0.0.0.0" : agUiConfig.Host;
+        var host = string.IsNullOrWhiteSpace(agUiConfig.Host) ? "127.0.0.1" : agUiConfig.Host;
         var port = agUiConfig.Port <= 0 ? 5100 : agUiConfig.Port;
 
         _agentFactory = BuildAgentFactory();

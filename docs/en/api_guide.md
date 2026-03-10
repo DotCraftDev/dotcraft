@@ -15,7 +15,7 @@ Enable API mode in `config.json`:
     "EndPoint": "https://api.openai.com/v1",
     "Api": {
         "Enabled": true,
-        "Host": "0.0.0.0",
+        "Host": "127.0.0.1",
         "Port": 8080,
         "ApiKey": "your-api-access-key",
         "AutoApprove": true
@@ -33,7 +33,7 @@ dotcraft
 Console output on successful start:
 
 ```
-DotCraft API listening on http://0.0.0.0:8080
+DotCraft API listening on http://127.0.0.1:8080
 Endpoints (OpenAI-compatible):
   POST /dotcraft/v1/chat/completions
 Additional endpoints:
@@ -88,7 +88,7 @@ DotCraft's API mode can act as a model provider, chatting in popular AI desktop 
 | Config Item | Type | Default | Description |
 |-------------|------|---------|-------------|
 | `Api.Enabled` | bool | `false` | Enable API mode |
-| `Api.Host` | string | `"0.0.0.0"` | HTTP service listen address |
+| `Api.Host` | string | `"127.0.0.1"` | HTTP service listen address |
 | `Api.Port` | int | `8080` | HTTP service listen port |
 | `Api.ApiKey` | string | empty | API access key (Bearer Token), no verification when empty |
 | `Api.AutoApprove` | bool | `true` | Whether to auto-approve all file/Shell operations (overridden by ApprovalMode) |

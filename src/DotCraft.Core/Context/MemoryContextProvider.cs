@@ -16,7 +16,6 @@ public sealed class MemoryContextProvider(
     SkillsLoader skillsLoader,
     string dotCraftPath,
     string workspacePath,
-    string baseInstructions,
     TraceCollector? traceCollector = null,
     Func<IReadOnlyList<string>>? toolNamesProvider = null,
     CustomCommandLoader? customCommandLoader = null,
@@ -25,7 +24,7 @@ public sealed class MemoryContextProvider(
     Func<string?>? sessionIdProvider = null)
     : AIContextProvider
 {
-    private readonly PromptBuilder _promptBuilder = new(memoryStore, skillsLoader, dotCraftPath, workspacePath, baseInstructions, customCommandLoader, modeManager, planStore, sessionIdProvider);
+    private readonly PromptBuilder _promptBuilder = new(memoryStore, skillsLoader, dotCraftPath, workspacePath, customCommandLoader, modeManager, planStore, sessionIdProvider);
 
     protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
     {

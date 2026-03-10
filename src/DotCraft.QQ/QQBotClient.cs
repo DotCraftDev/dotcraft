@@ -18,7 +18,7 @@ public sealed class QQBotClient : IAsyncDisposable
 
     public bool IsConnected => _server.ConnectionCount > 0;
 
-    public QQBotClient(string host = "0.0.0.0", int port = 6700, string? accessToken = null)
+    public QQBotClient(string host = "127.0.0.1", int port = 6700, string? accessToken = null)
     {
         _server = new OneBotReverseWsServer(host, port, accessToken);
         _server.OnMessageEvent += HandleMessageEvent;

@@ -105,77 +105,82 @@ flowchart TB
 
 ## 🧬 Design
 
-### Session Isolation Between Channels
+DotCraft is not just a chat interface with tools attached. It is an agent system centered on a project workspace. Compared with a typical single-entry coding assistant, DotCraft treats the workspace itself as the unit of operation, while CLI, editors, APIs, and chat bots are simply different ways to connect to it.
 
-Each channel derives its own session ID so conversations never collide:
+```mermaid
+flowchart LR
+    Cli["CLI"]
+    Ide["ACP / IDE"]
+    Api["API / AG-UI"]
+    Bots["QQ / WeCom"]
+    Workspace["ProjectWorkspace (.craft)"]
+    Dashboard["Dashboard"]
 
-- **QQ**: `qq_{groupId}` (group chat) or `qq_{userId}` (private chat)
-- **WeCom**: `wecom_{chatId}_{userId}`
-- **API**: resolved from `X-Session-Key` header, `user` field in body, or content fingerprint
-- **ACP**: `acp_{sessionId}` (managed by the editor)
-- **AG-UI**: `ag-ui:{threadId}` (from AG-UI `RunAgentInput`)
+    Cli --> Workspace
+    Ide --> Workspace
+    Api --> Workspace
+    Bots --> Workspace
+    Workspace --> Dashboard
+```
 
-`SessionGate` provides per-session mutual exclusion — concurrent requests to the same session are serialized, while different sessions run fully in parallel. `MaxSessionQueueSize` controls how many requests can queue per session before the oldest is evicted.
+### DotCraft Is A Per-Workspace Agent
 
-### Shared Workspace & Memory
+DotCraft works around the current project directory. When you start it, that directory becomes the agent's workspace, and its state lives under `<workspace>/.craft/`. Switching to another directory is effectively switching to another project-level agent.
 
-All channels running in Gateway mode share the **same workspace**:
+That means each workspace has its own sessions, memory, skills, commands, and configuration, while `~/.craft/` holds reusable global defaults and shared assets. In practice, DotCraft is not tied to a single chat window. It is tied to the project you are working on.
 
-- **MemoryStore**: `memory/MEMORY.md` (structured long-term facts, always in context) + `memory/HISTORY.md` (append-only grep-searchable event log)
-- **File tools, Shell commands, Skills, and Commands** all operate within the same workspace directory
-- Knowledge learned through one channel (e.g., a QQ group conversation) is accessible from any other channel (e.g., WeCom)
+### Multiple Entry Points, One Shared Workspace
 
-### Multi-Workspace Support
+The same workspace can be reached from multiple entry points, including CLI, ACP editors, API, AG-UI, QQ, and WeCom. Sessions stay separate so conversations do not overwrite each other, but they still share the same project context, tool access, long-term memory, skills, and commands inside that workspace.
 
-DotCraft uses a **two-level configuration** model:
+This makes DotCraft feel more like a continuously available workspace agent than a one-off conversation tool. You can build context in one entry point and continue using it from another without maintaining separate islands of state.
 
-| Level | Path | Purpose |
-|-------|------|---------|
-| Global | `~/.craft/config.json` | API keys, default model, shared settings |
-| Workspace | `<workspace>/.craft/config.json` | Per-project overrides, channel config, MCP servers |
+### Observability Is Built In
 
-Each workspace is a fully independent working directory with its own `.craft/` folder containing sessions, memory, skills, commands, and configuration. Run multiple DotCraft instances pointed at different workspace directories for complete isolation.
+Once an agent serves multiple entry points, visibility becomes essential. DotCraft includes a built-in Dashboard for viewing sessions, traces, and configuration state in one place, making it easier to investigate issues, trace history, and understand what the agent actually did.
+
+That is also part of what sets DotCraft apart from many assistants focused mainly on interaction flow: it cares not only about completing tasks, but also about making those tasks inspectable when you need to debug or review them.
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Get Running In 3 Minutes
+
+**Prerequisites**:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) (only required for building)
-- Supported LLM API Key (OpenAI-compatible format)
+- A supported LLM API key (OpenAI-compatible format)
 
-### Build & Install
+**Install**:
 
 ```bash
 # Build the Release package (all modules included by default)
 build.bat
 
-# Configure the path to environment variables (optional)
+# Add DotCraft to PATH (optional)
 cd Release/DotCraft
 powershell -File install_to_path.ps1
 ```
 
-You can exclude optional modules (QQ, WeCom, Unity) to produce a lighter build:
+**First launch**:
 
 ```bash
-# Exclude specific modules
-build.bat --no-qq --no-unity
+# Enter your project directory
+cd Workspace
 
-# Or with dotnet directly
-dotnet publish src/DotCraft.App/DotCraft.App.csproj -c Release ^
-  -p:IncludeModuleQQ=false -p:IncludeModuleUnity=false
+# Start DotCraft
+dotcraft
 ```
 
-| Flag | MSBuild Property | Module |
-|------|-----------------|--------|
-| `--no-qq` | `IncludeModuleQQ=false` | QQ Bot channel |
-| `--no-wecom` | `IncludeModuleWeCom=false` | WeCom channel |
-| `--no-unity` | `IncludeModuleUnity=false` | Unity Editor extension |
+On the first run in a new directory, DotCraft will first initialize `.craft/` for that workspace interactively. If there is still no usable `ApiKey`, it will automatically launch a local setup-only Dashboard so you can fill in both global and workspace config in the browser instead of hand-writing JSON. After saving, run `dotcraft` again to enter the CLI normally.
 
-### Configuration
+### Minimal Configuration
 
-DotCraft uses a two-level configuration: **Global config** (`~/.craft/config.json`) and **Workspace config** (`<workspace>/.craft/config.json`).
+DotCraft uses two levels of configuration:
 
-For first-time use, create the global config file:
+- **Global config**: `~/.craft/config.json` for shared defaults and secrets
+- **Workspace config**: `<workspace>/.craft/config.json` for project-specific overrides
+
+It is recommended to keep secrets in the global config so they do not leak into a workspace Git repository. The setup-only Dashboard will guide you through this layer first:
 
 ```json
 {
@@ -185,183 +190,83 @@ For first-time use, create the global config file:
 }
 ```
 
-> 💡 Storing API Key in global config prevents it from leaking into workspace Git repositories.
+### Launch And Verify
 
-> 🚀 You can also edit all configuration visually through the **Dashboard Settings page** (`http://127.0.0.1:8080/dashboard`, open the Settings tab in the left nav) — no need to edit JSON by hand. Save your changes and restart DotCraft to apply them. See the [DashBoard Guide](./docs/en/dash_board_guide.md) for details.
+After finishing setup-only Dashboard configuration and restarting DotCraft, you can talk to it directly in the CLI. If Dashboard is enabled, you can also open it in the browser to inspect sessions, traces, and configuration.
 
-### Launch
+> When `ApiKey` is missing, the CLI initialization flow now takes you directly into the setup-only Dashboard, so Dashboard becomes one of the primary first-time setup entry points.
 
-```bash
-# Enter the workspace
-cd Workspace
+## ⚙️ Configuration
 
-# Start DotCraft (CLI mode)
-dotcraft
-```
+### Global Config vs Workspace Config
 
-### Enable Runtime Modes
+DotCraft reads `~/.craft/config.json` first, then applies overrides from `<workspace>/.craft/config.json`. This lets you keep API keys and default models globally while storing project-specific runtime settings inside the workspace.
 
-| Mode | Enable Condition | Usage |
-|------|------------------|-------|
-| CLI Mode | Default | Local REPL interaction |
-| API Mode | `Api.Enabled = true` | OpenAI-compatible HTTP service |
-| QQ Bot | `QQBot.Enabled = true` | OneBot V11 protocol bot |
-| WeCom Bot | `WeComBot.Enabled = true` | WeChat Work bot |
-| ACP Mode | `Acp.Enabled = true` | Editor/IDE integration ([ACP](https://agentclientprotocol.com/)) |
-| AG-UI Mode | `AgUi.Enabled = true` | SSE streaming server ([AG-UI Protocol](https://github.com/ag-ui-protocol/ag-ui)) |
+### Recommended Setup Style
 
-### Sandbox Isolation (Optional)
+- **For new users**: after the first launch, fill in `ApiKey`, `Model`, and `EndPoint` in the setup-only Dashboard first
+- **For project differences**: override model, runtime mode, or integrations in the workspace config
+- **For visual editing**: use the setup-only Dashboard for first-time config, then use Dashboard Settings for later workspace edits
+- **For the full config reference**: see the [Configuration Guide](./docs/en/config_guide.md)
 
-DotCraft supports running Shell and File tools inside isolated [OpenSandbox](https://github.com/alibaba/OpenSandbox) containers. When enabled, the container boundary becomes the security boundary — commands execute in a disposable Linux environment instead of on the host machine.
+## 🧩 Expand By Use Case
 
-**Prerequisites**: Python 3.10+, Docker
+### Local CLI
 
-```bash
-# Install the OpenSandbox server
-uv pip install opensandbox-server --system
+CLI mode is the default and is the best place to start if you just want to use DotCraft inside a local project directory.
 
-# Generate the base config
-opensandbox-server init-config ~/.sandbox.toml --example docker
-```
+### API / AG-UI
 
-Enable sandbox in your workspace config (`.craft/config.json`):
+If you want to expose DotCraft as a service, see the [API Mode Guide](./docs/en/api_guide.md) and [AG-UI Mode Guide](./docs/en/agui_guide.md).
 
-```json
-{
-  "tools": {
-    "Sandbox": {
-      "Enabled": true,
-      "Domain": "localhost:5880",
-      "NetworkPolicy": "allow"
-    }
-  }
-}
-```
+### QQ / WeCom
 
-Start the sandbox server before launching DotCraft:
+If you want to connect the same workspace to chat bot entry points, see the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
 
-```bash
-# From the workspace directory
-.\start-sandbox.ps1
-```
+### Unity / ACP
 
-The startup script reads the port from `config.json`, pre-pulls Docker images, and generates a local `sandbox.toml` automatically. See the [Sandbox Configuration Guide](./docs/en/config_guide.md) for advanced options (network policies, resource limits, idle timeouts, workspace sync).
+If you want to access DotCraft from editors or Unity, it is best to initialize the target workspace once from the CLI first; if config is still missing, that flow will open the setup-only Dashboard for you. Then see the [ACP Mode Guide](./docs/en/acp_guide.md), the [Unity Integration Guide](./docs/en/unity_guide.md), and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
-### Customizing with Bootstrap Files
+## 🛠️ Advanced Capabilities
 
-Place any of these files in `.craft/` to inject instructions into the agent's system prompt:
+### Dashboard
 
-| File | Purpose |
-|------|---------|
-| `AGENTS.md` | Project-specific agent behavior and conventions |
-| `SOUL.md` | Personality and tone guidelines |
-| `USER.md` | Information about the user |
-| `TOOLS.md` | Tool usage instructions and preferences |
-| `IDENTITY.md` | Custom identity override |
+DotCraft includes a built-in Dashboard for inspecting sessions, traces, and configuration. When `ApiKey` is missing, it can also run in setup-only mode as the initial configuration entry point. See the [DashBoard Guide](./docs/en/dash_board_guide.md) for details.
 
-**Example** — `.craft/AGENTS.md`:
+### Sandbox Isolation
 
-```markdown
-# Project Conventions
+If you want Shell and File tools to run in an isolated environment, DotCraft supports [OpenSandbox](https://github.com/alibaba/OpenSandbox). Installation, configuration, and security details are covered in the [Configuration Guide](./docs/en/config_guide.md).
 
-- This is a C# .NET 10 project using minimal APIs
-- Always run `dotnet test` before committing
-- Follow the existing code style: file-scoped namespaces, primary constructors
-- Use Chinese for user-facing messages, English for code comments
-```
+### Workspace Customization
 
-### Custom Command Example
-
-Custom commands are markdown files in `.craft/commands/`. Users invoke them with `/command-name [args]`.
-
-**Example**:
-
-```markdown
----
-description: Test subagent functionality by creating, listing, and verifying a file
----
-
-Please test the subagent feature. Spawn a subagent to complete the following tasks:
-1. Create a test file `test_subagent_result.txt` in the workspace with content "Hello from Subagent! Time: " followed by the current time
-2. List the workspace root directory files to confirm the file was created
-3. Read the created file and verify the content is correct
-
-Report the subagent execution result when done.
-
-$ARGUMENTS
-```
-
-Invoke it with: `/test-subagent`
-
-Placeholders: `$ARGUMENTS` expands to the full argument string, `$1`, `$2`, etc. expand to positional arguments.
-
-### Unity Editor Integration
-
-DotCraft provides seamless integration with the Unity Editor through the Agent Client Protocol (ACP). The integration consists of two components:
-
-1. **Server-side Module** (`DotCraft.Unity`): Provides 4 read-only tools for understanding Unity project state
-2. **Unity Client Package** (`com.dotcraft.unityclient`): Unity Editor extension with in-editor chat interface
-
-#### Installing the Unity Client Package
-
-**Prerequisites**: Unity 2022.3 or later, [NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity) with `System.Text.Json 9.0.10`
-
-Install the package via Unity Package Manager:
-
-**Option A — Git URL**:
-
-In **Window → Package Manager**, click **+ → Add package from git URL** and enter:
-
-```
-https://github.com/DotCraftDev/DotCraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
-```
-
-**Option B — Local path**:
-
-Clone the repository and add from disk: **+ → Add package from disk**, select `src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/package.json`.
-
-#### Quick Start
-
-1. Open **Tools → DotCraft Assistant** in Unity
-2. Click **Connect** to launch DotCraft and establish an ACP session
-3. Start chatting with the AI assistant
-
-#### Features
-
-- **Scene Tools**: Query scene hierarchy, get current selection
-- **Console Tools**: Retrieve Unity Console log entries
-- **Project Tools**: Get Unity version, project name, and packages
-- **Permission Approval**: Interactive approval panel for high-risk operations
-- **Asset Attachment**: Drag Unity assets to attach them to messages
-- **Auto Reconnect**: Automatically reconnects after Domain Reload
-
-For full Unity manipulation capabilities (create, modify, delete GameObjects, etc.), install [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) or [unity-mcp](https://github.com/CoplayDev/unity-mcp).
-
-For detailed configuration and troubleshooting, see the [Unity Integration Guide](./docs/en/unity_guide.md).
+You can customize agent behavior through files such as `.craft/AGENTS.md`, `.craft/USER.md`, `.craft/SOUL.md`, `.craft/TOOLS.md`, and `.craft/IDENTITY.md`, and add custom slash commands under `.craft/commands/`. The README keeps this high level; detailed usage belongs in the dedicated docs and examples.
 
 ## 📚 Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Configuration Guide](./docs/en/config_guide.md) | Tools, security, blacklists, approval, MCP, Gateway |
-| [API Mode Guide](./docs/en/api_guide.md) | OpenAI-compatible API, tool filtering, SDK examples |
-| [AG-UI Mode Guide](./docs/en/agui_guide.md) | AG-UI Protocol SSE server, CopilotKit integration |
-| [QQ Bot Guide](./docs/en/qq_bot_guide.md) | NapCat / permissions / approval |
-| [WeCom Guide](./docs/en/wecom_guide.md) | WeCom push notifications / bot mode |
-| [ACP Mode Guide](./docs/en/acp_guide.md) | Agent Client Protocol editor/IDE integration (JetBrains, Obsidian, and more) |
-| [Unity Integration Guide](./docs/en/unity_guide.md) | Unity Editor extension with AI-powered scene and asset tools |
-| [Hooks Guide](./docs/en/hooks_guide.md) | Lifecycle event hooks, Shell command extensions, security guards |
-| [DashBoard Guide](./docs/en/dash_board_guide.md) | Built-in Web debugging UI, Trace data viewer |
-| [Documentation Index](./docs/en/index.md) | Full documentation navigation |
+**First-time setup and advanced config**
+
+- [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, Gateway
+- [DashBoard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
+
+**Connect different entry points**
+
+- [API Mode Guide](./docs/en/api_guide.md): OpenAI-compatible API, tool filtering, SDK examples
+- [AG-UI Mode Guide](./docs/en/agui_guide.md): AG-UI SSE server and CopilotKit integration
+- [QQ Bot Guide](./docs/en/qq_bot_guide.md): NapCat, permissions, and approvals
+- [WeCom Guide](./docs/en/wecom_guide.md): WeCom push notifications and bot mode
+- [ACP Mode Guide](./docs/en/acp_guide.md): editor/IDE integration (JetBrains, Obsidian, and more)
+
+**Editor integrations and extension points**
+
+- [Unity Integration Guide](./docs/en/unity_guide.md): Unity Editor extension and AI-powered scene and asset tools
+- [Hooks Guide](./docs/en/hooks_guide.md): lifecycle hooks, shell extensions, and security guards
+- [Documentation Index](./docs/en/index.md): full documentation navigation
 
 ## 🤝 Contributing
 
 We welcome contributions! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
 
-**Getting Started**: See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines covering:
-- C# code style and conventions
-- Architecture patterns and module development
-- Bilingual documentation requirements
+**Getting Started**: See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines covering.
 
 You can contribute with or without AI assistance - the guidelines support both approaches.
 
@@ -374,8 +279,6 @@ Thanks to [Devin AI](https://devin.ai/) for providing free ACU credits to facili
 - [HKUDS/nanobot](https://github.com/HKUDS/nanobot)
 - [microsoft/agent-framework](https://github.com/microsoft/agent-framework)
 - [alibaba/OpenSandbox](https://github.com/alibaba/OpenSandbox)
-- [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ)
-- [spectreconsole/spectre.console](https://github.com/spectreconsole/spectre.console)
 - [modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk)
 - [agentclientprotocol/agent-client-protocol](https://github.com/agentclientprotocol/agent-client-protocol)
 - [ag-ui-protocol/ag-ui](https://github.com/ag-ui-protocol/ag-ui)

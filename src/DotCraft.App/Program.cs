@@ -5,6 +5,7 @@ using DotCraft.Configuration;
 using DotCraft.Hosting;
 using DotCraft.Localization;
 using DotCraft.Modules;
+using DotCraft.Setup;
 
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
@@ -27,6 +28,7 @@ if (isAcpMode)
 
 var workspacePath = Directory.GetCurrentDirectory();
 var botPath = Path.GetFullPath(".craft");
+var workspaceJustInitialized = false;
 
 if (!Directory.Exists(botPath))
 {
@@ -83,53 +85,8 @@ if (!Directory.Exists(botPath))
         Environment.Exit(1);
         return;
     }
+    workspaceJustInitialized = true;
 
-    // Check global config and guide user to configure API Key
-    var globalConfigPath = InitHelper.GetGlobalConfigPath();
-    if (!File.Exists(globalConfigPath))
-    {
-        Console.WriteLine();
-        AnsiConsole.MarkupLine($"[yellow]💡 {lang.GetString("提示：建议配置全局 API Key", "Tip: Configure global API Key")}[/]");
-        AnsiConsole.WriteLine();
-        AnsiConsole.WriteLine(lang.GetString(
-            "你可以在全局配置文件中设置 API Key，这样所有工作区都可以共享使用：",
-            "You can set API Key in global config file, which will be shared across all workspaces:"));
-        AnsiConsole.WriteLine($"  {Markup.Escape(globalConfigPath)}");
-        Console.WriteLine();
-        AnsiConsole.WriteLine(lang.GetString("配置示例 / Configuration example:", "Configuration example:"));
-        AnsiConsole.WriteLine("""
-        {
-          "ApiKey": "your-api-key-here",
-          "Model": "gpt-4o-mini",
-          "EndPoint": "https://api.openai.com/v1"
-        }
-        """);
-        Console.WriteLine();
-
-        if (InitHelper.AskYesNo(
-            lang.GetString("是否现在创建全局配置？",
-                          "Create global config now?"), lang))
-        {
-            var apiKey = InitHelper.PromptApiKey(lang);
-            if (!string.IsNullOrWhiteSpace(apiKey))
-            {
-                InitHelper.CreateGlobalConfig(globalConfigPath, apiKey, selectedLanguage);
-                AnsiConsole.MarkupLine($"[green]✓ {lang.GetString("全局配置已创建", "Global config created")}[/]");
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[yellow]{lang.GetString("已跳过全局配置创建", "Skipped global config creation")}[/]");
-            }
-        }
-    }
-
-    Console.WriteLine();
-    AnsiConsole.MarkupLine($"[green]✓ {lang.GetString("工作区初始化完成！请重新运行 DotCraft 开始使用。", "Workspace initialized! Please run DotCraft again to start.")}[/]");
-    AnsiConsole.WriteLine();
-    AnsiConsole.MarkupLine($"[grey]{lang.GetString("按任意键退出...", "Press any key to exit...")}[/]");
-    Console.ReadKey(true);
-    Environment.Exit(0);
-    return;
 }
 
 var configPath = Path.Combine(botPath, "config.json");
@@ -159,21 +116,18 @@ if (string.IsNullOrWhiteSpace(config.ApiKey))
     }
 
     AnsiConsole.WriteLine();
-    AnsiConsole.MarkupLine($"[yellow]⚠️  {languageService.GetString("API Key 未配置", "API Key not configured")}[/]");
+    if (workspaceJustInitialized)
+    {
+        AnsiConsole.MarkupLine($"[green]✓ {languageService.GetString("工作区初始化完成。", "Workspace initialized.")}[/]");
+    }
+    AnsiConsole.MarkupLine($"[yellow]⚠️  {languageService.GetString("API Key 未配置，正在进入初始化配置模式。", "API Key not configured. Entering setup mode.")}[/]");
     AnsiConsole.WriteLine();
-    AnsiConsole.WriteLine(languageService.GetString(
-        "请在配置文件中设置 API Key 后再运行：",
-        "Please set API Key in configuration file before running:"));
-    AnsiConsole.WriteLine($"  {configPath}");
-    AnsiConsole.WriteLine();
-    AnsiConsole.WriteLine(languageService.GetString("配置示例：", "Configuration example:"));
-    AnsiConsole.WriteLine("  \"ApiKey\": \"your-api-key-here\"");
-    AnsiConsole.WriteLine("  \"Model\": \"gpt-4o-mini\"");
-    AnsiConsole.WriteLine("  \"EndPoint\": \"https://api.openai.com/v1\"");
-    AnsiConsole.WriteLine();
-    AnsiConsole.MarkupLine($"[grey]{languageService.GetString("按任意键退出...", "Press any key to exit...")}[/]");
-    Console.ReadKey(true);
-    Environment.Exit(1);
+    var setupHost = new SetupHost(config, new DotCraftPaths
+    {
+        WorkspacePath = workspacePath,
+        CraftPath = botPath
+    }, languageService);
+    await setupHost.RunAsync();
     return;
 }
 

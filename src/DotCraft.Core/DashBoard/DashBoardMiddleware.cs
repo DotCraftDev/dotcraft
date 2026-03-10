@@ -25,7 +25,7 @@ public static class DashBoardMiddleware
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public static void MapDashBoard(this IEndpointRouteBuilder endpoints, TraceStore traceStore, AppConfig config, DotCraftPaths paths, TokenUsageStore? tokenUsageStore = null)
+    public static void MapDashBoard(this IEndpointRouteBuilder endpoints, TraceStore traceStore, AppConfig config, DotCraftPaths paths, TokenUsageStore? tokenUsageStore = null, bool setupMode = false)
     {
         endpoints.MapGet("/dashboard/", ctx =>
         {
@@ -114,6 +114,11 @@ public static class DashBoardMiddleware
                 JsonNode.Parse(globalRaw) ?? new JsonObject(),
                 JsonNode.Parse(workspaceRaw) ?? new JsonObject());
 
+            bool hasApiKey = false;
+            var apiKeyKey = FindKey(mergedObj, "ApiKey");
+            if (apiKeyKey != null && mergedObj[apiKeyKey] is JsonValue apiKeyVal)
+                hasApiKey = !string.IsNullOrWhiteSpace(apiKeyVal.ToString());
+
             // Mask all sensitive fields in all three views
             MaskSensitiveFields(globalObj);
             MaskSensitiveFields(workspaceObj);
@@ -137,42 +142,30 @@ public static class DashBoardMiddleware
                 merged = mergedObj,
                 globalPath = globalConfigPath,
                 workspacePath = workspaceConfigPath,
-                authEnabled
+                authEnabled,
+                setupMode,
+                hasApiKey,
+                canEditGlobal = setupMode
             }, RawJsonOptions);
         });
+
+        if (setupMode)
+        {
+            endpoints.MapPost("/dashboard/api/config/global", async ctx =>
+            {
+                var globalConfigPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".craft",
+                    "config.json");
+
+                await SaveConfigAsync(ctx, globalConfigPath);
+            });
+        }
 
         endpoints.MapPost("/dashboard/api/config/workspace", async ctx =>
         {
             var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
-            var dir = Path.GetDirectoryName(workspaceConfigPath);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
-            using var reader = new StreamReader(ctx.Request.Body);
-            var body = await reader.ReadToEndAsync();
-
-            JsonObject postedObj;
-            try
-            {
-                postedObj = (JsonObject)(JsonNode.Parse(body) ?? new JsonObject());
-            }
-            catch
-            {
-                ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
-                await ctx.Response.WriteAsJsonAsync(new { success = false, error = "Invalid JSON" });
-                return;
-            }
-
-            // Read the existing file so we can preserve sentinel-masked sensitive values
-            var existingObj = File.Exists(workspaceConfigPath)
-                ? (JsonObject)(JsonNode.Parse(await File.ReadAllTextAsync(workspaceConfigPath)) ?? new JsonObject())
-                : new JsonObject();
-
-            RestoreSentinels(postedObj, existingObj);
-
-            var output = postedObj.ToJsonString(RawJsonOptions);
-            await File.WriteAllTextAsync(workspaceConfigPath, output);
-            await ctx.Response.WriteAsJsonAsync(new { success = true, path = workspaceConfigPath });
+            await SaveConfigAsync(ctx, workspaceConfigPath);
         });
 
         if (tokenUsageStore != null)
@@ -316,6 +309,38 @@ public static class DashBoardMiddleware
             return result;
         }
         return overrideNode.DeepClone();
+    }
+
+    private static async Task SaveConfigAsync(HttpContext ctx, string targetPath)
+    {
+        var dir = Path.GetDirectoryName(targetPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+
+        using var reader = new StreamReader(ctx.Request.Body);
+        var body = await reader.ReadToEndAsync();
+
+        JsonObject postedObj;
+        try
+        {
+            postedObj = (JsonObject)(JsonNode.Parse(body) ?? new JsonObject());
+        }
+        catch
+        {
+            ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await ctx.Response.WriteAsJsonAsync(new { success = false, error = "Invalid JSON" });
+            return;
+        }
+
+        var existingObj = File.Exists(targetPath)
+            ? (JsonObject)(JsonNode.Parse(await File.ReadAllTextAsync(targetPath)) ?? new JsonObject())
+            : new JsonObject();
+
+        RestoreSentinels(postedObj, existingObj);
+
+        var output = postedObj.ToJsonString(RawJsonOptions);
+        await File.WriteAllTextAsync(targetPath, output);
+        await ctx.Response.WriteAsJsonAsync(new { success = true, path = targetPath });
     }
 
     // Sensitive field paths: each entry is [parent key(s)..., leaf key]

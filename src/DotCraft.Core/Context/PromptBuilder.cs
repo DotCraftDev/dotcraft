@@ -6,11 +6,11 @@ using DotCraft.Skills;
 namespace DotCraft.Context;
 
 /// <summary>
-/// Builds the complete system prompt from memory, skills, and configuration.
+/// Builds the complete system prompt from workspace context, memory, and skills.
 /// </summary>
 public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLoader, string craftPath, string workspacePath,
-    string baseInstructions, CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null,
-    PlanStore? planStore = null, Func<string?>? sessionIdProvider = null)
+    CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null, PlanStore? planStore = null,
+    Func<string?>? sessionIdProvider = null)
 {
     private readonly string _craftPath = Path.GetFullPath(craftPath);
 
@@ -35,9 +35,8 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
     {
         var parts = new List<string>
         {
-            // Core identity & base instructions
-            GetIdentity(),
-            baseInstructions
+            // Core identity and built-in operating guidance
+            GetIdentity()
         };
 
         // Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md)
@@ -149,6 +148,8 @@ You are DotCraft, a helpful AI assistant. You have access to tools that allow yo
 - Read, write, and edit files
 - Execute shell commands
 - Complete user tasks efficiently
+
+Be safe, reliable, and practical. When needed, use the available tools to complete the user's task.
 
 ## Workspace
 Your workspace is at: {{workspace}}
