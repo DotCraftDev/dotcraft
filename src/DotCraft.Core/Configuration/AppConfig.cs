@@ -14,8 +14,6 @@ public sealed class AppConfig
 
     public string EndPoint { get; set; } = "https://api.openai.com/v1";
 
-    public string SystemInstructions { get; set; } = "你是 DotCraft 一个安全可靠的智能体。";
-
     /// <summary>
     /// Language setting for CLI interface. QQ and WeCom bots always use Chinese.
     /// </summary>

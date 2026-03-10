@@ -322,7 +322,6 @@ public sealed class AgentFactory : IAsyncDisposable
             UseProvidedChatClientAsIs = true,
             ChatOptions = new ChatOptions
             {
-                Instructions = _config.SystemInstructions,
                 Tools = tools
             },
             AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
@@ -331,7 +330,6 @@ public sealed class AgentFactory : IAsyncDisposable
                     _skillsLoader,
                     _dotcraftPath,
                     _workspacePath,
-                    _config.SystemInstructions,
                     _traceCollector,
                     () => tools.Select(t => t.Name).ToArray(),
                     _customCommandLoader,

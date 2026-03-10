@@ -67,7 +67,6 @@ Add QQ bot configuration in your DotCraft workspace's `config.json`:
     "ApiKey": "your-llm-api-key",
     "Model": "gpt-4o-mini",
     "EndPoint": "https://api.openai.com/v1",
-    "SystemInstructions": "You are DotCraft, a concise and reliable QQ intelligent assistant.",
     "QQBot": {
         "Enabled": true,
         "Host": "127.0.0.1",
@@ -318,7 +317,6 @@ docker run -d \
     "ApiKey": "sk-xxx",
     "Model": "gpt-4o-mini",
     "EndPoint": "https://api.openai.com/v1",
-    "SystemInstructions": "You are DotCraft, a concise and reliable QQ intelligent assistant.",
     "QQBot": {
         "Enabled": true,
         "Host": "127.0.0.1",

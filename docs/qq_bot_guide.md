@@ -67,7 +67,6 @@ docker run -d \
     "ApiKey": "your-llm-api-key",
     "Model": "gpt-4o-mini",
     "EndPoint": "https://api.openai.com/v1",
-    "SystemInstructions": "你是 DotCraft，一个简洁、可靠的 QQ 智能助手。",
     "QQBot": {
         "Enabled": true,
         "Host": "127.0.0.1",
@@ -318,7 +317,6 @@ docker run -d \
     "ApiKey": "sk-xxx",
     "Model": "gpt-4o-mini",
     "EndPoint": "https://api.openai.com/v1",
-    "SystemInstructions": "你是 DotCraft，一个简洁、可靠的 QQ 智能助手。",
     "QQBot": {
         "Enabled": true,
         "Host": "127.0.0.1",

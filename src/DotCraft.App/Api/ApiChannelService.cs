@@ -376,7 +376,7 @@ public sealed class ApiChannelService(
                 new MemoryContextProvider(
                     memoryStore, skillsLoader,
                     paths.CraftPath, paths.WorkspacePath,
-                    config.SystemInstructions, traceCollector,
+                    traceCollector,
                     () => tools.Select(t => t.Name).ToArray(),
                     sp.GetService<CustomCommandLoader>()))
         };

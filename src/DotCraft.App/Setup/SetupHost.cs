@@ -40,7 +40,6 @@ public sealed class SetupHost(AppConfig config, DotCraftPaths paths, LanguageSer
             ApiKey = source.ApiKey,
             Model = source.Model,
             EndPoint = source.EndPoint,
-            SystemInstructions = source.SystemInstructions,
             Language = source.Language,
             MaxToolCallRounds = source.MaxToolCallRounds,
             SubagentMaxToolCallRounds = source.SubagentMaxToolCallRounds,

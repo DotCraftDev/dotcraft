@@ -1785,7 +1785,6 @@ const CONFIG_SCHEMA = [
       { key: 'ApiKey',                    type: 'password', sensitive: true, hint: 'Leave blank to inherit from global' },
       { key: 'Model',                     type: 'text', defaultValue: 'gpt-4o-mini' },
       { key: 'EndPoint',                  type: 'text', defaultValue: 'https://api.openai.com/v1' },
-      { key: 'SystemInstructions',        type: 'textarea', defaultValue: '你是 DotCraft 一个安全可靠的智能体。' },
       { key: 'Language',                  type: 'select', options: ['Chinese', 'English'], defaultValue: 'Chinese' },
       { key: 'MaxToolCallRounds',         type: 'number', min: 1, defaultValue: 100 },
       { key: 'SubagentMaxToolCallRounds', type: 'number', min: 1, defaultValue: 50 },
