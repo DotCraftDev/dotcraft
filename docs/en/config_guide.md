@@ -448,6 +448,41 @@ For detailed configuration, usage, deployment guide, and troubleshooting, see [W
 
 ---
 
+## GitHubTracker Configuration
+
+The GitHubTracker module automatically polls GitHub issues, creates an isolated workspace for each issue, dispatches an agent to complete the coding task, and converges the flow by calling `complete_issue` when the work is done.
+
+For the complete usage flow, see the [GitHubTracker Guide](./github_tracker_guide.md).
+
+### Quick Configuration
+
+```json
+{
+    "GitHubTracker": {
+        "Enabled": true,
+        "WorkflowPath": "WORKFLOW.md",
+        "Tracker": {
+            "Kind": "github",
+            "Repository": "your-org/your-repo",
+            "ApiKey": "$GITHUB_TOKEN",
+            "GitHubStateLabelPrefix": "status:",
+            "AssigneeFilter": ""
+        }
+    }
+}
+```
+
+### Key Fields
+
+| Config Item | Description | Default |
+|-------------|-------------|---------|
+| `GitHubTracker.Enabled` | Enable the GitHubTracker module | `false` |
+| `GitHubTracker.WorkflowPath` | Path to `WORKFLOW.md`, resolved relative to the workspace root | `WORKFLOW.md` |
+| `GitHubTracker.Tracker.Repository` | GitHub repository in `owner/repo` format | empty |
+| `GitHubTracker.Tracker.ApiKey` | GitHub token, supports `$ENV_VAR` indirection | empty |
+| `GitHubTracker.Tracker.GitHubStateLabelPrefix` | Label prefix used to infer issue state | `status:` |
+| `GitHubTracker.Tracker.AssigneeFilter` | Only process issues assigned to a specific user | empty |
+
 ## API Mode Configuration
 
 API mode exposes DotCraft as an OpenAI-compatible HTTP service, allowing external applications to call it directly using standard OpenAI SDKs. Based on the [Microsoft.Agents.AI.Hosting.OpenAI](https://github.com/microsoft/agent-framework) official framework.

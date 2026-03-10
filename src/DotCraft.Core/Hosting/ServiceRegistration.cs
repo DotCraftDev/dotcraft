@@ -25,6 +25,7 @@ public static class ServiceRegistration
         string workspacePath,
         string botPath)
     {
+        services.AddLogging();
         services.AddSingleton(config);
         services.AddSingleton(new DotCraftPaths
         {

@@ -27,6 +27,8 @@
     <IncludeModuleQQ Condition="'$(IncludeModuleQQ)' == ''">true</IncludeModuleQQ>
     <IncludeModuleWeCom Condition="'$(IncludeModuleWeCom)' == ''">true</IncludeModuleWeCom>
     <IncludeModuleUnity Condition="'$(IncludeModuleUnity)' == ''">true</IncludeModuleUnity>
+    <IncludeModuleAGUI Condition="'$(IncludeModuleAGUI)' == ''">true</IncludeModuleAGUI>
+    <IncludeModuleGitHubTracker Condition="'$(IncludeModuleGitHubTracker)' == ''">true</IncludeModuleGitHubTracker>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
@@ -49,6 +51,8 @@
     <ProjectReference Include="..\DotCraft.QQ\DotCraft.QQ.csproj" Condition="'$(IncludeModuleQQ)' == 'true'" />
     <ProjectReference Include="..\DotCraft.Unity\DotCraft.Unity.csproj" Condition="'$(IncludeModuleUnity)' == 'true'" />
     <ProjectReference Include="..\DotCraft.WeCom\DotCraft.WeCom.csproj" Condition="'$(IncludeModuleWeCom)' == 'true'" />
+    <ProjectReference Include="..\DotCraft.AGUI\DotCraft.AGUI.csproj" Condition="'$(IncludeModuleAGUI)' == 'true'" />
+    <ProjectReference Include="..\DotCraft.GitHubTracker\DotCraft.GitHubTracker.csproj" Condition="'$(IncludeModuleGitHubTracker)' == 'true'" />
   </ItemGroup>
 
   <!-- Source Generator Reference -->

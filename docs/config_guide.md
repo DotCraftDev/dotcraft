@@ -448,6 +448,41 @@ DotCraft 提供两种企业微信集成能力：
 
 ---
 
+## GitHubTracker 配置
+
+GitHubTracker 模块用于自动轮询 GitHub Issue、为每个 Issue 创建独立工作区、派发 Agent 完成代码任务，并在完成后通过 `complete_issue` 收敛流程。
+
+完整使用说明见 [GitHubTracker 指南](./github_tracker_guide.md)。
+
+### 快速配置
+
+```json
+{
+    "GitHubTracker": {
+        "Enabled": true,
+        "WorkflowPath": "WORKFLOW.md",
+        "Tracker": {
+            "Kind": "github",
+            "Repository": "your-org/your-repo",
+            "ApiKey": "$GITHUB_TOKEN",
+            "GitHubStateLabelPrefix": "status:",
+            "AssigneeFilter": ""
+        }
+    }
+}
+```
+
+### 关键配置项
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `GitHubTracker.Enabled` | 是否启用 GitHubTracker 模块 | `false` |
+| `GitHubTracker.WorkflowPath` | `WORKFLOW.md` 路径，相对工作区根目录解析 | `WORKFLOW.md` |
+| `GitHubTracker.Tracker.Repository` | GitHub 仓库，格式 `owner/repo` | 空 |
+| `GitHubTracker.Tracker.ApiKey` | GitHub Token，支持 `$ENV_VAR` | 空 |
+| `GitHubTracker.Tracker.GitHubStateLabelPrefix` | 用于推断 Issue 状态的标签前缀 | `status:` |
+| `GitHubTracker.Tracker.AssigneeFilter` | 仅处理分配给指定用户的 Issue | 空 |
+
 ## API 模式配置
 
 API 模式将 DotCraft 作为 OpenAI 兼容的 HTTP 服务暴露，外部应用可直接使用标准 OpenAI SDK 调用。基于 [Microsoft.Agents.AI.Hosting.OpenAI](https://github.com/microsoft/agent-framework) 官方框架实现。

@@ -1,7 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using DotCraft.Configuration;
 using DotCraft.Hosting;
 using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
@@ -25,8 +24,15 @@ public static class DashBoardMiddleware
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public static void MapDashBoard(this IEndpointRouteBuilder endpoints, TraceStore traceStore, AppConfig config, DotCraftPaths paths, TokenUsageStore? tokenUsageStore = null, bool setupMode = false)
+    public static void MapDashBoard(
+        this IEndpointRouteBuilder endpoints,
+        TraceStore traceStore,
+        DotCraftPaths paths,
+        TokenUsageStore? tokenUsageStore = null,
+        bool setupMode = false,
+        IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null)
     {
+        MapOrchestratorEndpoints(endpoints, orchestratorProviders);
         endpoints.MapGet("/dashboard/", ctx =>
         {
             ctx.Response.ContentType = "text/html; charset=utf-8";
@@ -353,6 +359,7 @@ public static class DashBoardMiddleware
         ["WeCom", "WebhookUrl"],
         ["DashBoard", "Password"],
         ["AgUi", "ApiKey"],
+        ["GitHubTracker", "Tracker", "ApiKey"],
     ];
 
     private static void MaskSensitiveFields(JsonObject obj)
@@ -415,6 +422,30 @@ public static class DashBoardMiddleware
                 var existingNested = (existingKey != null ? existing[existingKey] : null) as JsonObject ?? new JsonObject();
                 RestoreAtPath(postedNested, existingNested, path, depth + 1);
             }
+        }
+    }
+
+    private static void MapOrchestratorEndpoints(
+        IEndpointRouteBuilder endpoints,
+        IEnumerable<IOrchestratorSnapshotProvider>? providers)
+    {
+        if (providers == null) return;
+
+        foreach (var provider in providers)
+        {
+            var captured = provider;
+
+            endpoints.MapGet($"/dashboard/api/orchestrators/{captured.Name}/state", () =>
+            {
+                var snapshot = captured.GetSnapshot();
+                return Results.Json(snapshot, JsonOptions);
+            });
+
+            endpoints.MapPost($"/dashboard/api/orchestrators/{captured.Name}/refresh", () =>
+            {
+                captured.TriggerRefresh();
+                return Results.Json(new { triggered = true, name = captured.Name }, JsonOptions);
+            });
         }
     }
 }

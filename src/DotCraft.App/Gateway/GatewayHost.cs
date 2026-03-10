@@ -68,6 +68,7 @@ public sealed class GatewayHost : IDotCraftHost
 
         var traceStore = _sp.GetService<TraceStore>();
         var tokenUsageStore = _sp.GetService<TokenUsageStore>();
+        var orchestratorProviders = _sp.GetServices<IOrchestratorSnapshotProvider>().ToList();
 
         // Dashboard startup is owned by GatewayHost.
         // When an API channel is present the dashboard is mounted on its web app to avoid port conflicts.
@@ -80,11 +81,13 @@ public sealed class GatewayHost : IDotCraftHost
             {
                 var capturedTraceStore = traceStore;
                 var capturedTokenUsageStore = tokenUsageStore;
+                var capturedOrchestratorProviders = orchestratorProviders.Count > 0 ? orchestratorProviders : null;
                 apiChannel.OnConfigureApp = app =>
                 {
                     app.MapDashBoardAuth(_config);
                     app.UseDashBoardAuth(_config);
-                    app.MapDashBoard(capturedTraceStore, _config, _paths, capturedTokenUsageStore);
+                    app.MapDashBoard(capturedTraceStore, _paths, capturedTokenUsageStore,
+                        orchestratorProviders: capturedOrchestratorProviders);
                 };
                 var dashboardUrl = $"http://{_config.Api.Host}:{_config.Api.Port}";
                 AnsiConsole.MarkupLine(
@@ -93,7 +96,8 @@ public sealed class GatewayHost : IDotCraftHost
             else
             {
                 dashBoardServer = new DashBoardServer();
-                dashBoardServer.Start(traceStore, _config, _paths, tokenUsageStore);
+                dashBoardServer.Start(traceStore, _config, _paths, tokenUsageStore,
+                    orchestratorProviders: orchestratorProviders.Count > 0 ? orchestratorProviders : null);
             }
         }
 
@@ -195,11 +199,11 @@ public sealed class GatewayHost : IDotCraftHost
         AnsiConsole.MarkupLine("[grey][[Gateway]] All channels stopped.[/]");
     }
 
-    private Func<string, string, Task<string?>> BuildSharedAgentRunner()
+    private AgentRunSessionDelegate BuildSharedAgentRunner()
     {
         var memoryStore = _sp.GetRequiredService<MemoryStore>();
         var pathBlacklist = _sp.GetRequiredService<PathBlacklist>();
-        var mcpClientManager = _sp.GetRequiredService<DotCraft.Mcp.McpClientManager>();
+        var mcpClientManager = _sp.GetRequiredService<Mcp.McpClientManager>();
         var cronTools = _sp.GetService<CronTools>();
         var traceCollector = _sp.GetService<TraceCollector>();
         var hookRunner = _sp.GetService<HookRunner>();
@@ -214,13 +218,12 @@ public sealed class GatewayHost : IDotCraftHost
                     "qq"    => ApprovalSource.QQ,
                     "wecom" => ApprovalSource.WeCom,
                     "api"   => ApprovalSource.Api,
-                    "ag-ui" => ApprovalSource.Console,
                     _       => ApprovalSource.Console
                 },
                 ch => ch.ApprovalService!);
-        var approvalService = new DotCraft.Security.ChannelRoutingApprovalService(
+        var approvalService = new ChannelRoutingApprovalService(
             channelServiceMap,
-            fallback: new DotCraft.Security.ConsoleApprovalService());
+            fallback: new ConsoleApprovalService());
 
         // Collect tool providers from modules
         var toolProviders = ToolProviderCollector.Collect(_moduleRegistry, _config);

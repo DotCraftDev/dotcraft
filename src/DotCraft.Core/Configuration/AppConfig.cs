@@ -93,6 +93,8 @@ public sealed class AppConfig
 
     public DashBoardConfig DashBoard { get; set; } = new();
 
+    public GitHubTrackerConfig GitHubTracker { get; set; } = new();
+
     public List<McpServerConfig> McpServers { get; set; } = [];
 
     public static AppConfig Load(string path)
