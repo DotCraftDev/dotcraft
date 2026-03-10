@@ -25,7 +25,7 @@ public sealed class ImageContentSanitizingChatClient(IChatClient innerClient) : 
         return base.GetStreamingResponseAsync(SanitizeMessages(chatMessages), options, cancellationToken);
     }
 
-    private static IList<ChatMessage> SanitizeMessages(IEnumerable<ChatMessage> messages)
+    private static List<ChatMessage> SanitizeMessages(IEnumerable<ChatMessage> messages)
     {
         var result = new List<ChatMessage>();
 

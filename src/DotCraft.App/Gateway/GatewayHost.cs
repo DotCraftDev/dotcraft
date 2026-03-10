@@ -199,11 +199,11 @@ public sealed class GatewayHost : IDotCraftHost
         AnsiConsole.MarkupLine("[grey][[Gateway]] All channels stopped.[/]");
     }
 
-    private Func<string, string, Task<string?>> BuildSharedAgentRunner()
+    private AgentRunSessionDelegate BuildSharedAgentRunner()
     {
         var memoryStore = _sp.GetRequiredService<MemoryStore>();
         var pathBlacklist = _sp.GetRequiredService<PathBlacklist>();
-        var mcpClientManager = _sp.GetRequiredService<DotCraft.Mcp.McpClientManager>();
+        var mcpClientManager = _sp.GetRequiredService<Mcp.McpClientManager>();
         var cronTools = _sp.GetService<CronTools>();
         var traceCollector = _sp.GetService<TraceCollector>();
         var hookRunner = _sp.GetService<HookRunner>();
@@ -218,13 +218,12 @@ public sealed class GatewayHost : IDotCraftHost
                     "qq"    => ApprovalSource.QQ,
                     "wecom" => ApprovalSource.WeCom,
                     "api"   => ApprovalSource.Api,
-                    "ag-ui" => ApprovalSource.Console,
                     _       => ApprovalSource.Console
                 },
                 ch => ch.ApprovalService!);
-        var approvalService = new DotCraft.Security.ChannelRoutingApprovalService(
+        var approvalService = new ChannelRoutingApprovalService(
             channelServiceMap,
-            fallback: new DotCraft.Security.ConsoleApprovalService());
+            fallback: new ConsoleApprovalService());
 
         // Collect tool providers from modules
         var toolProviders = ToolProviderCollector.Collect(_moduleRegistry, _config);

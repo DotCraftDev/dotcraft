@@ -12,7 +12,15 @@ using Spectre.Console;
 namespace DotCraft.Agents;
 
 /// <summary>
-/// Shared agent execution logic used across all channel modes.
+/// Delegate for running an agent session.
+/// </summary>
+public delegate Task<string?> AgentRunSessionDelegate(
+    string prompt,
+    string sessionKey,
+    CancellationToken cancellationToken = default);
+
+/// <summary>
+/// Shared agent execution logic used across all channel modes for running an agent session.
 /// </summary>
 public sealed class AgentRunner(
     AIAgent agent,
@@ -51,12 +59,13 @@ public sealed class AgentRunner(
         try
         {
             if (sessionGate != null)
-                gateLock = await sessionGate.AcquireAsync(sessionKey);
+            {
+                gateLock = await sessionGate.AcquireAsync(sessionKey, cancellationToken);
+            }
         }
         catch (SessionGateOverflowException)
         {
-            AnsiConsole.MarkupLine(
-                $"[grey][[{tag}]][/] [yellow]Request evicted for session {Markup.Escape(sessionKey)} (queue overflow)[/]");
+            AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [yellow]Request evicted for session {Markup.Escape(sessionKey)} (queue overflow)[/]");
             return null;
         }
 
@@ -100,15 +109,16 @@ public sealed class AgentRunner(
                             {
                                 var icon = ToolRegistry.GetToolIcon(fc.Name);
                                 var displayText = ToolRegistry.FormatToolCall(fc.Name, fc.Arguments) ?? fc.Name;
-                                AnsiConsole.MarkupLine(
-                                    $"[grey][[{tag}]][/] [yellow]{Markup.Escape($"{icon} {displayText}")}[/]");
+                                AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [yellow]{Markup.Escape($"{icon} {displayText}")}[/]");
                                 break;
                             }
                             case FunctionResultContent fr:
                             {
                                 var result = ImageContentSanitizingChatClient.DescribeResult(fr.Result);
                                 var preview = result.Length > 200 ? result[..200] + "..." : result;
-                                var normalized = preview.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ')
+                                var normalized = preview.Replace("\r\n", " ")
+                                    .Replace('\n', ' ')
+                                    .Replace('\r', ' ')
                                     .Trim();
                                 AnsiConsole.MarkupLine($"[grey][[{tag}]][/]   [grey]{Markup.Escape(normalized)}[/]");
                                 break;
@@ -165,7 +175,7 @@ public sealed class AgentRunner(
                 inputTokens >= agentFactory.MaxContextTokens)
             {
                 AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [yellow]Context compacting...[/]");
-                if (await agentFactory.Compactor.TryCompactAsync(session))
+                if (await agentFactory.Compactor.TryCompactAsync(session, cancellationToken))
                 {
                     tokenTracker?.Reset();
                     traceCollector?.RecordContextCompaction(sessionKey);

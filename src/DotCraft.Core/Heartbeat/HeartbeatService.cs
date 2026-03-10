@@ -1,8 +1,9 @@
 using System.Text;
+using DotCraft.Agents;
 
 namespace DotCraft.Heartbeat;
 
-public sealed class HeartbeatService(string workspacePath, Func<string, string, Task<string?>> onHeartbeat, int intervalSeconds = 1800, bool enabled = true)
+public sealed class HeartbeatService(string workspacePath, AgentRunSessionDelegate onHeartbeat, int intervalSeconds = 1800, bool enabled = true)
     : IDisposable
 {
     private CancellationTokenSource? _cts;
