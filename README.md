@@ -216,9 +216,13 @@ DotCraft reads `~/.craft/config.json` first, then applies overrides from `<works
 
 CLI mode is the default and is the best place to start if you just want to use DotCraft inside a local project directory.
 
+![repl](https://github.com/DotCraftDev/resources/raw/master/dotcraft/repl.gif)
+
 ### API / AG-UI
 
 If you want to expose DotCraft as a service, see the [API Mode Guide](./docs/en/api_guide.md) and [AG-UI Mode Guide](./docs/en/agui_guide.md).
+
+![agui](https://github.com/DotCraftDev/resources/raw/master/dotcraft/agui.gif)
 
 ### QQ / WeCom
 
@@ -237,6 +241,10 @@ If you want to access DotCraft from editors or Unity, it is best to initialize t
 ### Dashboard
 
 DotCraft includes a built-in Dashboard for inspecting sessions, traces, and configuration. When `ApiKey` is missing, it can also run in setup-only mode as the initial configuration entry point. See the [DashBoard Guide](./docs/en/dash_board_guide.md) for details.
+
+![dashboard](https://github.com/DotCraftDev/resources/raw/master/dotcraft/dashboard.png)
+
+![trace](https://github.com/DotCraftDev/resources/raw/master/dotcraft/trace.png)
 
 ### Sandbox Isolation
 
