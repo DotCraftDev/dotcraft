@@ -335,7 +335,8 @@ public sealed class AgentFactory : IAsyncDisposable
                     _customCommandLoader,
                     modeManager,
                     _planStore,
-                    () => TracingChatClient.CurrentSessionKey))
+                    () => TracingChatClient.CurrentSessionKey,
+                    sandboxEnabled: _config.Tools.Sandbox.Enabled))
         };
 
         return configuredChatClient.AsAIAgent(options);

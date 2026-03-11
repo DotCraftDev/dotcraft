@@ -21,10 +21,11 @@ public sealed class MemoryContextProvider(
     CustomCommandLoader? customCommandLoader = null,
     AgentModeManager? modeManager = null,
     PlanStore? planStore = null,
-    Func<string?>? sessionIdProvider = null)
+    Func<string?>? sessionIdProvider = null,
+    bool sandboxEnabled = false)
     : AIContextProvider
 {
-    private readonly PromptBuilder _promptBuilder = new(memoryStore, skillsLoader, dotCraftPath, workspacePath, customCommandLoader, modeManager, planStore, sessionIdProvider);
+    private readonly PromptBuilder _promptBuilder = new(memoryStore, skillsLoader, dotCraftPath, workspacePath, customCommandLoader, modeManager, planStore, sessionIdProvider, sandboxEnabled);
 
     protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
     {

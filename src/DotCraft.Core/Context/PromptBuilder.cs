@@ -10,11 +10,14 @@ namespace DotCraft.Context;
 /// </summary>
 public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLoader, string craftPath, string workspacePath,
     CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null, PlanStore? planStore = null,
-    Func<string?>? sessionIdProvider = null)
+    Func<string?>? sessionIdProvider = null, bool sandboxEnabled = false)
 {
     private readonly string _craftPath = Path.GetFullPath(craftPath);
 
     private readonly string _workspacePath = Path.GetFullPath(workspacePath);
+
+    // In sandbox mode the host workspace is mounted at /workspace inside the container.
+    private readonly bool _sandboxEnabled = sandboxEnabled;
 
     /// <summary>
     /// Bootstrap files to load from DotCraft directory.
@@ -137,7 +140,7 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 
     private string GetIdentity()
     {
-        var workspace = _workspacePath;
+        var workspace = _sandboxEnabled ? "/workspace" : _workspacePath;
         var craftPath = _craftPath;
 
         return
