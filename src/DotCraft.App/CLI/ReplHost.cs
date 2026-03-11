@@ -264,7 +264,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
             {
                 var fullName = "/" + cmd.Name;
                 if (fullName.StartsWith(bufferText, StringComparison.OrdinalIgnoreCase))
-                    result.Add((fullName, cmd.Description ?? string.Empty));
+                    result.Add((fullName, cmd.Description));
             }
         }
 

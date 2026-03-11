@@ -61,6 +61,7 @@ public static class ServiceRegistration
 
         services.AddSingleton<McpClientManager>();
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
+        services.AddSingleton<ActiveRunRegistry>();
 
         // Register configuration validation
         services.AddConfigurationValidation();

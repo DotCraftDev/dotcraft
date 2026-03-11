@@ -17,6 +17,7 @@ public sealed class HelpCommandHandler : ICommandHandler
         var sb = new StringBuilder();
         sb.AppendLine("可用命令：");
         sb.AppendLine("/new 或 /clear - 清除当前会话");
+        sb.AppendLine("/stop - 中断当前 Agent 运行（仅管理员）");
         sb.AppendLine("/debug - 切换调试模式（仅管理员）");
         sb.AppendLine("/heartbeat trigger - 立即触发心跳检查");
         sb.AppendLine("/cron list - 查看定时任务列表");

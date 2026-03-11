@@ -116,10 +116,12 @@ public sealed class QQChannelService(
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
         var sessionGate = sp.GetRequiredService<SessionGate>();
+        var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
         _adapter = new QQChannelAdapter(
             qqClient, agent, sessionStore,
-            permissionService, sessionGate, qqApprovalService,
+            permissionService, sessionGate, activeRunRegistry,
+            qqApprovalService,
             heartbeatService: HeartbeatService,
             cronService: CronService,
             agentFactory: agentFactory,
