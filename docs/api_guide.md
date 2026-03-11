@@ -202,7 +202,7 @@ curl -X POST -H "Authorization: Bearer your-key" \
 
 > **超时**：如果在 `ApprovalTimeoutSeconds`（默认 120 秒）内未收到审批决定，操作会自动被拒绝。
 
-> **安全建议**：如果 DotCraft 部署在公网，建议使用 `"interactive"` 或 `"reject"` 模式，并仅启用安全的工具（如 `web_search`）。
+> **安全建议**：如果 DotCraft 部署在公网，建议使用 `"interactive"` 或 `"reject"` 模式，并仅启用安全的工具（如 `WebSearch`）。
 
 ---
 

@@ -108,7 +108,7 @@ Configure forbidden paths via `Security.BlacklistedPaths`. The blacklist is **gl
 
 #### Blacklist Behavior
 
-- **File operations**: `read_file`, `write_file`, `edit_file`, `list_directory` operations on blacklisted paths are directly rejected
+- **File operations**: `ReadFile`, `WriteFile`, `EditFile`, `list_directory` operations on blacklisted paths are directly rejected
 - **Shell commands**: Shell commands referencing blacklisted paths are rejected
 - **Priority**: Blacklist check takes priority over workspace boundary check; even paths within the workspace will be blocked if blacklisted
 - **Path matching**: Supports absolute paths and `~` expansion; checks whether a path is a sub-path of a blacklisted path
@@ -544,7 +544,7 @@ Quick reference:
         "Port": 8080,
         "ApiKey": "your-api-access-key",
         "AutoApprove": false,
-        "EnabledTools": ["web_search", "web_fetch"]
+        "EnabledTools": ["WebSearch", "WebFetch"]
     }
 }
 ```
@@ -553,7 +553,7 @@ Quick reference:
 
 `EnabledTools` supports filtering both built-in tools and MCP server-registered tools. Enables all tools when set to an empty array or not set.
 
-Available built-in tool names: `spawn_subagent`, `read_file`, `write_file`, `edit_file`, `grep_files`, `find_files`, `exec`, `web_search`, `web_fetch`, `cron`, `wecom_notify`.
+Available built-in tool names: `spawn_subagent`, `ReadFile`, `WriteFile`, `EditFile`, `GrepFiles`, `FindFiles`, `Exec`, `WebSearch`, `WebFetch`, `Cron`, `WeComNotify`.
 
 ### Authentication
 
@@ -824,7 +824,7 @@ DotCraft's built-in `Tools.Web.SearchProvider: "Exa"` uses a manual MCP call app
 
 1. Add Exa server configuration in `McpServers`
 2. Switch `Tools.Web.SearchProvider` to `Bing` or another provider
-3. The Agent will get all Exa tools via MCP (not just search), including `web_search_exa`, `research_exa`, etc.
+3. The Agent will get all Exa tools via MCP (not just search), including `WebSearch_exa`, `research_exa`, etc.
 
 ### Browser Automation (Playwright MCP)
 

@@ -56,7 +56,7 @@ function GrepResultLine({ line, pattern }: { line: string; pattern: string }) {
 
 export function GrepFilesCard({ status, pattern, path, include, result }: GrepFilesCardProps) {
   const lines = result?.split("\n").filter(Boolean) ?? [];
-  const title = pattern ? `grep: ${pattern}` : "grep_files";
+  const title = pattern ? `grep: ${pattern}` : "GrepFiles";
   const badge = (include ?? path) && (
     <span className="rounded px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-mono">
       {include ?? path}
@@ -89,7 +89,7 @@ export function GrepFilesCard({ status, pattern, path, include, result }: GrepFi
 
 export function FindFilesCard({ status, pattern, path, result }: FindFilesCardProps) {
   const lines = result?.split("\n").filter(Boolean) ?? [];
-  const title = pattern ? `find: ${pattern}` : "find_files";
+  const title = pattern ? `find: ${pattern}` : "FindFiles";
 
   return (
     <ToolCardShell

@@ -209,7 +209,7 @@ For a complete Human-in-the-Loop Python example, see [`Samples/python/human_in_t
 
 > **Timeout**: If no approval decision is received within `ApprovalTimeoutSeconds` (default 120 seconds), the operation is automatically rejected.
 
-> **Security Note**: If DotCraft is deployed on a public network, use `"interactive"` or `"reject"` mode, and enable only safe tools (e.g., `web_search`).
+> **Security Note**: If DotCraft is deployed on a public network, use `"interactive"` or `"reject"` mode, and enable only safe tools (e.g., `WebSearch`).
 
 ---
 

@@ -28,7 +28,7 @@ export function FileEditCard({ status, path, oldText, newText, startLine, endLin
   return (
     <ToolCardShell
       icon={<EditIcon />}
-      title={path ?? "edit_file"}
+      title={path ?? "EditFile"}
       badge={rangeLabel ? (
         <span className="rounded px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-mono">
           {rangeLabel}

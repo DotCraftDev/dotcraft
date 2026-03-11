@@ -213,7 +213,7 @@ public sealed class SkillsLoader(string workspaceRoot)
 
     /// <summary>
     /// Build a summary of all skills (for progressive loading).
-    /// The agent can read the full skill content using read_file when needed.
+    /// The agent can read the full skill content using ReadFile when needed.
     /// Shows availability status and missing requirements for unavailable skills.
     /// </summary>
     public string BuildSkillsSummary()
