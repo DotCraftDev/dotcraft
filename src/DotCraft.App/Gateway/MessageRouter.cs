@@ -25,14 +25,12 @@ public sealed class MessageRouter : IMessageRouter
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine(
-                    $"[grey][[Gateway]][/] [red]Delivery to {channel}/{target} failed: {Markup.Escape(ex.Message)}[/]");
+                AnsiConsole.MarkupLine($"[grey][[Gateway]][/] [red]Delivery to {channel}/{target} failed: {Markup.Escape(ex.Message)}[/]");
             }
         }
         else
         {
-            AnsiConsole.MarkupLine(
-                $"[grey][[Gateway]][/] [yellow]No channel registered for '{Markup.Escape(channel)}', skipping delivery[/]");
+            AnsiConsole.MarkupLine($"[grey][[Gateway]][/] [yellow]No channel registered for '{Markup.Escape(channel)}', skipping delivery[/]");
         }
     }
 
@@ -49,8 +47,7 @@ public sealed class MessageRouter : IMessageRouter
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine(
-                        $"[grey][[Gateway]][/] [red]{Markup.Escape(channel.Name)} admin notify failed: {Markup.Escape(ex.Message)}[/]");
+                    AnsiConsole.MarkupLine($"[grey][[Gateway]][/] [red]{Markup.Escape(channel.Name)} admin notify failed: {Markup.Escape(ex.Message)}[/]");
                 }
             }
         }

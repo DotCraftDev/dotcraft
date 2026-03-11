@@ -226,9 +226,13 @@ DotCraft 会先读取 `~/.craft/config.json`，再用 `<workspace>/.craft/config
 
 默认就是 CLI 模式，适合在本地项目目录中直接与 DotCraft 交互。
 
+![repl](https://github.com/DotCraftDev/resources/raw/master/dotcraft/repl.gif)
+
 ### API / AG-UI
 
 如果你希望把 DotCraft 作为服务接入其他应用，可查看 [API 模式指南](./docs/api_guide.md) 和 [AG-UI 模式指南](./docs/agui_guide.md)。
+
+![agui](https://github.com/DotCraftDev/resources/raw/master/dotcraft/agui.gif)
 
 ### QQ / 企业微信
 
@@ -247,6 +251,10 @@ DotCraft 会先读取 `~/.craft/config.json`，再用 `<workspace>/.craft/config
 ### Dashboard
 
 DotCraft 内置 Dashboard，可用于查看会话、追踪调用和编辑配置。首次缺少 `ApiKey` 时，它也会以 setup-only 模式承担初始配置入口。详细说明请参阅 [DashBoard 指南](./docs/dash_board_guide.md)。
+
+![dashboard](https://github.com/DotCraftDev/resources/raw/master/dotcraft/dashboard.png)
+
+![trace](https://github.com/DotCraftDev/resources/raw/master/dotcraft/trace.png)
 
 ### 沙箱隔离
 

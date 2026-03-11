@@ -1874,6 +1874,7 @@ const CONFIG_SCHEMA = [
       { key: 'AllowedEgressDomains',  type: 'json', hint: 'JSON array of domain strings' },
       { key: 'IdleTimeoutSeconds',    type: 'number', min: 0, defaultValue: 300 },
       { key: 'SyncWorkspace',         type: 'bool', defaultValue: true },
+      { key: 'SyncExclude',           type: 'json', hint: 'JSON array of relative paths to exclude from workspace sync (prefix matching). Default covers all sensitive .craft/ runtime data. Extend rather than replace.' },
     ]
   },
   {

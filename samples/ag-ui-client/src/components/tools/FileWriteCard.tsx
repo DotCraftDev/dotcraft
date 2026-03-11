@@ -16,7 +16,7 @@ export function FileWriteCard({ status, path, content, result }: FileWriteCardPr
   return (
     <ToolCardShell
       icon={<FileIcon />}
-      title={path ?? "write_file"}
+      title={path ?? "WriteFile"}
       status={status}
       collapsible={long}
       defaultCollapsed={long}

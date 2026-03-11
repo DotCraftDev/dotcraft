@@ -378,7 +378,8 @@ public sealed class ApiChannelService(
                     paths.CraftPath, paths.WorkspacePath,
                     traceCollector,
                     () => tools.Select(t => t.Name).ToArray(),
-                    sp.GetService<CustomCommandLoader>()))
+                    sp.GetService<CustomCommandLoader>(),
+                    sandboxEnabled: config.Tools.Sandbox.Enabled))
         };
     }
 

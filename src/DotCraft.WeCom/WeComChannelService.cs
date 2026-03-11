@@ -114,10 +114,11 @@ public sealed class WeComChannelService(
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
         var sessionGate = sp.GetRequiredService<SessionGate>();
+        var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
         _adapter = new WeComChannelAdapter(
             agent, sessionStore, registry,
-            permissionService, wecomApprovalService, sessionGate,
+            permissionService, wecomApprovalService, sessionGate, activeRunRegistry,
             heartbeatService: HeartbeatService,
             cronService: CronService,
             agentFactory: agentFactory,

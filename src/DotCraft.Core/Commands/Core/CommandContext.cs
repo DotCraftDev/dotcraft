@@ -2,6 +2,7 @@ using DotCraft.Agents;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
 using DotCraft.Memory;
+using DotCraft.Sessions;
 
 namespace DotCraft.Commands.Core;
 
@@ -74,4 +75,9 @@ public sealed record CommandContext
     /// The agent factory for token tracking.
     /// </summary>
     public AgentFactory? AgentFactory { get; init; }
+
+    /// <summary>
+    /// Registry of active agent runs, used by /stop to cancel an in-flight run.
+    /// </summary>
+    public ActiveRunRegistry? ActiveRunRegistry { get; init; }
 }

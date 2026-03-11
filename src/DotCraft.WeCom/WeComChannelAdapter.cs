@@ -46,6 +46,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     
     private readonly CommandDispatcher _commandDispatcher;
 
+    private readonly ActiveRunRegistry _activeRunRegistry;
+
     public WeComChannelAdapter(
         AIAgent agent,
         SessionStore sessionStore,
@@ -53,6 +55,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         WeComPermissionService permissionService,
         WeComApprovalService approvalService,
         SessionGate sessionGate,
+        ActiveRunRegistry activeRunRegistry,
         HeartbeatService? heartbeatService = null,
         CronService? cronService = null,
         AgentFactory? agentFactory = null,
@@ -68,6 +71,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         _permissionService = permissionService;
         _approvalService = approvalService;
         _sessionGate = sessionGate;
+        _activeRunRegistry = activeRunRegistry;
         _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
         
@@ -169,9 +173,14 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
 
                 TracingChatClient.CurrentSessionKey = sessionId;
                 TracingChatClient.ResetCallState(sessionId);
+
+                using var runCts = new CancellationTokenSource();
+                _activeRunRegistry.Register(sessionId, runCts);
+                var runToken = runCts.Token;
+                var agentInterrupted = false;
                 try
                 {
-                    await foreach (var update in _agent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(plainText), session))
+                    await foreach (var update in _agent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(plainText), session, cancellationToken: runToken))
                     {
                         foreach (var content in update.Contents)
                         {
@@ -210,10 +219,23 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                             textBuffer.Append(update.Text);
                     }
                 }
+                catch (OperationCanceledException) when (runCts.IsCancellationRequested)
+                {
+                    agentInterrupted = true;
+                    AnsiConsole.MarkupLine($"[grey][[WeCom]][/] [yellow]Agent run interrupted for session {Markup.Escape(sessionId)}[/]");
+                }
                 finally
                 {
+                    _activeRunRegistry.Unregister(sessionId);
                     TracingChatClient.ResetCallState(sessionId);
                     TracingChatClient.CurrentSessionKey = null;
+                }
+
+                if (agentInterrupted)
+                {
+                    await FlushTextBufferAsync(pusher, textBuffer);
+                    await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
+                    return;
                 }
 
                 if (!DebugModeService.IsEnabled())
@@ -356,7 +378,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
             SessionStore = _sessionStore,
             HeartbeatService = _heartbeatService,
             CronService = _cronService,
-            AgentFactory = _agentFactory
+            AgentFactory = _agentFactory,
+            ActiveRunRegistry = _activeRunRegistry
         };
         
         var responder = new WeComCommandResponder(pusher);

@@ -8,7 +8,7 @@ using DotCraft.Configuration;
 namespace DotCraft.Tools;
 
 /// <summary>
-/// Web tools: web_search and web_fetch.
+/// Web tools: WebSearch and WebFetch.
 /// </summary>
 public sealed class WebTools
 {
@@ -398,7 +398,7 @@ public sealed class WebTools
 
     // NOTE: This is a legacy manual MCP call to Exa. Consider using the MCP server integration instead:
     // Add to McpServers config: { "Name": "exa", "Transport": "http", "Url": "https://mcp.exa.ai/mcp" }
-    // Then the Exa tools (web_search_exa, etc.) will be available as standard MCP tools.
+    // Then the Exa tools (WebSearch_exa, etc.) will be available as standard MCP tools.
     private async Task<string> SearchExa(string query, int numResults)
     {
         var requestBody = new
@@ -408,7 +408,7 @@ public sealed class WebTools
             method = "tools/call",
             @params = new
             {
-                name = "web_search_exa",
+                name = "WebSearch_exa",
                 arguments = new
                 {
                     query,

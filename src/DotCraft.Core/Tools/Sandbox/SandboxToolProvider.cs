@@ -45,11 +45,6 @@ public sealed class SandboxToolProvider : IAgentToolProvider
         tools.Add(AIFunctionFactory.Create(fileTools.GrepFiles));
         tools.Add(AIFunctionFactory.Create(fileTools.FindFiles));
 
-        // Sandbox sync tools (pull changes back to host)
-        var syncTools = new SandboxSyncTools(sandboxManager, context.WorkspacePath, context.ApprovalService);
-        tools.Add(AIFunctionFactory.Create(syncTools.SyncToHost));
-        tools.Add(AIFunctionFactory.Create(syncTools.ListModifiedFiles));
-
         // Agent tools (subagent spawning) — still needed, uses sandbox-aware manager
         var subAgentManager = new SubAgentManager(
             context.ChatClient,

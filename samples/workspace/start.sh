@@ -4,8 +4,8 @@
 export DOTNET_ROOT=$HOME/.dotnet
 export PATH=$PATH:$HOME/.dotnet:$HOME/.dotnet/tools
 
-cd ..
+cd ../../
 dotnet build
 
-cd Workspace
-dotnet ../src/DotCraft.App/bin/Debug/net10.0/dotcraft.dll
+cd samples/workspace
+dotnet ../../src/DotCraft.App/bin/Debug/net10.0/dotcraft.dll

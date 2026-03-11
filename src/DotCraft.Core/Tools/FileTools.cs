@@ -189,7 +189,7 @@ public sealed class FileTools(
         }
     }
 
-    [Description("Search file contents using a regular expression pattern. Returns matching lines with file paths and line numbers. Skips binary files and .git/node_modules directories.")]
+    [Description("Search file contents using a regular expression pattern. Returns matching lines with file paths and line numbers. Skips binary files and .git/node_modules directories. For open-ended searches requiring multiple rounds or broad codebase exploration, use SpawnSubagent instead.")]
     [Tool(Icon = "🔍", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.GrepFiles))]
     public async Task<string> GrepFiles(
         [Description("The regular expression pattern to search for.")] string pattern,
@@ -284,7 +284,7 @@ public sealed class FileTools(
         }
     }
 
-    [Description("Find files by name pattern. Searches recursively, skipping .git and node_modules directories. Use semicolons to separate multiple patterns (e.g. \"*.cs;*.json\").")]
+    [Description("Find files by name pattern. Searches recursively, skipping .git and node_modules directories. Use semicolons to separate multiple patterns (e.g. \"*.cs;*.json\"). When you need to explore an unfamiliar codebase structure with multiple rounds of discovery, consider using SpawnSubagent instead.")]
     [Tool(Icon = "📂", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.FindFiles))]
     public async Task<string> FindFiles(
         [Description("The file name pattern to match (e.g. \"*.cs\", \"*.json\"). Use semicolons for multiple patterns.")] string pattern,

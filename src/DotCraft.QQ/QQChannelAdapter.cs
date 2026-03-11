@@ -47,6 +47,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
     
     private readonly CommandDispatcher _commandDispatcher;
 
+    private readonly ActiveRunRegistry _activeRunRegistry;
+
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     
     public QQChannelAdapter(
@@ -55,6 +57,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         SessionStore sessionStore,
         QQPermissionService permissionService,
         SessionGate sessionGate,
+        ActiveRunRegistry activeRunRegistry,
         QQApprovalService? approvalService = null,
         HeartbeatService? heartbeatService = null,
         CronService? cronService = null,
@@ -72,6 +75,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         _cronService = cronService;
         _agentFactory = agentFactory;
         _sessionGate = sessionGate;
+        _activeRunRegistry = activeRunRegistry;
         _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
         
@@ -195,9 +199,14 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
                 TracingChatClient.CurrentSessionKey = sessionId;
                 TracingChatClient.ResetCallState(sessionId);
+
+                using var runCts = new CancellationTokenSource();
+                _activeRunRegistry.Register(sessionId, runCts);
+                var runToken = runCts.Token;
+                var agentInterrupted = false;
                 try
                 {
-                    await foreach (var update in _agent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(plainText), session))
+                    await foreach (var update in _agent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(plainText), session, cancellationToken: runToken))
                     {
                         foreach (var content in update.Contents)
                         {
@@ -234,10 +243,23 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                             textBuffer.Append(update.Text);
                     }
                 }
+                catch (OperationCanceledException) when (runCts.IsCancellationRequested)
+                {
+                    agentInterrupted = true;
+                    AnsiConsole.MarkupLine($"[grey][[QQ]][/] [yellow]Agent run interrupted for session {Markup.Escape(sessionId)}[/]");
+                }
                 finally
                 {
+                    _activeRunRegistry.Unregister(sessionId);
                     TracingChatClient.ResetCallState(sessionId);
                     TracingChatClient.CurrentSessionKey = null;
+                }
+
+                if (agentInterrupted)
+                {
+                    await FlushTextBufferAsync(evt, textBuffer);
+                    await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
+                    return;
                 }
 
                 if (!DebugModeService.IsEnabled())
@@ -344,7 +366,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             SessionStore = _sessionStore,
             HeartbeatService = _heartbeatService,
             CronService = _cronService,
-            AgentFactory = _agentFactory
+            AgentFactory = _agentFactory,
+            ActiveRunRegistry = _activeRunRegistry
         };
         
         var responder = new QQCommandResponder(_client, evt);

@@ -313,6 +313,23 @@ public sealed class AppConfig
         /// Whether to sync the host workspace into the sandbox on creation.
         /// </summary>
         public bool SyncWorkspace { get; set; } = true;
+
+        /// <summary>
+        /// Relative paths (from workspace root) to exclude when syncing the workspace into the sandbox.
+        /// Entries are matched as path prefixes: a pattern of "foo/bar" excludes the file "foo/bar"
+        /// and everything inside the directory "foo/bar/".
+        /// Defaults protect sensitive DotCraft runtime data from leaking into the sandbox.
+        /// </summary>
+        public List<string> SyncExclude { get; set; } =
+        [
+            ".craft/config.json",   // API keys and all runtime settings
+            ".craft/sessions",      // full conversation history
+            ".craft/memory",        // long-term user/project facts
+            ".craft/dashboard",     // LLM trace data and token usage records
+            ".craft/security",      // persisted approval records (authorized paths/commands)
+            ".craft/logs",          // ACP communication debug logs
+            ".craft/plans",         // per-session task planning history
+        ];
     }
 
     public sealed class SecurityConfig

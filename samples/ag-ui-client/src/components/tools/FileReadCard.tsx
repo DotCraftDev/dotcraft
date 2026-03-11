@@ -63,7 +63,7 @@ export function FileReadCard({ status, path, offset, result }: FileReadCardProps
   return (
     <ToolCardShell
       icon={<FileIcon />}
-      title={path ?? "read_file"}
+      title={path ?? "ReadFile"}
       badge={rangeLabel ? (
         <span className="rounded px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 font-mono">
           {rangeLabel}

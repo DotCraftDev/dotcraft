@@ -84,6 +84,7 @@ public sealed class CommandDispatcher
         };
         dispatcher.RegisterHandler(new NewCommandHandler());
         dispatcher.RegisterHandler(new DebugCommandHandler());
+        dispatcher.RegisterHandler(new StopCommandHandler());
         dispatcher.RegisterHandler(new HelpCommandHandler());
         dispatcher.RegisterHandler(new HeartbeatCommandHandler());
         dispatcher.RegisterHandler(new CronCommandHandler());

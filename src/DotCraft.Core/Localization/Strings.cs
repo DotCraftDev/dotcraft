@@ -106,6 +106,13 @@ public static class Strings
     // Memory consolidation
     public static string MemoryConsolidating(LanguageService lang) => lang.GetString("正在整理记忆...", "Consolidating memory...");
 
+    // Agent interrupt
+    public static string AgentInterrupted(LanguageService lang) => lang.GetString("Agent 已中断", "Agent interrupted");
+
+    // Stop command
+    public static string AgentStopped(LanguageService lang) => lang.GetString("Agent 已停止。", "Agent stopped.");
+    public static string NoActiveRun(LanguageService lang) => lang.GetString("当前没有正在运行的 Agent。", "No active agent run for this session.");
+
     // Goodbye
     public static string Goodbye(LanguageService lang) => lang.GetString("再见！", "Goodbye!");
 

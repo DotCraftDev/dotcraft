@@ -24,7 +24,7 @@ interface ApprovalCardResultProps {
 function ArgPreview({ name, args }: { name: string; args?: Record<string, unknown> }) {
   if (!args) return null;
 
-  if (name === "write_file") {
+  if (name === "WriteFile") {
     const path = args.path as string | undefined;
     const content = args.content as string | undefined;
     return (
@@ -39,7 +39,7 @@ function ArgPreview({ name, args }: { name: string; args?: Record<string, unknow
     );
   }
 
-  if (name === "edit_file") {
+  if (name === "EditFile") {
     const path = args.path as string | undefined;
     const oldText = args.oldText as string | undefined;
     const newText = args.newText as string | undefined;
@@ -60,7 +60,7 @@ function ArgPreview({ name, args }: { name: string; args?: Record<string, unknow
     );
   }
 
-  if (name === "exec") {
+  if (name === "Exec") {
     const command = args.command as string | undefined;
     const workingDir = args.workingDir as string | undefined;
     return (
