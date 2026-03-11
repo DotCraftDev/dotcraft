@@ -26,6 +26,7 @@ public sealed class AgentTools(SubAgentManager? subAgentManager = null)
         - Searching within 1-2 specific files — use ReadFile or GrepFiles directly
         - Looking up a specific class/symbol whose location you already know — use GrepFiles directly
         - Trivial single-step lookups that will succeed on the first try
+        - Edit and write file
 
         ### Usage Notes
         1. Launch multiple subagents concurrently whenever possible: include multiple SpawnSubagent calls in a single response

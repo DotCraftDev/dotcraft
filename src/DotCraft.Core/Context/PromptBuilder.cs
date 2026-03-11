@@ -16,9 +16,6 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
 
     private readonly string _workspacePath = Path.GetFullPath(workspacePath);
 
-    // In sandbox mode the host workspace is mounted at /workspace inside the container.
-    private readonly bool _sandboxEnabled = sandboxEnabled;
-
     /// <summary>
     /// Bootstrap files to load from DotCraft directory.
     /// </summary>
@@ -140,7 +137,7 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 
     private string GetIdentity()
     {
-        var workspace = _sandboxEnabled ? "/workspace" : _workspacePath;
+        var workspace = sandboxEnabled ? "/workspace" : _workspacePath;
         var craftPath = _craftPath;
 
         return
