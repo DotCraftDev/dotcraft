@@ -161,6 +161,12 @@ This contains:
 - Memory: {{craftPath}}/memory/ (see Memory skill for details)
 - Custom skills: {{craftPath}}/skills/{skill-name}/SKILL.md
 - Configuration: {{craftPath}}/config.json
+
+## Tool Usage Policy
+- When doing open-ended file search or codebase exploration that requires multiple rounds of searching, prefer to use SpawnSubagent to reduce context usage and keep the main conversation focused.
+- You should proactively use SpawnSubagent when a research task requires many search rounds, or when independent investigations can run in parallel.
+- Launch multiple subagents concurrently whenever possible — include multiple SpawnSubagent calls in a single response to maximize performance.
+- When you are not confident you can find what you need in 1-2 tool calls, use SpawnSubagent instead.
 """;
     }
 
@@ -240,6 +246,13 @@ Example:
   After running the build and finding errors, adds specific items for each
   error, then works through them one by one, marking each as completed
   before moving to the next.
+
+## Subagent Exploration
+
+Before editing code in an unfamiliar part of the codebase, use SpawnSubagent
+to research it first. When multiple independent areas need investigation,
+launch multiple SpawnSubagent calls in a single response to run them in
+parallel rather than sequentially.
 </system-reminder>
 """;
 
@@ -273,6 +286,10 @@ Ask the user clarifying questions or ask for their opinion when weighing tradeof
 - Use read-only tools (ReadFile, GrepFiles, FindFiles) and SpawnSubagent to explore the codebase.
 - Shell commands via Exec are allowed **for observation only**. NEVER use Exec to modify files, run builds, or execute commits.
 - Ask clarifying questions about ambiguities.
+
+**IMPORTANT — Parallel Exploration with SpawnSubagent**: When the task touches multiple independent areas of the codebase, launch multiple SpawnSubagent calls in a single response instead of exploring sequentially. This dramatically reduces planning time.
+
+Example: if the task involves both a data model and a UI component, send one response with two SpawnSubagent calls — one exploring the model layer and one exploring the UI layer — rather than doing them one after the other.
 
 ### Phase 2: Design
 - Design an implementation approach based on your exploration results.
