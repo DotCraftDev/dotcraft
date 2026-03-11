@@ -88,9 +88,4 @@ public static class CoreToolDisplays
     public static string TodoWrite(IDictionary<string, object?>? args)
         => "Updated task list";
 
-    public static string ListModifiedFiles(IDictionary<string, object?>? args)
-        => "Listed modified files";
-
-    public static string SyncToHost(IDictionary<string, object?>? args)
-        => $"Synced {ToolDisplayHelpers.GetString(args, "sandboxPath") ?? "file"} to host";
 }

@@ -99,57 +99,6 @@ public sealed class SandboxSessionManager : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Syncs modified files from the sandbox back to the host workspace.
-    /// Returns a list of changed file paths.
-    /// </summary>
-    public async Task<List<string>> GetModifiedFilesAsync(string? sessionKey = null)
-    {
-        sessionKey ??= DefaultSessionKey;
-        if (!_sandboxes.TryGetValue(sessionKey, out var entry) || entry.IsDisposed)
-            return [];
-
-        try
-        {
-            // Find files modified after sandbox creation
-            var execution = await entry.Sandbox.Commands.RunAsync(
-                $"find /workspace -newer /tmp/.sandbox_created -type f 2>/dev/null || true");
-
-            var files = new List<string>();
-            foreach (var line in execution.Logs.Stdout)
-            {
-                var path = line.Text?.Trim();
-                if (!string.IsNullOrWhiteSpace(path))
-                    files.Add(path);
-            }
-            return files;
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
-    /// <summary>
-    /// Reads a file from the sandbox and returns its content.
-    /// Used for pulling modified files back to the host.
-    /// </summary>
-    public async Task<string?> ReadSandboxFileAsync(string sandboxPath, string? sessionKey = null)
-    {
-        sessionKey ??= DefaultSessionKey;
-        if (!_sandboxes.TryGetValue(sessionKey, out var entry) || entry.IsDisposed)
-            return null;
-
-        try
-        {
-            return await entry.Sandbox.Files.ReadFileAsync(sandboxPath);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (_cleanupTimer != null)
@@ -236,7 +185,7 @@ public sealed class SandboxSessionManager : IAsyncDisposable
             AnsiConsole.MarkupLine("[grey][[Sandbox]][/] Syncing workspace to sandbox...");
 
             // Get list of files (respect .gitignore-like patterns, skip large dirs)
-            var files = EnumerateWorkspaceFiles(_workspacePath).Take(500).ToList();
+            var files = EnumerateWorkspaceFiles(_workspacePath, _config.SyncExclude).Take(500).ToList();
             
             foreach (var batch in Chunk(files, 20))
             {
@@ -276,9 +225,9 @@ public sealed class SandboxSessionManager : IAsyncDisposable
         }
     }
 
-    private static IEnumerable<string> EnumerateWorkspaceFiles(string root)
+    private static IEnumerable<string> EnumerateWorkspaceFiles(string root, IReadOnlyList<string> syncExclude)
     {
-        var skipDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        var skipDirNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             ".git", "node_modules", "bin", "obj", ".vs", ".idea",
             "packages", "TestResults", "__pycache__", ".venv"
@@ -290,6 +239,12 @@ public sealed class SandboxSessionManager : IAsyncDisposable
             ".gif", ".ico", ".zip", ".tar", ".gz", ".7z", ".bin", ".dat",
             ".pdf", ".mp3", ".mp4", ".wasm", ".pyc", ".db", ".sqlite"
         };
+
+        // Normalize exclude patterns to forward-slash relative paths.
+        var excludePatterns = syncExclude
+            .Select(p => p.Replace('\\', '/').Trim('/'))
+            .Where(p => p.Length > 0)
+            .ToList();
 
         var dirs = new Stack<string>();
         dirs.Push(root);
@@ -309,6 +264,9 @@ public sealed class SandboxSessionManager : IAsyncDisposable
                 var info = new FileInfo(file);
                 if (info.Length > 512 * 1024) continue; // Skip files > 512KB
 
+                var relFile = Path.GetRelativePath(root, file).Replace('\\', '/');
+                if (IsExcluded(relFile, excludePatterns)) continue;
+
                 yield return file;
             }
 
@@ -317,12 +275,32 @@ public sealed class SandboxSessionManager : IAsyncDisposable
                 foreach (var subDir in Directory.EnumerateDirectories(dir))
                 {
                     var name = Path.GetFileName(subDir);
-                    if (!skipDirs.Contains(name))
-                        dirs.Push(subDir);
+                    if (skipDirNames.Contains(name)) continue;
+
+                    var relDir = Path.GetRelativePath(root, subDir).Replace('\\', '/');
+                    if (IsExcluded(relDir, excludePatterns)) continue;
+
+                    dirs.Push(subDir);
                 }
             }
             catch { /* ignored */ }
         }
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="relativePath"/> is covered by any exclude pattern.
+    /// A pattern covers a path when the path equals the pattern or starts with the pattern followed by '/'.
+    /// </summary>
+    private static bool IsExcluded(string relativePath, IReadOnlyList<string> patterns)
+    {
+        foreach (var pattern in patterns)
+        {
+            if (relativePath.Equals(pattern, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (relativePath.StartsWith(pattern + "/", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private async Task CleanupIdleSandboxesAsync()
