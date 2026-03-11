@@ -809,11 +809,17 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
         AgentSession session,
         CancellationToken cancellationToken)
     {
+        // Create a per-run CTS so the user can interrupt this run without
+        // affecting the host-level cancellation token.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var interrupt = new InterruptHandler(cts);
+        var token = cts.Token;
+
         try
         {
             // Create renderer and start it
             using var renderer = new AgentRenderer();
-            await renderer.StartAsync(cancellationToken);
+            await renderer.StartAsync(token);
 
             // Set render control for approval service (thread-local)
             ConsoleApprovalService.SetRenderControl(renderer);
@@ -832,13 +838,13 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
                 long inputTokens = 0, outputTokens = 0;
 
                 // Get streaming updates from agent
-                var stream = _currentAgent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(userInput), session, cancellationToken: cancellationToken);
+                var stream = _currentAgent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(userInput), session, cancellationToken: token);
 
                 // Adapt stream to render events
-                var events = StreamAdapter.AdaptAsync(WrapStream(stream), cancellationToken, tokenTracker);
+                var events = StreamAdapter.AdaptAsync(WrapStream(stream), token, tokenTracker);
                 
                 // Consume events through renderer
-                await renderer.ConsumeEventsAsync(events, cancellationToken);
+                await renderer.ConsumeEventsAsync(events, token);
                 
                 // Wait for renderer to finish
                 await renderer.StopAsync();
@@ -859,7 +865,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
                 async IAsyncEnumerable<AgentResponseUpdate> WrapStream(IAsyncEnumerable<AgentResponseUpdate> source)
                 {
-                    await foreach (var update in source.WithCancellation(cancellationToken))
+                    await foreach (var update in source.WithCancellation(token))
                     {
                         foreach (var content in update.Contents)
                         {
@@ -885,6 +891,12 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
                 if (hookRunner != null)
                     hookRunner.DebugLogger = null;
             }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // User-initiated interrupt via double Ctrl+C; not a host shutdown.
+            AnsiConsole.MarkupLine($"\n[yellow]{Strings.AgentInterrupted(_lang)}[/]");
+            return false;
         }
         catch (Exception ex)
         {

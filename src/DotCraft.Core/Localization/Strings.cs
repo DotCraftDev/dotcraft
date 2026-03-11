@@ -106,6 +106,9 @@ public static class Strings
     // Memory consolidation
     public static string MemoryConsolidating(LanguageService lang) => lang.GetString("正在整理记忆...", "Consolidating memory...");
 
+    // Agent interrupt
+    public static string AgentInterrupted(LanguageService lang) => lang.GetString("Agent 已中断", "Agent interrupted");
+
     // Goodbye
     public static string Goodbye(LanguageService lang) => lang.GetString("再见！", "Goodbye!");
 
