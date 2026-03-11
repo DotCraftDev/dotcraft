@@ -258,7 +258,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                 if (agentInterrupted)
                 {
                     await FlushTextBufferAsync(evt, textBuffer);
-                    try { await _client.SendMessageAsync(evt, "Agent 已停止。"); } catch { /* ignored */ }
                     await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
                     return;
                 }

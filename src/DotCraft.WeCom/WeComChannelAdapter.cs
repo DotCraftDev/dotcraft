@@ -234,7 +234,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                 if (agentInterrupted)
                 {
                     await FlushTextBufferAsync(pusher, textBuffer);
-                    try { await pusher.PushTextAsync("Agent 已停止。"); } catch { /* ignored */ }
                     await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
                     return;
                 }
