@@ -6,6 +6,8 @@ import { FileEditCard } from "@/components/tools/FileEditCard";
 import { TerminalCard } from "@/components/tools/TerminalCard";
 import { FileReadCard } from "@/components/tools/FileReadCard";
 import { GrepFilesCard, FindFilesCard } from "@/components/tools/SearchCard";
+import { WebSearchCard } from "@/components/tools/WebSearchCard";
+import { WebFetchCard } from "@/components/tools/WebFetchCard";
 import { ApprovalCardResult } from "@/components/ApprovalCard";
 import type { ToolStatus } from "@/components/tools/ToolCardShell";
 
@@ -14,6 +16,17 @@ type StatusString = "inProgress" | "executing" | "complete";
 function toToolStatus(s: StatusString): ToolStatus {
   if (s === "complete") return "complete";
   return s as ToolStatus;
+}
+
+// Normalize literal escape sequences (e.g. "\\n") that the backend may send
+// as two-character sequences into real control characters.
+function normalizeResult(s: string | undefined): string | undefined {
+  if (!s) return s;
+  return s
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t");
 }
 
 // Single wildcard renderer that dispatches to per-tool card components.
@@ -32,7 +45,7 @@ const wildcardRenderer = defineToolCallRenderer({
             status={s}
             path={args?.path as string | undefined}
             content={args?.content as string | undefined}
-            result={result}
+            result={normalizeResult(result)}
           />
         );
 
@@ -45,7 +58,7 @@ const wildcardRenderer = defineToolCallRenderer({
             newText={args?.newText as string | undefined}
             startLine={args?.startLine as number | undefined}
             endLine={args?.endLine as number | undefined}
-            result={result}
+            result={normalizeResult(result)}
           />
         );
 
@@ -55,7 +68,7 @@ const wildcardRenderer = defineToolCallRenderer({
             status={s}
             command={args?.command as string | undefined}
             workingDir={args?.workingDir as string | undefined}
-            result={result}
+            result={normalizeResult(result)}
           />
         );
 
@@ -66,7 +79,7 @@ const wildcardRenderer = defineToolCallRenderer({
             path={args?.path as string | undefined}
             offset={args?.offset as number | undefined}
             limit={args?.limit as number | undefined}
-            result={result}
+            result={normalizeResult(result)}
           />
         );
 
@@ -77,7 +90,7 @@ const wildcardRenderer = defineToolCallRenderer({
             pattern={args?.pattern as string | undefined}
             path={args?.path as string | undefined}
             include={args?.include as string | undefined}
-            result={result}
+            result={normalizeResult(result)}
           />
         );
 
@@ -87,6 +100,28 @@ const wildcardRenderer = defineToolCallRenderer({
             status={s}
             pattern={args?.pattern as string | undefined}
             path={args?.path as string | undefined}
+            result={normalizeResult(result)}
+          />
+        );
+
+      case "WebSearch":
+        // Result is JSON — do NOT apply normalizeResult (it would corrupt JSON escape sequences)
+        return (
+          <WebSearchCard
+            status={s}
+            query={args?.query as string | undefined}
+            maxResults={args?.maxResults as number | undefined}
+            result={result}
+          />
+        );
+
+      case "WebFetch":
+        // Result is JSON — do NOT apply normalizeResult
+        return (
+          <WebFetchCard
+            status={s}
+            url={args?.url as string | undefined}
+            extractMode={args?.extractMode as string | undefined}
             result={result}
           />
         );

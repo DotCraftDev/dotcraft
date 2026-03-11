@@ -2,6 +2,7 @@ using System.Text;
 using System.Threading.Channels;
 using DotCraft.Abstractions;
 using DotCraft.Diagnostics;
+using DotCraft.Tools;
 using Spectre.Console;
 
 namespace DotCraft.CLI.Rendering;
@@ -451,11 +452,21 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
         AnsiConsole.MarkupLine(line.ToString());
 
-        // Result on an indented sub-line
+        // Result on an indented sub-line — use structured formatter for known JSON tools,
+        // fall back to generic truncation for all others.
         if (!string.IsNullOrWhiteSpace(result))
         {
-            var resultLine = NormalizeInlineText(TruncateText(result, 200));
-            AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(resultLine)}[/]");
+            var formattedResult = ToolRegistry.FormatToolResult(title, result);
+            if (formattedResult != null)
+            {
+                foreach (var resultValue in formattedResult)
+                    AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(resultValue)}[/]");
+            }
+            else
+            {
+                var resultLine = NormalizeInlineText(TruncateText(result, 200));
+                AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(resultLine)}[/]");
+            }
         }
     }
 
