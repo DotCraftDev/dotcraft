@@ -114,7 +114,7 @@ flowchart LR
     Ide["ACP / IDE"]
     Api["API / AG-UI"]
     Bots["QQ / WeCom / GitHub"]
-    Workspace["ProjectWorkspace (.craft)"]
+    Workspace["Workspace (.craft)"]
     Dashboard["Dashboard"]
 
     Cli --> Workspace
@@ -244,7 +244,15 @@ DotCraft includes a built-in Dashboard for inspecting sessions, traces, and conf
 
 ![dashboard](https://github.com/DotCraftDev/resources/raw/master/dotcraft/dashboard.png)
 
+<div align="center"> 
+Usage and session statistics, aggregated by channel.
+</div>
+
 ![trace](https://github.com/DotCraftDev/resources/raw/master/dotcraft/trace.png)
+
+<div align="center"> 
+Complete record of tool calls and session history.
+</div>
 
 ### Sandbox Isolation
 
