@@ -132,7 +132,7 @@ That means each workspace has its own sessions, memory, skills, commands, and co
 
 ### Multiple Entry Points, One Shared Workspace
 
-The same workspace can be reached from multiple entry points, including CLI, ACP editors, API, AG-UI, QQ, and WeCom. Sessions stay separate so conversations do not overwrite each other, but they still share the same project context, tool access, long-term memory, skills, and commands inside that workspace.
+The same workspace can be reached from multiple entry points. Sessions stay separate so conversations do not overwrite each other, but they still share the same project context, tool access, long-term memory, skills, and commands inside that workspace.
 
 This makes DotCraft feel more like a continuously available workspace agent than a one-off conversation tool. You can build context in one entry point and continue using it from another without maintaining separate islands of state.
 
