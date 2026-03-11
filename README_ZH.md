@@ -246,6 +246,8 @@ DotCraft 会先读取 `~/.craft/config.json`，再用 `<workspace>/.craft/config
 
 如果你希望从编辑器或 Unity 中接入 DotCraft，建议先在目标工作区通过 CLI 完成一次初始化；如果缺少配置，会先进入 setup-only Dashboard。之后再查看 [ACP 模式指南](./docs/acp_guide.md)、[Unity 集成指南](./docs/unity_guide.md) 与 [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md)。
 
+![unity](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity.gif)
+
 ## 🛠️ 进阶能力
 
 ### Dashboard

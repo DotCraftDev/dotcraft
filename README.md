@@ -236,6 +236,8 @@ If you want DotCraft to automatically poll GitHub issues, create isolated worksp
 
 If you want to access DotCraft from editors or Unity, it is best to initialize the target workspace once from the CLI first; if config is still missing, that flow will open the setup-only Dashboard for you. Then see the [ACP Mode Guide](./docs/en/acp_guide.md), the [Unity Integration Guide](./docs/en/unity_guide.md), and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
+![unity](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity.gif)
+
 ## 🛠️ Advanced Capabilities
 
 ### Dashboard
