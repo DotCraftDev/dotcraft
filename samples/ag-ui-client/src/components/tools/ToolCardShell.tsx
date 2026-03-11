@@ -121,3 +121,27 @@ export function ShieldIcon() {
     </svg>
   );
 }
+
+export function GlobeIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M2 8h12M8 2c-2 2-3 4-3 6s1 4 3 6M8 2c2 2 3 4 3 6s-1 4-3 6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ExternalLinkIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={"h-3 w-3 shrink-0 " + (className ?? "")}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path d="M6 3H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 2h5v5M14 2L8 8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

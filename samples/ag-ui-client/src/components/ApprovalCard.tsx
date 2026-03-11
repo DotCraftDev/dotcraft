@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { ToolCardShell, ShieldIcon } from "./tools/ToolCardShell";
 
 interface ApprovalRequest {
@@ -13,12 +14,19 @@ interface ApprovalRequest {
 interface ApprovalCardPendingProps {
   request: ApprovalRequest;
   respond: (result: unknown) => Promise<void>;
+  onAllowAll: () => void;
 }
 
 // Shown after decision in "complete" phase
 interface ApprovalCardResultProps {
   request: ApprovalRequest;
   result?: string;
+}
+
+// Shown briefly while auto-responding for a session-allowed function
+interface ApprovalCardAutoProps {
+  request: ApprovalRequest;
+  respond: (result: unknown) => Promise<void>;
 }
 
 function ArgPreview({ name, args }: { name: string; args?: Record<string, unknown> }) {
@@ -79,11 +87,15 @@ function ArgPreview({ name, args }: { name: string; args?: Record<string, unknow
   );
 }
 
-export function ApprovalCardPending({ request, respond }: ApprovalCardPendingProps) {
+export function ApprovalCardPending({ request, respond, onAllowAll }: ApprovalCardPendingProps) {
   const handleApprove = () =>
     respond({ approval_id: request.approval_id, approved: true });
   const handleReject = () =>
     respond({ approval_id: request.approval_id, approved: false });
+  const handleAllowAll = () => {
+    onAllowAll();
+    void respond({ approval_id: request.approval_id, approved: true });
+  };
 
   return (
     <ToolCardShell
@@ -101,12 +113,48 @@ export function ApprovalCardPending({ request, respond }: ApprovalCardPendingPro
             Approve
           </button>
           <button
+            onClick={handleAllowAll}
+            className="flex-1 rounded-md bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-medium py-1.5 px-3 transition-colors"
+            title={`Always approve ${request.function_name} for this session`}
+          >
+            Allow All
+          </button>
+          <button
             onClick={handleReject}
             className="flex-1 rounded-md bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-xs font-medium py-1.5 px-3 transition-colors"
           >
             Reject
           </button>
         </div>
+        <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
+          &ldquo;Allow All&rdquo; — skip approval for <span className="font-medium">{request.function_name}</span> for the rest of this session
+        </p>
+      </div>
+    </ToolCardShell>
+  );
+}
+
+// Auto-approves in useEffect so respond() is not called during render.
+export function ApprovalCardAutoApproved({ request, respond }: ApprovalCardAutoProps) {
+  useEffect(() => {
+    void respond({ approval_id: request.approval_id, approved: true });
+  // respond identity is stable within a tool call invocation; approval_id identifies the call
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request.approval_id]);
+
+  return (
+    <ToolCardShell
+      icon={<ShieldIcon />}
+      title={request.function_name}
+      status="complete"
+      badge={
+        <span className="rounded px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 font-medium">
+          Auto-approved
+        </span>
+      }
+    >
+      <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+        Automatically approved for this session.
       </div>
     </ToolCardShell>
   );

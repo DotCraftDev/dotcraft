@@ -78,6 +78,21 @@ public static class ToolRegistry
         return null;
     }
 
+    /// <summary>
+    /// Returns structured human-readable lines for a tool result, or null if no formatter
+    /// is available for this tool. Callers should fall back to generic truncation when null.
+    /// Currently supports: WebSearch, WebFetch.
+    /// </summary>
+    public static IReadOnlyList<string>? FormatToolResult(string? toolName, string? result)
+    {
+        return toolName switch
+        {
+            "WebSearch" => CoreToolDisplays.WebSearchResult(result),
+            "WebFetch" => CoreToolDisplays.WebFetchResult(result),
+            _ => null
+        };
+    }
+
     public static void RegisterIcon(string toolName, string icon)
         => ToolIcons[toolName] = icon;
 

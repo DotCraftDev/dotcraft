@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotCraft.Configuration;
@@ -63,44 +62,30 @@ public sealed class WebTools
 
         try
         {
-            List<SearchResult> results;
+            List<SearchResultItem> items;
 
             if (_searchProvider.Equals(WebSearchProvider.Exa, StringComparison.OrdinalIgnoreCase))
             {
-                return await SearchExa(query, count);
+                items = await SearchExa(query, count);
             }
-
-            if (_searchProvider.Equals(WebSearchProvider.Bing, StringComparison.OrdinalIgnoreCase))
+            else if (_searchProvider.Equals(WebSearchProvider.Bing, StringComparison.OrdinalIgnoreCase))
             {
-                results = await SearchBing(query, count);
+                var bingResults = await SearchBing(query, count);
+                items = bingResults
+                    .Select(r => new SearchResultItem(r.Title, r.Url, r.Snippet))
+                    .ToList();
             }
             else
             {
                 throw new ArgumentException(nameof(_searchProvider));
             }
 
-            if (results.Count == 0)
+            if (items.Count == 0)
             {
                 return JsonSerializer.Serialize(new { query, message = "No results found." });
             }
 
-            var sb = new StringBuilder();
-            sb.AppendLine($"Search results for: {query}");
-            sb.AppendLine();
-
-            for (int i = 0; i < results.Count; i++)
-            {
-                var r = results[i];
-                sb.AppendLine($"{i + 1}. {r.Title}");
-                sb.AppendLine($"   URL: {r.Url}");
-                if (!string.IsNullOrWhiteSpace(r.Snippet))
-                {
-                    sb.AppendLine($"   {r.Snippet}");
-                }
-                sb.AppendLine();
-            }
-
-            return sb.ToString();
+            return SerializeSearchOutput(query, _searchProvider, items);
         }
         catch (HttpRequestException ex)
         {
@@ -317,7 +302,34 @@ public sealed class WebTools
         return result.Trim();
     }
 
+    // Internal record for Bing HTML scraping (unchanged)
     private sealed record SearchResult(string Title, string Url, string Snippet);
+
+    // Unified search result item shared across all providers
+    private sealed record SearchResultItem(
+        string Title,
+        string Url,
+        string Snippet,
+        string? Author = null,
+        string? PublishedDate = null);
+
+    private static string SerializeSearchOutput(string query, string provider, List<SearchResultItem> items)
+    {
+        var output = new
+        {
+            query,
+            provider = provider.ToLowerInvariant(),
+            results = items.Select(r => new
+            {
+                title = r.Title,
+                url = r.Url,
+                snippet = r.Snippet,
+                author = r.Author,
+                publishedDate = r.PublishedDate,
+            }).ToArray()
+        };
+        return JsonSerializer.Serialize(output);
+    }
 
     #region Bing Search Provider
 
@@ -399,7 +411,7 @@ public sealed class WebTools
     // NOTE: This is a legacy manual MCP call to Exa. Consider using the MCP server integration instead:
     // Add to McpServers config: { "Name": "exa", "Transport": "http", "Url": "https://mcp.exa.ai/mcp" }
     // Then the Exa tools (WebSearch_exa, etc.) will be available as standard MCP tools.
-    private async Task<string> SearchExa(string query, int numResults)
+    private async Task<List<SearchResultItem>> SearchExa(string query, int numResults)
     {
         var requestBody = new
         {
@@ -408,7 +420,7 @@ public sealed class WebTools
             method = "tools/call",
             @params = new
             {
-                name = "WebSearch_exa",
+                name = "web_search_exa",
                 arguments = new
                 {
                     query,
@@ -423,7 +435,7 @@ public sealed class WebTools
         request.Headers.Add("Accept", "application/json, text/event-stream");
         request.Content = new StringContent(
             JsonSerializer.Serialize(requestBody),
-            Encoding.UTF8,
+            System.Text.Encoding.UTF8,
             "application/json");
 
         var response = await _httpClient.SendAsync(request);
@@ -443,11 +455,88 @@ public sealed class WebTools
             {
                 var text = content[0].GetProperty("text").GetString();
                 if (!string.IsNullOrWhiteSpace(text))
-                    return text;
+                    return ParseExaText(text);
             }
         }
 
-        return JsonSerializer.Serialize(new { query, message = "No results found." });
+        return [];
+    }
+
+    /// <summary>
+    /// Parses the plain-text format returned by the Exa MCP tool into structured result items.
+    /// Each result block starts with a "Title:" line and may contain URL, Author, Published Date, and Text fields.
+    /// The Text field content is truncated to <paramref name="snippetMaxChars"/> characters for the snippet.
+    /// </summary>
+    private static List<SearchResultItem> ParseExaText(string rawText, int snippetMaxChars = 500)
+    {
+        var results = new List<SearchResultItem>();
+
+        string? title = null;
+        string? url = null;
+        string? author = null;
+        string? publishedDate = null;
+        var snippetChars = 0;
+        var snippetParts = new List<string>();
+        bool inText = false;
+
+        void FlushResult()
+        {
+            if (title == null || url == null) return;
+            var snippet = string.Join(" ", snippetParts
+                .Select(p => p.Trim())
+                .Where(p => p.Length > 0));
+            results.Add(new SearchResultItem(title, url, snippet, author, publishedDate));
+            title = null; url = null; author = null; publishedDate = null;
+            snippetParts.Clear(); snippetChars = 0; inText = false;
+        }
+
+        foreach (var rawLine in rawText.Split('\n'))
+        {
+            var line = rawLine.TrimEnd();
+
+            if (line.StartsWith("Title: ", StringComparison.Ordinal))
+            {
+                FlushResult();
+                title = line["Title: ".Length..].Trim();
+                inText = false;
+            }
+            else if (!inText && line.StartsWith("URL: ", StringComparison.Ordinal))
+            {
+                url = line["URL: ".Length..].Trim();
+            }
+            else if (!inText && line.StartsWith("Author: ", StringComparison.Ordinal))
+            {
+                author = line["Author: ".Length..].Trim();
+            }
+            else if (!inText && line.StartsWith("Published Date: ", StringComparison.Ordinal))
+            {
+                publishedDate = line["Published Date: ".Length..].Trim();
+            }
+            else if (!inText && line.StartsWith("Text: ", StringComparison.Ordinal))
+            {
+                inText = true;
+                var firstPart = line["Text: ".Length..].Trim();
+                if (firstPart.Length > 0 && snippetChars < snippetMaxChars)
+                {
+                    var take = Math.Min(firstPart.Length, snippetMaxChars - snippetChars);
+                    snippetParts.Add(firstPart[..take]);
+                    snippetChars += take;
+                }
+            }
+            else if (inText && snippetChars < snippetMaxChars)
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length > 0)
+                {
+                    var take = Math.Min(trimmed.Length, snippetMaxChars - snippetChars);
+                    snippetParts.Add(trimmed[..take]);
+                    snippetChars += take;
+                }
+            }
+        }
+
+        FlushResult();
+        return results;
     }
 
     #endregion
