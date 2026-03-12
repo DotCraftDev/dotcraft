@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using DotCraft.Configuration;
+using DotCraft.GitHubTracker.Tracker;
 using Microsoft.Extensions.Logging;
 
 namespace DotCraft.GitHubTracker.Workspace;
@@ -20,11 +21,13 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
     public string WorkspaceRoot => _workspaceRoot;
 
     /// <summary>
-    /// Ensure a workspace directory exists for the given issue.
+    /// Ensure a workspace directory exists for the given work item.
+    /// For pull requests, checks out the PR's head branch after clone.
     /// Runs after_create hook if the directory was newly created.
     /// </summary>
-    public async Task<IssueWorkspace> EnsureWorkspaceAsync(string issueIdentifier, CancellationToken ct = default)
+    public async Task<IssueWorkspace> EnsureWorkspaceAsync(TrackedIssue workItem, CancellationToken ct = default)
     {
+        var issueIdentifier = workItem.Identifier;
         var key = SanitizeIdentifier(issueIdentifier);
         var path = Path.GetFullPath(Path.Combine(_workspaceRoot, key));
 
@@ -33,8 +36,6 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
         var isNew = !Directory.Exists(path);
         Directory.CreateDirectory(path);
 
-        // Clone before creating .craft so the target directory is empty for git clone.
-        // Skip if .git already exists — workspace was cloned in a prior run.
         var gitDir = Path.Combine(path, ".git");
         var needsClone = !Directory.Exists(gitDir) && !string.IsNullOrWhiteSpace(_trackerConfig.Repository);
         if (needsClone)
@@ -49,7 +50,19 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
             }
         }
 
-        // Ensure .craft subdirectory (created after clone so it doesn't block git clone)
+        // For pull requests, fetch and checkout the PR's head branch.
+        if (workItem.Kind == WorkItemKind.PullRequest && !string.IsNullOrWhiteSpace(workItem.HeadBranch))
+        {
+            try
+            {
+                await CheckoutPullRequestBranchAsync(path, workItem.HeadBranch, _trackerConfig, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "PR branch checkout failed for {Identifier}, staying on default branch", issueIdentifier);
+            }
+        }
+
         Directory.CreateDirectory(Path.Combine(path, ".craft"));
 
         if (isNew && !string.IsNullOrWhiteSpace(_hooksConfig.AfterCreate))
@@ -67,6 +80,22 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
         }
 
         return new IssueWorkspace(path);
+    }
+
+    /// <summary>
+    /// Overload for simple identifier-based calls (backward compat for cleanup, etc.).
+    /// </summary>
+    public Task<IssueWorkspace> EnsureWorkspaceAsync(string issueIdentifier, CancellationToken ct = default)
+    {
+        var placeholder = new TrackedIssue
+        {
+            Id = issueIdentifier,
+            Identifier = issueIdentifier,
+            Title = "",
+            State = "",
+            Kind = WorkItemKind.Issue,
+        };
+        return EnsureWorkspaceAsync(placeholder, ct);
     }
 
     /// <summary>
@@ -178,6 +207,14 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
             throw new InvalidOperationException(
                 $"Hook exited with code {process.ExitCode}: {stderr[..Math.Min(stderr.Length, 500)]}");
         }
+    }
+
+    private static async Task CheckoutPullRequestBranchAsync(
+        string workspacePath, string headBranch, GitHubTrackerTrackerConfig trackerConfig, CancellationToken ct)
+    {
+        var token = ResolveToken(trackerConfig.ApiKey);
+        await RunGitAsync(workspacePath, ["fetch", "origin", headBranch], token, ct);
+        await RunGitAsync(workspacePath, ["checkout", "-B", headBranch, $"origin/{headBranch}"], token, ct);
     }
 
     private static async Task CloneRepositoryAsync(string workspacePath, GitHubTrackerTrackerConfig trackerConfig, CancellationToken ct)

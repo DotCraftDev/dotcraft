@@ -2,14 +2,17 @@
   "GitHubTracker": {
     "Enabled": true,
     "WorkflowPath": "WORKFLOW.md",
+    "PullRequestWorkflowPath": "PR_WORKFLOW.md",
     "Tracker": {
-      "Kind": "github",
       "Repository": "your-org/your-repo",
       "ApiKey": "$GITHUB_TOKEN",
-      "ActiveStates": ["Todo"],
+      "ActiveStates": [],
       "TerminalStates": ["Done", "Closed", "Cancelled"],
       "GitHubStateLabelPrefix": "status:",
-      "AssigneeFilter": ""
+      "TrackPullRequests": true,
+      "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
+      "PullRequestTerminalStates": ["Merged", "Closed", "Approved", "Changes Requested"],
+      "PullRequestLabelFilter": "auto-review"
     },
     "Polling": {
       "IntervalMs": 60000
@@ -18,15 +21,16 @@
       "Root": ""
     },
     "Agent": {
-      "MaxConcurrentAgents": 1,
-      "MaxTurns": 15,
+      "MaxConcurrentAgents": 2,
+      "MaxConcurrentPullRequestAgents": 2,
+      "MaxTurns": 10,
       "MaxRetryBackoffMs": 300000,
       "TurnTimeoutMs": 3600000,
       "StallTimeoutMs": 300000
     },
     "Hooks": {
       "AfterCreate": "",
-      "BeforeRun": "git config user.email \"review-bot@example.com\" && git config user.name \"Review Bot\" && gh auth login --with-token <<< \"$GH_TOKEN\"",
+      "BeforeRun": "git config user.email \"review-bot@example.com\" && git config user.name \"Review Bot\"",
       "AfterRun": "",
       "BeforeRemove": "",
       "TimeoutMs": 60000

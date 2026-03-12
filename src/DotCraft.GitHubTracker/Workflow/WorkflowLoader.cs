@@ -153,6 +153,7 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
         {
             Enabled = baseConfig.Enabled,
             WorkflowPath = baseConfig.WorkflowPath,
+            PullRequestWorkflowPath = baseConfig.PullRequestWorkflowPath,
             Tracker = new GitHubTrackerTrackerConfig
             {
                 Endpoint = baseConfig.Tracker.Endpoint,
@@ -162,6 +163,10 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 TerminalStates = [.. baseConfig.Tracker.TerminalStates],
                 GitHubStateLabelPrefix = baseConfig.Tracker.GitHubStateLabelPrefix,
                 AssigneeFilter = baseConfig.Tracker.AssigneeFilter,
+                TrackPullRequests = baseConfig.Tracker.TrackPullRequests,
+                PullRequestActiveStates = [.. baseConfig.Tracker.PullRequestActiveStates],
+                PullRequestTerminalStates = [.. baseConfig.Tracker.PullRequestTerminalStates],
+                PullRequestLabelFilter = baseConfig.Tracker.PullRequestLabelFilter,
             },
             Polling = new GitHubTrackerPollingConfig
             {
@@ -179,6 +184,7 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 TurnTimeoutMs = baseConfig.Agent.TurnTimeoutMs,
                 StallTimeoutMs = baseConfig.Agent.StallTimeoutMs,
                 MaxConcurrentByState = new Dictionary<string, int>(baseConfig.Agent.MaxConcurrentByState),
+                MaxConcurrentPullRequestAgents = baseConfig.Agent.MaxConcurrentPullRequestAgents,
             },
             Hooks = new GitHubTrackerHooksConfig
             {

@@ -469,7 +469,7 @@ DotCraft 提供两种企业微信集成能力：
 
 ## GitHubTracker 配置
 
-GitHubTracker 模块用于自动轮询 GitHub Issue、为每个 Issue 创建独立工作区、派发 Agent 完成代码任务，并在完成后通过 `complete_issue` 收敛流程。
+GitHubTracker 模块用于自动轮询 GitHub Issue、为每个 Issue 创建独立工作区、派发 Agent 完成代码任务，并在完成后通过 `CompleteIssue` 收敛流程。
 
 完整使用说明见 [GitHubTracker 指南](./github_tracker_guide.md)。
 

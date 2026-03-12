@@ -2,9 +2,9 @@
 
 **[中文](./README_ZH.md) | English**
 
-This sample provides two ready-to-use `WORKFLOW.md` templates for the DotCraft `GitHubTracker` module:
+This sample provides two ready-to-use workflow templates for the DotCraft `GitHubTracker` module:
 
-- [review-bot](./review-bot): An **issue-driven PR review bot** that reads a review request issue, fetches the referenced PR diff, posts structured code review feedback, and closes the request issue.
+- [review-bot](./review-bot): A **native PR review bot** that automatically picks up open pull requests carrying the `auto-review` label, checks out the PR branch, analyzes the diff, and submits a structured `COMMENT` review — providing feedback only, without approving or blocking.
 - [collab-dev-bot](./collab-dev-bot): A **multi-stage collaborative development bot** that plans, implements, and opens a PR for a given issue, using labels to coordinate state across runs.
 
 ## How to Use a Sample
@@ -15,6 +15,7 @@ Copy the template files into your own DotCraft workspace:
 samples/github-tracker/<sample>/
   config.template.json   →  copy to  <your-workspace>/.craft/config.json
   WORKFLOW.md            →  copy to  <your-workspace>/WORKFLOW.md
+  PR_WORKFLOW.md         →  copy to  <your-workspace>/PR_WORKFLOW.md   (review-bot only)
 ```
 
 Then edit `config.json` to fill in your repository, token, and any other settings.
@@ -28,6 +29,7 @@ Then edit `config.json` to fill in your repository, token, and any other setting
 mkdir -p /path/to/my-workspace/.craft
 cp samples/github-tracker/review-bot/config.template.json /path/to/my-workspace/.craft/config.json
 cp samples/github-tracker/review-bot/WORKFLOW.md          /path/to/my-workspace/WORKFLOW.md
+cp samples/github-tracker/review-bot/PR_WORKFLOW.md       /path/to/my-workspace/PR_WORKFLOW.md
 ```
 
 **collab-dev-bot**:
@@ -41,16 +43,13 @@ cp samples/github-tracker/collab-dev-bot/WORKFLOW.md          /path/to/my-worksp
 
 ```bash
 # Linux / macOS
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx   # used by DotCraft for cloning and issue ops
-export GH_TOKEN=$GITHUB_TOKEN                  # used by gh CLI in shell commands
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx   # used by DotCraft for cloning, PR API calls
 
 # Windows PowerShell
 $env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxx"
-$env:GH_TOKEN     = $env:GITHUB_TOKEN
 ```
 
-> **Why two variables?**
-> DotCraft's tracker reads `$GITHUB_TOKEN` for its own GitHub API calls (clone, issue state, close). The `gh` CLI that the agent runs in shell commands reads `$GH_TOKEN`. They usually point to the same token.
+> The `submit_review` tool calls the GitHub Review API directly using DotCraft's own token (`$GITHUB_TOKEN`). You only need a second variable if the agent uses `gh` CLI for additional context.
 
 ### 3. Edit `config.json`
 
@@ -60,24 +59,24 @@ Replace these values in the copied `config.json`:
 |---|---|---|
 | `Tracker.Repository` | `"your-org/your-repo"` | Format: `owner/repo` |
 | `Tracker.ApiKey` | `"$GITHUB_TOKEN"` | Leave as-is to use the env var |
-| `Hooks.BeforeRun` | see file | Update the email/name to match your bot identity |
+| `Tracker.PullRequestLabelFilter` | `"auto-review"` | Only review PRs carrying this label. The orchestrator removes it automatically after each review; re-add to trigger another review. |
+| `Hooks.BeforeRun` | see file | Update the email/name to your bot identity |
 
-### 4. Label Your Issues
+### 4. Open a Pull Request
 
-#### review-bot labels
+#### review-bot
 
-| Label | Meaning |
-|---|---|
-| `status:todo` | New review request, will be dispatched |
+The bot picks up any **open, non-draft** pull request that carries the `auto-review` label. After submitting its review, the orchestrator **automatically removes the `auto-review` label**, so the PR is not re-dispatched on the next poll.
 
-The issue body must contain the PR number to review and the review scope.
+**Trigger / exit mechanism**:
 
-**Example issue body**:
-```
-Please review PR #42.
+1. A human adds the `auto-review` label to a PR.
+2. The bot is dispatched on the next poll, reviews the diff, and calls `submit_review` with `COMMENT`.
+3. The orchestrator removes the `auto-review` label automatically after the run completes.
+4. On the next poll, the PR no longer matches the label filter — claim is released, bot stops.
+5. To trigger a re-review (e.g. after pushing fixes), re-add the `auto-review` label.
 
-Focus on error handling and the new authentication middleware.
-```
+> The bot only submits `COMMENT` reviews — it never approves, requests changes, or merges. This avoids accidentally triggering auto-merge rules on the repository.
 
 #### collab-dev-bot labels
 
@@ -102,21 +101,33 @@ dotcraft
 
 ### review-bot
 
-**Purpose**: Automates code review for pull requests.
+**Purpose**: Automated native PR code review (feedback only, no approval or merge).
 
 **Workflow**:
-1. A human opens a GitHub issue with label `status:todo`, writing the PR number and review scope in the issue body.
-2. The bot is dispatched to the issue.
-3. It fetches the PR diff using `gh pr diff`.
-4. It analyzes the changes and posts a structured review comment on the PR via `gh pr comment` or `gh api`.
-5. It calls `complete_issue` to close the review-request issue.
+1. DotCraft polls the GitHub `/pulls` API for open, non-draft PRs carrying the `auto-review` label.
+2. The PR's head branch is checked out in an isolated workspace.
+3. The PR diff is fetched and injected directly into the agent prompt.
+4. The agent reads the diff (and optionally inspects files in the workspace), then calls `submit_review` with `COMMENT`.
+5. DotCraft submits the review to GitHub via the Reviews API using the configured token.
 
-**Limitation**: `GitHubTracker` currently dispatches only GitHub _issues_, not PRs directly. PRs with the `pull_request` field set are skipped at the discovery stage. The review-bot works around this by using a proxy issue as the trigger. 
+**Lifecycle**:
+```
+Human adds `auto-review` label to PR
+  → Bot dispatched on next poll
+  → Bot reviews diff, calls submit_review COMMENT
+  → Review posted on PR
+  → Orchestrator auto-removes `auto-review` label
+  → Continuation retry fires (1s): PR no longer in candidates → claim released
 
-**State flow**:
+To trigger a re-review (e.g. after pushing fixes):
+  → Re-add `auto-review` label → bot runs again
 ```
-status:todo  →  (bot runs, posts review)  →  issue closed
-```
+
+> **Why COMMENT only?** If the bot were to submit `APPROVE` and the repository has auto-merge enabled with branch protection requiring one approval, the bot's approval could inadvertently trigger a merge. Using `COMMENT` eliminates this risk.
+
+**Files**:
+- `PR_WORKFLOW.md` — prompt template for PR reviews; receives `{{ issue.diff }}`, `{{ issue.head_branch }}`, `{{ issue.base_branch }}`, etc.
+- `WORKFLOW.md` — placeholder with `active_states: []`; no issues are dispatched.
 
 ---
 
@@ -149,9 +160,9 @@ status:in-progress  →  status:blocked  ← non-active, bot stops retrying
                     status:todo  →  ...
 ```
 
-**Why not call `complete_issue` immediately after opening the PR?**
+**Why not call `CompleteIssue` immediately after opening the PR?**
 
-`complete_issue` closes the GitHub issue. In most workflows, the issue should stay open until the PR is actually merged and verified. Using `status:awaiting-review` keeps the issue visible for discussion while preventing the bot from repeatedly redispatching.
+`CompleteIssue` closes the GitHub issue. In most workflows, the issue should stay open until the PR is actually merged and verified. Using `status:awaiting-review` keeps the issue visible for discussion while preventing the bot from repeatedly redispatching.
 
 ---
 
@@ -164,9 +175,9 @@ Use a [Fine-grained Personal Access Token](https://docs.github.com/en/authentica
 | Permission | Level | Reason |
 |---|---|---|
 | Metadata | Read-only | Required by GitHub, auto-granted |
-| Contents | Read-only | Clone the repository and read files |
-| Issues | Read and Write | Read issue body, post comments, close issue |
-| Pull requests | Read and Write | Read PR diff, post review comments |
+| Contents | Read-only | Clone the repository and check out the PR branch |
+| Pull requests | Read and Write | Read PR diff, list reviews, submit review |
+| Issues | Read and Write | Remove the `auto-review` label after each review |
 
 ### collab-dev-bot
 
@@ -177,8 +188,6 @@ Use a [Fine-grained Personal Access Token](https://docs.github.com/en/authentica
 | Issues | Read and Write | Read issue, comment, relabel |
 | Pull requests | Read and Write | Open PR, post PR comments |
 
-> `gh auth login` inside the `before_run` hook authenticates `gh` CLI. This requires that `$GH_TOKEN` is set in the environment before starting DotCraft.
-
 ---
 
 ## Troubleshooting
@@ -187,24 +196,29 @@ Use a [Fine-grained Personal Access Token](https://docs.github.com/en/authentica
 
 Install the [GitHub CLI](https://cli.github.com/) and ensure it is on `PATH` in the environment where DotCraft runs.
 
-### `gh auth login` fails in the hook
+For the review-bot, `gh` CLI is optional — `submit_review` uses DotCraft's built-in GitHub API integration. The agent may still invoke `gh` for additional context (e.g. `gh pr diff`, `gh pr checks`).
 
-The `before_run` hook uses `gh auth login --with-token <<< "$GH_TOKEN"`. On Windows, here-string syntax differs. Use an alternative:
+### Bot keeps re-running after submitting a review
 
-```powershell
-echo $env:GH_TOKEN | gh auth login --with-token
-```
+The orchestrator automatically removes the `auto-review` label after a successful review run. If the bot is re-running unexpectedly, check the DotCraft logs for a warning like `"Failed to remove label 'auto-review'"`. This usually means the GitHub token is missing `Issues: Read and Write` permission (label removal uses the same API endpoint as issue label mutations).
 
-Update the `Hooks.BeforeRun` field in your `config.json` accordingly.
+The label is **not** removed on failure or timeout, so the bot will retry — this is intentional.
 
-### Bot keeps re-running after posting the review or opening the PR
+### PR is not being picked up
 
-This happens when the issue label was not changed to a non-active state. The orchestrator retries while the issue is in an `active_states` label. Ensure the workflow's relabeling step (`gh issue edit`) executed successfully.
+- Confirm the PR is **open and not a draft**.
+- If `Tracker.PullRequestLabelFilter` is set, confirm the PR has that label.
+- Confirm `Tracker.TrackPullRequests` is `true` in config.
+- Check that `PR_WORKFLOW.md` exists in the workspace root.
 
-### Issue is not being picked up
+### `submit_review` reports a permission error
+
+The `submit_review` tool uses DotCraft's own GitHub token (`$GITHUB_TOKEN`). Ensure the token has `Pull requests: Read and Write` permission.
+
+### Issue is not being picked up (collab-dev-bot)
 
 Ensure the issue has a label matching an active state, e.g. `status:todo`. Labels are derived from the `GitHubStateLabelPrefix` setting (`status:` by default).
 
-### Token errors on `complete_issue`
+### Token errors on `CompleteIssue` (collab-dev-bot)
 
-The `complete_issue` tool uses DotCraft's own GitHub token (`$GITHUB_TOKEN`). Make sure the token has `Issues: Read and Write` permission.
+The `CompleteIssue` tool uses DotCraft's own GitHub token (`$GITHUB_TOKEN`). Make sure the token has `Issues: Read and Write` permission.

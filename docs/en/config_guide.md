@@ -469,7 +469,7 @@ For detailed configuration, usage, deployment guide, and troubleshooting, see [W
 
 ## GitHubTracker Configuration
 
-The GitHubTracker module automatically polls GitHub issues, creates an isolated workspace for each issue, dispatches an agent to complete the coding task, and converges the flow by calling `complete_issue` when the work is done.
+The GitHubTracker module automatically polls GitHub issues, creates an isolated workspace for each issue, dispatches an agent to complete the coding task, and converges the flow by calling `CompleteIssue` when the work is done.
 
 For the complete usage flow, see the [GitHubTracker Guide](./github_tracker_guide.md).
 

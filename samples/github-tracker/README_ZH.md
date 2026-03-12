@@ -2,9 +2,9 @@
 
 **中文 | [English](./README.md)**
 
-本示例为 DotCraft `GitHubTracker` 模块提供两个可直接使用的 `WORKFLOW.md` 模板：
+本示例为 DotCraft `GitHubTracker` 模块提供两个可直接使用的工作流模板：
 
-- [review-bot](./review-bot)：**Issue 驱动的 PR Review Bot**，读取 Review 请求 Issue，拉取对应 PR 的 diff，发布结构化代码审查意见，最后关闭请求 Issue。
+- [review-bot](./review-bot)：**原生 PR Review Bot**，自动拉取带有 `auto-review` 标签的 Open PR，检出 PR 分支，分析 diff，并通过 GitHub Reviews API 提交 `COMMENT` 评审意见——仅提供反馈，不会 approve 或 block。
 - [collab-dev-bot](./collab-dev-bot)：**多阶段协作开发 Bot**，对指定 Issue 进行规划、实现并提交 PR，通过 Label 在多次运行间协调状态。
 
 ## 使用方式
@@ -15,6 +15,7 @@
 samples/github-tracker/<sample>/
   config.template.json   →  复制到  <your-workspace>/.craft/config.json
   WORKFLOW.md            →  复制到  <your-workspace>/WORKFLOW.md
+  PR_WORKFLOW.md         →  复制到  <your-workspace>/PR_WORKFLOW.md   （仅 review-bot）
 ```
 
 复制后，编辑 `config.json`，填入你的仓库名、Token 等信息。
@@ -28,6 +29,7 @@ samples/github-tracker/<sample>/
 mkdir -p /path/to/my-workspace/.craft
 cp samples/github-tracker/review-bot/config.template.json /path/to/my-workspace/.craft/config.json
 cp samples/github-tracker/review-bot/WORKFLOW.md          /path/to/my-workspace/WORKFLOW.md
+cp samples/github-tracker/review-bot/PR_WORKFLOW.md       /path/to/my-workspace/PR_WORKFLOW.md
 ```
 
 **collab-dev-bot**：
@@ -41,16 +43,13 @@ cp samples/github-tracker/collab-dev-bot/WORKFLOW.md          /path/to/my-worksp
 
 ```bash
 # Linux / macOS
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx   # DotCraft 用于克隆仓库、操作 Issue
-export GH_TOKEN=$GITHUB_TOKEN                  # gh CLI 在 shell 命令中使用
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx   # DotCraft 用于克隆仓库、调用 PR API
 
 # Windows PowerShell
 $env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxx"
-$env:GH_TOKEN     = $env:GITHUB_TOKEN
 ```
 
-> **为什么需要两个变量？**
-> DotCraft Tracker 读取 `$GITHUB_TOKEN` 用于自身的 GitHub API 调用（克隆、Issue 状态查询、关闭 Issue）。Agent 运行的 shell 命令中，`gh` CLI 读取 `$GH_TOKEN`。两者通常指向同一个 Token。
+> `submit_review` 工具直接使用 DotCraft 自身的 Token（`$GITHUB_TOKEN`）调用 GitHub Reviews API，无需通过 `gh` CLI 中转。仅在 Agent 需要通过 `gh` 获取额外上下文时才需要第二个变量。
 
 ### 第三步：编辑 `config.json`
 
@@ -60,24 +59,24 @@ $env:GH_TOKEN     = $env:GITHUB_TOKEN
 |---|---|---|
 | `Tracker.Repository` | `"your-org/your-repo"` | 格式：`owner/repo` |
 | `Tracker.ApiKey` | `"$GITHUB_TOKEN"` | 保持此值以从环境变量读取 |
+| `Tracker.PullRequestLabelFilter` | `"auto-review"` | 仅 Review 带此标签的 PR。Review 完成后编排器会自动摘掉标签；重新添加即可触发再次审查。 |
 | `Hooks.BeforeRun` | 见文件 | 修改邮箱/用户名为你的 Bot 身份 |
 
-### 第四步：给 Issue 打标签
+### 第四步：开一个 PR
 
-#### review-bot 标签约定
+#### review-bot
 
-| 标签 | 含义 |
-|---|---|
-| `status:todo` | 新的 Review 请求，将被派发 |
+Bot 会拉取配置仓库中所有 **open、非 draft** 且带有 `auto-review` 标签的 PR。提交评审后，编排器会**自动摘掉 `auto-review` 标签**，下次轮询时 PR 不再进入候选列表。
 
-Issue 正文必须包含待 Review 的 PR 编号和 Review 范围。
+**触发 / 退出机制**：
 
-**Issue 正文示例**：
-```
-请 Review PR #42。
+1. 人工为 PR 添加 `auto-review` 标签。
+2. 下次轮询时 Bot 被派发，审查 diff，调用 `submit_review` 提交 `COMMENT`。
+3. 编排器在运行结束后自动摘掉 `auto-review` 标签。
+4. 续派（1s 后）触发，PR 已不在候选列表中，Claim 释放，Bot 停止。
+5. 如需重新审查（如开发者推送修复后），重新添加 `auto-review` 标签即可。
 
-重点关注错误处理和新增的认证中间件。
-```
+> Bot 只提交 `COMMENT` 类型的评审——不会 approve、request changes 或 merge。这避免了意外触发仓库的自动合并规则。
 
 #### collab-dev-bot 标签约定
 
@@ -102,21 +101,33 @@ dotcraft
 
 ### review-bot
 
-**用途**：自动化 PR 代码审查。
+**用途**：原生自动化 PR 代码审查（仅提供反馈，不会 approve 或 merge）。
 
 **工作流程**：
-1. 人工在 GitHub 上开一个带 `status:todo` 标签的 Issue，Issue 正文写明 PR 编号和 Review 范围。
-2. Bot 被派发到该 Issue。
-3. 使用 `gh pr diff` 拉取 PR diff。
-4. 分析变更，通过 `gh pr comment` 或 `gh api` 在 PR 上发布结构化 Review 评论。
-5. 调用 `complete_issue` 关闭 Review 请求 Issue。
+1. DotCraft 轮询 GitHub `/pulls` API，获取所有 open、非 draft 且带有 `auto-review` 标签的 PR。
+2. PR 的 head 分支在隔离工作区中被检出。
+3. PR diff 被自动拉取并注入到 Agent Prompt 中。
+4. Agent 读取 diff（并可通过文件工具检查工作区中的完整文件），然后调用 `submit_review`，传入 `COMMENT`。
+5. DotCraft 使用配置的 Token 通过 GitHub Reviews API 提交评审。
 
-**能力限制说明**：当前 `GitHubTracker` 仅对 GitHub _Issues_ 进行派发，PR 本身（带有 `pull_request` 字段的条目）会在候选阶段被过滤掉。review-bot 通过一个代理 Issue 作为触发点来绕过这一限制。
+**生命周期**：
+```
+人工为 PR 添加 `auto-review` 标签
+  → 下次轮询时 Bot 被派发
+  → Bot 审查 diff，调用 submit_review COMMENT
+  → 评审意见发布到 PR
+  → 编排器自动摘掉 `auto-review` 标签
+  → 续派触发（1s）：PR 已不在候选列表 → Claim 释放
 
-**状态流转**：
+如需重新审查（如开发者推送修复后）：
+  → 重新添加 `auto-review` 标签 → Bot 再次运行
 ```
-status:todo  →  （Bot 运行，发布 Review）  →  Issue 关闭
-```
+
+> **为什么只用 COMMENT？** 如果 Bot 提交 `APPROVE`，而仓库开启了"需要一个 Approval 后自动合并"的分支保护规则，Bot 的 approve 可能意外触发合并。使用 `COMMENT` 从根本上消除了这一风险。
+
+**文件说明**：
+- `PR_WORKFLOW.md` — PR 评审的 Prompt 模板，接收 `{{ issue.diff }}`、`{{ issue.head_branch }}`、`{{ issue.base_branch }}` 等变量。
+- `WORKFLOW.md` — 占位文件，`active_states: []`，不派发任何 Issue。
 
 ---
 
@@ -149,9 +160,9 @@ status:in-progress  →  status:blocked  ← 非活跃，Bot 停止重试
                     status:todo  →  ...
 ```
 
-**为什么不在开 PR 后立即调用 `complete_issue`？**
+**为什么不在开 PR 后立即调用 `CompleteIssue`？**
 
-`complete_issue` 会直接关闭 GitHub Issue。在大多数工作流中，Issue 应在 PR 被实际合并并验证后才关闭。使用 `status:awaiting-review` 可以保持 Issue 对讨论可见，同时防止 Bot 无限次重新派发。
+`CompleteIssue` 会直接关闭 GitHub Issue。在大多数工作流中，Issue 应在 PR 被实际合并并验证后才关闭。使用 `status:awaiting-review` 可以保持 Issue 对讨论可见，同时防止 Bot 无限次重新派发。
 
 ---
 
@@ -164,9 +175,9 @@ status:in-progress  →  status:blocked  ← 非活跃，Bot 停止重试
 | 权限 | 最低要求 | 原因 |
 |---|---|---|
 | Metadata | Read-only | GitHub 必选权限，自动授予 |
-| Contents | Read-only | 克隆仓库，读取文件 |
-| Issues | Read and Write | 读取 Issue 正文、发布评论、关闭 Issue |
-| Pull requests | Read and Write | 读取 PR diff、发布 Review 评论 |
+| Contents | Read-only | 克隆仓库并检出 PR 分支 |
+| Pull requests | Read and Write | 读取 PR diff、查询评审、提交评审 |
+| Issues | Read and Write | Review 完成后自动摘掉 `auto-review` 标签 |
 
 ### collab-dev-bot
 
@@ -177,8 +188,6 @@ status:in-progress  →  status:blocked  ← 非活跃，Bot 停止重试
 | Issues | Read and Write | 读取 Issue、发布评论、修改标签 |
 | Pull requests | Read and Write | 开 PR、发布 PR 评论 |
 
-> `before_run` Hook 中执行 `gh auth login` 用于认证 `gh` CLI。这要求在启动 DotCraft 前已将 `$GH_TOKEN` 设置到环境变量中。
-
 ---
 
 ## 常见问题
@@ -187,24 +196,29 @@ status:in-progress  →  status:blocked  ← 非活跃，Bot 停止重试
 
 安装 [GitHub CLI](https://cli.github.com/)，并确保其在 DotCraft 运行的环境 `PATH` 中可用。
 
-### `before_run` Hook 中 `gh auth login` 失败
+对于 review-bot，`gh` CLI 是可选的——`submit_review` 工具使用 DotCraft 内置的 GitHub API 集成。Agent 可能仍会调用 `gh` 获取额外上下文（如 `gh pr diff`、`gh pr checks`）。
 
-Hook 使用了 `gh auth login --with-token <<< "$GH_TOKEN"`，这是 Bash 的 Here String 语法。在 Windows 上请改用以下方式：
+### Bot 提交 Review 后仍在反复运行
 
-```powershell
-echo $env:GH_TOKEN | gh auth login --with-token
-```
+编排器在每次 Review 成功完成后会自动摘掉 `auto-review` 标签。如果 Bot 仍在反复运行，请检查 DotCraft 日志中是否有类似 `"Failed to remove label 'auto-review'"` 的警告。通常原因是 GitHub Token 缺少 `Issues: Read and Write` 权限（标签摘除使用与 Issue 标签相同的 API 端点）。
 
-相应更新 `config.json` 中的 `Hooks.BeforeRun` 字段。
+注意：Bot 在失败或超时时**不会**摘除标签，这是有意为之——保留标签使 Bot 在下次轮询时重试。
 
-### Bot 发布 Review / 开 PR 后仍在反复运行
+### PR 没有被轮询到
 
-这是因为 Issue 标签没有被成功改为非活跃状态。编排器在 Issue 处于 `active_states` 标签时会持续重试。确认工作流中的 `gh issue edit` 步骤是否已成功执行。
+- 确认 PR 是 **open 且非 draft** 状态。
+- 如果设置了 `Tracker.PullRequestLabelFilter`，确认 PR 上有对应 Label。
+- 确认 `Tracker.TrackPullRequests` 在 config 中为 `true`。
+- 确认工作区根目录下存在 `PR_WORKFLOW.md` 文件。
 
-### Issue 没有被轮询到
+### `submit_review` 调用报权限错误
+
+`submit_review` 工具使用 DotCraft 自身的 GitHub Token（`$GITHUB_TOKEN`）。确认该 Token 具有 `Pull requests: Read and Write` 权限。
+
+### Issue 没有被轮询到（collab-dev-bot）
 
 确认 Issue 上有活跃状态对应的标签，例如 `status:todo`。标签识别基于 `GitHubStateLabelPrefix` 配置（默认 `status:`）。
 
-### `complete_issue` 调用报权限错误
+### `CompleteIssue` 调用报权限错误（collab-dev-bot）
 
-`complete_issue` 工具使用 DotCraft 自身的 GitHub Token（`$GITHUB_TOKEN`）。确认该 Token 具有 `Issues: Read and Write` 权限。
+`CompleteIssue` 工具使用 DotCraft 自身的 GitHub Token（`$GITHUB_TOKEN`）。确认该 Token 具有 `Issues: Read and Write` 权限。

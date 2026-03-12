@@ -1,8 +1,39 @@
 namespace DotCraft.GitHubTracker.Tracker;
 
 /// <summary>
-/// Normalized issue record used by orchestration, prompt rendering, and observability.
-/// Field semantics follow GitHubTracker SPEC.md Section 4.1.1.
+/// Distinguishes between issue-based and pull-request-based work items.
+/// </summary>
+public enum WorkItemKind
+{
+    Issue,
+    PullRequest,
+}
+
+/// <summary>
+/// Review decision state for a pull request.
+/// </summary>
+public enum PullRequestReviewState
+{
+    None,
+    Pending,
+    Approved,
+    ChangesRequested,
+}
+
+/// <summary>
+/// Aggregated CI / status-check outcome for a pull request.
+/// </summary>
+public enum PullRequestChecksStatus
+{
+    None,
+    Pending,
+    Success,
+    Failure,
+}
+
+/// <summary>
+/// Normalized work-item record used by orchestration, prompt rendering, and observability.
+/// Represents both GitHub Issues and Pull Requests.
 /// </summary>
 public sealed class TrackedIssue
 {
@@ -30,6 +61,11 @@ public sealed class TrackedIssue
     /// </summary>
     public required string State { get; init; }
 
+    /// <summary>
+    /// Whether this work item is an issue or a pull request.
+    /// </summary>
+    public WorkItemKind Kind { get; init; } = WorkItemKind.Issue;
+
     public string? BranchName { get; init; }
 
     public string? Url { get; init; }
@@ -44,6 +80,40 @@ public sealed class TrackedIssue
     public DateTimeOffset? CreatedAt { get; init; }
 
     public DateTimeOffset? UpdatedAt { get; init; }
+
+    #region Pull-Request-specific fields (null/default for issues)
+
+    /// <summary>
+    /// Source branch of the pull request (e.g. "feature/my-branch").
+    /// </summary>
+    public string? HeadBranch { get; init; }
+
+    /// <summary>
+    /// Target branch of the pull request (e.g. "main").
+    /// </summary>
+    public string? BaseBranch { get; init; }
+
+    /// <summary>
+    /// URL to the raw diff of the pull request.
+    /// </summary>
+    public string? DiffUrl { get; init; }
+
+    /// <summary>
+    /// Aggregated review decision for the pull request.
+    /// </summary>
+    public PullRequestReviewState ReviewState { get; init; }
+
+    /// <summary>
+    /// Aggregated CI check status for the pull request.
+    /// </summary>
+    public PullRequestChecksStatus ChecksStatus { get; init; }
+
+    /// <summary>
+    /// Whether the pull request is in draft mode.
+    /// </summary>
+    public bool IsDraft { get; init; }
+
+    #endregion
 }
 
 public sealed class BlockerRef

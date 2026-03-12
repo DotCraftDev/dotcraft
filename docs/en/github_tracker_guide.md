@@ -1,6 +1,6 @@
 # DotCraft GitHubTracker Guide
 
-GitHubTracker is DotCraft's autonomous issue orchestration module. It continuously polls issue trackers like GitHub, automatically creates an isolated workspace and clones the repository for each active issue, dispatches an AI Agent to complete the coding task, and finally calls the `complete_issue` tool to close the issue and signal the orchestrator to stop retrying.
+GitHubTracker is DotCraft's autonomous issue orchestration module. It continuously polls issue trackers like GitHub, automatically creates an isolated workspace and clones the repository for each active issue, dispatches an AI Agent to complete the coding task, and finally calls the `CompleteIssue` tool to close the issue and signal the orchestrator to stop retrying.
 
 Inspired by [OpenAI Symphony](https://github.com/openai/symphony). The core implementation follows its [SPEC.md](https://github.com/openai/symphony/blob/main/SPEC.md).
 
@@ -57,7 +57,7 @@ You are assigned to issue {{ issue.identifier }}: **{{ issue.title }}**
    ```
    git add -A && git commit -m "fix: <description> (closes {{ issue.identifier }})" && git push
    ```
-3. When done, call the `complete_issue` tool with a brief summary of what you did.
+3. When done, call the `CompleteIssue` tool with a brief summary of what you did.
 ```
 
 ### Step 3: Set up a GitHub Token
@@ -108,7 +108,7 @@ GitHubTracker determines whether an issue needs processing via GitHub Labels. De
 | `status:in-progress` | In Progress (active) | Currently being worked on |
 | Issue is closed | Done (terminal) | Task complete |
 
-Only issues in **active** states (`ActiveStates`) are dispatched. After the agent calls `complete_issue`, GitHubTracker closes the issue. On the next poll tick, the issue no longer appears in the candidate list and the orchestrator stops retrying.
+Only issues in **active** states (`ActiveStates`) are dispatched. After the agent calls `CompleteIssue`, GitHubTracker closes the issue. On the next poll tick, the issue no longer appears in the candidate list and the orchestrator stops retrying.
 
 ---
 
@@ -247,12 +247,12 @@ Example — automatically install dependencies before each agent run:
 
 ### Agent keeps running but the issue is never closed
 
-**Cause:** The agent is not calling the `complete_issue` tool.
+**Cause:** The agent is not calling the `CompleteIssue` tool.
 
-**Fix:** Make sure the `WORKFLOW.md` prompt explicitly instructs the agent to call `complete_issue` after all work is done. Example wording:
+**Fix:** Make sure the `WORKFLOW.md` prompt explicitly instructs the agent to call `CompleteIssue` after all work is done. Example wording:
 
 ```
-After committing and pushing all code changes, call the `complete_issue` tool
+After committing and pushing all code changes, call the `CompleteIssue` tool
 with a brief description of what was done.
 ```
 
@@ -268,7 +268,7 @@ with a brief description of what was done.
 
 **Fix:** Check token permissions and ensure `$GITHUB_TOKEN` is set correctly. When a clone fails, the agent still runs but the workspace will be empty.
 
-### `complete_issue` call fails
+### `CompleteIssue` call fails
 
 **Cause:** The token lacks `Issues: Write` permission.
 

@@ -55,16 +55,25 @@ public sealed partial class GitHubTrackerModule : ModuleBase
             sp.GetRequiredService<SkillsLoader>(),
             sp.GetRequiredService<ILogger<IssueAgentRunnerFactory>>(),
             sp.GetRequiredService<ILoggerFactory>(),
-            sp.GetService<TraceCollector>()));   // optional: only present when dashboard is enabled
-        services.AddSingleton(sp => new GitHubTrackerOrchestrator(
-            sp.GetRequiredService<IIssueTracker>(),
-            sp.GetRequiredService<WorkflowLoader>(),
-            sp.GetRequiredService<IssueWorkspaceManager>(),
-            sp.GetRequiredService<IssueAgentRunnerFactory>(),
-            config,
-            workspacePath,
-            sp.GetRequiredService<ILogger<GitHubTrackerOrchestrator>>()));
-        // Expose the orchestrator via the dashboard snapshot interface
+            sp.GetService<TraceCollector>()));
+        services.AddSingleton(sp =>
+        {
+            var issueWorkflowLoader = sp.GetRequiredService<WorkflowLoader>();
+            // Dedicated loader for PR review workflows (separate file watch, separate cache).
+            var prWorkflowLoader = new WorkflowLoader(
+                config,
+                sp.GetRequiredService<ILogger<WorkflowLoader>>());
+
+            return new GitHubTrackerOrchestrator(
+                sp.GetRequiredService<IIssueTracker>(),
+                issueWorkflowLoader,
+                prWorkflowLoader,
+                sp.GetRequiredService<IssueWorkspaceManager>(),
+                sp.GetRequiredService<IssueAgentRunnerFactory>(),
+                config,
+                workspacePath,
+                sp.GetRequiredService<ILogger<GitHubTrackerOrchestrator>>());
+        });
         services.AddSingleton<IOrchestratorSnapshotProvider>(
             sp => sp.GetRequiredService<GitHubTrackerOrchestrator>());
     }

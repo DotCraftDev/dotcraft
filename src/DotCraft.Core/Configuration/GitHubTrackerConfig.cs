@@ -10,6 +10,12 @@ public sealed class GitHubTrackerConfig
     /// </summary>
     public string WorkflowPath { get; set; } = "WORKFLOW.md";
 
+    /// <summary>
+    /// Path to the PR review workflow file relative to workspace root.
+    /// Used when dispatching agents for pull request reviews.
+    /// </summary>
+    public string PullRequestWorkflowPath { get; set; } = "PR_WORKFLOW.md";
+
     public GitHubTrackerTrackerConfig Tracker { get; set; } = new();
 
     public GitHubTrackerPollingConfig Polling { get; set; } = new();
@@ -60,6 +66,28 @@ public sealed class GitHubTrackerTrackerConfig
     /// Optional: only process issues assigned to this user.
     /// </summary>
     public string? AssigneeFilter { get; set; }
+
+    /// <summary>
+    /// Enable tracking of pull requests for automatic PR review. Default: false.
+    /// </summary>
+    public bool TrackPullRequests { get; set; }
+
+    /// <summary>
+    /// PR states considered active (eligible for dispatch).
+    /// Derived from the PR review status and draft state.
+    /// </summary>
+    public List<string> PullRequestActiveStates { get; set; } = ["Pending Review", "Review Requested", "Changes Requested"];
+
+    /// <summary>
+    /// PR states considered terminal (stop running agents, clean workspaces).
+    /// </summary>
+    public List<string> PullRequestTerminalStates { get; set; } = ["Merged", "Closed", "Approved"];
+
+    /// <summary>
+    /// Optional: only track PRs carrying this label (e.g. "auto-review").
+    /// When null or empty, all non-draft PRs are eligible.
+    /// </summary>
+    public string? PullRequestLabelFilter { get; set; }
 }
 
 public sealed class GitHubTrackerPollingConfig
@@ -113,6 +141,12 @@ public sealed class GitHubTrackerAgentConfig
     /// Per-state concurrency overrides. Key is state name (case-insensitive), value is max concurrent.
     /// </summary>
     public Dictionary<string, int> MaxConcurrentByState { get; set; } = [];
+
+    /// <summary>
+    /// Maximum concurrent agents dedicated to PR reviews.
+    /// 0 means no dedicated limit (shares the global <see cref="MaxConcurrentAgents"/> pool).
+    /// </summary>
+    public int MaxConcurrentPullRequestAgents { get; set; }
 }
 
 public sealed class GitHubTrackerHooksConfig
