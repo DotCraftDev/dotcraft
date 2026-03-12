@@ -81,7 +81,6 @@ public static class ToolRegistry
     /// <summary>
     /// Returns structured human-readable lines for a tool result, or null if no formatter
     /// is available for this tool. Callers should fall back to generic truncation when null.
-    /// Currently supports: WebSearch, WebFetch.
     /// </summary>
     public static IReadOnlyList<string>? FormatToolResult(string? toolName, string? result)
     {
@@ -89,6 +88,12 @@ public static class ToolRegistry
         {
             "WebSearch" => CoreToolDisplays.WebSearchResult(result),
             "WebFetch" => CoreToolDisplays.WebFetchResult(result),
+            "ReadFile" => CoreToolDisplays.ReadFileResult(result),
+            "WriteFile" => CoreToolDisplays.WriteFileResult(result),
+            "EditFile" => CoreToolDisplays.EditFileResult(result),
+            "GrepFiles" => CoreToolDisplays.GrepFilesResult(result),
+            "FindFiles" => CoreToolDisplays.FindFilesResult(result),
+            "Exec" => CoreToolDisplays.ExecResult(result),
             _ => null
         };
     }

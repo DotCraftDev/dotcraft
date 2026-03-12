@@ -1,0 +1,28 @@
+{
+  "DashBoard": {
+    "Enabled": true,
+    "Host": "127.0.0.1",
+    "Port": 8080
+  },
+  "Tools": {
+    "Sandbox": {
+      "Enabled": false,
+      "Domain": "127.0.0.1:5880",
+      "Image": "ubuntu:latest"
+    }
+  },
+  "McpServers": [
+    {
+      "Name": "playwright",
+      "Enabled": false,
+      "Transport": "stdio",
+      "Command": "npx",
+      "Arguments": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--user-data-dir",
+        ".craft/playwright-profile"
+      ]
+    }
+  ]
+}

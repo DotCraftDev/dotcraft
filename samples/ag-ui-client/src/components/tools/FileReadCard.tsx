@@ -12,7 +12,28 @@ interface FileReadCardProps {
 
 function isDirectoryListing(result: string): boolean {
   const lines = result.trim().split("\n");
-  return lines.length > 1 && lines.some((l) => l.match(/^\s*(DIR|<DIR>|\[DIR\]|[drwx-]{10})/i));
+  if (lines.length <= 1) return false;
+  // Backend [DIR]/[FILE] format (plain text, no encoding issues)
+  if (lines.some((l) => /^\[DIR\]\s|^\[FILE\]\s/.test(l))) return true;
+  // Classic OS-style directory listing (word boundary prevents false positives like "direction")
+  if (lines.some((l) => /^\s*(\bDIR\b|<DIR>|\[DIR\]|[drwx-]{10}\s)/i.test(l))) return true;
+  return false;
+}
+
+const EXT_ICONS: Record<string, string> = {
+  ".ts": "🟦", ".tsx": "🟦", ".js": "🟨", ".jsx": "🟨",
+  ".cs": "🟪", ".json": "📋", ".md": "📝", ".yml": "⚙️",
+  ".yaml": "⚙️", ".xml": "📰", ".html": "🌐", ".css": "🎨",
+  ".scss": "🎨", ".py": "🐍", ".rs": "🦀", ".go": "🐹",
+  ".sh": "📟", ".ps1": "📟", ".bat": "📟",
+  ".gitignore": "🚫", ".env": "🔑", ".lock": "🔒",
+};
+
+function getFileIcon(name: string): string {
+  const lower = name.toLowerCase();
+  const dotIdx = lower.lastIndexOf(".");
+  const ext = dotIdx !== -1 ? lower.slice(dotIdx) : "";
+  return EXT_ICONS[ext] ?? "📄";
 }
 
 function LineNumberedCode({ content }: { content: string }) {
@@ -42,11 +63,22 @@ function DirectoryListing({ content }: { content: string }) {
   return (
     <ul className="px-3 py-2 max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
       {lines.map((line, i) => {
-        const isDir = /[/\\]$/.test(line.trim()) || /\[DIR\]|<DIR>/i.test(line);
+        const trimmed = line.trim();
+        // Parse backend [DIR]/[FILE] format
+        const isDirMarker = trimmed.startsWith("[DIR] ");
+        const isFileMarker = trimmed.startsWith("[FILE] ");
+        const name = isDirMarker
+          ? trimmed.slice(6)
+          : isFileMarker
+          ? trimmed.slice(7)
+          : trimmed;
+        // Fallback: detect directory by trailing slash or classic markers
+        const isDir = isDirMarker || /[/\\]$/.test(name) || /\bDIR\b|<DIR>/i.test(trimmed);
+        const icon = isDir ? "📁" : getFileIcon(name);
         return (
           <li key={i} className="flex items-center gap-2 py-0.5 text-xs font-mono text-slate-700 dark:text-slate-300">
-            <span className="shrink-0">{isDir ? "📁" : "📄"}</span>
-            <span className="truncate">{line.trim()}</span>
+            <span className="shrink-0">{icon}</span>
+            <span className="truncate">{name}</span>
           </li>
         );
       })}

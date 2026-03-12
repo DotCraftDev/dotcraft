@@ -317,6 +317,11 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
             
             AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionLoaded(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
             AnsiConsole.WriteLine();
+
+            // Print conversation history so the user can see what was discussed
+            var chatHistory = _agentSession.GetService<ChatHistoryProvider>();
+            if (chatHistory is InMemoryChatHistoryProvider memoryProvider && memoryProvider.Count > 0)
+                SessionHistoryPrinter.Print(memoryProvider);
         }
         catch (Exception ex)
         {

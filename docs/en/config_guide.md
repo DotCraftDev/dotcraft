@@ -108,7 +108,7 @@ Configure forbidden paths via `Security.BlacklistedPaths`. The blacklist is **gl
 
 #### Blacklist Behavior
 
-- **File operations**: `ReadFile`, `WriteFile`, `EditFile`, `list_directory` operations on blacklisted paths are directly rejected
+- **File operations**: `ReadFile`, `WriteFile`, `EditFile`, `GrepFiles`,`FindFiles` operations on blacklisted paths are directly rejected
 - **Shell commands**: Shell commands referencing blacklisted paths are rejected
 - **Priority**: Blacklist check takes priority over workspace boundary check; even paths within the workspace will be blocked if blacklisted
 - **Path matching**: Supports absolute paths and `~` expansion; checks whether a path is a sub-path of a blacklisted path

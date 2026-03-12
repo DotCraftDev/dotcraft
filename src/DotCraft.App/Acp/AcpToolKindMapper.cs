@@ -12,7 +12,6 @@ public static class AcpToolKindMapper
         ["EditFile"] = AcpToolKind.Edit,
         ["GrepFiles"] = AcpToolKind.Search,
         ["FindFiles"] = AcpToolKind.Search,
-        ["ListDirectory"] = AcpToolKind.Search,
         ["Exec"] = AcpToolKind.Execute,
         ["WebSearch"] = AcpToolKind.Fetch,
         ["WebFetch"] = AcpToolKind.Fetch,
