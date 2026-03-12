@@ -9,6 +9,55 @@ using UnityEngine;
 namespace DotCraft.Editor.Settings
 {
     /// <summary>
+    /// A single MCP server entry stored in DotCraft settings.
+    /// Supports both stdio and http transports.
+    /// </summary>
+    [Serializable]
+    public sealed class McpServerEntry
+    {
+        /// <summary>Display name for the server (used as the MCP server name in the ACP protocol).</summary>
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = "";
+
+        /// <summary>Whether this server is included when creating or loading sessions.</summary>
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>Transport type: "stdio" or "http".</summary>
+        [JsonPropertyName("transport")]
+        public string Transport { get; set; } = "stdio";
+
+        // stdio-specific fields
+
+        /// <summary>Executable command (stdio transport only).</summary>
+        [JsonPropertyName("command")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string Command { get; set; }
+
+        /// <summary>Command-line arguments (stdio transport only).</summary>
+        [JsonPropertyName("arguments")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<string> Arguments { get; set; }
+
+        /// <summary>Environment variables to inject into the server process (stdio transport only).</summary>
+        [JsonPropertyName("environmentVariables")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, string> EnvironmentVariables { get; set; }
+
+        // http-specific fields
+
+        /// <summary>Server URL (http transport only).</summary>
+        [JsonPropertyName("url")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string Url { get; set; }
+
+        /// <summary>HTTP headers (http transport only).</summary>
+        [JsonPropertyName("headers")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, string> Headers { get; set; }
+    }
+
+    /// <summary>
     /// Configuration settings for DotCraft Unity Client.
     /// Stored in UserSettings/DotCraftSettings.json (per-user, not in version control).
     /// </summary>
@@ -93,6 +142,13 @@ namespace DotCraft.Editor.Settings
         /// </summary>
         [JsonPropertyName("enableBuiltinUnityTools")]
         public bool EnableBuiltinUnityTools { get; set; } = true;
+
+        /// <summary>
+        /// MCP servers to inject into every new DotCraft session via the ACP mcpServers field.
+        /// These supplement any servers already configured in .craft/config.json.
+        /// </summary>
+        [JsonPropertyName("mcpServers")]
+        public List<McpServerEntry> McpServers { get; set; } = new();
 
         /// <summary>
         /// Gets the effective workspace path (falls back to project root).
@@ -216,6 +272,7 @@ namespace DotCraft.Editor.Settings
             RequestTimeoutSeconds = 30;
             MaxHistoryMessages = 1000;
             EnableBuiltinUnityTools = true;
+            McpServers = new List<McpServerEntry>();
         }
     }
 }

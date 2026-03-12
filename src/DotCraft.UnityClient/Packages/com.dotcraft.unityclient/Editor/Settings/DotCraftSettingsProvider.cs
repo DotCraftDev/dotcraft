@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -24,6 +25,11 @@ namespace DotCraft.Editor.Settings
         private SerializedProperty _verboseLogging;
         private SerializedProperty _requestTimeoutSeconds;
         private SerializedProperty _maxHistoryMessages;
+
+        // Per-server foldout open/closed state (index matches McpServers list)
+        private readonly List<bool> _mcpServerFoldouts = new();
+
+        private static readonly string[] TransportOptions = { "stdio", "http" };
 
         public DotCraftSettingsProvider(string path, SettingsScope scope = SettingsScope.Project)
             : base(path, scope)
@@ -177,6 +183,10 @@ namespace DotCraft.Editor.Settings
 
             EditorGUILayout.Space(10);
 
+            DrawMcpServersSection();
+
+            EditorGUILayout.Space(10);
+
             // General settings validation
             var errors = _settings.Validate();
             if (errors.Count > 0)
@@ -217,6 +227,203 @@ namespace DotCraft.Editor.Settings
             {
                 _settings.Save();
             }
+        }
+
+        private void DrawMcpServersSection()
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("MCP Servers", EditorStyles.boldLabel);
+                EditorGUILayout.HelpBox(
+                    "MCP servers defined here are injected into every new DotCraft session via the ACP " +
+                    "mcpServers field, supplementing any servers in .craft/config.json.",
+                    MessageType.Info);
+
+                // Ensure foldout list is in sync with server list length
+                while (_mcpServerFoldouts.Count < _settings.McpServers.Count)
+                    _mcpServerFoldouts.Add(true);
+                while (_mcpServerFoldouts.Count > _settings.McpServers.Count)
+                    _mcpServerFoldouts.RemoveAt(_mcpServerFoldouts.Count - 1);
+
+                int removeIndex = -1;
+
+                for (int i = 0; i < _settings.McpServers.Count; i++)
+                {
+                    var server = _settings.McpServers[i];
+                    EditorGUILayout.Space(4);
+
+                    using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                    {
+                        // Header row: foldout + enabled toggle + remove button
+                        using (new EditorGUILayout.HorizontalScope())
+                        {
+                            var label = string.IsNullOrWhiteSpace(server.Name) ? $"Server {i + 1}" : server.Name;
+                            _mcpServerFoldouts[i] = EditorGUILayout.Foldout(_mcpServerFoldouts[i], label, true, EditorStyles.foldoutHeader);
+
+                            GUILayout.FlexibleSpace();
+
+                            server.Enabled = EditorGUILayout.ToggleLeft(
+                                "Enabled", server.Enabled, GUILayout.Width(70));
+
+                            if (GUILayout.Button("Remove", GUILayout.Width(65)))
+                                removeIndex = i;
+                        }
+
+                        if (!_mcpServerFoldouts[i])
+                            continue;
+
+                        EditorGUI.indentLevel++;
+
+                        server.Name = EditorGUILayout.TextField(
+                            new GUIContent("Name", "Unique name for this MCP server"),
+                            server.Name);
+
+                        // Transport popup
+                        var transportIndex = server.Transport == "http" ? 1 : 0;
+                        var newTransportIndex = EditorGUILayout.Popup(
+                            new GUIContent("Transport", "Communication transport: stdio or http"),
+                            transportIndex, TransportOptions);
+                        server.Transport = TransportOptions[newTransportIndex];
+
+                        if (server.Transport == "stdio")
+                        {
+                            DrawStdioFields(server);
+                        }
+                        else
+                        {
+                            DrawHttpFields(server);
+                        }
+
+                        EditorGUI.indentLevel--;
+                    }
+                }
+
+                // Remove outside the loop to avoid modifying the list mid-iteration
+                if (removeIndex >= 0)
+                {
+                    _settings.McpServers.RemoveAt(removeIndex);
+                    _mcpServerFoldouts.RemoveAt(removeIndex);
+                    GUIUtility.ExitGUI();
+                }
+
+                EditorGUILayout.Space(4);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Space(EditorGUI.indentLevel * 15);
+
+                    if (GUILayout.Button("+ Add stdio Server", GUILayout.Width(140)))
+                    {
+                        _settings.McpServers.Add(new McpServerEntry { Transport = "stdio" });
+                        _mcpServerFoldouts.Add(true);
+                    }
+
+                    if (GUILayout.Button("+ Add http Server", GUILayout.Width(130)))
+                    {
+                        _settings.McpServers.Add(new McpServerEntry { Transport = "http" });
+                        _mcpServerFoldouts.Add(true);
+                    }
+                }
+            }
+        }
+
+        private static void DrawStdioFields(McpServerEntry server)
+        {
+            server.Command = EditorGUILayout.TextField(
+                new GUIContent("Command", "Executable to launch (e.g. npx, node, python)"),
+                server.Command ?? "");
+
+            // Arguments — one per line in a text area, displayed joined
+            EditorGUILayout.LabelField(new GUIContent("Arguments", "One argument per line"));
+            server.Arguments ??= new List<string>();
+            var argsText = string.Join("\n", server.Arguments);
+            var newArgsText = EditorGUILayout.TextArea(argsText, GUILayout.MinHeight(40));
+            if (newArgsText != argsText)
+            {
+                server.Arguments = new List<string>(
+                    newArgsText.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            }
+
+            // Environment variables
+            EditorGUILayout.LabelField("Environment Variables", EditorStyles.boldLabel);
+            server.EnvironmentVariables ??= new Dictionary<string, string>();
+
+            var envKeys = new List<string>(server.EnvironmentVariables.Keys);
+            for (int j = 0; j < envKeys.Count; j++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                var envKey = EditorGUILayout.TextField(envKeys[j], GUILayout.Width(150));
+                var envVal = EditorGUILayout.TextField(server.EnvironmentVariables[envKeys[j]]);
+
+                if (envKey != envKeys[j])
+                {
+                    server.EnvironmentVariables.Remove(envKeys[j]);
+                    if (!string.IsNullOrEmpty(envKey))
+                        server.EnvironmentVariables[envKey] = envVal;
+                }
+                else
+                {
+                    server.EnvironmentVariables[envKeys[j]] = envVal;
+                }
+
+                if (GUILayout.Button("×", GUILayout.Width(25)))
+                {
+                    server.EnvironmentVariables.Remove(envKeys[j]);
+                    GUIUtility.ExitGUI();
+                }
+
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(EditorGUI.indentLevel * 15);
+            if (GUILayout.Button("+ Add Env Var", GUILayout.Width(110)))
+                server.EnvironmentVariables["NEW_KEY"] = "";
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private static void DrawHttpFields(McpServerEntry server)
+        {
+            server.Url = EditorGUILayout.TextField(
+                new GUIContent("URL", "HTTP endpoint for the MCP server (e.g. https://mcp.example.com/mcp)"),
+                server.Url ?? "");
+
+            // Headers
+            EditorGUILayout.LabelField("Headers", EditorStyles.boldLabel);
+            server.Headers ??= new Dictionary<string, string>();
+
+            var headerKeys = new List<string>(server.Headers.Keys);
+            for (int j = 0; j < headerKeys.Count; j++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                var hKey = EditorGUILayout.TextField(headerKeys[j], GUILayout.Width(150));
+                var hVal = EditorGUILayout.TextField(server.Headers[headerKeys[j]]);
+
+                if (hKey != headerKeys[j])
+                {
+                    server.Headers.Remove(headerKeys[j]);
+                    if (!string.IsNullOrEmpty(hKey))
+                        server.Headers[hKey] = hVal;
+                }
+                else
+                {
+                    server.Headers[headerKeys[j]] = hVal;
+                }
+
+                if (GUILayout.Button("×", GUILayout.Width(25)))
+                {
+                    server.Headers.Remove(headerKeys[j]);
+                    GUIUtility.ExitGUI();
+                }
+
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(EditorGUI.indentLevel * 15);
+            if (GUILayout.Button("+ Add Header", GUILayout.Width(100)))
+                server.Headers["Authorization"] = "Bearer ";
+            EditorGUILayout.EndHorizontal();
         }
     }
 }

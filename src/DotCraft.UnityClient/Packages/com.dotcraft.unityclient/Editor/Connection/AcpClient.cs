@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -552,7 +553,8 @@ namespace DotCraft.Editor.Connection
         {
             var @params = new SessionNewParams
             {
-                Cwd = _settings.EffectiveWorkspacePath
+                Cwd = _settings.EffectiveWorkspacePath,
+                McpServers = BuildMcpServerList()
             };
 
             var result = await _transport.SendRequestAsync(AcpMethods.SessionNew, @params, ct);
@@ -564,11 +566,51 @@ namespace DotCraft.Editor.Connection
             var @params = new SessionLoadParams
             {
                 SessionId = sessionId,
-                Cwd = _settings.EffectiveWorkspacePath
+                Cwd = _settings.EffectiveWorkspacePath,
+                McpServers = BuildMcpServerList()
             };
 
             var result = await _transport.SendRequestAsync(AcpMethods.SessionLoad, @params, ct);
             return result.Deserialize<SessionLoadResult>(JsonOptions);
+        }
+
+        /// <summary>
+        /// Converts enabled <see cref="McpServerEntry"/> items from settings into the
+        /// ACP <see cref="AcpMcpServer"/> list sent with every session/new and session/load request.
+        /// Returns null when no enabled servers are configured (field is omitted from JSON).
+        /// </summary>
+        private List<AcpMcpServer> BuildMcpServerList()
+        {
+            var enabled = _settings.McpServers
+                .Where(s => s.Enabled && !string.IsNullOrWhiteSpace(s.Name))
+                .ToList();
+
+            if (enabled.Count == 0)
+                return null;
+
+            return enabled.Select(s =>
+            {
+                var isStdio = s.Transport == "stdio";
+                return new AcpMcpServer
+                {
+                    // null type means stdio per ACP spec; explicit value for http/sse
+                    Type = isStdio ? null : s.Transport,
+                    Name = s.Name,
+                    Command = isStdio ? s.Command : null,
+                    Args = isStdio && s.Arguments is { Count: > 0 } ? s.Arguments : null,
+                    Env = isStdio && s.EnvironmentVariables is { Count: > 0 }
+                        ? s.EnvironmentVariables
+                            .Select(kv => new AcpEnvVariable { Name = kv.Key, Value = kv.Value })
+                            .ToList()
+                        : null,
+                    Url = !isStdio ? s.Url : null,
+                    Headers = !isStdio && s.Headers is { Count: > 0 }
+                        ? s.Headers
+                            .Select(kv => new AcpHttpHeader { Name = kv.Key, Value = kv.Value })
+                            .ToList()
+                        : null
+                };
+            }).ToList();
         }
 
         private async Task<bool> HandleAuthenticationAsync(AuthMethod[] authMethods, CancellationToken ct)
