@@ -18,15 +18,25 @@ function toToolStatus(s: StatusString): ToolStatus {
   return s as ToolStatus;
 }
 
-// Normalize literal escape sequences (e.g. "\\n") that the backend may send
-// as two-character sequences into real control characters.
+// Normalize literal escape sequences (e.g. "\\n", "\\uXXXX") that the backend may send
+// as two-character sequences due to double-serialization through the AG-UI SSE pipeline.
 function normalizeResult(s: string | undefined): string | undefined {
   if (!s) return s;
   return s
     .replace(/\\r\\n/g, "\n")
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
-    .replace(/\\t/g, "\t");
+    .replace(/\\t/g, "\t")
+    // Decode surrogate pairs (\uD800-\uDBFF followed by \uDC00-\uDFFF) before BMP codepoints
+    .replace(/\\u([dD][89aAbB][0-9a-fA-F]{2})\\u([dD][cCdDeEfF][0-9a-fA-F]{2})/g, (_, hi, lo) => {
+      const h = parseInt(hi, 16);
+      const l = parseInt(lo, 16);
+      return String.fromCodePoint(((h - 0xD800) << 10) + (l - 0xDC00) + 0x10000);
+    })
+    // Decode remaining BMP Unicode escapes
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, code) =>
+      String.fromCharCode(parseInt(code, 16))
+    );
 }
 
 // Single wildcard renderer that dispatches to per-tool card components.

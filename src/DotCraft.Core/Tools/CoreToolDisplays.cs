@@ -212,6 +212,171 @@ public static class CoreToolDisplays
         return parts.Count == 0 ? null : [string.Join(" · ", parts)];
     }
 
+    /// <summary>
+    /// Summarizes a ReadFile result: line count, paginated range, or directory entry count.
+    /// </summary>
+    public static IReadOnlyList<string>? ReadFileResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return null;
+        if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
+            return [result.Split('\n')[0].Trim()];
+
+        // Directory listing: lines prefixed with [DIR] or [FILE]
+        var lines = result.Split('\n');
+        var dirCount = lines.Count(l => l.StartsWith("[DIR] ", StringComparison.Ordinal));
+        var fileCount = lines.Count(l => l.StartsWith("[FILE] ", StringComparison.Ordinal));
+        if (dirCount + fileCount > 0)
+        {
+            var parts = new List<string>();
+            if (dirCount > 0) parts.Add($"{dirCount} dir{(dirCount == 1 ? "" : "s")}");
+            if (fileCount > 0) parts.Add($"{fileCount} file{(fileCount == 1 ? "" : "s")}");
+            return [string.Join(", ", parts)];
+        }
+
+        // Paginated read: look for the trailer line appended by ReadFile
+        var trailer = lines.FirstOrDefault(l => l.TrimStart().StartsWith("(Showing lines ", StringComparison.Ordinal));
+        if (trailer != null)
+        {
+            // "(Showing lines N-M of T. Use offset=...)"
+            var match = System.Text.RegularExpressions.Regex.Match(trailer, @"Showing lines (\d+)-(\d+) of (\d+)");
+            if (match.Success)
+                return [$"Lines {match.Groups[1].Value}-{match.Groups[2].Value} of {match.Groups[3].Value}"];
+        }
+
+        var endTrailer = lines.FirstOrDefault(l => l.TrimStart().StartsWith("(End of file - total ", StringComparison.Ordinal));
+        if (endTrailer != null)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(endTrailer, @"total (\d+) lines");
+            if (match.Success)
+                return [$"{match.Groups[1].Value} lines"];
+        }
+
+        // Plain full-file read: count content lines
+        var lineCount = lines.Length;
+        return [$"{lineCount} line{(lineCount == 1 ? "" : "s")}"];
+    }
+
+    /// <summary>
+    /// Summarizes a WriteFile result: byte count on success, or the error message.
+    /// </summary>
+    public static IReadOnlyList<string>? WriteFileResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return null;
+        if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
+            return [result.Split('\n')[0].Trim()];
+
+        // "Successfully wrote N bytes to path"
+        var match = System.Text.RegularExpressions.Regex.Match(result, @"wrote (\d+) bytes");
+        if (match.Success)
+        {
+            var bytes = long.Parse(match.Groups[1].Value);
+            return [$"{bytes:N0} bytes"];
+        }
+
+        return [result.Split('\n')[0].Trim()];
+    }
+
+    /// <summary>
+    /// Summarizes an EditFile result: "OK" on success, or the error message.
+    /// </summary>
+    public static IReadOnlyList<string>? EditFileResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return null;
+        if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
+            return [result.Split('\n')[0].Trim()];
+        if (result.StartsWith("Successfully", StringComparison.OrdinalIgnoreCase))
+            return ["OK"];
+
+        return [ToolDisplayHelpers.Truncate(result.Split('\n')[0].Trim(), 80)];
+    }
+
+    /// <summary>
+    /// Summarizes a GrepFiles result: match and file counts, or "No matches".
+    /// </summary>
+    public static IReadOnlyList<string>? GrepFilesResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return null;
+        if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
+            return [result.Split('\n')[0].Trim()];
+        if (result.Equals("No matches found.", StringComparison.OrdinalIgnoreCase))
+            return ["No matches"];
+
+        // "Found N matches[...]:"
+        var matchCount = System.Text.RegularExpressions.Regex.Match(result, @"Found (\d+) match");
+        var lines = result.Split('\n');
+        // File header lines: non-indented lines ending with ":"
+        var fileCount = lines.Count(l => l.Length > 0 && !l.StartsWith(" ") && l.TrimEnd().EndsWith(':'));
+
+        if (matchCount.Success)
+        {
+            var n = matchCount.Groups[1].Value;
+            return fileCount > 0
+                ? [$"{n} match{(n == "1" ? "" : "es")} in {fileCount} file{(fileCount == 1 ? "" : "s")}"]
+                : [$"{n} match{(n == "1" ? "" : "es")}"];
+        }
+
+        return [ToolDisplayHelpers.Truncate(lines[0].Trim(), 80)];
+    }
+
+    /// <summary>
+    /// Summarizes a FindFiles result: file count, or "No files".
+    /// </summary>
+    public static IReadOnlyList<string>? FindFilesResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return null;
+        if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
+            return [result.Split('\n')[0].Trim()];
+        if (result.Equals("No files found.", StringComparison.OrdinalIgnoreCase))
+            return ["No files"];
+
+        // "Found N files[...]:"
+        var match = System.Text.RegularExpressions.Regex.Match(result, @"Found (\d+) file");
+        if (match.Success)
+        {
+            var n = int.Parse(match.Groups[1].Value);
+            return [$"{n} file{(n == 1 ? "" : "s")}"];
+        }
+
+        return [ToolDisplayHelpers.Truncate(result.Split('\n')[0].Trim(), 80)];
+    }
+
+    /// <summary>
+    /// Summarizes an Exec result: exit code plus a brief first-line preview.
+    /// </summary>
+    public static IReadOnlyList<string>? ExecResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return null;
+        if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
+            return [result.Split('\n')[0].Trim()];
+        if (result.Equals("(no output)", StringComparison.OrdinalIgnoreCase))
+            return ["no output · exit 0"];
+
+        var lines = result.Split('\n');
+
+        // Detect non-zero exit code
+        var exitLine = lines.LastOrDefault(l => l.TrimStart().StartsWith("Exit code:", StringComparison.OrdinalIgnoreCase));
+        var exitCode = 0;
+        if (exitLine != null)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(exitLine, @"Exit code:\s*(-?\d+)");
+            if (m.Success) exitCode = int.Parse(m.Groups[1].Value);
+        }
+
+        var exitTag = exitLine != null ? $"exit {exitCode}" : "exit 0";
+
+        // Pick a meaningful preview: first non-empty stdout line before any STDERR/Exit block
+        var preview = lines
+            .TakeWhile(l => !l.StartsWith("STDERR:", StringComparison.OrdinalIgnoreCase) &&
+                            !l.TrimStart().StartsWith("Exit code:", StringComparison.OrdinalIgnoreCase))
+            .Select(l => l.Trim())
+            .FirstOrDefault(l => l.Length > 0);
+
+        if (string.IsNullOrEmpty(preview))
+            return [$"{exitTag}"];
+
+        return [$"{exitTag} · {ToolDisplayHelpers.Truncate(preview, 80)}"];
+    }
+
     public static string SpawnSubagent(IDictionary<string, object?>? args)
     {
         var label = ToolDisplayHelpers.GetString(args, "label")

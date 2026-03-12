@@ -386,7 +386,7 @@ public sealed class FileTools(
             .Select(x =>
             {
                 var name = Path.GetFileName(x);
-                var prefix = Directory.Exists(x) ? "\uD83D\uDCC1 " : "\uD83D\uDCC4 ";
+                var prefix = Directory.Exists(x) ? "[DIR] " : "[FILE] ";
                 return $"{prefix}{name}";
             });
 
