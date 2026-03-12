@@ -163,9 +163,13 @@ If you want to expose DotCraft as a service, see the [API Mode Guide](./docs/en/
 
 If you want to connect the same workspace to chat bot entry points, see the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
 
+![qqbot](https://github.com/DotCraftDev/resources/raw/master/dotcraft/qqbot.gif)
+
 ### GitHubTracker
 
 If you want DotCraft to participate in team workflows, `GitHubTracker` can poll GitHub issues, create isolated workspaces, dispatch coding or review agents, and coordinate handoff across runs. See the [GitHubTracker Guide](./docs/en/github_tracker_guide.md).
+
+![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
 
 ### Unity / ACP
 

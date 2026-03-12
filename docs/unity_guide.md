@@ -230,6 +230,8 @@ unity-mcp 提供 30+ Unity 操作工具，包括：
 4. 打开 **Window → MCP for Unity**，点击 **Start Server**
 5. 从下拉菜单选择 MCP 客户端并点击 **Configure**
 
+![unity-mcp](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity-mcp.png)
+
 ### 推荐使用方式
 
 1. **基础使用**：DotCraft 内置的只读工具满足日常项目理解需求
