@@ -454,18 +454,28 @@ internal static partial class MarkdownConsoleRenderer
 
     private static string RestorePlaceholders(string input, List<string> placeholders)
     {
-        return PlaceholderRegex().Replace(input, match =>
+        var result = input;
+        while (true)
         {
-            if (!int.TryParse(match.Groups[1].Value, out var index))
+            var previous = result;
+            result = PlaceholderRegex().Replace(result, match =>
             {
-                return match.Value;
-            }
-            if (index < 0 || index >= placeholders.Count)
+                if (!int.TryParse(match.Groups[1].Value, out var index))
+                {
+                    return match.Value;
+                }
+                if (index < 0 || index >= placeholders.Count)
+                {
+                    return match.Value;
+                }
+                return placeholders[index];
+            });
+            if (result == previous)
             {
-                return match.Value;
+                break;
             }
-            return placeholders[index];
-        });
+        }
+        return result;
     }
 
     private static void BeginCodeBlock(string? language)
