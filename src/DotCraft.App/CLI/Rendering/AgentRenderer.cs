@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Threading.Channels;
 using DotCraft.Abstractions;
@@ -48,6 +49,9 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
     private long _pendingOutputTokens;
     
     private bool _disposed;
+
+    // True while an agent stream is active (between StreamStarted and Complete events)
+    private bool _streamActive;
 
     // For approval handling - action to execute on the render thread while paused
     private volatile Func<object?>? _pausedAction;
@@ -160,17 +164,32 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         {
             var reader = _eventQueue.Reader;
 
-            while (await reader.WaitToReadAsync(cancellationToken))
+            while (true)
             {
+                bool hasData;
+                if (_streamActive && _currentState == RenderState.Idle)
+                    hasData = await WaitWithThinkingSpinnerAsync(reader, cancellationToken);
+                else
+                    hasData = await reader.WaitToReadAsync(cancellationToken);
+
+                if (!hasData) break;
+
                 while (reader.TryRead(out var evt))
                 {
-                    if (evt.Type == RenderEventType.ToolCallStarted)
+                    switch (evt.Type)
                     {
-                        await RunToolStatusSessionAsync(evt, cancellationToken);
-                        continue;
-                    }
+                        case RenderEventType.StreamStarted:
+                            _streamActive = true;
+                            break;
 
-                    ProcessNonToolStartEvent(evt);
+                        case RenderEventType.ToolCallStarted:
+                            await RunToolStatusSessionAsync(evt, cancellationToken);
+                            break;
+
+                        default:
+                            ProcessNonToolStartEvent(evt);
+                            break;
+                    }
                 }
             }
         }
@@ -185,6 +204,47 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             AnsiConsole.WriteException(ex);
 #endif
         }
+    }
+
+    /// <summary>
+    /// Waits for events from the channel while showing an animated "Thinking..." spinner.
+    /// Updates elapsed seconds every second until the first event arrives.
+    /// Follows the same pattern as <see cref="RunToolStatusSessionAsync"/>.
+    /// </summary>
+    private async Task<bool> WaitWithThinkingSpinnerAsync(ChannelReader<RenderEvent> reader, CancellationToken ct)
+    {
+        bool result = false;
+
+        await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .SpinnerStyle(new Style(Color.Cyan))
+            .StartAsync("[cyan]💭 Thinking...[/]", async ctx =>
+            {
+                var sw = Stopwatch.StartNew();
+
+                while (!ct.IsCancellationRequested)
+                {
+                    // Wait up to 1 second, then update elapsed display
+                    using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    delayCts.CancelAfter(TimeSpan.FromSeconds(1));
+                    try
+                    {
+                        result = await reader.WaitToReadAsync(delayCts.Token);
+                        return; // Event available (or channel completed)
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        // 1-second tick expired; update elapsed label
+                    }
+
+                    var elapsed = (long)sw.Elapsed.TotalSeconds;
+                    ctx.Status = elapsed > 0
+                        ? $"[cyan]💭 Thinking... ({elapsed}s)[/]"
+                        : "[cyan]💭 Thinking...[/]";
+                }
+            });
+
+        return result;
     }
 
     /// <summary>
@@ -341,6 +401,11 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
     {
         switch (evt.Type)
         {
+            case RenderEventType.StreamStarted:
+                // StreamStarted may be buffered during tool spinner; apply state now.
+                _streamActive = true;
+                break;
+
             case RenderEventType.ToolCallCompleted:
                 // In case a completed event arrives without an active status session.
                 WriteToolHistoryLine(evt);
@@ -550,6 +615,8 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
     private void HandleComplete(RenderEvent _)
     {
+        _streamActive = false;
+
         if (_currentState == RenderState.Responding && _responseBuffer.Length > 0)
         {
             _markdownStreamSession?.Complete();
