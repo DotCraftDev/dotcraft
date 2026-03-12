@@ -60,6 +60,8 @@ When you have finished your analysis, call `submit_review` with:
 **Review body format**:
 
 ```
+> 🤖 **AI-generated review** — for reference only. Please verify findings independently.
+
 ## Code Review
 
 ### Summary

@@ -109,12 +109,14 @@ public sealed class IssueAgentRunnerFactory(
         var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
 
         // Inject kind-specific completion tool
+        PullRequestReviewToolProvider? prReviewTool = null;
         if (issue.Kind == WorkItemKind.PullRequest)
         {
-            toolProviders.Add(new PullRequestReviewToolProvider(
+            prReviewTool = new PullRequestReviewToolProvider(
                 issue.Id,
                 tracker,
-                loggerFactory.CreateLogger<PullRequestReviewToolProvider>()));
+                loggerFactory.CreateLogger<PullRequestReviewToolProvider>());
+            toolProviders.Add(prReviewTool);
         }
         else
         {
@@ -193,6 +195,16 @@ public sealed class IssueAgentRunnerFactory(
                 var cumulativeOutput = tokenTracker.TotalOutputTokens;
                 turnsCompleted = turn;
                 onTurnCompleted?.Invoke(turn, cumulativeInput, cumulativeOutput, cumulativeInput + cumulativeOutput);
+
+                // For PR reviews: exit as soon as SubmitReview succeeds so the
+                // orchestrator can remove the label and avoid re-dispatch.
+                if (prReviewTool?.ReviewCompleted == true)
+                {
+                    logger.LogInformation("{Identifier} review submitted, stopping after turn {Turn}",
+                        issue.Identifier, turn);
+                    result = AgentRunResult.IssueStateChanged;
+                    break;
+                }
 
                 // Check work-item state after each turn
                 try

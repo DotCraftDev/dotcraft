@@ -17,6 +17,13 @@ public sealed class PullRequestReviewToolProvider(
 {
     public int Priority => 95;
 
+    /// <summary>
+    /// Set to true after <c>SubmitReview</c> succeeds. The runner loop checks
+    /// this flag after each turn and exits normally when it is true, allowing
+    /// the orchestrator to remove the PullRequestLabelFilter label.
+    /// </summary>
+    public bool ReviewCompleted { get; private set; }
+
     public IEnumerable<AITool> CreateTools(ToolProviderContext context)
     {
         yield return AIFunctionFactory.Create(
@@ -35,7 +42,8 @@ public sealed class PullRequestReviewToolProvider(
                 try
                 {
                     await tracker.SubmitReviewAsync(pullNumber, body, normalized);
-                    return $"Review ({normalized}) submitted on PR #{pullNumber}.";
+                    ReviewCompleted = true;
+                    return $"Review ({normalized}) submitted on PR #{pullNumber}. The review is complete.";
                 }
                 catch (Exception ex)
                 {

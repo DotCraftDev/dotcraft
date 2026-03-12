@@ -545,6 +545,11 @@ public sealed class AppConfig
         public bool Enabled { get; set; } = true;
 
         /// <summary>
+        /// Also write logs to the console (stdout). Default: false.
+        /// </summary>
+        public bool Console { get; set; }
+
+        /// <summary>
         /// Minimum log level: Trace, Debug, Information, Warning, Error, Critical. Default: Information.
         /// </summary>
         public string MinLevel { get; set; } = "Information";

@@ -2052,6 +2052,17 @@ const CONFIG_SCHEMA = [
       { key: 'Enabled', type: 'bool', defaultValue: true },
     ]
   },
+  {
+    section: 'Logging',
+    path: ['Logging'],
+    fields: [
+      { key: 'Enabled', type: 'bool', defaultValue: true, hint: 'Write log entries to a daily-rotated file under the logs directory' },
+      { key: 'Console', type: 'bool', defaultValue: false, hint: 'Also print log entries to stdout (useful for debugging)' },
+      { key: 'MinLevel', type: 'select', defaultValue: 'Information', options: ['Trace','Debug','Information','Warning','Error','Critical'], hint: 'Minimum log level to record' },
+      { key: 'Directory', type: 'text', defaultValue: 'logs', hint: 'Log directory relative to the .craft path' },
+      { key: 'RetentionDays', type: 'number', defaultValue: 7, hint: 'Days to keep log files before auto-deletion; 0 = keep forever' },
+    ]
+  },
 ];
 
 // ─── SETTINGS STATE ───────────────────────────────────────────────────────────

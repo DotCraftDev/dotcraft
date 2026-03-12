@@ -176,8 +176,8 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
         var isWindows = OperatingSystem.IsWindows();
         var psi = new ProcessStartInfo
         {
-            FileName = isWindows ? "powershell" : "bash",
-            Arguments = isWindows ? $"-Command \"{script}\"" : $"-lc \"{script}\"",
+            FileName = isWindows ? "cmd" : "bash",
+            Arguments = isWindows ? $"/c {script}" : $"-lc \"{script}\"",
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -222,10 +222,13 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
         var repository = trackerConfig.Repository!;
         var token = ResolveToken(trackerConfig.ApiKey);
 
-        // Build authenticated clone URL: https://{token}@github.com/{owner}/{repo}
+        // Build authenticated clone URL using the standard GitHub PAT format:
+        // https://x-access-token:{token}@github.com/{owner}/{repo}
+        // Using "x-access-token" as the username and the PAT as the password prevents
+        // git from treating the token as a bare username and prompting for a password.
         string cloneUrl;
         if (!string.IsNullOrEmpty(token))
-            cloneUrl = $"https://{Uri.EscapeDataString(token)}@github.com/{repository}";
+            cloneUrl = $"https://x-access-token:{Uri.EscapeDataString(token)}@github.com/{repository}";
         else
             cloneUrl = $"https://github.com/{repository}";
 
@@ -269,8 +272,11 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
         foreach (var arg in args)
             psi.ArgumentList.Add(arg);
 
-        // Prevent git from prompting for credentials interactively
+        // Prevent any interactive credential prompt (terminal or GUI).
+        // GIT_TERMINAL_PROMPT disables stdin prompts; GCM_INTERACTIVE=never
+        // prevents Git Credential Manager from opening its GUI dialog on Windows.
         psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        psi.Environment["GCM_INTERACTIVE"] = "never";
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Failed to start git {args[0]}");

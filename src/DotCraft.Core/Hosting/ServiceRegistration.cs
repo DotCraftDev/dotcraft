@@ -30,14 +30,20 @@ public static class ServiceRegistration
         services.AddLogging(builder =>
         {
             var loggingCfg = config.Logging;
+            var minLevel = Enum.TryParse<LogLevel>(loggingCfg.MinLevel, ignoreCase: true, out var lvl)
+                ? lvl
+                : LogLevel.Information;
+            builder.SetMinimumLevel(minLevel);
+
             if (loggingCfg.Enabled)
             {
                 var logsDir = Path.Combine(botPath, loggingCfg.Directory);
-                var minLevel = Enum.TryParse<LogLevel>(loggingCfg.MinLevel, ignoreCase: true, out var lvl)
-                    ? lvl
-                    : LogLevel.Information;
-                builder.SetMinimumLevel(minLevel);
                 builder.AddProvider(new FileLoggerProvider(logsDir, minLevel, loggingCfg.RetentionDays));
+            }
+
+            if (loggingCfg.Console)
+            {
+                builder.AddConsole();
             }
         });
         services.AddSingleton(config);
