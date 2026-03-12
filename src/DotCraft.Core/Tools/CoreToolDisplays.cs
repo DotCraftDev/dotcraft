@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotCraft.Diagnostics;
 
 namespace DotCraft.Tools;
@@ -35,6 +36,18 @@ public static class CoreToolDisplays
             return $"Edited {path} lines {startLine}-{endLine}";
         if (startLine > 0)
             return $"Edited {path} at line {startLine}";
+
+        // For search/replace mode, show the first meaningful line of oldText as a content hint
+        // so multiple edits to the same file are visually distinguishable.
+        var oldText = ToolDisplayHelpers.GetString(args, "oldText");
+        if (!string.IsNullOrWhiteSpace(oldText))
+        {
+            var firstLine = oldText.Replace("\r\n", "\n").Split('\n')
+                .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim() ?? string.Empty;
+            if (!string.IsNullOrEmpty(firstLine))
+                return $"Edited {path}: \"{ToolDisplayHelpers.Truncate(firstLine, 40)}\"";
+        }
+
         return $"Edited {path}";
     }
 
@@ -257,7 +270,7 @@ public static class CoreToolDisplays
     }
 
     /// <summary>
-    /// Summarizes a WriteFile result: byte count on success, or the error message.
+    /// Summarizes a WriteFile result: byte and line count on success, or the error message.
     /// </summary>
     public static IReadOnlyList<string>? WriteFileResult(string? result)
     {
@@ -265,11 +278,20 @@ public static class CoreToolDisplays
         if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
             return [result.Split('\n')[0].Trim()];
 
-        // "Successfully wrote N bytes to path"
-        var match = System.Text.RegularExpressions.Regex.Match(result, @"wrote (\d+) bytes");
-        if (match.Success)
+        // "Successfully wrote N bytes (M lines) to path"
+        var enrichedMatch = Regex.Match(result, @"wrote (\d+) bytes \((\d+) lines\)");
+        if (enrichedMatch.Success)
         {
-            var bytes = long.Parse(match.Groups[1].Value);
+            var bytes = long.Parse(enrichedMatch.Groups[1].Value);
+            var lines = int.Parse(enrichedMatch.Groups[2].Value);
+            return [$"{bytes:N0} bytes, {lines} lines"];
+        }
+
+        // Legacy format: "Successfully wrote N bytes to path"
+        var legacyMatch = Regex.Match(result, @"wrote (\d+) bytes");
+        if (legacyMatch.Success)
+        {
+            var bytes = long.Parse(legacyMatch.Groups[1].Value);
             return [$"{bytes:N0} bytes"];
         }
 
@@ -277,15 +299,43 @@ public static class CoreToolDisplays
     }
 
     /// <summary>
-    /// Summarizes an EditFile result: "OK" on success, or the error message.
+    /// Summarizes an EditFile result with location and line count change, or error message.
     /// </summary>
     public static IReadOnlyList<string>? EditFileResult(string? result)
     {
         if (string.IsNullOrWhiteSpace(result)) return null;
         if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
             return [result.Split('\n')[0].Trim()];
+
         if (result.StartsWith("Successfully", StringComparison.OrdinalIgnoreCase))
+        {
+            // Search/replace: "Successfully edited {path} at line N (A -> B lines)"
+            var srMatch = Regex.Match(result, @"at line (\d+) \((\d+) -> (\d+) lines\)");
+            if (srMatch.Success)
+            {
+                var lineNum = int.Parse(srMatch.Groups[1].Value);
+                var oldCount = int.Parse(srMatch.Groups[2].Value);
+                var newCount = int.Parse(srMatch.Groups[3].Value);
+                var delta = oldCount == newCount ? "±0 lines"
+                    : $"{oldCount} → {newCount} lines";
+                return [$"L{lineNum}, {delta}"];
+            }
+
+            // Line-range: "Successfully replaced lines N-M in {path} (A -> B lines)"
+            var lrMatch = Regex.Match(result, @"replaced lines (\d+)-(\d+) in .+ \((\d+) -> (\d+) lines\)");
+            if (lrMatch.Success)
+            {
+                var start = int.Parse(lrMatch.Groups[1].Value);
+                var end = int.Parse(lrMatch.Groups[2].Value);
+                var oldCount = int.Parse(lrMatch.Groups[3].Value);
+                var newCount = int.Parse(lrMatch.Groups[4].Value);
+                var delta = oldCount == newCount ? "±0 lines"
+                    : $"{oldCount} → {newCount} lines";
+                return [$"lines {start}-{end}, {delta}"];
+            }
+
             return ["OK"];
+        }
 
         return [ToolDisplayHelpers.Truncate(result.Split('\n')[0].Trim(), 80)];
     }

@@ -115,7 +115,8 @@ public sealed class SandboxFileTools
                 new WriteEntry { Path = fullPath, Data = content, Mode = 644 }
             ]);
 
-            return $"Successfully wrote {content.Length} bytes to {path}";
+            var lineCount = content.Split('\n').Length;
+            return $"Successfully wrote {content.Length} bytes ({lineCount} lines) to {path}";
         }
         catch (OpenSandbox.Core.SandboxException ex)
         {
@@ -152,13 +153,17 @@ public sealed class SandboxFileTools
             if (occurrences > 1)
                 return $"Error: oldText found {occurrences} times in {path}. Please provide a more specific search string.";
 
+            var idx = content.IndexOf(oldText, StringComparison.Ordinal);
             var newContent = content.Replace(oldText, newText);
 
             await sandbox.Files.WriteFilesAsync([
                 new WriteEntry { Path = fullPath, Data = newContent, Mode = 644 }
             ]);
 
-            return $"Successfully edited {path} (1 replacement made)";
+            var lineNum = content[..idx].Count(c => c == '\n') + 1;
+            var oldLineCount = oldText.Count(c => c == '\n') + 1;
+            var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
+            return $"Successfully edited {path} at line {lineNum} ({oldLineCount} -> {newLineCount} lines)";
         }
         catch (OpenSandbox.Core.SandboxException ex)
         {

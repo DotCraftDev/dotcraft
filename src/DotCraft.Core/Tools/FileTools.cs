@@ -135,7 +135,8 @@ public sealed class FileTools(
 
             var encoding = File.Exists(fullPath) ? DetectFileEncoding(fullPath) : Utf8NoBom;
             await File.WriteAllTextAsync(fullPath, content, encoding);
-            return $"Successfully wrote {content.Length} bytes to {path}";
+            var lineCount = content.Split('\n').Length;
+            return $"Successfully wrote {content.Length} bytes ({lineCount} lines) to {path}";
         }
         catch (UnauthorizedAccessException)
         {
@@ -554,8 +555,9 @@ public sealed class FileTools(
         if (useCrLf)
             result = result.Replace("\n", "\r\n");
 
+        var insertedCount = string.IsNullOrEmpty(newText) ? 0 : newText.Replace("\r\n", "\n").Split('\n').Length;
         await File.WriteAllTextAsync(fullPath, result, encoding);
-        return $"Successfully replaced lines {startLine}-{endLine} in {displayPath}";
+        return $"Successfully replaced lines {startLine}-{endLine} in {displayPath} ({removedCount} -> {insertedCount} lines)";
     }
 
     private static async Task<string> ApplySearchReplaceEdit(
@@ -568,7 +570,10 @@ public sealed class FileTools(
             var idx = content.IndexOf(oldText, StringComparison.Ordinal);
             var newContent = content[..idx] + newText + content[(idx + oldText.Length)..];
             await File.WriteAllTextAsync(fullPath, newContent, encoding);
-            return $"Successfully edited {displayPath}";
+            var lineNum = content[..idx].Count(c => c == '\n') + 1;
+            var oldLineCount = oldText.Count(c => c == '\n') + 1;
+            var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
+            return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines)";
         }
         if (count > 1)
             return $"Error: oldText appears {count} times in the file. Please provide more context to make it unique.";
@@ -581,7 +586,10 @@ public sealed class FileTools(
             {
                 var newContent = content[..idx] + newText + content[(idx + found.Length)..];
                 await File.WriteAllTextAsync(fullPath, newContent, encoding);
-                return $"Successfully edited {displayPath} (matched via line-trimmed fallback)";
+                var lineNum = content[..idx].Count(c => c == '\n') + 1;
+                var oldLineCount = found.Count(c => c == '\n') + 1;
+                var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
+                return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines) (matched via line-trimmed fallback)";
             }
         }
 
@@ -593,7 +601,10 @@ public sealed class FileTools(
             {
                 var newContent = content[..idx] + newText + content[(idx + found.Length)..];
                 await File.WriteAllTextAsync(fullPath, newContent, encoding);
-                return $"Successfully edited {displayPath} (matched via indentation-flexible fallback)";
+                var lineNum = content[..idx].Count(c => c == '\n') + 1;
+                var oldLineCount = found.Count(c => c == '\n') + 1;
+                var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
+                return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines) (matched via indentation-flexible fallback)";
             }
         }
 
