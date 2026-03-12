@@ -1,7 +1,6 @@
 {
   "GitHubTracker": {
     "Enabled": true,
-    "WorkflowPath": "WORKFLOW.md",
     "PullRequestWorkflowPath": "PR_WORKFLOW.md",
     "Tracker": {
       "Repository": "your-org/your-repo",
@@ -9,7 +8,6 @@
       "ActiveStates": [],
       "TerminalStates": ["Done", "Closed", "Cancelled"],
       "GitHubStateLabelPrefix": "status:",
-      "TrackPullRequests": true,
       "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
       "PullRequestTerminalStates": ["Merged", "Closed", "Approved"],
       "PullRequestLabelFilter": "auto-review"

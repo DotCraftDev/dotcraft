@@ -1,6 +1,5 @@
 ---
 tracker:
-  track_pull_requests: true
   pull_request_active_states: ["Pending Review", "Review Requested", "Changes Requested"]
   pull_request_terminal_states: ["Merged", "Closed", "Approved"]
 agent:

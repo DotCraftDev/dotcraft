@@ -152,7 +152,7 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
         return new GitHubTrackerConfig
         {
             Enabled = baseConfig.Enabled,
-            WorkflowPath = baseConfig.WorkflowPath,
+            IssuesWorkflowPath = baseConfig.IssuesWorkflowPath,
             PullRequestWorkflowPath = baseConfig.PullRequestWorkflowPath,
             Tracker = new GitHubTrackerTrackerConfig
             {
@@ -163,7 +163,6 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 TerminalStates = [.. baseConfig.Tracker.TerminalStates],
                 GitHubStateLabelPrefix = baseConfig.Tracker.GitHubStateLabelPrefix,
                 AssigneeFilter = baseConfig.Tracker.AssigneeFilter,
-                TrackPullRequests = baseConfig.Tracker.TrackPullRequests,
                 PullRequestActiveStates = [.. baseConfig.Tracker.PullRequestActiveStates],
                 PullRequestTerminalStates = [.. baseConfig.Tracker.PullRequestTerminalStates],
                 PullRequestLabelFilter = baseConfig.Tracker.PullRequestLabelFilter,
@@ -206,8 +205,6 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
             if (tracker.TryGetValue("repository", out var repo)) config.Tracker.Repository = repo?.ToString();
             if (tracker.TryGetValue("active_states", out var active)) config.Tracker.ActiveStates = ParseStringList(active);
             if (tracker.TryGetValue("terminal_states", out var terminal)) config.Tracker.TerminalStates = ParseStringList(terminal);
-            if (tracker.TryGetValue("track_pull_requests", out var tpr) && bool.TryParse(tpr?.ToString(), out var tprVal))
-                config.Tracker.TrackPullRequests = tprVal;
             if (tracker.TryGetValue("pull_request_active_states", out var prActive))
                 config.Tracker.PullRequestActiveStates = ParseStringList(prActive);
             if (tracker.TryGetValue("pull_request_terminal_states", out var prTerminal))

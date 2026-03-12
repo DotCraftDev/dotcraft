@@ -1962,8 +1962,9 @@ const CONFIG_SCHEMA = [
     section: 'GitHubTracker',
     path: ['GitHubTracker'],
     fields: [
-      { key: 'Enabled',      type: 'bool', defaultValue: false },
-      { key: 'WorkflowPath', type: 'text', defaultValue: 'WORKFLOW.md', hint: 'Relative to the workspace root. WORKFLOW.md can override base tracker settings at runtime.' },
+      { key: 'Enabled',                 type: 'bool', defaultValue: false },
+      { key: 'IssuesWorkflowPath',      type: 'text', defaultValue: 'WORKFLOW.md', hint: 'Relative to the workspace root. Leave blank to disable issue dispatch.' },
+      { key: 'PullRequestWorkflowPath', type: 'text', defaultValue: 'PR_WORKFLOW.md', hint: 'Relative to the workspace root. Leave blank to disable PR review dispatch.' },
     ]
   },
   {

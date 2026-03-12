@@ -58,7 +58,7 @@ public sealed partial class GitHubTrackerModule : ModuleBase
         services.AddSingleton(sp => new IssueWorkspaceManager(
             config,
             sp.GetRequiredService<ILogger<IssueWorkspaceManager>>()));
-        services.AddSingleton<IIssueTracker>(sp => CreateTracker(config, sp));
+        services.AddSingleton<IIssueTracker>(sp => CreateTracker(config, workspacePath, sp));
         services.AddSingleton(sp => new IssueAgentRunnerFactory(
             sp.GetRequiredService<AppConfig>(),
             sp.GetRequiredService<IIssueTracker>(),
@@ -93,6 +93,6 @@ public sealed partial class GitHubTrackerModule : ModuleBase
     public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
         => ActivatorUtilities.CreateInstance<GitHubTrackerChannelService>(sp);
 
-    private static IIssueTracker CreateTracker(GitHubTrackerConfig config, IServiceProvider sp)
-        => new GitHubTrackerAdapter(config.Tracker, sp.GetRequiredService<ILogger<GitHubTrackerAdapter>>());
+    private static IIssueTracker CreateTracker(GitHubTrackerConfig config, string workspacePath, IServiceProvider sp)
+        => new GitHubTrackerAdapter(config, workspacePath, sp.GetRequiredService<ILogger<GitHubTrackerAdapter>>());
 }

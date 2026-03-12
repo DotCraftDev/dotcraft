@@ -14,7 +14,7 @@ Copy the template files into your own DotCraft workspace:
 ```text
 samples/github-tracker/<sample>/
   config.template.json   →  copy to  <your-workspace>/.craft/config.json
-  WORKFLOW.md            →  copy to  <your-workspace>/WORKFLOW.md
+  WORKFLOW.md            →  copy to  <your-workspace>/WORKFLOW.md      (collab-dev-bot only)
   PR_WORKFLOW.md         →  copy to  <your-workspace>/PR_WORKFLOW.md   (review-bot only)
 ```
 
@@ -28,7 +28,6 @@ Then edit `config.json` to fill in your repository, token, and any other setting
 ```bash
 mkdir -p /path/to/my-workspace/.craft
 cp samples/github-tracker/review-bot/config.template.json /path/to/my-workspace/.craft/config.json
-cp samples/github-tracker/review-bot/WORKFLOW.md          /path/to/my-workspace/WORKFLOW.md
 cp samples/github-tracker/review-bot/PR_WORKFLOW.md       /path/to/my-workspace/PR_WORKFLOW.md
 ```
 
@@ -127,7 +126,7 @@ To trigger a re-review (e.g. after pushing fixes):
 
 **Files**:
 - `PR_WORKFLOW.md` — prompt template for PR reviews; receives `{{ issue.diff }}`, `{{ issue.head_branch }}`, `{{ issue.base_branch }}`, etc.
-- `WORKFLOW.md` — placeholder with `active_states: []`; no issues are dispatched.
+- `config.template.json` — PR-only sample config. It enables PR review by providing `PullRequestWorkflowPath` only.
 
 ---
 
@@ -208,7 +207,6 @@ The label is **not** removed on failure or timeout, so the bot will retry — th
 
 - Confirm the PR is **open and not a draft**.
 - If `Tracker.PullRequestLabelFilter` is set, confirm the PR has that label.
-- Confirm `Tracker.TrackPullRequests` is `true` in config.
 - Check that `PR_WORKFLOW.md` exists in the workspace root.
 
 ### `submit_review` reports a permission error

@@ -31,7 +31,7 @@ Inspired by [OpenAI Symphony](https://github.com/openai/symphony). The core impl
 
 ```
 workspace/
-└── WORKFLOW.md   ← GitHubTracker reads the agent prompt template from here
+└── WORKFLOW.md   ← GitHubTracker reads the issue agent prompt template from here
 ```
 
 `WORKFLOW.md` consists of two parts: a YAML front matter block (between `---`) and a Liquid prompt template:
@@ -112,6 +112,29 @@ Only issues in **active** states (`ActiveStates`) are dispatched. After the agen
 
 ---
 
+## Pull Request Tracking
+
+GitHubTracker can also process pull requests directly, without creating proxy issues. PR review activation is now workflow-driven: if `PullRequestWorkflowPath` points to an existing file, PR review dispatch is enabled.
+
+```json
+{
+  "GitHubTracker": {
+    "PullRequestWorkflowPath": "PR_WORKFLOW.md",
+    "Tracker": {
+      "PullRequestLabelFilter": "auto-review"
+    }
+  }
+}
+```
+
+Issue and PR activation are independent:
+
+- `IssuesWorkflowPath` enables issue dispatch when the workflow file exists.
+- `PullRequestWorkflowPath` enables PR review dispatch when the workflow file exists.
+- If both workflow files exist, both pipelines run.
+
+---
+
 ## WORKFLOW.md Reference
 
 ### YAML Front Matter Fields
@@ -180,7 +203,8 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
 {
   "GitHubTracker": {
     "Enabled": true,
-    "WorkflowPath": "WORKFLOW.md",
+    "IssuesWorkflowPath": "WORKFLOW.md",
+    "PullRequestWorkflowPath": "PR_WORKFLOW.md",
     "Tracker": {
       "Kind": "github",
       "Repository": "your-org/your-repo",
@@ -188,7 +212,10 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
       "ActiveStates": ["Todo", "In Progress"],
       "TerminalStates": ["Done", "Closed", "Cancelled"],
       "GitHubStateLabelPrefix": "status:",
-      "AssigneeFilter": ""
+      "AssigneeFilter": "",
+      "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
+      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"],
+      "PullRequestLabelFilter": ""
     },
     "Polling": {
       "IntervalMs": 30000
@@ -198,6 +225,7 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
     },
     "Agent": {
       "MaxConcurrentAgents": 3,
+      "MaxConcurrentPullRequestAgents": 0,
       "MaxTurns": 20,
       "MaxRetryBackoffMs": 300000,
       "TurnTimeoutMs": 3600000,
@@ -214,7 +242,7 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
 }
 ```
 
-> **Note:** Relative paths in `WorkflowPath` are resolved relative to the DotCraft workspace root (`workspace/`). The default value `"WORKFLOW.md"` resolves to `workspace/WORKFLOW.md`.
+> **Note:** Relative paths in `IssuesWorkflowPath` and `PullRequestWorkflowPath` are resolved relative to the DotCraft workspace root (`workspace/`). The defaults map to `workspace/WORKFLOW.md` and `workspace/PR_WORKFLOW.md`.
 
 ---
 

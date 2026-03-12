@@ -5,10 +5,10 @@ public sealed class GitHubTrackerConfig
     public bool Enabled { get; set; }
 
     /// <summary>
-    /// Path to the WORKFLOW.md file relative to workspace root.
-    /// WORKFLOW.md values override matching AppConfig.GitHubTracker settings.
+    /// Path to the issue workflow file relative to the workspace root.
+    /// Workflow values override matching AppConfig.GitHubTracker settings.
     /// </summary>
-    public string WorkflowPath { get; set; } = "WORKFLOW.md";
+    public string IssuesWorkflowPath { get; set; } = "WORKFLOW.md";
 
     /// <summary>
     /// Path to the PR review workflow file relative to workspace root.
@@ -66,11 +66,6 @@ public sealed class GitHubTrackerTrackerConfig
     /// Optional: only process issues assigned to this user.
     /// </summary>
     public string? AssigneeFilter { get; set; }
-
-    /// <summary>
-    /// Enable tracking of pull requests for automatic PR review. Default: false.
-    /// </summary>
-    public bool TrackPullRequests { get; set; }
 
     /// <summary>
     /// PR states considered active (eligible for dispatch).

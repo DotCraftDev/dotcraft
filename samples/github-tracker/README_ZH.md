@@ -14,7 +14,7 @@
 ```text
 samples/github-tracker/<sample>/
   config.template.json   →  复制到  <your-workspace>/.craft/config.json
-  WORKFLOW.md            →  复制到  <your-workspace>/WORKFLOW.md
+  WORKFLOW.md            →  复制到  <your-workspace>/WORKFLOW.md      （仅 collab-dev-bot）
   PR_WORKFLOW.md         →  复制到  <your-workspace>/PR_WORKFLOW.md   （仅 review-bot）
 ```
 
@@ -28,7 +28,6 @@ samples/github-tracker/<sample>/
 ```bash
 mkdir -p /path/to/my-workspace/.craft
 cp samples/github-tracker/review-bot/config.template.json /path/to/my-workspace/.craft/config.json
-cp samples/github-tracker/review-bot/WORKFLOW.md          /path/to/my-workspace/WORKFLOW.md
 cp samples/github-tracker/review-bot/PR_WORKFLOW.md       /path/to/my-workspace/PR_WORKFLOW.md
 ```
 
@@ -127,7 +126,7 @@ dotcraft
 
 **文件说明**：
 - `PR_WORKFLOW.md` — PR 评审的 Prompt 模板，接收 `{{ issue.diff }}`、`{{ issue.head_branch }}`、`{{ issue.base_branch }}` 等变量。
-- `WORKFLOW.md` — 占位文件，`active_states: []`，不派发任何 Issue。
+- `config.template.json` — 仅启用 PR Review 的示例配置，只提供 `PullRequestWorkflowPath`。
 
 ---
 
@@ -208,7 +207,6 @@ status:in-progress  →  status:blocked  ← 非活跃，Bot 停止重试
 
 - 确认 PR 是 **open 且非 draft** 状态。
 - 如果设置了 `Tracker.PullRequestLabelFilter`，确认 PR 上有对应 Label。
-- 确认 `Tracker.TrackPullRequests` 在 config 中为 `true`。
 - 确认工作区根目录下存在 `PR_WORKFLOW.md` 文件。
 
 ### `submit_review` 调用报权限错误

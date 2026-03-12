@@ -479,7 +479,7 @@ For the complete usage flow, see the [GitHubTracker Guide](./github_tracker_guid
 {
     "GitHubTracker": {
         "Enabled": true,
-        "WorkflowPath": "WORKFLOW.md",
+        "IssuesWorkflowPath": "WORKFLOW.md",
         "Tracker": {
             "Kind": "github",
             "Repository": "your-org/your-repo",
@@ -496,7 +496,7 @@ For the complete usage flow, see the [GitHubTracker Guide](./github_tracker_guid
 | Config Item | Description | Default |
 |-------------|-------------|---------|
 | `GitHubTracker.Enabled` | Enable the GitHubTracker module | `false` |
-| `GitHubTracker.WorkflowPath` | Path to `WORKFLOW.md`, resolved relative to the workspace root | `WORKFLOW.md` |
+| `GitHubTracker.IssuesWorkflowPath` | Path to the issue `WORKFLOW.md`, resolved relative to the workspace root | `WORKFLOW.md` |
 | `GitHubTracker.Tracker.Repository` | GitHub repository in `owner/repo` format | empty |
 | `GitHubTracker.Tracker.ApiKey` | GitHub token, supports `$ENV_VAR` indirection | empty |
 | `GitHubTracker.Tracker.GitHubStateLabelPrefix` | Label prefix used to infer issue state | `status:` |

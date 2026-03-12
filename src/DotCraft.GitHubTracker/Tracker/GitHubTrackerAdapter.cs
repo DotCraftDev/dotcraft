@@ -19,14 +19,18 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
     private readonly string _owner;
     private readonly string _repo;
     private readonly GitHubTrackerTrackerConfig _config;
+    private readonly string? _issuesWorkflowPath;
+    private readonly string? _pullRequestWorkflowPath;
     private readonly ILogger<GitHubTrackerAdapter> _logger;
 
-    public GitHubTrackerAdapter(GitHubTrackerTrackerConfig config, ILogger<GitHubTrackerAdapter> logger)
+    public GitHubTrackerAdapter(GitHubTrackerConfig config, string workspacePath, ILogger<GitHubTrackerAdapter> logger)
     {
-        _config = config;
+        _config = config.Tracker;
+        _issuesWorkflowPath = ResolveWorkflowPath(config.IssuesWorkflowPath, workspacePath);
+        _pullRequestWorkflowPath = ResolveWorkflowPath(config.PullRequestWorkflowPath, workspacePath);
         _logger = logger;
 
-        var repoParts = (config.Repository ?? "").Split('/', 2);
+        var repoParts = (_config.Repository ?? "").Split('/', 2);
         if (repoParts.Length != 2 || string.IsNullOrWhiteSpace(repoParts[0]) || string.IsNullOrWhiteSpace(repoParts[1]))
             throw new ArgumentException("GitHub repository must be in 'owner/repo' format");
 
@@ -35,13 +39,13 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
 
         _httpClient = new HttpClient
         {
-            BaseAddress = new Uri(config.Endpoint ?? "https://api.github.com"),
+            BaseAddress = new Uri(_config.Endpoint ?? "https://api.github.com"),
             Timeout = TimeSpan.FromSeconds(30)
         };
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DotCraft-GitHubTracker", "1.0"));
 
-        var token = ResolveToken(config.ApiKey);
+        var token = ResolveToken(_config.ApiKey);
         if (!string.IsNullOrEmpty(token))
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
@@ -52,9 +56,10 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
     {
         var candidates = new List<TrackedIssue>();
 
-        candidates.AddRange(await FetchCandidateIssuesOnlyAsync(ct));
+        if (IsIssueTrackingEnabled())
+            candidates.AddRange(await FetchCandidateIssuesOnlyAsync(ct));
 
-        if (_config.TrackPullRequests)
+        if (IsPullRequestTrackingEnabled())
             candidates.AddRange(await FetchCandidatePullRequestsAsync(ct));
 
         _logger.LogDebug("Fetched {Count} candidate work items from GitHub", candidates.Count);
@@ -166,7 +171,7 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
                 if (item == null) continue;
 
                 string state;
-                if (item.PullRequest != null && _config.TrackPullRequests)
+                if (item.PullRequest != null)
                 {
                     var prState = await FetchPullRequestGitHubStateAsync(int.Parse(id), ct);
                     if (string.Equals(prState, "merged", StringComparison.OrdinalIgnoreCase))
@@ -209,7 +214,7 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
             string.Equals(s.Trim(), "closed", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(s.Trim(), "cancelled", StringComparison.OrdinalIgnoreCase));
 
-        var needsMerged = _config.TrackPullRequests && stateNames.Any(s =>
+        var needsMerged = IsPullRequestTrackingEnabled() && stateNames.Any(s =>
             string.Equals(s.Trim(), "merged", StringComparison.OrdinalIgnoreCase));
 
         var issues = new List<TrackedIssue>();
@@ -228,7 +233,7 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
             }
         }
 
-        if (needsMerged || (needsClosed && _config.TrackPullRequests))
+        if (needsMerged || (needsClosed && IsPullRequestTrackingEnabled()))
         {
             var url = $"/repos/{_owner}/{_repo}/pulls?state=closed&per_page=50&page=1&sort=updated&direction=desc";
             var response = await _httpClient.GetAsync(url, ct);
@@ -572,6 +577,18 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
+
+    private bool IsIssueTrackingEnabled() => WorkflowFileExists(_issuesWorkflowPath);
+
+    private bool IsPullRequestTrackingEnabled() => WorkflowFileExists(_pullRequestWorkflowPath);
+
+    private static string? ResolveWorkflowPath(string? configuredPath, string workspacePath) =>
+        string.IsNullOrWhiteSpace(configuredPath)
+            ? null
+            : Path.GetFullPath(configuredPath, workspacePath);
+
+    private static bool WorkflowFileExists(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && File.Exists(path);
 
     public void Dispose() => _httpClient.Dispose();
 
