@@ -1,8 +1,9 @@
 # Start the OpenSandbox server for DotCraft tool execution sandboxing.
-# Requires: Python 3.10+, Docker, opensandbox-server installed via uv.
-#   Install: uv pip install opensandbox-server --system
+# Requires: Python 3.10+, Docker, opensandbox-server on PATH.
+#   Install: pip install opensandbox-server
+#   Or:      uv pip install opensandbox-server --system
 #
-# The server port is read from .craft/config.json (tools.Sandbox.Domain).
+# The server port is read from .craft/config.json (Tools.Sandbox.Domain).
 # A local sandbox config is generated at .craft/sandbox.toml on each run,
 # inheriting all settings from the base config but overriding the port.
 #
@@ -32,7 +33,8 @@ $sandboxExe = if ($env:OPENSANDBOX_SERVER_EXE) {
 }
 
 if (-not (Get-Command $sandboxExe -ErrorAction SilentlyContinue) -and -not (Test-Path $sandboxExe)) {
-    Write-Error "opensandbox-server not found. Install it with: uv pip install opensandbox-server --system"
+    Write-Error "opensandbox-server not found. Install it with: pip install opensandbox-server"
+    Write-Error "Or install it with: uv pip install opensandbox-server --system"
     Write-Error "Or set OPENSANDBOX_SERVER_EXE to the full path of the executable."
     exit 1
 }
@@ -46,19 +48,19 @@ if (-not (Test-Path $baseToml)) {
     exit 1
 }
 
-# --- Read port and sandbox image from .craft/config.json (tools.Sandbox) ---
-$sandboxPort = 8080
+# --- Read port and sandbox image from .craft/config.json (Tools.Sandbox) ---
+$sandboxPort = 5880
 $sandboxImage = "ubuntu:latest"
 if (Test-Path $dotcraftCfg) {
     $dotcraftJson = Get-Content $dotcraftCfg -Raw | ConvertFrom-Json
-    $domain = $dotcraftJson.tools.Sandbox.Domain
+    $domain = $dotcraftJson.Tools.Sandbox.Domain
     if ($domain -match ":(\d+)$") {
         $sandboxPort = [int]$Matches[1]
     }
-    if ($dotcraftJson.tools.Sandbox.PSObject.Properties['Image'] -and -not [string]::IsNullOrWhiteSpace($dotcraftJson.tools.Sandbox.Image)) {
-        $sandboxImage = $dotcraftJson.tools.Sandbox.Image
+    if ($dotcraftJson.Tools.Sandbox.PSObject.Properties['Image'] -and -not [string]::IsNullOrWhiteSpace($dotcraftJson.Tools.Sandbox.Image)) {
+        $sandboxImage = $dotcraftJson.Tools.Sandbox.Image
     }
-    Write-Host "Sandbox port from config.json (tools.Sandbox.Domain): $sandboxPort"
+    Write-Host "Sandbox port from config.json (Tools.Sandbox.Domain): $sandboxPort"
 } else {
     Write-Warning ".craft/config.json not found, using default port $sandboxPort"
 }

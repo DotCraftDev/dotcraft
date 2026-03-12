@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Start the OpenSandbox server for DotCraft tool execution sandboxing.
-# Requires: Python 3.10+, Docker, opensandbox-server installed via uv.
-#   Install: uv pip install opensandbox-server --system
+# Requires: Python 3.10+, Docker, opensandbox-server on PATH.
+#   Install: pip install opensandbox-server
+#   Or:      uv pip install opensandbox-server --system
 #
 # The server port is read from .craft/config.json (Tools.Sandbox.Domain).
 # A local sandbox config is generated at .craft/sandbox.toml on each run,
@@ -62,7 +63,8 @@ else
         SANDBOX_EXE="${SCRIPTS_DIR}/opensandbox-server"
     else
         echo "ERROR: opensandbox-server not found." >&2
-        echo "Install it with: uv pip install opensandbox-server --system" >&2
+        echo "Install it with: pip install opensandbox-server" >&2
+        echo "Or: uv pip install opensandbox-server --system" >&2
         echo "Or set OPENSANDBOX_SERVER_EXE to the full path of the executable." >&2
         exit 1
     fi
@@ -81,7 +83,7 @@ if [[ ! -f "$BASE_TOML" ]]; then
 fi
 
 # --- Read port and sandbox image from .craft/config.json (Tools.Sandbox) ---
-SANDBOX_PORT=8080
+SANDBOX_PORT=5880
 SANDBOX_IMAGE="ubuntu:latest"
 
 if [[ -f "$DOTCRAFT_CFG" ]]; then
