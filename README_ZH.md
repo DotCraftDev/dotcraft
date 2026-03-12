@@ -163,9 +163,13 @@ DotCraft 会先读取 `~/.craft/config.json`，再用 `<workspace>/.craft/config
 
 如果你希望把同一个工作区接入聊天机器人入口，可查看 [QQ 机器人指南](./docs/qq_bot_guide.md) 和 [企业微信指南](./docs/wecom_guide.md)。
 
+![qqbot](https://github.com/DotCraftDev/resources/raw/master/dotcraft/qqbot.gif)
+
 ### GitHubTracker
 
 如果你希望让 DotCraft 参与团队协作流程，`GitHubTracker` 可以自动轮询 GitHub Issue、创建隔离工作区、派发开发或 Review Agent，并在多轮协作中完成交接，请查看 [GitHubTracker 指南](./docs/github_tracker_guide.md)。
+
+![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
 
 ### Unity / ACP
 

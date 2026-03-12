@@ -230,6 +230,8 @@ unity-mcp provides 30+ Unity operation tools, including:
 4. Open **Window → MCP for Unity** and click **Start Server**
 5. Select MCP client from dropdown and click **Configure**
 
+![unity-mcp](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity-mcp.png)
+
 ### Recommended Usage
 
 1. **Basic Usage**: DotCraft's built-in read-only tools meet daily project understanding needs

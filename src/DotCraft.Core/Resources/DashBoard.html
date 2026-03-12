@@ -1978,6 +1978,9 @@ const CONFIG_SCHEMA = [
       { key: 'TerminalStates',         type: 'json', hint: 'JSON array of terminal state names' },
       { key: 'GitHubStateLabelPrefix', type: 'text', defaultValue: 'status:' },
       { key: 'AssigneeFilter',         type: 'text' },
+      { key: 'PullRequestActiveStates',   type: 'json', hint: 'JSON array of PR states considered active (e.g. "Pending Review", "Review Requested", "Changes Requested")' },
+      { key: 'PullRequestTerminalStates', type: 'json', hint: 'JSON array of PR states considered terminal (e.g. "Merged", "Closed", "Approved")' },
+      { key: 'PullRequestLabelFilter',    type: 'text', hint: 'Optional: only track PRs with this label (e.g. auto-review). Empty = all non-draft PRs. Orchestrator removes this label after each review when set.' },
     ]
   },
   {
@@ -2004,6 +2007,7 @@ const CONFIG_SCHEMA = [
       { key: 'TurnTimeoutMs',       type: 'number', min: 0, defaultValue: 3600000 },
       { key: 'StallTimeoutMs',      type: 'number', defaultValue: 300000, hint: '0 or negative disables stall detection' },
       { key: 'MaxConcurrentByState',type: 'json', hint: 'JSON object of state->maxConcurrency' },
+      { key: 'MaxConcurrentPullRequestAgents', type: 'number', min: 0, defaultValue: 0, hint: '0 = PR agents share global MaxConcurrentAgents pool; positive = dedicated concurrency limit for PR review agents' },
     ]
   },
   {
