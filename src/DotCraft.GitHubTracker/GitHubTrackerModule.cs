@@ -30,6 +30,18 @@ public sealed partial class GitHubTrackerModule : ModuleBase
         if (string.IsNullOrWhiteSpace(tracker.Tracker.Repository))
             errors.Add("GitHubTracker: tracker.repository is required");
 
+        var prOverlap = tracker.Tracker.PullRequestActiveStates
+            .Intersect(tracker.Tracker.PullRequestTerminalStates, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (prOverlap.Count > 0)
+            errors.Add($"GitHubTracker: PullRequestActiveStates and PullRequestTerminalStates must not overlap. Conflicting states: {string.Join(", ", prOverlap)}");
+
+        var issueOverlap = tracker.Tracker.ActiveStates
+            .Intersect(tracker.Tracker.TerminalStates, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (issueOverlap.Count > 0)
+            errors.Add($"GitHubTracker: ActiveStates and TerminalStates must not overlap. Conflicting states: {string.Join(", ", issueOverlap)}");
+
         return errors;
     }
 
@@ -46,7 +58,7 @@ public sealed partial class GitHubTrackerModule : ModuleBase
         services.AddSingleton(sp => new IssueWorkspaceManager(
             config,
             sp.GetRequiredService<ILogger<IssueWorkspaceManager>>()));
-        services.AddSingleton<IIssueTracker>(sp => CreateTracker(config, sp));
+        services.AddSingleton<IIssueTracker>(sp => CreateTracker(config, workspacePath, sp));
         services.AddSingleton(sp => new IssueAgentRunnerFactory(
             sp.GetRequiredService<AppConfig>(),
             sp.GetRequiredService<IIssueTracker>(),
@@ -55,16 +67,25 @@ public sealed partial class GitHubTrackerModule : ModuleBase
             sp.GetRequiredService<SkillsLoader>(),
             sp.GetRequiredService<ILogger<IssueAgentRunnerFactory>>(),
             sp.GetRequiredService<ILoggerFactory>(),
-            sp.GetService<TraceCollector>()));   // optional: only present when dashboard is enabled
-        services.AddSingleton(sp => new GitHubTrackerOrchestrator(
-            sp.GetRequiredService<IIssueTracker>(),
-            sp.GetRequiredService<WorkflowLoader>(),
-            sp.GetRequiredService<IssueWorkspaceManager>(),
-            sp.GetRequiredService<IssueAgentRunnerFactory>(),
-            config,
-            workspacePath,
-            sp.GetRequiredService<ILogger<GitHubTrackerOrchestrator>>()));
-        // Expose the orchestrator via the dashboard snapshot interface
+            sp.GetService<TraceCollector>()));
+        services.AddSingleton(sp =>
+        {
+            var issueWorkflowLoader = sp.GetRequiredService<WorkflowLoader>();
+            // Dedicated loader for PR review workflows (separate file watch, separate cache).
+            var prWorkflowLoader = new WorkflowLoader(
+                config,
+                sp.GetRequiredService<ILogger<WorkflowLoader>>());
+
+            return new GitHubTrackerOrchestrator(
+                sp.GetRequiredService<IIssueTracker>(),
+                issueWorkflowLoader,
+                prWorkflowLoader,
+                sp.GetRequiredService<IssueWorkspaceManager>(),
+                sp.GetRequiredService<IssueAgentRunnerFactory>(),
+                config,
+                workspacePath,
+                sp.GetRequiredService<ILogger<GitHubTrackerOrchestrator>>());
+        });
         services.AddSingleton<IOrchestratorSnapshotProvider>(
             sp => sp.GetRequiredService<GitHubTrackerOrchestrator>());
     }
@@ -72,6 +93,6 @@ public sealed partial class GitHubTrackerModule : ModuleBase
     public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
         => ActivatorUtilities.CreateInstance<GitHubTrackerChannelService>(sp);
 
-    private static IIssueTracker CreateTracker(GitHubTrackerConfig config, IServiceProvider sp)
-        => new GitHubTrackerAdapter(config.Tracker, sp.GetRequiredService<ILogger<GitHubTrackerAdapter>>());
+    private static IIssueTracker CreateTracker(GitHubTrackerConfig config, string workspacePath, IServiceProvider sp)
+        => new GitHubTrackerAdapter(config, workspacePath, sp.GetRequiredService<ILogger<GitHubTrackerAdapter>>());
 }

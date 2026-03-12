@@ -152,7 +152,8 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
         return new GitHubTrackerConfig
         {
             Enabled = baseConfig.Enabled,
-            WorkflowPath = baseConfig.WorkflowPath,
+            IssuesWorkflowPath = baseConfig.IssuesWorkflowPath,
+            PullRequestWorkflowPath = baseConfig.PullRequestWorkflowPath,
             Tracker = new GitHubTrackerTrackerConfig
             {
                 Endpoint = baseConfig.Tracker.Endpoint,
@@ -162,6 +163,9 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 TerminalStates = [.. baseConfig.Tracker.TerminalStates],
                 GitHubStateLabelPrefix = baseConfig.Tracker.GitHubStateLabelPrefix,
                 AssigneeFilter = baseConfig.Tracker.AssigneeFilter,
+                PullRequestActiveStates = [.. baseConfig.Tracker.PullRequestActiveStates],
+                PullRequestTerminalStates = [.. baseConfig.Tracker.PullRequestTerminalStates],
+                PullRequestLabelFilter = baseConfig.Tracker.PullRequestLabelFilter,
             },
             Polling = new GitHubTrackerPollingConfig
             {
@@ -179,6 +183,7 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 TurnTimeoutMs = baseConfig.Agent.TurnTimeoutMs,
                 StallTimeoutMs = baseConfig.Agent.StallTimeoutMs,
                 MaxConcurrentByState = new Dictionary<string, int>(baseConfig.Agent.MaxConcurrentByState),
+                MaxConcurrentPullRequestAgents = baseConfig.Agent.MaxConcurrentPullRequestAgents,
             },
             Hooks = new GitHubTrackerHooksConfig
             {
@@ -200,6 +205,12 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
             if (tracker.TryGetValue("repository", out var repo)) config.Tracker.Repository = repo?.ToString();
             if (tracker.TryGetValue("active_states", out var active)) config.Tracker.ActiveStates = ParseStringList(active);
             if (tracker.TryGetValue("terminal_states", out var terminal)) config.Tracker.TerminalStates = ParseStringList(terminal);
+            if (tracker.TryGetValue("pull_request_active_states", out var prActive))
+                config.Tracker.PullRequestActiveStates = ParseStringList(prActive);
+            if (tracker.TryGetValue("pull_request_terminal_states", out var prTerminal))
+                config.Tracker.PullRequestTerminalStates = ParseStringList(prTerminal);
+            if (tracker.TryGetValue("pull_request_label_filter", out var prLabel))
+                config.Tracker.PullRequestLabelFilter = prLabel?.ToString();
         }
 
         if (raw.TryGetValue("polling", out var pollingObj) && pollingObj is Dictionary<object, object> polling)
@@ -221,6 +232,8 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 config.Agent.MaxTurns = mtVal;
             if (agent.TryGetValue("max_retry_backoff_ms", out var mrb) && int.TryParse(mrb?.ToString(), out var mrbVal))
                 config.Agent.MaxRetryBackoffMs = mrbVal;
+            if (agent.TryGetValue("max_concurrent_pull_request_agents", out var mcpra) && int.TryParse(mcpra?.ToString(), out var mcpraVal))
+                config.Agent.MaxConcurrentPullRequestAgents = mcpraVal;
         }
 
         if (raw.TryGetValue("hooks", out var hooksObj) && hooksObj is Dictionary<object, object> hooks)

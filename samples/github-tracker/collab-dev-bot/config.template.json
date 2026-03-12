@@ -1,7 +1,7 @@
 {
   "GitHubTracker": {
     "Enabled": true,
-    "WorkflowPath": "WORKFLOW.md",
+    "IssuesWorkflowPath": "WORKFLOW.md",
     "Tracker": {
       "Kind": "github",
       "Repository": "your-org/your-repo",

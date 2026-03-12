@@ -1,6 +1,6 @@
 # DotCraft GitHubTracker Guide
 
-GitHubTracker is DotCraft's autonomous issue orchestration module. It continuously polls issue trackers like GitHub, automatically creates an isolated workspace and clones the repository for each active issue, dispatches an AI Agent to complete the coding task, and finally calls the `complete_issue` tool to close the issue and signal the orchestrator to stop retrying.
+GitHubTracker is DotCraft's autonomous issue orchestration module. It continuously polls issue trackers like GitHub, automatically creates an isolated workspace and clones the repository for each active issue, dispatches an AI Agent to complete the coding task, and finally calls the `CompleteIssue` tool to close the issue and signal the orchestrator to stop retrying.
 
 Inspired by [OpenAI Symphony](https://github.com/openai/symphony). The core implementation follows its [SPEC.md](https://github.com/openai/symphony/blob/main/SPEC.md).
 
@@ -31,7 +31,7 @@ Inspired by [OpenAI Symphony](https://github.com/openai/symphony). The core impl
 
 ```
 workspace/
-└── WORKFLOW.md   ← GitHubTracker reads the agent prompt template from here
+└── WORKFLOW.md   ← GitHubTracker reads the issue agent prompt template from here
 ```
 
 `WORKFLOW.md` consists of two parts: a YAML front matter block (between `---`) and a Liquid prompt template:
@@ -57,7 +57,7 @@ You are assigned to issue {{ issue.identifier }}: **{{ issue.title }}**
    ```
    git add -A && git commit -m "fix: <description> (closes {{ issue.identifier }})" && git push
    ```
-3. When done, call the `complete_issue` tool with a brief summary of what you did.
+3. When done, call the `CompleteIssue` tool with a brief summary of what you did.
 ```
 
 ### Step 3: Set up a GitHub Token
@@ -108,7 +108,30 @@ GitHubTracker determines whether an issue needs processing via GitHub Labels. De
 | `status:in-progress` | In Progress (active) | Currently being worked on |
 | Issue is closed | Done (terminal) | Task complete |
 
-Only issues in **active** states (`ActiveStates`) are dispatched. After the agent calls `complete_issue`, GitHubTracker closes the issue. On the next poll tick, the issue no longer appears in the candidate list and the orchestrator stops retrying.
+Only issues in **active** states (`ActiveStates`) are dispatched. After the agent calls `CompleteIssue`, GitHubTracker closes the issue. On the next poll tick, the issue no longer appears in the candidate list and the orchestrator stops retrying.
+
+---
+
+## Pull Request Tracking
+
+GitHubTracker can also process pull requests directly, without creating proxy issues. PR review activation is now workflow-driven: if `PullRequestWorkflowPath` points to an existing file, PR review dispatch is enabled.
+
+```json
+{
+  "GitHubTracker": {
+    "PullRequestWorkflowPath": "PR_WORKFLOW.md",
+    "Tracker": {
+      "PullRequestLabelFilter": "auto-review"
+    }
+  }
+}
+```
+
+Issue and PR activation are independent:
+
+- `IssuesWorkflowPath` enables issue dispatch when the workflow file exists.
+- `PullRequestWorkflowPath` enables PR review dispatch when the workflow file exists.
+- If both workflow files exist, both pipelines run.
 
 ---
 
@@ -180,7 +203,8 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
 {
   "GitHubTracker": {
     "Enabled": true,
-    "WorkflowPath": "WORKFLOW.md",
+    "IssuesWorkflowPath": "WORKFLOW.md",
+    "PullRequestWorkflowPath": "PR_WORKFLOW.md",
     "Tracker": {
       "Kind": "github",
       "Repository": "your-org/your-repo",
@@ -188,7 +212,10 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
       "ActiveStates": ["Todo", "In Progress"],
       "TerminalStates": ["Done", "Closed", "Cancelled"],
       "GitHubStateLabelPrefix": "status:",
-      "AssigneeFilter": ""
+      "AssigneeFilter": "",
+      "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
+      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"],
+      "PullRequestLabelFilter": ""
     },
     "Polling": {
       "IntervalMs": 30000
@@ -198,6 +225,7 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
     },
     "Agent": {
       "MaxConcurrentAgents": 3,
+      "MaxConcurrentPullRequestAgents": 0,
       "MaxTurns": 20,
       "MaxRetryBackoffMs": 300000,
       "TurnTimeoutMs": 3600000,
@@ -214,7 +242,7 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
 }
 ```
 
-> **Note:** Relative paths in `WorkflowPath` are resolved relative to the DotCraft workspace root (`workspace/`). The default value `"WORKFLOW.md"` resolves to `workspace/WORKFLOW.md`.
+> **Note:** Relative paths in `IssuesWorkflowPath` and `PullRequestWorkflowPath` are resolved relative to the DotCraft workspace root (`workspace/`). The defaults map to `workspace/WORKFLOW.md` and `workspace/PR_WORKFLOW.md`.
 
 ---
 
@@ -247,12 +275,12 @@ Example — automatically install dependencies before each agent run:
 
 ### Agent keeps running but the issue is never closed
 
-**Cause:** The agent is not calling the `complete_issue` tool.
+**Cause:** The agent is not calling the `CompleteIssue` tool.
 
-**Fix:** Make sure the `WORKFLOW.md` prompt explicitly instructs the agent to call `complete_issue` after all work is done. Example wording:
+**Fix:** Make sure the `WORKFLOW.md` prompt explicitly instructs the agent to call `CompleteIssue` after all work is done. Example wording:
 
 ```
-After committing and pushing all code changes, call the `complete_issue` tool
+After committing and pushing all code changes, call the `CompleteIssue` tool
 with a brief description of what was done.
 ```
 
@@ -268,7 +296,7 @@ with a brief description of what was done.
 
 **Fix:** Check token permissions and ensure `$GITHUB_TOKEN` is set correctly. When a clone fails, the agent still runs but the workspace will be empty.
 
-### `complete_issue` call fails
+### `CompleteIssue` call fails
 
 **Cause:** The token lacks `Issues: Write` permission.
 

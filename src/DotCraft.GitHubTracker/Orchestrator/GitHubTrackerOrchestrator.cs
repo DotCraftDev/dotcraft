@@ -17,13 +17,16 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
 {
     private readonly IIssueTracker _tracker;
     private readonly WorkflowLoader _workflowLoader;
+    private readonly WorkflowLoader _prWorkflowLoader;
     private readonly IssueWorkspaceManager _workspaceManager;
     private readonly IssueAgentRunnerFactory _agentRunnerFactory;
+    private readonly GitHubTrackerConfig _config;
     private readonly ILogger<GitHubTrackerOrchestrator> _logger;
     private readonly OrchestratorState _state = new();
     private readonly Lock _stateLock = new();
     private readonly List<Task> _pendingCleanups = [];
-    private readonly string _workflowPath;
+    private readonly string? _issuesWorkflowPath;
+    private readonly string? _pullRequestWorkflowPath;
 
     private PeriodicTimer? _pollTimer;
     private CancellationTokenSource? _cts;
@@ -32,6 +35,7 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
     public GitHubTrackerOrchestrator(
         IIssueTracker tracker,
         WorkflowLoader workflowLoader,
+        WorkflowLoader prWorkflowLoader,
         IssueWorkspaceManager workspaceManager,
         IssueAgentRunnerFactory agentRunnerFactory,
         GitHubTrackerConfig config,
@@ -40,12 +44,13 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
     {
         _tracker = tracker;
         _workflowLoader = workflowLoader;
+        _prWorkflowLoader = prWorkflowLoader;
         _workspaceManager = workspaceManager;
         _agentRunnerFactory = agentRunnerFactory;
+        _config = config;
         _logger = logger;
-        // Resolve WorkflowPath relative to the DotCraft workspace root so that
-        // "WORKFLOW.md" finds {workspace}/WORKFLOW.md regardless of the process CWD.
-        _workflowPath = Path.GetFullPath(config.WorkflowPath, workspacePath);
+        _issuesWorkflowPath = ResolveWorkflowPath(config.IssuesWorkflowPath, workspacePath);
+        _pullRequestWorkflowPath = ResolveWorkflowPath(config.PullRequestWorkflowPath, workspacePath);
 
         _state.PollIntervalMs = config.Polling.IntervalMs;
         _state.MaxConcurrentAgents = config.Agent.MaxConcurrentAgents;
@@ -55,12 +60,23 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
     {
         _logger.LogInformation("GitHubTracker orchestrator starting");
 
-        // Load workflow (validates config)
-        var workflow = _workflowLoader.Load(_workflowPath);
-        _state.PollIntervalMs = workflow.Config.Polling.IntervalMs;
-        _state.MaxConcurrentAgents = workflow.Config.Agent.MaxConcurrentAgents;
+        var issueWorkflow = LoadWorkflowIfAvailable(
+            _workflowLoader,
+            _issuesWorkflowPath,
+            "issue");
+        var pullRequestWorkflow = LoadWorkflowIfAvailable(
+            _prWorkflowLoader,
+            _pullRequestWorkflowPath,
+            "PR review");
 
-        // Startup terminal cleanup
+        var schedulerConfig = issueWorkflow?.Config ?? pullRequestWorkflow?.Config;
+        if (schedulerConfig == null)
+            throw new InvalidOperationException(
+                "GitHubTracker requires at least one valid workflow. Configure IssuesWorkflowPath or PullRequestWorkflowPath.");
+
+        _state.PollIntervalMs = schedulerConfig.Polling.IntervalMs;
+        _state.MaxConcurrentAgents = schedulerConfig.Agent.MaxConcurrentAgents;
+
         await StartupCleanupAsync(ct);
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -194,25 +210,24 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         {
             await ReconcileAsync(ct);
 
-            // Reload workflow for latest config
-            var workflow = _workflowLoader.Reload() ?? _workflowLoader.Current;
-            if (workflow != null)
+            var issueWorkflow = ReloadWorkflowIfAvailable(_workflowLoader, _issuesWorkflowPath);
+            var pullRequestWorkflow = ReloadWorkflowIfAvailable(_prWorkflowLoader, _pullRequestWorkflowPath);
+            var schedulerConfig = issueWorkflow?.Config ?? pullRequestWorkflow?.Config;
+            if (schedulerConfig != null)
             {
                 lock (_stateLock)
                 {
-                    _state.PollIntervalMs = workflow.Config.Polling.IntervalMs;
-                    _state.MaxConcurrentAgents = workflow.Config.Agent.MaxConcurrentAgents;
+                    _state.PollIntervalMs = schedulerConfig.Polling.IntervalMs;
+                    _state.MaxConcurrentAgents = schedulerConfig.Agent.MaxConcurrentAgents;
                 }
             }
 
-            // Validate dispatch prerequisites
-            if (workflow == null)
+            if (issueWorkflow == null && pullRequestWorkflow == null)
             {
-                _logger.LogWarning("No valid workflow loaded, skipping dispatch");
+                _logger.LogWarning("No valid GitHubTracker workflows are currently available, skipping dispatch");
                 return;
             }
 
-            // Fetch candidates
             IReadOnlyList<TrackedIssue> candidates;
             try
             {
@@ -220,20 +235,22 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch candidate issues, skipping dispatch");
+                _logger.LogWarning(ex, "Failed to fetch candidates, skipping dispatch");
                 return;
             }
 
-            // Sort and dispatch
             var sorted = DispatchSorter.Sort(candidates);
 
             foreach (var issue in sorted)
             {
                 if (ct.IsCancellationRequested) break;
-                if (!HasAvailableSlots(issue.State)) break;
-                if (!ShouldDispatch(issue, workflow.Config)) continue;
+                if (!IsTrackingEnabled(issue.Kind)) continue;
+                if (!HasAvailableSlots(issue)) break;
+                if (!ShouldDispatch(issue, GetEffectiveConfig(issue.Kind))) continue;
 
-                DispatchIssue(issue, workflow, attempt: null);
+                var selectedWorkflow = SelectWorkflow(issue.Kind);
+                if (selectedWorkflow == null) continue;
+                DispatchIssue(issue, selectedWorkflow, attempt: null);
             }
         }
         catch (OperationCanceledException) { throw; }
@@ -254,24 +271,22 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         if (running.Count == 0) return;
 
         // Stall detection
-        var workflow = _workflowLoader.Current;
-        var stallTimeoutMs = workflow?.Config.Agent.StallTimeoutMs ?? 300_000;
-
-        if (stallTimeoutMs > 0)
+        foreach (var entry in running)
         {
-            foreach (var entry in running)
-            {
-                var lastActivity = entry.LastEventTimestamp ?? entry.StartedAt;
-                var elapsed = (DateTimeOffset.UtcNow - lastActivity).TotalMilliseconds;
+            var stallTimeoutMs = GetEffectiveConfig(entry.Issue.Kind).Agent.StallTimeoutMs;
+            if (stallTimeoutMs <= 0)
+                continue;
 
-                if (elapsed > stallTimeoutMs)
-                {
-                    _logger.LogWarning("Issue {Identifier} stalled (no activity for {Elapsed}ms), terminating",
-                        entry.Identifier, (int)elapsed);
-                    TerminateRunning(entry.IssueId, cleanWorkspace: false);
-                    ScheduleRetry(entry.IssueId, entry.Identifier,
-                        (entry.RetryAttempt ?? 0) + 1, "stall timeout");
-                }
+            var lastActivity = entry.LastEventTimestamp ?? entry.StartedAt;
+            var elapsed = (DateTimeOffset.UtcNow - lastActivity).TotalMilliseconds;
+
+            if (elapsed > stallTimeoutMs)
+            {
+                _logger.LogWarning("Issue {Identifier} stalled (no activity for {Elapsed}ms), terminating",
+                    entry.Identifier, (int)elapsed);
+                TerminateRunning(entry.IssueId, cleanWorkspace: false);
+                ScheduleRetry(entry.IssueId, entry.Identifier, entry.Issue.Kind,
+                    (entry.RetryAttempt ?? 0) + 1, "stall timeout");
             }
         }
 
@@ -293,12 +308,13 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         }
 
         var stateMap = refreshed.ToDictionary(s => s.Id, s => s.State);
-        var terminalStates = workflow?.Config.Tracker.TerminalStates ?? ["Done", "Closed", "Cancelled"];
-        var activeStates = workflow?.Config.Tracker.ActiveStates ?? ["Todo", "In Progress"];
-
         foreach (var entry in running)
         {
             if (!stateMap.TryGetValue(entry.IssueId, out var currentState)) continue;
+
+            var cfg = GetEffectiveConfig(entry.Issue.Kind);
+            var terminalStates = GetTerminalStatesForKind(entry.Issue.Kind, cfg);
+            var activeStates = GetActiveStatesForKind(entry.Issue.Kind, cfg);
 
             var isTerminal = terminalStates.Any(t =>
                 string.Equals(t.Trim(), currentState.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -307,21 +323,19 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
 
             if (isTerminal)
             {
-                _logger.LogInformation("Issue {Identifier} reached terminal state {State}, stopping and cleaning",
+                _logger.LogInformation("{Identifier} reached terminal state {State}, stopping and cleaning",
                     entry.Identifier, currentState);
                 TerminateRunning(entry.IssueId, cleanWorkspace: true);
-                // Remove from Completed so a re-opened issue can be dispatched again
                 lock (_stateLock) { _state.Completed.Remove(entry.IssueId); }
             }
             else if (!isActive)
             {
-                _logger.LogInformation("Issue {Identifier} is no longer active (state: {State}), stopping",
+                _logger.LogInformation("{Identifier} is no longer active (state: {State}), stopping",
                     entry.Identifier, currentState);
                 TerminateRunning(entry.IssueId, cleanWorkspace: false);
             }
             else
             {
-                // Update tracked state
                 lock (_stateLock)
                 {
                     if (_state.Running.TryGetValue(entry.IssueId, out var re))
@@ -334,7 +348,13 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                             Description = entry.Issue.Description,
                             Priority = entry.Issue.Priority,
                             State = currentState,
+                            Kind = entry.Issue.Kind,
                             BranchName = entry.Issue.BranchName,
+                            HeadBranch = entry.Issue.HeadBranch,
+                            BaseBranch = entry.Issue.BaseBranch,
+                            DiffUrl = entry.Issue.DiffUrl,
+                            ReviewState = entry.Issue.ReviewState,
+                            IsDraft = entry.Issue.IsDraft,
                             Url = entry.Issue.Url,
                             Labels = entry.Issue.Labels,
                             BlockedBy = entry.Issue.BlockedBy,
@@ -371,20 +391,31 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         }
     }
 
-    private bool HasAvailableSlots(string issueState)
+    private bool HasAvailableSlots(TrackedIssue issue)
     {
         lock (_stateLock)
         {
+            var cfg = GetEffectiveConfig(issue.Kind);
             if (_state.Running.Count >= _state.MaxConcurrentAgents) return false;
 
-            var workflow = _workflowLoader.Current;
-            if (workflow?.Config.Agent.MaxConcurrentByState is { Count: > 0 } byState)
+            // Per-kind concurrency limit for pull requests
+            if (issue.Kind == WorkItemKind.PullRequest)
             {
-                var normalizedState = issueState.Trim().ToLowerInvariant();
+                var prLimit = cfg.Agent.MaxConcurrentPullRequestAgents;
+                if (prLimit > 0)
+                {
+                    var prCount = _state.Running.Values.Count(r => r.Issue.Kind == WorkItemKind.PullRequest);
+                    if (prCount >= prLimit) return false;
+                }
+            }
+
+            if (cfg.Agent.MaxConcurrentByState is { Count: > 0 } byState)
+            {
+                var normalizedState = issue.State.Trim().ToLowerInvariant();
                 if (byState.TryGetValue(normalizedState, out var limit) && limit > 0)
                 {
                     var count = _state.Running.Values
-                        .Count(r => string.Equals(r.Issue.State.Trim(), issueState.Trim(), StringComparison.OrdinalIgnoreCase));
+                        .Count(r => string.Equals(r.Issue.State.Trim(), issue.State.Trim(), StringComparison.OrdinalIgnoreCase));
                     if (count >= limit) return false;
                 }
             }
@@ -418,16 +449,16 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                             }
                         }
                     });
-                OnWorkerExit(issueId, issue.Identifier, WorkerExitReason.Normal, attempt, outcome);
+                await OnWorkerExitAsync(issueId, issue, WorkerExitReason.Normal, attempt, outcome);
             }
             catch (OperationCanceledException)
             {
-                OnWorkerExit(issueId, issue.Identifier, WorkerExitReason.Cancelled, attempt, null);
+                await OnWorkerExitAsync(issueId, issue, WorkerExitReason.Cancelled, attempt, null);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Worker for {Identifier} failed", issue.Identifier);
-                OnWorkerExit(issueId, issue.Identifier, WorkerExitReason.Failed, attempt, null);
+                await OnWorkerExitAsync(issueId, issue, WorkerExitReason.Failed, attempt, null);
             }
         }, CancellationToken.None);
 
@@ -452,7 +483,7 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
             issue.Identifier, attempt?.ToString() ?? "initial");
     }
 
-    private void OnWorkerExit(string issueId, string identifier, WorkerExitReason reason, int? attempt, AgentRunOutcome? outcome)
+    private async Task OnWorkerExitAsync(string issueId, TrackedIssue issue, WorkerExitReason reason, int? attempt, AgentRunOutcome? outcome)
     {
         lock (_stateLock)
         {
@@ -476,13 +507,36 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                 lock (_stateLock) { _state.Completed.Add(issueId); }
                 _logger.LogInformation(
                     "Issue {Identifier} run complete (result: {Result}, turns: {Turns}, tokens: {Total}), scheduling continuation check",
-                    identifier, outcome?.Result, outcome?.TurnsCompleted, outcome?.TotalTokens);
-                ScheduleRetry(issueId, identifier, 1, null);
+                    issue.Identifier, outcome?.Result, outcome?.TurnsCompleted, outcome?.TotalTokens);
+
+                // For PR reviews with a label filter: remove the dispatch label so the continuation
+                // retry's candidate fetch naturally excludes this PR, preventing re-dispatch.
+                // This mirrors how CompleteIssue removes the issue from candidates for Issue work items.
+                var runConfig = GetEffectiveConfig(issue.Kind);
+                if (issue.Kind == WorkItemKind.PullRequest
+                    && !string.IsNullOrEmpty(runConfig.Tracker.PullRequestLabelFilter))
+                {
+                    try
+                    {
+                        await _tracker.RemoveLabelAsync(issueId, runConfig.Tracker.PullRequestLabelFilter);
+                        _logger.LogInformation(
+                            "Removed label '{Label}' from PR {Identifier} after review",
+                            runConfig.Tracker.PullRequestLabelFilter, issue.Identifier);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to remove label '{Label}' from PR {Identifier}; PR may be re-dispatched on next poll",
+                            runConfig.Tracker.PullRequestLabelFilter, issue.Identifier);
+                    }
+                }
+
+                ScheduleRetry(issueId, issue.Identifier, issue.Kind, 1, null);
                 break;
 
             case WorkerExitReason.Failed:
                 var nextAttempt = (attempt ?? 0) + 1;
-                ScheduleRetry(issueId, identifier, nextAttempt, "worker failed");
+                ScheduleRetry(issueId, issue.Identifier, issue.Kind, nextAttempt, "worker failed");
                 break;
 
             case WorkerExitReason.Cancelled:
@@ -491,10 +545,9 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         }
     }
 
-    private void ScheduleRetry(string issueId, string identifier, int attempt, string? error)
+    private void ScheduleRetry(string issueId, string identifier, WorkItemKind kind, int attempt, string? error)
     {
-        var workflow = _workflowLoader.Current;
-        var maxBackoff = workflow?.Config.Agent.MaxRetryBackoffMs ?? 300_000;
+        var maxBackoff = GetEffectiveConfig(kind).Agent.MaxRetryBackoffMs;
 
         var delayMs = error == null
             ? RetryQueue.ContinuationDelayMs
@@ -553,16 +606,16 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                 return;
             }
 
-            var workflow = _workflowLoader.Current;
+            var workflow = SelectWorkflow(issue.Kind);
             if (workflow == null)
             {
                 lock (_stateLock) { _state.Claimed.Remove(issueId); }
                 return;
             }
 
-            if (!HasAvailableSlots(issue.State))
+            if (!HasAvailableSlots(issue))
             {
-                ScheduleRetry(issueId, issue.Identifier, attempt + 1, "no available orchestrator slots");
+                ScheduleRetry(issueId, issue.Identifier, issue.Kind, attempt + 1, "no available orchestrator slots");
                 return;
             }
 
@@ -601,23 +654,94 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
 
     private async Task StartupCleanupAsync(CancellationToken ct)
     {
-        var workflow = _workflowLoader.Current;
-        var terminalStates = workflow?.Config.Tracker.TerminalStates ?? ["Done", "Closed", "Cancelled"];
+        var terminalStates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var issueWorkflow = GetIssueWorkflow();
+        var pullRequestWorkflow = GetPullRequestWorkflow();
+
+        if (issueWorkflow != null)
+        {
+            foreach (var state in issueWorkflow.Config.Tracker.TerminalStates)
+                terminalStates.Add(state);
+        }
+
+        if (pullRequestWorkflow != null)
+        {
+            foreach (var state in pullRequestWorkflow.Config.Tracker.PullRequestTerminalStates)
+                terminalStates.Add(state);
+        }
+
+        if (terminalStates.Count == 0)
+            return;
 
         try
         {
-            var terminalIssues = await _tracker.FetchIssuesByStatesAsync(terminalStates, ct);
-            foreach (var issue in terminalIssues)
+            var terminalItems = await _tracker.FetchIssuesByStatesAsync([.. terminalStates], ct);
+            foreach (var item in terminalItems)
             {
-                await _workspaceManager.CleanWorkspaceAsync(issue.Identifier, ct);
+                await _workspaceManager.CleanWorkspaceAsync(item.Identifier, ct);
             }
-            _logger.LogInformation("Startup cleanup: processed {Count} terminal workspaces", terminalIssues.Count);
+            _logger.LogInformation("Startup cleanup: processed {Count} terminal workspaces", terminalItems.Count);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Startup terminal cleanup failed, continuing");
         }
     }
+
+    /// <summary>
+    /// Select the appropriate workflow definition for a work-item kind.
+    /// </summary>
+    private WorkflowDefinition? SelectWorkflow(WorkItemKind kind) =>
+        kind == WorkItemKind.PullRequest
+            ? GetPullRequestWorkflow()
+            : GetIssueWorkflow();
+
+    private bool IsTrackingEnabled(WorkItemKind kind) => SelectWorkflow(kind) != null;
+
+    private GitHubTrackerConfig GetEffectiveConfig(WorkItemKind kind) =>
+        SelectWorkflow(kind)?.Config ?? _config;
+
+    private WorkflowDefinition? GetIssueWorkflow() =>
+        WorkflowFileExists(_issuesWorkflowPath) ? _workflowLoader.Current : null;
+
+    private WorkflowDefinition? GetPullRequestWorkflow() =>
+        WorkflowFileExists(_pullRequestWorkflowPath) ? _prWorkflowLoader.Current : null;
+
+    private WorkflowDefinition? LoadWorkflowIfAvailable(WorkflowLoader loader, string? path, string workflowName)
+    {
+        if (!WorkflowFileExists(path))
+            return null;
+
+        var workflow = loader.Load(path!);
+        _logger.LogInformation("Loaded {WorkflowName} workflow from {Path}", workflowName, path);
+        return workflow;
+    }
+
+    private WorkflowDefinition? ReloadWorkflowIfAvailable(WorkflowLoader loader, string? path)
+    {
+        if (!WorkflowFileExists(path))
+            return null;
+
+        return loader.Reload() ?? loader.Current;
+    }
+
+    private static string? ResolveWorkflowPath(string? configuredPath, string workspacePath) =>
+        string.IsNullOrWhiteSpace(configuredPath)
+            ? null
+            : Path.GetFullPath(configuredPath, workspacePath);
+
+    private static bool WorkflowFileExists(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+
+    private static List<string> GetActiveStatesForKind(WorkItemKind kind, GitHubTrackerConfig cfg) =>
+        kind == WorkItemKind.PullRequest
+            ? cfg.Tracker.PullRequestActiveStates
+            : cfg.Tracker.ActiveStates;
+
+    private static List<string> GetTerminalStatesForKind(WorkItemKind kind, GitHubTrackerConfig cfg) =>
+        kind == WorkItemKind.PullRequest
+            ? cfg.Tracker.PullRequestTerminalStates
+            : cfg.Tracker.TerminalStates;
 
     public async ValueTask DisposeAsync()
     {

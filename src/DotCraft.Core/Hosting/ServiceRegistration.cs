@@ -3,6 +3,7 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
 using DotCraft.Hooks;
+using DotCraft.Logging;
 using DotCraft.Sessions;
 using DotCraft.Localization;
 using DotCraft.Mcp;
@@ -11,6 +12,7 @@ using DotCraft.Modules;
 using DotCraft.Security;
 using DotCraft.Skills;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DotCraft.Hosting;
 
@@ -25,7 +27,25 @@ public static class ServiceRegistration
         string workspacePath,
         string botPath)
     {
-        services.AddLogging();
+        services.AddLogging(builder =>
+        {
+            var loggingCfg = config.Logging;
+            var minLevel = Enum.TryParse<LogLevel>(loggingCfg.MinLevel, ignoreCase: true, out var lvl)
+                ? lvl
+                : LogLevel.Information;
+            builder.SetMinimumLevel(minLevel);
+
+            if (loggingCfg.Enabled)
+            {
+                var logsDir = Path.Combine(botPath, loggingCfg.Directory);
+                builder.AddProvider(new FileLoggerProvider(logsDir, minLevel, loggingCfg.RetentionDays));
+            }
+
+            if (loggingCfg.Console)
+            {
+                builder.AddConsole();
+            }
+        });
         services.AddSingleton(config);
         services.AddSingleton(new DotCraftPaths
         {

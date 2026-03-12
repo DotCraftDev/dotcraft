@@ -826,6 +826,10 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
             using var renderer = new AgentRenderer();
             await renderer.StartAsync(token);
 
+            // Signal stream start so the renderer shows a thinking spinner
+            // while waiting for the first LLM token.
+            await renderer.SendEventAsync(RenderEvent.StreamStart(), token);
+
             // Set render control for approval service (thread-local)
             ConsoleApprovalService.SetRenderControl(renderer);
 

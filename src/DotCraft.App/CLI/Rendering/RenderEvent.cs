@@ -55,7 +55,12 @@ public enum RenderEventType
     /// <summary>
     /// Debug/diagnostic message — dim grey, buffered during Status spinner sessions
     /// </summary>
-    Debug
+    Debug,
+
+    /// <summary>
+    /// Agent stream has started — triggers the thinking spinner while waiting for the first response
+    /// </summary>
+    StreamStarted
 }
 
 /// <summary>
@@ -241,5 +246,15 @@ public class RenderEvent
             Color = "grey"
         };
     }
+
+    /// <summary>
+    /// Create a StreamStarted event that triggers the thinking spinner
+    /// </summary>
+    public static RenderEvent StreamStart() => new()
+    {
+        Type = RenderEventType.StreamStarted,
+        Icon = "💭",
+        Title = "Thinking"
+    };
 }
 

@@ -160,7 +160,7 @@ After pushing the branch successfully:
 
 ## Notes
 
-- Do not call `complete_issue` unless the issue should be permanently closed right now. Prefer the `status:awaiting-review` approach so humans can still discuss and iterate on the PR.
+- Do not call `CompleteIssue` unless the issue should be permanently closed right now. Prefer the `status:awaiting-review` approach so humans can still discuss and iterate on the PR.
 - If `gh` is not authenticated, the `before_run` hook in config should handle `gh auth login`. Verify with `gh auth status` first.
 - Do not commit directly to `main` or `master`. Always create a feature branch.
 - If you push to a branch that already has a PR open (resuming a previous run), skip `gh pr create` and post a comment on the existing PR with a summary of the new changes instead.
