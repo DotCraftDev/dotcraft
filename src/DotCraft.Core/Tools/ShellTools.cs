@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using DotCraft.Security;
 
 namespace DotCraft.Tools;
@@ -64,7 +65,7 @@ public sealed class ShellTools
             .ToList();
     }
 
-    [Description("Execute a shell command and return its output. Uses PowerShell on Windows and Bash on Linux. Use with caution.")]
+    [Description("Execute a shell command and return its output.")]
     [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec))]
     public async Task<string> Exec(
         [Description("The shell command to execute.")] string command,
@@ -96,7 +97,7 @@ public sealed class ShellTools
 
             if (isWindows)
             {
-                var script = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n" + command;
+                var script = "$ProgressPreference = 'SilentlyContinue'\n[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n" + command;
                 var bytes = Encoding.Unicode.GetBytes(script);
                 var encoded = Convert.ToBase64String(bytes);
                 psi.FileName = "powershell.exe";
@@ -143,7 +144,9 @@ public sealed class ShellTools
 
             var result = new StringBuilder();
             var stdout = outputBuilder.ToString().TrimEnd();
-            var stderr = errorBuilder.ToString().TrimEnd();
+            var stderr = isWindows
+                ? SanitizePowerShellStderr(errorBuilder.ToString().TrimEnd())
+                : errorBuilder.ToString().TrimEnd();
 
             if (!string.IsNullOrWhiteSpace(stdout))
                 result.Append(stdout);
@@ -175,6 +178,70 @@ public sealed class ShellTools
         {
             return $"Error executing command: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Parses PowerShell CLIXML stderr output and extracts only the human-readable error text.
+    /// Progress records are stripped entirely; error strings are extracted and decoded.
+    /// Falls back to regex-based stripping if XML parsing fails.
+    /// </summary>
+    private static string SanitizePowerShellStderr(string stderr)
+    {
+        if (string.IsNullOrWhiteSpace(stderr))
+            return stderr;
+
+        // Only process CLIXML-formatted output
+        var trimmed = stderr.TrimStart('\r', '\n');
+        if (!trimmed.StartsWith("#< CLIXML", StringComparison.Ordinal))
+            return stderr;
+
+        try
+        {
+            // Strip the CLIXML header line and parse the XML body
+            var xmlStart = trimmed.IndexOf('<');
+            if (xmlStart < 0)
+                return string.Empty;
+
+            var xml = trimmed[xmlStart..];
+            var doc = XDocument.Parse(xml);
+
+            XNamespace ns = "http://schemas.microsoft.com/powershell/2004/04";
+            var errors = doc.Descendants(ns + "S")
+                .Where(e => (string?)e.Attribute("S") == "Error")
+                .Select(e => DecodeCLIXMLString(e.Value))
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
+
+            return errors.Count > 0
+                ? string.Join(Environment.NewLine, errors).TrimEnd()
+                : string.Empty;
+        }
+        catch
+        {
+            // Fallback: strip the CLIXML header and any XML blocks, keep other lines
+            var lines = stderr.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+            var kept = lines
+                .Where(l => !l.TrimStart().StartsWith("#< CLIXML", StringComparison.Ordinal)
+                         && !l.TrimStart().StartsWith('<'))
+                .ToArray();
+            return kept.Length > 0 ? string.Join(Environment.NewLine, kept) : string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Decodes CLIXML escape sequences such as _x000D__x000A_ (CR+LF) back to their characters.
+    /// </summary>
+    private static string DecodeCLIXMLString(string value)
+    {
+        // Replace encoded carriage-return/linefeed pairs with a single newline
+        value = value.Replace("_x000D__x000A_", "\n");
+
+        // Decode remaining _xHHHH_ Unicode escapes
+        return Regex.Replace(value, @"_x([0-9A-Fa-f]{4})_", m =>
+        {
+            var codePoint = Convert.ToInt32(m.Groups[1].Value, 16);
+            return ((char)codePoint).ToString();
+        });
     }
 
     private async Task<string?> GuardCommandAsync(string command, string cwd)

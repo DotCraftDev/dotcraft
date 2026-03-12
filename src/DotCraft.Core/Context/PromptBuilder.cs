@@ -139,6 +139,7 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
     {
         var workspace = sandboxEnabled ? "/workspace" : _workspacePath;
         var craftPath = _craftPath;
+        var envSection = sandboxEnabled ? GetSandboxEnvironmentSection() : GetHostEnvironmentSection();
 
         return
 $$"""
@@ -162,11 +163,76 @@ This contains:
 - Custom skills: {{craftPath}}/skills/{skill-name}/SKILL.md
 - Configuration: {{craftPath}}/config.json
 
+{{envSection}}
+
 ## Tool Usage Policy
 - When doing open-ended file search or codebase exploration that requires multiple rounds of searching, prefer to use SpawnSubagent to reduce context usage and keep the main conversation focused.
 - You should proactively use SpawnSubagent when a research task requires many search rounds, or when independent investigations can run in parallel.
 - Launch multiple subagents concurrently whenever possible — include multiple SpawnSubagent calls in a single response to maximize performance.
 - When you are not confident you can find what you need in 1-2 tool calls, use SpawnSubagent instead.
+""";
+    }
+
+    private static string GetHostEnvironmentSection()
+    {
+        string osName;
+        string shell;
+        string shellTips;
+
+        if (OperatingSystem.IsWindows())
+        {
+            var version = Environment.OSVersion.Version;
+            osName = $"Windows {version.Major}.{version.Minor} (Build {version.Build})";
+            shell = "PowerShell";
+            shellTips =
+"""
+  - Variables: `$env:VAR_NAME` (not `$VAR_NAME`)
+  - Command existence: `Get-Command <name>` (not `which`)
+  - Null discard: `$null` (not `/dev/null`)
+  - Path separator: `\` (use quotes for paths with spaces)
+  - Chaining: `;` to sequence, `&&` requires PowerShell 7+
+""";
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            osName = "macOS";
+            shell = "Bash";
+            shellTips =
+"""
+  - Standard Unix/Bash syntax applies
+  - Use `/bin/bash` compatible commands
+""";
+        }
+        else
+        {
+            osName = "Linux";
+            shell = "Bash";
+            shellTips =
+"""
+  - Standard Unix/Bash syntax applies
+""";
+        }
+
+        return
+$$"""
+## Environment
+- OS: {{osName}}
+- Shell: {{shell}}
+
+When using the Exec tool, write commands for {{shell}}. Key syntax notes:
+{{shellTips}}
+""";
+    }
+
+    private static string GetSandboxEnvironmentSection()
+    {
+        return
+"""
+## Environment
+- OS: Linux (sandbox container)
+- Shell: Bash
+
+When using the Exec tool, write standard Bash commands.
 """;
     }
 

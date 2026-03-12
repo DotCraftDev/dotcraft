@@ -25,7 +25,7 @@ public sealed class SandboxShellTools
         _maxOutputLength = maxOutputLength;
     }
 
-    [Description("Execute a shell command and return its output. Uses PowerShell on Windows and Bash on Linux. Use with caution.")]
+    [Description("Execute a shell command and return its output.")]
     [Tool(Icon = "⌨️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.Exec))]
     public async Task<string> Exec(
         [Description("The shell command to execute.")] string command,
