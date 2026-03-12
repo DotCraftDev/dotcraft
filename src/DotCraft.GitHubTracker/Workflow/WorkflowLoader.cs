@@ -206,6 +206,14 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
             if (tracker.TryGetValue("repository", out var repo)) config.Tracker.Repository = repo?.ToString();
             if (tracker.TryGetValue("active_states", out var active)) config.Tracker.ActiveStates = ParseStringList(active);
             if (tracker.TryGetValue("terminal_states", out var terminal)) config.Tracker.TerminalStates = ParseStringList(terminal);
+            if (tracker.TryGetValue("track_pull_requests", out var tpr) && bool.TryParse(tpr?.ToString(), out var tprVal))
+                config.Tracker.TrackPullRequests = tprVal;
+            if (tracker.TryGetValue("pull_request_active_states", out var prActive))
+                config.Tracker.PullRequestActiveStates = ParseStringList(prActive);
+            if (tracker.TryGetValue("pull_request_terminal_states", out var prTerminal))
+                config.Tracker.PullRequestTerminalStates = ParseStringList(prTerminal);
+            if (tracker.TryGetValue("pull_request_label_filter", out var prLabel))
+                config.Tracker.PullRequestLabelFilter = prLabel?.ToString();
         }
 
         if (raw.TryGetValue("polling", out var pollingObj) && pollingObj is Dictionary<object, object> polling)
@@ -227,6 +235,8 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 config.Agent.MaxTurns = mtVal;
             if (agent.TryGetValue("max_retry_backoff_ms", out var mrb) && int.TryParse(mrb?.ToString(), out var mrbVal))
                 config.Agent.MaxRetryBackoffMs = mrbVal;
+            if (agent.TryGetValue("max_concurrent_pull_request_agents", out var mcpra) && int.TryParse(mcpra?.ToString(), out var mcpraVal))
+                config.Agent.MaxConcurrentPullRequestAgents = mcpraVal;
         }
 
         if (raw.TryGetValue("hooks", out var hooksObj) && hooksObj is Dictionary<object, object> hooks)
