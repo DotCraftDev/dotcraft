@@ -11,7 +11,7 @@
       "GitHubStateLabelPrefix": "status:",
       "TrackPullRequests": true,
       "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
-      "PullRequestTerminalStates": ["Merged", "Closed", "Approved", "Changes Requested"],
+      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"],
       "PullRequestLabelFilter": "auto-review"
     },
     "Polling": {
