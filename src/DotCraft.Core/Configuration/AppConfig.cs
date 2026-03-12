@@ -95,6 +95,8 @@ public sealed class AppConfig
 
     public GitHubTrackerConfig GitHubTracker { get; set; } = new();
 
+    public LoggingConfig Logging { get; set; } = new();
+
     public List<McpServerConfig> McpServers { get; set; } = [];
 
     public static AppConfig Load(string path)
@@ -533,5 +535,28 @@ public sealed class AppConfig
         /// Dashboard login password.
         /// </summary>
         public string Password { get; set; } = string.Empty;
+    }
+
+    public sealed class LoggingConfig
+    {
+        /// <summary>
+        /// Enable file logging. Default: true.
+        /// </summary>
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>
+        /// Minimum log level: Trace, Debug, Information, Warning, Error, Critical. Default: Information.
+        /// </summary>
+        public string MinLevel { get; set; } = "Information";
+
+        /// <summary>
+        /// Log directory relative to the .craft path. Default: "logs".
+        /// </summary>
+        public string Directory { get; set; } = "logs";
+
+        /// <summary>
+        /// Number of days to retain log files before deletion. Set to 0 to disable cleanup. Default: 7.
+        /// </summary>
+        public int RetentionDays { get; set; } = 7;
     }
 }

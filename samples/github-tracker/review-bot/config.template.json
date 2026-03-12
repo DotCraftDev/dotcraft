@@ -35,5 +35,11 @@
       "BeforeRemove": "",
       "TimeoutMs": 60000
     }
+  },
+  "Logging": {
+    "Enabled": true,
+    "MinLevel": "Information",
+    "Directory": "logs",
+    "RetentionDays": 7
   }
 }
