@@ -111,7 +111,7 @@ dotcraft
 4. 分析变更，通过 `gh pr comment` 或 `gh api` 在 PR 上发布结构化 Review 评论。
 5. 调用 `complete_issue` 关闭 Review 请求 Issue。
 
-**能力限制说明**：当前 `GitHubTracker` 仅对 GitHub _Issues_ 进行派发，PR 本身（带有 `pull_request` 字段的条目）会在候选阶段被过滤掉。review-bot 通过一个代理 Issue 作为触发点来绕过这一限制。如未来 DotCraft 增加对 PR 的原生派发支持，该工作流程文件可相应调整，去掉代理 Issue 步骤。
+**能力限制说明**：当前 `GitHubTracker` 仅对 GitHub _Issues_ 进行派发，PR 本身（带有 `pull_request` 字段的条目）会在候选阶段被过滤掉。review-bot 通过一个代理 Issue 作为触发点来绕过这一限制。
 
 **状态流转**：
 ```

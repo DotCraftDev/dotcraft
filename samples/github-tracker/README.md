@@ -111,7 +111,7 @@ dotcraft
 4. It analyzes the changes and posts a structured review comment on the PR via `gh pr comment` or `gh api`.
 5. It calls `complete_issue` to close the review-request issue.
 
-**Limitation**: `GitHubTracker` currently dispatches only GitHub _issues_, not PRs directly. PRs with the `pull_request` field set are skipped at the discovery stage. The review-bot works around this by using a proxy issue as the trigger. If a future version of DotCraft adds PR-dispatch support, the workflow file can be adapted to remove the proxy issue step.
+**Limitation**: `GitHubTracker` currently dispatches only GitHub _issues_, not PRs directly. PRs with the `pull_request` field set are skipped at the discovery stage. The review-bot works around this by using a proxy issue as the trigger. 
 
 **State flow**:
 ```
