@@ -30,6 +30,18 @@ public sealed partial class GitHubTrackerModule : ModuleBase
         if (string.IsNullOrWhiteSpace(tracker.Tracker.Repository))
             errors.Add("GitHubTracker: tracker.repository is required");
 
+        var prOverlap = tracker.Tracker.PullRequestActiveStates
+            .Intersect(tracker.Tracker.PullRequestTerminalStates, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (prOverlap.Count > 0)
+            errors.Add($"GitHubTracker: PullRequestActiveStates and PullRequestTerminalStates must not overlap. Conflicting states: {string.Join(", ", prOverlap)}");
+
+        var issueOverlap = tracker.Tracker.ActiveStates
+            .Intersect(tracker.Tracker.TerminalStates, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (issueOverlap.Count > 0)
+            errors.Add($"GitHubTracker: ActiveStates and TerminalStates must not overlap. Conflicting states: {string.Join(", ", issueOverlap)}");
+
         return errors;
     }
 
