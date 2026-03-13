@@ -1,4 +1,3 @@
-using DotCraft.Diagnostics;
 using DotCraft.Configuration;
 using DotCraft.Security;
 using DotCraft.Tools;
@@ -116,26 +115,15 @@ public sealed class SubAgentManager
     /// </summary>
     public async Task<string> SpawnAsync(string task, string? label = null)
     {
-        var taskId = Guid.NewGuid().ToString("N")[..8];
-        var displayLabel = label ?? (task.Length > 30 ? task[..30] + "..." : task);
-
         try
         {
             // Throttle concurrent subagent executions to respect API rate limits
             await _concurrencyGate.WaitAsync();
             try
             {
-                // Create and execute the subagent
                 var subagent = CreateSubAgent(task);
-                
-                MessageFormatter.SubAgent(taskId, displayLabel);
-                
                 var result = await subagent.RunAsync(task);
-                var text = result.Text;
-                
-                MessageFormatter.SubAgentCompleted(taskId);
-                
-                return text;
+                return result.Text;
             }
             finally
             {
@@ -144,7 +132,6 @@ public sealed class SubAgentManager
         }
         catch (Exception ex)
         {
-            MessageFormatter.SubAgentFailed(taskId, ex.Message);
             return $"Error: {ex.Message}";
         }
     }

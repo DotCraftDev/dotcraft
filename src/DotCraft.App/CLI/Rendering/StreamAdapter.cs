@@ -108,7 +108,8 @@ public static partial class StreamAdapter
                             title,
                             string.Empty,
                             argsJson,
-                            formattedDisplay);
+                            formattedDisplay,
+                            callId: functionCall.CallId);
                         break;
                     }
 
@@ -137,7 +138,8 @@ public static partial class StreamAdapter
                             title,
                             argsJson ?? string.Empty,  // Content = raw args (debug fallback)
                             result,
-                            formattedDisplay);
+                            formattedDisplay,
+                            callId: functionResult.CallId);
                         break;
                     }
                 }

@@ -106,9 +106,16 @@ public class RenderEvent
     public string? FormattedDisplay { get; init; }
 
     /// <summary>
+    /// Unique identifier for a tool call, used to correlate
+    /// <see cref="RenderEventType.ToolCallStarted"/> with its matching
+    /// <see cref="RenderEventType.ToolCallCompleted"/> event (e.g. for parallel SubAgent tracking).
+    /// </summary>
+    public string? CallId { get; init; }
+
+    /// <summary>
     /// Create a ToolCallStarted event
     /// </summary>
-    public static RenderEvent ToolStarted(string? icon, string? title, string content, string? additionalInfo = null, string? formattedDisplay = null)
+    public static RenderEvent ToolStarted(string? icon, string? title, string content, string? additionalInfo = null, string? formattedDisplay = null, string? callId = null)
     {
         return new RenderEvent
         {
@@ -118,14 +125,15 @@ public class RenderEvent
             Content = content,
             AdditionalInfo = additionalInfo,
             Color = "yellow",
-            FormattedDisplay = formattedDisplay
+            FormattedDisplay = formattedDisplay,
+            CallId = callId
         };
     }
 
     /// <summary>
     /// Create a ToolCallCompleted event
     /// </summary>
-    public static RenderEvent ToolCompleted(string? icon, string? title, string content, string? result = null, string? formattedDisplay = null)
+    public static RenderEvent ToolCompleted(string? icon, string? title, string content, string? result = null, string? formattedDisplay = null, string? callId = null)
     {
         return new RenderEvent
         {
@@ -135,7 +143,8 @@ public class RenderEvent
             Content = content,
             AdditionalInfo = result,
             Color = "grey",
-            FormattedDisplay = formattedDisplay
+            FormattedDisplay = formattedDisplay,
+            CallId = callId
         };
     }
 
