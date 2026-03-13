@@ -1,6 +1,5 @@
 using DotCraft.Abstractions;
 using DotCraft.Agents;
-using DotCraft.Api;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
@@ -15,6 +14,7 @@ using DotCraft.Sessions;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
 namespace DotCraft.Gateway;
@@ -72,38 +72,38 @@ public sealed class GatewayHost : IDotCraftHost
         var tokenUsageStore = _sp.GetService<TokenUsageStore>();
         var orchestratorProviders = _sp.GetServices<IOrchestratorSnapshotProvider>().ToList();
 
-        // Dashboard startup is owned by GatewayHost.
-        // When an API channel is present the dashboard is mounted on its web app to avoid port conflicts.
-        // When no API channel exists a standalone DashBoardServer is started instead.
-        DashBoardServer? dashBoardServer = null;
-        if (_config.DashBoard.Enabled && traceStore != null)
+        // --- Phase 1: Register all web-hosting channels with the pool ---
+        // Each IWebHostingChannel gets a shared WebApplicationBuilder keyed by (scheme, host, port).
+        // Channels that share the same address will share one Kestrel server automatically.
+        await using var pool = new WebHostPool();
+
+        foreach (var wc in _channels.OfType<IWebHostingChannel>())
+            pool.Register(wc);
+
+        // Register dashboard into the pool (may share an app with an existing channel).
+        var dashboardEnabled = _config.DashBoard.Enabled && traceStore != null;
+        if (dashboardEnabled)
         {
-            var apiChannel = _channels.OfType<ApiChannelService>().FirstOrDefault();
-            if (apiChannel != null)
-            {
-                var capturedTraceStore = traceStore;
-                var capturedTokenUsageStore = tokenUsageStore;
-                var capturedOrchestratorProviders = orchestratorProviders.Count > 0 ? orchestratorProviders : null;
-                apiChannel.OnConfigureApp = app =>
-                {
-                    app.MapDashBoardAuth(_config);
-                    app.UseDashBoardAuth(_config);
-                    app.MapDashBoard(capturedTraceStore, _paths, capturedTokenUsageStore,
-                        orchestratorProviders: capturedOrchestratorProviders);
-                };
-                var dashboardUrl = $"http://{_config.Api.Host}:{_config.Api.Port}";
-                AnsiConsole.MarkupLine(
-                    $"[green]DashBoard started at[/] [link={dashboardUrl}/dashboard]{dashboardUrl}/dashboard[/]");
-            }
-            else
-            {
-                dashBoardServer = new DashBoardServer();
-                dashBoardServer.Start(traceStore, _config, _paths, tokenUsageStore,
-                    orchestratorProviders: orchestratorProviders.Count > 0 ? orchestratorProviders : null);
-            }
+            var dashHost = _config.DashBoard.Host;
+            var dashPort = _config.DashBoard.Port;
+
+            // If no channel is already bound to the dashboard address, suppress Kestrel
+            // request logging (mirrors the original DashBoardServer behaviour).
+            // When sharing with a channel we leave the builder's logging untouched.
+            var dashStandalone = !_channels.OfType<IWebHostingChannel>()
+                .Any(wc => wc.ListenScheme == "http" &&
+                           wc.ListenHost == dashHost &&
+                           wc.ListenPort == dashPort);
+
+            var dashBuilder = pool.GetOrCreateBuilder("http", dashHost, dashPort);
+            if (dashStandalone)
+                dashBuilder.Logging.ClearProviders();
         }
 
-        // Build a shared agent runner for heartbeat/cron
+        // --- Phase 2: Build all WebApplication instances ---
+        pool.BuildAll();
+
+        // --- Phase 3: Build shared agent runner (required before HeartbeatService) ---
         var sharedAgentRunner = BuildSharedAgentRunner();
 
         // Heartbeat service (shared, notifies all admin channels)
@@ -151,12 +151,34 @@ public sealed class GatewayHost : IDotCraftHost
             }
         };
 
-        // Inject shared services into channels so slash commands (/heartbeat, /cron) work
+        // Inject shared services into channels BEFORE ConfigureApps so channel adapters
+        // (e.g. WeComChannelAdapter) can reference them at construction time.
         foreach (var ch in _channels)
         {
             ch.HeartbeatService = heartbeatService;
             ch.CronService = _cronService;
         }
+
+        // --- Phase 4: Configure apps (map middleware and routes on each WebApplication) ---
+        pool.ConfigureApps();
+
+        // Mount dashboard routes onto its resolved WebApplication.
+        if (dashboardEnabled)
+        {
+            var capturedOrchestrators = orchestratorProviders.Count > 0 ? orchestratorProviders : null;
+            var dashApp = pool.GetApp("http", _config.DashBoard.Host, _config.DashBoard.Port);
+            dashApp.MapDashBoardAuth(_config);
+            dashApp.UseDashBoardAuth(_config);
+            dashApp.MapDashBoard(traceStore!, _paths, tokenUsageStore,
+                orchestratorProviders: capturedOrchestrators);
+
+            var dashboardUrl = $"http://{_config.DashBoard.Host}:{_config.DashBoard.Port}";
+            AnsiConsole.MarkupLine(
+                $"[green]DashBoard started at[/] [link={dashboardUrl}/dashboard]{dashboardUrl}/dashboard[/]");
+        }
+
+        // --- Phase 5: Start all web servers ---
+        await pool.StartAllAsync();
 
         if (_config.Heartbeat.Enabled)
         {
@@ -172,7 +194,8 @@ public sealed class GatewayHost : IDotCraftHost
 
         PrintStartupSummary();
 
-        // Start all channels concurrently
+        // --- Phase 6: Start all channel tasks concurrently ---
+        // Web-hosting channels now just wait for cancellation; non-web channels run their own loops.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         var channelTasks = _channels
@@ -193,9 +216,7 @@ public sealed class GatewayHost : IDotCraftHost
         heartbeatService.Stop();
         _cronService.Stop();
 
-        if (dashBoardServer != null)
-            await dashBoardServer.DisposeAsync();
-
+        // Web servers are stopped by the pool's DisposeAsync (triggered by 'await using').
         AnsiConsole.MarkupLine("[grey][[Gateway]] All channels stopped.[/]");
     }
 

@@ -36,6 +36,8 @@ namespace DotCraft.Api;
 /// <summary>
 /// Gateway channel service for OpenAI-compatible HTTP API.
 /// Manages the ASP.NET Core web server and agent lifecycle as part of a multi-channel gateway.
+/// Implements <see cref="IWebHostingChannel"/> so <see cref="WebHostPool"/> can merge it with
+/// other services that share the same host:port (e.g. the Dashboard).
 /// </summary>
 public sealed class ApiChannelService(
     IServiceProvider sp,
@@ -48,10 +50,14 @@ public sealed class ApiChannelService(
     McpClientManager mcpClientManager,
     ApiApprovalService approvalService,
     ModuleRegistry moduleRegistry)
-    : IChannelService
+    : IChannelService, IWebHostingChannel
 {
     private WebApplication? _webApp;
     private AgentFactory? _agentFactory;
+
+    // Stored during ConfigureBuilder, consumed during ConfigureApp
+    private IHostedAgentBuilder? _agentBuilder;
+    private List<AITool>? _tools;
 
     public string Name => "api";
 
@@ -67,70 +73,42 @@ public sealed class ApiChannelService(
     /// <inheritdoc />
     public object? ChannelClient => null;
 
-    /// <summary>
-    /// Optional callback invoked by GatewayHost to inject additional routes (e.g. dashboard)
-    /// onto this channel's WebApplication before it starts listening.
-    /// </summary>
-    public Action<WebApplication>? OnConfigureApp { get; set; }
+    #region IWebHostingChannel
 
-    private AgentFactory BuildAgentFactory()
-    {
-        var cronTools = sp.GetService<CronTools>();
-        var traceCollector = sp.GetService<TraceCollector>();
-        var hookRunner = sp.GetService<HookRunner>();
+    /// <inheritdoc />
+    public string ListenHost => string.IsNullOrWhiteSpace(config.Api.Host) ? "127.0.0.1" : config.Api.Host;
 
-        // Collect tool providers from modules
-        var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
+    /// <inheritdoc />
+    public int ListenPort => config.Api.Port <= 0 ? 8080 : config.Api.Port;
 
-        return new AgentFactory(
-            paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, approvalService, blacklist,
-            toolProviders: toolProviders,
-            toolProviderContext: new ToolProviderContext
-            {
-                Config = config,
-                ChatClient = new OpenAIClient(
-                    new ApiKeyCredential(config.ApiKey),
-                    new OpenAIClientOptions { Endpoint = new Uri(config.EndPoint) })
-                    .GetChatClient(config.Model),
-                WorkspacePath = paths.WorkspacePath,
-                BotPath = paths.CraftPath,
-                MemoryStore = memoryStore,
-                SkillsLoader = skillsLoader,
-                ApprovalService = approvalService,
-                PathBlacklist = blacklist,
-                CronTools = cronTools,
-                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
-                TraceCollector = traceCollector
-            },
-            traceCollector: traceCollector,
-            customCommandLoader: sp.GetService<CustomCommandLoader>(),
-            onConsolidatorStatus: AnsiConsole.MarkupLine,
-            hookRunner: hookRunner);
-    }
-
-    public async Task StartAsync(CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public void ConfigureBuilder(WebApplicationBuilder builder)
     {
         _agentFactory = BuildAgentFactory();
         var traceCollector = sp.GetService<TraceCollector>();
 
-        var tools = _agentFactory.CreateDefaultTools();
+        _tools = _agentFactory.CreateDefaultTools();
 
-        var builder = WebApplication.CreateBuilder();
         builder.AddOpenAIChatCompletions();
 
-        var agentBuilder = builder.AddAIAgent(
+        _agentBuilder = builder.AddAIAgent(
             "dotcraft",
             _agentFactory.CreateToolCallFilteringChatClient(),
-            CreateApiAgentOptions(tools, traceCollector))
-            .WithAITools(tools.ToArray())
+            CreateApiAgentOptions(_tools, traceCollector))
+            .WithAITools(_tools.ToArray())
             .WithInMemorySessionStore();
+    }
 
-        _webApp = builder.Build();
+    /// <inheritdoc />
+    public void ConfigureApp(WebApplication app)
+    {
+        _webApp = app;
+
+        var traceCollector = sp.GetService<TraceCollector>();
 
         if (!string.IsNullOrEmpty(config.Api.ApiKey))
         {
-            _webApp.Use(async (context, next) =>
+            app.Use(async (context, next) =>
             {
                 var path = context.Request.Path.Value ?? "";
                 if (path.StartsWith("/dotcraft/", StringComparison.OrdinalIgnoreCase) ||
@@ -147,8 +125,7 @@ public sealed class ApiChannelService(
                         authHeader["Bearer ".Length..].Trim() != config.Api.ApiKey)
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                        await context.Response.WriteAsJsonAsync(new { error = "unauthorized" },
-                            cancellationToken: cancellationToken);
+                        await context.Response.WriteAsJsonAsync(new { error = "unauthorized" });
                         return;
                     }
                 }
@@ -160,7 +137,7 @@ public sealed class ApiChannelService(
         {
             var capturedTraceStore = sp.GetService<TraceStore>();
             var capturedTokenUsageStore = sp.GetService<TokenUsageStore>();
-            _webApp.Use(async (context, next) =>
+            app.Use(async (context, next) =>
             {
                 var path = context.Request.Path.Value ?? "";
                 if (path.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
@@ -207,38 +184,73 @@ public sealed class ApiChannelService(
             });
         }
 
-        _webApp.Use(NonStreamingResponseMiddleware);
-        _webApp.MapOpenAIChatCompletions(agentBuilder);
+        app.Use(NonStreamingResponseMiddleware);
+        app.MapOpenAIChatCompletions(_agentBuilder!);
 
-        var agent = _agentFactory.CreateAgentWithTools(tools);
+        var agent = _agentFactory!.CreateAgentWithTools(_tools!);
         var sessionGate = sp.GetRequiredService<SessionGate>();
-        var hookRunner2 = sp.GetService<HookRunner>();
-        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner2);
+        var hookRunner = sp.GetService<HookRunner>();
+        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner);
 
-        MapAdditionalRoutes(_webApp, runner);
+        MapAdditionalRoutes(app, runner);
 
-        // Allow GatewayHost to inject additional routes (e.g. dashboard) before the app starts.
-        OnConfigureApp?.Invoke(_webApp);
-
-        var url = $"http://{config.Api.Host}:{config.Api.Port}";
+        var url = $"http://{ListenHost}:{ListenPort}";
         AnsiConsole.MarkupLine($"[green][[Gateway]][/] API listening on {Markup.Escape(url)}");
 
         var approvalMode = ApiApprovalService.ParseMode(config.Api.ApprovalMode, config.Api.AutoApprove);
-        AnsiConsole.MarkupLine(
-            $"[grey]  Approval mode: {approvalMode.ToString().ToLowerInvariant()}[/]");
+        AnsiConsole.MarkupLine($"[grey]  Approval mode: {approvalMode.ToString().ToLowerInvariant()}[/]");
+    }
 
-        _ = _webApp.RunAsync(url);
+    #endregion
 
-        // Wait for cancellation
+    private AgentFactory BuildAgentFactory()
+    {
+        var cronTools = sp.GetService<CronTools>();
+        var traceCollector = sp.GetService<TraceCollector>();
+        var hookRunner = sp.GetService<HookRunner>();
+
+        // Collect tool providers from modules
+        var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
+
+        return new AgentFactory(
+            paths.CraftPath, paths.WorkspacePath, config,
+            memoryStore, skillsLoader, approvalService, blacklist,
+            toolProviders: toolProviders,
+            toolProviderContext: new ToolProviderContext
+            {
+                Config = config,
+                ChatClient = new OpenAIClient(
+                    new ApiKeyCredential(config.ApiKey),
+                    new OpenAIClientOptions { Endpoint = new Uri(config.EndPoint) })
+                    .GetChatClient(config.Model),
+                WorkspacePath = paths.WorkspacePath,
+                BotPath = paths.CraftPath,
+                MemoryStore = memoryStore,
+                SkillsLoader = skillsLoader,
+                ApprovalService = approvalService,
+                PathBlacklist = blacklist,
+                CronTools = cronTools,
+                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                TraceCollector = traceCollector
+            },
+            traceCollector: traceCollector,
+            customCommandLoader: sp.GetService<CustomCommandLoader>(),
+            onConsolidatorStatus: AnsiConsole.MarkupLine,
+            hookRunner: hookRunner);
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        // Web server lifecycle is managed by WebHostPool in GatewayHost.
+        // This task just holds open until the cancellation token fires.
         var tcs = new TaskCompletionSource();
         await using var reg = cancellationToken.Register(() => tcs.TrySetResult());
         await tcs.Task;
-
-        await StopAsync();
     }
 
     public async Task StopAsync()
     {
+        // WebApp is stopped by the pool; nothing extra to do here.
         if (_webApp != null)
             await _webApp.StopAsync();
     }
