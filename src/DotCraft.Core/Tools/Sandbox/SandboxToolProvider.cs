@@ -28,6 +28,10 @@ public sealed class SandboxToolProvider : IAgentToolProvider
         var sandboxManager = new SandboxSessionManager(sandboxConfig, context.WorkspacePath);
         context.DisposableResources.Add(sandboxManager);
 
+        // Override the default HostAgentFileSystem with sandbox-aware implementation
+        // so channel tools can transparently access sandbox files.
+        context.AgentFileSystem = new SandboxAgentFileSystem(sandboxManager);
+
         // Sandbox shell tools (replaces ShellTools)
         var shellTools = new SandboxShellTools(
             sandboxManager,

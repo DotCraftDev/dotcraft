@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
+using DotCraft.Abstractions;
 using DotCraft.Tools;
 
 namespace DotCraft.WeCom;
@@ -9,9 +10,10 @@ namespace DotCraft.WeCom;
 /// WeCom (企业微信) group bot webhook tools.
 /// Supports sending text messages to WeCom group chats via webhook.
 /// </summary>
-public sealed class WeComTools(string webhookUrl, HttpClient? httpClient = null)
+public sealed class WeComTools(string webhookUrl, IAgentFileSystem? fileSystem = null, HttpClient? httpClient = null)
 {
     private readonly HttpClient _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    private readonly IAgentFileSystem? _fileSystem = fileSystem;
 
     /// <summary>
     /// Send a text message to the configured WeCom group via webhook.
@@ -115,16 +117,23 @@ public sealed class WeComTools(string webhookUrl, HttpClient? httpClient = null)
         if (pusher == null)
             return JsonSerializer.Serialize(new { error = "WeCom bot context not available (no current chat)." });
 
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-            return JsonSerializer.Serialize(new { error = "Voice file does not exist." });
+        if (string.IsNullOrWhiteSpace(filePath))
+            return JsonSerializer.Serialize(new { error = "Voice file path cannot be empty." });
 
         if (!filePath.EndsWith(".amr", StringComparison.OrdinalIgnoreCase))
             return JsonSerializer.Serialize(new { error = "WeCom voice messages only support AMR format. For other audio formats (mp3/wav/etc.), please use WeComSendFile instead." });
 
         try
         {
-            await using var fs = File.OpenRead(filePath);
-            var mediaId = await pusher.UploadMediaAsync(fs, Path.GetFileName(filePath), "voice");
+            using var handle = _fileSystem != null
+                ? await _fileSystem.ResolveHostFileAsync(filePath)
+                : new HostFileHandle(filePath);
+
+            if (!File.Exists(handle.HostPath))
+                return JsonSerializer.Serialize(new { error = "Voice file does not exist." });
+
+            await using var fs = File.OpenRead(handle.HostPath);
+            var mediaId = await pusher.UploadMediaAsync(fs, handle.FileName, "voice");
             await pusher.PushVoiceAsync(mediaId);
             return JsonSerializer.Serialize(new { success = true, message = "Voice sent." });
         }
@@ -143,13 +152,20 @@ public sealed class WeComTools(string webhookUrl, HttpClient? httpClient = null)
         if (pusher == null)
             return JsonSerializer.Serialize(new { error = "WeCom bot context not available (no current chat)." });
 
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-            return JsonSerializer.Serialize(new { error = "File does not exist." });
+        if (string.IsNullOrWhiteSpace(filePath))
+            return JsonSerializer.Serialize(new { error = "File path cannot be empty." });
 
         try
         {
-            await using var fs = File.OpenRead(filePath);
-            var mediaId = await pusher.UploadMediaAsync(fs, Path.GetFileName(filePath), "file");
+            using var handle = _fileSystem != null
+                ? await _fileSystem.ResolveHostFileAsync(filePath)
+                : new HostFileHandle(filePath);
+
+            if (!File.Exists(handle.HostPath))
+                return JsonSerializer.Serialize(new { error = "File does not exist." });
+
+            await using var fs = File.OpenRead(handle.HostPath);
+            var mediaId = await pusher.UploadMediaAsync(fs, handle.FileName, "file");
             await pusher.PushFileAsync(mediaId);
             return JsonSerializer.Serialize(new { success = true, message = "File sent." });
         }
