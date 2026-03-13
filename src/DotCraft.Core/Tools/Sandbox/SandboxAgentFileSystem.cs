@@ -29,7 +29,16 @@ public sealed class SandboxAgentFileSystem(SandboxSessionManager sandboxManager)
 
     public async Task<string> ReadAsBase64Async(string path)
     {
-        return await ReadBase64FromSandboxAsync(ResolveSandboxPath(path));
+        var base64 = await ReadBase64FromSandboxAsync(ResolveSandboxPath(path));
+
+        // Infer binary size from base64 length to avoid decoding a huge string.
+        // base64 encodes 3 bytes as 4 chars, so decoded_size ≈ length * 3 / 4.
+        var approxBytes = (long)base64.Length * 3 / 4;
+        if (approxBytes > HostAgentFileSystem.MaxTransferSize)
+            throw new IOException(
+                $"File too large for transfer (~{approxBytes} bytes). Maximum: {HostAgentFileSystem.MaxTransferSize} bytes.");
+
+        return base64;
     }
 
     private async Task<string> ReadBase64FromSandboxAsync(string sandboxPath)
