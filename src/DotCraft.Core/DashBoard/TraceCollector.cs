@@ -153,6 +153,16 @@ public sealed class TraceCollector(TraceStore store)
         });
     }
 
+    public void RecordThinking(string sessionKey, string content)
+    {
+        store.Record(new TraceEvent
+        {
+            Type = TraceEventType.Thinking,
+            SessionKey = sessionKey,
+            Content = content
+        });
+    }
+
     public ToolCallTimer StartToolTimer()
     {
         return new ToolCallTimer();

@@ -40,6 +40,12 @@ public sealed class SetupHost(AppConfig config, DotCraftPaths paths, LanguageSer
             ApiKey = source.ApiKey,
             Model = source.Model,
             EndPoint = source.EndPoint,
+            Reasoning = new AppConfig.ReasoningConfig
+            {
+                Enabled = source.Reasoning.Enabled,
+                Effort = source.Reasoning.Effort,
+                Output = source.Reasoning.Output
+            },
             Language = source.Language,
             MaxToolCallRounds = source.MaxToolCallRounds,
             SubagentMaxToolCallRounds = source.SubagentMaxToolCallRounds,

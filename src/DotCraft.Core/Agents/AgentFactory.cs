@@ -320,10 +320,7 @@ public sealed class AgentFactory : IAsyncDisposable
         {
             Name = "DotCraft",
             UseProvidedChatClientAsIs = true,
-            ChatOptions = new ChatOptions
-            {
-                Tools = tools
-            },
+            ChatOptions = CreateChatOptions(tools),
             AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
                 new MemoryContextProvider(
                     _memoryStore,
@@ -340,6 +337,15 @@ public sealed class AgentFactory : IAsyncDisposable
         };
 
         return configuredChatClient.AsAIAgent(options);
+    }
+
+    /// <summary>
+    /// Creates provider-specific reasoning options based on the current configuration.
+    /// Returns <see langword="null"/> when reasoning is disabled.
+    /// </summary>
+    public ReasoningOptions? CreateReasoningOptions()
+    {
+        return _config.Reasoning.ToOptions();
     }
 
     /// <summary>
@@ -407,6 +413,20 @@ public sealed class AgentFactory : IAsyncDisposable
         return config.EnabledTools.Count == 0
             ? []
             : new HashSet<string>(config.EnabledTools, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private ChatOptions CreateChatOptions(IEnumerable<AITool> tools, string? instructions = null)
+    {
+        var chatOptions = new ChatOptions
+        {
+            Tools = [.. tools],
+            Reasoning = CreateReasoningOptions()
+        };
+
+        if (!string.IsNullOrWhiteSpace(instructions))
+            chatOptions.Instructions = instructions;
+
+        return chatOptions;
     }
 
     /// <summary>

@@ -212,6 +212,13 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                         {
                             switch (content)
                             {
+                                case TextReasoningContent reasoning:
+                                    if (ReasoningContentHelper.TryGetText(reasoning, out var reasoningText))
+                                    {
+                                        ReasoningContentHelper.AppendBlock(textBuffer, reasoningText);
+                                        LogThinking(reasoningText);
+                                    }
+                                    break;
                                 case FunctionCallContent functionCall:
                                     await FlushTextBufferAsync(evt, textBuffer);
 
@@ -428,5 +435,11 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         var preview = text.Length > 200 ? text[..200] + "..." : text;
         var normalized = preview.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
         AnsiConsole.MarkupLine($"[grey][[QQ]][/]   [grey]{Markup.Escape(normalized)}[/]");
+    }
+
+    private static void LogThinking(string text)
+    {
+        var preview = ReasoningContentHelper.ToInlinePreview(text);
+        AnsiConsole.MarkupLine($"[grey][[QQ]][/] [cyan]💭 Thinking[/] [grey]{Markup.Escape(preview)}[/]");
     }
 }

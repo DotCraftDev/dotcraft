@@ -105,6 +105,17 @@ public sealed class AgentRunner(
                     {
                         switch (content)
                         {
+                            case TextReasoningContent reasoning:
+                            {
+                                if (ReasoningContentHelper.TryGetText(reasoning, out var text))
+                                {
+                                    var preview = ReasoningContentHelper.ToInlinePreview(text);
+                                    AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [cyan]💭 Thinking[/] [grey]{Markup.Escape(preview)}[/]");
+                                    ReasoningContentHelper.AppendBlock(sb, text);
+                                }
+                                break;
+                            }
+
                             case FunctionCallContent fc:
                             {
                                 var icon = ToolRegistry.GetToolIcon(fc.Name);

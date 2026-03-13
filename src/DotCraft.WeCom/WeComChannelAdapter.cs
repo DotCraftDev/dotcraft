@@ -186,6 +186,14 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                         {
                             switch (content)
                             {
+                                case TextReasoningContent reasoning:
+                                    if (ReasoningContentHelper.TryGetText(reasoning, out var reasoningText))
+                                    {
+                                        ReasoningContentHelper.AppendBlock(textBuffer, reasoningText);
+                                        LogThinking(reasoningText);
+                                    }
+                                    break;
+
                                 case FunctionCallContent functionCall:
                                     await FlushTextBufferAsync(pusher, textBuffer);
 
@@ -452,6 +460,12 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         var normalized = preview.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
         AnsiConsole.MarkupLine(
             $"[grey][[WeCom]][/]   [grey]{Markup.Escape(normalized)}[/]");
+    }
+
+    private static void LogThinking(string text)
+    {
+        var preview = ReasoningContentHelper.ToInlinePreview(text);
+        AnsiConsole.MarkupLine($"[grey][[WeCom]][/] [cyan]💭 Thinking[/] [grey]{Markup.Escape(preview)}[/]");
     }
 
     #endregion

@@ -29,6 +29,8 @@
   --info-dim: rgba(96,165,250,0.12);
   --cyan: #22d3ee;
   --cyan-dim: rgba(34,211,238,0.12);
+  --thinking: #c084fc;
+  --thinking-dim: rgba(192,132,252,0.12);
   --radius: 8px;
   --radius-lg: 12px;
   --shadow: 0 2px 12px rgba(0,0,0,0.25);
@@ -353,6 +355,7 @@ body {
 .trace-event.type-TokenUsage { border-left-color: var(--cyan); }
 .trace-event.type-Error { border-left-color: var(--error); }
 .trace-event.type-ContextCompaction { border-left-color: var(--text-muted); }
+.trace-event.type-Thinking { border-left-color: var(--thinking); }
 
 .trace-time {
   font-family: var(--font-mono);
@@ -385,6 +388,7 @@ body {
 .trace-label.token { color: var(--cyan); }
 .trace-label.error { color: var(--error); }
 .trace-label.compaction { color: var(--text-muted); }
+.trace-label.thinking { color: var(--thinking); }
 
 .trace-content {
   font-size: 13px;
@@ -1087,6 +1091,7 @@ body {
               <button class="filter-chip active" data-filter="all" onclick="setTraceFilter('all')">All</button>
               <button class="filter-chip" data-filter="Request" onclick="setTraceFilter('Request')">Requests</button>
               <button class="filter-chip" data-filter="Response" onclick="setTraceFilter('Response')">Responses</button>
+              <button class="filter-chip" data-filter="Thinking" onclick="setTraceFilter('Thinking')">Thinking</button>
               <button class="filter-chip" data-filter="Tool" onclick="setTraceFilter('Tool')">Tools</button>
               <button class="filter-chip" data-filter="TokenUsage" onclick="setTraceFilter('TokenUsage')">Tokens</button>
               <button class="filter-chip" data-filter="Error" onclick="setTraceFilter('Error')">Errors</button>
@@ -1597,6 +1602,17 @@ function renderTraceEvent(e) {
           <div class="trace-content">${escapeHtml(e.content || '')}</div>
         </div></div>`;
 
+    case 'Thinking':
+      return `<div class="trace-event type-Thinking">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">💭</div>
+        <div class="trace-body">
+          <div class="trace-label thinking">Thinking${e.sessionKey && !selectedSession ? ' <span class="badge badge-info">' + escapeHtml(e.sessionKey) + '</span>' : ''}</div>
+          <div class="trace-content">${escapeHtml(truncate(e.content, 300))}</div>
+          ${metaLine}
+          ${e.content && e.content.length > 300 ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Show full</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.content)}</div>` : ''}
+        </div></div>`;
+
     default:
       return '';
   }
@@ -1842,6 +1858,15 @@ const CONFIG_SCHEMA = [
       { key: 'MemoryWindow',              type: 'number', min: 0, hint: '0 = disable consolidation', defaultValue: 50 },
       { key: 'DebugMode',                 type: 'bool', defaultValue: false },
       { key: 'EnabledTools',              type: 'json', hint: 'JSON array of tool names, e.g. ["Shell","File"]. Empty = all enabled.' },
+    ]
+  },
+  {
+    section: 'Reasoning',
+    path: ['Reasoning'],
+    fields: [
+      { key: 'Enabled', type: 'bool', defaultValue: true, hint: 'Request provider reasoning/thinking support when available.' },
+      { key: 'Effort',  type: 'select', options: ['None', 'Low', 'Medium', 'High', 'ExtraHigh'], defaultValue: 'Medium' },
+      { key: 'Output',  type: 'select', options: ['None', 'Summary', 'Full'], defaultValue: 'Summary', hint: 'Controls whether reasoning content is exposed in responses.' },
     ]
   },
   {

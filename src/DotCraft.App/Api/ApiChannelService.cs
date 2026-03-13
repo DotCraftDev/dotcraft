@@ -384,6 +384,10 @@ public sealed class ApiChannelService(
     {
         return new ChatClientAgentOptions
         {
+            ChatOptions = new ChatOptions
+            {
+                Reasoning = _agentFactory?.CreateReasoningOptions()
+            },
             AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
                 new MemoryContextProvider(
                     memoryStore, skillsLoader,

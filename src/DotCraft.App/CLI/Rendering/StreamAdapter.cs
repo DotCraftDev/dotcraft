@@ -58,6 +58,13 @@ public static partial class StreamAdapter
             {
                 switch (content)
                 {
+                    case TextReasoningContent reasoning:
+                    {
+                        if (Agents.ReasoningContentHelper.TryGetText(reasoning, out var reasoningText))
+                            yield return RenderEvent.Thinking("💭", "Thinking", reasoningText);
+                        break;
+                    }
+
                     case UsageContent usage:
                     {
                         if (usage.Details.InputTokenCount.HasValue)

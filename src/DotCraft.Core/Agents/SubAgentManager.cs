@@ -1,4 +1,5 @@
 using DotCraft.Diagnostics;
+using DotCraft.Configuration;
 using DotCraft.Security;
 using DotCraft.Tools;
 using DotCraft.Tools.Sandbox;
@@ -39,12 +40,15 @@ public sealed class SubAgentManager
 
     private readonly bool _useSandbox;
 
+    private readonly AppConfig.ReasoningConfig _reasoningConfig;
+
     public SubAgentManager(
         ChatClient chatClient, 
         string workspaceRoot, 
         int maxToolCallRounds = 15,
         int maxConcurrency = 3,
         int shellTimeout = 60,
+        AppConfig.ReasoningConfig? reasoningConfig = null,
         PathBlacklist? blacklist = null,
         SandboxSessionManager? sandboxManager = null)
     {
@@ -53,6 +57,7 @@ public sealed class SubAgentManager
         _maxToolCallRounds = maxToolCallRounds;
         _concurrencyGate = new SemaphoreSlim(maxConcurrency, maxConcurrency);
         _useSandbox = sandboxManager != null;
+        _reasoningConfig = reasoningConfig ?? new AppConfig.ReasoningConfig();
 
         if (sandboxManager != null)
         {
@@ -193,7 +198,8 @@ public sealed class SubAgentManager
             ChatOptions = new ChatOptions
             {
                 Instructions = systemPrompt,
-                Tools = tools
+                Tools = tools,
+                Reasoning = _reasoningConfig.ToOptions()
             }
         };
 

@@ -13,7 +13,8 @@ public enum TraceEventType
     ToolCallCompleted,
     TokenUsage,
     Error,
-    ContextCompaction
+    ContextCompaction,
+    Thinking
 }
 
 public sealed class TraceEvent
@@ -112,6 +113,8 @@ public sealed class TraceSession
     public int ErrorCount { get; set; }
 
     public int ContextCompactionCount { get; set; }
+
+    public int ThinkingCount { get; set; }
 
     public string? FinalSystemPrompt { get; set; }
 

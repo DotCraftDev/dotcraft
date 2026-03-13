@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using DotCraft.Agents;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.DashBoard;
@@ -186,6 +187,13 @@ public sealed class TracingChatClient(IChatClient innerClient, TraceCollector co
             {
                 switch (content)
                 {
+                    case TextReasoningContent reasoning:
+                    {
+                        if (ReasoningContentHelper.TryGetText(reasoning, out var text))
+                            collector.RecordThinking(sessionKey, text);
+                        break;
+                    }
+
                     case FunctionCallContent fc:
                     {
                         var callId = fc.CallId ?? "";

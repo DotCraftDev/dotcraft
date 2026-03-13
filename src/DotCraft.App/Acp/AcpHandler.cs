@@ -469,6 +469,11 @@ public sealed class AcpHandler(
                     {
                         switch (content)
                         {
+                            case TextReasoningContent reasoning:
+                                if (ReasoningContentHelper.TryGetText(reasoning, out var reasoningText))
+                                    SendMessageChunk(sessionId, ReasoningContentHelper.FormatBlock(reasoningText));
+                                break;
+
                             case FunctionCallContent fc:
                                 SendToolCallStarted(sessionId, fc);
                                 break;
