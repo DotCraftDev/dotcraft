@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/8c5828b4-1682-4410-9df0-ca7d60fa2683
 - 🛠️ **工具能力**: 文件、Shell、Web 与 SubAgent 工具，面向真实工作流而不是单轮对话
 - 🔌 **开放协议**: 支持 [MCP](https://modelcontextprotocol.io/)、[ACP](https://agentclientprotocol.com/)、AG-UI 与 OpenAI 兼容 API
 - 🖥️ **编辑器接入**: 原生支持 ACP 兼容编辑器，在熟悉的 IDE 中直接使用 DotCraft
-- 👥 **团队协作原生**: `GitHubTracker` 将 Issue、开发、Review 与交接串进同一条工作区协作链路
+- 👥 **团队协作原生**: GitHub Tracker 将 Issue、开发、Review 与交接串进同一条工作区协作链路
 - 🐳 **沙箱隔离**: 基于 [OpenSandbox](https://github.com/alibaba/OpenSandbox) 提供可选的安全执行环境
 - 🎯 **Unity 集成**: 支持 Unity 编辑器扩展、场景与资源相关能力
 - 📊 **Dashboard**: 查看会话、调用轨迹与配置状态，既能调试，也能治理
@@ -44,7 +44,7 @@ flowchart LR
     Cli["CLI"]
     Ide["ACP / IDE"]
     Api["API / AG-UI"]
-    Bots["QQ / WeCom / GitHubTracker"]
+    Bots["QQ / WeCom / GitHub"]
     Workspace["Workspace (.craft)"]
     Dashboard["Dashboard"]
 
@@ -107,43 +107,15 @@ cd Workspace
 dotcraft
 ```
 
-第一次在新目录运行时，DotCraft 会先交互式初始化当前工作区下的 `.craft/`。如果此时还没有可用的 `ApiKey`，它会自动启动一个本地的 setup-only Dashboard，让你在浏览器里填写全局配置和工作区配置，而不需要手写 JSON。保存后重新运行一次 `dotcraft` 即可正式进入 CLI。
+第一次在新目录运行时，DotCraft 会先交互式初始化当前工作区下的 `.craft/`；如果缺少可用的 `ApiKey`，会自动打开本地 `setup-only Dashboard` 引导你完成首次配置。保存后重新运行 `dotcraft` 即可正式进入 CLI。
 
-### 最小配置示例
-
-DotCraft 使用两级配置：
-
-- **全局配置**：`~/.craft/config.json`，适合存放 API Key、默认模型等共享设置
-- **工作区配置**：`<workspace>/.craft/config.json`，适合存放项目级覆盖配置
-
-推荐把密钥放在全局配置中，避免泄露到工作区 Git 仓库。setup-only Dashboard 也会优先引导你完成这一层配置：
-
-```json
-{
-    "ApiKey": "sk-your-api-key",
-    "Model": "gpt-4o-mini",
-    "EndPoint": "https://api.openai.com/v1"
-}
-```
-
-### 启动并验证
-
-完成 setup-only Dashboard 配置并重新启动后，你就可以直接在 CLI 中与 DotCraft 对话。若启用了 Dashboard，也可以在浏览器中查看会话、调用轨迹和配置状态。
-
-> 首次缺少 `ApiKey` 时，CLI 初始化流程会直接带你进入 setup-only Dashboard；这时 Dashboard 就是首次配置的主入口之一。
+如果你希望手动编辑配置或了解更完整的配置项，请阅读 [配置指南](./docs/config_guide.md)。
 
 ## ⚙️ 配置说明
 
-### 全局配置与工作区配置
+首次使用时，推荐先通过 `setup-only Dashboard` 完成可视化配置。后续如果需要调整工作区设置，也可以继续使用 Dashboard 的 Settings 页面。
 
-DotCraft 会先读取 `~/.craft/config.json`，再用 `<workspace>/.craft/config.json` 做覆盖。这样你可以把 API Key、默认模型等通用设置放在全局，把当前项目的运行模式、工具或接入配置放在工作区。
-
-### 推荐配置方式
-
-- **新手推荐**：第一次运行后，先在 setup-only Dashboard 里填写全局 `ApiKey`、`Model`、`EndPoint`
-- **项目差异**：再在工作区配置中按需覆盖模型、运行模式或扩展能力
-- **可视化编辑**：setup-only Dashboard 可用于首次配置，正常 Dashboard Settings 页面可继续编辑工作区配置
-- **完整配置项**：请阅读 [配置指南](./docs/config_guide.md)
+如果你需要查看完整配置项、配置层级或手动编辑方式，请阅读 [配置指南](./docs/config_guide.md)。
 
 ## 🧩 按场景扩展
 
@@ -173,7 +145,7 @@ DotCraft 会先读取 `~/.craft/config.json`，再用 `<workspace>/.craft/config
 
 ### Unity / ACP
 
-如果你希望从编辑器或 Unity 中接入 DotCraft，建议先在目标工作区通过 CLI 完成一次初始化；如果缺少配置，会先进入 setup-only Dashboard。之后再查看 [ACP 模式指南](./docs/acp_guide.md)、[Unity 集成指南](./docs/unity_guide.md) 与 [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md)。
+如果你希望在编辑器或 IDE 中使用 DotCraft，建议先从 ACP 入口了解整体接入方式。除了 Unity 之外，DotCraft 也原生支持 Obsidian、JetBrains 系列 IDE 等 ACP 客户端。你可以先查看 [ACP 模式指南](./docs/acp_guide.md)；如果你主要在 Unity 中使用，再继续查看 [Unity 集成指南](./docs/unity_guide.md) 与 [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md)。
 
 ![unity](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity.gif)
 

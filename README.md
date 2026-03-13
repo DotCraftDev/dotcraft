@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/8c5828b4-1682-4410-9df0-ca7d60fa2683
 - 🛠️ **Tool Capabilities**: File, Shell, Web, and SubAgent tools for real workflows
 - 🔌 **Open Protocols**: MCP, ACP, AG-UI, and OpenAI-compatible API support
 - 🖥️ **Editor Integration**: Native support for [ACP](https://agentclientprotocol.com/)-compatible editors and IDEs
-- 👥 **Native Team Collaboration**: `GitHubTracker` connects issues, implementation, review, and handoff
+- 👥 **Native Team Collaboration**: GitHub Tracker connects issues, implementation, review, and handoff
 - 🐳 **Sandbox Isolation**: Secure tool execution with [OpenSandbox](https://github.com/alibaba/OpenSandbox)
 - 🎯 **Unity Integration**: Unity Editor extension with scene and asset support
 - 📊 **Dashboard**: Web UI for sessions, traces, and configuration
@@ -44,7 +44,7 @@ flowchart LR
     Cli["CLI"]
     Ide["ACP / IDE"]
     Api["API / AG-UI"]
-    Bots["QQ / WeCom / GitHubTracker"]
+    Bots["QQ / WeCom / GitHub"]
     Workspace["Workspace (.craft)"]
     Dashboard["Dashboard"]
 
@@ -107,43 +107,15 @@ cd Workspace
 dotcraft
 ```
 
-On the first run in a new directory, DotCraft will first initialize `.craft/` for that workspace interactively. If there is still no usable `ApiKey`, it will automatically launch a local setup-only Dashboard so you can fill in both global and workspace config in the browser instead of hand-writing JSON. After saving, run `dotcraft` again to enter the CLI normally.
+On the first run in a new directory, DotCraft initializes `.craft/` for that workspace interactively. If no usable `ApiKey` is available, it automatically opens the local `setup-only Dashboard` to guide first-time setup. After saving, run `dotcraft` again to enter the CLI normally.
 
-### Minimal Configuration
-
-DotCraft uses two levels of configuration:
-
-- **Global config**: `~/.craft/config.json` for shared defaults and secrets
-- **Workspace config**: `<workspace>/.craft/config.json` for project-specific overrides
-
-It is recommended to keep secrets in the global config so they do not leak into a workspace Git repository. The setup-only Dashboard will guide you through this layer first:
-
-```json
-{
-    "ApiKey": "sk-your-api-key",
-    "Model": "gpt-4o-mini",
-    "EndPoint": "https://api.openai.com/v1"
-}
-```
-
-### Launch And Verify
-
-After finishing setup-only Dashboard configuration and restarting DotCraft, you can talk to it directly in the CLI. If Dashboard is enabled, you can also open it in the browser to inspect sessions, traces, and configuration.
-
-> When `ApiKey` is missing, the CLI initialization flow now takes you directly into the setup-only Dashboard, so Dashboard becomes one of the primary first-time setup entry points.
+For manual editing or the full configuration reference, see the [Configuration Guide](./docs/en/config_guide.md).
 
 ## ⚙️ Configuration
 
-### Global Config vs Workspace Config
+For first-time setup, it is best to use the `setup-only Dashboard` for visual configuration. Later, if you need to adjust workspace settings, you can continue using the Dashboard Settings page.
 
-DotCraft reads `~/.craft/config.json` first, then applies overrides from `<workspace>/.craft/config.json`. This lets you keep API keys and default models globally while storing project-specific runtime settings inside the workspace.
-
-### Recommended Setup Style
-
-- **For new users**: after the first launch, fill in `ApiKey`, `Model`, and `EndPoint` in the setup-only Dashboard first
-- **For project differences**: override model, runtime mode, or integrations in the workspace config
-- **For visual editing**: use the setup-only Dashboard for first-time config, then use Dashboard Settings for later workspace edits
-- **For the full config reference**: see the [Configuration Guide](./docs/en/config_guide.md)
+For the full configuration reference, config layering details, or manual editing, see the [Configuration Guide](./docs/en/config_guide.md).
 
 ## 🧩 Expand By Use Case
 
@@ -173,7 +145,7 @@ If you want DotCraft to participate in team workflows, `GitHubTracker` can poll 
 
 ### Unity / ACP
 
-If you want to access DotCraft from editors or Unity, it is best to initialize the target workspace once from the CLI first; if config is still missing, that flow will open the setup-only Dashboard for you. Then see the [ACP Mode Guide](./docs/en/acp_guide.md), the [Unity Integration Guide](./docs/en/unity_guide.md), and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
+If you want to use DotCraft from an editor or IDE, ACP is the best place to start for the overall integration flow. In addition to Unity, DotCraft also supports ACP clients such as Obsidian and JetBrains IDEs natively. Start with the [ACP Mode Guide](./docs/en/acp_guide.md); if Unity is your main target, continue with the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
 ![unity](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity.gif)
 
