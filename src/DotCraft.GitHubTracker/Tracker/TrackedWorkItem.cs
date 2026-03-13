@@ -35,7 +35,7 @@ public enum PullRequestChecksStatus
 /// Normalized work-item record used by orchestration, prompt rendering, and observability.
 /// Represents both GitHub Issues and Pull Requests.
 /// </summary>
-public sealed class TrackedIssue
+public sealed class TrackedWorkItem
 {
     /// <summary>
     /// Stable tracker-internal ID.
@@ -128,7 +128,7 @@ public sealed class BlockerRef
 /// <summary>
 /// Lightweight snapshot used for reconciliation state refresh.
 /// </summary>
-public sealed class IssueStateSnapshot
+public sealed class WorkItemStateSnapshot
 {
     public required string Id { get; init; }
     

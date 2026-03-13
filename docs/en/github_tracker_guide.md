@@ -46,16 +46,16 @@ agent:
   max_turns: 10
   max_concurrent_agents: 2
 ---
-You are assigned to issue {{ issue.identifier }}: **{{ issue.title }}**
+You are assigned to issue {{ work_item.identifier }}: **{{ work_item.title }}**
 
-{{ issue.description }}
+{{ work_item.description }}
 
 ## Instructions
 
 1. Complete the task described in the issue.
 2. Commit and push your changes:
    ```
-   git add -A && git commit -m "fix: <description> (closes {{ issue.identifier }})" && git push
+   git add -A && git commit -m "fix: <description> (closes {{ work_item.identifier }})" && git push
    ```
 3. When done, call the `CompleteIssue` tool with a brief summary of what you did.
 ```
@@ -156,13 +156,13 @@ Issue and PR activation are independent:
 
 | Variable | Description |
 |----------|-------------|
-| `{{ issue.id }}` | Issue number (numeric) |
-| `{{ issue.identifier }}` | Issue identifier (e.g. `#42`) |
-| `{{ issue.title }}` | Issue title |
-| `{{ issue.description }}` | Issue body |
-| `{{ issue.state }}` | Current state |
-| `{{ issue.url }}` | GitHub URL of the issue |
-| `{{ issue.labels }}` | List of labels |
+| `{{ work_item.id }}` | Issue number (numeric) |
+| `{{ work_item.identifier }}` | Issue identifier (e.g. `#42`) |
+| `{{ work_item.title }}` | Issue title |
+| `{{ work_item.description }}` | Issue body |
+| `{{ work_item.state }}` | Current state |
+| `{{ work_item.url }}` | GitHub URL of the issue |
+| `{{ work_item.labels }}` | List of labels |
 | `{{ attempt }}` | Current attempt number (starts at 1) |
 
 ---

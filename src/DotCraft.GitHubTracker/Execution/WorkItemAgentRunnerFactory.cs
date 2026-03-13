@@ -23,8 +23,8 @@ public enum AgentRunResult
     /// <summary>All allocated turns were consumed; the issue is still active on the tracker.</summary>
     TurnsExhausted,
 
-    /// <summary>The issue transitioned to a non-active state mid-run; no further work needed.</summary>
-    IssueStateChanged,
+    /// <summary>The work item transitioned to a non-active state mid-run; no further work needed.</summary>
+    WorkItemStateChanged,
 }
 
 /// <summary>
@@ -40,33 +40,33 @@ public sealed class AgentRunOutcome
 }
 
 /// <summary>
-/// Creates and runs per-issue agent execution with the full tool pipeline.
-/// Each issue gets its own workspace, session, and memory.
+/// Creates and runs per-work-item agent execution with the full tool pipeline.
+/// Each work item gets its own workspace, session, and memory.
 /// </summary>
-public sealed class IssueAgentRunnerFactory(
+public sealed class WorkItemAgentRunnerFactory(
     AppConfig config,
-    IIssueTracker tracker,
-    IssueWorkspaceManager workspaceManager,
+    IWorkItemTracker tracker,
+    WorkItemWorkspaceManager workspaceManager,
     ModuleRegistry moduleRegistry,
     SkillsLoader skillsLoader,
-    ILogger<IssueAgentRunnerFactory> logger,
+    ILogger<WorkItemAgentRunnerFactory> logger,
     ILoggerFactory loggerFactory,
     TraceCollector? traceCollector = null) : IDisposable
 {
     private readonly SemaphoreSlim _concurrencyGate = new(config.GitHubTracker.Agent.MaxConcurrentAgents);
 
     /// <summary>
-    /// Computes the deterministic dashboard session key for an issue identifier.
+    /// Computes the deterministic dashboard session key for a work-item identifier.
     /// </summary>
     public static string GetSessionKey(string identifier) =>
-        $"github-tracker:{IssueWorkspaceManager.SanitizeIdentifier(identifier)}";
+        $"github-tracker:{WorkItemWorkspaceManager.SanitizeIdentifier(identifier)}";
 
     /// <summary>
-    /// Runs an issue through the full agent pipeline with multi-turn support.
+    /// Runs a work item through the full agent pipeline with multi-turn support.
     /// Invokes <paramref name="onTurnCompleted"/> after each turn with live token metrics.
     /// </summary>
     public async Task<AgentRunOutcome> RunAsync(
-        TrackedIssue issue,
+        TrackedWorkItem workItem,
         WorkflowDefinition workflow,
         int? attempt,
         CancellationToken ct,
@@ -75,7 +75,7 @@ public sealed class IssueAgentRunnerFactory(
         await _concurrencyGate.WaitAsync(ct);
         try
         {
-            return await RunCoreAsync(issue, workflow, attempt, ct, onTurnCompleted);
+            return await RunCoreAsync(workItem, workflow, attempt, ct, onTurnCompleted);
         }
         finally
         {
@@ -84,20 +84,20 @@ public sealed class IssueAgentRunnerFactory(
     }
 
     private async Task<AgentRunOutcome> RunCoreAsync(
-        TrackedIssue issue,
+        TrackedWorkItem workItem,
         WorkflowDefinition workflow,
         int? attempt,
         CancellationToken ct,
         Action<int, long, long, long>? onTurnCompleted)
     {
-        var workspace = await workspaceManager.EnsureWorkspaceAsync(issue, ct);
+        var workspace = await workspaceManager.EnsureWorkspaceAsync(workItem, ct);
 
         logger.LogInformation("Starting agent for {Identifier} ({Kind}) in workspace {Path}",
-            issue.Identifier, issue.Kind, workspace.Path);
+            workItem.Identifier, workItem.Kind, workspace.Path);
 
         await workspaceManager.RunBeforeRunHookAsync(workspace.Path, ct);
 
-        var sessionKey = GetSessionKey(issue.Identifier);
+        var sessionKey = GetSessionKey(workItem.Identifier);
         var craftPath = workspace.CraftPath;
         var workspacePath = workspace.Path;
 
@@ -110,10 +110,10 @@ public sealed class IssueAgentRunnerFactory(
 
         // Inject kind-specific completion tool
         PullRequestReviewToolProvider? prReviewTool = null;
-        if (issue.Kind == WorkItemKind.PullRequest)
+        if (workItem.Kind == WorkItemKind.PullRequest)
         {
             prReviewTool = new PullRequestReviewToolProvider(
-                issue.Id,
+                workItem.Id,
                 tracker,
                 loggerFactory.CreateLogger<PullRequestReviewToolProvider>());
             toolProviders.Add(prReviewTool);
@@ -121,7 +121,7 @@ public sealed class IssueAgentRunnerFactory(
         else
         {
             toolProviders.Add(new IssueCompletionToolProvider(
-                issue.Id,
+                workItem.Id,
                 tracker,
                 loggerFactory.CreateLogger<IssueCompletionToolProvider>()));
         }
@@ -161,15 +161,15 @@ public sealed class IssueAgentRunnerFactory(
 
         // For PRs, pre-fetch the diff to include in the first-turn prompt.
         string? prDiff = null;
-        if (issue.Kind == WorkItemKind.PullRequest)
+        if (workItem.Kind == WorkItemKind.PullRequest)
         {
             try
             {
-                prDiff = await tracker.FetchPullRequestDiffAsync(issue.Id, ct);
+                prDiff = await tracker.FetchPullRequestDiffAsync(workItem.Id, ct);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to fetch diff for PR {Identifier}", issue.Identifier);
+                logger.LogWarning(ex, "Failed to fetch diff for PR {Identifier}", workItem.Identifier);
             }
         }
 
@@ -182,8 +182,8 @@ public sealed class IssueAgentRunnerFactory(
             {
                 ct.ThrowIfCancellationRequested();
 
-                var prompt = BuildTurnPrompt(workflow, issue, attempt, turn, maxTurns, prDiff);
-                logger.LogDebug("Running turn {Turn}/{MaxTurns} for {Identifier}", turn, maxTurns, issue.Identifier);
+                var prompt = BuildTurnPrompt(workflow, workItem, attempt, turn, maxTurns, prDiff);
+                logger.LogDebug("Running turn {Turn}/{MaxTurns} for {Identifier}", turn, maxTurns, workItem.Identifier);
 
                 using var turnCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 if (turnTimeoutMs > 0)
@@ -201,27 +201,27 @@ public sealed class IssueAgentRunnerFactory(
                 if (prReviewTool?.ReviewCompleted == true)
                 {
                     logger.LogInformation("{Identifier} review submitted, stopping after turn {Turn}",
-                        issue.Identifier, turn);
-                    result = AgentRunResult.IssueStateChanged;
+                        workItem.Identifier, turn);
+                    result = AgentRunResult.WorkItemStateChanged;
                     break;
                 }
 
                 // Check work-item state after each turn
                 try
                 {
-                    var states = await tracker.FetchIssueStatesByIdsAsync([issue.Id], ct);
+                    var states = await tracker.FetchWorkItemStatesByIdsAsync([workItem.Id], ct);
                     if (states.Count > 0)
                     {
                         var currentState = states[0].State;
-                        var activeStates = GetActiveStatesForKind(issue.Kind, workflow.Config);
+                        var activeStates = GetActiveStatesForKind(workItem.Kind, workflow.Config);
                         var isStillActive = activeStates.Any(a =>
                             string.Equals(a.Trim(), currentState.Trim(), StringComparison.OrdinalIgnoreCase));
 
                         if (!isStillActive)
                         {
                             logger.LogInformation("{Identifier} is no longer active after turn {Turn}, stopping",
-                                issue.Identifier, turn);
-                            result = AgentRunResult.IssueStateChanged;
+                                workItem.Identifier, turn);
+                            result = AgentRunResult.WorkItemStateChanged;
                             break;
                         }
                     }
@@ -229,7 +229,7 @@ public sealed class IssueAgentRunnerFactory(
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Failed to check state after turn {Turn}", turn);
-                    result = AgentRunResult.IssueStateChanged;
+                    result = AgentRunResult.WorkItemStateChanged;
                     break;
                 }
             }
@@ -259,31 +259,30 @@ public sealed class IssueAgentRunnerFactory(
             : cfg.Tracker.ActiveStates;
 
     private string BuildTurnPrompt(
-        WorkflowDefinition workflow, TrackedIssue issue, int? attempt,
+        WorkflowDefinition workflow, TrackedWorkItem workItem, int? attempt,
         int turn, int maxTurns, string? prDiff = null)
     {
         if (turn == 1)
         {
-            var issueData = new Dictionary<string, object?>
+            var workItemData = new Dictionary<string, object?>
             {
-                ["id"] = issue.Id,
-                ["identifier"] = issue.Identifier,
-                ["title"] = issue.Title,
-                ["description"] = issue.Description,
-                ["priority"] = issue.Priority,
-                ["state"] = issue.State,
-                ["kind"] = issue.Kind.ToString(),
-                ["branch_name"] = issue.BranchName,
-                ["url"] = issue.Url,
-                ["labels"] = issue.Labels.ToList(),
-                ["created_at"] = issue.CreatedAt?.ToString("o"),
-                ["updated_at"] = issue.UpdatedAt?.ToString("o"),
-                // PR-specific fields (null for issues)
-                ["head_branch"] = issue.HeadBranch,
-                ["base_branch"] = issue.BaseBranch,
-                ["diff_url"] = issue.DiffUrl,
-                ["review_state"] = issue.ReviewState.ToString(),
-                ["is_draft"] = issue.IsDraft,
+                ["id"] = workItem.Id,
+                ["identifier"] = workItem.Identifier,
+                ["title"] = workItem.Title,
+                ["description"] = workItem.Description,
+                ["priority"] = workItem.Priority,
+                ["state"] = workItem.State,
+                ["kind"] = workItem.Kind.ToString(),
+                ["branch_name"] = workItem.BranchName,
+                ["url"] = workItem.Url,
+                ["labels"] = workItem.Labels.ToList(),
+                ["created_at"] = workItem.CreatedAt?.ToString("o"),
+                ["updated_at"] = workItem.UpdatedAt?.ToString("o"),
+                ["head_branch"] = workItem.HeadBranch,
+                ["base_branch"] = workItem.BaseBranch,
+                ["diff_url"] = workItem.DiffUrl,
+                ["review_state"] = workItem.ReviewState.ToString(),
+                ["is_draft"] = workItem.IsDraft,
                 ["diff"] = prDiff,
             };
 
@@ -291,34 +290,34 @@ public sealed class IssueAgentRunnerFactory(
             {
                 return new WorkflowLoader(workflow.Config, logger as ILogger<WorkflowLoader>
                     ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<WorkflowLoader>.Instance)
-                    .RenderPrompt(workflow.PromptTemplate, issueData, attempt);
+                    .RenderPrompt(workflow.PromptTemplate, workItemData, attempt);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to render workflow prompt, using fallback");
-                return issue.Kind == WorkItemKind.PullRequest
-                    ? BuildFallbackPrPrompt(issue, prDiff)
-                    : $"You are working on issue {issue.Identifier}: {issue.Title}\n\n{issue.Description}";
+                return workItem.Kind == WorkItemKind.PullRequest
+                    ? BuildFallbackPrPrompt(workItem, prDiff)
+                    : $"You are working on issue {workItem.Identifier}: {workItem.Title}\n\n{workItem.Description}";
             }
         }
 
-        if (issue.Kind == WorkItemKind.PullRequest)
+        if (workItem.Kind == WorkItemKind.PullRequest)
         {
             return $"""
-                Continue reviewing PR {issue.Identifier}: {issue.Title}
+                Continue reviewing PR {workItem.Identifier}: {workItem.Title}
                 This is turn {turn} of {maxTurns}. Check your progress and continue the review.
                 When finished, call SubmitReview with your verdict.
                 """;
         }
 
         return $"""
-            Continue working on issue {issue.Identifier}: {issue.Title}
+            Continue working on issue {workItem.Identifier}: {workItem.Title}
             This is turn {turn} of {maxTurns}. Check your progress and continue where you left off.
             If the task is complete, summarize what was done.
             """;
     }
 
-    private static string BuildFallbackPrPrompt(TrackedIssue pr, string? diff)
+    private static string BuildFallbackPrPrompt(TrackedWorkItem pr, string? diff)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"You are reviewing pull request {pr.Identifier}: {pr.Title}");

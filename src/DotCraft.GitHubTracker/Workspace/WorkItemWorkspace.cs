@@ -1,9 +1,9 @@
 namespace DotCraft.GitHubTracker.Workspace;
 
 /// <summary>
-/// Represents a per-issue workspace directory.
+/// Represents a per-work-item workspace directory.
 /// </summary>
-public sealed class IssueWorkspace(string path)
+public sealed class WorkItemWorkspace(string path)
 {
     /// <summary>
     /// Absolute path to the workspace directory.

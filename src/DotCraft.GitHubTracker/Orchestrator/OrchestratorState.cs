@@ -18,9 +18,9 @@ public sealed class OrchestratorState
 
 public sealed class RunningEntry
 {
-    public required string IssueId { get; init; }
+    public required string WorkItemId { get; init; }
     public required string Identifier { get; init; }
-    public required TrackedIssue Issue { get; set; }
+    public required TrackedWorkItem WorkItem { get; set; }
     public required DateTimeOffset StartedAt { get; init; }
     public required CancellationTokenSource Cts { get; init; }
     public required Task WorkerTask { get; init; }
@@ -38,7 +38,7 @@ public sealed class RunningEntry
 
 public sealed class RetryEntry
 {
-    public required string IssueId { get; init; }
+    public required string WorkItemId { get; init; }
     public required string Identifier { get; init; }
     public required int Attempt { get; init; }
     public required long DueAtMs { get; init; }
@@ -62,14 +62,14 @@ public sealed class OrchestratorSnapshot
     public DateTimeOffset GeneratedAt { get; init; }
     public int RunningCount { get; init; }
     public int RetryingCount { get; init; }
-    public IReadOnlyList<RunningIssueSummary> Running { get; init; } = [];
-    public IReadOnlyList<RetryIssueSummary> Retrying { get; init; } = [];
+    public IReadOnlyList<RunningWorkItemSummary> Running { get; init; } = [];
+    public IReadOnlyList<RetryWorkItemSummary> Retrying { get; init; } = [];
     public AggregateMetrics Totals { get; init; } = new();
 }
 
-public sealed class RunningIssueSummary
+public sealed class RunningWorkItemSummary
 {
-    public required string IssueId { get; init; }
+    public required string WorkItemId { get; init; }
     public required string Identifier { get; init; }
     public required string State { get; init; }
     public string? SessionId { get; init; }
@@ -83,9 +83,9 @@ public sealed class RunningIssueSummary
     public long TotalTokens { get; init; }
 }
 
-public sealed class RetryIssueSummary
+public sealed class RetryWorkItemSummary
 {
-    public required string IssueId { get; init; }
+    public required string WorkItemId { get; init; }
     public required string Identifier { get; init; }
     public required int Attempt { get; init; }
     public required long DueAtMs { get; init; }

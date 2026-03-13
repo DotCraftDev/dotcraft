@@ -8,11 +8,11 @@ namespace DotCraft.GitHubTracker.Tools;
 
 /// <summary>
 /// Per-PR tool provider that exposes <c>SubmitReview</c> to the agent.
-/// Injected into each PR review agent session by IssueAgentRunnerFactory.
+/// Injected into each PR review agent session by WorkItemAgentRunnerFactory.
 /// </summary>
 public sealed class PullRequestReviewToolProvider(
     string pullNumber,
-    IIssueTracker tracker,
+    IWorkItemTracker tracker,
     ILogger<PullRequestReviewToolProvider> logger) : IAgentToolProvider
 {
     public int Priority => 95;

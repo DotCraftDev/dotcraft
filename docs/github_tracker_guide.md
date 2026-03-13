@@ -44,16 +44,16 @@ agent:
   max_turns: 10
   max_concurrent_agents: 2
 ---
-你负责处理 Issue {{ issue.identifier }}: **{{ issue.title }}**
+你负责处理 Issue {{ work_item.identifier }}: **{{ work_item.title }}**
 
-{{ issue.description }}
+{{ work_item.description }}
 
 ## 指令
 
 1. 完成 Issue 中描述的任务。
 2. 提交并推送你的修改：
    ```
-   git add -A && git commit -m "fix: <描述> (closes {{ issue.identifier }})" && git push
+   git add -A && git commit -m "fix: <描述> (closes {{ work_item.identifier }})" && git push
    ```
 3. 完成后调用 `CompleteIssue` 工具，传入简短的完成说明。
 ```
@@ -201,13 +201,13 @@ GitHubTracker 通过 GitHub Label 判断 Issue 是否需要处理。默认映射
 
 | 变量 | 说明 |
 |------|------|
-| `{{ issue.id }}` | Issue 编号（纯数字） |
-| `{{ issue.identifier }}` | Issue 标识符（如 `#42`） |
-| `{{ issue.title }}` | Issue 标题 |
-| `{{ issue.description }}` | Issue 正文 |
-| `{{ issue.state }}` | 当前状态 |
-| `{{ issue.url }}` | Issue 的 GitHub URL |
-| `{{ issue.labels }}` | 标签列表 |
+| `{{ work_item.id }}` | Issue 编号（纯数字） |
+| `{{ work_item.identifier }}` | Issue 标识符（如 `#42`） |
+| `{{ work_item.title }}` | Issue 标题 |
+| `{{ work_item.description }}` | Issue 正文 |
+| `{{ work_item.state }}` | 当前状态 |
+| `{{ work_item.url }}` | Issue 的 GitHub URL |
+| `{{ work_item.labels }}` | 标签列表 |
 | `{{ attempt }}` | 当前是第几次尝试（从 1 开始） |
 
 ### PR_WORKFLOW.md 参考
@@ -229,13 +229,13 @@ GitHubTracker 通过 GitHub Label 判断 Issue 是否需要处理。默认映射
 
 | 变量 | 说明 |
 |------|------|
-| `{{ issue.kind }}` | 工作项类型：`Issue` 或 `PullRequest` |
-| `{{ issue.head_branch }}` | PR 的源分支名称 |
-| `{{ issue.base_branch }}` | PR 的目标分支名称 |
-| `{{ issue.diff_url }}` | PR diff 的 URL |
-| `{{ issue.diff }}` | PR 的完整 diff 内容（首次 turn 自动拉取并注入） |
-| `{{ issue.review_state }}` | 当前审查状态：`None`、`Pending`、`Approved`、`ChangesRequested` |
-| `{{ issue.is_draft }}` | PR 是否为 draft |
+| `{{ work_item.kind }}` | 工作项类型：`Issue` 或 `PullRequest` |
+| `{{ work_item.head_branch }}` | PR 的源分支名称 |
+| `{{ work_item.base_branch }}` | PR 的目标分支名称 |
+| `{{ work_item.diff_url }}` | PR diff 的 URL |
+| `{{ work_item.diff }}` | PR 的完整 diff 内容（首次 turn 自动拉取并注入） |
+| `{{ work_item.review_state }}` | 当前审查状态：`None`、`Pending`、`Approved`、`ChangesRequested` |
+| `{{ work_item.is_draft }}` | PR 是否为 draft |
 
 ---
 

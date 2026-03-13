@@ -9,11 +9,11 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.GitHubTracker.Tracker;
 
 /// <summary>
-/// GitHub adapter implementing IIssueTracker for both Issues and Pull Requests.
+/// GitHub adapter implementing IWorkItemTracker for both Issues and Pull Requests.
 /// Maps GitHub Open/Closed state to GitHubTracker states via configurable labels (issues)
 /// or review status (PRs).
 /// </summary>
-public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
+public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly string _owner;
@@ -50,11 +50,11 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
-    #region IIssueTracker – candidate fetching
+    #region IWorkItemTracker – candidate fetching
 
-    public async Task<IReadOnlyList<TrackedIssue>> FetchCandidateIssuesAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<TrackedWorkItem>> FetchCandidateWorkItemsAsync(CancellationToken ct = default)
     {
-        var candidates = new List<TrackedIssue>();
+        var candidates = new List<TrackedWorkItem>();
 
         if (IsIssueTrackingEnabled())
             candidates.AddRange(await FetchCandidateIssuesOnlyAsync(ct));
@@ -66,9 +66,9 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
         return candidates;
     }
 
-    private async Task<List<TrackedIssue>> FetchCandidateIssuesOnlyAsync(CancellationToken ct)
+    private async Task<List<TrackedWorkItem>> FetchCandidateIssuesOnlyAsync(CancellationToken ct)
     {
-        var allIssues = new List<TrackedIssue>();
+        var allIssues = new List<TrackedWorkItem>();
         var page = 1;
 
         while (true)
@@ -105,9 +105,9 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
         return allIssues;
     }
 
-    private async Task<List<TrackedIssue>> FetchCandidatePullRequestsAsync(CancellationToken ct)
+    private async Task<List<TrackedWorkItem>> FetchCandidatePullRequestsAsync(CancellationToken ct)
     {
-        var result = new List<TrackedIssue>();
+        var result = new List<TrackedWorkItem>();
         var page = 1;
 
         while (true)
@@ -151,14 +151,14 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
 
     #endregion
 
-    #region IIssueTracker – state reconciliation
+    #region IWorkItemTracker – state reconciliation
 
-    public async Task<IReadOnlyList<IssueStateSnapshot>> FetchIssueStatesByIdsAsync(
-        IReadOnlyList<string> issueIds, CancellationToken ct = default)
+    public async Task<IReadOnlyList<WorkItemStateSnapshot>> FetchWorkItemStatesByIdsAsync(
+        IReadOnlyList<string> workItemIds, CancellationToken ct = default)
     {
-        var snapshots = new List<IssueStateSnapshot>();
+        var snapshots = new List<WorkItemStateSnapshot>();
 
-        foreach (var id in issueIds)
+        foreach (var id in workItemIds)
         {
             try
             {
@@ -193,7 +193,7 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
                     state = DeriveState(item);
                 }
 
-                snapshots.Add(new IssueStateSnapshot { Id = id, State = state });
+                snapshots.Add(new WorkItemStateSnapshot { Id = id, State = state });
             }
             catch (Exception ex)
             {
@@ -204,7 +204,7 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
         return snapshots;
     }
 
-    public async Task<IReadOnlyList<TrackedIssue>> FetchIssuesByStatesAsync(
+    public async Task<IReadOnlyList<TrackedWorkItem>> FetchWorkItemsByStatesAsync(
         IReadOnlyList<string> stateNames, CancellationToken ct = default)
     {
         if (stateNames.Count == 0) return [];
@@ -217,7 +217,7 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
         var needsMerged = IsPullRequestTrackingEnabled() && stateNames.Any(s =>
             string.Equals(s.Trim(), "merged", StringComparison.OrdinalIgnoreCase));
 
-        var issues = new List<TrackedIssue>();
+        var issues = new List<TrackedWorkItem>();
 
         if (needsClosed)
         {
@@ -255,7 +255,7 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
 
     #endregion
 
-    #region IIssueTracker – mutations
+    #region IWorkItemTracker – mutations
 
     public async Task CloseIssueAsync(string issueId, string reason, CancellationToken ct = default)
     {
@@ -411,12 +411,12 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
         };
     }
 
-    private TrackedIssue NormalizePullRequest(GitHubPull pr, PullRequestReviewState reviewState)
+    private TrackedWorkItem NormalizePullRequest(GitHubPull pr, PullRequestReviewState reviewState)
     {
         var labels = pr.Labels?.Select(l => l.Name?.ToLowerInvariant() ?? "").Where(l => l.Length > 0).ToList() ?? [];
         var ghState = pr.Merged == true ? "merged" : (pr.State ?? "open");
 
-        return new TrackedIssue
+        return new TrackedWorkItem
         {
             Id = pr.Number.ToString(),
             Identifier = $"#{pr.Number}",
@@ -443,12 +443,12 @@ public sealed class GitHubTrackerAdapter : IIssueTracker, IDisposable
 
     #region Issue helpers
 
-    private TrackedIssue NormalizeIssue(GitHubIssue gh)
+    private TrackedWorkItem NormalizeIssue(GitHubIssue gh)
     {
         var labels = gh.Labels?.Select(l => l.Name?.ToLowerInvariant() ?? "").Where(l => l.Length > 0).ToList()
             ?? [];
 
-        return new TrackedIssue
+        return new TrackedWorkItem
         {
             Id = gh.Number.ToString(),
             Identifier = $"#{gh.Number}",

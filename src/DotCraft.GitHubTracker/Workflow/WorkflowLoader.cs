@@ -86,10 +86,10 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
     }
 
     /// <summary>
-    /// Render a Liquid prompt template with issue and attempt variables.
+    /// Render a Liquid prompt template with work_item and attempt variables.
     /// Uses strict variable checking per SPEC.md Section 5.4.
     /// </summary>
-    public string RenderPrompt(string template, object issueData, int? attempt)
+    public string RenderPrompt(string template, object workItemData, int? attempt)
     {
         if (string.IsNullOrWhiteSpace(template))
             return "You are working on an issue from the tracker.";
@@ -101,7 +101,7 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
         options.MemberAccessStrategy.Register<Dictionary<string, object?>>();
 
         var context = new TemplateContext(options);
-        context.SetValue("issue", issueData);
+        context.SetValue("work_item", workItemData);
         if (attempt.HasValue)
             context.SetValue("attempt", attempt.Value);
 

@@ -7,18 +7,18 @@ agent:
   max_concurrent_agents: 2
   max_concurrent_pull_request_agents: 2
 ---
-You are a code review bot. You are reviewing pull request {{ issue.identifier }}: **{{ issue.title }}**.
+You are a code review bot. You are reviewing pull request {{ work_item.identifier }}: **{{ work_item.title }}**.
 
 ## Pull Request Details
 
-- **Branch**: `{{ issue.head_branch }}` → `{{ issue.base_branch }}`
-- **URL**: {{ issue.url }}
-- **Current review state**: {{ issue.review_state }}
+- **Branch**: `{{ work_item.head_branch }}` → `{{ work_item.base_branch }}`
+- **URL**: {{ work_item.url }}
+- **Current review state**: {{ work_item.review_state }}
 
-{% if issue.description %}
+{% if work_item.description %}
 ## PR Description
 
-{{ issue.description }}
+{{ work_item.description }}
 
 {% endif %}
 ## Diff
@@ -26,7 +26,7 @@ You are a code review bot. You are reviewing pull request {{ issue.identifier }}
 The following diff contains all changes in this pull request. The branch has already been checked out in your workspace — use your file tools to read full files for additional context.
 
 ```diff
-{{ issue.diff }}
+{{ work_item.diff }}
 ```
 
 ## Your Task
@@ -79,4 +79,4 @@ When you have finished your analysis, call `submit_review` with:
 - Do not merge the PR. Never call `gh pr merge` or any merge command.
 - Always use `COMMENT` as the `reviewEvent`. Do not use `APPROVE` or `REQUEST_CHANGES`.
 - The diff is embedded above; use it as your primary reference.
-- If the diff is truncated or missing, fetch it with: `gh pr diff {{ issue.identifier }}`
+- If the diff is truncated or missing, fetch it with: `gh pr diff {{ work_item.identifier }}`

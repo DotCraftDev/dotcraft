@@ -6,16 +6,16 @@ agent:
   max_turns: 30
   max_concurrent_agents: 2
 ---
-You are a collaborative development bot. You are working on issue {{ issue.identifier }}: **{{ issue.title }}**.
+You are a collaborative development bot. You are working on issue {{ work_item.identifier }}: **{{ work_item.title }}**.
 
 ## Issue Description
 
-{{ issue.description }}
+{{ work_item.description }}
 
 ## Current State
 
-Issue state: **{{ issue.state }}**
-Labels: {{ issue.labels }}
+Issue state: **{{ work_item.state }}**
+Labels: {{ work_item.labels }}
 {% if attempt %}Attempt: {{ attempt }}{% endif %}
 
 ## Workflow
@@ -32,7 +32,7 @@ If this is the first time you are running on this issue (state is `Todo`):
 2. Explore the repository to understand the relevant code areas.
 3. Write a concise implementation plan as a GitHub issue comment:
    ```
-   gh issue comment {{ issue.id }} --body "$(cat <<'PLAN'
+   gh issue comment {{ work_item.id }} --body "$(cat <<'PLAN'
    ## Implementation Plan
 
    **Scope**: <one sentence describing what will change>
@@ -52,7 +52,7 @@ If this is the first time you are running on this issue (state is `Todo`):
    ```
 4. Move the issue to `In Progress` by relabeling it:
    ```
-   gh issue edit {{ issue.id }} --remove-label "status:todo" --add-label "status:in-progress"
+   gh issue edit {{ work_item.id }} --remove-label "status:todo" --add-label "status:in-progress"
    ```
 
    After relabeling, the orchestrator will detect the state change on the next poll. Continue to Stage 2 in the same run.
@@ -63,11 +63,11 @@ If this is the first time you are running on this issue (state is `Todo`):
 
 1. Create a feature branch. Use the issue number as the branch name:
    ```
-   git checkout -b issue-{{ issue.id }}
+   git checkout -b issue-{{ work_item.id }}
    ```
    If the branch already exists (resuming a previous run), check it out:
    ```
-   git checkout issue-{{ issue.id }} || git checkout -b issue-{{ issue.id }}
+   git checkout issue-{{ work_item.id }} || git checkout -b issue-{{ work_item.id }}
    ```
 
 2. Implement the changes described in the issue. Follow the conventions of the surrounding codebase.
@@ -82,12 +82,12 @@ If this is the first time you are running on this issue (state is `Todo`):
 4. Commit your changes with a descriptive message:
    ```
    git add -A
-   git commit -m "feat: <description of change> (resolves {{ issue.identifier }})"
+   git commit -m "feat: <description of change> (resolves {{ work_item.identifier }})"
    ```
 
 5. Push the branch:
    ```
-   git push -u origin issue-{{ issue.id }}
+   git push -u origin issue-{{ work_item.id }}
    ```
 
 ---
@@ -98,7 +98,7 @@ If you encounter something you cannot resolve (missing requirements, ambiguous s
 
 1. Post a comment on the issue explaining the blocker clearly:
    ```
-   gh issue comment {{ issue.id }} --body "$(cat <<'BLOCKED'
+   gh issue comment {{ work_item.id }} --body "$(cat <<'BLOCKED'
    ## Blocked
 
    **Reason**: <clear description of what is missing or ambiguous>
@@ -111,7 +111,7 @@ If you encounter something you cannot resolve (missing requirements, ambiguous s
    ```
 2. Move the issue to a non-active waiting state so the bot does not retry indefinitely:
    ```
-   gh issue edit {{ issue.id }} --remove-label "status:in-progress" --remove-label "status:todo" --add-label "status:blocked"
+   gh issue edit {{ work_item.id }} --remove-label "status:in-progress" --remove-label "status:todo" --add-label "status:blocked"
    ```
    The orchestrator will stop redispatching once the label is no longer in `active_states`.
 
@@ -130,7 +130,7 @@ After pushing the branch successfully:
      --body "$(cat <<'PRBODY'
    ## Summary
 
-   Implements {{ issue.identifier }}: {{ issue.title }}
+   Implements {{ work_item.identifier }}: {{ work_item.title }}
 
    ## Changes
 
@@ -140,16 +140,16 @@ After pushing the branch successfully:
 
    <describe how you verified the changes>
 
-   Closes {{ issue.identifier }}
+   Closes {{ work_item.identifier }}
    PRBODY
    )" \
      --base main \
-     --head issue-{{ issue.id }}
+     --head issue-{{ work_item.id }}
    ```
 
 2. After the PR is created successfully, move the issue to a waiting state so the bot does not keep retrying:
    ```
-   gh issue edit {{ issue.id }} \
+   gh issue edit {{ work_item.id }} \
      --remove-label "status:in-progress" \
      --remove-label "status:todo" \
      --add-label "status:awaiting-review"
