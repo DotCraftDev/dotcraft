@@ -1,8 +1,8 @@
 # DotCraft GitHubTracker 指南
 
-GitHubTracker 是 DotCraft 的自主 Issue 编排模块。它持续轮询 GitHub 等 Issue 跟踪器，为每个活跃 Issue 自动创建独立工作区并克隆仓库，派发 AI Agent 完成代码任务，最终通过 `CompleteIssue` 工具将 Issue 关闭并通知编排器停止重试。
+GitHubTracker 是 DotCraft 的自主工作项编排模块。它持续轮询 GitHub，为每个活跃的 **Issue** 或 **Pull Request** 自动创建独立工作区并克隆仓库，派发 AI Agent 完成任务——Issue 由 Agent 调用 `CompleteIssue` 工具标记完成，PR 则由 Agent 调用 `SubmitReview` 工具提交代码审查意见。
 
-灵感来源于 [OpenAI Symphony](https://github.com/openai/symphony)，核心实现依据其 [SPEC.md](https://github.com/openai/symphony/blob/main/SPEC.md) 规格说明书。
+GitHubTracker 以 [OpenAI Symphony](https://github.com/openai/symphony) 的 [SPEC.md](https://github.com/openai/symphony/blob/main/SPEC.md) 为基础，并在其原生 Issue 跟踪能力之上**扩展了原生 PR 跟踪支持**。Issue 与 PR 作为两条并行、独立配置的任务链路，共享同一套编排、工作区和重试机制。
 
 ---
 
@@ -110,6 +110,46 @@ GitHubTracker 通过 GitHub Label 判断 Issue 是否需要处理。默认映射
 
 ---
 
+## Agent 工具
+
+每个工作项类型对应一个专属的完成工具，由编排器在派发时自动注入 Agent 的工具集：
+
+### `CompleteIssue`（Issue 专用）
+
+```
+CompleteIssue(reason: string)
+```
+
+- 在 GitHub 上关闭该 Issue（移除活跃状态 Label 并将 Issue 设为 closed）。
+- 通知编排器该工作项已完成，停止续派。
+- **务必在所有代码变更提交并推送后再调用**，调用后 Issue 将立即关闭。
+
+在 `WORKFLOW.md` 中的典型指令：
+
+```
+完成所有代码变更并推送后，调用 `CompleteIssue` 工具，传入你做了什么的简短说明。
+```
+
+### `SubmitReview`（PR 专用）
+
+```
+SubmitReview(reviewEvent: string, body: string)
+```
+
+- 通过 GitHub Reviews API 在 PR 上提交一条 Review。
+- 通知编排器 Review 已完成，编排器随即移除 `PullRequestLabelFilter` 配置的 Label（如 `auto-review`），使 PR 退出候选列表，停止续派。
+- `reviewEvent` 接受三个值：
+
+| 值 | 含义 | 注意事项 |
+|---|---|---|
+| `COMMENT` | 仅发表意见，不改变 PR 审查状态 | **推荐**：纯审查场景首选 |
+| `REQUEST_CHANGES` | 要求作者修改后才能合并 | 会阻止合并，可能干扰人工审查流程 |
+| `APPROVE` | 将 PR 标记为已批准 | **危险**：若仓库开启了自动合并保护规则，可能直接触发合并 |
+
+> 建议在 `PR_WORKFLOW.md` 中明确要求 Agent 只使用 `COMMENT`，除非有明确的自动批准/拒绝需求。
+
+---
+
 ## Pull Request 跟踪
 
 除了 Issue，GitHubTracker 还可以**直接跟踪 Pull Request**——无需创建代理 Issue。启用后，编排器会通过 GitHub `/pulls` API 轮询 PR，为每个符合条件的 PR 派发独立的 Agent 进行代码审查。
@@ -168,16 +208,6 @@ GitHubTracker 通过 GitHub Label 判断 Issue 是否需要处理。默认映射
 > 此功能要求 GitHub Token 具有 **Issues: Read and Write** 权限（Label 移除使用与 Issue 标签相同的 REST API 端点）。
 
 如果 `PullRequestLabelFilter` 为空，编排器会拾取所有符合活跃状态的非 draft PR，且不执行自动 Label 移除。
-
-### 安全说明：COMMENT vs APPROVE
-
-`submit_review` 工具支持三种 review event：`APPROVE`、`REQUEST_CHANGES`、`COMMENT`。
-
-- **`COMMENT`**：仅发表意见，不改变 PR 的审查状态。推荐用于纯审查场景。
-- **`APPROVE`**：将 PR 标记为已批准。**危险**——如果仓库开启了"需要一个 Approval 后自动合并"的分支保护规则，Bot 的 approve 可能直接触发合并。
-- **`REQUEST_CHANGES`**：将 PR 标记为"需要修改"。这会阻止合并，但可能打断正常的人工审查流程。
-
-> 建议在 `PR_WORKFLOW.md` 中明确指示 Agent 只使用 `COMMENT`，除非你有明确的自动化需求。
 
 ---
 
