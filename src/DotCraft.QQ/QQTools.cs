@@ -60,28 +60,11 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
         [Description("The QQ group number to send the video to.")] long groupId,
         [Description("Video file: local absolute path or HTTP URL.")] string file)
     {
-        if (IsRemoteOrInline(file))
-        {
-            try
-            {
-                var resp = await client.SendGroupVideoAsync(groupId, file);
-                return resp.IsOk
-                    ? JsonSerializer.Serialize(new { success = true, message = "Video sent." })
-                    : JsonSerializer.Serialize(new { success = false, error = resp.Message });
-            }
-            catch (Exception ex)
-            {
-                return JsonSerializer.Serialize(new { success = false, error = ex.Message });
-            }
-        }
-
-        // Local path: resolve via file system to handle sandbox extraction
-        using var handle = _fileSystem != null
-            ? await _fileSystem.ResolveHostFileAsync(file)
-            : new HostFileHandle(file);
         try
         {
-            var resp = await client.SendGroupVideoAsync(groupId, handle.HostPath);
+            var resolvedFile = await ResolveVideoFileAsync(file);
+            using var handle = resolvedFile;
+            var resp = await client.SendGroupVideoAsync(groupId, handle?.HostPath ?? file);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "Video sent." })
                 : JsonSerializer.Serialize(new { success = false, error = resp.Message });
@@ -98,27 +81,11 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
         [Description("The QQ user ID to send the video to.")] long userId,
         [Description("Video file: local absolute path or HTTP URL.")] string file)
     {
-        if (IsRemoteOrInline(file))
-        {
-            try
-            {
-                var resp = await client.SendPrivateVideoAsync(userId, file);
-                return resp.IsOk
-                    ? JsonSerializer.Serialize(new { success = true, message = "Video sent." })
-                    : JsonSerializer.Serialize(new { success = false, error = resp.Message });
-            }
-            catch (Exception ex)
-            {
-                return JsonSerializer.Serialize(new { success = false, error = ex.Message });
-            }
-        }
-
-        using var handle = _fileSystem != null
-            ? await _fileSystem.ResolveHostFileAsync(file)
-            : new HostFileHandle(file);
         try
         {
-            var resp = await client.SendPrivateVideoAsync(userId, handle.HostPath);
+            var resolvedFile = await ResolveVideoFileAsync(file);
+            using var handle = resolvedFile;
+            var resp = await client.SendPrivateVideoAsync(userId, handle?.HostPath ?? file);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "Video sent." })
                 : JsonSerializer.Serialize(new { success = false, error = resp.Message });
@@ -137,11 +104,11 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
         [Description("Display name for the file in the group.")] string fileName,
         [Description("Optional: target folder ID in the group file system.")] string? folder = null)
     {
-        using var handle = _fileSystem != null
-            ? await _fileSystem.ResolveHostFileAsync(filePath)
-            : new HostFileHandle(filePath);
         try
         {
+            using var handle = _fileSystem != null
+                ? await _fileSystem.ResolveHostFileAsync(filePath)
+                : new HostFileHandle(filePath);
             var resp = await client.UploadGroupFileAsync(groupId, handle.HostPath, fileName, folder);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "File uploaded to group." })
@@ -160,11 +127,11 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
         [Description("Local absolute path of the file to upload.")] string filePath,
         [Description("Display name for the file.")] string fileName)
     {
-        using var handle = _fileSystem != null
-            ? await _fileSystem.ResolveHostFileAsync(filePath)
-            : new HostFileHandle(filePath);
         try
         {
+            using var handle = _fileSystem != null
+                ? await _fileSystem.ResolveHostFileAsync(filePath)
+                : new HostFileHandle(filePath);
             var resp = await client.UploadPrivateFileAsync(userId, handle.HostPath, fileName);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "File sent to user." })
@@ -187,5 +154,16 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
 
         var b64 = await _fileSystem.ReadAsBase64Async(file);
         return "base64://" + b64;
+    }
+
+    /// <returns>A <see cref="HostFileHandle"/> for local paths, or null for remote URLs.</returns>
+    private async Task<HostFileHandle?> ResolveVideoFileAsync(string file)
+    {
+        if (IsRemoteOrInline(file))
+            return null;
+
+        return _fileSystem != null
+            ? await _fileSystem.ResolveHostFileAsync(file)
+            : new HostFileHandle(file);
     }
 }
