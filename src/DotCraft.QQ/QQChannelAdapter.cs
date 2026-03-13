@@ -49,6 +49,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
     private readonly ActiveRunRegistry _activeRunRegistry;
 
+    private readonly HttpClient _httpClient;
+
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     
     public QQChannelAdapter(
@@ -64,7 +66,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         AgentFactory? agentFactory = null,
         TraceCollector? traceCollector = null,
         TokenUsageStore? tokenUsageStore = null,
-        CustomCommandLoader? customCommandLoader = null)
+        CustomCommandLoader? customCommandLoader = null,
+        HttpClient? httpClient = null)
     {
         _client = client;
         _agent = agent;
@@ -78,6 +81,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         _activeRunRegistry = activeRunRegistry;
         _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
+        _httpClient = httpClient ?? CreateDefaultHttpClient();
         
         _commandDispatcher = CommandDispatcher.CreateDefault(customCommandLoader);
 
@@ -90,12 +94,15 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         await _client.DisposeAsync();
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+        _httpClient.Dispose();
     }
 
     private async Task HandleGroupMessageAsync(OneBotMessageEvent evt)
     {
         var plainText = evt.GetPlainText().Trim();
-        if (string.IsNullOrEmpty(plainText))
+        var contentParts = await BuildMultimodalContentAsync(evt);
+
+        if (string.IsNullOrEmpty(plainText) && contentParts == null)
             return;
 
         if (_approvalService != null && _approvalService.TryHandleApprovalReply(evt))
@@ -123,14 +130,17 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             return;
         }
 
-        LogIncoming("group", evt.GroupId.ToString(), evt.Sender.DisplayName, plainText);
-        await ProcessMessageAsync(evt, plainText, role);
+        LogIncoming("group", evt.GroupId.ToString(), evt.Sender.DisplayName,
+            plainText.Length > 0 ? plainText : "[image]");
+        await ProcessMessageAsync(evt, plainText, contentParts, role);
     }
 
     private async Task HandlePrivateMessageAsync(OneBotMessageEvent evt)
     {
         var plainText = evt.GetPlainText().Trim();
-        if (string.IsNullOrEmpty(plainText))
+        var contentParts = await BuildMultimodalContentAsync(evt);
+
+        if (string.IsNullOrEmpty(plainText) && contentParts == null)
             return;
 
         if (_approvalService != null && _approvalService.TryHandleApprovalReply(evt))
@@ -143,11 +153,90 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             return;
         }
 
-        LogIncoming("private", evt.UserId.ToString(), evt.Sender.DisplayName, plainText);
-        await ProcessMessageAsync(evt, plainText, role);
+        LogIncoming("private", evt.UserId.ToString(), evt.Sender.DisplayName,
+            plainText.Length > 0 ? plainText : "[image]");
+        await ProcessMessageAsync(evt, plainText, contentParts, role);
     }
 
-    private async Task ProcessMessageAsync(OneBotMessageEvent evt, string plainText, QQUserRole role)
+    /// <summary>
+    /// Extracts image segments from the message as multimodal content parts.
+    /// Images are downloaded as inline bytes since platform URLs may not be publicly accessible.
+    /// Returns <see langword="null"/> when the message contains no images.
+    /// </summary>
+    private async Task<IList<AIContent>?> BuildMultimodalContentAsync(OneBotMessageEvent evt)
+    {
+        var hasImage = false;
+        foreach (var seg in evt.Message)
+        {
+            if (seg.Type == "image")
+            {
+                hasImage = true;
+                break;
+            }
+        }
+
+        if (!hasImage)
+            return null;
+
+        var parts = new List<AIContent>();
+        foreach (var seg in evt.Message)
+        {
+            switch (seg.Type)
+            {
+                case "text":
+                {
+                    var text = seg.GetText();
+                    if (!string.IsNullOrEmpty(text))
+                        parts.Add(new TextContent(text));
+                    break;
+                }
+                case "image":
+                {
+                    var url = seg.GetImageUrl();
+                    if (!string.IsNullOrEmpty(url))
+                    {
+                        var img = await DownloadImageAsync(url);
+                        if (img != null)
+                            parts.Add(img);
+                    }
+                    break;
+                }
+            }
+        }
+
+        return parts.Count > 0 ? parts : null;
+    }
+
+    private async Task<DataContent?> DownloadImageAsync(string imageUrl)
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync(imageUrl);
+            response.EnsureSuccessStatusCode();
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var mediaType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+            return new DataContent(bytes, mediaType);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[yellow][[QQ]][/] Failed to download image: {Markup.Escape(ex.Message)}");
+            return null;
+        }
+    }
+
+    private static HttpClient CreateDefaultHttpClient() => new(new SocketsHttpHandler
+    {
+        SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(30),
+        DefaultRequestHeaders = { { "User-Agent", "DotCraft/1.0" } }
+    };
+
+    private async Task ProcessMessageAsync(
+        OneBotMessageEvent evt, string plainText, IList<AIContent>? multimodalContent, QQUserRole role)
     {
         var sessionId = $"qq_{evt.GetSessionId()}";
 
@@ -156,6 +245,24 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             return;
         if (cmdResult.ExpandedPrompt != null)
             plainText = cmdResult.ExpandedPrompt;
+
+        // Build the final content: use multimodal parts when available, otherwise text-only
+        IList<AIContent> contentParts;
+        if (cmdResult.ExpandedPrompt != null)
+        {
+            // Command expansion replaces the original content with text
+            contentParts = [new TextContent(plainText)];
+        }
+        else if (multimodalContent != null)
+        {
+            contentParts = multimodalContent;
+        }
+        else
+        {
+            contentParts = [new TextContent(plainText)];
+        }
+
+        RuntimeContextBuilder.AppendTo(contentParts);
 
         var approvalContext = new ApprovalContext
         {
@@ -206,7 +313,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                 var agentInterrupted = false;
                 try
                 {
-                    await foreach (var update in _agent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(plainText), session, cancellationToken: runToken))
+                    var userMessage = new ChatMessage(ChatRole.User, contentParts);
+                    await foreach (var update in _agent.RunStreamingAsync([userMessage], session, cancellationToken: runToken))
                     {
                         foreach (var content in update.Contents)
                         {

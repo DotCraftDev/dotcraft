@@ -47,6 +47,7 @@ public sealed class WeComChannelService(
     private WebApplication? _webApp;
     private WeComChannelAdapter? _adapter;
     private AgentFactory? _agentFactory;
+    private HttpClient? _httpClient;
 
     public string Name => "wecom";
 
@@ -95,6 +96,16 @@ public sealed class WeComChannelService(
         var sessionGate = sp.GetRequiredService<SessionGate>();
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
+        _httpClient = new HttpClient(new SocketsHttpHandler
+        {
+            SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+        })
+        {
+            Timeout = TimeSpan.FromSeconds(30),
+            DefaultRequestHeaders = { { "User-Agent", "DotCraft/1.0" } }
+        };
         _adapter = new WeComChannelAdapter(
             agent, sessionStore, registry,
             permissionService, wecomApprovalService, sessionGate, activeRunRegistry,
@@ -103,10 +114,11 @@ public sealed class WeComChannelService(
             agentFactory: _agentFactory,
             traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
-            customCommandLoader: customCommandLoader);
+            customCommandLoader: customCommandLoader,
+            httpClient: _httpClient);
 
         var logger = new WeComServerLogger();
-        var server = new WeComBotServer(registry, logger: logger);
+        var server = new WeComBotServer(registry, httpClient: _httpClient, logger: logger);
         server.MapRoutes(app);
 
         var url = $"https://{ListenHost}:{ListenPort}";
@@ -207,5 +219,6 @@ public sealed class WeComChannelService(
             await _webApp.DisposeAsync();
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+        _httpClient?.Dispose();
     }
 }

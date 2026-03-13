@@ -74,12 +74,16 @@ public sealed class AgentFactory : IAsyncDisposable
         _hookRunner = hookRunner;
         _globalEnabledToolNames = ResolveGlobalEnabledToolNames(_config);
 
-        _chatClient = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
+        var openAIClient = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
         {
             Endpoint = new Uri(config.EndPoint)
-        }).GetChatClient(_config.Model);
+        });
+        _chatClient = openAIClient.GetChatClient(_config.Model);
 
-        Consolidator = new MemoryConsolidator(_chatClient, memoryStore, onConsolidatorStatus);
+        string consolidationModel = string.IsNullOrWhiteSpace(_config.ConsolidationModel) ? _config.Model : _config.ConsolidationModel;
+        var consolidationChatClient = openAIClient.GetChatClient(consolidationModel);
+
+        Consolidator = new MemoryConsolidator(consolidationChatClient, memoryStore, onConsolidatorStatus);
 
         if (config.MaxContextTokens > 0)
             Compactor = new ContextCompactor(_chatClient, Consolidator);

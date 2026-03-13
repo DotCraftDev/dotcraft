@@ -48,6 +48,9 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
 
     private readonly ActiveRunRegistry _activeRunRegistry;
 
+    private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
+
     public WeComChannelAdapter(
         AIAgent agent,
         SessionStore sessionStore,
@@ -61,7 +64,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         AgentFactory? agentFactory = null,
         TraceCollector? traceCollector = null,
         TokenUsageStore? tokenUsageStore = null,
-        CustomCommandLoader? customCommandLoader = null)
+        CustomCommandLoader? customCommandLoader = null,
+        HttpClient? httpClient = null)
     {
         _agent = agent;
         _sessionStore = sessionStore;
@@ -74,6 +78,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         _activeRunRegistry = activeRunRegistry;
         _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
+        _ownsHttpClient = httpClient == null;
+        _httpClient = httpClient ?? CreateDefaultHttpClient();
         
         _commandDispatcher = CommandDispatcher.CreateDefault(customCommandLoader);
 
@@ -92,6 +98,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     {
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+        if (_ownsHttpClient)
+            _httpClient.Dispose();
     }
 
     #region Message Handlers
@@ -124,7 +132,131 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         if (cmdResult.ExpandedPrompt != null)
             plainText = cmdResult.ExpandedPrompt;
 
-        // Get user role from permission service
+        IList<AIContent> contentParts = [new TextContent(plainText)];
+        RuntimeContextBuilder.AppendTo(contentParts);
+
+        await RunAgentAsync(contentParts, from, pusher);
+    }
+
+    private async Task HandleCommonMessageAsync(WeComMessage message, IWeComPusher pusher)
+    {
+        var from = message.From ?? new WeComFrom();
+        var contentParts = await BuildMultimodalContentAsync(message);
+
+        if (contentParts != null)
+        {
+            var logType = message.MsgType == WeComMsgType.Mixed ? "mixed" : message.MsgType;
+            LogIncoming(logType, message.ChatId, from.Name, $"发送了{DescribeMsgType(message.MsgType)}");
+            RuntimeContextBuilder.AppendTo(contentParts);
+            await RunAgentAsync(contentParts, from, pusher);
+            return;
+        }
+
+        // Unsupported types: log and echo back diagnostic info
+        var info = $"收到 {message.MsgType} 类型消息";
+        switch (message.MsgType)
+        {
+            case WeComMsgType.Attachment:
+                info += $"\nCallbackId: {message.Attachment?.CallbackId}";
+                LogIncoming("attachment", message.ChatId, from.Name, "发送了附件");
+                break;
+            case WeComMsgType.File:
+                info += $"\n文件URL: {message.File?.Url}";
+                LogIncoming("file", message.ChatId, from.Name, "发送了文件");
+                break;
+            default:
+                LogIncoming(message.MsgType, message.ChatId, from.Name, info);
+                break;
+        }
+
+        await pusher.PushTextAsync(info);
+    }
+
+    /// <summary>
+    /// Converts Image, Mixed, and Voice messages into multimodal content parts.
+    /// Images are downloaded as inline bytes since platform URLs are not publicly accessible.
+    /// Returns <see langword="null"/> for unsupported message types.
+    /// </summary>
+    private async Task<IList<AIContent>?> BuildMultimodalContentAsync(WeComMessage message)
+    {
+        switch (message.MsgType)
+        {
+            case WeComMsgType.Image when !string.IsNullOrEmpty(message.Image?.ImageUrl):
+            {
+                var img = await DownloadImageAsync(message.Image!.ImageUrl);
+                return img != null ? [img] : null;
+            }
+
+            case WeComMsgType.Mixed when message.MixedMessage?.MsgItems is { Count: > 0 } items:
+            {
+                var parts = new List<AIContent>(items.Count);
+                foreach (var item in items)
+                {
+                    if (item.MsgType == WeComMsgType.Text && !string.IsNullOrEmpty(item.Text?.Content))
+                        parts.Add(new TextContent(item.Text!.Content));
+                    else if (item.MsgType == WeComMsgType.Image && !string.IsNullOrEmpty(item.Image?.ImageUrl))
+                    {
+                        var img = await DownloadImageAsync(item.Image!.ImageUrl);
+                        if (img != null)
+                            parts.Add(img);
+                    }
+                }
+                return parts.Count > 0 ? parts : null;
+            }
+
+            case WeComMsgType.Voice when !string.IsNullOrEmpty(message.Voice?.Content):
+                return [new TextContent(message.Voice!.Content)];
+
+            default:
+                return null;
+        }
+    }
+
+    private async Task<DataContent?> DownloadImageAsync(string imageUrl)
+    {
+        try
+        {
+            using var response = await _httpClient.GetAsync(imageUrl);
+            response.EnsureSuccessStatusCode();
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var mediaType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+            return new DataContent(bytes, mediaType);
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[yellow][[WeCom]][/] Failed to download image: {Markup.Escape(ex.Message)}");
+            return null;
+        }
+    }
+
+    private static HttpClient CreateDefaultHttpClient() => new(new SocketsHttpHandler
+    {
+        SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(30),
+        DefaultRequestHeaders = { { "User-Agent", "DotCraft/1.0" } }
+    };
+
+    private static string DescribeMsgType(string msgType) => msgType switch
+    {
+        WeComMsgType.Image => "图片",
+        WeComMsgType.Mixed => "图文混排",
+        WeComMsgType.Voice => "语音",
+        _ => msgType
+    };
+
+    /// <summary>
+    /// Shared agent invocation: sets up session, streams agent response, tracks tokens and errors.
+    /// Accepts multimodal content to support text-only and image+text prompts.
+    /// </summary>
+    private async Task RunAgentAsync(IList<AIContent> contentParts, WeComFrom from, IWeComPusher pusher)
+    {
+        var chatId = pusher.GetChatId();
+        var sessionId = $"wecom_{chatId}_{from.UserId}";
+
         var userRole = _permissionService.GetUserRole(from.UserId, chatId);
         var roleString = userRole switch
         {
@@ -180,7 +312,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                 var agentInterrupted = false;
                 try
                 {
-                    await foreach (var update in _agent.RunStreamingAsync(RuntimeContextBuilder.AppendTo(plainText), session, cancellationToken: runToken))
+                    var userMessage = new ChatMessage(ChatRole.User, contentParts);
+                    await foreach (var update in _agent.RunStreamingAsync([userMessage], session, cancellationToken: runToken))
                     {
                         foreach (var content in update.Contents)
                         {
@@ -308,37 +441,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                 // ignored
             }
         }
-    }
-
-    private async Task HandleCommonMessageAsync(WeComMessage message, IWeComPusher pusher)
-    {
-        var info = $"收到 {message.MsgType} 类型消息";
-
-        switch (message.MsgType)
-        {
-            case WeComMsgType.Image:
-                info += $"\n图片URL: {message.Image?.ImageUrl}";
-                LogIncoming("image", message.ChatId, message.From?.Name ?? "unknown", "发送了图片");
-                break;
-            case WeComMsgType.Attachment:
-                info += $"\nCallbackId: {message.Attachment?.CallbackId}";
-                LogIncoming("attachment", message.ChatId, message.From?.Name ?? "unknown", "发送了附件");
-                break;
-            case WeComMsgType.Mixed:
-                info += $"\n包含 {message.MixedMessage?.MsgItems.Count ?? 0} 个项目";
-                LogIncoming("mixed", message.ChatId, message.From?.Name ?? "unknown", "发送了图文混排");
-                break;
-            case WeComMsgType.Voice:
-                info += $"\n语音转文本: {message.Voice?.Content}";
-                LogIncoming("voice", message.ChatId, message.From?.Name ?? "unknown", "发送了语音");
-                break;
-            case WeComMsgType.File:
-                info += $"\n文件URL: {message.File?.Url}";
-                LogIncoming("file", message.ChatId, message.From?.Name ?? "unknown", "发送了文件");
-                break;
-        }
-
-        await pusher.PushTextAsync(info);
     }
 
     private static async Task<string?> HandleEventMessageAsync(string eventType, string chatType, WeComFrom from,

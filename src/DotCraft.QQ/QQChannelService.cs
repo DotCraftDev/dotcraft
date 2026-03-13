@@ -127,7 +127,8 @@ public sealed class QQChannelService(
             agentFactory: agentFactory,
             traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
-            customCommandLoader: customCommandLoader);
+            customCommandLoader: customCommandLoader
+        );
 
         await qqClient.StartAsync(cancellationToken);
 

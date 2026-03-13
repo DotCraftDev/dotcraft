@@ -65,6 +65,12 @@ public sealed class AppConfig
     public int MemoryWindow { get; set; } = 50;
 
     /// <summary>
+    /// Model used for memory consolidation. When empty, uses <see cref="Model"/> (same as main agent).
+    /// When set, use this model for consolidation only (e.g. a non-thinking model to avoid tool_choice restrictions in thinking mode).
+    /// </summary>
+    public string ConsolidationModel { get; set; } = string.Empty;
+
+    /// <summary>
     /// Enable debug mode to display full tool call arguments without truncation.
     /// Can be toggled at runtime by administrators using /debug command in QQ/WeCom bots.
     /// </summary>
