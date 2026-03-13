@@ -125,7 +125,7 @@ dotcraft
 > **为什么只用 COMMENT？** 如果 Bot 提交 `APPROVE`，而仓库开启了"需要一个 Approval 后自动合并"的分支保护规则，Bot 的 approve 可能意外触发合并。使用 `COMMENT` 从根本上消除了这一风险。
 
 **文件说明**：
-- `PR_WORKFLOW.md` — PR 评审的 Prompt 模板，接收 `{{ issue.diff }}`、`{{ issue.head_branch }}`、`{{ issue.base_branch }}` 等变量。
+- `PR_WORKFLOW.md` — PR 评审的 Prompt 模板，接收 `{{ work_item.diff }}`、`{{ work_item.head_branch }}`、`{{ work_item.base_branch }}` 等变量。
 - `config.template.json` — 仅启用 PR Review 的示例配置，只提供 `PullRequestWorkflowPath`。
 
 ---

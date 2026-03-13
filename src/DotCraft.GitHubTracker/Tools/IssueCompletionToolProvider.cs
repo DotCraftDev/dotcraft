@@ -11,7 +11,7 @@ namespace DotCraft.GitHubTracker.Tools;
 /// </summary>
 public sealed class IssueCompletionToolProvider(
     string issueId,
-    IIssueTracker tracker,
+    IWorkItemTracker tracker,
     ILogger<IssueCompletionToolProvider> logger) : IAgentToolProvider
 {
     public int Priority => 95;

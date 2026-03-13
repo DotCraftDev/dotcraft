@@ -4,26 +4,26 @@ namespace DotCraft.GitHubTracker.Tracker;
 /// Abstraction for work-item tracker integration.
 /// Supports both GitHub Issues and Pull Requests.
 /// </summary>
-public interface IIssueTracker
+public interface IWorkItemTracker
 {
     /// <summary>
     /// Fetch work items (issues and/or PRs) in configured active states.
     /// Used for dispatch candidate selection.
     /// </summary>
-    Task<IReadOnlyList<TrackedIssue>> FetchCandidateIssuesAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<TrackedWorkItem>> FetchCandidateWorkItemsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Fetch current state for specific work-item IDs.
     /// Used for active-run reconciliation.
     /// </summary>
-    Task<IReadOnlyList<IssueStateSnapshot>> FetchIssueStatesByIdsAsync(
-        IReadOnlyList<string> issueIds, CancellationToken ct = default);
+    Task<IReadOnlyList<WorkItemStateSnapshot>> FetchWorkItemStatesByIdsAsync(
+        IReadOnlyList<string> workItemIds, CancellationToken ct = default);
 
     /// <summary>
     /// Fetch work items currently in the given state names.
     /// Used for startup terminal cleanup.
     /// </summary>
-    Task<IReadOnlyList<TrackedIssue>> FetchIssuesByStatesAsync(
+    Task<IReadOnlyList<TrackedWorkItem>> FetchWorkItemsByStatesAsync(
         IReadOnlyList<string> stateNames, CancellationToken ct = default);
 
     /// <summary>

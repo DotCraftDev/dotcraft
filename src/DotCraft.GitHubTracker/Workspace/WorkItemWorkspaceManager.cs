@@ -7,10 +7,10 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.GitHubTracker.Workspace;
 
 /// <summary>
-/// Manages per-issue workspace lifecycle: creation, reuse, hooks, and cleanup.
+/// Manages per-work-item workspace lifecycle: creation, reuse, hooks, and cleanup.
 /// Enforces safety invariants per SPEC.md Section 9.
 /// </summary>
-public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, ILogger<IssueWorkspaceManager> logger)
+public sealed partial class WorkItemWorkspaceManager(GitHubTrackerConfig config, ILogger<WorkItemWorkspaceManager> logger)
 {
     private static readonly Regex SafeChars = GenerateSafeCharsRegex();
 
@@ -25,7 +25,7 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
     /// For pull requests, checks out the PR's head branch after clone.
     /// Runs after_create hook if the directory was newly created.
     /// </summary>
-    public async Task<IssueWorkspace> EnsureWorkspaceAsync(TrackedIssue workItem, CancellationToken ct = default)
+    public async Task<WorkItemWorkspace> EnsureWorkspaceAsync(TrackedWorkItem workItem, CancellationToken ct = default)
     {
         var issueIdentifier = workItem.Identifier;
         var key = SanitizeIdentifier(issueIdentifier);
@@ -79,15 +79,15 @@ public sealed partial class IssueWorkspaceManager(GitHubTrackerConfig config, IL
             }
         }
 
-        return new IssueWorkspace(path);
+        return new WorkItemWorkspace(path);
     }
 
     /// <summary>
     /// Overload for simple identifier-based calls (backward compat for cleanup, etc.).
     /// </summary>
-    public Task<IssueWorkspace> EnsureWorkspaceAsync(string issueIdentifier, CancellationToken ct = default)
+    public Task<WorkItemWorkspace> EnsureWorkspaceAsync(string issueIdentifier, CancellationToken ct = default)
     {
-        var placeholder = new TrackedIssue
+        var placeholder = new TrackedWorkItem
         {
             Id = issueIdentifier,
             Identifier = issueIdentifier,

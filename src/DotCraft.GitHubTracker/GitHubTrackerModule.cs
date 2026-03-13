@@ -55,17 +55,17 @@ public sealed partial class GitHubTrackerModule : ModuleBase
         services.AddSingleton(sp => new WorkflowLoader(
             config,
             sp.GetRequiredService<ILogger<WorkflowLoader>>()));
-        services.AddSingleton(sp => new IssueWorkspaceManager(
+        services.AddSingleton(sp => new WorkItemWorkspaceManager(
             config,
-            sp.GetRequiredService<ILogger<IssueWorkspaceManager>>()));
-        services.AddSingleton<IIssueTracker>(sp => CreateTracker(config, workspacePath, sp));
-        services.AddSingleton(sp => new IssueAgentRunnerFactory(
+            sp.GetRequiredService<ILogger<WorkItemWorkspaceManager>>()));
+        services.AddSingleton<IWorkItemTracker>(sp => CreateTracker(config, workspacePath, sp));
+        services.AddSingleton(sp => new WorkItemAgentRunnerFactory(
             sp.GetRequiredService<AppConfig>(),
-            sp.GetRequiredService<IIssueTracker>(),
-            sp.GetRequiredService<IssueWorkspaceManager>(),
+            sp.GetRequiredService<IWorkItemTracker>(),
+            sp.GetRequiredService<WorkItemWorkspaceManager>(),
             sp.GetRequiredService<ModuleRegistry>(),
             sp.GetRequiredService<SkillsLoader>(),
-            sp.GetRequiredService<ILogger<IssueAgentRunnerFactory>>(),
+            sp.GetRequiredService<ILogger<WorkItemAgentRunnerFactory>>(),
             sp.GetRequiredService<ILoggerFactory>(),
             sp.GetService<TraceCollector>()));
         services.AddSingleton(sp =>
@@ -77,11 +77,11 @@ public sealed partial class GitHubTrackerModule : ModuleBase
                 sp.GetRequiredService<ILogger<WorkflowLoader>>());
 
             return new GitHubTrackerOrchestrator(
-                sp.GetRequiredService<IIssueTracker>(),
+                sp.GetRequiredService<IWorkItemTracker>(),
                 issueWorkflowLoader,
                 prWorkflowLoader,
-                sp.GetRequiredService<IssueWorkspaceManager>(),
-                sp.GetRequiredService<IssueAgentRunnerFactory>(),
+                sp.GetRequiredService<WorkItemWorkspaceManager>(),
+                sp.GetRequiredService<WorkItemAgentRunnerFactory>(),
                 config,
                 workspacePath,
                 sp.GetRequiredService<ILogger<GitHubTrackerOrchestrator>>());
@@ -93,6 +93,6 @@ public sealed partial class GitHubTrackerModule : ModuleBase
     public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
         => ActivatorUtilities.CreateInstance<GitHubTrackerChannelService>(sp);
 
-    private static IIssueTracker CreateTracker(GitHubTrackerConfig config, string workspacePath, IServiceProvider sp)
+    private static IWorkItemTracker CreateTracker(GitHubTrackerConfig config, string workspacePath, IServiceProvider sp)
         => new GitHubTrackerAdapter(config, workspacePath, sp.GetRequiredService<ILogger<GitHubTrackerAdapter>>());
 }

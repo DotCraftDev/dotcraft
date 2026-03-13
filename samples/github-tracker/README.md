@@ -125,7 +125,7 @@ To trigger a re-review (e.g. after pushing fixes):
 > **Why COMMENT only?** If the bot were to submit `APPROVE` and the repository has auto-merge enabled with branch protection requiring one approval, the bot's approval could inadvertently trigger a merge. Using `COMMENT` eliminates this risk.
 
 **Files**:
-- `PR_WORKFLOW.md` — prompt template for PR reviews; receives `{{ issue.diff }}`, `{{ issue.head_branch }}`, `{{ issue.base_branch }}`, etc.
+- `PR_WORKFLOW.md` — prompt template for PR reviews; receives `{{ work_item.diff }}`, `{{ work_item.head_branch }}`, `{{ work_item.base_branch }}`, etc.
 - `config.template.json` — PR-only sample config. It enables PR review by providing `PullRequestWorkflowPath` only.
 
 ---
