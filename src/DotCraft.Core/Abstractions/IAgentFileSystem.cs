@@ -60,7 +60,12 @@ public sealed class HostFileHandle : IDisposable
 
     public void Dispose()
     {
-        if (_tempPath != null)
-            try { File.Delete(_tempPath); } catch { }
+        if (_tempPath == null) return;
+        try { File.Delete(_tempPath); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"[AgentFileSystem] Failed to clean up temp file '{_tempPath}': {ex.Message}");
+        }
     }
 }

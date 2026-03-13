@@ -15,6 +15,10 @@ public sealed class SandboxAgentFileSystem(SandboxSessionManager sandboxManager)
         var base64 = await ReadBase64FromSandboxAsync(sandboxPath);
 
         var bytes = Convert.FromBase64String(base64);
+        if (bytes.Length > HostAgentFileSystem.MaxTransferSize)
+            throw new IOException(
+                $"File too large for transfer ({bytes.Length} bytes). Maximum: {HostAgentFileSystem.MaxTransferSize} bytes.");
+
         var fileName = Path.GetFileName(sandboxPath);
         var ext = Path.GetExtension(fileName);
         var tempPath = Path.Combine(Path.GetTempPath(), $"dotcraft_{Guid.NewGuid():N}{ext}");
@@ -43,6 +47,13 @@ public sealed class SandboxAgentFileSystem(SandboxSessionManager sandboxManager)
 
     private static string ResolveSandboxPath(string path)
     {
+        // Normalize Windows-style separators (host may be Windows)
+        path = path.Replace('\\', '/');
+
+        // Strip Windows drive letter prefix (e.g., "C:/workspace/file" -> "/workspace/file")
+        if (path.Length >= 3 && char.IsLetter(path[0]) && path[1] == ':' && path[2] == '/')
+            path = path[2..];
+
         if (path.StartsWith('/'))
             return path;
         if (path.StartsWith("./"))
