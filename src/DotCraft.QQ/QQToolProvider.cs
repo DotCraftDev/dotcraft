@@ -19,7 +19,7 @@ public sealed class QQToolProvider : IAgentToolProvider
         if (context.ChannelClient is not QQBotClient qqClient)
             return [];
 
-        var qqTools = new QQTools(qqClient);
+        var qqTools = new QQTools(qqClient, context.AgentFileSystem);
         
         return
         [

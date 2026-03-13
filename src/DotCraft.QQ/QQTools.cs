@@ -1,11 +1,19 @@
 using System.ComponentModel;
 using System.Text.Json;
+using DotCraft.Abstractions;
 using DotCraft.Tools;
 
 namespace DotCraft.QQ;
 
-public sealed class QQTools(QQBotClient client)
+public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = null)
 {
+    private readonly IAgentFileSystem? _fileSystem = fileSystem;
+
+    private static bool IsRemoteOrInline(string file)
+        => file.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+           || file.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+           || file.StartsWith("base64://", StringComparison.OrdinalIgnoreCase);
+
     [Description("Send a voice/audio message to a QQ group chat. The file can be a local absolute path, an HTTP URL, or a base64-encoded string (prefix with 'base64://'). Supported formats depend on the OneBot implementation (typically mp3, amr, silk).")]
     [Tool(Icon = "🎤", DisplayType = typeof(QQToolDisplays), DisplayMethod = nameof(QQToolDisplays.QQSendGroupVoice))]
     public async Task<string> QQSendGroupVoice(
@@ -14,6 +22,7 @@ public sealed class QQTools(QQBotClient client)
     {
         try
         {
+            file = await ResolveVoiceFileAsync(file);
             var resp = await client.SendGroupRecordAsync(groupId, file);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "Voice message sent." })
@@ -33,6 +42,7 @@ public sealed class QQTools(QQBotClient client)
     {
         try
         {
+            file = await ResolveVoiceFileAsync(file);
             var resp = await client.SendPrivateRecordAsync(userId, file);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "Voice message sent." })
@@ -52,7 +62,9 @@ public sealed class QQTools(QQBotClient client)
     {
         try
         {
-            var resp = await client.SendGroupVideoAsync(groupId, file);
+            var resolvedFile = await ResolveVideoFileAsync(file);
+            using var handle = resolvedFile;
+            var resp = await client.SendGroupVideoAsync(groupId, handle?.HostPath ?? file);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "Video sent." })
                 : JsonSerializer.Serialize(new { success = false, error = resp.Message });
@@ -71,7 +83,9 @@ public sealed class QQTools(QQBotClient client)
     {
         try
         {
-            var resp = await client.SendPrivateVideoAsync(userId, file);
+            var resolvedFile = await ResolveVideoFileAsync(file);
+            using var handle = resolvedFile;
+            var resp = await client.SendPrivateVideoAsync(userId, handle?.HostPath ?? file);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "Video sent." })
                 : JsonSerializer.Serialize(new { success = false, error = resp.Message });
@@ -92,7 +106,10 @@ public sealed class QQTools(QQBotClient client)
     {
         try
         {
-            var resp = await client.UploadGroupFileAsync(groupId, filePath, fileName, folder);
+            using var handle = _fileSystem != null
+                ? await _fileSystem.ResolveHostFileAsync(filePath)
+                : new HostFileHandle(filePath);
+            var resp = await client.UploadGroupFileAsync(groupId, handle.HostPath, fileName, folder);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "File uploaded to group." })
                 : JsonSerializer.Serialize(new { success = false, error = resp.Message });
@@ -112,7 +129,10 @@ public sealed class QQTools(QQBotClient client)
     {
         try
         {
-            var resp = await client.UploadPrivateFileAsync(userId, filePath, fileName);
+            using var handle = _fileSystem != null
+                ? await _fileSystem.ResolveHostFileAsync(filePath)
+                : new HostFileHandle(filePath);
+            var resp = await client.UploadPrivateFileAsync(userId, handle.HostPath, fileName);
             return resp.IsOk
                 ? JsonSerializer.Serialize(new { success = true, message = "File sent to user." })
                 : JsonSerializer.Serialize(new { success = false, error = resp.Message });
@@ -121,5 +141,29 @@ public sealed class QQTools(QQBotClient client)
         {
             return JsonSerializer.Serialize(new { success = false, error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// For voice messages, OneBot supports base64:// inline data,
+    /// so we can avoid temp file extraction by reading the file as base64.
+    /// </summary>
+    private async Task<string> ResolveVoiceFileAsync(string file)
+    {
+        if (IsRemoteOrInline(file) || _fileSystem == null)
+            return file;
+
+        var b64 = await _fileSystem.ReadAsBase64Async(file);
+        return "base64://" + b64;
+    }
+
+    /// <returns>A <see cref="HostFileHandle"/> for local paths, or null for remote URLs.</returns>
+    private async Task<HostFileHandle?> ResolveVideoFileAsync(string file)
+    {
+        if (IsRemoteOrInline(file))
+            return null;
+
+        return _fileSystem != null
+            ? await _fileSystem.ResolveHostFileAsync(file)
+            : new HostFileHandle(file);
     }
 }

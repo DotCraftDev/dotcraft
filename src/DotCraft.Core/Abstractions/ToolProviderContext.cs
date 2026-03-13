@@ -6,6 +6,7 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Security;
 using DotCraft.Skills;
+using DotCraft.Tools;
 using OpenAI.Chat;
 
 namespace DotCraft.Abstractions;
@@ -88,4 +89,15 @@ public sealed class ToolProviderContext
     /// These resources will be disposed when the application shuts down.
     /// </summary>
     public ConcurrentBag<IAsyncDisposable> DisposableResources { get; } = [];
+
+    /// <summary>
+    /// File system abstraction for channel tools that need host-local file access.
+    /// Defaults to <see cref="HostAgentFileSystem"/>; overridden to sandbox implementation
+    /// when sandbox mode is enabled (see <c>SandboxToolProvider</c>).
+    /// </summary>
+    public IAgentFileSystem AgentFileSystem
+    {
+        get => field ??= new HostAgentFileSystem(WorkspacePath);
+        set;
+    }
 }

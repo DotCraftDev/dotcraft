@@ -24,7 +24,7 @@ public sealed class WeComToolProvider : IAgentToolProvider
         if (!isWeComEnabled)
             return [];
 
-        var weComTools = new WeComTools(config.WeCom.WebhookUrl);
+        var weComTools = new WeComTools(config.WeCom.WebhookUrl, fileSystem: context.AgentFileSystem);
         
         return
         [
