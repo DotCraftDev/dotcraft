@@ -896,6 +896,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
             {
                 TracingChatClient.ResetCallState(_currentSessionId);
                 TracingChatClient.CurrentSessionKey = null;
+                TokenTracker.Current = null;
                 // Clear render control
                 ConsoleApprovalService.SetRenderControl(null);
                 // Restore hook debug logger to default (Console.Error.WriteLine fallback)
