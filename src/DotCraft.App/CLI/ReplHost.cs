@@ -425,7 +425,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
             case "/load":
                 var sessions = sessionStore.ListSessions();
-                var selectedSession = SessionPrompt.SelectSessionToLoad(sessions, _currentSessionId);
+                var selectedSession = SessionPrompt.SelectSessionToLoad(sessions, _currentSessionId, _lang);
                 if (selectedSession != null)
                 {
                     await LoadSessionAsync(selectedSession, CancellationToken.None);
@@ -434,10 +434,10 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
             case "/delete":
                 var sessionsToDelete = sessionStore.ListSessions();
-                var sessionToDelete = SessionPrompt.SelectSessionToDelete(sessionsToDelete, _currentSessionId);
+                var sessionToDelete = SessionPrompt.SelectSessionToDelete(sessionsToDelete, _currentSessionId, _lang);
                 if (sessionToDelete != null)
                 {
-                    if (SessionPrompt.ConfirmDelete(sessionToDelete, sessionToDelete == _currentSessionId))
+                    if (SessionPrompt.ConfirmDelete(sessionToDelete, sessionToDelete == _currentSessionId, _lang))
                     {
                         await DeleteSession(sessionToDelete);
                         AnsiConsole.Clear();

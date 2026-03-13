@@ -160,4 +160,22 @@ public static class Strings
     public static string UnknownCommand(LanguageService lang) => lang.GetString("未知命令", "Unknown command");
     public static string DidYouMean(LanguageService lang) => lang.GetString("你是否想输入", "Did you mean");
     public static string ViewAllCommands(LanguageService lang) => lang.GetString("输入 /help 查看所有可用命令。", "Type /help to see all available commands.");
+
+    // Session prompt
+    public static string NoSessionsAvailable(LanguageService lang) => lang.GetString("没有可用的会话。", "No sessions available.");
+    public static string NoSessionsToDelete(LanguageService lang) => lang.GetString("没有可删除的会话。", "No sessions to delete.");
+    public static string SelectSessionToLoadTitle(LanguageService lang) => lang.GetString("选择要加载的会话：", "Select a session to load:");
+    public static string SelectSessionToDeleteTitle(LanguageService lang) => lang.GetString("选择要删除的会话：", "Select a session to delete:");
+    public static string SessionSelected(LanguageService lang) => lang.GetString("已选择会话", "Session selected");
+    public static string Cancelled(LanguageService lang) => lang.GetString("已取消。", "Cancelled.");
+    public static string Cancel(LanguageService lang) => lang.GetString("取消", "Cancel");
+    public static string ConfirmDeleteCurrentWarning(LanguageService lang, string sessionId) => lang.GetString($"⚠️  您即将删除[cyan]当前[/]会话 '[cyan]{sessionId}[/]'。", $"⚠️  You are about to delete the [cyan]current[/] session '[cyan]{sessionId}[/]'.");
+    public static string ConfirmDeleteCurrentSuffix(LanguageService lang) => lang.GetString("删除后将创建新会话。", "A new session will be created after deletion.");
+    public static string ConfirmDeleteOther(LanguageService lang, string sessionId) => lang.GetString($"确定要删除会话 [cyan]{sessionId}[/]吗？", $"Are you sure you want to delete session [cyan]{sessionId}[/]?");
+    public static string ConfirmDeleteQuestion(LanguageService lang) => lang.GetString("删除此会话？", "Delete this session?");
+    public static string TimeUnknown(LanguageService lang) => lang.GetString("未知", "unknown");
+    public static string TimeJustNow(LanguageService lang) => lang.GetString("刚刚", "just now");
+    public static string TimeMinutesAgo(LanguageService lang, int n) => lang.GetString($"{n}分钟前", $"{n} min ago");
+    public static string TimeHoursAgo(LanguageService lang, int n) => lang.GetString($"{n}小时前", $"{n}h ago");
+    public static string TimeDaysAgo(LanguageService lang, int n) => lang.GetString($"{n}天前", $"{n}d ago");
 }

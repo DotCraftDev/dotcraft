@@ -1,62 +1,26 @@
-﻿using DotCraft.Memory;
+using DotCraft.Localization;
+using DotCraft.Memory;
 using Spectre.Console;
 
 namespace DotCraft.CLI;
 
 /// <summary>
-/// 会话选择器组件，封装 SelectionPrompt 交互逻辑
+/// Session selector component wrapping Spectre.Console SelectionPrompt interactions.
 /// </summary>
 public static class SessionPrompt
 {
     /// <summary>
-    /// 选择要加载的会话
+    /// Shows a selection prompt for loading a session.
     /// </summary>
-    /// <param name="sessions">可用的会话列表</param>
-    /// <param name="currentSessionId">当前会话 ID</param>
-    /// <returns>选择的会话 Key，如果用户取消则返回 null</returns>
-    public static string? SelectSessionToLoad(List<SessionStore.SessionInfo> sessions, string? currentSessionId)
+    /// <param name="sessions">Available sessions.</param>
+    /// <param name="currentSessionId">The currently active session ID.</param>
+    /// <param name="lang">Language service for localization.</param>
+    /// <returns>The selected session key, or null if the user cancelled.</returns>
+    public static string? SelectSessionToLoad(List<SessionStore.SessionInfo> sessions, string? currentSessionId, LanguageService lang)
     {
         if (sessions.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]没有可用的会话。[/]");
-            return null;
-        }
-
-        AnsiConsole.WriteLine();
-
-        // 添加 "Create New Session" 选项
-        var options = sessions.Select(s => new SessionOption
-        {
-            Key = s.Key,
-            CreatedAt = s.CreatedAt,
-            UpdatedAt = s.UpdatedAt,
-            IsCurrent = s.Key == currentSessionId
-        }).ToList();
-
-        var choice = AnsiConsole.Prompt(
-            new SelectionPrompt<SessionOption>()
-                .Title("[green]选择要加载的会话：[/]")
-                .AddChoices(options)
-                .UseConverter(o => FormatSessionOption(o))
-                .PageSize(10));
-
-        AnsiConsole.MarkupLine($"[green]✓[/] 已选择会话：[cyan]{EscapeMarkup(choice.Key)}[/]");
-        AnsiConsole.WriteLine();
-
-        return choice.Key;
-    }
-
-    /// <summary>
-    /// 选择要删除的会话
-    /// </summary>
-    /// <param name="sessions">可用的会话列表</param>
-    /// <param name="currentSessionId">当前会话 ID</param>
-    /// <returns>选择的会话 Key，如果用户取消则返回 null</returns>
-    public static string? SelectSessionToDelete(List<SessionStore.SessionInfo> sessions, string currentSessionId)
-    {
-        if (sessions.Count == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]没有可删除的会话。[/]");
+            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsAvailable(lang)}[/]");
             return null;
         }
 
@@ -67,34 +31,89 @@ public static class SessionPrompt
             Key = s.Key,
             CreatedAt = s.CreatedAt,
             UpdatedAt = s.UpdatedAt,
-            IsCurrent = s.Key == currentSessionId
-        }).ToList();
+            IsCurrent = s.Key == currentSessionId,
+            FirstUserMessage = s.FirstUserMessage
+        }).Prepend(BuildCancelOption(lang)).ToList();
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<SessionOption>()
-                .Title("[red]选择要删除的会话：[/]")
+                .Title($"[green]{Strings.SelectSessionToLoadTitle(lang)}[/]")
                 .AddChoices(options)
-                .UseConverter(o => FormatSessionOption(o))
+                .UseConverter(o => FormatSessionOption(o, lang))
                 .PageSize(10));
 
-        // 显示选择的会话信息
-        AnsiConsole.MarkupLine($"[red]→[/] 已选择会话：[cyan]{EscapeMarkup(choice.Key)}[/]");
+        if (choice.IsCancel)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled(lang)}[/]");
+            AnsiConsole.WriteLine();
+            return null;
+        }
+
+        AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
         AnsiConsole.WriteLine();
 
         return choice.Key;
     }
 
     /// <summary>
-    /// 确认删除操作
+    /// Shows a selection prompt for deleting a session.
     /// </summary>
-    /// <param name="sessionId">要删除的会话 ID</param>
-    /// <param name="isCurrent">是否是当前会话</param>
-    /// <returns>用户是否确认删除</returns>
-    public static bool ConfirmDelete(string sessionId, bool isCurrent)
+    /// <param name="sessions">Available sessions.</param>
+    /// <param name="currentSessionId">The currently active session ID.</param>
+    /// <param name="lang">Language service for localization.</param>
+    /// <returns>The selected session key, or null if the user cancelled.</returns>
+    public static string? SelectSessionToDelete(List<SessionStore.SessionInfo> sessions, string currentSessionId, LanguageService lang)
     {
+        if (sessions.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsToDelete(lang)}[/]");
+            return null;
+        }
+
+        AnsiConsole.WriteLine();
+
+        var options = sessions.Select(s => new SessionOption
+        {
+            Key = s.Key,
+            CreatedAt = s.CreatedAt,
+            UpdatedAt = s.UpdatedAt,
+            IsCurrent = s.Key == currentSessionId,
+            FirstUserMessage = s.FirstUserMessage
+        }).Prepend(BuildCancelOption(lang)).ToList();
+
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<SessionOption>()
+                .Title($"[red]{Strings.SelectSessionToDeleteTitle(lang)}[/]")
+                .AddChoices(options)
+                .UseConverter(o => FormatSessionOption(o, lang))
+                .PageSize(10));
+
+        if (choice.IsCancel)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled(lang)}[/]");
+            AnsiConsole.WriteLine();
+            return null;
+        }
+
+        AnsiConsole.MarkupLine($"[red]→[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
+        AnsiConsole.WriteLine();
+
+        return choice.Key;
+    }
+
+    /// <summary>
+    /// Shows a confirmation prompt before deleting a session.
+    /// </summary>
+    /// <param name="sessionId">The session ID to delete.</param>
+    /// <param name="isCurrent">Whether the session is the currently active one.</param>
+    /// <param name="lang">Language service for localization.</param>
+    /// <returns>True if the user confirmed deletion.</returns>
+    public static bool ConfirmDelete(string sessionId, bool isCurrent, LanguageService lang)
+    {
+        var escapedId = EscapeMarkup(sessionId);
         var message = isCurrent
-            ? $"[yellow]⚠️  您即将删除[cyan]当前[/]会话 '[cyan]{EscapeMarkup(sessionId)}[/]'。[/]\n[yellow]删除后将创建新会话。[/]"
-            : $"[yellow]确定要删除会话 [cyan]{EscapeMarkup(sessionId)}[/]吗？[/]";
+            ? $"[yellow]{Strings.ConfirmDeleteCurrentWarning(lang, escapedId)}[/]\n[yellow]{Strings.ConfirmDeleteCurrentSuffix(lang)}[/]"
+            : $"[yellow]{Strings.ConfirmDeleteOther(lang, escapedId)}[/]";
 
         var panel = new Panel(message)
         {
@@ -105,26 +124,38 @@ public static class SessionPrompt
         AnsiConsole.Write(panel);
         AnsiConsole.WriteLine();
 
-        return AnsiConsole.Confirm("[red]删除此会话？[/]");
+        return AnsiConsole.Confirm($"[red]{Strings.ConfirmDeleteQuestion(lang)}[/]");
     }
 
+    private const int PreviewMaxLength = 50;
+
     /// <summary>
-    /// 格式化会话选项显示
+    /// Formats a session option for display in the selection prompt.
     /// </summary>
-    private static string FormatSessionOption(SessionOption option)
+    private static string FormatSessionOption(SessionOption option, LanguageService lang)
     {
+        if (option.IsCancel)
+            return $"[grey]  {EscapeMarkup(Strings.Cancel(lang))}[/]";
+
         var prefix = option.IsCurrent ? "📍 " : "  ";
         var key = EscapeMarkup(option.Key);
-
-        // 解析时间戳
         var updatedAt = ParseTimestamp(option.UpdatedAt);
-        var timeAgo = GetTimeAgo(updatedAt);
+        var timeAgo = GetTimeAgo(updatedAt, lang);
 
-        return $"{prefix}[cyan]{key}[/] [grey]({timeAgo})[/]";
+        var preview = "";
+        if (!string.IsNullOrWhiteSpace(option.FirstUserMessage))
+        {
+            var msg = option.FirstUserMessage.ReplaceLineEndings(" ").Trim();
+            if (msg.Length > PreviewMaxLength)
+                msg = msg[..PreviewMaxLength] + "...";
+            preview = $" [dim]{EscapeMarkup(msg)}[/]";
+        }
+
+        return $"{prefix}[cyan]{key}[/] [grey]({timeAgo})[/]{preview}";
     }
 
     /// <summary>
-    /// 解析时间戳字符串
+    /// Parses an ISO 8601 timestamp string into a local DateTime.
     /// </summary>
     private static DateTime ParseTimestamp(string? timestamp)
     {
@@ -138,47 +169,52 @@ public static class SessionPrompt
     }
 
     /// <summary>
-    /// 获取相对时间描述
+    /// Returns a human-readable relative time description for the given datetime.
     /// </summary>
-    private static string GetTimeAgo(DateTime dateTime)
+    private static string GetTimeAgo(DateTime dateTime, LanguageService lang)
     {
         if (dateTime == DateTime.MinValue)
-            return "未知";
+            return Strings.TimeUnknown(lang);
 
-        var now = DateTime.UtcNow;
-        var diff = now - dateTime;
+        var diff = DateTime.UtcNow - dateTime;
 
         if (diff.TotalMinutes < 1)
-            return "刚刚";
+            return Strings.TimeJustNow(lang);
         if (diff.TotalMinutes < 60)
-            return $"{(int)diff.TotalMinutes}分钟前";
+            return Strings.TimeMinutesAgo(lang, (int)diff.TotalMinutes);
         if (diff.TotalHours < 24)
-            return $"{(int)diff.TotalHours}小时前";
+            return Strings.TimeHoursAgo(lang, (int)diff.TotalHours);
         if (diff.TotalDays < 7)
-            return $"{(int)diff.TotalDays}天前";
+            return Strings.TimeDaysAgo(lang, (int)diff.TotalDays);
 
         return $"{dateTime:yyyy-MM-dd}";
     }
 
     /// <summary>
-    /// 会话选项数据结构
+    /// Builds a cancel sentinel option using the current language.
+    /// </summary>
+    private static SessionOption BuildCancelOption(LanguageService lang) => new() { IsCancel = true };
+
+    /// <summary>
+    /// Session option data model used by the selection prompt.
     /// </summary>
     private sealed class SessionOption
     {
         public string Key { get; set; } = string.Empty;
-        
+
         public string? CreatedAt { get; set; }
-        
+
         public string? UpdatedAt { get; set; }
-        
+
         public bool IsCurrent { get; set; }
+
+        public string? FirstUserMessage { get; set; }
+
+        public bool IsCancel { get; set; }
     }
 
     /// <summary>
-    /// 转义 Spectre.Console 标记字符
+    /// Escapes Spectre.Console markup characters in a string.
     /// </summary>
-    private static string EscapeMarkup(this string text)
-    {
-        return Markup.Escape(text);
-    }
+    private static string EscapeMarkup(this string text) => Markup.Escape(text);
 }

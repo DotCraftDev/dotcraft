@@ -141,7 +141,8 @@ public sealed class SessionStore
                 {
                     Key = sessionId,
                     CreatedAt = fileInfo.CreationTimeUtc.ToString("O"),
-                    UpdatedAt = fileInfo.LastWriteTimeUtc.ToString("O")
+                    UpdatedAt = fileInfo.LastWriteTimeUtc.ToString("O"),
+                    FirstUserMessage = ExtractFirstUserMessage(file)
                 });
             }
             catch
@@ -175,5 +176,109 @@ public sealed class SessionStore
         public string CreatedAt { get; set; } = string.Empty;
         
         public string UpdatedAt { get; set; } = string.Empty;
+
+        public string? FirstUserMessage { get; set; }
+    }
+
+    /// <summary>
+    /// Reads the session JSON file and extracts the text of the first user-role message.
+    /// Returns null if the file cannot be parsed or contains no user messages.
+    /// </summary>
+    private static string? ExtractFirstUserMessage(string filePath)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(filePath));
+            return FindFirstUserMessage(doc.RootElement);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? FindFirstUserMessage(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            // Check if this object looks like a messages array container
+            foreach (var prop in element.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Array)
+                {
+                    var result = prop.Name.Equals("messages", StringComparison.OrdinalIgnoreCase)
+                        ? TryExtractFromMessagesArray(prop.Value)
+                        : FindFirstUserMessage(prop.Value);
+
+                    if (result != null)
+                        return result;
+                }
+                else if (prop.Value.ValueKind == JsonValueKind.Object)
+                {
+                    var result = FindFirstUserMessage(prop.Value);
+                    if (result != null)
+                        return result;
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var result = FindFirstUserMessage(item);
+                if (result != null)
+                    return result;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryExtractFromMessagesArray(JsonElement array)
+    {
+        foreach (var msg in array.EnumerateArray())
+        {
+            if (msg.ValueKind != JsonValueKind.Object)
+                continue;
+
+            if (!msg.TryGetProperty("role", out var roleProp))
+                continue;
+
+            if (!roleProp.GetString()?.Equals("user", StringComparison.OrdinalIgnoreCase) ?? true)
+                continue;
+
+            // Try "text" shorthand property first
+            if (msg.TryGetProperty("text", out var textProp))
+            {
+                var text = textProp.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                    return StripRuntimeContextFromText(text);
+            }
+
+            // Fall back to contents array
+            if (msg.TryGetProperty("contents", out var contentsProp) && contentsProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var content in contentsProp.EnumerateArray())
+                {
+                    if (content.ValueKind != JsonValueKind.Object)
+                        continue;
+
+                    if (content.TryGetProperty("text", out var ct))
+                    {
+                        var text = ct.GetString();
+                        if (!string.IsNullOrWhiteSpace(text))
+                            return StripRuntimeContextFromText(text);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string StripRuntimeContextFromText(string text)
+    {
+        var idx = text.IndexOf("\n\n[Runtime Context]", StringComparison.Ordinal);
+        return idx >= 0 ? text[..idx] : text;
     }
 }
