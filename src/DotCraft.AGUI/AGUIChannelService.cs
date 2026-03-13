@@ -31,6 +31,8 @@ namespace DotCraft.AGUI;
 /// <summary>
 /// Gateway channel service for AG-UI protocol. Runs a dedicated Kestrel server on AgUi.Host:AgUi.Port
 /// and exposes a single POST endpoint (e.g. /ag-ui) that accepts AG-UI RunAgentInput and streams SSE events.
+/// Implements <see cref="IWebHostingChannel"/> so <see cref="WebHostPool"/> can merge it with other services
+/// that share the same host:port.
 /// </summary>
 public sealed class AGUIChannelService(
     IServiceProvider sp,
@@ -42,10 +44,13 @@ public sealed class AGUIChannelService(
     PathBlacklist blacklist,
     McpClientManager mcpClientManager,
     ModuleRegistry moduleRegistry)
-    : IChannelService
+    : IChannelService, IWebHostingChannel
 {
     private WebApplication? _webApp;
     private AgentFactory? _agentFactory;
+
+    // Stored during ConfigureBuilder, consumed during ConfigureApp
+    private AIAgent? _agent;
 
     public string Name => "ag-ui";
 
@@ -65,64 +70,40 @@ public sealed class AGUIChannelService(
 
     public IReadOnlyList<string> GetAdminTargets() => [];
 
-    private AgentFactory BuildAgentFactory()
+    #region IWebHostingChannel
+
+    /// <inheritdoc />
+    public string ListenHost => string.IsNullOrWhiteSpace(config.AgUi.Host) ? "127.0.0.1" : config.AgUi.Host;
+
+    /// <inheritdoc />
+    public int ListenPort => config.AgUi.Port <= 0 ? 5100 : config.AgUi.Port;
+
+    /// <inheritdoc />
+    public void ConfigureBuilder(WebApplicationBuilder builder)
     {
-        var cronTools = sp.GetService<CronTools>();
-        var traceCollector = sp.GetService<TraceCollector>();
-        var hookRunner = sp.GetService<HookRunner>();
-
-        var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
-
-        return new AgentFactory(
-            paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, ApprovalService, blacklist,
-            toolProviders: toolProviders,
-            toolProviderContext: new ToolProviderContext
-            {
-                Config = config,
-                ChatClient = new OpenAIClient(
-                    new ApiKeyCredential(config.ApiKey),
-                    new OpenAIClientOptions { Endpoint = new Uri(config.EndPoint) })
-                    .GetChatClient(config.Model),
-                WorkspacePath = paths.WorkspacePath,
-                BotPath = paths.CraftPath,
-                MemoryStore = memoryStore,
-                SkillsLoader = skillsLoader,
-                ApprovalService = ApprovalService,
-                PathBlacklist = blacklist,
-                CronTools = cronTools,
-                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
-                TraceCollector = traceCollector
-            },
-            traceCollector: traceCollector,
-            customCommandLoader: sp.GetService<CustomCommandLoader>(),
-            onConsolidatorStatus: AnsiConsole.MarkupLine,
-            hookRunner: hookRunner);
-    }
-
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        _ = sessionStore; // reserved for future session key from threadId
         var agUiConfig = config.AgUi;
-        var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
-        var host = string.IsNullOrWhiteSpace(agUiConfig.Host) ? "127.0.0.1" : agUiConfig.Host;
-        var port = agUiConfig.Port <= 0 ? 5100 : agUiConfig.Port;
 
         _agentFactory = BuildAgentFactory();
-        var tools = _agentFactory.CreateDefaultTools();
 
-        var builder = WebApplication.CreateBuilder();
         builder.Services.AddAGUI();
         if (!string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
             builder.Services.ConfigureHttpJsonOptions(o =>
                 o.SerializerOptions.TypeInfoResolverChain.Add(ApprovalJsonContext.Default));
+    }
 
-        _webApp = builder.Build();
+    /// <inheritdoc />
+    public void ConfigureApp(WebApplication app)
+    {
+        _webApp = app;
+        var agUiConfig = config.AgUi;
+        var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
 
-        AIAgent agent;
+        // Tools are created here (after Build) so app.Services is available for IOptions<JsonOptions>.
+        var tools = _agentFactory!.CreateDefaultTools();
+
         if (string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            agent = _agentFactory.CreateAgentWithTools(tools);
+            _agent = _agentFactory.CreateAgentWithTools(tools);
         }
         else
         {
@@ -137,15 +118,15 @@ public sealed class AGUIChannelService(
             }
 #pragma warning restore MEAI001
             var baseAgent = _agentFactory.CreateAgentWithTools(tools);
-            var jsonOptions = _webApp.Services.GetRequiredService<IOptions<JsonOptions>>().Value;
-            agent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
+            var jsonOptions = app.Services.GetRequiredService<IOptions<JsonOptions>>().Value;
+            _agent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
         }
 
         var pathPrefix = path.TrimEnd('/');
         if (agUiConfig.RequireAuth && !string.IsNullOrWhiteSpace(agUiConfig.ApiKey))
         {
             var apiKey = agUiConfig.ApiKey!;
-            _webApp.Use(async (context, next) =>
+            app.Use(async (context, next) =>
             {
                 var requestPath = context.Request.Path.Value ?? "";
                 if (requestPath.StartsWith(pathPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -156,7 +137,7 @@ public sealed class AGUIChannelService(
                         authHeader["Bearer ".Length..].Trim() != apiKey)
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                        await context.Response.WriteAsync("Unauthorized", cancellationToken);
+                        await context.Response.WriteAsync("Unauthorized");
                         return;
                     }
                 }
@@ -164,7 +145,7 @@ public sealed class AGUIChannelService(
             });
         }
 
-        _webApp.Use(async (context, next) =>
+        app.Use(async (context, next) =>
         {
             var requestPath = context.Request.Path.Value ?? "";
             var isAgUiPath = requestPath.StartsWith(pathPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -214,21 +195,61 @@ public sealed class AGUIChannelService(
             }
         });
 
-        _webApp.MapAGUI(path, agent);
+        app.MapAGUI(path, _agent!);
         // Health probe endpoint — responds to GET so the frontend health check
         // receives 200 instead of 405 (which MapAGUI only registers for POST).
-        _webApp.MapGet(path, () => Results.Ok(new { status = "ok" }));
+        app.MapGet(path, () => Results.Ok(new { status = "ok" }));
 
-        var url = $"http://{host}:{port}";
+        var url = $"http://{ListenHost}:{ListenPort}";
         AnsiConsole.MarkupLine($"[green][[Gateway]][/] AG-UI listening on {Markup.Escape(url)}{Markup.Escape(path)}");
+    }
 
-        _ = _webApp.RunAsync(url);
+    #endregion
 
+    private AgentFactory BuildAgentFactory()
+    {
+        var cronTools = sp.GetService<CronTools>();
+        var traceCollector = sp.GetService<TraceCollector>();
+        var hookRunner = sp.GetService<HookRunner>();
+
+        var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
+
+        return new AgentFactory(
+            paths.CraftPath, paths.WorkspacePath, config,
+            memoryStore, skillsLoader, ApprovalService, blacklist,
+            toolProviders: toolProviders,
+            toolProviderContext: new ToolProviderContext
+            {
+                Config = config,
+                ChatClient = new OpenAIClient(
+                    new ApiKeyCredential(config.ApiKey),
+                    new OpenAIClientOptions { Endpoint = new Uri(config.EndPoint) })
+                    .GetChatClient(config.Model),
+                WorkspacePath = paths.WorkspacePath,
+                BotPath = paths.CraftPath,
+                MemoryStore = memoryStore,
+                SkillsLoader = skillsLoader,
+                ApprovalService = ApprovalService,
+                PathBlacklist = blacklist,
+                CronTools = cronTools,
+                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                TraceCollector = traceCollector
+            },
+            traceCollector: traceCollector,
+            customCommandLoader: sp.GetService<CustomCommandLoader>(),
+            onConsolidatorStatus: AnsiConsole.MarkupLine,
+            hookRunner: hookRunner);
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        _ = sessionStore; // reserved for future session key from threadId
+
+        // Web server lifecycle is managed by WebHostPool in GatewayHost.
+        // This task just holds open until the cancellation token fires.
         var tcs = new TaskCompletionSource();
         await using var reg = cancellationToken.Register(() => tcs.TrySetResult());
         await tcs.Task;
-
-        await StopAsync();
     }
 
     public async Task StopAsync()

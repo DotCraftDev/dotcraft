@@ -26,6 +26,8 @@ namespace DotCraft.WeCom;
 /// <summary>
 /// Gateway channel service for WeCom Bot. Manages the ASP.NET Core HTTP server,
 /// channel adapter, and agent lifecycle as part of a multi-channel gateway.
+/// Implements <see cref="IWebHostingChannel"/> so <see cref="WebHostPool"/> can merge it with
+/// other services that share the same address (scheme + host + port).
 /// </summary>
 public sealed class WeComChannelService(
     IServiceProvider sp,
@@ -40,10 +42,11 @@ public sealed class WeComChannelService(
     WeComPermissionService permissionService,
     WeComApprovalService wecomApprovalService,
     ModuleRegistry moduleRegistry)
-    : IChannelService
+    : IChannelService, IWebHostingChannel
 {
     private WebApplication? _webApp;
     private WeComChannelAdapter? _adapter;
+    private AgentFactory? _agentFactory;
 
     public string Name => "wecom";
 
@@ -58,6 +61,63 @@ public sealed class WeComChannelService(
 
     /// <inheritdoc />
     public object? ChannelClient => null;
+
+    #region IWebHostingChannel
+
+    /// <inheritdoc />
+    // WeCom requires HTTPS; this prevents accidental merging with HTTP-only services.
+    public string ListenScheme => "https";
+
+    /// <inheritdoc />
+    public string ListenHost => string.IsNullOrWhiteSpace(config.WeComBot.Host) ? "0.0.0.0" : config.WeComBot.Host;
+
+    /// <inheritdoc />
+    public int ListenPort => config.WeComBot.Port <= 0 ? 9000 : config.WeComBot.Port;
+
+    /// <inheritdoc />
+    public void ConfigureBuilder(WebApplicationBuilder builder)
+    {
+        // WeCom Bot server has no additional DI registrations needed on the builder.
+        // Agent factory and adapter are initialised in ConfigureApp where the full
+        // service provider is available.
+    }
+
+    /// <inheritdoc />
+    public void ConfigureApp(WebApplication app)
+    {
+        _webApp = app;
+
+        _agentFactory = BuildAgentFactory();
+        var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
+        var traceCollector = sp.GetService<TraceCollector>();
+        var tokenUsageStore = sp.GetService<TokenUsageStore>();
+
+        var sessionGate = sp.GetRequiredService<SessionGate>();
+        var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
+        var customCommandLoader = sp.GetService<CustomCommandLoader>();
+        _adapter = new WeComChannelAdapter(
+            agent, sessionStore, registry,
+            permissionService, wecomApprovalService, sessionGate, activeRunRegistry,
+            heartbeatService: HeartbeatService,
+            cronService: CronService,
+            agentFactory: _agentFactory,
+            traceCollector: traceCollector,
+            tokenUsageStore: tokenUsageStore,
+            customCommandLoader: customCommandLoader);
+
+        var logger = new WeComServerLogger();
+        var server = new WeComBotServer(registry, logger: logger);
+        server.MapRoutes(app);
+
+        var url = $"https://{ListenHost}:{ListenPort}";
+        AnsiConsole.MarkupLine($"[green][[Gateway]][/] WeCom Bot listening on {Markup.Escape(url)}");
+        foreach (var path in registry.GetAllPaths())
+        {
+            AnsiConsole.MarkupLine($"[grey]  - {Markup.Escape(url + path)}[/]");
+        }
+    }
+
+    #endregion
 
     private AgentFactory BuildAgentFactory()
     {
@@ -108,46 +168,11 @@ public sealed class WeComChannelService(
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var agentFactory = BuildAgentFactory();
-        var agent = agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var traceCollector = sp.GetService<TraceCollector>();
-        var tokenUsageStore = sp.GetService<TokenUsageStore>();
-
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
-        var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        _adapter = new WeComChannelAdapter(
-            agent, sessionStore, registry,
-            permissionService, wecomApprovalService, sessionGate, activeRunRegistry,
-            heartbeatService: HeartbeatService,
-            cronService: CronService,
-            agentFactory: agentFactory,
-            traceCollector: traceCollector,
-            tokenUsageStore: tokenUsageStore,
-            customCommandLoader: customCommandLoader);
-
-        var builder = WebApplication.CreateBuilder();
-        _webApp = builder.Build();
-
-        var logger = new WeComServerLogger();
-        var server = new WeComBotServer(registry, logger: logger);
-        server.MapRoutes(_webApp);
-
-        var url = $"https://{config.WeComBot.Host}:{config.WeComBot.Port}";
-        AnsiConsole.MarkupLine($"[green][[Gateway]][/] WeCom Bot listening on {Markup.Escape(url)}");
-        foreach (var path in registry.GetAllPaths())
-        {
-            AnsiConsole.MarkupLine($"[grey]  - {Markup.Escape(url + path)}[/]");
-        }
-
-        _ = _webApp.RunAsync(url);
-
-        // Wait for cancellation
+        // Web server lifecycle is managed by WebHostPool in GatewayHost.
+        // This task just holds open until the cancellation token fires.
         var tcs = new TaskCompletionSource();
         await using var reg = cancellationToken.Register(() => tcs.TrySetResult());
         await tcs.Task;
-
-        await StopAsync();
     }
 
     public async Task StopAsync()
@@ -180,5 +205,7 @@ public sealed class WeComChannelService(
             await _adapter.DisposeAsync();
         if (_webApp != null)
             await _webApp.DisposeAsync();
+        if (_agentFactory != null)
+            await _agentFactory.DisposeAsync();
     }
 }

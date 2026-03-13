@@ -25,7 +25,7 @@ Add the `DashBoard` config section in `config.json`:
     "DashBoard": {
         "Enabled": true,
         "Host": "127.0.0.1",
-        "Port": 5880
+        "Port": 8080
     }
 }
 ```
@@ -35,12 +35,12 @@ Add the `DashBoard` config section in `config.json`:
 Start DotCraft normally (supported in all modes). The console will output the DashBoard address:
 
 ```
-DashBoard started at http://127.0.0.1:5880/dashboard
+DashBoard started at http://127.0.0.1:8080/dashboard
 ```
 
 ### 3. Open DashBoard
 
-Visit the address shown in the console (default `http://127.0.0.1:5880/dashboard`) in your browser to see the DashBoard interface.
+Visit the address shown in the console (default `http://127.0.0.1:8080/dashboard`) in your browser to see the DashBoard interface.
 
 ### 4. Trigger Agent Execution
 
@@ -54,7 +54,7 @@ Send messages to the Agent via CLI, QQ, WeCom, or API. The DashBoard will displa
 |-------------|------|---------|-------------|
 | `DashBoard.Enabled` | bool | `false` | Enable DashBoard debugging tool |
 | `DashBoard.Host` | string | `"127.0.0.1"` | DashBoard Web service listen address |
-| `DashBoard.Port` | int | `5880` | DashBoard Web service listen port |
+| `DashBoard.Port` | int | `8080` | DashBoard Web service listen port |
 
 > **Security Note**: DashBoard exposes Agent execution details (including prompt content, tool call parameters and results). Only enable in development/debugging environments and bind to `127.0.0.1` to prevent external access.
 
@@ -69,9 +69,9 @@ DashBoard behavior varies slightly across runtime modes:
 | CLI | Standalone Web server | `http://{DashBoard.Host}:{DashBoard.Port}/dashboard` |
 | QQ Bot | Standalone Web server | `http://{DashBoard.Host}:{DashBoard.Port}/dashboard` |
 | WeCom Bot | Standalone Web server | `http://{DashBoard.Host}:{DashBoard.Port}/dashboard` |
-| API | Integrated into API server | `http://{Api.Host}:{Api.Port}/dashboard` |
+| Gateway | Managed by WebHostPool, merged automatically by port | See note below |
 
-> **API Mode Note**: In API mode, DashBoard routes are registered directly on the existing API server without starting a separate server, so use the API address and port to access. `DashBoard.Host` and `DashBoard.Port` are not effective in API mode.
+> **Gateway Mode Note**: In Gateway mode, DashBoard always uses the address configured by `DashBoard.Host` and `DashBoard.Port`. If that address matches another service (e.g. API or AG-UI), the DashBoard routes are automatically merged into the same Kestrel server — no separate server is started. If the address differs, it runs as a standalone server. Since both `Api.Port` and `DashBoard.Port` default to `8080`, they share the same server by default.
 
 ---
 
@@ -242,26 +242,28 @@ Configuration file editor that supports:
 }
 ```
 
-Access at default address `http://127.0.0.1:5880/dashboard`.
+Access at default address `http://127.0.0.1:8080/dashboard`.
 
-### API Mode + DashBoard
+### Gateway Mode: API + DashBoard Sharing a Port
 
 ```json
 {
     "ApiKey": "sk-your-llm-key",
     "Model": "gpt-4o-mini",
+    "Gateway": { "Enabled": true },
     "Api": {
         "Enabled": true,
         "Port": 8080,
         "AutoApprove": true
     },
     "DashBoard": {
-        "Enabled": true
+        "Enabled": true,
+        "Port": 8080
     }
 }
 ```
 
-Access DashBoard at `http://localhost:8080/dashboard` (integrated into API server).
+Because both `Api.Port` and `DashBoard.Port` are `8080`, they are automatically merged into the same server. Access DashBoard at `http://localhost:8080/dashboard`.
 
 ### Custom Port
 
