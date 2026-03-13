@@ -696,6 +696,19 @@ body {
   opacity: 0.7;
 }
 
+.settings-value-default {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  word-break: break-all;
+  opacity: 0.45;
+  font-style: italic;
+}
+
 .settings-input {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -2122,29 +2135,47 @@ function countSectionWorkspaceValues(section, workspaceData) {
 function renderGlobalPanel(globalData) {
   let html = '';
   for (const section of CONFIG_SCHEMA) {
+    const setCount = countSectionWorkspaceValues(section, globalData);
+    const badgeHtml = setCount > 0
+      ? `<span class="settings-accordion-badge">${setCount} set</span>` : '';
+
     let sectionHtml = '';
     for (const field of section.fields) {
       const rawVal = schemaGetValue(globalData, section, field.key);
-      if (rawVal === undefined) continue; // not in global config at all
+      const isExplicit = rawVal !== undefined;
 
       let display;
-      if (rawVal === null) {
-        display = '(null)';
-      } else if (typeof rawVal === 'object') {
-        display = JSON.stringify(rawVal);
+      let valueClass;
+      if (isExplicit) {
+        if (rawVal === null) {
+          display = '(null)';
+        } else if (field.sensitive) {
+          display = '***';
+        } else if (typeof rawVal === 'object') {
+          display = JSON.stringify(rawVal);
+        } else {
+          display = String(rawVal);
+        }
+        valueClass = 'settings-value-readonly';
       } else {
-        display = String(rawVal);
+        // Not in global config — show schema default or "(not set)"
+        const defVal = field.defaultValue;
+        if (defVal !== undefined && defVal !== null && defVal !== '') {
+          display = `${formatDefaultValue(defVal)} (default)`;
+        } else {
+          display = '(not set)';
+        }
+        valueClass = 'settings-value-default';
       }
+
       sectionHtml += `<div class="settings-field">
         <div class="settings-label-readonly">${escapeHtml(field.key)}</div>
-        <div class="settings-value-readonly">${escapeHtml(display)}</div>
+        <div class="${valueClass}">${escapeHtml(display)}</div>
       </div>`;
     }
-    if (!sectionHtml) continue; // section not present in global config
 
-    const isOpen = sectionHtml.length > 0;
-    html += `<details class="settings-accordion"${isOpen ? ' open' : ''}>
-      <summary>${escapeHtml(section.section)}</summary>
+    html += `<details class="settings-accordion"${setCount > 0 ? ' open' : ''}>
+      <summary>${escapeHtml(section.section)}${badgeHtml}</summary>
       <div class="settings-accordion-body">${sectionHtml}</div>
     </details>`;
   }
