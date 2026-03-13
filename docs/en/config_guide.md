@@ -481,7 +481,6 @@ For the complete usage flow, see the [GitHubTracker Guide](./github_tracker_guid
         "Enabled": true,
         "IssuesWorkflowPath": "WORKFLOW.md",
         "Tracker": {
-            "Kind": "github",
             "Repository": "your-org/your-repo",
             "ApiKey": "$GITHUB_TOKEN",
             "GitHubStateLabelPrefix": "status:",
