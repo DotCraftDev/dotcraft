@@ -577,6 +577,26 @@ For detailed explanation and Python examples, see [API Mode Guide](./api_guide.m
 
 ---
 
+## AG-UI Mode Configuration
+
+AG-UI mode exposes Agent capabilities via the [AG-UI Protocol](https://github.com/ag-ui-protocol/ag-ui) as an SSE streaming endpoint, compatible with CopilotKit and other AG-UI clients.
+
+For detailed usage, see the [AG-UI Mode Guide](./agui_guide.md).
+
+Quick reference:
+
+| Config Item | Description | Default |
+|-------------|-------------|---------|
+| `AgUi.Enabled` | Enable AG-UI server | `false` |
+| `AgUi.Host` | HTTP service listen address | `127.0.0.1` |
+| `AgUi.Port` | HTTP service listen port | `5100` |
+| `AgUi.Path` | SSE endpoint path | `/ag-ui` |
+| `AgUi.RequireAuth` | Require Bearer token authentication | `false` |
+| `AgUi.ApiKey` | Bearer token value (required when `RequireAuth` is `true`) | empty |
+| `AgUi.ApprovalMode` | Tool approval mode: `interactive` (frontend approval) / `auto` (auto-approve) | `interactive` |
+
+---
+
 ## ACP Mode Configuration
 
 ACP ([Agent Client Protocol](https://agentclientprotocol.com/)) mode allows DotCraft to integrate directly with code editors/IDEs (such as Cursor, VS Code, and other compatible editors) as an AI coding agent. The editor communicates with DotCraft via stdio (standard input/output) using the JSON-RPC 2.0 protocol, similar to how LSP (Language Server Protocol) works.
@@ -961,6 +981,15 @@ Set `Gateway.Enabled = true` together with all the channel modules you want to r
     "Api": {
         "Enabled": true,
         "Port": 8080
+    },
+    "AgUi": {
+        "Enabled": true,
+        "Port": 5100,
+        "Path": "/ag-ui"
+    },
+    "DashBoard": {
+        "Enabled": true,
+        "Port": 8080
     }
 }
 ```
@@ -976,19 +1005,44 @@ Set `Gateway.Enabled = true` together with all the channel modules you want to r
 When enabled, DotCraft will:
 
 1. Select GatewayModule as the primary module (highest priority: 100)
-2. Create an independent AgentFactory, ChannelAdapter, and network listener for each enabled channel (QQ / WeCom / API)
-3. Start all channels concurrently — each channel has its own streaming pipeline and approval workflow
-4. Share a single HeartbeatService and CronService, routing results to the correct channel via MessageRouter
+2. Create an independent AgentFactory, ChannelAdapter, and network listener for each enabled channel (QQ / WeCom / API / AG-UI)
+3. Use **WebHostPool** to group all HTTP services by `(scheme, host, port)`: services configured to the same address automatically share a single Kestrel server — no manual port coordination required
+4. Start all channels concurrently — each channel has its own streaming pipeline and approval workflow
+5. Share a single HeartbeatService and CronService, routing results to the correct channel via MessageRouter
 
 ```
 GatewayHost
 ├── HeartbeatService (shared — routes notifications per channel)
 ├── CronService (shared — routes delivery via Payload.Channel)
-├── DashBoardServer (shared)
+├── WebHostPool (groups services by host:port, merges same-address services)
+│   ├── http://127.0.0.1:8080 ← ApiChannelService + Dashboard routes
+│   └── http://127.0.0.1:5100 ← AGUIChannelService routes
 ├── QQChannelService    → QQChannelAdapter → Agent (independent)
 ├── WeComChannelService → WeComChannelAdapter → Agent (independent)
-└── ApiChannelService   → OpenAI API endpoints → Agent (independent)
+├── ApiChannelService   → OpenAI API endpoints → Agent (independent)
+└── AGUIChannelService  → AG-UI SSE endpoints → Agent (independent)
 ```
+
+### Port Sharing
+
+In Gateway mode, all HTTP services (API, AG-UI, Dashboard) are managed by **WebHostPool**. Whenever two services share the same `Host` and `Port`, they are automatically merged into a single Kestrel listener — routes are dispatched by path prefix with no manual configuration needed.
+
+**Default port assignments**:
+
+| Service | Default Host | Default Port |
+|---------|-------------|--------------|
+| `Api` | `127.0.0.1` | `8080` |
+| `DashBoard` | `127.0.0.1` | `8080` |
+| `AgUi` | `127.0.0.1` | `5100` |
+| `WeComBot` | `0.0.0.0` | `9000` (HTTPS) |
+
+Because `Api` and `DashBoard` share the same default port, they are served from the same Kestrel instance in Gateway mode by default. To serve them on separate ports, set `DashBoard.Port` to a different value.
+
+**Example scenarios**:
+
+- `Api.Port = 8080`, `DashBoard.Port = 8080` (default): API and Dashboard routes are merged on `127.0.0.1:8080`, single external port
+- `Api.Port = 8080`, `AgUi.Port = 8080`: API and AG-UI share the same port; AG-UI is distinguished by its `/ag-ui` path
+- `Api.Port = 8080`, `AgUi.Port = 5100` (default): Both listen on independent ports with no overlap
 
 ### Cron Cross-Channel Delivery
 
@@ -999,6 +1053,7 @@ In Gateway mode, the Cron task `deliver` feature routes to the correct channel v
 | `"qq"` | QQ private chat (`to` = QQ number) or group (`to` = group number with `group:` prefix) | `"123456789"` / `"group:98765432"` |
 | `"wecom"` | Specific WeCom group (`to` = ChatId); omit `to` to fall back to global `WeCom.WebhookUrl` | `"wrxxxxxxxx"` |
 | `"api"` | API channel has no proactive delivery; ignored | — |
+| `"ag-ui"` | AG-UI channel has no proactive delivery; ignored | — |
 
 ### Heartbeat Cross-Channel Notifications
 
@@ -1097,6 +1152,15 @@ When `Gateway.Enabled = false` (the default), behavior is identical to before �
         "AutoApprove": true,
         "EnabledTools": []
     },
+    "AgUi": {
+        "Enabled": false,
+        "Host": "127.0.0.1",
+        "Port": 5100,
+        "Path": "/ag-ui",
+        "RequireAuth": false,
+        "ApiKey": "",
+        "ApprovalMode": "interactive"
+    },
     "Heartbeat": {
         "Enabled": false,
         "IntervalSeconds": 1800,
@@ -1116,7 +1180,7 @@ When `Gateway.Enabled = false` (the default), behavior is identical to before �
     "DashBoard": {
         "Enabled": false,
         "Host": "127.0.0.1",
-        "Port": 5880
+        "Port": 8080
     },
     "McpServers": [],
     "Gateway": {

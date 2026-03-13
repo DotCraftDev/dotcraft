@@ -577,6 +577,26 @@ API 模式支持三种审批模式，通过 `ApprovalMode` 配置（设置后覆
 
 ---
 
+## AG-UI 模式配置
+
+AG-UI 模式通过 [AG-UI 协议](https://github.com/ag-ui-protocol/ag-ui) 将 Agent 能力以 SSE 流式推送的方式对外暴露，兼容 CopilotKit 等 AG-UI 客户端。
+
+详细使用指南见 [AG-UI 模式指南](./agui_guide.md)。
+
+以下是 AG-UI 模式配置项速查：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `AgUi.Enabled` | 是否启用 AG-UI 服务 | `false` |
+| `AgUi.Host` | HTTP 服务监听地址 | `127.0.0.1` |
+| `AgUi.Port` | HTTP 服务监听端口 | `5100` |
+| `AgUi.Path` | SSE 端点路径 | `/ag-ui` |
+| `AgUi.RequireAuth` | 是否启用 Bearer Token 认证 | `false` |
+| `AgUi.ApiKey` | Bearer Token 值（`RequireAuth` 为 `true` 时必填） | 空 |
+| `AgUi.ApprovalMode` | 工具操作审批模式：`interactive`（前端审批）/ `auto`（自动批准） | `interactive` |
+
+---
+
 ## ACP 模式配置
 
 ACP（[Agent Client Protocol](https://agentclientprotocol.com/)）模式允许 DotCraft 作为 AI 编码代理直接与代码编辑器/IDE（如 Cursor、VS Code 等兼容编辑器）集成。编辑器通过 stdio（标准输入/输出）以 JSON-RPC 2.0 协议与 DotCraft 通信，类似 LSP（Language Server Protocol）的工作方式。
@@ -961,6 +981,15 @@ QQ Bot 模式下支持以下斜杠命令（直接在聊天中发送）：
     "Api": {
         "Enabled": true,
         "Port": 8080
+    },
+    "AgUi": {
+        "Enabled": true,
+        "Port": 5100,
+        "Path": "/ag-ui"
+    },
+    "DashBoard": {
+        "Enabled": true,
+        "Port": 8080
     }
 }
 ```
@@ -976,19 +1005,44 @@ QQ Bot 模式下支持以下斜杠命令（直接在聊天中发送）：
 启用后，DotCraft 会：
 
 1. 将 GatewayModule 作为主模块（优先级最高，为 100）
-2. 为每个 enabled 的 Channel（QQ / WeCom / API）独立创建 AgentFactory、ChannelAdapter 和网络监听
-3. 并发启动所有 Channel，每个 Channel 拥有独立的流式交互和审批工作流
-4. 共享一套 HeartbeatService 和 CronService，通过 MessageRouter 将结果投递到正确 Channel
+2. 为每个 enabled 的 Channel（QQ / WeCom / API / AG-UI）独立创建 AgentFactory、ChannelAdapter 和网络监听
+3. 通过 **WebHostPool** 按 `(scheme, host, port)` 分组管理所有 HTTP 服务：配置到同一地址的服务自动共享同一个 Kestrel 服务器，无需手动协调端口
+4. 并发启动所有 Channel，每个 Channel 拥有独立的流式交互和审批工作流
+5. 共享一套 HeartbeatService 和 CronService，通过 MessageRouter 将结果投递到正确 Channel
 
 ```
 GatewayHost
 ├── HeartbeatService (共享，按 Channel 路由通知)
 ├── CronService (共享，按 Payload.Channel 路由投递)
-├── DashBoardServer (共享)
+├── WebHostPool (按 host:port 分组，自动合并同地址服务)
+│   ├── http://127.0.0.1:8080 ← ApiChannelService + DashBoard 路由
+│   └── http://127.0.0.1:5100 ← AGUIChannelService 路由
 ├── QQChannelService    → QQChannelAdapter → Agent (独立)
 ├── WeComChannelService → WeComChannelAdapter → Agent (独立)
-└── ApiChannelService   → OpenAI API 端点 → Agent (独立)
+├── ApiChannelService   → OpenAI API 端点 → Agent (独立)
+└── AGUIChannelService  → AG-UI SSE 端点 → Agent (独立)
 ```
+
+### 端口共享
+
+Gateway 模式下，所有 HTTP 服务（API、AG-UI、DashBoard）均通过 **WebHostPool** 统一管理。只要 `Host` 和 `Port` 配置相同，相关服务会自动合并到同一个 Kestrel 监听端口，共享同一个 Web 应用实例，路由按各自路径前缀分发。
+
+**默认端口分配**：
+
+| 服务 | 默认 Host | 默认 Port |
+|------|-----------|-----------|
+| `Api` | `127.0.0.1` | `8080` |
+| `DashBoard` | `127.0.0.1` | `8080` |
+| `AgUi` | `127.0.0.1` | `5100` |
+| `WeComBot` | `0.0.0.0` | `9000` (HTTPS) |
+
+由于 `Api` 和 `DashBoard` 默认端口相同，两者在 Gateway 模式下默认共享同一服务器实例。若希望分开部署，修改 `DashBoard.Port` 为不同值即可。
+
+**示例场景**：
+
+- `Api.Port = 8080`、`DashBoard.Port = 8080`（默认）：API 路由和 Dashboard 路由合并到 `127.0.0.1:8080`，单端口对外
+- `Api.Port = 8080`、`AgUi.Port = 8080`：API 和 AG-UI 合并到同一端口，AG-UI 通过 `/ag-ui` 路径区分
+- `Api.Port = 8080`、`AgUi.Port = 5100`（默认）：两者各自监听独立端口，互不影响
 
 ### Cron 跨 Channel 投递
 
@@ -999,6 +1053,7 @@ Gateway 模式下，Cron 任务的 `deliver` 功能通过 `channel` 字段路由
 | `"qq"` | QQ 私聊（`to` 为 QQ 号）或群聊（`to` 为群号加 `group:` 前缀） | `"123456789"` / `"group:98765432"` |
 | `"wecom"` | 企业微信指定群（`to` 为 ChatId）；不填 `to` 则回退到全局 `WeCom.WebhookUrl` | `"wrxxxxxxxx"` |
 | `"api"` | API Channel 无主动投递能力，忽略 | — |
+| `"ag-ui"` | AG-UI Channel 无主动投递能力，忽略 | — |
 
 ### Heartbeat 跨 Channel 通知
 
@@ -1097,6 +1152,15 @@ Heartbeat 结果会通过 MessageRouter 广播到所有有管理员配置的 Cha
         "AutoApprove": true,
         "EnabledTools": []
     },
+    "AgUi": {
+        "Enabled": false,
+        "Host": "127.0.0.1",
+        "Port": 5100,
+        "Path": "/ag-ui",
+        "RequireAuth": false,
+        "ApiKey": "",
+        "ApprovalMode": "interactive"
+    },
     "Heartbeat": {
         "Enabled": false,
         "IntervalSeconds": 1800,
@@ -1116,7 +1180,7 @@ Heartbeat 结果会通过 MessageRouter 广播到所有有管理员配置的 Cha
     "DashBoard": {
         "Enabled": false,
         "Host": "127.0.0.1",
-        "Port": 5880
+        "Port": 8080
     },
     "Gateway": {
         "Enabled": false

@@ -79,6 +79,26 @@ pnpm run dev
 
 ---
 
+## Gateway 模式与端口共享
+
+AG-UI 支持在 [Gateway 多 Channel 并发模式](./config_guide.md#gateway-多-channel-并发模式) 中与其他服务同时运行。
+
+**端口冲突自动合并**：如果 `AgUi.Host:AgUi.Port` 与其他服务（例如 `Api` 或 `DashBoard`）配置相同，Gateway 的 **WebHostPool** 会自动将它们合并到同一个 Kestrel 服务器实例上，无需手动处理端口冲突。AG-UI 端点通过 `AgUi.Path`（默认 `/ag-ui`）与其他路由区分。
+
+**示例：API 与 AG-UI 共享端口**：
+
+```json
+{
+    "Gateway": { "Enabled": true },
+    "Api": { "Enabled": true, "Port": 8080 },
+    "AgUi": { "Enabled": true, "Port": 8080, "Path": "/ag-ui" }
+}
+```
+
+此配置下，`http://127.0.0.1:8080/v1/chat/completions` 提供 OpenAI API，`http://127.0.0.1:8080/ag-ui` 提供 AG-UI SSE 端点，均来自同一个服务器进程。
+
+---
+
 ## 相关文档
 
 - [配置指南](./config_guide.md) - 完整配置项说明

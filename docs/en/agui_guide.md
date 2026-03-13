@@ -79,6 +79,26 @@ If DotCraft has `RequireAuth` enabled, also set `DOTCRAFT_AGUI_API_KEY` in `.env
 
 ---
 
+## Gateway Mode and Port Sharing
+
+AG-UI is fully supported in [Gateway multi-channel concurrent mode](./config_guide.md#gateway-multi-channel-concurrent-mode), running alongside other channels in the same process.
+
+**Automatic port merging**: If `AgUi.Host:AgUi.Port` is configured to the same address as another service (e.g. `Api` or `DashBoard`), Gateway's **WebHostPool** automatically merges them into a single Kestrel server instance — no manual port coordination needed. AG-UI routes are distinguished by `AgUi.Path` (default `/ag-ui`).
+
+**Example: API and AG-UI sharing a port**:
+
+```json
+{
+    "Gateway": { "Enabled": true },
+    "Api": { "Enabled": true, "Port": 8080 },
+    "AgUi": { "Enabled": true, "Port": 8080, "Path": "/ag-ui" }
+}
+```
+
+With this configuration, `http://127.0.0.1:8080/v1/chat/completions` serves the OpenAI API and `http://127.0.0.1:8080/ag-ui` serves the AG-UI SSE endpoint — both from the same server process.
+
+---
+
 ## Related Documentation
 
 - [Configuration Guide](./config_guide.md) - Complete configuration reference
