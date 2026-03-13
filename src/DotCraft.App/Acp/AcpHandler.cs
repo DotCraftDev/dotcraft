@@ -185,6 +185,7 @@ public sealed class AcpHandler(
                 PromptCapabilities = new PromptCapabilities
                 {
                     Text = true,
+                    Image = true,
                     EmbeddedContext = true
                 },
                 McpCapabilities = new McpCapabilities { Http = true },
@@ -412,10 +413,11 @@ public sealed class AcpHandler(
 
         try
         {
-            // Extract prompt text from content blocks
+            // Extract plain text for commands and hooks
             var promptText = ExtractPromptText(p.Prompt);
 
             // Handle slash commands
+            var commandExpanded = false;
             if (p.Command != null)
             {
                 promptText = $"/{p.Command} {promptText}".Trim();
@@ -425,15 +427,30 @@ public sealed class AcpHandler(
             {
                 var resolved = customCommandLoader.TryResolve(promptText);
                 if (resolved != null)
+                {
                     promptText = resolved.ExpandedPrompt;
+                    commandExpanded = true;
+                }
             }
 
-            promptText = RuntimeContextBuilder.AppendTo(promptText);
+            // Build multimodal content: use expanded command text or original prompt blocks
+            IList<AIContent> contentParts;
+            if (commandExpanded)
+            {
+                contentParts = [new TextContent(promptText)];
+            }
+            else
+            {
+                contentParts = BuildPromptContent(p.Prompt);
+            }
+
+            RuntimeContextBuilder.AppendTo(contentParts);
 
             // Run PrePrompt hooks (can block the prompt)
             if (hookRunner != null)
             {
-                var prePromptInput = new HookInput { SessionId = sessionId, Prompt = promptText };
+                var hookPromptText = RuntimeContextBuilder.AppendTo(promptText);
+                var prePromptInput = new HookInput { SessionId = sessionId, Prompt = hookPromptText };
                 var prePromptResult = await hookRunner.RunAsync(HookEvent.PrePrompt, prePromptInput, promptCts.Token);
                 if (prePromptResult.Blocked)
                 {
@@ -463,7 +480,8 @@ public sealed class AcpHandler(
 
             try
             {
-                await foreach (var update in currentAgent.RunStreamingAsync(promptText, session, cancellationToken: promptCts.Token))
+                var userMessage = new ChatMessage(ChatRole.User, contentParts);
+                await foreach (var update in currentAgent.RunStreamingAsync([userMessage], session, cancellationToken: promptCts.Token))
                 {
                     foreach (var content in update.Contents)
                     {
@@ -921,6 +939,46 @@ public sealed class AcpHandler(
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds multimodal content from ACP prompt blocks, supporting text, resource, and image blocks.
+    /// </summary>
+    private static IList<AIContent> BuildPromptContent(List<AcpContentBlock> prompt)
+    {
+        var parts = new List<AIContent>();
+        foreach (var block in prompt)
+        {
+            switch (block.Type)
+            {
+                case "text" when !string.IsNullOrEmpty(block.Text):
+                    parts.Add(new TextContent(block.Text));
+                    break;
+
+                case "resource" when block.Resource != null:
+                {
+                    var resourceText = $"[File: {block.Resource.Uri}]";
+                    if (!string.IsNullOrEmpty(block.Resource.Text))
+                        resourceText += $"\n{block.Resource.Text}";
+                    parts.Add(new TextContent(resourceText));
+                    break;
+                }
+
+                default:
+                    if (!string.IsNullOrEmpty(block.Data) &&
+                        !string.IsNullOrEmpty(block.MimeType) &&
+                        block.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        parts.Add(new DataContent(Convert.FromBase64String(block.Data), block.MimeType));
+                    }
+                    break;
+            }
+        }
+
+        if (parts.Count == 0 && prompt.Count > 0)
+            parts.Add(new TextContent(ExtractPromptText(prompt)));
+
+        return parts;
     }
 
     private bool EnsureInitialized(JsonRpcRequest request)

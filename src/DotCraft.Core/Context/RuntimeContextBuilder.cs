@@ -1,3 +1,5 @@
+using Microsoft.Extensions.AI;
+
 namespace DotCraft.Context;
 
 /// <summary>
@@ -15,6 +17,20 @@ public static class RuntimeContextBuilder
     /// </summary>
     public static string AppendTo(string prompt)
     {
+        return $"{prompt}\n\n{BuildBlock()}";
+    }
+
+    /// <summary>
+    /// Appends a [Runtime Context] <see cref="TextContent"/> to a multimodal content list.
+    /// </summary>
+    public static IList<AIContent> AppendTo(IList<AIContent> contents)
+    {
+        contents.Add(new TextContent($"\n\n{BuildBlock()}"));
+        return contents;
+    }
+
+    private static string BuildBlock()
+    {
         var lines = new List<string>();
 
         var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm (dddd)");
@@ -23,6 +39,6 @@ public static class RuntimeContextBuilder
         foreach (var provider in ChatContextRegistry.All)
             lines.AddRange(provider.GetRuntimeContextLines());
 
-        return $"{prompt}\n\n[Runtime Context]\n{string.Join("\n", lines)}";
+        return $"[Runtime Context]\n{string.Join("\n", lines)}";
     }
 }

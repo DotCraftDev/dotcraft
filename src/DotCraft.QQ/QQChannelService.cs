@@ -127,7 +127,17 @@ public sealed class QQChannelService(
             agentFactory: agentFactory,
             traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
-            customCommandLoader: customCommandLoader);
+            customCommandLoader: customCommandLoader,
+            httpClient: new HttpClient(new SocketsHttpHandler
+            {
+                SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
+                PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+                ConnectTimeout = TimeSpan.FromSeconds(10),
+            })
+            {
+                Timeout = TimeSpan.FromSeconds(30),
+                DefaultRequestHeaders = { { "User-Agent", "DotCraft/1.0" } }
+            });
 
         await qqClient.StartAsync(cancellationToken);
 
