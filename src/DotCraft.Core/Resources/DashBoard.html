@@ -1856,6 +1856,7 @@ const CONFIG_SCHEMA = [
       { key: 'CompactSessions',           type: 'bool', defaultValue: true },
       { key: 'MaxContextTokens',          type: 'number', min: 0, hint: '0 = disable compaction', defaultValue: 160000 },
       { key: 'MemoryWindow',              type: 'number', min: 0, hint: '0 = disable consolidation', defaultValue: 50 },
+      { key: 'ConsolidationModel',        type: 'text', defaultValue: '', hint: 'Model for memory consolidation. Empty = use main Model. Set to a non-thinking model if main model does not support tool_choice in thinking mode.' },
       { key: 'DebugMode',                 type: 'bool', defaultValue: false },
       { key: 'EnabledTools',              type: 'json', hint: 'JSON array of tool names, e.g. ["Shell","File"]. Empty = all enabled.' },
     ]
