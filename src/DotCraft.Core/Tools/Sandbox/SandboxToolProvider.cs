@@ -58,7 +58,8 @@ public sealed class SandboxToolProvider : IAgentToolProvider
             shellTimeout: context.Config.Tools.Shell.Timeout,
             reasoningConfig: context.Config.Reasoning,
             blacklist: context.PathBlacklist,
-            sandboxManager: sandboxManager);
+            sandboxManager: sandboxManager,
+            traceCollector: context.TraceCollector);
         var agentTools = new AgentTools(subAgentManager);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 

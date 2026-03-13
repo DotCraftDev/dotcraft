@@ -1,4 +1,7 @@
 using DotCraft.Configuration;
+using DotCraft.Context;
+using DotCraft.DashBoard;
+using DotCraft.Diagnostics;
 using DotCraft.Security;
 using DotCraft.Tools;
 using DotCraft.Tools.Sandbox;
@@ -41,6 +44,8 @@ public sealed class SubAgentManager
 
     private readonly AppConfig.ReasoningConfig _reasoningConfig;
 
+    private readonly TraceCollector? _traceCollector;
+
     public SubAgentManager(
         ChatClient chatClient, 
         string workspaceRoot, 
@@ -49,7 +54,8 @@ public sealed class SubAgentManager
         int shellTimeout = 60,
         AppConfig.ReasoningConfig? reasoningConfig = null,
         PathBlacklist? blacklist = null,
-        SandboxSessionManager? sandboxManager = null)
+        SandboxSessionManager? sandboxManager = null,
+        TraceCollector? traceCollector = null)
     {
         _chatClient = chatClient;
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
@@ -57,6 +63,7 @@ public sealed class SubAgentManager
         _concurrencyGate = new SemaphoreSlim(maxConcurrency, maxConcurrency);
         _useSandbox = sandboxManager != null;
         _reasoningConfig = reasoningConfig ?? new AppConfig.ReasoningConfig();
+        _traceCollector = traceCollector;
 
         if (sandboxManager != null)
         {
@@ -111,45 +118,80 @@ public sealed class SubAgentManager
     }
 
     /// <summary>
-    /// Spawn a subagent to execute a task. Returns an AIFunction that the main agent can call.
+    /// Derives the display label for a SubAgent using the same truncation logic as
+    /// <c>CoreToolDisplays.SpawnSubagent</c> so that the progress bridge key
+    /// matches the Live Table entry label exactly.
+    /// </summary>
+    internal static string NormalizeLabel(string? label, string task)
+        => ToolDisplayHelpers.Truncate(label ?? task, 60);
+
+    /// <summary>
+    /// Spawn a subagent to execute a task and return its result text.
+    /// Automatically registers in <see cref="SubAgentProgressBridge"/> for Live Table display
+    /// and sets up a child tracing session when <see cref="TraceCollector"/> is available.
     /// </summary>
     public async Task<string> SpawnAsync(string task, string? label = null)
     {
+        var taskId = Guid.NewGuid().ToString("N")[..8];
+        var bridgeKey = NormalizeLabel(label, task);
+        var progressEntry = SubAgentProgressBridge.GetOrCreate(bridgeKey);
+
+        // Resolve parent session and create child session key for tracing
+        var parentSessionKey = TracingChatClient.GetActiveSessionKey();
+        string? childSessionKey = null;
+        if (_traceCollector != null && !string.IsNullOrEmpty(parentSessionKey))
+        {
+            childSessionKey = $"{parentSessionKey}:sub:{taskId}";
+        }
+
         try
         {
-            // Throttle concurrent subagent executions to respect API rate limits
             await _concurrencyGate.WaitAsync();
             try
             {
-                var subagent = CreateSubAgent(task);
+                if (childSessionKey != null)
+                    TracingChatClient.CurrentSessionKey = childSessionKey;
+
+                var subagent = CreateSubAgent(task, progressEntry);
                 var result = await subagent.RunAsync(task);
                 return result.Text;
             }
             finally
             {
                 _concurrencyGate.Release();
+
+                if (childSessionKey != null)
+                {
+                    TracingChatClient.ResetCallState(childSessionKey);
+                    // Restore parent session key on this async context
+                    TracingChatClient.CurrentSessionKey = parentSessionKey;
+                }
             }
         }
         catch (Exception ex)
         {
             return $"Error: {ex.Message}";
         }
+        finally
+        {
+            progressEntry.IsCompleted = true;
+            TokenTracker.Current?.AddSubAgentTokens(
+                progressEntry.InputTokens,
+                progressEntry.OutputTokens);
+        }
     }
 
     /// <summary>
     /// Create a subagent with restricted tools for a specific task.
     /// </summary>
-    private ChatClientAgent CreateSubAgent(string task)
+    private ChatClientAgent CreateSubAgent(string task, SubAgentProgressBridge.ProgressEntry? progressEntry = null)
     {
         var systemPrompt = BuildSubAgentPrompt(task);
 
-        // Reuse existing tool classes with restricted configuration
-        // Tool restrictions (workspace-only, no approval) are enforced via constructor parameters
         var tools = new List<AITool>();
 
         if (_useSandbox && _sandboxFileTools != null && _sandboxShellTools != null)
         {
-            // Sandbox mode: use isolated container tools
             tools.Add(AIFunctionFactory.Create(_sandboxFileTools.ReadFile));
             tools.Add(AIFunctionFactory.Create(_sandboxFileTools.WriteFile));
             tools.Add(AIFunctionFactory.Create(_sandboxFileTools.GrepFiles));
@@ -158,7 +200,6 @@ public sealed class SubAgentManager
         }
         else if (_fileTools != null && _shellTools != null)
         {
-            // Local mode: existing behavior
             tools.Add(AIFunctionFactory.Create(_fileTools.ReadFile));
             tools.Add(AIFunctionFactory.Create(_fileTools.WriteFile));
             tools.Add(AIFunctionFactory.Create(_fileTools.GrepFiles));
@@ -169,12 +210,38 @@ public sealed class SubAgentManager
         tools.Add(AIFunctionFactory.Create(_webTools.WebSearch));
         tools.Add(AIFunctionFactory.Create(_webTools.WebFetch));
 
-        // Create a chat client pipeline with custom FunctionInvokingChatClient configuration for subagent
+        // Pipeline (innermost first): TracingChatClient → ProgressChatClient → FunctionInvoking → Agent
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
-        chatClientBuilder.Use(innerClient => new FunctionInvokingChatClient(innerClient)
+        if (_traceCollector != null)
         {
-            MaximumIterationsPerRequest = _maxToolCallRounds,
-            AllowConcurrentInvocation = true
+            var tc = _traceCollector;
+            chatClientBuilder.Use(inner => new TracingChatClient(inner, tc));
+        }
+        if (progressEntry != null)
+            chatClientBuilder.Use(inner => new SubAgentProgressChatClient(inner, progressEntry));
+        chatClientBuilder.Use(inner =>
+        {
+            var fic = new FunctionInvokingChatClient(inner)
+            {
+                MaximumIterationsPerRequest = _maxToolCallRounds,
+                AllowConcurrentInvocation = true
+            };
+            if (progressEntry != null)
+            {
+                fic.FunctionInvoker = async (context, ct) =>
+                {
+                    progressEntry.CurrentTool = context.Function.Name;
+                    try
+                    {
+                        return await context.Function.InvokeAsync(context.Arguments, ct);
+                    }
+                    finally
+                    {
+                        progressEntry.CurrentTool = null;
+                    }
+                };
+            }
+            return fic;
         });
         var configuredChatClient = chatClientBuilder.Build();
 

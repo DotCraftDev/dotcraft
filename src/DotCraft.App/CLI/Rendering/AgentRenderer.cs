@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading.Channels;
 using DotCraft.Abstractions;
+using DotCraft.Agents;
 using DotCraft.Diagnostics;
 using DotCraft.Tools;
 using Spectre.Console;
@@ -21,6 +22,8 @@ namespace DotCraft.CLI.Rendering;
 /// </summary>
 public sealed class AgentRenderer : IRenderControl, IDisposable
 {
+    private readonly Context.TokenTracker? _tokenTracker;
+
     private readonly Channel<RenderEvent> _eventQueue = Channel.CreateUnbounded<RenderEvent>(new UnboundedChannelOptions
     {
         SingleReader = true,
@@ -78,6 +81,20 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         ToolExecuting,
         Responding,
         ApprovalPaused
+    }
+
+    public AgentRenderer(Context.TokenTracker? tokenTracker = null)
+    {
+        _tokenTracker = tokenTracker;
+    }
+
+    private string GetTokenSuffix()
+    {
+        if (_tokenTracker == null) return string.Empty;
+        var input = _tokenTracker.TotalInputTokens + _tokenTracker.SubAgentInputTokens;
+        var output = _tokenTracker.TotalOutputTokens + _tokenTracker.SubAgentOutputTokens;
+        if (input == 0 && output == 0) return string.Empty;
+        return $" [dim grey]· ↑{Context.TokenTracker.FormatCompact(input)} ↓{Context.TokenTracker.FormatCompact(output)}[/]";
     }
 
     /// <summary>
@@ -253,9 +270,10 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                     }
 
                     var elapsed = (long)sw.Elapsed.TotalSeconds;
+                    var tokenSuffix = GetTokenSuffix();
                     ctx.Status = elapsed > 0
-                        ? $"[cyan]💭 Thinking... ({elapsed}s)[/]"
-                        : "[cyan]💭 Thinking...[/]";
+                        ? $"[cyan]💭 Thinking... ({elapsed}s)[/]{tokenSuffix}"
+                        : $"[cyan]💭 Thinking...[/]{tokenSuffix}";
                 }
             });
 
@@ -486,6 +504,17 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                                 }
                             }
 
+                            // Check bridge for early completion signals (before FIC yields ToolCallCompleted)
+                            foreach (var entry in entries)
+                            {
+                                if (!entry.Completed && !entry.Failed)
+                                {
+                                    var progress = SubAgentProgressBridge.TryGet(entry.Label);
+                                    if (progress is { IsCompleted: true })
+                                        entry.Completed = true;
+                                }
+                            }
+
                             ctx.UpdateTarget(BuildSubAgentTable(entries, frames, frameIndex++));
 
                             if (entries.TrueForAll(e => e.Completed || e.Failed))
@@ -531,6 +560,10 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             _currentState = RenderState.ToolExecuting;
         }
 
+        // Clean up bridge entries now that the live table session is done
+        foreach (var entry in entries)
+            SubAgentProgressBridge.Remove(entry.Label);
+
         // Reset state
         _currentState = RenderState.Idle;
         _currentToolIcon = null;
@@ -561,7 +594,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         });
     }
 
-    private static IRenderable BuildSubAgentTable(
+    private IRenderable BuildSubAgentTable(
         List<SubAgentEntry> entries,
         IReadOnlyList<string> spinnerFrames,
         int frameIndex)
@@ -574,6 +607,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey)
             .AddColumn(new TableColumn("[grey]Task[/]"))
+            .AddColumn(new TableColumn("[grey]Activity[/]").Width(28))
             .AddColumn(new TableColumn("[grey]Status[/]").Centered().Width(8));
 
         foreach (var entry in entries)
@@ -588,13 +622,33 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                 ? entry.Label[..57] + "..."
                 : entry.Label;
 
+            var activity = string.Empty;
+            var progress = SubAgentProgressBridge.TryGet(entry.Label);
+            if (entry.Completed)
+            {
+                if (progress != null && (progress.InputTokens > 0 || progress.OutputTokens > 0))
+                    activity = $"[blue]↑ {progress.InputTokens}[/] [green]↓ {progress.OutputTokens}[/]";
+            }
+            else if (progress != null)
+            {
+                var tool = progress.CurrentTool;
+                activity = !string.IsNullOrEmpty(tool)
+                    ? $"[dim]{Markup.Escape(tool)}[/]"
+                    : "[dim]Thinking...[/]";
+
+                if (progress.InputTokens > 0 || progress.OutputTokens > 0)
+                    activity = $"{activity} [dim grey]· ↑{progress.InputTokens} ↓{progress.OutputTokens}[/]";
+            }
+
             table.AddRow(
                 new Markup(Markup.Escape(label)),
+                new Markup(activity),
                 new Markup(status));
         }
 
+        var tokenSuffix = GetTokenSuffix();
         return new Rows(
-            new Markup($"[purple]🐧 SubAgents ({completed}/{total})[/]"),
+            new Markup($"[purple]🐧 SubAgents ({completed}/{total})[/]{tokenSuffix}"),
             table);
     }
 
@@ -679,6 +733,8 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             var debugArgs = NormalizeInlineText(TruncateText(_currentToolAdditional!, segmentMaxLength));
             sb.Append($" [dim]({Markup.Escape(debugArgs)})[/]");
         }
+
+        sb.Append(GetTokenSuffix());
 
         return sb.ToString();
     }

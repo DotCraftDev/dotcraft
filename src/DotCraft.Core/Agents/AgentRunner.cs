@@ -73,7 +73,7 @@ public sealed class AgentRunner(
         {
             var session = await sessionStore.LoadOrCreateAsync(agent, sessionKey, cancellationToken);
             var sb = new StringBuilder();
-            long inputTokens = 0, outputTokens = 0, totalTokens = 0;
+            long inputTokens = 0, outputTokens = 0;
             var tokenTracker = agentFactory?.GetOrCreateTokenTracker(sessionKey);
 
             traceCollector?.RecordSessionMetadata(
@@ -97,6 +97,7 @@ public sealed class AgentRunner(
 
             TracingChatClient.CurrentSessionKey = sessionKey;
             TracingChatClient.ResetCallState(sessionKey);
+            TokenTracker.Current = tokenTracker;
             try
             {
                 await foreach (var update in agent.RunStreamingAsync(prompt, session).WithCancellation(cancellationToken))
@@ -136,12 +137,14 @@ public sealed class AgentRunner(
                             }
                             case UsageContent usage:
                             {
-                                if (usage.Details.InputTokenCount.HasValue)
-                                    inputTokens = usage.Details.InputTokenCount.Value;
-                                if (usage.Details.OutputTokenCount.HasValue)
-                                    outputTokens = usage.Details.OutputTokenCount.Value;
-                                if (usage.Details.TotalTokenCount.HasValue)
-                                    totalTokens = usage.Details.TotalTokenCount.Value;
+                                var iterInput = usage.Details.InputTokenCount ?? 0;
+                                var iterOutput = usage.Details.OutputTokenCount ?? 0;
+                                if (iterInput > 0 || iterOutput > 0)
+                                {
+                                    inputTokens += iterInput;
+                                    outputTokens += iterOutput;
+                                    tokenTracker?.Update(iterInput, iterOutput);
+                                }
                                 break;
                             }
                         }
@@ -154,10 +157,8 @@ public sealed class AgentRunner(
             {
                 TracingChatClient.ResetCallState(sessionKey);
                 TracingChatClient.CurrentSessionKey = null;
+                TokenTracker.Current = null;
             }
-
-            if (totalTokens == 0 && (inputTokens > 0 || outputTokens > 0))
-                totalTokens = inputTokens + outputTokens;
 
             await sessionStore.SaveAsync(agent, session, sessionKey, cancellationToken);
             var response = sb.Length > 0 ? sb.ToString() : null;
@@ -174,16 +175,18 @@ public sealed class AgentRunner(
                 AnsiConsole.MarkupLine($"[grey][[{tag}]][/] Response: [dim]{Markup.Escape(response.Length > 200 ? response[..200] + "..." : response)}[/]");
             }
 
-            if (totalTokens > 0)
+            if (inputTokens > 0 || outputTokens > 0)
             {
-                tokenTracker?.Update(inputTokens, outputTokens);
-                var displayInput = tokenTracker?.LastInputTokens ?? inputTokens;
-                var displayOutput = tokenTracker?.TotalOutputTokens ?? outputTokens;
+                var displayInput = (tokenTracker?.TotalInputTokens ?? inputTokens)
+                                 + (tokenTracker?.SubAgentInputTokens ?? 0);
+                var displayOutput = (tokenTracker?.TotalOutputTokens ?? outputTokens)
+                                  + (tokenTracker?.SubAgentOutputTokens ?? 0);
                 AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [blue]↑ {displayInput} input[/] [green]↓ {displayOutput} output[/]");
             }
 
+            // Use LastInputTokens for compaction: it reflects the most recent context window size
             if (agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
-                inputTokens >= agentFactory.MaxContextTokens)
+                (tokenTracker?.LastInputTokens ?? inputTokens) >= agentFactory.MaxContextTokens)
             {
                 AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [yellow]Context compacting...[/]");
                 if (await agentFactory.Compactor.TryCompactAsync(session, cancellationToken))

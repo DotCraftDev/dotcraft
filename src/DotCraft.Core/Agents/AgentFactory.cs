@@ -311,7 +311,8 @@ public sealed class AgentFactory : IAsyncDisposable
         }
         chatClientBuilder.Use(innerClient => new FunctionInvokingChatClient(innerClient)
         {
-            MaximumIterationsPerRequest = _config.MaxToolCallRounds
+            MaximumIterationsPerRequest = _config.MaxToolCallRounds,
+            AllowConcurrentInvocation = true
         });
         chatClientBuilder.Use(innerClient => new ImageContentSanitizingChatClient(innerClient));
         var configuredChatClient = chatClientBuilder.Build();
@@ -363,7 +364,8 @@ public sealed class AgentFactory : IAsyncDisposable
         }
         chatClientBuilder.Use(innerClient => new FunctionInvokingChatClient(innerClient)
         {
-            MaximumIterationsPerRequest = _config.MaxToolCallRounds
+            MaximumIterationsPerRequest = _config.MaxToolCallRounds,
+            AllowConcurrentInvocation = true
         });
         chatClientBuilder.Use(innerClient => new ImageContentSanitizingChatClient(innerClient));
         return chatClientBuilder.Build();

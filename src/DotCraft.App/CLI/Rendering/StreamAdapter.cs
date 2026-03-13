@@ -41,7 +41,6 @@ public static partial class StreamAdapter
 
         long inputTokens = 0;
         long outputTokens = 0;
-        long totalTokens = 0;
 
         // Cross-iteration flag: once we see a tool call/result, suppress all text
         // until we get a non-whitespace text update that is NOT accompanied by tool content.
@@ -67,12 +66,14 @@ public static partial class StreamAdapter
 
                     case UsageContent usage:
                     {
-                        if (usage.Details.InputTokenCount.HasValue)
-                            inputTokens = usage.Details.InputTokenCount.Value;
-                        if (usage.Details.OutputTokenCount.HasValue)
-                            outputTokens += usage.Details.OutputTokenCount.Value;
-                        if (usage.Details.TotalTokenCount.HasValue)
-                            totalTokens = usage.Details.TotalTokenCount.Value;
+                        var iterInput = usage.Details.InputTokenCount ?? 0;
+                        var iterOutput = usage.Details.OutputTokenCount ?? 0;
+                        if (iterInput > 0 || iterOutput > 0)
+                        {
+                            inputTokens += iterInput;
+                            outputTokens += iterOutput;
+                            tokenTracker?.Update(iterInput, iterOutput);
+                        }
                         break;
                     }
 
@@ -192,16 +193,13 @@ public static partial class StreamAdapter
             }
         }
 
-        if (totalTokens == 0 && (inputTokens > 0 || outputTokens > 0))
-            totalTokens = inputTokens + outputTokens;
-
-        if (totalTokens > 0)
+        if (inputTokens > 0 || outputTokens > 0)
         {
-            tokenTracker?.Update(inputTokens, outputTokens);
-            yield return RenderEvent.TokenUsage(
-                tokenTracker?.LastInputTokens ?? inputTokens,
-                tokenTracker?.TotalOutputTokens ?? outputTokens,
-                (tokenTracker?.LastInputTokens ?? inputTokens) + (tokenTracker?.TotalOutputTokens ?? outputTokens));
+            var displayInput = (tokenTracker?.TotalInputTokens ?? inputTokens)
+                             + (tokenTracker?.SubAgentInputTokens ?? 0);
+            var displayOutput = (tokenTracker?.TotalOutputTokens ?? outputTokens)
+                              + (tokenTracker?.SubAgentOutputTokens ?? 0);
+            yield return RenderEvent.TokenUsage(displayInput, displayOutput, displayInput + displayOutput);
         }
 
         yield return RenderEvent.Completed(string.Empty);
