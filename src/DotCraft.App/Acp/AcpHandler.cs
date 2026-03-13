@@ -439,6 +439,21 @@ public sealed class AcpHandler(
             {
                 contentParts = [new TextContent(promptText)];
             }
+            else if (p.Command != null)
+            {
+                // Command was set but not resolved — preserve the /{command} prefix as text,
+                // plus any non-text blocks (e.g. images) from the original prompt.
+                contentParts = new List<AIContent> { new TextContent(promptText) };
+                foreach (var block in p.Prompt)
+                {
+                    if (!string.IsNullOrEmpty(block.Data) &&
+                        !string.IsNullOrEmpty(block.MimeType) &&
+                        block.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        contentParts.Add(new DataContent(Convert.FromBase64String(block.Data), block.MimeType));
+                    }
+                }
+            }
             else
             {
                 contentParts = BuildPromptContent(p.Prompt);

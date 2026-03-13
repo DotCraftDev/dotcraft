@@ -47,6 +47,7 @@ public sealed class WeComChannelService(
     private WebApplication? _webApp;
     private WeComChannelAdapter? _adapter;
     private AgentFactory? _agentFactory;
+    private HttpClient? _httpClient;
 
     public string Name => "wecom";
 
@@ -95,7 +96,7 @@ public sealed class WeComChannelService(
         var sessionGate = sp.GetRequiredService<SessionGate>();
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var httpClient = new HttpClient(new SocketsHttpHandler
+        _httpClient = new HttpClient(new SocketsHttpHandler
         {
             SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
@@ -114,10 +115,10 @@ public sealed class WeComChannelService(
             traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
             customCommandLoader: customCommandLoader,
-            httpClient: httpClient);
+            httpClient: _httpClient);
 
         var logger = new WeComServerLogger();
-        var server = new WeComBotServer(registry, httpClient: httpClient, logger: logger);
+        var server = new WeComBotServer(registry, httpClient: _httpClient, logger: logger);
         server.MapRoutes(app);
 
         var url = $"https://{ListenHost}:{ListenPort}";
@@ -218,5 +219,6 @@ public sealed class WeComChannelService(
             await _webApp.DisposeAsync();
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+        _httpClient?.Dispose();
     }
 }

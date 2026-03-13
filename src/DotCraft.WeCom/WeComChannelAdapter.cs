@@ -49,6 +49,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     private readonly ActiveRunRegistry _activeRunRegistry;
 
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsHttpClient;
 
     public WeComChannelAdapter(
         AIAgent agent,
@@ -77,6 +78,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         _activeRunRegistry = activeRunRegistry;
         _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
+        _ownsHttpClient = httpClient == null;
         _httpClient = httpClient ?? CreateDefaultHttpClient();
         
         _commandDispatcher = CommandDispatcher.CreateDefault(customCommandLoader);
@@ -96,6 +98,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     {
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+        if (_ownsHttpClient)
+            _httpClient.Dispose();
     }
 
     #region Message Handlers
