@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DotCraft.Agents;
 using DotCraft.Diagnostics;
 
 namespace DotCraft.Tools;
@@ -429,10 +430,9 @@ public static class CoreToolDisplays
 
     public static string SpawnSubagent(IDictionary<string, object?>? args)
     {
-        var label = ToolDisplayHelpers.GetString(args, "label")
-                    ?? ToolDisplayHelpers.GetString(args, "task")
-                    ?? "task";
-        return $"Spawned subagent: {ToolDisplayHelpers.Truncate(label, 60)}";
+        var label = ToolDisplayHelpers.GetString(args, "label");
+        var task = ToolDisplayHelpers.GetString(args, "task") ?? "task";
+        return $"Spawned subagent: {SubAgentManager.NormalizeLabel(label, task)}";
     }
 
     public static string CreatePlan(IDictionary<string, object?>? args)

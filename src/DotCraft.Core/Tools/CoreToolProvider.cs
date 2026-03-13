@@ -30,7 +30,9 @@ public sealed class CoreToolProvider : IAgentToolProvider
             context.Config.SubagentMaxToolCallRounds,
             maxConcurrency: context.Config.SubagentMaxConcurrency,
             shellTimeout: context.Config.Tools.Shell.Timeout,
-            blacklist: context.PathBlacklist);
+            reasoningConfig: context.Config.Reasoning,
+            blacklist: context.PathBlacklist,
+            traceCollector: context.TraceCollector);
         var agentTools = new AgentTools(subAgentManager);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 

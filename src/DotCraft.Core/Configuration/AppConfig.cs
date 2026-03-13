@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using DotCraft.Localization;
 using DotCraft.Mcp;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Configuration;
 
@@ -13,6 +14,12 @@ public sealed class AppConfig
     public string Model { get; set; } = "gpt-4o-mini";
 
     public string EndPoint { get; set; } = "https://api.openai.com/v1";
+
+    /// <summary>
+    /// Controls provider reasoning/thinking behavior.
+    /// Enabled by default for providers that support reasoning.
+    /// </summary>
+    public ReasoningConfig Reasoning { get; set; } = new();
 
     /// <summary>
     /// Language setting for CLI interface. QQ and WeCom bots always use Chinese.
@@ -173,6 +180,42 @@ public sealed class AppConfig
         public WebToolsConfig Web { get; set; } = new();
 
         public SandboxConfig Sandbox { get; set; } = new();
+    }
+
+    public sealed class ReasoningConfig
+    {
+        /// <summary>
+        /// Whether to request provider reasoning support.
+        /// Unsupported providers or models may ignore this setting.
+        /// </summary>
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>
+        /// Requested reasoning effort level when reasoning is enabled.
+        /// </summary>
+        public ReasoningEffort Effort { get; set; } = ReasoningEffort.Medium;
+
+        /// <summary>
+        /// Controls how much reasoning content is exposed in responses.
+        /// The default exposes full summary.
+        /// </summary>
+        public ReasoningOutput Output { get; set; } = ReasoningOutput.Full;
+
+        /// <summary>
+        /// Converts the configuration to chat reasoning options.
+        /// Returns <see langword="null"/> when reasoning is disabled.
+        /// </summary>
+        public ReasoningOptions? ToOptions()
+        {
+            if (!Enabled)
+                return null;
+
+            return new ReasoningOptions
+            {
+                Effort = Effort,
+                Output = Output
+            };
+        }
     }
 
     public sealed class FileToolsConfig

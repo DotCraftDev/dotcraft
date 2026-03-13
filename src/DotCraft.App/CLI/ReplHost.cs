@@ -822,8 +822,10 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
         try
         {
-            // Create renderer and start it
-            using var renderer = new AgentRenderer();
+            var tokenTracker = agentFactory?.GetOrCreateTokenTracker(_currentSessionId);
+
+            // Create renderer and start it (with token tracker for live display)
+            using var renderer = new AgentRenderer(tokenTracker);
             await renderer.StartAsync(token);
 
             // Signal stream start so the renderer shows a thinking spinner
@@ -840,10 +842,10 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
             try
             {
-                var tokenTracker = agentFactory?.GetOrCreateTokenTracker(_currentSessionId);
 
                 TracingChatClient.CurrentSessionKey = _currentSessionId;
                 TracingChatClient.ResetCallState(_currentSessionId);
+                TokenTracker.Current = tokenTracker;
                 long inputTokens = 0, outputTokens = 0;
 
                 // Get streaming updates from agent
@@ -894,6 +896,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
             {
                 TracingChatClient.ResetCallState(_currentSessionId);
                 TracingChatClient.CurrentSessionKey = null;
+                TokenTracker.Current = null;
                 // Clear render control
                 ConsoleApprovalService.SetRenderControl(null);
                 // Restore hook debug logger to default (Console.Error.WriteLine fallback)

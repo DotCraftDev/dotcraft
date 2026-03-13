@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading.Channels;
 using DotCraft.Abstractions;
+using DotCraft.Agents;
 using DotCraft.Diagnostics;
 using DotCraft.Tools;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 
 namespace DotCraft.CLI.Rendering;
 
@@ -20,6 +22,8 @@ namespace DotCraft.CLI.Rendering;
 /// </summary>
 public sealed class AgentRenderer : IRenderControl, IDisposable
 {
+    private readonly Context.TokenTracker? _tokenTracker;
+
     private readonly Channel<RenderEvent> _eventQueue = Channel.CreateUnbounded<RenderEvent>(new UnboundedChannelOptions
     {
         SingleReader = true,
@@ -57,12 +61,40 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
     private volatile Func<object?>? _pausedAction;
     private volatile TaskCompletionSource<object?>? _pausedActionResultTcs;
 
+    private const string SubAgentToolName = "SpawnSubagent";
+    private const string SubAgentDisplayPrefix = "Spawned subagent: ";
+
+    private static bool IsSubAgentTool(RenderEvent evt) =>
+        string.Equals(evt.Title, SubAgentToolName, StringComparison.Ordinal);
+
+    private sealed class SubAgentEntry
+    {
+        public required string CallId { get; init; }
+        public required string Label { get; init; }
+        public bool Completed { get; set; }
+        public bool Failed { get; set; }
+    }
+
     private enum RenderState
     {
         Idle,
         ToolExecuting,
         Responding,
         ApprovalPaused
+    }
+
+    public AgentRenderer(Context.TokenTracker? tokenTracker = null)
+    {
+        _tokenTracker = tokenTracker;
+    }
+
+    private string GetTokenSuffix()
+    {
+        if (_tokenTracker == null) return string.Empty;
+        var input = _tokenTracker.TotalInputTokens + _tokenTracker.SubAgentInputTokens;
+        var output = _tokenTracker.TotalOutputTokens + _tokenTracker.SubAgentOutputTokens;
+        if (input == 0 && output == 0) return string.Empty;
+        return $" [dim grey]· ↑{Context.TokenTracker.FormatCompact(input)} ↓{Context.TokenTracker.FormatCompact(output)}[/]";
     }
 
     /// <summary>
@@ -238,9 +270,10 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                     }
 
                     var elapsed = (long)sw.Elapsed.TotalSeconds;
+                    var tokenSuffix = GetTokenSuffix();
                     ctx.Status = elapsed > 0
-                        ? $"[cyan]💭 Thinking... ({elapsed}s)[/]"
-                        : "[cyan]💭 Thinking...[/]";
+                        ? $"[cyan]💭 Thinking... ({elapsed}s)[/]{tokenSuffix}"
+                        : $"[cyan]💭 Thinking...[/]{tokenSuffix}";
                 }
             });
 
@@ -254,6 +287,12 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
     /// </summary>
     private async Task RunToolStatusSessionAsync(RenderEvent toolStarted, CancellationToken cancellationToken)
     {
+        if (IsSubAgentTool(toolStarted))
+        {
+            await RunSubAgentGroupSessionAsync(toolStarted, cancellationToken);
+            return;
+        }
+
         CleanupCurrentState();
 
         _currentState = RenderState.ToolExecuting;
@@ -397,6 +436,224 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         }
     }
 
+    #region SubAgent Group Rendering
+
+    /// <summary>
+    /// Renders a dynamic Live table for one or more parallel SubAgent tool calls.
+    /// Each SubAgent gets its own row with an animated spinner that turns into a
+    /// checkmark on completion. The session stays open until every tracked SubAgent
+    /// has finished (or failed), then leaves the final table visible in scrollback.
+    /// </summary>
+    private async Task RunSubAgentGroupSessionAsync(RenderEvent firstTool, CancellationToken ct)
+    {
+        CleanupCurrentState();
+        _currentState = RenderState.ToolExecuting;
+
+        var entries = new List<SubAgentEntry>();
+        var buffered = new List<RenderEvent>(capacity: 8);
+        var reader = _eventQueue.Reader;
+
+        AddSubAgentEntry(entries, firstTool);
+
+        var spinner = Spinner.Known.Dots;
+        var frames = spinner.Frames;
+        int frameIndex = 0;
+        var interval = TimeSpan.FromMilliseconds(80);
+
+        // Loop allows re-entry after an approval pause
+        while (true)
+        {
+            bool approvalPaused = false;
+
+            try
+            {
+                await AnsiConsole.Live(BuildSubAgentTable(entries, frames, frameIndex))
+                    .AutoClear(false)
+                    .StartAsync(async ctx =>
+                    {
+                        while (!ct.IsCancellationRequested)
+                        {
+                            while (reader.TryRead(out var evt))
+                            {
+                                switch (evt.Type)
+                                {
+                                    case RenderEventType.ToolCallStarted when IsSubAgentTool(evt):
+                                        AddSubAgentEntry(entries, evt);
+                                        break;
+
+                                    case RenderEventType.ToolCallCompleted:
+                                        if (!string.IsNullOrEmpty(evt.CallId))
+                                        {
+                                            var matched = entries.Find(e => e.CallId == evt.CallId);
+                                            if (matched != null)
+                                            {
+                                                matched.Completed = true;
+                                                break;
+                                            }
+                                        }
+                                        buffered.Add(evt);
+                                        break;
+
+                                    case RenderEventType.ApprovalRequired:
+                                        approvalPaused = true;
+                                        return;
+
+                                    default:
+                                        buffered.Add(evt);
+                                        break;
+                                }
+                            }
+
+                            // Check bridge for early completion signals (before FIC yields ToolCallCompleted)
+                            foreach (var entry in entries)
+                            {
+                                if (!entry.Completed && !entry.Failed)
+                                {
+                                    var progress = SubAgentProgressBridge.TryGet(entry.Label);
+                                    if (progress is { IsCompleted: true })
+                                        entry.Completed = true;
+                                }
+                            }
+
+                            ctx.UpdateTarget(BuildSubAgentTable(entries, frames, frameIndex++));
+
+                            if (entries.TrueForAll(e => e.Completed || e.Failed))
+                            {
+                                ctx.UpdateTarget(BuildSubAgentTable(entries, frames, frameIndex));
+                                return;
+                            }
+
+                            using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                            delayCts.CancelAfter(interval);
+                            try
+                            {
+                                await reader.WaitToReadAsync(delayCts.Token);
+                            }
+                            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                            {
+                                // Tick expired; loop to advance spinner frame
+                            }
+                        }
+                    });
+            }
+            catch (OperationCanceledException)
+            {
+                // Clean exit on cancellation
+            }
+
+            if (!approvalPaused)
+                break;
+
+            // Handle approval pause then re-enter Live context
+            _currentState = RenderState.ApprovalPaused;
+            var action = _pausedAction;
+            var resultTcs = _pausedActionResultTcs;
+            _pausedAction = null;
+            _pausedActionResultTcs = null;
+
+            if (action != null && resultTcs != null)
+            {
+                try { resultTcs.TrySetResult(action()); }
+                catch (Exception ex) { resultTcs.TrySetException(ex); }
+            }
+
+            _currentState = RenderState.ToolExecuting;
+        }
+
+        // Clean up bridge entries now that the live table session is done
+        foreach (var entry in entries)
+            SubAgentProgressBridge.Remove(entry.Label);
+
+        // Reset state
+        _currentState = RenderState.Idle;
+        _currentToolIcon = null;
+        _currentToolTitle = null;
+        _currentToolContent = null;
+        _currentToolAdditional = null;
+        _currentFormattedDisplay = null;
+
+        // Replay buffered events
+        foreach (var evt in buffered)
+        {
+            ProcessNonToolStartEvent(evt);
+        }
+    }
+
+    private static void AddSubAgentEntry(List<SubAgentEntry> entries, RenderEvent evt)
+    {
+        var display = evt.FormattedDisplay ?? evt.Title ?? "SubAgent";
+
+        // Strip the "Spawned subagent: " prefix to keep table rows concise
+        if (display.StartsWith(SubAgentDisplayPrefix, StringComparison.Ordinal))
+            display = display[SubAgentDisplayPrefix.Length..];
+
+        entries.Add(new SubAgentEntry
+        {
+            CallId = evt.CallId ?? Guid.NewGuid().ToString("N"),
+            Label = display
+        });
+    }
+
+    private IRenderable BuildSubAgentTable(
+        List<SubAgentEntry> entries,
+        IReadOnlyList<string> spinnerFrames,
+        int frameIndex)
+    {
+        var completed = entries.Count(e => e.Completed);
+        var total = entries.Count;
+        var frame = spinnerFrames[frameIndex % spinnerFrames.Count];
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Grey)
+            .AddColumn(new TableColumn("[grey]Task[/]"))
+            .AddColumn(new TableColumn("[grey]Activity[/]").Width(28))
+            .AddColumn(new TableColumn("[grey]Status[/]").Centered().Width(8));
+
+        foreach (var entry in entries)
+        {
+            var status = entry.Completed
+                ? "[green]✓[/]"
+                : entry.Failed
+                    ? "[red]✗[/]"
+                    : $"[yellow]{Markup.Escape(frame)}[/]";
+
+            var label = entry.Label.Length > 60
+                ? entry.Label[..57] + "..."
+                : entry.Label;
+
+            var activity = string.Empty;
+            var progress = SubAgentProgressBridge.TryGet(entry.Label);
+            if (entry.Completed)
+            {
+                if (progress != null && (progress.InputTokens > 0 || progress.OutputTokens > 0))
+                    activity = $"[blue]↑ {progress.InputTokens}[/] [green]↓ {progress.OutputTokens}[/]";
+            }
+            else if (progress != null)
+            {
+                var tool = progress.CurrentTool;
+                activity = !string.IsNullOrEmpty(tool)
+                    ? $"[dim]{Markup.Escape(tool)}[/]"
+                    : "[dim]Thinking...[/]";
+
+                if (progress.InputTokens > 0 || progress.OutputTokens > 0)
+                    activity = $"{activity} [dim grey]· ↑{progress.InputTokens} ↓{progress.OutputTokens}[/]";
+            }
+
+            table.AddRow(
+                new Markup(Markup.Escape(label)),
+                new Markup(activity),
+                new Markup(status));
+        }
+
+        var tokenSuffix = GetTokenSuffix();
+        return new Rows(
+            new Markup($"[purple]🐧 SubAgents ({completed}/{total})[/]{tokenSuffix}"),
+            table);
+    }
+
+    #endregion
+
     private void ProcessNonToolStartEvent(RenderEvent evt)
     {
         switch (evt.Type)
@@ -476,6 +733,8 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             var debugArgs = NormalizeInlineText(TruncateText(_currentToolAdditional!, segmentMaxLength));
             sb.Append($" [dim]({Markup.Escape(debugArgs)})[/]");
         }
+
+        sb.Append(GetTokenSuffix());
 
         return sb.ToString();
     }

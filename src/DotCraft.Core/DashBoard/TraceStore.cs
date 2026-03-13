@@ -62,6 +62,9 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
             case TraceEventType.ContextCompaction:
                 session.ContextCompactionCount++;
                 break;
+            case TraceEventType.Thinking:
+                session.ThinkingCount++;
+                break;
         }
 
         if (session.Events.Count < maxEventsPerSession)
@@ -221,6 +224,9 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
                             break;
                         case TraceEventType.ContextCompaction:
                             session.ContextCompactionCount++;
+                            break;
+                        case TraceEventType.Thinking:
+                            session.ThinkingCount++;
                             break;
                     }
 
