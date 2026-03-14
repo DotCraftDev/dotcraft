@@ -1,3 +1,4 @@
+using DotCraft.Hooks;
 using DotCraft.Tools;
 using DotCraft.Tracing;
 using Microsoft.Extensions.AI;
@@ -19,17 +20,19 @@ internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
 {
     private readonly DeferredToolRegistry _registry;
     private readonly TraceCollector? _traceCollector;
+    private readonly HookRunner? _hookRunner;
 
     // Tracks which deferred tool names have already been injected into a
     // ChatOptions sent to the LLM. Per-instance (i.e. per-agent), monotonically
     // growing to keep the tools list stable and cache-friendly.
     private readonly HashSet<string> _sentToolNames = new(StringComparer.Ordinal);
 
-    public DynamicToolInjectionChatClient(IChatClient innerClient, DeferredToolRegistry registry, TraceCollector? traceCollector = null)
+    public DynamicToolInjectionChatClient(IChatClient innerClient, DeferredToolRegistry registry, TraceCollector? traceCollector = null, HookRunner? hookRunner = null)
         : base(innerClient)
     {
         _registry = registry;
         _traceCollector = traceCollector;
+        _hookRunner = hookRunner;
     }
 
     public override Task<ChatResponse> GetResponseAsync(
@@ -82,6 +85,17 @@ internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
         {
             if (_registry.DeferredTools.TryGetValue(name, out var tool))
             {
+                // Apply hook wrapping so deferred tools go through the same
+                // PreToolUse/PostToolUse/PostToolUseFailure pipeline as static tools.
+                if (_hookRunner != null && _hookRunner.HasToolHooks && tool is AIFunction fn)
+                {
+                    var wrapped = new HookWrappedFunction(fn, _hookRunner);
+                    // Replace the raw entry in ActivatedToolsList so
+                    // FunctionInvokingChatClient.AdditionalTools executes the wrapped version.
+                    _registry.ReplaceActivatedTool(name, wrapped);
+                    tool = wrapped;
+                }
+
                 cloned.Tools.Add(tool);
                 _sentToolNames.Add(name);
                 injected.Add(name);

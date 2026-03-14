@@ -98,6 +98,28 @@ public sealed class DeferredToolRegistry
     }
 
     /// <summary>
+    /// Replaces a previously activated tool entry with a wrapped version.
+    /// Used by <c>DynamicToolInjectionChatClient</c> to substitute a raw
+    /// <c>AIFunction</c> with a <c>HookWrappedFunction</c> in-place so that
+    /// <c>FunctionInvokingChatClient.AdditionalTools</c> (which holds a direct
+    /// reference to this list) transparently picks up the wrapped version.
+    /// </summary>
+    public void ReplaceActivatedTool(string name, AITool wrapped)
+    {
+        lock (_lock)
+        {
+            for (int i = 0; i < _activatedTools.Count; i++)
+            {
+                if (string.Equals(_activatedTools[i].Name, name, StringComparison.Ordinal))
+                {
+                    _activatedTools[i] = wrapped;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Scores a tool against the given search terms.
     /// A name match is worth 2 points per term; a description match is worth 1.
     /// Returns 0 when no term matches.
