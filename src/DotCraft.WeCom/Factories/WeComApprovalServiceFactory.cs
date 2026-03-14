@@ -14,7 +14,7 @@ public sealed class WeComApprovalServiceFactory : IApprovalServiceFactory
         var permissionService = context.PermissionService as WeComPermissionService
             ?? throw new InvalidOperationException("PermissionService must be a WeComPermissionService for WeCom approval service");
 
-        var timeoutSeconds = context.ApprovalTimeoutSeconds ?? context.Config.WeComBot.ApprovalTimeoutSeconds;
+        var timeoutSeconds = context.ApprovalTimeoutSeconds ?? context.Config.GetSection<WeComBotConfig>("WeComBot").ApprovalTimeoutSeconds;
 
         return new WeComApprovalService(permissionService, timeoutSeconds);
     }

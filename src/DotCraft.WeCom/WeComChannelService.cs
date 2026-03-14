@@ -70,10 +70,10 @@ public sealed class WeComChannelService(
     public string ListenScheme => "https";
 
     /// <inheritdoc />
-    public string ListenHost => string.IsNullOrWhiteSpace(config.WeComBot.Host) ? "0.0.0.0" : config.WeComBot.Host;
+    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<WeComBotConfig>("WeComBot").Host) ? "0.0.0.0" : config.GetSection<WeComBotConfig>("WeComBot").Host;
 
     /// <inheritdoc />
-    public int ListenPort => config.WeComBot.Port <= 0 ? 9000 : config.WeComBot.Port;
+    public int ListenPort => config.GetSection<WeComBotConfig>("WeComBot").Port <= 0 ? 9000 : config.GetSection<WeComBotConfig>("WeComBot").Port;
 
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
@@ -201,7 +201,7 @@ public sealed class WeComChannelService(
         // Prefer the per-chat webhook URL cached at runtime from incoming messages.
         // Fall back to the global config webhook if the target chatId hasn't been seen yet.
         var webhookUrl = (!string.IsNullOrWhiteSpace(target) ? registry.GetWebhookUrl(target) : null)
-            ?? config.WeCom.WebhookUrl;
+            ?? config.GetSection<WeComConfig>("WeCom").WebhookUrl;
 
         if (!string.IsNullOrWhiteSpace(webhookUrl))
         {

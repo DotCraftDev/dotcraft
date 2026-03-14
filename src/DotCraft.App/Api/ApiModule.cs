@@ -16,16 +16,16 @@ public sealed partial class ApiModule : ModuleBase
     private readonly ApiConfigValidator _validator = new();
 
     /// <inheritdoc />
-    public override bool IsEnabled(AppConfig config) => config.Api.Enabled;
+    public override bool IsEnabled(AppConfig config) => config.GetSection<ApiConfig>("Api").Enabled;
 
     /// <inheritdoc />
     public override IReadOnlyList<string> ValidateConfig(AppConfig config)
-        => _validator.Validate(config.Api);
+        => _validator.Validate(config.GetSection<ApiConfig>("Api"));
 
     /// <inheritdoc />
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
-        var config = context.Config.Api;
+        var config = context.Config.GetSection<ApiConfig>("Api");
 
         // Register ApiApprovalService
         services.AddSingleton(_ =>

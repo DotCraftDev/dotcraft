@@ -5,10 +5,10 @@ namespace DotCraft.QQ;
 /// <summary>
 /// Validator for QQ bot configuration.
 /// </summary>
-public sealed class QQConfigValidator : IModuleConfigValidator<AppConfig.QQBotConfig>
+public sealed class QQConfigValidator : IModuleConfigValidator<QQBotConfig>
 {
     /// <inheritdoc />
-    public IReadOnlyList<string> Validate(AppConfig.QQBotConfig config)
+    public IReadOnlyList<string> Validate(QQBotConfig config)
     {
         var errors = new List<string>();
 

@@ -17,18 +17,18 @@ public sealed partial class WeComModule : ModuleBase
     private readonly WeComConfigValidator _validator = new();
 
     /// <inheritdoc />
-    public override bool IsEnabled(AppConfig config) => config.WeComBot.Enabled;
+    public override bool IsEnabled(AppConfig config) => config.GetSection<WeComBotConfig>("WeComBot").Enabled;
 
     /// <inheritdoc />
     public override IReadOnlyList<string> ValidateConfig(AppConfig config)
-        => _validator.Validate(config.WeComBot);
+        => _validator.Validate(config.GetSection<WeComBotConfig>("WeComBot"));
 
     /// <inheritdoc />
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
         ChatContextRegistry.Register(new WeComChatContextProvider());
 
-        var config = context.Config.WeComBot;
+        var config = context.Config.GetSection<WeComBotConfig>("WeComBot");
 
         // Register WeComBotRegistry
         services.AddSingleton(WeComClientFactory.CreateRegistry(context));

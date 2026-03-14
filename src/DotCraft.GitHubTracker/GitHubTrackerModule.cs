@@ -20,12 +20,12 @@ namespace DotCraft.GitHubTracker;
 [DotCraftModule("github-tracker", Priority = 50, Description = "Autonomous GitHub issue tracker orchestrator")]
 public sealed partial class GitHubTrackerModule : ModuleBase
 {
-    public override bool IsEnabled(AppConfig config) => config.GitHubTracker.Enabled;
+    public override bool IsEnabled(AppConfig config) => config.GetSection<GitHubTrackerConfig>("GitHubTracker").Enabled;
 
     public override IReadOnlyList<string> ValidateConfig(AppConfig config)
     {
         var errors = new List<string>();
-        var tracker = config.GitHubTracker;
+        var tracker = config.GetSection<GitHubTrackerConfig>("GitHubTracker");
 
         if (string.IsNullOrWhiteSpace(tracker.Tracker.Repository))
             errors.Add("GitHubTracker: tracker.repository is required");
@@ -47,7 +47,7 @@ public sealed partial class GitHubTrackerModule : ModuleBase
 
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
-        var config = context.Config.GitHubTracker;
+        var config = context.Config.GetSection<GitHubTrackerConfig>("GitHubTracker");
 
         var workspacePath = context.Paths.WorkspacePath;
 

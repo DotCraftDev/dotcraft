@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DotCraft.Configuration;
 using DotCraft.Hosting;
 using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
@@ -30,14 +31,27 @@ public static class DashBoardMiddleware
         DotCraftPaths paths,
         TokenUsageStore? tokenUsageStore = null,
         bool setupMode = false,
-        IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null)
+        IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
+        IEnumerable<Type>? configTypes = null)
     {
         MapOrchestratorEndpoints(endpoints, orchestratorProviders);
+
+        // Build schema and derive sensitive paths from it at startup
+        var schema = configTypes != null
+            ? ConfigSchemaBuilder.BuildAll(configTypes)
+            : [];
+        var sensitivePaths = ConfigSchemaBuilder.BuildSensitivePaths(schema);
         endpoints.MapGet("/dashboard/", ctx =>
         {
             ctx.Response.ContentType = "text/html; charset=utf-8";
             return ctx.Response.WriteAsync(DashBoardFrontend.GetHtml());
         });
+
+        // Config schema endpoint: returns the full dashboard config schema derived from
+        // [ConfigSection] / [ConfigField] attributes on config classes across all modules.
+        var capturedSchema = schema;
+        endpoints.MapGet("/dashboard/api/config/schema", () =>
+            Results.Json(capturedSchema, JsonOptions));
 
         endpoints.MapGet("/dashboard/api/summary", () =>
         {
@@ -126,9 +140,9 @@ public static class DashBoardMiddleware
                 hasApiKey = !string.IsNullOrWhiteSpace(apiKeyVal.ToString());
 
             // Mask all sensitive fields in all three views
-            MaskSensitiveFields(globalObj);
-            MaskSensitiveFields(workspaceObj);
-            MaskSensitiveFields(mergedObj);
+            MaskSensitiveFields(globalObj, sensitivePaths);
+            MaskSensitiveFields(workspaceObj, sensitivePaths);
+            MaskSensitiveFields(mergedObj, sensitivePaths);
 
             // Check if authentication is enabled (Username and Password configured)
             bool authEnabled = false;
@@ -164,14 +178,14 @@ public static class DashBoardMiddleware
                     ".craft",
                     "config.json");
 
-                await SaveConfigAsync(ctx, globalConfigPath);
+                await SaveConfigAsync(ctx, globalConfigPath, sensitivePaths);
             });
         }
 
         endpoints.MapPost("/dashboard/api/config/workspace", async ctx =>
         {
             var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
-            await SaveConfigAsync(ctx, workspaceConfigPath);
+            await SaveConfigAsync(ctx, workspaceConfigPath, sensitivePaths);
         });
 
         if (tokenUsageStore != null)
@@ -317,7 +331,7 @@ public static class DashBoardMiddleware
         return overrideNode.DeepClone();
     }
 
-    private static async Task SaveConfigAsync(HttpContext ctx, string targetPath)
+    private static async Task SaveConfigAsync(HttpContext ctx, string targetPath, string[][] sensitivePaths)
     {
         var dir = Path.GetDirectoryName(targetPath);
         if (!string.IsNullOrEmpty(dir))
@@ -342,29 +356,16 @@ public static class DashBoardMiddleware
             ? (JsonObject)(JsonNode.Parse(await File.ReadAllTextAsync(targetPath)) ?? new JsonObject())
             : new JsonObject();
 
-        RestoreSentinels(postedObj, existingObj);
+        RestoreSentinels(postedObj, existingObj, sensitivePaths);
 
         var output = postedObj.ToJsonString(RawJsonOptions);
         await File.WriteAllTextAsync(targetPath, output);
         await ctx.Response.WriteAsJsonAsync(new { success = true, path = targetPath });
     }
 
-    // Sensitive field paths: each entry is [parent key(s)..., leaf key]
-    private static readonly string[][] SensitivePaths =
-    [
-        ["ApiKey"],
-        ["QQBot", "AccessToken"],
-        ["Api", "ApiKey"],
-        ["Tools", "Sandbox", "ApiKey"],
-        ["WeCom", "WebhookUrl"],
-        ["DashBoard", "Password"],
-        ["AgUi", "ApiKey"],
-        ["GitHubTracker", "Tracker", "ApiKey"],
-    ];
-
-    private static void MaskSensitiveFields(JsonObject obj)
+    private static void MaskSensitiveFields(JsonObject obj, string[][] sensitivePaths)
     {
-        foreach (var path in SensitivePaths)
+        foreach (var path in sensitivePaths)
             MaskAtPath(obj, path, 0);
     }
 
@@ -391,9 +392,9 @@ public static class DashBoardMiddleware
     }
 
     // For each sensitive path: if posted value is "***", restore from existing (or remove)
-    private static void RestoreSentinels(JsonObject posted, JsonObject existing)
+    private static void RestoreSentinels(JsonObject posted, JsonObject existing, string[][] sensitivePaths)
     {
-        foreach (var path in SensitivePaths)
+        foreach (var path in sensitivePaths)
             RestoreAtPath(posted, existing, path, 0);
     }
 

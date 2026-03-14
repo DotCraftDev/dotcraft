@@ -1,5 +1,8 @@
+using DotCraft.Configuration;
+
 namespace DotCraft.Mcp;
 
+[ConfigSection("McpServers", DisplayName = "MCP Servers", Order = 95, RootKey = "McpServers")]
 public sealed class McpServerConfig
 {
     public string Name { get; set; } = string.Empty;

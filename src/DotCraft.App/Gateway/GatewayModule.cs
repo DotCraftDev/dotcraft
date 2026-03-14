@@ -15,7 +15,9 @@ public sealed partial class GatewayModule : ModuleBase
 {
     /// <inheritdoc />
     public override bool IsEnabled(AppConfig config)
-        => config.QQBot.Enabled || config.WeComBot.Enabled || config.Api.Enabled || config.AgUi.Enabled || config.GitHubTracker.Enabled;
+        => config.IsSectionEnabled("QQBot") || config.IsSectionEnabled("WeComBot")
+           || config.IsSectionEnabled("Api") || config.IsSectionEnabled("AgUi")
+           || config.IsSectionEnabled("GitHubTracker");
 
     /// <inheritdoc />
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
@@ -28,7 +30,9 @@ public sealed partial class GatewayModule : ModuleBase
     public override IReadOnlyList<string> ValidateConfig(AppConfig config)
     {
         var errors = new List<string>();
-        if (!config.QQBot.Enabled && !config.WeComBot.Enabled && !config.Api.Enabled && !config.AgUi.Enabled && !config.GitHubTracker.Enabled)
+        if (!config.IsSectionEnabled("QQBot") && !config.IsSectionEnabled("WeComBot")
+            && !config.IsSectionEnabled("Api") && !config.IsSectionEnabled("AgUi")
+            && !config.IsSectionEnabled("GitHubTracker"))
             errors.Add("Gateway mode is enabled but no channel modules are enabled.");
         return errors;
     }

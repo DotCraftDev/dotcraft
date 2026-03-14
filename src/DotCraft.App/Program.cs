@@ -1,4 +1,5 @@
 using System.Text;
+using DotCraft.Acp;
 using DotCraft.CLI;
 using DotCraft.Diagnostics;
 using DotCraft.Configuration;
@@ -94,7 +95,7 @@ var config = AppConfig.LoadWithGlobalFallback(configPath);
 
 if (isAcpMode)
 {
-    config.Acp.Enabled = true;
+    config.SetSection("Acp", new AcpConfig { Enabled = true });
 }
 
 // Create language service from config

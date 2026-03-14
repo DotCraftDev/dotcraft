@@ -90,7 +90,8 @@ public sealed class CliHost(
         if (config.DashBoard.Enabled && traceStore != null)
         {
             dashBoardServer = new DashBoardServer();
-            dashBoardServer.Start(traceStore, config, paths, tokenUsageStore);
+            dashBoardServer.Start(traceStore, config, paths, tokenUsageStore,
+                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes());
             dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
         }
 

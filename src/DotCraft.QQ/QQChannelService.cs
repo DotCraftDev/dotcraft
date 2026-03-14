@@ -133,7 +133,7 @@ public sealed class QQChannelService(
         await qqClient.StartAsync(cancellationToken);
 
         AnsiConsole.MarkupLine(
-            $"[green][[Gateway]][/] QQ Bot listening on ws://{config.QQBot.Host}:{config.QQBot.Port}/");
+            $"[green][[Gateway]][/] QQ Bot listening on ws://{config.GetSection<QQBotConfig>("QQBot").Host}:{config.GetSection<QQBotConfig>("QQBot").Port}/");
 
         var tcs = new TaskCompletionSource();
         await using var reg = cancellationToken.Register(() => tcs.TrySetResult());
@@ -149,7 +149,7 @@ public sealed class QQChannelService(
 
     /// <inheritdoc />
     public IReadOnlyList<string> GetAdminTargets()
-        => config.QQBot.AdminUsers.Select(id => id.ToString()).ToList();
+        => config.GetSection<QQBotConfig>("QQBot").AdminUsers.Select(id => id.ToString()).ToList();
 
     public async Task DeliverMessageAsync(string target, string content)
     {

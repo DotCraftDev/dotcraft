@@ -5,10 +5,10 @@ namespace DotCraft.WeCom;
 /// <summary>
 /// Validator for WeCom bot configuration.
 /// </summary>
-public sealed class WeComConfigValidator : IModuleConfigValidator<AppConfig.WeComBotConfig>
+public sealed class WeComConfigValidator : IModuleConfigValidator<WeComBotConfig>
 {
     /// <inheritdoc />
-    public IReadOnlyList<string> Validate(AppConfig.WeComBotConfig config)
+    public IReadOnlyList<string> Validate(WeComBotConfig config)
     {
         var errors = new List<string>();
 

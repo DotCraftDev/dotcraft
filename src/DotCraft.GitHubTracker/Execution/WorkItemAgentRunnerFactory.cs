@@ -60,7 +60,7 @@ public sealed class WorkItemAgentRunnerFactory(
     ILoggerFactory loggerFactory,
     TraceCollector? traceCollector = null) : IDisposable
 {
-    private readonly SemaphoreSlim _concurrencyGate = new(config.GitHubTracker.Agent.MaxConcurrentAgents);
+    private readonly SemaphoreSlim _concurrencyGate = new(config.GetSection<GitHubTrackerConfig>("GitHubTracker").Agent.MaxConcurrentAgents);
 
     /// <summary>
     /// Computes the deterministic dashboard session key for a work-item identifier.
