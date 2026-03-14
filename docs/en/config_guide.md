@@ -913,6 +913,65 @@ npx playwright install chromium
 
 Once configured, the Agent automatically gains 22 browser control tools, including: `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_fill_form`, `browser_take_screenshot`, and more.
 
+### MCP Tool Deferred Loading
+
+> **Experimental**: This feature is still under evaluation and behavior may change in future releases.
+
+When many MCP servers are connected and the total tool count is high, injecting all tool definitions upfront into every LLM call carries significant token overhead and can degrade tool selection accuracy. **Deferred Loading** lets the Agent discover and activate MCP tools on demand rather than loading them all at session start.
+
+When enabled, MCP tools are not sent to the LLM upfront. Instead, the Agent receives a `SearchTools` function it can call to look up tools by keyword. Once found, those tools are immediately activated and available for direct invocation in subsequent calls.
+
+#### How It Works
+
+1. When the Agent needs an external capability, it calls `SearchTools(query: "keyword")`
+2. The system performs a fuzzy search across all deferred tools and returns the best matches
+3. Matched tools are immediately injected into the next LLM call's tool list
+4. The tool list grows monotonically within a session, keeping the prompt prefix stable for cache reuse after the initial discovery
+
+#### Configuration
+
+| Config Item | Description | Default |
+|-------------|-------------|---------|
+| `Tools.DeferredLoading.Enabled` | Enable deferred loading | `false` |
+| `Tools.DeferredLoading.AlwaysLoadedTools` | MCP tool names to always load upfront (high-frequency tools) | `[]` |
+| `Tools.DeferredLoading.MaxSearchResults` | Maximum results returned per `SearchTools` call (1–20) | `5` |
+| `Tools.DeferredLoading.DeferThreshold` | Skip deferred loading if total MCP tool count is below this value | `10` |
+
+#### Example
+
+```json
+{
+    "Tools": {
+        "DeferredLoading": {
+            "Enabled": true,
+            "AlwaysLoadedTools": ["github_create_issue", "slack_send_message"],
+            "MaxSearchResults": 5,
+            "DeferThreshold": 10
+        }
+    }
+}
+```
+
+#### Guiding the Agent with a Skill
+
+When deferred loading is active, the system prompt automatically includes the names of connected MCP services and basic `SearchTools` usage instructions. However, for the Agent to reliably know which keywords to search in specific scenarios, it is recommended to write a dedicated Skill under `.craft/skills/` that describes the capabilities and typical usage of each MCP service.
+
+**Example Skill** (`.craft/skills/github-mcp/SKILL.md`):
+
+```markdown
+# GitHub MCP Tools
+
+A GitHub MCP server is connected, providing tools of the following types:
+- Issue management: search with "github issue"
+- Pull Requests: search with "github pull request" or "github pr"
+- Repository operations: search with "github repo" or "github repository"
+- Code search: search with "github search code"
+
+Always call SearchTools to activate the required tools before using them.
+```
+
+A Skill like this, combined with the workspace `AGENTS.md` or the on-demand skill loading mechanism, significantly improves the Agent's accuracy in choosing the right search keywords.
+
 ---
 
 ## Custom Commands

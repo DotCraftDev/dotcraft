@@ -352,6 +352,7 @@ body {
 .trace-event.type-Response { border-left-color: var(--success); }
 .trace-event.type-ToolCallStarted { border-left-color: var(--warning); }
 .trace-event.type-ToolCallCompleted { border-left-color: var(--accent); }
+.trace-event.type-ToolInjection { border-left-color: var(--cyan); }
 .trace-event.type-TokenUsage { border-left-color: var(--cyan); }
 .trace-event.type-Error { border-left-color: var(--error); }
 .trace-event.type-ContextCompaction { border-left-color: var(--text-muted); }
@@ -1494,7 +1495,7 @@ function renderTraceTimeline(events) {
   const container = document.getElementById('traceTimeline');
 
   const filtered = currentFilter === 'all' ? events : events.filter(e => {
-    if (currentFilter === 'Tool') return e.type === 'ToolCallStarted' || e.type === 'ToolCallCompleted';
+    if (currentFilter === 'Tool') return e.type === 'ToolCallStarted' || e.type === 'ToolCallCompleted' || e.type === 'ToolInjection';
     return e.type === currentFilter;
   });
 
@@ -1571,6 +1572,15 @@ function renderTraceEvent(e) {
           ${dur}
           ${metaLine}
           ${e.toolResult ? `<div class="collapsible-toggle" onclick="toggleDetail('${evtId}', this)">Result</div><div class="collapsible-content trace-detail" id="${evtId}">${escapeHtml(e.toolResult)}</div>` : ''}
+        </div></div>`;
+
+    case 'ToolInjection':
+      return `<div class="trace-event type-ToolInjection">
+        <div class="trace-time">${time}</div>
+        <div class="trace-icon">${e.toolIcon || '🔌'}</div>
+        <div class="trace-body">
+          <div class="trace-label">${escapeHtml(e.toolName || 'Tools injected')} <span class="badge badge-info">injected</span></div>
+          <div class="trace-content">${escapeHtml(e.content || '')}</div>
         </div></div>`;
 
     case 'TokenUsage':
@@ -1845,7 +1855,7 @@ function connectSSE() {
         if (emptyState) emptyState.remove();
 
         const shouldShow = currentFilter === 'all' ||
-          (currentFilter === 'Tool' && (evt.type === 'ToolCallStarted' || evt.type === 'ToolCallCompleted')) ||
+          (currentFilter === 'Tool' && (evt.type === 'ToolCallStarted' || evt.type === 'ToolCallCompleted' || evt.type === 'ToolInjection')) ||
           evt.type === currentFilter;
 
         if (shouldShow) {

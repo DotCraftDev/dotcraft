@@ -305,21 +305,46 @@ public sealed class AgentFactory : IAsyncDisposable
     {
         LastCreatedTools = tools;
 
+        var deferredRegistry = _toolProviderContext.DeferredToolRegistry;
+
         // Reverse middleware control:
-        // OpenAIChatClient => ImageContentSanitizingChatClient => FunctionInvokingChatClient => TracingChatClient
+        // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient] => FunctionInvokingChatClient => TracingChatClient
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
         if (_traceCollector != null)
         {
             var tc = _traceCollector;
             chatClientBuilder.Use(innerClient => new TracingChatClient(innerClient, tc));
         }
-        chatClientBuilder.Use(innerClient => new FunctionInvokingChatClient(innerClient)
+        chatClientBuilder.Use(innerClient =>
         {
-            MaximumIterationsPerRequest = _config.MaxToolCallRounds,
-            AllowConcurrentInvocation = true
+            var fic = new FunctionInvokingChatClient(innerClient)
+            {
+                MaximumIterationsPerRequest = _config.MaxToolCallRounds,
+                AllowConcurrentInvocation = true
+            };
+            if (deferredRegistry != null)
+                fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
+            return fic;
         });
+        if (deferredRegistry != null)
+        {
+            var registry = deferredRegistry;
+            var tc = _traceCollector;
+            var hr = _hookRunner;
+            chatClientBuilder.Use(innerClient => new DynamicToolInjectionChatClient(innerClient, registry, tc, hr));
+        }
         chatClientBuilder.Use(innerClient => new ImageContentSanitizingChatClient(innerClient));
         var configuredChatClient = chatClientBuilder.Build();
+
+        // When deferred loading is active, derive connected server names from the
+        // ToolServerMap so the system prompt can list them for the model.
+        IReadOnlyList<string>? deferredServerNames = null;
+        if (deferredRegistry != null && _toolProviderContext.McpClientManager != null)
+        {
+            deferredServerNames = _toolProviderContext.McpClientManager.ToolServerMap.Values
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
 
         var options = new ChatClientAgentOptions
         {
@@ -338,7 +363,8 @@ public sealed class AgentFactory : IAsyncDisposable
                     modeManager,
                     _planStore,
                     () => TracingChatClient.CurrentSessionKey,
-                    sandboxEnabled: _config.Tools.Sandbox.Enabled))
+                    sandboxEnabled: _config.Tools.Sandbox.Enabled,
+                    deferredMcpServerNames: deferredServerNames))
         };
 
         return configuredChatClient.AsAIAgent(options);
@@ -358,19 +384,34 @@ public sealed class AgentFactory : IAsyncDisposable
     /// </summary>
     public IChatClient CreateToolCallFilteringChatClient()
     {
+        var deferredRegistry = _toolProviderContext.DeferredToolRegistry;
+
         // Reverse middleware control:
-        // OpenAIChatClient => ImageContentSanitizingChatClient => FunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
+        // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient] => FunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
         chatClientBuilder.Use(innerClient => new ToolCallFilteringChatClient(innerClient));
         if (_traceCollector != null)
         {
             chatClientBuilder.Use(innerClient => new TracingChatClient(innerClient, _traceCollector));
         }
-        chatClientBuilder.Use(innerClient => new FunctionInvokingChatClient(innerClient)
+        chatClientBuilder.Use(innerClient =>
         {
-            MaximumIterationsPerRequest = _config.MaxToolCallRounds,
-            AllowConcurrentInvocation = true
+            var fic = new FunctionInvokingChatClient(innerClient)
+            {
+                MaximumIterationsPerRequest = _config.MaxToolCallRounds,
+                AllowConcurrentInvocation = true
+            };
+            if (deferredRegistry != null)
+                fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
+            return fic;
         });
+        if (deferredRegistry != null)
+        {
+            var registry = deferredRegistry;
+            var tc = _traceCollector;
+            var hr = _hookRunner;
+            chatClientBuilder.Use(innerClient => new DynamicToolInjectionChatClient(innerClient, registry, tc, hr));
+        }
         chatClientBuilder.Use(innerClient => new ImageContentSanitizingChatClient(innerClient));
         return chatClientBuilder.Build();
     }

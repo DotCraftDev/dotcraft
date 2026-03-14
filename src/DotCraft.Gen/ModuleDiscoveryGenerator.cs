@@ -60,8 +60,20 @@ public sealed class ModuleDiscoveryGenerator : IIncrementalGenerator
                 return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
             });
 
+        // Track [ConfigSection] types incrementally so that adding a new config section
+        // class in any DotCraft assembly (e.g. DotCraft.Core) correctly invalidates the
+        // Phase B output. Without this, config section discovery relies solely on
+        // CompilationProvider, which may not re-trigger in IDE / hot-reload scenarios.
+        var localConfigSections = context.SyntaxProvider
+            .ForAttributeWithMetadataName(
+                ConfigSectionAttributeFqn,
+                predicate: static (node, _) => IsClassWithAttributes(node),
+                transform: static (ctx, _) => ctx.TargetSymbol.ToDisplayString())
+            .Collect();
+
         var registrationInput = localModules
             .Combine(localFactories)
+            .Combine(localConfigSections)
             .Combine(context.CompilationProvider)
             .Combine(shouldGenerateRegistrations);
 
@@ -71,7 +83,7 @@ public sealed class ModuleDiscoveryGenerator : IIncrementalGenerator
             if (!shouldGenerate)
                 return;
 
-            var ((localMods, localFacts), compilation) = data.Left;
+            var (((localMods, localFacts), _), compilation) = data.Left;
             GenerateRegistrationClass(ctx, localMods, localFacts, compilation);
             GenerateConfigSchemaRegistrations(ctx, compilation);
         });
