@@ -1,5 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.Hosting;
+using DotCraft.Tracing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;

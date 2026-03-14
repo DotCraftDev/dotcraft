@@ -3,7 +3,7 @@ using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Hosting;
 using DotCraft.Mcp;
 using DotCraft.Memory;

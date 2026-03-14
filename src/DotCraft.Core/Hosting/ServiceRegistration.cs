@@ -1,8 +1,8 @@
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
 using DotCraft.Hooks;
+using DotCraft.Tracing;
 using DotCraft.Logging;
 using DotCraft.Sessions;
 using DotCraft.Localization;
@@ -86,15 +86,15 @@ public static class ServiceRegistration
         // Register configuration validation
         services.AddConfigurationValidation();
 
-        if (config.DashBoard.Enabled)
+        if (config.Tracing.Enabled)
         {
-            var dashboardStoragePath = Path.Combine(botPath, "dashboard");
-            var traceStore = new TraceStore(dashboardStoragePath);
+            var tracingStoragePath = Path.Combine(botPath, "tracing");
+            var traceStore = new TraceStore(tracingStoragePath);
             traceStore.LoadFromDisk();
             services.AddSingleton(traceStore);
             services.AddSingleton<TraceCollector>();
 
-            var tokenUsageStore = new TokenUsageStore(dashboardStoragePath);
+            var tokenUsageStore = new TokenUsageStore(tracingStoragePath);
             tokenUsageStore.LoadFromDisk();
             services.AddSingleton(tokenUsageStore);
         }

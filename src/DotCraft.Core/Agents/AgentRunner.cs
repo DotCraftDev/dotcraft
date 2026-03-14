@@ -1,6 +1,6 @@
 using System.Text;
 using DotCraft.Context;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Sessions;
 using DotCraft.Memory;

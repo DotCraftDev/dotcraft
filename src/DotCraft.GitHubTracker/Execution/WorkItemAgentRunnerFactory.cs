@@ -1,7 +1,7 @@
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Configuration;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;

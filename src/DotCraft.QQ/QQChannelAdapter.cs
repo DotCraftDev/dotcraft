@@ -8,7 +8,7 @@ using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
 using DotCraft.Context;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Memory;
@@ -390,7 +390,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                     tokenTracker?.Update(inputTokens, outputTokens);
                     var displayInput = tokenTracker?.LastInputTokens ?? inputTokens;
                     var displayOutput = tokenTracker?.TotalOutputTokens ?? outputTokens;
-                    textBuffer.Append($"\n\n[↑ {displayInput} input ↓ {displayOutput} output]");
+                    textBuffer.Append($"\n\n[? {displayInput} input ? {displayOutput} output]");
                 }
 
                 if (DebugModeService.IsEnabled())
@@ -402,10 +402,10 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                 {
                     _tokenUsageStore?.Record(new TokenUsageRecord
                     {
-                        Source = evt.IsGroupMessage ? TokenUsageSource.QQGroup : TokenUsageSource.QQPrivate,
+                        Channel = "qq",
                         UserId = evt.UserId.ToString(),
                         DisplayName = evt.Sender.DisplayName,
-                        GroupId = evt.IsGroupMessage ? evt.GroupId : 0,
+                        GroupId = evt.IsGroupMessage ? evt.GroupId : null,
                         InputTokens = inputTokens,
                         OutputTokens = outputTokens
                     });
@@ -416,12 +416,12 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                 {
                     AnsiConsole.MarkupLine(
                         $"[grey][[QQ]][/] [yellow]Context compacting for session {Markup.Escape(sessionId)}...[/]");
-                    await _client.SendMessageAsync(evt, "⚠️ 上下文过长，正在压缩历史对话...");
+                    await _client.SendMessageAsync(evt, "?? ??????????????...");
                     if (await _agentFactory.Compactor.TryCompactAsync(session))
                     {
                         tokenTracker?.Reset();
                         _traceCollector?.RecordContextCompaction(sessionId);
-                        await _client.SendMessageAsync(evt, "✅ 上下文压缩完成，可以继续对话。");
+                        await _client.SendMessageAsync(evt, "? ???????????????");
                     }
                 }
 
@@ -435,7 +435,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             AnsiConsole.MarkupLine($"[grey][[QQ]][/] [yellow]Request evicted for session {Markup.Escape(sessionId)} (queue overflow)[/]");
             try
             {
-                await _client.SendMessageAsync(evt, "消息过多，该条已跳过，请稍后重试。");
+                await _client.SendMessageAsync(evt, "?????????????????");
             }
             catch
             {
@@ -548,6 +548,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
     private static void LogThinking(string text)
     {
         var preview = ReasoningContentHelper.ToInlinePreview(text);
-        AnsiConsole.MarkupLine($"[grey][[QQ]][/] [cyan]💭 Thinking[/] [grey]{Markup.Escape(preview)}[/]");
+        AnsiConsole.MarkupLine($"[grey][[QQ]][/] [cyan]?? Thinking[/] [grey]{Markup.Escape(preview)}[/]");
     }
 }

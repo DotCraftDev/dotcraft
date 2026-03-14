@@ -4,7 +4,7 @@ using System.Text.Json;
 using DotCraft.Tools;
 using Microsoft.Extensions.AI;
 
-namespace DotCraft.DashBoard;
+namespace DotCraft.Tracing;
 
 public sealed class TraceCollector(TraceStore store)
 {

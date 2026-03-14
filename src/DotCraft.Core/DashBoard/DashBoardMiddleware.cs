@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
+using DotCraft.Tracing;
 using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -190,15 +191,15 @@ public static class DashBoardMiddleware
 
         if (tokenUsageStore != null)
         {
-            endpoints.MapGet("/dashboard/api/token-usage/summary", () =>
+            endpoints.MapGet("/dashboard/api/token-usage", () =>
             {
                 var summary = tokenUsageStore.GetSummary();
                 return Results.Json(summary, JsonOptions);
             });
 
-            endpoints.MapGet("/dashboard/api/token-usage/qq/private", () =>
+            endpoints.MapGet("/dashboard/api/token-usage/{channel}/users", (string channel) =>
             {
-                var users = tokenUsageStore.GetQQPrivateUsers();
+                var users = tokenUsageStore.GetUsers(channel);
                 var result = users.Select(u => new
                 {
                     userId = u.UserId,
@@ -212,9 +213,9 @@ public static class DashBoardMiddleware
                 return Results.Json(result, JsonOptions);
             });
 
-            endpoints.MapGet("/dashboard/api/token-usage/qq/groups", () =>
+            endpoints.MapGet("/dashboard/api/token-usage/{channel}/groups", (string channel) =>
             {
-                var groups = tokenUsageStore.GetQQGroups();
+                var groups = tokenUsageStore.GetGroups(channel);
                 var result = groups.Select(g => new
                 {
                     groupId = g.GroupId,
@@ -236,54 +237,6 @@ public static class DashBoardMiddleware
                             requestCount = u.RequestCount,
                             lastActiveAt = u.LastActiveAt.ToString("o")
                         })
-                });
-                return Results.Json(result, JsonOptions);
-            });
-
-            endpoints.MapGet("/dashboard/api/token-usage/wecom", () =>
-            {
-                var users = tokenUsageStore.GetWeComUsers();
-                var result = users.Select(u => new
-                {
-                    userId = u.UserId,
-                    displayName = u.DisplayName,
-                    totalInputTokens = u.TotalInputTokens,
-                    totalOutputTokens = u.TotalOutputTokens,
-                    totalTokens = u.TotalTokens,
-                    requestCount = u.RequestCount,
-                    lastActiveAt = u.LastActiveAt.ToString("o")
-                });
-                return Results.Json(result, JsonOptions);
-            });
-
-            endpoints.MapGet("/dashboard/api/token-usage/api", () =>
-            {
-                var users = tokenUsageStore.GetApiUsers();
-                var result = users.Select(u => new
-                {
-                    userId = u.UserId,
-                    displayName = u.DisplayName,
-                    totalInputTokens = u.TotalInputTokens,
-                    totalOutputTokens = u.TotalOutputTokens,
-                    totalTokens = u.TotalTokens,
-                    requestCount = u.RequestCount,
-                    lastActiveAt = u.LastActiveAt.ToString("o")
-                });
-                return Results.Json(result, JsonOptions);
-            });
-
-            endpoints.MapGet("/dashboard/api/token-usage/cli", () =>
-            {
-                var users = tokenUsageStore.GetCliUsers();
-                var result = users.Select(u => new
-                {
-                    userId = u.UserId,
-                    displayName = u.DisplayName,
-                    totalInputTokens = u.TotalInputTokens,
-                    totalOutputTokens = u.TotalOutputTokens,
-                    totalTokens = u.TotalTokens,
-                    requestCount = u.RequestCount,
-                    lastActiveAt = u.LastActiveAt.ToString("o")
                 });
                 return Results.Json(result, JsonOptions);
             });

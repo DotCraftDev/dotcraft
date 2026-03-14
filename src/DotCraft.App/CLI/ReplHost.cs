@@ -6,7 +6,7 @@ using DotCraft.Commands.Custom;
 using DotCraft.Diagnostics;
 using DotCraft.Context;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Localization;
@@ -864,7 +864,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
                 {
                     tokenUsageStore?.Record(new TokenUsageRecord
                     {
-                        Source = TokenUsageSource.Cli,
+                        Channel = "cli",
                         UserId = "local",
                         DisplayName = "CLI",
                         InputTokens = inputTokens,

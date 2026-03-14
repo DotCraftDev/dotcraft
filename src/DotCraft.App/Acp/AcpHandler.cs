@@ -6,7 +6,7 @@ using System.Text.Json;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Context;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;

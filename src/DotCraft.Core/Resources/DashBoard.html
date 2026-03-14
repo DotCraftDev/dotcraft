@@ -1666,36 +1666,38 @@ function setTokenUsageFilter(filter) {
 }
 
 async function refreshTokenUsage() {
-  const summary = await fetchJson('/token-usage/summary');
+  const summaryList = await fetchJson('/token-usage');
   const statsEl = document.getElementById('tokenUsageStats');
 
-  if (!summary) {
+  if (!summaryList) {
     statsEl.innerHTML = '<div class="empty-state"><p>Token usage tracking not available.</p></div>';
     document.getElementById('tokenUsageContent').innerHTML = '';
     return;
   }
 
-  const qqTotal = (summary.qqTotalInputTokens || 0) + (summary.qqTotalOutputTokens || 0);
-  const wecomTotal = (summary.weComTotalInputTokens || 0) + (summary.weComTotalOutputTokens || 0);
-  const apiTotal = (summary.apiTotalInputTokens || 0) + (summary.apiTotalOutputTokens || 0);
-  const cliTotal = (summary.cliTotalInputTokens || 0) + (summary.cliTotalOutputTokens || 0);
+  const ch = name => summaryList.find(s => s.channel === name) || {};
+  const qq = ch('qq');
+  const wecom = ch('wecom');
+  const api = ch('api');
+  const cli = ch('cli');
+  const grandTotal = summaryList.reduce((sum, s) => sum + (s.totalTokens || 0), 0);
 
   statsEl.innerHTML = `
-    <div class="stat-card"><div class="stat-label">QQ Users (Private)</div><div class="stat-value accent">${summary.qqPrivateUserCount || 0}</div></div>
-    <div class="stat-card"><div class="stat-label">QQ Groups</div><div class="stat-value info">${summary.qqGroupCount || 0}</div></div>
-    <div class="stat-card"><div class="stat-label">QQ Total Tokens</div><div class="stat-value warning">${formatNumber(qqTotal)}</div></div>
-    <div class="stat-card"><div class="stat-label">WeCom Users</div><div class="stat-value accent">${summary.weComUserCount || 0}</div></div>
-    <div class="stat-card"><div class="stat-label">WeCom Total Tokens</div><div class="stat-value success">${formatNumber(wecomTotal)}</div></div>
-    <div class="stat-card"><div class="stat-label">API Users</div><div class="stat-value accent">${summary.apiUserCount || 0}</div></div>
-    <div class="stat-card"><div class="stat-label">API Total Tokens</div><div class="stat-value info">${formatNumber(apiTotal)}</div></div>
-    <div class="stat-card"><div class="stat-label">CLI Total Tokens</div><div class="stat-value warning">${formatNumber(cliTotal)}</div></div>
-    <div class="stat-card"><div class="stat-label">All Total Tokens</div><div class="stat-value success">${formatNumber(qqTotal + wecomTotal + apiTotal + cliTotal)}</div></div>
+    <div class="stat-card"><div class="stat-label">QQ Users (Private)</div><div class="stat-value accent">${qq.userCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">QQ Groups</div><div class="stat-value info">${qq.groupCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">QQ Total Tokens</div><div class="stat-value warning">${formatNumber(qq.totalTokens || 0)}</div></div>
+    <div class="stat-card"><div class="stat-label">WeCom Users</div><div class="stat-value accent">${wecom.userCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">WeCom Total Tokens</div><div class="stat-value success">${formatNumber(wecom.totalTokens || 0)}</div></div>
+    <div class="stat-card"><div class="stat-label">API Users</div><div class="stat-value accent">${api.userCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">API Total Tokens</div><div class="stat-value info">${formatNumber(api.totalTokens || 0)}</div></div>
+    <div class="stat-card"><div class="stat-label">CLI Total Tokens</div><div class="stat-value warning">${formatNumber(cli.totalTokens || 0)}</div></div>
+    <div class="stat-card"><div class="stat-label">All Total Tokens</div><div class="stat-value success">${formatNumber(grandTotal)}</div></div>
   `;
 
   let html = '';
 
   if (tokenUsageFilter === 'all' || tokenUsageFilter === 'qq') {
-    const qqPrivate = await fetchJson('/token-usage/qq/private');
+    const qqPrivate = await fetchJson('/token-usage/qq/users');
     const qqGroups = await fetchJson('/token-usage/qq/groups');
 
     html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">QQ Private Users</h3>';
@@ -1737,7 +1739,7 @@ async function refreshTokenUsage() {
   }
 
   if (tokenUsageFilter === 'all' || tokenUsageFilter === 'wecom') {
-    const wecomUsers = await fetchJson('/token-usage/wecom');
+    const wecomUsers = await fetchJson('/token-usage/wecom/users');
     html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">WeCom Users</h3>';
     if (wecomUsers && wecomUsers.length > 0) {
       html += renderUserTable(wecomUsers, 'WeCom');
@@ -1747,7 +1749,7 @@ async function refreshTokenUsage() {
   }
 
   if (tokenUsageFilter === 'all' || tokenUsageFilter === 'api') {
-    const apiUsers = await fetchJson('/token-usage/api');
+    const apiUsers = await fetchJson('/token-usage/api/users');
     html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">API Users</h3>';
     if (apiUsers && apiUsers.length > 0) {
       html += renderUserTable(apiUsers, 'API');
@@ -1757,7 +1759,7 @@ async function refreshTokenUsage() {
   }
 
   if (tokenUsageFilter === 'all' || tokenUsageFilter === 'cli') {
-    const cliUsers = await fetchJson('/token-usage/cli');
+    const cliUsers = await fetchJson('/token-usage/cli/users');
     html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">CLI Users</h3>';
     if (cliUsers && cliUsers.length > 0) {
       html += renderUserTable(cliUsers, 'CLI');

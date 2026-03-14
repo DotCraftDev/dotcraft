@@ -4,7 +4,7 @@ using DotCraft.Abstractions;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Context;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Security;
