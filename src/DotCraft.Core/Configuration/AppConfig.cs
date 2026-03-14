@@ -168,6 +168,14 @@ public sealed class AppConfig
     /// <param name="key">The JSON key (case-insensitive), e.g. "QQBot", "WeComBot".</param>
     public bool IsSectionEnabled(string key)
     {
+        // Check the section cache first — SetSection may have overridden the value.
+        if (_sectionCache.TryGetValue(key, out var cached))
+        {
+            var enabledProp = cached.GetType().GetProperty("Enabled");
+            if (enabledProp != null && enabledProp.PropertyType == typeof(bool))
+                return (bool)(enabledProp.GetValue(cached) ?? false);
+        }
+
         if (ExtensionData == null) return false;
         foreach (var (k, v) in ExtensionData)
         {
