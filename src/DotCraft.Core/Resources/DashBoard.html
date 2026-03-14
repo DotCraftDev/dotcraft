@@ -1140,6 +1140,8 @@ body {
             <button class="filter-chip" data-tusrc="wecom" onclick="setTokenUsageFilter('wecom')">WeCom</button>
             <button class="filter-chip" data-tusrc="api" onclick="setTokenUsageFilter('api')">API</button>
             <button class="filter-chip" data-tusrc="cli" onclick="setTokenUsageFilter('cli')">CLI</button>
+            <button class="filter-chip" data-tusrc="agui" onclick="setTokenUsageFilter('agui')">AG-UI</button>
+            <button class="filter-chip" data-tusrc="acp"  onclick="setTokenUsageFilter('acp')">ACP</button>
           </div>
           <div id="tokenUsageContent"></div>
         </div>
@@ -1680,6 +1682,8 @@ async function refreshTokenUsage() {
   const wecom = ch('wecom');
   const api = ch('api');
   const cli = ch('cli');
+  const agui = ch('agui');
+  const acp = ch('acp');
   const grandTotal = summaryList.reduce((sum, s) => sum + (s.totalTokens || 0), 0);
 
   statsEl.innerHTML = `
@@ -1691,6 +1695,10 @@ async function refreshTokenUsage() {
     <div class="stat-card"><div class="stat-label">API Users</div><div class="stat-value accent">${api.userCount || 0}</div></div>
     <div class="stat-card"><div class="stat-label">API Total Tokens</div><div class="stat-value info">${formatNumber(api.totalTokens || 0)}</div></div>
     <div class="stat-card"><div class="stat-label">CLI Total Tokens</div><div class="stat-value warning">${formatNumber(cli.totalTokens || 0)}</div></div>
+    <div class="stat-card"><div class="stat-label">AG-UI Sessions</div><div class="stat-value accent">${agui.userCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">AG-UI Total Tokens</div><div class="stat-value info">${formatNumber(agui.totalTokens || 0)}</div></div>
+    <div class="stat-card"><div class="stat-label">ACP Sessions</div><div class="stat-value accent">${acp.userCount || 0}</div></div>
+    <div class="stat-card"><div class="stat-label">ACP Total Tokens</div><div class="stat-value warning">${formatNumber(acp.totalTokens || 0)}</div></div>
     <div class="stat-card"><div class="stat-label">All Total Tokens</div><div class="stat-value success">${formatNumber(grandTotal)}</div></div>
   `;
 
@@ -1768,11 +1776,36 @@ async function refreshTokenUsage() {
     }
   }
 
+  if (tokenUsageFilter === 'all' || tokenUsageFilter === 'agui') {
+    const aguiUsers = await fetchJson('/token-usage/agui/users');
+    html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">AG-UI Threads</h3>';
+    if (aguiUsers && aguiUsers.length > 0) {
+      html += renderUserTable(aguiUsers, 'AGUI');
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No AG-UI thread data yet.</div>';
+    }
+  }
+
+  if (tokenUsageFilter === 'all' || tokenUsageFilter === 'acp') {
+    const acpUsers = await fetchJson('/token-usage/acp/users');
+    html += '<h3 style="margin:16px 0 12px;font-size:15px;color:var(--accent-light)">ACP Sessions</h3>';
+    if (acpUsers && acpUsers.length > 0) {
+      html += renderUserTable(acpUsers, 'ACP');
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No ACP session data yet.</div>';
+    }
+  }
+
   document.getElementById('tokenUsageContent').innerHTML = html;
 }
 
 function renderUserTable(users, source) {
-  const idLabel = source === 'WeCom' ? 'UID' : source === 'API' ? 'Session' : source === 'CLI' ? 'User' : 'QQ';
+  const idLabel = source === 'WeCom' ? 'UID'
+    : source === 'API'  ? 'Session'
+    : source === 'CLI'  ? 'User'
+    : source === 'AGUI' ? 'Thread'
+    : source === 'ACP'  ? 'Session'
+    : 'QQ';
   let html = `<table class="config-table" style="margin-bottom:16px">
     <thead><tr><th>${idLabel}</th><th>Name</th><th>Input Tokens</th><th>Output Tokens</th><th>Total Tokens</th><th>Requests</th><th>Last Active</th></tr></thead><tbody>`;
   users.forEach(u => {

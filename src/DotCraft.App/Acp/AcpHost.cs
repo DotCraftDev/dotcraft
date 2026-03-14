@@ -39,6 +39,7 @@ public sealed class AcpHost(
     {
         var cronTools = sp.GetService<CronTools>();
         var traceCollector = sp.GetService<TraceCollector>();
+        var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
         var hookRunner = sp.GetService<HookRunner>();
 
@@ -97,7 +98,9 @@ public sealed class AcpHost(
         handler = new AcpHandler(
             transport, sessionStore, _agentFactory, agent,
             approvalService, paths.WorkspacePath,
-            customCommandLoader, traceCollector, acpLogger,
+            customCommandLoader, traceCollector,
+            tokenUsageStore: tokenUsageStore,
+            logger: acpLogger,
             planStore: planStore,
             clientProxy: clientProxy,
             hookRunner: hookRunner);
