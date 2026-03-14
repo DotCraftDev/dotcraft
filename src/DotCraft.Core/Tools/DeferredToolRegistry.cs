@@ -26,7 +26,7 @@ public sealed class DeferredToolRegistry
     /// </summary>
     public DeferredToolRegistry(IEnumerable<AITool> deferredTools)
     {
-        _deferredTools = deferredTools.ToDictionary(t => t.Name, t => t);
+        _deferredTools = deferredTools.GroupBy(t => t.Name).ToDictionary(g => g.Key, g => g.Last());
     }
 
     /// <summary>
