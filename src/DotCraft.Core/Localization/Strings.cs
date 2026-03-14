@@ -140,6 +140,7 @@ public static class Strings
     public static string Session(LanguageService lang) => lang.GetString("会话", "Session");
     public static string CreatedAt(LanguageService lang) => lang.GetString("创建时间", "Created");
     public static string UpdatedAt(LanguageService lang) => lang.GetString("更新时间", "Updated");
+    public static string Summary(LanguageService lang) => lang.GetString("摘要", "Summary");
     public static string NoSessions(LanguageService lang) => lang.GetString("没有找到会话。", "No sessions found.");
 
     // MCP panel

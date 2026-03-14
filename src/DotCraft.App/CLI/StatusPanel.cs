@@ -168,6 +168,8 @@ public static class StatusPanel
             return;
         }
 
+        const int SummaryMaxLength = 50;
+
         var table = new Table()
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey);
@@ -175,17 +177,31 @@ public static class StatusPanel
         table.AddColumn(new TableColumn($"[u]{Strings.Session(lang)}[/]").Width(30));
         table.AddColumn(new TableColumn($"[u]{Strings.CreatedAt(lang)}[/]").Width(20));
         table.AddColumn(new TableColumn($"[u]{Strings.UpdatedAt(lang)}[/]").Width(20));
+        table.AddColumn(new TableColumn($"[u]{Strings.Summary(lang)}[/]").Width(50));
 
         foreach (var session in sessions)
         {
             var key = session.Key.Escape();
             var created = DateTimeOffset.Parse(session.CreatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             var updated = DateTimeOffset.Parse(session.UpdatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            string summary;
+            if (string.IsNullOrWhiteSpace(session.FirstUserMessage))
+            {
+                summary = "[dim]-[/]";
+            }
+            else
+            {
+                var msg = session.FirstUserMessage.ReplaceLineEndings(" ").Trim();
+                if (msg.Length > SummaryMaxLength)
+                    msg = msg[..SummaryMaxLength] + "...";
+                summary = "[dim]" + msg.Escape() + "[/]";
+            }
 
             table.AddRow(
                 $"[white]{key}[/]",
                 $"[grey]{created}[/]",
-                $"[grey]{updated}[/]");
+                $"[grey]{updated}[/]",
+                summary);
         }
 
         var panel = new Panel(table)
