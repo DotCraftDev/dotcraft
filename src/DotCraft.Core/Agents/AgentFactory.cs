@@ -329,7 +329,8 @@ public sealed class AgentFactory : IAsyncDisposable
         if (deferredRegistry != null)
         {
             var registry = deferredRegistry;
-            chatClientBuilder.Use(innerClient => new DynamicToolInjectionChatClient(innerClient, registry));
+            var tc = _traceCollector;
+            chatClientBuilder.Use(innerClient => new DynamicToolInjectionChatClient(innerClient, registry, tc));
         }
         chatClientBuilder.Use(innerClient => new ImageContentSanitizingChatClient(innerClient));
         var configuredChatClient = chatClientBuilder.Build();
@@ -406,7 +407,8 @@ public sealed class AgentFactory : IAsyncDisposable
         if (deferredRegistry != null)
         {
             var registry = deferredRegistry;
-            chatClientBuilder.Use(innerClient => new DynamicToolInjectionChatClient(innerClient, registry));
+            var tc = _traceCollector;
+            chatClientBuilder.Use(innerClient => new DynamicToolInjectionChatClient(innerClient, registry, tc));
         }
         chatClientBuilder.Use(innerClient => new ImageContentSanitizingChatClient(innerClient));
         return chatClientBuilder.Build();

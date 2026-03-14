@@ -120,6 +120,18 @@ public sealed class TraceCollector(TraceStore store)
         });
     }
 
+    public void RecordToolInjection(string sessionKey, IReadOnlyList<string> toolNames)
+    {
+        store.Record(new TraceEvent
+        {
+            Type = TraceEventType.ToolInjection,
+            SessionKey = sessionKey,
+            ToolName = $"{toolNames.Count} tool{(toolNames.Count != 1 ? "s" : "")} injected",
+            ToolIcon = "🔌",
+            Content = string.Join(", ", toolNames)
+        });
+    }
+
     public void RecordTokenUsage(string sessionKey, long inputTokens, long outputTokens)
     {
         var total = inputTokens + outputTokens;

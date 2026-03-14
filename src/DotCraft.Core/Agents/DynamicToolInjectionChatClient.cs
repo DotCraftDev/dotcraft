@@ -1,4 +1,5 @@
 using DotCraft.Tools;
+using DotCraft.Tracing;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Agents;
@@ -17,16 +18,18 @@ namespace DotCraft.Agents;
 internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
 {
     private readonly DeferredToolRegistry _registry;
+    private readonly TraceCollector? _traceCollector;
 
     // Tracks which deferred tool names have already been injected into a
     // ChatOptions sent to the LLM. Per-instance (i.e. per-agent), monotonically
     // growing to keep the tools list stable and cache-friendly.
     private readonly HashSet<string> _sentToolNames = new(StringComparer.Ordinal);
 
-    public DynamicToolInjectionChatClient(IChatClient innerClient, DeferredToolRegistry registry)
+    public DynamicToolInjectionChatClient(IChatClient innerClient, DeferredToolRegistry registry, TraceCollector? traceCollector = null)
         : base(innerClient)
     {
         _registry = registry;
+        _traceCollector = traceCollector;
     }
 
     public override Task<ChatResponse> GetResponseAsync(
@@ -74,13 +77,22 @@ internal sealed class DynamicToolInjectionChatClient : DelegatingChatClient
         var cloned = options?.Clone() ?? new ChatOptions();
         cloned.Tools ??= [];
 
+        var injected = new List<string>(newNames.Count);
         foreach (var name in newNames)
         {
             if (_registry.DeferredTools.TryGetValue(name, out var tool))
             {
                 cloned.Tools.Add(tool);
                 _sentToolNames.Add(name);
+                injected.Add(name);
             }
+        }
+
+        if (injected.Count > 0 && _traceCollector != null)
+        {
+            var sessionKey = TracingChatClient.CurrentSessionKey ?? TracingChatClient.GetActiveSessionKey();
+            if (!string.IsNullOrEmpty(sessionKey))
+                _traceCollector.RecordToolInjection(sessionKey, injected);
         }
 
         return cloned;

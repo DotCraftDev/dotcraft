@@ -11,6 +11,7 @@ public enum TraceEventType
     Response,
     ToolCallStarted,
     ToolCallCompleted,
+    ToolInjection,
     TokenUsage,
     Error,
     ContextCompaction,
