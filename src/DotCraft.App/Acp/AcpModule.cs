@@ -13,7 +13,7 @@ namespace DotCraft.Acp;
 public sealed partial class AcpModule : ModuleBase
 {
     /// <inheritdoc />
-    public override bool IsEnabled(AppConfig config) => config.Acp.Enabled;
+    public override bool IsEnabled(AppConfig config) => config.GetSection<AcpConfig>("Acp").Enabled;
 }
 
 /// <summary>

@@ -11,7 +11,7 @@ public sealed class ApiApprovalServiceFactory : IApprovalServiceFactory
     /// <inheritdoc />
     public IApprovalService Create(ApprovalServiceContext context)
     {
-        var config = context.Config.Api;
+        var config = context.Config.GetSection<ApiConfig>("Api");
         var approvalMode = ApiApprovalService.ParseMode(
             context.ApprovalMode ?? config.ApprovalMode,
             context.AutoApprove ?? config.AutoApprove);

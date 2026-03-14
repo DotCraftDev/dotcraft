@@ -16,15 +16,17 @@ public sealed class WeComToolProvider : IAgentToolProvider
     public IEnumerable<AITool> CreateTools(ToolProviderContext context)
     {
         var config = context.Config;
-        
+        var weComConfig = config.GetSection<WeComConfig>("WeCom");
+        var weComBotConfig = config.GetSection<WeComBotConfig>("WeComBot");
+
         // Only create tools if WeCom is enabled with webhook or WeComBot is enabled
-        var isWeComEnabled = (config.WeCom.Enabled && !string.IsNullOrWhiteSpace(config.WeCom.WebhookUrl)) 
-                             || config.WeComBot.Enabled;
+        var isWeComEnabled = (weComConfig.Enabled && !string.IsNullOrWhiteSpace(weComConfig.WebhookUrl))
+                             || weComBotConfig.Enabled;
         
         if (!isWeComEnabled)
             return [];
 
-        var weComTools = new WeComTools(config.WeCom.WebhookUrl, fileSystem: context.AgentFileSystem);
+        var weComTools = new WeComTools(weComConfig.WebhookUrl, fileSystem: context.AgentFileSystem);
         
         return
         [

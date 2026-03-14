@@ -5,10 +5,10 @@ namespace DotCraft.Api;
 /// <summary>
 /// Validator for API configuration.
 /// </summary>
-public sealed class ApiConfigValidator : IModuleConfigValidator<AppConfig.ApiConfig>
+public sealed class ApiConfigValidator : IModuleConfigValidator<ApiConfig>
 {
     /// <inheritdoc />
-    public IReadOnlyList<string> Validate(AppConfig.ApiConfig config)
+    public IReadOnlyList<string> Validate(ApiConfig config)
     {
         var errors = new List<string>();
 

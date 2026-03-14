@@ -13,7 +13,7 @@ public sealed class WeComClientFactory
     /// </summary>
     public static WeComBotRegistry CreateRegistry(ModuleContext context)
     {
-        var config = context.Config.WeComBot;
+        var config = context.Config.GetSection<WeComBotConfig>("WeComBot");
         var registry = new WeComBotRegistry();
 
         foreach (var robotConfig in config.Robots)
@@ -46,7 +46,7 @@ public sealed class WeComClientFactory
     /// </summary>
     public static WeComPermissionService CreatePermissionService(ModuleContext context)
     {
-        var config = context.Config.WeComBot;
+        var config = context.Config.GetSection<WeComBotConfig>("WeComBot");
         return new WeComPermissionService(
             config.AdminUsers.Select(id => id.ToString()),
             config.WhitelistedUsers.Select(id => id.ToString()),

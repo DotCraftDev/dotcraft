@@ -17,7 +17,7 @@ public sealed class QQApprovalServiceFactory : IApprovalServiceFactory
         var permissionService = context.PermissionService as QQPermissionService
             ?? throw new InvalidOperationException("PermissionService must be a QQPermissionService for QQ approval service");
 
-        var timeoutSeconds = context.ApprovalTimeoutSeconds ?? context.Config.QQBot.ApprovalTimeoutSeconds;
+        var timeoutSeconds = context.ApprovalTimeoutSeconds ?? context.Config.GetSection<QQBotConfig>("QQBot").ApprovalTimeoutSeconds;
 
         return new QQApprovalService(client, permissionService, timeoutSeconds);
     }

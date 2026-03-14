@@ -170,7 +170,8 @@ public sealed class GatewayHost : IDotCraftHost
             dashApp.MapDashBoardAuth(_config);
             dashApp.UseDashBoardAuth(_config);
             dashApp.MapDashBoard(traceStore!, _paths, tokenUsageStore,
-                orchestratorProviders: capturedOrchestrators);
+                orchestratorProviders: capturedOrchestrators,
+                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes());
 
             var dashboardUrl = $"http://{_config.DashBoard.Host}:{_config.DashBoard.Port}";
             AnsiConsole.MarkupLine(

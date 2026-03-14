@@ -150,7 +150,7 @@ public sealed class QQApprovalService(QQBotClient client, QQPermissionService pe
 
         try
         {
-            var message = $"\u26a0\ufe0f 操作审批请求\n{description}\n\n请回复: 同意 / 同意全部 / 拒绝 (超时{timeoutSeconds}秒自动拒绝)\n(同意全部: 本会话中不再询问同类操作)";
+            var message = $"⚠️ 操作审批请求\n{description}\n\n请回复: 同意 / 同意全部 / 拒绝 (超时{timeoutSeconds}秒自动拒绝)\n(同意全部: 本会话中不再询问同类操作)";
 
             if (context.IsGroupContext)
             {

@@ -73,15 +73,15 @@ public sealed class AGUIChannelService(
     #region IWebHostingChannel
 
     /// <inheritdoc />
-    public string ListenHost => string.IsNullOrWhiteSpace(config.AgUi.Host) ? "127.0.0.1" : config.AgUi.Host;
+    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<AgUiConfig>("AgUi").Host) ? "127.0.0.1" : config.GetSection<AgUiConfig>("AgUi").Host;
 
     /// <inheritdoc />
-    public int ListenPort => config.AgUi.Port <= 0 ? 5100 : config.AgUi.Port;
+    public int ListenPort => config.GetSection<AgUiConfig>("AgUi").Port <= 0 ? 5100 : config.GetSection<AgUiConfig>("AgUi").Port;
 
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
-        var agUiConfig = config.AgUi;
+        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
 
         _agentFactory = BuildAgentFactory();
 
@@ -95,7 +95,7 @@ public sealed class AGUIChannelService(
     public void ConfigureApp(WebApplication app)
     {
         _webApp = app;
-        var agUiConfig = config.AgUi;
+        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
 
         // Tools are created here (after Build) so app.Services is available for IOptions<JsonOptions>.

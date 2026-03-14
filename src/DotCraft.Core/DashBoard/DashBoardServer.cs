@@ -19,7 +19,8 @@ public sealed class DashBoardServer : IAsyncDisposable
         DotCraftPaths paths,
         TokenUsageStore? tokenUsageStore = null,
         bool setupMode = false,
-        IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null)
+        IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
+        IEnumerable<Type>? configTypes = null)
     {
         var dashBoardConfig = config.DashBoard;
         var builder = WebApplication.CreateBuilder();
@@ -44,7 +45,7 @@ public sealed class DashBoardServer : IAsyncDisposable
 
         app.MapDashBoardAuth(config);
         app.UseDashBoardAuth(config);
-        app.MapDashBoard(traceStore, paths, tokenUsageStore, setupMode, orchestratorProviders);
+        app.MapDashBoard(traceStore, paths, tokenUsageStore, setupMode, orchestratorProviders, configTypes);
 
         var url = $"http://{dashBoardConfig.Host}:{dashBoardConfig.Port}";
         _app = app;

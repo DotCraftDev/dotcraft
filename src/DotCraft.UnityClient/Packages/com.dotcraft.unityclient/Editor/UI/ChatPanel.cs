@@ -491,7 +491,7 @@ namespace DotCraft.Editor.UI
                 MessageType.User => "U",
                 MessageType.Agent => "D",
                 MessageType.Thinking => "?",
-                _ => "\u2022"
+                _ => "•"
             });
             avatarLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
             avatarLabel.style.fontSize = 11;
@@ -518,7 +518,7 @@ namespace DotCraft.Editor.UI
             // Collapse toggle for thinking messages
             if (type == MessageType.Thinking)
             {
-                _collapseToggle = UIHelper.CreateButton("\u25bc", "message-collapse-toggle");
+                _collapseToggle = UIHelper.CreateButton("▼", "message-collapse-toggle");
                 _collapseToggle.style.display = DisplayStyle.Flex;
                 _collapseToggle.clicked += () => SetCollapsed(!_collapsed);
                 header.Add(_collapseToggle);
@@ -541,7 +541,7 @@ namespace DotCraft.Editor.UI
             if (_contentContainer != null)
                 _contentContainer.style.display = collapsed ? DisplayStyle.None : DisplayStyle.Flex;
             if (_collapseToggle != null)
-                _collapseToggle.text = collapsed ? "\u25b6" : "\u25bc"; // ▶ or ▼
+                _collapseToggle.text = collapsed ? "▶" : "▼";
             if (collapsed)
                 _element.AddToClassList("collapsed");
             else
@@ -779,16 +779,16 @@ namespace DotCraft.Editor.UI
                 _iconElement.style.backgroundImage = StyleKeyword.None;
                 _iconLabel.text = kind switch
                 {
-                    AcpToolKind.Read    => "\u2261",   // ≡  horizontal lines (document)
-                    AcpToolKind.Edit    => "\u270e",   // ✎  pencil
-                    AcpToolKind.Delete  => "\u2715",   // ✕  cross
-                    AcpToolKind.Move    => "\u21c4",   // ⇄  left-right arrows
-                    AcpToolKind.Search  => "\u2315",   // ⌕  magnifier
-                    AcpToolKind.Execute => "\u25b6",   // ▶  play
-                    AcpToolKind.Think   => "\u26a1",   // ⚡  lightning
-                    AcpToolKind.Fetch   => "\u2193",   // ↓  down arrow
-                    AcpToolKind.Unity   => "\u25b2",   // ▲  Unity triangle
-                    _                   => "\u25cf"    // ●  circle
+                    AcpToolKind.Read    => "≡",   // ≡  horizontal lines (document)
+                    AcpToolKind.Edit    => "✎",   // ✎  pencil
+                    AcpToolKind.Delete  => "✕",   // ✕  cross
+                    AcpToolKind.Move    => "⇄",   // ⇄  left-right arrows
+                    AcpToolKind.Search  => "⌕",   // ⌕  magnifier
+                    AcpToolKind.Execute => "▶",   // ▶  play
+                    AcpToolKind.Think   => "⚡",   // ⚡  lightning
+                    AcpToolKind.Fetch   => "↓",   // ↓  down arrow
+                    AcpToolKind.Unity   => "▲",   // ▲  Unity triangle
+                    _                   => "●"    // ●  circle
                 };
             }
         }
@@ -830,8 +830,8 @@ namespace DotCraft.Editor.UI
             {
                 AcpToolStatus.Pending => "Pending",
                 AcpToolStatus.InProgress => "Running",
-                AcpToolStatus.Completed => "\u2713 Done",      // ✓ Done
-                AcpToolStatus.Failed => "\u2715 Failed",       // ✕ Failed
+                AcpToolStatus.Completed => "✓ Done",      // ✓ Done
+                AcpToolStatus.Failed => "✕ Failed",       // ✕ Failed
                 _ => status
             };
         }
@@ -919,11 +919,11 @@ namespace DotCraft.Editor.UI
 
                 statusIcon.text = status switch
                 {
-                    AcpToolStatus.Pending => "\u25cb",      // ○ empty circle
-                    AcpToolStatus.InProgress => "\u25d1",    // ◑ half circle
-                    AcpToolStatus.Completed => "\u2713",     // ✓ checkmark
-                    AcpToolStatus.Failed => "\u2715",        // ✕ cross
-                    _ => "\u25cb"
+                    AcpToolStatus.Pending => "○",      // ○ empty circle
+                    AcpToolStatus.InProgress => "◑",    // ◑ half circle
+                    AcpToolStatus.Completed => "✓",     // ✓ checkmark
+                    AcpToolStatus.Failed => "✕",        // ✕ cross
+                    _ => "○"
                 };
 
                 var textLabel = UIHelper.CreateLabel(entry.Content, "plan-text");
@@ -1033,7 +1033,7 @@ namespace DotCraft.Editor.UI
                 {
                     var indent = listMatch.Groups[1].Length / 2;
                     var content = listMatch.Groups[3].Value;
-                    var listItem = CreateListItem("\u2022 ", content, indent);
+                    var listItem = CreateListItem("• ", content, indent);
                     container.Add(listItem);
                     i++;
                     continue;
@@ -1343,7 +1343,7 @@ namespace DotCraft.Editor.UI
 
             // Header with shield icon and tool call title
             var header = UIHelper.CreateElement("approval-inline-header");
-            header.Add(UIHelper.CreateLabel("\u26a0", "approval-inline-icon")); // ⚠ warning icon
+            header.Add(UIHelper.CreateLabel("⚠", "approval-inline-icon")); // ⚠ warning icon
             header.Add(UIHelper.CreateLabel(
                 request.ToolCall?.Title ?? "Permission Request", "approval-inline-title"));
             if (!string.IsNullOrEmpty(request.ToolCall?.Kind))

@@ -13,7 +13,7 @@ public sealed class QQClientFactory
     /// </summary>
     public static QQBotClient CreateClient(ModuleContext context)
     {
-        var config = context.Config.QQBot;
+        var config = context.Config.GetSection<QQBotConfig>("QQBot");
         var qqToken = string.IsNullOrEmpty(config.AccessToken) ? null : config.AccessToken;
         var client = new QQBotClient(config.Host, config.Port, qqToken);
         client.OnLog += msg => AnsiConsole.MarkupLine($"[grey][[QQ]] {Markup.Escape(msg)}[/]");
@@ -25,7 +25,7 @@ public sealed class QQClientFactory
     /// </summary>
     public static QQPermissionService CreatePermissionService(ModuleContext context)
     {
-        var config = context.Config.QQBot;
+        var config = context.Config.GetSection<QQBotConfig>("QQBot");
         return new QQPermissionService(
             config.AdminUsers,
             config.WhitelistedUsers,

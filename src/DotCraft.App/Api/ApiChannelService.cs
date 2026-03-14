@@ -59,6 +59,8 @@ public sealed class ApiChannelService(
     private IHostedAgentBuilder? _agentBuilder;
     private List<AITool>? _tools;
 
+    private ApiConfig ApiConfig => config.GetSection<ApiConfig>("Api");
+
     public string Name => "api";
 
     /// <inheritdoc />
@@ -76,10 +78,10 @@ public sealed class ApiChannelService(
     #region IWebHostingChannel
 
     /// <inheritdoc />
-    public string ListenHost => string.IsNullOrWhiteSpace(config.Api.Host) ? "127.0.0.1" : config.Api.Host;
+    public string ListenHost => string.IsNullOrWhiteSpace(ApiConfig.Host) ? "127.0.0.1" : ApiConfig.Host;
 
     /// <inheritdoc />
-    public int ListenPort => config.Api.Port <= 0 ? 8080 : config.Api.Port;
+    public int ListenPort => ApiConfig.Port <= 0 ? 8080 : ApiConfig.Port;
 
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
@@ -106,7 +108,7 @@ public sealed class ApiChannelService(
 
         var traceCollector = sp.GetService<TraceCollector>();
 
-        if (!string.IsNullOrEmpty(config.Api.ApiKey))
+        if (!string.IsNullOrEmpty(ApiConfig.ApiKey))
         {
             app.Use(async (context, next) =>
             {
@@ -122,7 +124,7 @@ public sealed class ApiChannelService(
 
                     var authHeader = context.Request.Headers.Authorization.ToString();
                     if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
-                        authHeader["Bearer ".Length..].Trim() != config.Api.ApiKey)
+                        authHeader["Bearer ".Length..].Trim() != ApiConfig.ApiKey)
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         await context.Response.WriteAsJsonAsync(new { error = "unauthorized" });
@@ -197,7 +199,7 @@ public sealed class ApiChannelService(
         var url = $"http://{ListenHost}:{ListenPort}";
         AnsiConsole.MarkupLine($"[green][[Gateway]][/] API listening on {Markup.Escape(url)}");
 
-        var approvalMode = ApiApprovalService.ParseMode(config.Api.ApprovalMode, config.Api.AutoApprove);
+        var approvalMode = ApiApprovalService.ParseMode(ApiConfig.ApprovalMode, ApiConfig.AutoApprove);
         AnsiConsole.MarkupLine($"[grey]  Approval mode: {approvalMode.ToString().ToLowerInvariant()}[/]");
     }
 
@@ -401,7 +403,7 @@ public sealed class ApiChannelService(
 
     private bool Authenticate(HttpContext context)
     {
-        var apiKey = config.Api.ApiKey;
+        var apiKey = ApiConfig.ApiKey;
         if (string.IsNullOrEmpty(apiKey))
             return true;
 

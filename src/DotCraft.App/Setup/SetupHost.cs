@@ -18,7 +18,8 @@ public sealed class SetupHost(AppConfig config, DotCraftPaths paths, LanguageSer
         var traceStore = new TraceStore();
 
         await using var dashBoardServer = new DashBoardServer();
-        dashBoardServer.Start(traceStore, setupConfig, paths, setupMode: true);
+        dashBoardServer.Start(traceStore, setupConfig, paths, setupMode: true,
+            configTypes: ConfigSchemaRegistrations.GetAllConfigTypes());
 
         var url = $"http://{setupConfig.DashBoard.Host}:{setupConfig.DashBoard.Port}/dashboard";
         AnsiConsole.WriteLine();
@@ -57,17 +58,16 @@ public sealed class SetupHost(AppConfig config, DotCraftPaths paths, LanguageSer
             DebugMode = source.DebugMode,
             EnabledTools = [.. source.EnabledTools],
             Tools = source.Tools,
-            QQBot = source.QQBot,
             Security = source.Security,
             Heartbeat = source.Heartbeat,
-            WeCom = source.WeCom,
-            WeComBot = source.WeComBot,
             Cron = source.Cron,
-            Api = source.Api,
-            AgUi = source.AgUi,
-            Acp = source.Acp,
             Hooks = source.Hooks,
+            Logging = source.Logging,
             McpServers = [.. source.McpServers],
+            // Copy module extension data (QQBot, WeCom, WeComBot, Api, AgUi, Acp, GitHubTracker, etc.)
+            ExtensionData = source.ExtensionData != null
+                ? new Dictionary<string, System.Text.Json.JsonElement>(source.ExtensionData)
+                : null,
             DashBoard = new AppConfig.DashBoardConfig
             {
                 Enabled = true,

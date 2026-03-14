@@ -17,18 +17,18 @@ public sealed partial class QQModule : ModuleBase
     private readonly QQConfigValidator _validator = new();
 
     /// <inheritdoc />
-    public override bool IsEnabled(AppConfig config) => config.QQBot.Enabled;
+    public override bool IsEnabled(AppConfig config) => config.GetSection<QQBotConfig>("QQBot").Enabled;
 
     /// <inheritdoc />
     public override IReadOnlyList<string> ValidateConfig(AppConfig config)
-        => _validator.Validate(config.QQBot);
+        => _validator.Validate(config.GetSection<QQBotConfig>("QQBot"));
 
     /// <inheritdoc />
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
         ChatContextRegistry.Register(new QQChatContextProvider());
 
-        var config = context.Config.QQBot;
+        var config = context.Config.GetSection<QQBotConfig>("QQBot");
 
         // Register QQBotClient
         services.AddSingleton(_ => QQClientFactory.CreateClient(context));

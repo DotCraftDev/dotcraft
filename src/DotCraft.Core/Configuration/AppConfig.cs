@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -7,8 +8,10 @@ using Microsoft.Extensions.AI;
 
 namespace DotCraft.Configuration;
 
+[ConfigSection("", DisplayName = "Core", Order = 0)]
 public sealed class AppConfig
 {
+    [ConfigField(Sensitive = true, Hint = "Leave blank to inherit from global")]
     public string ApiKey { get; set; } = string.Empty;
 
     public string Model { get; set; } = "gpt-4o-mini";
@@ -19,6 +22,7 @@ public sealed class AppConfig
     /// Controls provider reasoning/thinking behavior.
     /// Enabled by default for providers that support reasoning.
     /// </summary>
+    [ConfigField(Ignore = true)]
     public ReasoningConfig Reasoning { get; set; } = new();
 
     /// <summary>
@@ -41,6 +45,7 @@ public sealed class AppConfig
     /// When exceeded, the oldest waiting request is evicted and the user is notified.
     /// Set to 0 to disable the limit (unlimited queue).
     /// </summary>
+    [ConfigField(Min = 0, Hint = "0 = unlimited")]
     public int MaxSessionQueueSize { get; set; } = 3;
 
     /// <summary>
@@ -54,6 +59,7 @@ public sealed class AppConfig
     /// the conversation history will be summarized to reduce context size.
     /// Set to 0 to disable automatic compaction (default: 160K => 80% * 200K context length for popular models).
     /// </summary>
+    [ConfigField(Min = 0, Hint = "0 = disable compaction")]
     public int MaxContextTokens { get; set; } = 160000;
 
     /// <summary>
@@ -62,12 +68,14 @@ public sealed class AppConfig
     /// HISTORY.md (grep-searchable event log) via an LLM call.
     /// Set to 0 to disable message-count-based consolidation (default: 50).
     /// </summary>
+    [ConfigField(Min = 0, Hint = "0 = disable consolidation")]
     public int MemoryWindow { get; set; } = 50;
 
     /// <summary>
     /// Model used for memory consolidation. When empty, uses <see cref="Model"/> (same as main agent).
     /// When set, use this model for consolidation only (e.g. a non-thinking model to avoid tool_choice restrictions in thinking mode).
     /// </summary>
+    [ConfigField(Hint = "Model for memory consolidation. Empty = use main Model. Set to a non-thinking model if main model does not support tool_choice in thinking mode.")]
     public string ConsolidationModel { get; set; } = string.Empty;
 
     /// <summary>
@@ -80,37 +88,96 @@ public sealed class AppConfig
     /// Filter which tools are globally available in all modes.
     /// Empty list means all tools are enabled.
     /// </summary>
+    [ConfigField(Hint = "JSON array of tool names, e.g. [\"Shell\",\"File\"]. Empty = all enabled.")]
     public List<string> EnabledTools { get; set; } = [];
 
+    [ConfigField(Ignore = true)]
     public ToolsConfig Tools { get; set; } = new();
 
-    public QQBotConfig QQBot { get; set; } = new();
-
+    [ConfigField(Ignore = true)]
     public SecurityConfig Security { get; set; } = new();
 
+    [ConfigField(Ignore = true)]
     public HeartbeatConfig Heartbeat { get; set; } = new();
 
-    public WeComConfig WeCom { get; set; } = new();
-
-    public WeComBotConfig WeComBot { get; set; } = new();
-
+    [ConfigField(Ignore = true)]
     public CronConfig Cron { get; set; } = new();
 
-    public ApiConfig Api { get; set; } = new();
-
-    public AgUiConfig AgUi { get; set; } = new();
-
-    public AcpConfig Acp { get; set; } = new();
-
+    [ConfigField(Ignore = true)]
     public HooksConfig Hooks { get; set; } = new();
 
+    [ConfigField(Ignore = true)]
     public DashBoardConfig DashBoard { get; set; } = new();
 
-    public GitHubTrackerConfig GitHubTracker { get; set; } = new();
-
+    [ConfigField(Ignore = true)]
     public LoggingConfig Logging { get; set; } = new();
 
+    [ConfigField(Ignore = true)]
     public List<McpServerConfig> McpServers { get; set; } = [];
+
+    /// <summary>
+    /// Captures all module-specific config sections that are not defined in Core.
+    /// Module projects (QQ, WeCom, AGUI, etc.) store their config here when they
+    /// are not directly referenced by Core.
+    /// </summary>
+    [JsonExtensionData]
+    [ConfigField(Ignore = true)]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
+    // Section cache: avoids repeated deserialization on hot paths
+    [JsonIgnore]
+    private readonly ConcurrentDictionary<string, object> _sectionCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets a typed config section by JSON key (case-insensitive).
+    /// The section is deserialized from <see cref="ExtensionData"/> on first access and cached.
+    /// If the key is not present in the config file, a default instance is returned.
+    /// </summary>
+    /// <typeparam name="T">The config section type. Must have a parameterless constructor.</typeparam>
+    /// <param name="key">The JSON key, e.g. "QQBot", "WeComBot", "AgUi".</param>
+    public T GetSection<T>(string key) where T : class, new()
+    {
+        return (T)_sectionCache.GetOrAdd(key, _ =>
+        {
+            if (ExtensionData != null)
+            {
+                foreach (var (k, v) in ExtensionData)
+                {
+                    if (string.Equals(k, key, StringComparison.OrdinalIgnoreCase))
+                        return v.Deserialize<T>(SerializerOptions) ?? new T();
+                }
+            }
+            return new T();
+        });
+    }
+
+    /// <summary>
+    /// Stores a typed config section in the cache, overriding any value deserialized from config.json.
+    /// Use this for programmatic config overrides (e.g. forcing ACP mode from a command-line flag).
+    /// </summary>
+    public void SetSection<T>(string key, T value) where T : class, new()
+    {
+        _sectionCache[key] = value;
+    }
+
+    /// <summary>
+    /// Checks whether a config section has <c>Enabled = true</c>, without requiring knowledge of
+    /// the section's type. Used by cross-cutting modules (GatewayModule, UnityModule) that need
+    /// to check enabled status of sections from other modules without depending on their types.
+    /// </summary>
+    /// <param name="key">The JSON key (case-insensitive), e.g. "QQBot", "WeComBot".</param>
+    public bool IsSectionEnabled(string key)
+    {
+        if (ExtensionData == null) return false;
+        foreach (var (k, v) in ExtensionData)
+        {
+            if (!string.Equals(k, key, StringComparison.OrdinalIgnoreCase)) continue;
+            if (v.TryGetProperty("Enabled", out var enabled) || v.TryGetProperty("enabled", out enabled))
+                return enabled.ValueKind == JsonValueKind.True;
+            return false;
+        }
+        return false;
+    }
 
     public static AppConfig Load(string path)
     {
@@ -171,29 +238,20 @@ public sealed class AppConfig
         return overrideNode.DeepClone();
     }
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
+    internal static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public sealed class ToolsConfig
-    {
-        public FileToolsConfig File { get; set; } = new();
-        
-        public ShellToolsConfig Shell { get; set; } = new();
-        
-        public WebToolsConfig Web { get; set; } = new();
-
-        public SandboxConfig Sandbox { get; set; } = new();
-    }
-
+    [ConfigSection("Reasoning", DisplayName = "Reasoning", Order = 10)]
     public sealed class ReasoningConfig
     {
         /// <summary>
         /// Whether to request provider reasoning support.
         /// Unsupported providers or models may ignore this setting.
         /// </summary>
+        [ConfigField(Hint = "Request provider reasoning/thinking support when available.")]
         public bool Enabled { get; set; } = true;
 
         /// <summary>
@@ -205,6 +263,7 @@ public sealed class AppConfig
         /// Controls how much reasoning content is exposed in responses.
         /// The default exposes full summary.
         /// </summary>
+        [ConfigField(Hint = "Controls whether reasoning content is exposed in responses.")]
         public ReasoningOutput Output { get; set; } = ReasoningOutput.Full;
 
         /// <summary>
@@ -224,6 +283,7 @@ public sealed class AppConfig
         }
     }
 
+    [ConfigSection("Tools.File", DisplayName = "Tools > File", Order = 20)]
     public sealed class FileToolsConfig
     {
         /// <summary>
@@ -235,9 +295,11 @@ public sealed class AppConfig
         /// <summary>
         /// Maximum file size in bytes (default: 10 MB).
         /// </summary>
+        [ConfigField(Min = 0, Hint = "bytes, default 10485760 (10 MB)")]
         public int MaxFileSize { get; set; } = 10 * 1024 * 1024;
     }
 
+    [ConfigSection("Tools.Shell", DisplayName = "Tools > Shell", Order = 21)]
     public sealed class ShellToolsConfig
     {
         /// <summary>
@@ -249,56 +311,45 @@ public sealed class AppConfig
         /// <summary>
         /// Command execution timeout in seconds.
         /// </summary>
+        [ConfigField(Min = 0, Hint = "seconds")]
         public int Timeout { get; set; } = 300;
 
         /// <summary>
         /// Maximum output length in characters.
         /// </summary>
+        [ConfigField(Min = 0, Hint = "characters")]
         public int MaxOutputLength { get; set; } = 10000;
     }
 
+    [ConfigSection("Tools.Web", DisplayName = "Tools > Web", Order = 22)]
     public sealed class WebToolsConfig
     {
         /// <summary>
         /// Maximum characters to extract from fetched content (default: 50000).
         /// </summary>
+        [ConfigField(Min = 0)]
         public int MaxChars { get; set; } = 50000;
 
         /// <summary>
         /// Request timeout in seconds (default: 300).
         /// </summary>
+        [ConfigField(Min = 0, Hint = "seconds")]
         public int Timeout { get; set; } = 300;
 
         /// <summary>
         /// Default maximum number of search results to return (default: 5, range: 1-10).
         /// </summary>
+        [ConfigField(Min = 1, Max = 10)]
         public int SearchMaxResults { get; set; } = 5;
 
         /// <summary>
         /// Search provider: "Bing" (globally accessible) or "Exa" (AI-optimized, free via MCP).
         /// </summary>
+        [ConfigField(FieldType = "select", Options = ["Exa", "Bing"])]
         public string SearchProvider { get; set; } = WebSearchProvider.Exa;
     }
 
-    public sealed class QQBotConfig
-    {
-        public bool Enabled { get; set; }
-
-        public string Host { get; set; } = "127.0.0.1";
-
-        public int Port { get; set; } = 6700;
-
-        public string AccessToken { get; set; } = string.Empty;
-
-        public List<long> AdminUsers { get; set; } = [];
-
-        public List<long> WhitelistedUsers { get; set; } = [];
-
-        public List<long> WhitelistedGroups { get; set; } = [];
-
-        public int ApprovalTimeoutSeconds { get; set; } = 60;
-    }
-
+    [ConfigSection("Tools.Sandbox", DisplayName = "Tools > Sandbox", Order = 23)]
     public sealed class SandboxConfig
     {
         /// <summary>
@@ -316,6 +367,7 @@ public sealed class AppConfig
         /// <summary>
         /// OpenSandbox API key (optional, depends on server configuration).
         /// </summary>
+        [ConfigField(Sensitive = true)]
         public string ApiKey { get; set; } = string.Empty;
 
         /// <summary>
@@ -331,6 +383,7 @@ public sealed class AppConfig
         /// <summary>
         /// Sandbox auto-termination timeout in seconds (server-side TTL).
         /// </summary>
+        [ConfigField(Min = 0)]
         public int TimeoutSeconds { get; set; } = 600;
 
         /// <summary>
@@ -347,17 +400,20 @@ public sealed class AppConfig
         /// Network policy: "deny" (block all egress), "allow" (no restrictions),
         /// "custom" (allow only domains listed in AllowedEgressDomains).
         /// </summary>
+        [ConfigField(FieldType = "select", Options = ["allow", "deny", "custom"])]
         public string NetworkPolicy { get; set; } = "allow";
 
         /// <summary>
         /// Domains allowed for outbound network access when NetworkPolicy is "custom".
         /// </summary>
+        [ConfigField(Hint = "JSON array of domain strings")]
         public List<string> AllowedEgressDomains { get; set; } = [];
 
         /// <summary>
         /// Seconds of inactivity before an idle sandbox is automatically destroyed.
         /// Set to 0 to disable idle cleanup.
         /// </summary>
+        [ConfigField(Min = 0)]
         public int IdleTimeoutSeconds { get; set; } = 300;
 
         /// <summary>
@@ -371,6 +427,7 @@ public sealed class AppConfig
         /// and everything inside the directory "foo/bar/".
         /// Defaults protect sensitive DotCraft runtime data from leaking into the sandbox.
         /// </summary>
+        [ConfigField(Hint = "JSON array of relative paths to exclude from workspace sync (prefix matching). Default covers all sensitive .craft/ runtime data. Extend rather than replace.")]
         public List<string> SyncExclude { get; set; } =
         [
             ".craft/config.json",   // API keys and all runtime settings
@@ -383,96 +440,36 @@ public sealed class AppConfig
         ];
     }
 
+    public sealed class ToolsConfig
+    {
+        public FileToolsConfig File { get; set; } = new();
+        
+        public ShellToolsConfig Shell { get; set; } = new();
+        
+        public WebToolsConfig Web { get; set; } = new();
+
+        public SandboxConfig Sandbox { get; set; } = new();
+    }
+
+    [ConfigSection("Security", DisplayName = "Security", Order = 80)]
     public sealed class SecurityConfig
     {
+        [ConfigField(Hint = "JSON array of path strings")]
         public List<string> BlacklistedPaths { get; set; } = [];
     }
 
+    [ConfigSection("Heartbeat", DisplayName = "Heartbeat", Order = 70)]
     public sealed class HeartbeatConfig
     {
         public bool Enabled { get; set; }
         
+        [ConfigField(Min = 1)]
         public int IntervalSeconds { get; set; } = 1800;
         
         public bool NotifyAdmin { get; set; } = true;
     }
 
-    public sealed class WeComConfig
-    {
-        public bool Enabled { get; set; }
-
-        /// <summary>
-        /// Full webhook URL including key, e.g. https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY
-        /// </summary>
-        public string WebhookUrl { get; set; } = string.Empty;
-    }
-
-    public sealed class WeComBotConfig
-    {
-        /// <summary>
-        /// Enable WeCom Bot service (receive messages and events)
-        /// </summary>
-        public bool Enabled { get; set; }
-
-        /// <summary>
-        /// Host to bind the HTTP server (default: 0.0.0.0)
-        /// </summary>
-        public string Host { get; set; } = "0.0.0.0";
-
-        /// <summary>
-        /// Port to bind the HTTP server (default: 9000)
-        /// </summary>
-        public int Port { get; set; } = 9000;
-
-        /// <summary>
-        /// List of admin user IDs (WeCom userId strings)
-        /// </summary>
-        public List<string> AdminUsers { get; set; } = [];
-
-        /// <summary>
-        /// List of whitelisted user IDs (WeCom userId strings)
-        /// </summary>
-        public List<string> WhitelistedUsers { get; set; } = [];
-
-        /// <summary>
-        /// List of whitelisted chat IDs
-        /// </summary>
-        public List<string> WhitelistedChats { get; set; } = [];
-
-        /// <summary>
-        /// Approval request timeout in seconds (default: 60)
-        /// </summary>
-        public int ApprovalTimeoutSeconds { get; set; } = 60;
-
-        /// <summary>
-        /// List of bot configurations (each bot corresponds to a path)
-        /// </summary>
-        public List<WeComRobotConfig> Robots { get; set; } = [];
-
-        /// <summary>
-        /// Default robot configuration (for unmatched paths)
-        /// </summary>
-        public WeComRobotConfig? DefaultRobot { get; set; }
-    }
-
-    public sealed class WeComRobotConfig
-    {
-        /// <summary>
-        /// Bot path (e.g., /dotcraft)
-        /// </summary>
-        public string Path { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Token from WeCom bot configuration
-        /// </summary>
-        public string Token { get; set; } = string.Empty;
-
-        /// <summary>
-        /// EncodingAESKey (43 chars without trailing '=')
-        /// </summary>
-        public string AesKey { get; set; } = string.Empty;
-    }
-
+    [ConfigSection("Cron", DisplayName = "Cron", Order = 60)]
     public sealed class CronConfig
     {
         public bool Enabled { get; set; } = true;
@@ -480,83 +477,7 @@ public sealed class AppConfig
         public string StorePath { get; set; } = "cron/jobs.json";
     }
 
-    public sealed class ApiConfig
-    {
-        public bool Enabled { get; set; }
-
-        public string Host { get; set; } = "127.0.0.1";
-
-        public int Port { get; set; } = 8080;
-
-        public string ApiKey { get; set; } = string.Empty;
-
-        public bool AutoApprove { get; set; } = true;
-
-        /// <summary>
-        /// Approval mode for sensitive operations in API mode.
-        /// "auto" = auto-approve all operations (default, same as AutoApprove=true).
-        /// "reject" = auto-reject all operations (same as AutoApprove=false).
-        /// "interactive" = pause and wait for approval via /v1/approvals endpoint (Human-in-the-Loop).
-        /// When set, takes precedence over AutoApprove.
-        /// </summary>
-        public string ApprovalMode { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Timeout in seconds for interactive approval requests (default: 120).
-        /// If no approval decision is received within this time, the operation is rejected.
-        /// Only applies when ApprovalMode is "interactive".
-        /// </summary>
-        public int ApprovalTimeoutSeconds { get; set; } = 120;
-
-    }
-
-    public sealed class AgUiConfig
-    {
-        /// <summary>
-        /// Enable AG-UI protocol server channel.
-        /// </summary>
-        public bool Enabled { get; set; }
-
-        /// <summary>
-        /// AG-UI endpoint path (default: /ag-ui).
-        /// </summary>
-        public string Path { get; set; } = "/ag-ui";
-
-        /// <summary>
-        /// Host to bind the AG-UI HTTP server (default: 127.0.0.1).
-        /// </summary>
-        public string Host { get; set; } = "127.0.0.1";
-
-        /// <summary>
-        /// Port to bind the AG-UI HTTP server (default: 5100).
-        /// </summary>
-        public int Port { get; set; } = 5100;
-
-        /// <summary>
-        /// When true, require Bearer API key for AG-UI requests.
-        /// </summary>
-        public bool RequireAuth { get; set; }
-
-        /// <summary>
-        /// API key for AG-UI when RequireAuth is true.
-        /// </summary>
-        public string? ApiKey { get; set; }
-
-        /// <summary>
-        /// Approval mode for sensitive tool operations: "interactive" (request frontend approval, default)
-        /// or "auto" (auto-approve all, matches legacy behavior).
-        /// </summary>
-        public string ApprovalMode { get; set; } = "interactive";
-    }
-
-    public sealed class AcpConfig
-    {
-        /// <summary>
-        /// Enable ACP (Agent Client Protocol) mode for editor/IDE integration via stdio.
-        /// </summary>
-        public bool Enabled { get; set; }
-    }
-
+    [ConfigSection("Hooks", DisplayName = "Hooks", Order = 85)]
     public sealed class HooksConfig
     {
         /// <summary>
@@ -566,10 +487,12 @@ public sealed class AppConfig
         public bool Enabled { get; set; } = true;
     }
 
+    [ConfigSection("DashBoard", DisplayName = "Dashboard", Order = 50)]
     public sealed class DashBoardConfig
     {
         public bool Enabled { get; set; } = true;
 
+        [ConfigField(Min = 1, Max = 65535)]
         public int Port { get; set; } = 8080;
 
         public string Host { get; set; } = "127.0.0.1";
@@ -583,34 +506,42 @@ public sealed class AppConfig
         /// <summary>
         /// Dashboard login password.
         /// </summary>
+        [ConfigField(Sensitive = true)]
         public string Password { get; set; } = string.Empty;
     }
 
+    [ConfigSection("Logging", DisplayName = "Logging", Order = 90)]
     public sealed class LoggingConfig
     {
         /// <summary>
         /// Enable file logging. Default: true.
         /// </summary>
+        [ConfigField(Hint = "Write log entries to a daily-rotated file under the logs directory")]
         public bool Enabled { get; set; } = true;
 
         /// <summary>
         /// Also write logs to the console (stdout). Default: false.
         /// </summary>
+        [ConfigField(Hint = "Also print log entries to stdout (useful for debugging)")]
         public bool Console { get; set; }
 
         /// <summary>
         /// Minimum log level: Trace, Debug, Information, Warning, Error, Critical. Default: Information.
         /// </summary>
+        [ConfigField(Hint = "Minimum log level to record", FieldType = "select", Options = ["Trace", "Debug", "Information", "Warning", "Error", "Critical"])]
         public string MinLevel { get; set; } = "Information";
 
         /// <summary>
         /// Log directory relative to the .craft path. Default: "logs".
         /// </summary>
+        [ConfigField(Hint = "Log directory relative to the .craft path")]
         public string Directory { get; set; } = "logs";
 
         /// <summary>
         /// Number of days to retain log files before deletion. Set to 0 to disable cleanup. Default: 7.
         /// </summary>
+        [ConfigField(Hint = "Days to keep log files before auto-deletion; 0 = keep forever")]
         public int RetentionDays { get; set; } = 7;
     }
 }
+

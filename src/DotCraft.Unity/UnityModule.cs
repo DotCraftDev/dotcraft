@@ -13,7 +13,7 @@ namespace DotCraft.Unity;
 [DotCraftModule("unity", Priority = 50, Description = "Unity Editor integration via ACP extension methods")]
 public sealed partial class UnityModule : ModuleBase
 {
-    public override bool IsEnabled(AppConfig config) => config.Acp.Enabled;
+    public override bool IsEnabled(AppConfig config) => config.IsSectionEnabled("Acp");
 
     public override IEnumerable<IAgentToolProvider> GetToolProviders()
     {
