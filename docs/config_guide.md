@@ -913,6 +913,65 @@ npx playwright install chromium
 
 配置后，Agent 将自动获得 22 个浏览器控制工具，包括：`browser_navigate`、`browser_snapshot`、`browser_click`、`browser_type`、`browser_fill_form`、`browser_take_screenshot` 等。
 
+### MCP 工具延迟加载
+
+> **实验性功能**：此功能仍在测试中，行为可能在后续版本中调整。
+
+当接入的 MCP 服务器较多、工具总数超过一定阈值时，将所有工具定义一次性发送给 LLM 会带来显著的 Token 开销，并可能降低模型的工具选择精度。**延迟加载**（Deferred Loading）允许 Agent 按需发现并激活 MCP 工具，而非在会话开始时全量注入。
+
+启用后，Agent 不再将所有 MCP 工具一次性注入上下文，而是获得一个 `SearchTools` 工具用于按需检索。找到匹配工具后，该工具立即激活，可在后续调用中直接使用。
+
+#### 工作原理
+
+1. Agent 需要某项外部能力时，调用 `SearchTools(query: "关键词")`
+2. 系统在所有延迟工具中进行模糊搜索，返回最匹配的结果
+3. 匹配的工具立即注入到下一次 LLM 调用的工具列表中
+4. 工具列表在会话内单调递增，确保 Prompt Cache 在首次发现后可以稳定复用
+
+#### 配置项
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `Tools.DeferredLoading.Enabled` | 是否启用延迟加载 | `false` |
+| `Tools.DeferredLoading.AlwaysLoadedTools` | 始终预加载的 MCP 工具名称列表（高频工具） | `[]` |
+| `Tools.DeferredLoading.MaxSearchResults` | `SearchTools` 每次最多返回的工具数量（1-20） | `5` |
+| `Tools.DeferredLoading.DeferThreshold` | MCP 工具总数低于此值时不触发延迟加载 | `10` |
+
+#### 配置示例
+
+```json
+{
+    "Tools": {
+        "DeferredLoading": {
+            "Enabled": true,
+            "AlwaysLoadedTools": ["github_create_issue", "slack_send_message"],
+            "MaxSearchResults": 5,
+            "DeferThreshold": 10
+        }
+    }
+}
+```
+
+#### 配合 Skill 引导 Agent 搜索
+
+启用延迟加载后，Agent 的系统提示词会自动包含已连接 MCP 服务的名称列表和使用 `SearchTools` 的基本指引。但为了让 Agent 在特定场景下能更准确地知道"应该搜索什么关键词"，推荐在 `.craft/skills/` 中编写专项 Skill，描述每个 MCP 服务的能力和典型用法。
+
+**示例 Skill**（`.craft/skills/github-mcp/SKILL.md`）：
+
+```markdown
+# GitHub MCP 工具
+
+连接了 GitHub MCP 服务器，提供以下类型的工具：
+- Issue 管理：搜索关键词 "github issue"
+- Pull Request：搜索关键词 "github pull request" 或 "github pr"
+- 仓库操作：搜索关键词 "github repo" 或 "github repository"
+- 代码搜索：搜索关键词 "github search code"
+
+使用前请先调用 SearchTools 激活所需工具。
+```
+
+这类 Skill 配合工作区的 `AGENTS.md` 或按需读取机制，可以显著提升 Agent 选择正确关键词的准确率。
+
 ---
 
 ## 自定义命令（Custom Commands）

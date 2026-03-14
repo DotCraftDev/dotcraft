@@ -32,6 +32,7 @@ https://github.com/user-attachments/assets/8c5828b4-1682-4410-9df0-ca7d60fa2683
 - 🎯 **Unity Integration**: Unity Editor extension with scene and asset support
 - 📊 **Dashboard**: Web UI for sessions, traces, and configuration
 - 🧩 **Extensibility**: Skills, Hooks, notifications, and workspace customization
+- ⚗️ **Context-Efficient**: A lighter, more stable tool-calling experience when many tools are connected
 
 ## 🧬 Design
 
@@ -170,6 +171,12 @@ Complete record of tool calls and session history.
 ### Sandbox Isolation
 
 If you want Shell and File tools to run in an isolated environment, DotCraft supports [OpenSandbox](https://github.com/alibaba/OpenSandbox). Installation, configuration, and security details are covered in the [Configuration Guide](./docs/en/config_guide.md).
+
+### MCP Deferred Loading
+
+When many MCP servers are connected, injecting all tool definitions upfront adds significant token overhead and can reduce tool selection accuracy. Deferred Loading keeps MCP tools out of the initial context — the Agent discovers and activates them on demand via `SearchTools`. Once activated, tools are available immediately and the tool list grows monotonically within a session to keep the prompt cache stable.
+
+For configuration details and the recommended Skill-based guidance pattern, see the [Configuration Guide](./docs/en/config_guide.md#mcp-tool-deferred-loading).
 
 ### Workspace Customization
 
