@@ -68,6 +68,14 @@ public sealed class ToolProviderContext
     public McpClientManager? McpClientManager { get; init; }
 
     /// <summary>
+    /// Registry for deferred MCP tools. Populated by <see cref="DeferredToolProvider"/>
+    /// when deferred loading is active. Read by <see cref="DotCraft.Agents.AgentFactory"/>
+    /// to wire <c>FunctionInvokingChatClient.AdditionalTools</c> and insert
+    /// <c>DynamicToolInjectionChatClient</c> into the pipeline.
+    /// </summary>
+    public DeferredToolRegistry? DeferredToolRegistry { get; set; }
+
+    /// <summary>
     /// Optional trace collector for debugging and monitoring.
     /// </summary>
     public TraceCollector? TraceCollector { get; init; }

@@ -86,6 +86,7 @@ public static class ToolRegistry
     {
         return toolName switch
         {
+            "SearchTools" => CoreToolDisplays.SearchToolsResult(result),
             "WebSearch" => CoreToolDisplays.WebSearchResult(result),
             "WebFetch" => CoreToolDisplays.WebFetchResult(result),
             "ReadFile" => CoreToolDisplays.ReadFileResult(result),

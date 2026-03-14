@@ -451,6 +451,36 @@ public sealed class AppConfig
         ];
     }
 
+    [ConfigSection("Tools.DeferredLoading", DisplayName = "Tools > Deferred Loading", Order = 24)]
+    public sealed class DeferredLoadingConfig
+    {
+        /// <summary>
+        /// Enable deferred loading for MCP tools. Default: false.
+        /// </summary>
+        public bool Enabled { get; set; } = false;
+
+        /// <summary>
+        /// MCP tool names that are always loaded upfront, even when deferred loading is enabled.
+        /// Use this for high-frequency tools that should be available immediately.
+        /// </summary>
+        [ConfigField(Hint = "JSON array of MCP tool name strings to always load upfront")]
+        public List<string> AlwaysLoadedTools { get; set; } = [];
+
+        /// <summary>
+        /// Maximum number of results returned by SearchTools per query. Default: 5.
+        /// </summary>
+        [ConfigField(Min = 1, Max = 20)]
+        public int MaxSearchResults { get; set; } = 5;
+
+        /// <summary>
+        /// Minimum MCP tool count required to activate deferred loading.
+        /// If the total number of MCP tools is below this threshold, all tools load normally.
+        /// Default: 10.
+        /// </summary>
+        [ConfigField(Min = 1, Hint = "Deferred loading only activates when total MCP tools >= this value")]
+        public int DeferThreshold { get; set; } = 10;
+    }
+
     public sealed class ToolsConfig
     {
         public FileToolsConfig File { get; set; } = new();
@@ -460,6 +490,8 @@ public sealed class AppConfig
         public WebToolsConfig Web { get; set; } = new();
 
         public SandboxConfig Sandbox { get; set; } = new();
+
+        public DeferredLoadingConfig DeferredLoading { get; set; } = new();
     }
 
     [ConfigSection("Security", DisplayName = "Security", Order = 80)]

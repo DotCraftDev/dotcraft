@@ -80,6 +80,9 @@ public static class CoreToolDisplays
     public static string Exec(IDictionary<string, object?>? args)
         => $"{ToolDisplayHelpers.Truncate(ToolDisplayHelpers.GetString(args, "command") ?? "command", 80)}";
 
+    public static string SearchTools(IDictionary<string, object?>? args)
+        => $"Searched tools: \"{ToolDisplayHelpers.Truncate(ToolDisplayHelpers.GetString(args, "query") ?? "", 60)}\"";
+
     public static string WebSearch(IDictionary<string, object?>? args)
         => $"Searched \"{ToolDisplayHelpers.Truncate(ToolDisplayHelpers.GetString(args, "query") ?? "", 80)}\"";
 
@@ -443,5 +446,19 @@ public static class CoreToolDisplays
 
     public static string TodoWrite(IDictionary<string, object?>? args)
         => "Updated task list";
+
+    /// <summary>
+    /// Summarises a SearchTools result: shows the count of discovered tools.
+    /// </summary>
+    public static IReadOnlyList<string>? SearchToolsResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return null;
+
+        // First line is "Found N matching tool(s)..."
+        var firstLine = result.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
+        if (string.IsNullOrEmpty(firstLine)) return null;
+
+        return [firstLine];
+    }
 
 }

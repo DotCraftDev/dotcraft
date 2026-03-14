@@ -38,7 +38,14 @@ public static class ToolProviderCollector
         {
             providers.Add(new CoreToolProvider());
             providers.Add(new CronToolProvider());
-            providers.Add(new McpToolProvider());
+
+            // When deferred loading is enabled, DeferredToolProvider replaces McpToolProvider.
+            // DeferredToolProvider falls back to full loading when the MCP tool count is below
+            // DeferThreshold, so it is safe to use unconditionally when the feature is enabled.
+            if (config.Tools.DeferredLoading.Enabled)
+                providers.Add(new DeferredToolProvider());
+            else
+                providers.Add(new McpToolProvider());
 
             // When sandbox mode is enabled, SandboxToolProvider replaces
             // CoreToolProvider's shell/file tools with sandboxed equivalents.

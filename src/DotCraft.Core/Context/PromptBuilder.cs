@@ -10,7 +10,8 @@ namespace DotCraft.Context;
 /// </summary>
 public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLoader, string craftPath, string workspacePath,
     CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null, PlanStore? planStore = null,
-    Func<string?>? sessionIdProvider = null, bool sandboxEnabled = false)
+    Func<string?>? sessionIdProvider = null, bool sandboxEnabled = false,
+    IReadOnlyList<string>? deferredMcpServerNames = null)
 {
     private readonly string _craftPath = Path.GetFullPath(craftPath);
 
@@ -91,6 +92,10 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
                 parts.Add(section);
         }
 
+        // Deferred MCP tool discovery guidance (injected when deferred loading is active)
+        if (deferredMcpServerNames is { Count: > 0 })
+            parts.Add(BuildDeferredToolsSection(deferredMcpServerNames));
+
         // Mode-aware prompt injection (must be last so it takes highest priority)
         if (modeManager != null)
         {
@@ -100,6 +105,30 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
         }
 
         return string.Join("\n\n---\n\n", parts);
+    }
+
+    /// <summary>
+    /// Builds the system prompt section that instructs the model how to discover
+    /// deferred MCP tools via the <c>SearchTools</c> function.
+    /// </summary>
+    private static string BuildDeferredToolsSection(IReadOnlyList<string> serverNames)
+    {
+        var servers = string.Join(", ", serverNames);
+        return
+$$"""
+## Available Tool Sources
+
+You have a core set of tools available directly. Additional tools from external
+services (MCP servers) are available on demand.
+
+To use an external tool:
+1. Call `SearchTools` with keywords describing what you need
+2. The matching tools will become available for use
+3. Call the discovered tool directly
+
+Do NOT guess tool names. Always use SearchTools to discover available tools first.
+Currently connected external services: {{servers}}
+""";
     }
 
     /// <summary>
