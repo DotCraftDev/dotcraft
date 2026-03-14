@@ -557,12 +557,12 @@ Quick reference:
 
 ```json
 {
+    "EnabledTools": ["WebSearch", "WebFetch"],
     "Api": {
         "Enabled": true,
         "Port": 8080,
         "ApiKey": "your-api-access-key",
-        "AutoApprove": false,
-        "EnabledTools": ["WebSearch", "WebFetch"]
+        "AutoApprove": false
     }
 }
 ```
