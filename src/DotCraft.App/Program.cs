@@ -96,6 +96,8 @@ var config = AppConfig.LoadWithGlobalFallback(configPath);
 if (isAcpMode)
 {
     config.SetSection("Acp", new AcpConfig { Enabled = true });
+    // Dashboard is not useful in ACP mode (process is managed by the editor).
+    config.DashBoard.Enabled = false;
 }
 
 // Create language service from config
