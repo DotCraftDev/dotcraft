@@ -1,6 +1,7 @@
 using DotCraft.Abstractions;
 using DotCraft.Configuration;
 using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Modules;
 using DotCraft.Skills;
 using DotCraft.GitHubTracker.Execution;

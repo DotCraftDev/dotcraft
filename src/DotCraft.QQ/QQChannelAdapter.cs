@@ -8,7 +8,7 @@ using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
 using DotCraft.Context;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Memory;
@@ -402,10 +402,10 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                 {
                     _tokenUsageStore?.Record(new TokenUsageRecord
                     {
-                        Source = evt.IsGroupMessage ? TokenUsageSource.QQGroup : TokenUsageSource.QQPrivate,
+                        Channel = "qq",
                         UserId = evt.UserId.ToString(),
                         DisplayName = evt.Sender.DisplayName,
-                        GroupId = evt.IsGroupMessage ? evt.GroupId : 0,
+                        GroupId = evt.IsGroupMessage ? evt.GroupId : null,
                         InputTokens = inputTokens,
                         OutputTokens = outputTokens
                     });

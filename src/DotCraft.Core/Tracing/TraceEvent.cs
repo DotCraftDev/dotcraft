@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json.Serialization;
 
-namespace DotCraft.DashBoard;
+namespace DotCraft.Tracing;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TraceEventType

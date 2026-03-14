@@ -3,7 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.Channels;
 
-namespace DotCraft.DashBoard;
+namespace DotCraft.Tracing;
 
 public sealed class TraceStore(string? storagePath = null, int maxEventsPerSession = 5000)
 {

@@ -1,6 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.Context;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Diagnostics;
 using DotCraft.Security;
 using DotCraft.Tools;

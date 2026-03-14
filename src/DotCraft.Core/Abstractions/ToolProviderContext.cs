@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using DotCraft.Configuration;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Security;

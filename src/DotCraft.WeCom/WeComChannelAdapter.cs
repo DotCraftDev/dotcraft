@@ -7,7 +7,7 @@ using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
 using DotCraft.Context;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Memory;
@@ -404,7 +404,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                 {
                     _tokenUsageStore?.Record(new TokenUsageRecord
                     {
-                        Source = TokenUsageSource.WeCom,
+                        Channel = "wecom",
                         UserId = from.UserId,
                         DisplayName = from.Name,
                         InputTokens = inputTokens,

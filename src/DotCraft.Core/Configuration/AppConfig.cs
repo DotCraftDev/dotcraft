@@ -107,6 +107,9 @@ public sealed class AppConfig
     public HooksConfig Hooks { get; set; } = new();
 
     [ConfigField(Ignore = true)]
+    public TracingConfig Tracing { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
     public DashBoardConfig DashBoard { get; set; } = new();
 
     [ConfigField(Ignore = true)]
@@ -491,6 +494,15 @@ public sealed class AppConfig
         /// <summary>
         /// Whether hooks are enabled (default: true when hooks.json exists).
         /// Set to false to globally disable all hooks.
+        /// </summary>
+        public bool Enabled { get; set; } = true;
+    }
+
+    [ConfigSection("Tracing", DisplayName = "Tracing", Order = 45)]
+    public sealed class TracingConfig
+    {
+        /// <summary>
+        /// Whether tracing is enabled. When disabled, no trace events are recorded regardless of Dashboard state.
         /// </summary>
         public bool Enabled { get; set; } = true;
     }

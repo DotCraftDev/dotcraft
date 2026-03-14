@@ -1,5 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Hosting;
 using DotCraft.Localization;
 using Spectre.Console;

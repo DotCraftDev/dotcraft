@@ -9,7 +9,7 @@ using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
@@ -166,7 +166,7 @@ public sealed class ApiChannelService(
                             {
                                 capturedTokenUsageStore.Record(new TokenUsageRecord
                                 {
-                                    Source = TokenUsageSource.Api,
+                                    Channel = "api",
                                     UserId = sessionKey,
                                     DisplayName = sessionKey,
                                     InputTokens = inputDelta,

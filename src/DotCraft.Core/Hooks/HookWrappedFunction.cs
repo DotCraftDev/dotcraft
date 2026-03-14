@@ -1,4 +1,4 @@
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Hooks;

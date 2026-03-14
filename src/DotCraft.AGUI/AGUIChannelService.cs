@@ -5,7 +5,7 @@ using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Hooks;
@@ -96,6 +96,8 @@ public sealed class AGUIChannelService(
     {
         _webApp = app;
         var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
+        var tokenUsageStore = sp.GetService<TokenUsageStore>();
+        var traceStore = sp.GetService<TraceStore>();
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
 
         // Tools are created here (after Build) so app.Services is available for IOptions<JsonOptions>.
@@ -184,9 +186,28 @@ public sealed class AGUIChannelService(
                     }
                 }
 
+                var prevInput  = traceStore?.GetSession(sessionKeyUsed)?.TotalInputTokens  ?? 0;
+                var prevOutput = traceStore?.GetSession(sessionKeyUsed)?.TotalOutputTokens ?? 0;
+
                 TracingChatClient.CurrentSessionKey = sessionKeyUsed;
                 TracingChatClient.ResetCallState(sessionKeyUsed);
                 await next();
+
+                var session     = traceStore?.GetSession(sessionKeyUsed);
+                var inputDelta  = (session?.TotalInputTokens  ?? 0) - prevInput;
+                var outputDelta = (session?.TotalOutputTokens ?? 0) - prevOutput;
+                if (inputDelta > 0 || outputDelta > 0)
+                {
+                    var threadLabel = sessionKeyUsed.StartsWith("ag-ui:") ? sessionKeyUsed["ag-ui:".Length..] : sessionKeyUsed;
+                    tokenUsageStore?.Record(new TokenUsageRecord
+                    {
+                        Channel = "agui",
+                        UserId = threadLabel,
+                        DisplayName = threadLabel,
+                        InputTokens = inputDelta,
+                        OutputTokens = outputDelta
+                    });
+                }
             }
             finally
             {

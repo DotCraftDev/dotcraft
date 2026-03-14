@@ -5,6 +5,7 @@ using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;

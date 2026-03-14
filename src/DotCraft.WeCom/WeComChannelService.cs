@@ -4,7 +4,7 @@ using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Diagnostics;
 using DotCraft.Sessions;
 using DotCraft.Heartbeat;

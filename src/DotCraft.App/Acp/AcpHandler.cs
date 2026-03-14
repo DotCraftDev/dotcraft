@@ -6,7 +6,7 @@ using System.Text.Json;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Context;
-using DotCraft.DashBoard;
+using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
@@ -29,6 +29,7 @@ public sealed class AcpHandler(
     string workspacePath,
     CustomCommandLoader? customCommandLoader = null,
     TraceCollector? traceCollector = null,
+    TokenUsageStore? tokenUsageStore = null,
     AcpLogger? logger = null,
     PlanStore? planStore = null,
     AcpClientProxy? clientProxy = null,
@@ -560,7 +561,17 @@ public sealed class AcpHandler(
             }
 
             if (totalTokens > 0)
+            {
                 tokenTracker.Update(inputTokens, outputTokens);
+                tokenUsageStore?.Record(new TokenUsageRecord
+                {
+                    Channel = "acp",
+                    UserId = sessionId,
+                    DisplayName = sessionId,
+                    InputTokens = inputTokens,
+                    OutputTokens = outputTokens
+                });
+            }
 
             // Handle context compaction
             if (agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&

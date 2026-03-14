@@ -5,10 +5,10 @@ using System.Text;
 using DotCraft.Agents;
 using Microsoft.Extensions.AI;
 
-namespace DotCraft.DashBoard;
+namespace DotCraft.Tracing;
 
 /// <summary>
-/// DelegatingChatClient that records trace events for Dashboard.
+/// DelegatingChatClient that records trace events.
 /// Designed to be placed INSIDE FunctionInvokingChatClient so it intercepts
 /// each individual LLM call (including follow-up calls after tool execution).
 /// Tool calls are detected from LLM responses; tool results are detected
