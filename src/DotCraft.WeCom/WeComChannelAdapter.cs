@@ -109,7 +109,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         var plainText = string.Join(" ", parameters).Trim();
         if (string.IsNullOrEmpty(plainText))
         {
-            await pusher.PushTextAsync("???????");
+            await pusher.PushTextAsync("请输入消息内容");
             return;
         }
 
@@ -121,7 +121,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         // Try to handle approval reply first
         if (_approvalService.TryHandleApprovalReply(plainText, from.UserId))
         {
-            LogIncoming("approval", chatId, from.Name, $"????: {plainText}");
+            LogIncoming("approval", chatId, from.Name, $"审批回复: {plainText}");
             return;
         }
 
@@ -146,23 +146,23 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         if (contentParts != null)
         {
             var logType = message.MsgType == WeComMsgType.Mixed ? "mixed" : message.MsgType;
-            LogIncoming(logType, message.ChatId, from.Name, $"???{DescribeMsgType(message.MsgType)}");
+            LogIncoming(logType, message.ChatId, from.Name, $"发送了{DescribeMsgType(message.MsgType)}");
             RuntimeContextBuilder.AppendTo(contentParts);
             await RunAgentAsync(contentParts, from, pusher);
             return;
         }
 
         // Unsupported types: log and echo back diagnostic info
-        var info = $"?? {message.MsgType} ????";
+        var info = $"收到 {message.MsgType} 类型消息";
         switch (message.MsgType)
         {
             case WeComMsgType.Attachment:
                 info += $"\nCallbackId: {message.Attachment?.CallbackId}";
-                LogIncoming("attachment", message.ChatId, from.Name, "?????");
+                LogIncoming("attachment", message.ChatId, from.Name, "发送了附件");
                 break;
             case WeComMsgType.File:
-                info += $"\n??URL: {message.File?.Url}";
-                LogIncoming("file", message.ChatId, from.Name, "?????");
+                info += $"\n文件URL: {message.File?.Url}";
+                LogIncoming("file", message.ChatId, from.Name, "发送了文件");
                 break;
             default:
                 LogIncoming(message.MsgType, message.ChatId, from.Name, info);
@@ -242,9 +242,9 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
 
     private static string DescribeMsgType(string msgType) => msgType switch
     {
-        WeComMsgType.Image => "??",
-        WeComMsgType.Mixed => "????",
-        WeComMsgType.Voice => "??",
+        WeComMsgType.Image => "图片",
+        WeComMsgType.Mixed => "图文混排",
+        WeComMsgType.Voice => "语音",
         _ => msgType
     };
 
@@ -392,7 +392,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                     tokenTracker?.Update(inputTokens, outputTokens);
                     var displayInput = tokenTracker?.LastInputTokens ?? inputTokens;
                     var displayOutput = tokenTracker?.TotalOutputTokens ?? outputTokens;
-                    textBuffer.Append($"\n\n[? {displayInput} input ? {displayOutput} output]");
+                    textBuffer.Append($"\n\n[↑ {displayInput} input ↓ {displayOutput} output]");
                 }
 
                 if (DebugModeService.IsEnabled())
@@ -422,7 +422,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
             AnsiConsole.MarkupLine($"[grey][[WeCom]][/] [yellow]Request evicted for session {Markup.Escape(sessionId)} (queue overflow)[/]");
             try
             {
-                await pusher.PushTextAsync("?????????????????");
+                await pusher.PushTextAsync("消息过多，该条已跳过，请稍后重试。");
             }
             catch
             {
@@ -449,9 +449,9 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         var message = eventType switch
         {
             WeComEventType.AddToChat =>
-                $"?? {from.Name} ?????{(chatType == WeComChatType.Group ? "??" : "??")}??? /help ???????",
-            WeComEventType.EnterChat => $"???{from.Name}??? DotCraft?????????? /help ???????",
-            WeComEventType.DeleteFromChat => "???",
+                $"欢迎 {from.Name} 将我添加到{(chatType == WeComChatType.Group ? "群聊" : "会话")}！输入 /help 查看可用命令。",
+            WeComEventType.EnterChat => $"你好，{from.Name}！我是 DotCraft，随时为您服务。输入 /help 查看可用命令。",
+            WeComEventType.DeleteFromChat => "再见！",
             _ => null
         };
 
@@ -567,7 +567,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     private static void LogThinking(string text)
     {
         var preview = ReasoningContentHelper.ToInlinePreview(text);
-        AnsiConsole.MarkupLine($"[grey][[WeCom]][/] [cyan]?? Thinking[/] [grey]{Markup.Escape(preview)}[/]");
+        AnsiConsole.MarkupLine($"[grey][[WeCom]][/] [cyan]💭 Thinking[/] [grey]{Markup.Escape(preview)}[/]");
     }
 
     #endregion
