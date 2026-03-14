@@ -373,6 +373,7 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         {
             if (_state.Running.ContainsKey(workItem.Id)) return false;
             if (_state.Claimed.Contains(workItem.Id)) return false;
+            if (_state.Completed.Contains(workItem.Id)) return false;
 
             if (string.Equals(workItem.State.Trim(), "todo", StringComparison.OrdinalIgnoreCase))
             {
@@ -507,22 +508,37 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                 if (workItem.Kind == WorkItemKind.PullRequest
                     && !string.IsNullOrEmpty(runConfig.Tracker.PullRequestLabelFilter))
                 {
-                    try
+                    var labelRemoved = false;
+                    for (var i = 0; i < 3 && !labelRemoved; i++)
                     {
-                        await _tracker.RemoveLabelAsync(workItemId, runConfig.Tracker.PullRequestLabelFilter);
-                        _logger.LogInformation(
-                            "Removed label '{Label}' from PR {Identifier} after review",
-                            runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
+                        try
+                        {
+                            if (i > 0) await Task.Delay(1000 * i);
+                            await _tracker.RemoveLabelAsync(workItemId, runConfig.Tracker.PullRequestLabelFilter);
+                            labelRemoved = true;
+                            _logger.LogInformation(
+                                "Removed label '{Label}' from PR {Identifier} after review",
+                                runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex,
+                                "Attempt {Attempt} to remove label '{Label}' from PR {Identifier} failed",
+                                i + 1, runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex,
-                            "Failed to remove label '{Label}' from PR {Identifier}; PR may be re-dispatched on next poll",
+
+                    if (!labelRemoved)
+                        _logger.LogError(
+                            "All attempts to remove label '{Label}' from PR {Identifier} exhausted; PR may be re-dispatched",
                             runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
-                    }
                 }
 
-                ScheduleRetry(workItemId, workItem.Identifier, workItem.Kind, 1, null);
+                var skipContinuation = workItem.Kind == WorkItemKind.PullRequest
+                    && outcome?.Result == AgentRunResult.WorkItemStateChanged;
+
+                if (!skipContinuation)
+                    ScheduleRetry(workItemId, workItem.Identifier, workItem.Kind, 1, null);
                 break;
 
             case WorkerExitReason.Failed:
@@ -532,6 +548,25 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
 
             case WorkerExitReason.Cancelled:
                 lock (_stateLock) { _state.Claimed.Remove(workItemId); }
+
+                var cancelConfig = GetEffectiveConfig(workItem.Kind);
+                if (workItem.Kind == WorkItemKind.PullRequest
+                    && !string.IsNullOrEmpty(cancelConfig.Tracker.PullRequestLabelFilter))
+                {
+                    try
+                    {
+                        await _tracker.RemoveLabelAsync(workItemId, cancelConfig.Tracker.PullRequestLabelFilter);
+                        _logger.LogInformation(
+                            "Removed label '{Label}' from cancelled PR {Identifier}",
+                            cancelConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to remove label '{Label}' from cancelled PR {Identifier}",
+                            cancelConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
+                    }
+                }
                 break;
         }
     }
@@ -583,6 +618,15 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         lock (_stateLock)
         {
             _state.RetryAttempts.Remove(workItemId);
+        }
+
+        lock (_stateLock)
+        {
+            if (_state.Completed.Contains(workItemId))
+            {
+                _state.Claimed.Remove(workItemId);
+                return;
+            }
         }
 
         try
