@@ -37,6 +37,13 @@ public sealed class AgentRunOutcome
     public long OutputTokens { get; init; }
     public long TotalTokens { get; init; }
     public int TurnsCompleted { get; init; }
+
+    /// <summary>
+    /// True only when the PR review agent successfully called SubmitReview.
+    /// Distinct from <see cref="AgentRunResult.WorkItemStateChanged"/>, which can also
+    /// be set on transient state-check failures or when the PR becomes inactive mid-run.
+    /// </summary>
+    public bool ReviewSubmitted { get; init; }
 }
 
 /// <summary>
@@ -243,6 +250,7 @@ public sealed class WorkItemAgentRunnerFactory(
         return new AgentRunOutcome
         {
             Result = result,
+            ReviewSubmitted = prReviewTool?.ReviewCompleted == true,
             InputTokens = cumulativeInput,
             OutputTokens = finalOutput,
             TotalTokens = cumulativeInput + finalOutput,
