@@ -535,7 +535,7 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                 }
 
                 var skipContinuation = workItem.Kind == WorkItemKind.PullRequest
-                    && outcome?.Result == AgentRunResult.WorkItemStateChanged;
+                    && outcome?.ReviewSubmitted == true;
 
                 if (!skipContinuation)
                     ScheduleRetry(workItemId, workItem.Identifier, workItem.Kind, 1, null);
