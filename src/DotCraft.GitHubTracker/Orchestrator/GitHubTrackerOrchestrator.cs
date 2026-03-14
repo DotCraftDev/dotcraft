@@ -539,6 +539,8 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
 
                 if (!skipContinuation)
                     ScheduleRetry(workItemId, workItem.Identifier, workItem.Kind, 1, null);
+                else
+                    lock (_stateLock) { _state.Claimed.Remove(workItemId); }
                 break;
 
             case WorkerExitReason.Failed:
@@ -548,25 +550,6 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
 
             case WorkerExitReason.Cancelled:
                 lock (_stateLock) { _state.Claimed.Remove(workItemId); }
-
-                var cancelConfig = GetEffectiveConfig(workItem.Kind);
-                if (workItem.Kind == WorkItemKind.PullRequest
-                    && !string.IsNullOrEmpty(cancelConfig.Tracker.PullRequestLabelFilter))
-                {
-                    try
-                    {
-                        await _tracker.RemoveLabelAsync(workItemId, cancelConfig.Tracker.PullRequestLabelFilter);
-                        _logger.LogInformation(
-                            "Removed label '{Label}' from cancelled PR {Identifier}",
-                            cancelConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex,
-                            "Failed to remove label '{Label}' from cancelled PR {Identifier}",
-                            cancelConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
-                    }
-                }
                 break;
         }
     }
@@ -618,15 +601,6 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         lock (_stateLock)
         {
             _state.RetryAttempts.Remove(workItemId);
-        }
-
-        lock (_stateLock)
-        {
-            if (_state.Completed.Contains(workItemId))
-            {
-                _state.Claimed.Remove(workItemId);
-                return;
-            }
         }
 
         try
