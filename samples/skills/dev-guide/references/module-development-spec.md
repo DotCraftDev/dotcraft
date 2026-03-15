@@ -1,6 +1,10 @@
-# DotCraft Module Development Specification
+# Module Development Specification
 
-Status: Draft v1
+| Field | Value |
+|-------|-------|
+| **Version** | 0.0.1.0 |
+| **Status** | Release |
+| **Last modified** | 2025-03-15 |
 
 Purpose: Define normative rules for adding and implementing DotCraft modules. Architecture and file layout are out of scope; implementors discover them from the repository.
 
@@ -12,7 +16,7 @@ DotCraft uses a modular architecture where each interaction mode (CLI, API, QQ, 
 
 - **Human-in-the-loop (HITL)**: Channels and Hosts that run the agent with sensitive tools (file, shell, etc.) must support approval—either a full approval flow or documented use of auto-approve where acceptable.
 
-- **Optional tools and config**: A module may contribute zero or more tool providers; tools are gated by module enablement. Module configuration is currently centralized; new config must follow the existing placement and validation rules.
+- **Optional tools and config**: A module may contribute zero or more tool providers; tools are gated by module enablement. Module configuration uses a single root config at runtime; each module defines and reads its own section(s) in its assembly (no need to add module sections to Core). New config must follow the existing placement and validation rules.
 
 This specification defines the contracts and rules so that new modules behave consistently and the spec remains valid as the product evolves.
 
@@ -24,7 +28,7 @@ This specification defines the contracts and rules so that new modules behave co
 - Define Channel lifecycle: Channels run only when the Gateway Host is active; Gateway collects Channel services from all enabled non-gateway modules that implement a Channel.
 - Require HITL (approval) for any Channel or Host that runs the agent with sensitive tools, unless use of AutoApprove is documented and acceptable.
 - Treat tool providers as optional; tools are included only from enabled modules.
-- Define configuration placement: new module config is added to Core's application configuration and validated via the module's `ValidateConfig`.
+- Define configuration placement: a single root config at runtime; each module defines its section type(s) in its own assembly and reads via `AppConfig.GetSection<T>(key)`. Required fields or constraints are validated via the module's `ValidateConfig`.
 
 ### 2.2 Non-Goals
 
@@ -45,7 +49,7 @@ This specification defines the contracts and rules so that new modules behave co
 
 - **Definition**: A Channel is an interaction entry (API, chat bot, AG-UI server, tracker orchestrator, etc.) that is managed by the Gateway when Gateway is the active Host.
 - **Lifecycle**: Channels run only when the Gateway module is the primary module. Gateway collects `IChannelService` from every enabled non-gateway module whose `CreateChannelService` returns a non-null instance.
-- **Contract**: A module that provides a Channel implements `CreateChannelService` to return an `IChannelService`. The Channel implements the interface required by Gateway (name, start/stop, optional heartbeat/cron, approval service, optional channel client, message delivery).
+- **Contract**: A module that provides a Channel implements `CreateChannelService` to return a non-null `IChannelService`. The method signature returns `IChannelService?`; a null return means the module does not provide a Channel. The Channel implements the interface required by Gateway (name, start/stop, optional heartbeat/cron, approval service, optional channel client, message delivery).
 - **Rule**: A new module that is an entry point intended to run concurrently with others (e.g. API + QQ) must implement a Channel and not a Host; only Gateway provides the Host that runs multiple Channels.
 
 ### 3.3 Tool-Only Module
@@ -85,9 +89,11 @@ This specification defines the contracts and rules so that new modules behave co
 
 ## 6. Configuration
 
-### 6.1 Placement
+### 6.1 Placement and modular shape
 
-- Configuration is currently centralized in Core's application configuration. A new module must add its configuration section to that single configuration model (e.g. a new property on the root config type). A future change may allow per-module or decentralized config; until then, new module config lives in Core Configuration.
+- At runtime there is a **single** configuration root (one config file, one `AppConfig` instance). Core owns the root type and a fixed set of sections (e.g. Tools, Security, Heartbeat) as properties.
+- **Module config is modular**: section data for modules is not added as properties on Core's `AppConfig`. Unknown top-level keys in the config file are stored in the root's extension data. Each module defines its own section type(s) in **its own assembly**, annotated with `[ConfigSection("SectionKey")]` (and optionally `DisplayName`, `Order`). The module reads its section via `AppConfig.GetSection<T>("SectionKey")`; the value is deserialized from extension data on first access and cached. Core does not reference module config types or add properties for them.
+- **Adding config for a new module**: In the module project, define a type (or types) with `[ConfigSection("SectionKey")]` and use `config.GetSection<YourType>("SectionKey")` where the config is needed. No change to Core's `AppConfig` is required. For Dashboard schema and validation discovery, ensure the module assembly is referenced by the host app so that the source generator can include the section type in the config schema.
 
 ### 6.2 Validation
 
@@ -110,7 +116,7 @@ When adding a new module, verify:
 
 3. **ToolProvider and Config**
    - If the module provides tools, they are optional from the spec's perspective (returning empty is valid). Tool inclusion is gated by module enablement.
-   - New configuration is added to Core's application configuration. Required fields or constraints are validated via `ValidateConfig`.
+   - New module configuration is defined in the module assembly (type(s) with `[ConfigSection("SectionKey")]`) and read via `AppConfig.GetSection<T>(key)`; no change to Core's `AppConfig` is required. Required fields or constraints are validated via `ValidateConfig`.
 
 ## 8. Maintenance
 

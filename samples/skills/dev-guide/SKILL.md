@@ -1,6 +1,6 @@
 ---
 name: dotcraft-dev-guide
-description: Development guidelines for DotCraft project. Use this skill when developing DotCraft core features, adding new modules, modifying existing code, or writing documentation. Covers C# code style, module development norms (via spec), and bilingual documentation requirements.
+description: Development guidelines for DotCraft project. Use this skill when developing DotCraft core features, adding new modules, modifying existing code, or writing documentation. Covers C# code style, tool naming (PascalCase for AI functions), module development norms (via spec), and bilingual documentation requirements.
 ---
 
 # DotCraft Development Guide
@@ -11,7 +11,7 @@ This skill provides development guidelines for contributing to the DotCraft proj
 
 Module behavior (Host vs Channel, HITL, tool providers, configuration) is defined in **references/module-development-spec.md**. Follow that specification when adding or changing modules. Use the normative checklist there to verify a new module.
 
-For implementation details and examples, search the codebase for: `[DotCraftModule(`, `CreateChannelService`, `IApprovalService`, `GetToolProviders`, `AppConfig`, `IHostFactory`.
+When adding a new module: mark the module class with `[DotCraftModule("name", Priority = x, Description = "...")]` and declare the class as **partial** (the source generator provides `Name` and `Priority` and registration). If the module is a Host, add a separate class marked with `[HostFactory("name")]` that implements `IHostFactory`. Implementation details and examples: search the codebase for `[DotCraftModule(`, `[HostFactory(`, `CreateChannelService`, `IApprovalService`, `GetToolProviders`, `AppConfig`, `IHostFactory`.
 
 ## Code Style Guidelines
 
@@ -19,34 +19,7 @@ DotCraft follows official C# coding conventions with modern language features.
 
 ### Modern C# Features
 
-Use these modern C# features consistently:
-
-- **File-scoped namespaces** (C# 10+)
-  ```csharp
-  namespace DotCraft.Tools;
-  ```
-
-- **Primary constructors** for classes with simple initialization
-  ```csharp
-  public sealed class FileTools(
-      string workspaceRoot,
-      bool requireApprovalOutsideWorkspace = true)
-  {
-      private readonly string _workspaceRoot = workspaceRoot;
-  }
-  ```
-
-- **Sealed classes** by default (unless explicitly designed for inheritance)
-  ```csharp
-  public sealed class AgentRunner { }
-  ```
-
-- **Pattern matching** and switch expressions
-  ```csharp
-  var tag = sessionKey.StartsWith("heartbeat") ? "Heartbeat"
-      : sessionKey.StartsWith("cron:") ? "Cron"
-      : "Agent";
-  ```
+Use these modern C# features consistently: file-scoped namespaces (C# 10+), primary constructors for simple initialization, sealed classes by default (unless designed for inheritance), pattern matching and switch expressions where appropriate.
 
 ### Naming Conventions
 
@@ -59,49 +32,30 @@ Use these modern C# features consistently:
 | Interfaces | `IPascalCase` | `IDotCraftModule` |
 | Parameters | `camelCase` | `string workspaceRoot` |
 
+### Tool naming (AI functions)
+
+Tool names exposed to the model vary by source. There is no global rule; use the **exact** name when configuring whitelists (**EnabledTools**, **Tools.DeferredLoading.AlwaysLoadedTools** in AppConfig).
+
+| Source | Naming | Example |
+|--------|--------|--------|
+| Method-based (`AIFunctionFactory.Create(method)`) | PascalCase (method name as-is; no snake_case conversion) | `ReadFile`, `Exec`, `WebSearch`, `GrepFiles` |
+| Manually created (`AIFunctionFactory.Create(..., name: "...")`) | No fixed convention; often snake_case | e.g. extension/ACP tools |
+| MCP tools | Defined by the MCP server; typically snake_case | As returned by the server |
+
+Use `[Description("...")]` on the method and on parameters for tool and parameter descriptions; optional `[Tool(Icon, DisplayType, DisplayMethod)]` for Dashboard UI (see FileTools.ReadFile).
+
 ### Code Organization
 
-- Use `#region` to organize large code sections
-  ```csharp
-  #region Private Helpers
-  
-  private static string FormatDirectoryListing(...)
-  {
-      // ...
-  }
-  
-  #endregion
-  ```
-
-- Place helper methods after public methods
-- Group related methods together
+Use `#region` to organize large code sections. Place helper methods after public methods. Group related methods together.
 
 ### Documentation Comments
 
-Use XML documentation comments for all public APIs:
-
-```csharp
-/// <summary>
-/// Registry for managing DotCraft modules.
-/// Modules are registered explicitly via <see cref="RegisterModule"/> at startup.
-/// </summary>
-public sealed class ModuleRegistry
-{
-    /// <summary>
-    /// Gets all registered modules.
-    /// </summary>
-    public IReadOnlyList<IDotCraftModule> Modules => _modules.AsReadOnly();
-}
-```
+Use XML documentation comments (`/// <summary>`, `/// <param>`, `/// <returns>`) for all public APIs.
 
 ### Language Preference
 
 - **Code comments**: English
-- **User-facing messages**: Use `LanguageService` for bilingual support
-  ```csharp
-  var lang = new LanguageService(selectedLanguage);
-  AnsiConsole.MarkupLine($"[cyan]{lang.GetString("当前工作区路径", "Current workspace path:")}[/]");
-  ```
+- **User-facing messages**: Use `LanguageService` for bilingual support, e.g. `lang.GetString("中文", "English")`. For CLI strings, the codebase centralizes entries in `DotCraft.Core.Localization.Strings`; search for `Strings.` and `LanguageService` for examples.
 
 ## Documentation Guidelines
 
@@ -109,25 +63,22 @@ public sealed class ModuleRegistry
 
 All documentation must be provided in both Chinese and English:
 
-```
-docs/
-├── README.md          # English version
-├── README_ZH.md       # Chinese version
-├── config_guide.md
-└── ...
-```
+- **Default (Chinese)**: `docs/*.md`, with entry at `docs/index.md`
+- **English**: `docs/en/*.md`, with entry at `docs/en/index.md`
 
-Use language switcher in documents:
+Use a language switcher in documents by linking to the index of the other language, e.g.:
 
 ```markdown
-**[中文](./README_ZH.md) | English**
+**[中文](../index.md) | English**
 ```
 
-or
+(in a doc under `docs/en/`) or
 
 ```markdown
-**中文 | [English](./README.md)**
+**中文 | [English](./en/index.md)**
 ```
+
+(in a doc under `docs/` root)
 
 ### Sample Code
 
@@ -168,30 +119,9 @@ Common issues and solutions.
 
 ## Development Workflow
 
-### Before Making Changes
-
-1. For new or changed modules: read **references/module-development-spec.md** and satisfy the checklist.
-2. Discover where the feature belongs and how similar features are implemented by searching the codebase (interfaces, existing modules).
-3. Check if existing abstractions are sufficient.
-
-### Making Changes
-
-1. Follow code style guidelines above.
-2. Add XML documentation comments for public APIs.
-3. Update relevant documentation (both languages when user-facing).
-4. Add inline examples or samples as appropriate.
-5. Test the changes manually.
-
-### Code Review Checklist
-
-- [ ] Follows C# official style conventions
-- [ ] Uses modern C# features appropriately
-- [ ] Includes XML documentation for public APIs
-- [ ] Uses English for code comments
-- [ ] Provides bilingual user messages where applicable
-- [ ] Module changes conform to references/module-development-spec.md
-- [ ] Documentation updated in both languages where applicable
-- [ ] Examples provided (inline or samples directory) where applicable
+1. **Module work**: Read references/module-development-spec.md and satisfy its checklist; search the codebase for similar features and existing abstractions.
+2. **Implementation**: Follow code style and documentation guidelines above; add XML docs for public APIs; update user-facing docs in both languages; add examples as appropriate.
+3. **Verify**: Test manually; confirm module changes conform to the spec and that docs/examples are in place.
 
 ## Additional Resources
 

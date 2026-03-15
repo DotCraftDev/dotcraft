@@ -88,7 +88,7 @@ public sealed class AppConfig
     /// Filter which tools are globally available in all modes.
     /// Empty list means all tools are enabled.
     /// </summary>
-    [ConfigField(Hint = "JSON array of tool names, e.g. [\"Shell\",\"File\"]. Empty = all enabled.")]
+    [ConfigField(Hint = "JSON array of tool names. Built-in tools use PascalCase (e.g. Shell, ReadFile); MCP/manual tools often use snake_case. Empty = all enabled.")]
     public List<string> EnabledTools { get; set; } = [];
 
     [ConfigField(Ignore = true)]
@@ -463,7 +463,7 @@ public sealed class AppConfig
         /// MCP tool names that are always loaded upfront, even when deferred loading is enabled.
         /// Use this for high-frequency tools that should be available immediately.
         /// </summary>
-        [ConfigField(Hint = "JSON array of MCP tool name strings to always load upfront")]
+        [ConfigField(Hint = "JSON array of MCP tool names to always load upfront. MCP tools typically use snake_case; use exact name as exposed by the server.")]
         public List<string> AlwaysLoadedTools { get; set; } = [];
 
         /// <summary>
