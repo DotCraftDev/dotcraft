@@ -154,14 +154,20 @@ public sealed class SessionService : ISessionService
     /// <inheritdoc/>
     public async Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
     {
-        // Cancel any running turn for this thread
-        if (_runningTurns.TryRemove(threadId, out var cts))
-            await cts.CancelAsync();
+        // Cancel any running or approval-pending turns for this thread
+        if (_threads.TryGetValue(threadId, out var thread))
+        {
+            foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            {
+                if (_runningTurns.TryRemove(turn.Id, out var turnCts))
+                    await turnCts.CancelAsync();
+                _pendingApprovals.TryRemove(turn.Id, out _);
+            }
+        }
 
         // Remove all in-memory state
         _threads.TryRemove(threadId, out _);
         _threadAgents.TryRemove(threadId, out _);
-        _pendingApprovals.TryRemove(threadId, out _);
 
         // Delete persisted files
         _threadStore.DeleteThread(threadId);
@@ -276,12 +282,13 @@ public sealed class SessionService : ISessionService
         var cts = new CancellationTokenSource();
         _runningTurns[turn.Id] = cts;
 
-        // Link caller cancellation with our internal CTS
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(callerCt, cts.Token);
-        var executionCt = linkedCts.Token;
-
         _ = Task.Run(async () =>
         {
+            // Link caller cancellation with our internal CTS inside the lambda so it lives
+            // for the full duration of the background task rather than being disposed on method return.
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(callerCt, cts.Token);
+            var executionCt = linkedCts.Token;
+
             IDisposable? gateLock = null;
             IDisposable? approvalOverride = null;
             try

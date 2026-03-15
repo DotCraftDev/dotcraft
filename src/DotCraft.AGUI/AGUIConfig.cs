@@ -2,7 +2,7 @@ using DotCraft.Configuration;
 
 namespace DotCraft.AGUI;
 
-[ConfigSection("AGUI", DisplayName = "AG-UI", Order = 160)]
+[ConfigSection("AgUi", DisplayName = "AG-UI", Order = 160)]
 public sealed class AGUIConfig
 {
     /// <summary>
