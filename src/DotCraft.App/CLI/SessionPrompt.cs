@@ -1,5 +1,6 @@
 using DotCraft.Localization;
 using DotCraft.Memory;
+using DotCraft.Sessions.Protocol;
 using Spectre.Console;
 
 namespace DotCraft.CLI;
@@ -98,6 +99,88 @@ public static class SessionPrompt
         AnsiConsole.MarkupLine($"[red]→[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
         AnsiConsole.WriteLine();
 
+        return choice.Key;
+    }
+
+    /// <summary>
+    /// Shows a selection prompt for loading a Session Protocol thread.
+    /// </summary>
+    public static string? SelectThreadToLoad(IReadOnlyList<ThreadSummary> threads, string? currentThreadId, LanguageService lang)
+    {
+        if (threads.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsAvailable(lang)}[/]");
+            return null;
+        }
+
+        AnsiConsole.WriteLine();
+
+        var options = threads.Select(t => new SessionOption
+        {
+            Key = t.Id,
+            CreatedAt = t.CreatedAt.ToString("O"),
+            UpdatedAt = t.LastActiveAt.ToString("O"),
+            IsCurrent = t.Id == currentThreadId,
+            FirstUserMessage = t.DisplayName
+        }).Prepend(BuildCancelOption(lang)).ToList();
+
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<SessionOption>()
+                .Title($"[green]{Strings.SelectSessionToLoadTitle(lang)}[/]")
+                .AddChoices(options)
+                .UseConverter(o => FormatSessionOption(o, lang))
+                .PageSize(10));
+
+        if (choice.IsCancel)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled(lang)}[/]");
+            AnsiConsole.WriteLine();
+            return null;
+        }
+
+        AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
+        AnsiConsole.WriteLine();
+        return choice.Key;
+    }
+
+    /// <summary>
+    /// Shows a selection prompt for deleting a Session Protocol thread.
+    /// </summary>
+    public static string? SelectThreadToDelete(IReadOnlyList<ThreadSummary> threads, string? currentThreadId, LanguageService lang)
+    {
+        if (threads.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsToDelete(lang)}[/]");
+            return null;
+        }
+
+        AnsiConsole.WriteLine();
+
+        var options = threads.Select(t => new SessionOption
+        {
+            Key = t.Id,
+            CreatedAt = t.CreatedAt.ToString("O"),
+            UpdatedAt = t.LastActiveAt.ToString("O"),
+            IsCurrent = t.Id == currentThreadId,
+            FirstUserMessage = t.DisplayName
+        }).Prepend(BuildCancelOption(lang)).ToList();
+
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<SessionOption>()
+                .Title($"[red]{Strings.SelectSessionToDeleteTitle(lang)}[/]")
+                .AddChoices(options)
+                .UseConverter(o => FormatSessionOption(o, lang))
+                .PageSize(10));
+
+        if (choice.IsCancel)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled(lang)}[/]");
+            AnsiConsole.WriteLine();
+            return null;
+        }
+
+        AnsiConsole.MarkupLine($"[red]→[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
+        AnsiConsole.WriteLine();
         return choice.Key;
     }
 

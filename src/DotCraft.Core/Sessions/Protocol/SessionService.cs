@@ -62,6 +62,7 @@ public sealed class SessionService : ISessionService
     public async Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
+        HistoryMode historyMode = HistoryMode.Server,
         CancellationToken ct = default)
     {
         var thread = new SessionThread
@@ -73,7 +74,7 @@ public sealed class SessionService : ISessionService
             Status = ThreadStatus.Active,
             CreatedAt = DateTimeOffset.UtcNow,
             LastActiveAt = DateTimeOffset.UtcNow,
-            HistoryMode = HistoryMode.Server,
+            HistoryMode = historyMode,
             Configuration = config
         };
 

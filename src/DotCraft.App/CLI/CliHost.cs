@@ -7,6 +7,7 @@ using DotCraft.Cron;
 using DotCraft.DashBoard;
 using DotCraft.Tracing;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Localization;
@@ -54,9 +55,12 @@ public sealed class CliHost(
 
         var planStore = new PlanStore(paths.CraftPath);
 
+        // Wrap the CLI approval service so SessionService can install per-turn overrides
+        var scopedApproval = new SessionScopedApprovalService(cliApprovalService);
+
         _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, cliApprovalService, blacklist,
+            memoryStore, skillsLoader, scopedApproval, blacklist,
             toolProviders: toolProviders,
             toolProviderContext: new ToolProviderContext
             {
@@ -69,7 +73,7 @@ public sealed class CliHost(
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
                 SkillsLoader = skillsLoader,
-                ApprovalService = cliApprovalService,
+                ApprovalService = scopedApproval,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
@@ -84,7 +88,11 @@ public sealed class CliHost(
         var modeManager = new AgentModeManager();
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
         var sessionGate = sp.GetRequiredService<SessionGate>();
-        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner);
+        var threadStore = sp.GetRequiredService<ThreadStore>();
+        var sessionService = new SessionService(
+            _agentFactory, agent, threadStore, sessionGate,
+            hookRunner, traceCollector);
+        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner, sessionService);
 
         DashBoardServer? dashBoardServer = null;
         string? dashBoardUrl = null;
@@ -112,7 +120,8 @@ public sealed class CliHost(
             customCommandLoader: customCommandLoader,
             modeManager: modeManager,
             planStore: planStore,
-            hookRunner: hookRunner);
+            hookRunner: hookRunner,
+            sessionService: sessionService);
 
         cronService.OnJob = async job =>
         {

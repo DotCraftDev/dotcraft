@@ -2,6 +2,7 @@ using System.Reflection;
 using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Memory;
+using DotCraft.Sessions.Protocol;
 using Spectre.Console;
 using static DotCraft.Skills.SkillsLoader;
 
@@ -199,6 +200,65 @@ public static class StatusPanel
 
             table.AddRow(
                 $"[white]{key}[/]",
+                $"[grey]{created}[/]",
+                $"[grey]{updated}[/]",
+                summary);
+        }
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader($"[green]💬 {Strings.SavedSessions(lang)}[/]"),
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(Color.Green)
+        };
+
+        AnsiConsole.Write(panel);
+    }
+
+    /// <summary>
+    /// Displays a table of Session Protocol threads.
+    /// </summary>
+    public static void ShowThreadsTable(IReadOnlyList<ThreadSummary> threads, LanguageService? lang = null)
+    {
+        lang ??= new LanguageService();
+
+        if (threads.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[grey]💬 {Strings.NoSessions(lang)}[/]");
+            return;
+        }
+
+        const int SummaryMaxLength = 50;
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Grey);
+
+        table.AddColumn(new TableColumn($"[u]{Strings.Session(lang)}[/]").Width(30));
+        table.AddColumn(new TableColumn($"[u]{Strings.CreatedAt(lang)}[/]").Width(20));
+        table.AddColumn(new TableColumn($"[u]{Strings.UpdatedAt(lang)}[/]").Width(20));
+        table.AddColumn(new TableColumn($"[u]{Strings.Summary(lang)}[/]").Width(50));
+
+        foreach (var thread in threads)
+        {
+            var id = thread.Id.Escape();
+            var created = thread.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            var updated = thread.LastActiveAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            string summary;
+            if (!string.IsNullOrWhiteSpace(thread.DisplayName))
+            {
+                var msg = thread.DisplayName.ReplaceLineEndings(" ").Trim();
+                if (msg.Length > SummaryMaxLength)
+                    msg = msg[..SummaryMaxLength] + "...";
+                summary = "[dim]" + msg.Escape() + "[/]";
+            }
+            else
+            {
+                summary = "[dim]-[/]";
+            }
+
+            table.AddRow(
+                $"[white]{id}[/]",
                 $"[grey]{created}[/]",
                 $"[grey]{updated}[/]",
                 summary);

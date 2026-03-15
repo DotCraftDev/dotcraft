@@ -9,6 +9,7 @@ using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Memory;
 using DotCraft.Security;
@@ -51,6 +52,10 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
 
+    private readonly ISessionService? _sessionService;
+
+    private readonly string _workspacePath;
+
     public WeComChannelAdapter(
         AIAgent agent,
         SessionStore sessionStore,
@@ -65,7 +70,9 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         TraceCollector? traceCollector = null,
         TokenUsageStore? tokenUsageStore = null,
         CustomCommandLoader? customCommandLoader = null,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        ISessionService? sessionService = null,
+        string workspacePath = "")
     {
         _agent = agent;
         _sessionStore = sessionStore;
@@ -80,6 +87,8 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         _tokenUsageStore = tokenUsageStore;
         _ownsHttpClient = httpClient == null;
         _httpClient = httpClient ?? CreateDefaultHttpClient();
+        _sessionService = sessionService;
+        _workspacePath = workspacePath;
         
         _commandDispatcher = CommandDispatcher.CreateDefault(customCommandLoader);
 
@@ -290,6 +299,15 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                        GroupId = chatId,
                        DefaultDeliveryTarget = chatId
                    }))
+            {
+                if (_sessionService != null)
+                {
+                    // Extract text from content parts for Session Protocol path
+                    var textContent = string.Join(" ", contentParts.OfType<TextContent>().Select(t => t.Text));
+                    await RunAgentViaSessionServiceAsync(textContent, from, pusher, chatId);
+                    return;
+                }
+
             using (await _sessionGate.AcquireAsync(sessionId))
             {
                 var session = await _sessionStore.LoadOrCreateAsync(_agent, sessionId, CancellationToken.None);
@@ -416,6 +434,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
 
                 await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
             }
+            } // end using(ChannelSessionScope)
         }
         catch (SessionGateOverflowException)
         {
@@ -441,6 +460,122 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                 // ignored
             }
         }
+    }
+
+    private async Task RunAgentViaSessionServiceAsync(string text, WeComFrom from, IWeComPusher pusher, string chatId)
+    {
+        var identity = new SessionIdentity
+        {
+            ChannelName = "wecom",
+            UserId = from.UserId,
+            ChannelContext = $"chat:{chatId}",
+            WorkspacePath = _workspacePath
+        };
+
+        // Find or create a Thread for this WeCom chat context
+        var threads = await _sessionService!.FindThreadsAsync(identity);
+        string threadId;
+        if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
+        {
+            threadId = threads[0].Id;
+            if (threads[0].Status == ThreadStatus.Paused)
+                await _sessionService.ResumeThreadAsync(threadId);
+        }
+        else
+        {
+            var thread = await _sessionService.CreateThreadAsync(identity, ct: CancellationToken.None);
+            threadId = thread.Id;
+        }
+
+        var sender = new SenderContext
+        {
+            SenderId = from.UserId,
+            SenderName = from.Name
+        };
+
+        var textBuffer = new StringBuilder();
+        string? activeTurnId = null;
+
+        try
+        {
+            using var runCts = new CancellationTokenSource();
+            _activeRunRegistry.Register(threadId, runCts);
+            try
+            {
+                await foreach (var evt in _sessionService
+                    .SubmitInputAsync(threadId, text, sender, ct: runCts.Token)
+                    .WithCancellation(runCts.Token))
+                {
+                    if (evt.TurnId != null)
+                        activeTurnId = evt.TurnId;
+
+                    switch (evt.EventType)
+                    {
+                        case SessionEventType.ItemDelta when evt.DeltaPayload is { } delta:
+                            textBuffer.Append(delta.TextDelta);
+                            break;
+
+                        case SessionEventType.ItemStarted when evt.ItemPayload?.Type == ItemType.ToolCall:
+                        {
+                            await FlushTextBufferAsync(pusher, textBuffer);
+                            if (DebugModeService.IsEnabled())
+                            {
+                                var tp = evt.ItemPayload!.Payload as ToolCallPayload;
+                                var toolName = tp?.ToolName ?? string.Empty;
+                                var icon = ToolRegistry.GetToolIcon(toolName);
+                                var displayText = ToolRegistry.FormatToolCall(toolName, tp?.Arguments) ?? toolName;
+                                await pusher.PushTextAsync($"{icon} {displayText}");
+                            }
+                            break;
+                        }
+
+                        case SessionEventType.ApprovalRequested:
+                        {
+                            var item = evt.ItemPayload;
+                            if (item?.Payload is ApprovalRequestPayload req && activeTurnId != null)
+                            {
+                                await FlushTextBufferAsync(pusher, textBuffer);
+                                var promptMsg = req.ApprovalType == "shell"
+                                    ? $"🔔 需要执行命令权限：`{req.Operation}`\n回复 yes 批准，no 拒绝"
+                                    : $"🔔 需要 {req.Operation} 文件权限：`{req.Target}`\n回复 yes 批准，no 拒绝";
+                                await pusher.PushTextAsync(promptMsg);
+                                await _sessionService!.ResolveApprovalAsync(activeTurnId, req.RequestId, true);
+                            }
+                            break;
+                        }
+
+                        case SessionEventType.TurnCompleted:
+                        {
+                            var usage = evt.TurnPayload?.TokenUsage;
+                            if (usage != null)
+                            {
+                                _tokenUsageStore?.Record(new TokenUsageRecord
+                                {
+                                    Channel = "wecom",
+                                    UserId = from.UserId,
+                                    DisplayName = from.Name,
+                                    InputTokens = usage.InputTokens,
+                                    OutputTokens = usage.OutputTokens
+                                });
+                                if (DebugModeService.IsEnabled())
+                                    textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _activeRunRegistry.Unregister(threadId);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AnsiConsole.MarkupLine($"[grey][[WeCom]][/] [yellow]Agent run interrupted for thread {Markup.Escape(threadId)}[/]");
+        }
+
+        await FlushTextBufferAsync(pusher, textBuffer);
     }
 
     private static async Task<string?> HandleEventMessageAsync(string eventType, string chatType, WeComFrom from,

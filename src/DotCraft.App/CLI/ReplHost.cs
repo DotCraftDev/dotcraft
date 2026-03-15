@@ -13,6 +13,7 @@ using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Security;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -29,13 +30,25 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
     CustomCommandLoader? customCommandLoader = null,
     AgentModeManager? modeManager = null,
     PlanStore? planStore = null,
-    HookRunner? hookRunner = null)
+    HookRunner? hookRunner = null,
+    ISessionService? sessionService = null)
 {
     private readonly LanguageService _lang = languageService ?? new LanguageService();
     private readonly AgentModeManager _modeManager = modeManager ?? new AgentModeManager();
 
     private string _currentSessionId = string.Empty;
-    
+
+    // Thread ID used when sessionService is available
+    private string? _currentThreadId;
+
+    // Identity for the CLI channel (used for thread discovery/creation)
+    private readonly SessionIdentity _cliIdentity = new()
+    {
+        ChannelName = "cli",
+        UserId = "local",
+        WorkspacePath = workspacePath
+    };
+
     private AgentSession _agentSession = null!;
     private AIAgent _currentAgent = agent;
 
@@ -50,12 +63,21 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        // Generate a new session ID on startup
-        _currentSessionId = SessionStore.GenerateSessionId();
-        ShowWelcomeScreen(_currentSessionId);
+        if (sessionService != null)
+        {
+            // Session Protocol path: create a new Thread for this CLI session
+            var thread = await sessionService.CreateThreadAsync(_cliIdentity, ct: cancellationToken);
+            _currentThreadId = thread.Id;
+            _currentSessionId = thread.Id;
+        }
+        else
+        {
+            // Legacy path: generate a session ID and load from SessionStore
+            _currentSessionId = SessionStore.GenerateSessionId();
+            _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, _currentSessionId, cancellationToken);
+        }
 
-        // Load or create session
-        _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, _currentSessionId, cancellationToken);
+        ShowWelcomeScreen(_currentSessionId);
 
         // Run SessionStart hooks
         await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
@@ -101,26 +123,40 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
                 }
             }
 
-            if (await RunStreamingAsync(agentInput, _agentSession, cancellationToken))
+            bool success;
+            if (sessionService != null)
+            {
+                success = await RunSessionInputAsync(agentInput, cancellationToken);
+            }
+            else
+            {
+                success = await RunStreamingAsync(agentInput, _agentSession, cancellationToken);
+            }
+
+            if (success)
             {
                 // Run Stop hooks after agent finishes responding
                 await RunStopHooksAsync(_currentSessionId, null, cancellationToken);
 
-                await TryCompactContextAsync(_currentSessionId, _agentSession, cancellationToken);
-                var consolidationTask = agentFactory?.TryConsolidateMemory(_agentSession, _currentSessionId);
-                var saveTask = sessionStore.SaveAsync(_currentAgent, _agentSession, _currentSessionId, cancellationToken);
-                if (consolidationTask != null)
+                if (sessionService == null)
                 {
-                    await AnsiConsole.Status()
-                        .Spinner(Spinner.Known.Dots)
-                        .SpinnerStyle(new Style(Color.Grey))
-                        .StartAsync(Strings.MemoryConsolidating(_lang), async _ =>
-                        {
-                            await Task.WhenAll(consolidationTask, saveTask);
-                        });
+                    // Legacy path only: compact, consolidate, and save
+                    await TryCompactContextAsync(_currentSessionId, _agentSession, cancellationToken);
+                    var consolidationTask = agentFactory?.TryConsolidateMemory(_agentSession, _currentSessionId);
+                    var saveTask = sessionStore.SaveAsync(_currentAgent, _agentSession, _currentSessionId, cancellationToken);
+                    if (consolidationTask != null)
+                    {
+                        await AnsiConsole.Status()
+                            .Spinner(Spinner.Known.Dots)
+                            .SpinnerStyle(new Style(Color.Grey))
+                            .StartAsync(Strings.MemoryConsolidating(_lang), async _ =>
+                            {
+                                await Task.WhenAll(consolidationTask, saveTask);
+                            });
+                    }
+                    else
+                        await saveTask;
                 }
-                else
-                    await saveTask;
             }
         }
 
@@ -304,9 +340,17 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
     {
         try
         {
-            // Load new session
-            _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, newSessionId, cancellationToken);
-            _currentSessionId = newSessionId;
+            if (sessionService != null)
+            {
+                await sessionService.ResumeThreadAsync(newSessionId, cancellationToken);
+                _currentThreadId = newSessionId;
+                _currentSessionId = newSessionId;
+            }
+            else
+            {
+                _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, newSessionId, cancellationToken);
+                _currentSessionId = newSessionId;
+            }
 
             // Run SessionStart hooks for loaded session
             await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
@@ -318,10 +362,13 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
             AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionLoaded(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
             AnsiConsole.WriteLine();
 
-            // Print conversation history so the user can see what was discussed
-            var chatHistory = _agentSession.GetService<ChatHistoryProvider>();
-            if (chatHistory is InMemoryChatHistoryProvider memoryProvider && memoryProvider.Count > 0)
-                SessionHistoryPrinter.Print(memoryProvider);
+            if (sessionService == null)
+            {
+                // Print conversation history (legacy path only)
+                var chatHistory = _agentSession.GetService<ChatHistoryProvider>();
+                if (chatHistory is InMemoryChatHistoryProvider memoryProvider && memoryProvider.Count > 0)
+                    SessionHistoryPrinter.Print(memoryProvider);
+            }
         }
         catch (Exception ex)
         {
@@ -337,10 +384,20 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
     {
         try
         {
-            // Generate new session ID and create session
-            var newSessionId = SessionStore.GenerateSessionId();
-            _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, newSessionId, cancellationToken);
-            _currentSessionId = newSessionId;
+            string newSessionId;
+            if (sessionService != null)
+            {
+                var thread = await sessionService.CreateThreadAsync(_cliIdentity, ct: cancellationToken);
+                newSessionId = thread.Id;
+                _currentThreadId = newSessionId;
+                _currentSessionId = newSessionId;
+            }
+            else
+            {
+                newSessionId = SessionStore.GenerateSessionId();
+                _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, newSessionId, cancellationToken);
+                _currentSessionId = newSessionId;
+            }
 
             // Run SessionStart hooks for new session
             await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
@@ -365,25 +422,40 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
         {
             var wasCurrent = sessionId == _currentSessionId;
 
-            // Delete session and associated plan file
-            var sessionDeleted = sessionStore.Delete(sessionId);
-            planStore?.DeletePlan(sessionId);
-
-            if (sessionDeleted)
+            if (sessionService != null)
             {
+                await sessionService.ArchiveThreadAsync(sessionId);
                 AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionDeleted(_lang)}：[cyan]{sessionId.EscapeMarkup()}[/]");
+
+                if (wasCurrent)
+                {
+                    var thread = await sessionService.CreateThreadAsync(_cliIdentity);
+                    _currentThreadId = thread.Id;
+                    _currentSessionId = thread.Id;
+                    AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionNewCreated(_lang)}：{_currentSessionId.EscapeMarkup()}[/]");
+                }
             }
             else
             {
-                AnsiConsole.MarkupLine($"[yellow]{Strings.SessionNotFound(_lang)}：{sessionId.EscapeMarkup()}[/]");
-            }
+                // Legacy path
+                var sessionDeleted = sessionStore.Delete(sessionId);
+                planStore?.DeletePlan(sessionId);
 
-            // If deleted current session, create a new session
-            if (wasCurrent)
-            {
-                _currentSessionId = SessionStore.GenerateSessionId();
-                _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, _currentSessionId, CancellationToken.None);
-                AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionNewCreated(_lang)}：{_currentSessionId.EscapeMarkup()}[/]");
+                if (sessionDeleted)
+                {
+                    AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionDeleted(_lang)}：[cyan]{sessionId.EscapeMarkup()}[/]");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[yellow]{Strings.SessionNotFound(_lang)}：{sessionId.EscapeMarkup()}[/]");
+                }
+
+                if (wasCurrent)
+                {
+                    _currentSessionId = SessionStore.GenerateSessionId();
+                    _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, _currentSessionId, CancellationToken.None);
+                    AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionNewCreated(_lang)}：{_currentSessionId.EscapeMarkup()}[/]");
+                }
             }
 
             AnsiConsole.WriteLine();
@@ -424,24 +496,49 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
                 return (true, false, null);
 
             case "/load":
-                var sessions = sessionStore.ListSessions();
-                var selectedSession = SessionPrompt.SelectSessionToLoad(sessions, _currentSessionId, _lang);
-                if (selectedSession != null)
+                if (sessionService != null)
                 {
-                    await LoadSessionAsync(selectedSession, CancellationToken.None);
+                    var threads = await sessionService.FindThreadsAsync(_cliIdentity);
+                    var selectedThread = SessionPrompt.SelectThreadToLoad(threads, _currentThreadId, _lang);
+                    if (selectedThread != null)
+                        await LoadSessionAsync(selectedThread, CancellationToken.None);
+                }
+                else
+                {
+                    var sessions = sessionStore.ListSessions();
+                    var selectedSession = SessionPrompt.SelectSessionToLoad(sessions, _currentSessionId, _lang);
+                    if (selectedSession != null)
+                        await LoadSessionAsync(selectedSession, CancellationToken.None);
                 }
                 return (true, false, null);
 
             case "/delete":
-                var sessionsToDelete = sessionStore.ListSessions();
-                var sessionToDelete = SessionPrompt.SelectSessionToDelete(sessionsToDelete, _currentSessionId, _lang);
-                if (sessionToDelete != null)
+                if (sessionService != null)
                 {
-                    if (SessionPrompt.ConfirmDelete(sessionToDelete, sessionToDelete == _currentSessionId, _lang))
+                    var threadsToDelete = await sessionService.FindThreadsAsync(_cliIdentity);
+                    var threadToDelete = SessionPrompt.SelectThreadToDelete(threadsToDelete, _currentThreadId, _lang);
+                    if (threadToDelete != null)
                     {
-                        await DeleteSession(sessionToDelete);
-                        AnsiConsole.Clear();
-                        ShowWelcomeScreen(_currentSessionId);
+                        if (SessionPrompt.ConfirmDelete(threadToDelete, threadToDelete == _currentThreadId, _lang))
+                        {
+                            await DeleteSession(threadToDelete);
+                            AnsiConsole.Clear();
+                            ShowWelcomeScreen(_currentSessionId);
+                        }
+                    }
+                }
+                else
+                {
+                    var sessionsToDelete = sessionStore.ListSessions();
+                    var sessionToDelete = SessionPrompt.SelectSessionToDelete(sessionsToDelete, _currentSessionId, _lang);
+                    if (sessionToDelete != null)
+                    {
+                        if (SessionPrompt.ConfirmDelete(sessionToDelete, sessionToDelete == _currentSessionId, _lang))
+                        {
+                            await DeleteSession(sessionToDelete);
+                            AnsiConsole.Clear();
+                            ShowWelcomeScreen(_currentSessionId);
+                        }
                     }
                 }
                 return (true, false, null);
@@ -460,8 +557,16 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
                 return (true, false, null);
 
             case "/sessions":
-                var sessionList = sessionStore.ListSessions();
-                StatusPanel.ShowSessionsTable(sessionList, _lang);
+                if (sessionService != null)
+                {
+                    var threadList = await sessionService.FindThreadsAsync(_cliIdentity);
+                    StatusPanel.ShowThreadsTable(threadList, _lang);
+                }
+                else
+                {
+                    var sessionList = sessionStore.ListSessions();
+                    StatusPanel.ShowSessionsTable(sessionList, _lang);
+                }
                 return (true, false, null);
 
             case "/memory":
@@ -806,6 +911,156 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
         else
         {
             AnsiConsole.MarkupLine($"[grey]{Strings.ContextCompactSkipped(_lang)}[/]");
+        }
+    }
+
+    /// <summary>
+    /// Runs an interactive input turn via <see cref="ISessionService.SubmitInputAsync"/>.
+    /// Handles approval events inline by pausing the renderer and prompting the user.
+    /// </summary>
+    private async Task<bool> RunSessionInputAsync(string userInput, CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var interrupt = new InterruptHandler(cts);
+        var token = cts.Token;
+
+        try
+        {
+            var tokenTracker = agentFactory?.GetOrCreateTokenTracker(_currentSessionId);
+            using var renderer = new AgentRenderer(tokenTracker);
+            await renderer.StartAsync(token);
+            await renderer.SendEventAsync(RenderEvent.StreamStart(), token);
+            ConsoleApprovalService.SetRenderControl(renderer);
+            if (hookRunner != null)
+                hookRunner.DebugLogger = renderer.TryEnqueueDebug;
+
+            string? activeTurnId = null;
+
+            try
+            {
+                await foreach (var evt in sessionService!
+                    .SubmitInputAsync(_currentThreadId!, userInput, ct: token)
+                    .WithCancellation(token))
+                {
+                    if (evt.TurnId != null)
+                        activeTurnId = evt.TurnId;
+
+                    if (evt.EventType == SessionEventType.ApprovalRequested)
+                    {
+                        // Pause the renderer and prompt the user directly
+                        var item = evt.ItemPayload;
+                        if (item?.Payload is ApprovalRequestPayload req)
+                        {
+                            bool approved;
+                            if (req.ApprovalType == "shell")
+                            {
+                                var choice = await renderer.ExecuteWhilePausedAsync(
+                                    () => ApprovalPrompt.RequestShellApproval(req.Operation, req.Target));
+                                approved = choice != ApprovalOption.Reject;
+                            }
+                            else
+                            {
+                                var choice = await renderer.ExecuteWhilePausedAsync(
+                                    () => ApprovalPrompt.RequestFileApproval(req.Operation, req.Target));
+                                approved = choice != ApprovalOption.Reject;
+                            }
+                            if (activeTurnId != null)
+                                await sessionService!.ResolveApprovalAsync(activeTurnId, req.RequestId, approved, token);
+                        }
+                        continue;
+                    }
+
+                    // Map SessionEvent → RenderEvent inline for all other events
+                    switch (evt.EventType)
+                    {
+                        case SessionEventType.ItemDelta when evt.DeltaPayload is { } delta:
+                            if (!string.IsNullOrEmpty(delta.TextDelta))
+                                await renderer.SendEventAsync(RenderEvent.Response(delta.TextDelta), token);
+                            break;
+
+                        case SessionEventType.ItemDelta when evt.ReasoningDeltaPayload is { } reasoning:
+                            if (!string.IsNullOrEmpty(reasoning.TextDelta))
+                                await renderer.SendEventAsync(RenderEvent.Thinking("💭", "Thinking", reasoning.TextDelta), token);
+                            break;
+
+                        case SessionEventType.ItemStarted when evt.ItemPayload?.Type == ItemType.ToolCall:
+                        {
+                            var tp = evt.ItemPayload!.Payload as ToolCallPayload;
+                            var name = tp?.ToolName ?? string.Empty;
+                            var icon = DotCraft.Tools.ToolRegistry.GetToolIcon(name);
+                            string? argsJson = null;
+                            string? formatted = null;
+                            if (tp?.Arguments != null)
+                            {
+                                try { argsJson = tp.Arguments.ToJsonString(); } catch { argsJson = tp.Arguments.ToString(); }
+                                formatted = DotCraft.Tools.ToolRegistry.FormatToolCall(name, tp.Arguments);
+                            }
+                            await renderer.SendEventAsync(
+                                RenderEvent.ToolStarted(icon, name, string.Empty, argsJson, formatted, callId: tp?.CallId),
+                                token);
+                            break;
+                        }
+
+                        case SessionEventType.ItemCompleted when evt.ItemPayload?.Type == ItemType.ToolResult:
+                        {
+                            var rp = evt.ItemPayload!.Payload as ToolResultPayload;
+                            await renderer.SendEventAsync(
+                                RenderEvent.ToolCompleted(null, null, string.Empty, rp?.Result, callId: rp?.CallId),
+                                token);
+                            break;
+                        }
+
+                        case SessionEventType.TurnCompleted:
+                        {
+                            var turn = evt.TurnPayload;
+                            var usage = turn?.TokenUsage;
+                            if (usage != null)
+                            {
+                                await renderer.SendEventAsync(
+                                    RenderEvent.TokenUsage(usage.InputTokens, usage.OutputTokens, usage.TotalTokens),
+                                    token);
+                                tokenUsageStore?.Record(new TokenUsageRecord
+                                {
+                                    Channel = "cli",
+                                    UserId = "local",
+                                    DisplayName = "CLI",
+                                    InputTokens = usage.InputTokens,
+                                    OutputTokens = usage.OutputTokens
+                                });
+                            }
+                            await renderer.SendEventAsync(RenderEvent.Completed(string.Empty), token);
+                            break;
+                        }
+
+                        case SessionEventType.TurnFailed:
+                        {
+                            var errMsg = evt.TurnPayload?.Error ?? "Turn failed";
+                            await renderer.SendEventAsync(RenderEvent.ErrorEvent(errMsg), token);
+                            await renderer.SendEventAsync(RenderEvent.Completed(string.Empty), token);
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                ConsoleApprovalService.SetRenderControl(null);
+                if (hookRunner != null)
+                    hookRunner.DebugLogger = null;
+            }
+
+            await renderer.StopAsync();
+            return true;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            AnsiConsole.MarkupLine($"\n[yellow]{Strings.AgentInterrupted(_lang)}[/]");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            MessageFormatter.Error(ex.Message);
+            return false;
         }
     }
 

@@ -7,6 +7,7 @@ using DotCraft.Cron;
 using DotCraft.Tracing;
 using DotCraft.Diagnostics;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
@@ -57,7 +58,7 @@ public sealed class QQChannelService(
     /// <inheritdoc />
     public object ChannelClient => qqClient;
 
-    private AgentFactory BuildAgentFactory()
+    private AgentFactory BuildAgentFactory(SessionScopedApprovalService scopedApproval)
     {
         var cronTools = sp.GetService<CronTools>();
         var traceCollector = sp.GetService<TraceCollector>();
@@ -70,7 +71,7 @@ public sealed class QQChannelService(
 
         return new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, qqApprovalService, blacklist,
+            memoryStore, skillsLoader, scopedApproval, blacklist,
             toolProviders: toolProviders,
             toolProviderContext: new ToolProviderContext
             {
@@ -83,7 +84,7 @@ public sealed class QQChannelService(
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
                 SkillsLoader = skillsLoader,
-                ApprovalService = qqApprovalService,
+                ApprovalService = scopedApproval,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
@@ -110,14 +111,20 @@ public sealed class QQChannelService(
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var agentFactory = BuildAgentFactory();
+        var scopedApproval = new SessionScopedApprovalService(qqApprovalService);
+        var agentFactory = BuildAgentFactory(scopedApproval);
         var agent = agentFactory.CreateAgentForMode(AgentMode.Agent);
         var traceCollector = sp.GetService<TraceCollector>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
         var sessionGate = sp.GetRequiredService<SessionGate>();
+        var threadStore = sp.GetRequiredService<ThreadStore>();
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
+        var hookRunner = sp.GetService<HookRunner>();
+        var sessionService = new SessionService(
+            agentFactory, agent, threadStore, sessionGate,
+            hookRunner, traceCollector);
         _adapter = new QQChannelAdapter(
             qqClient, agent, sessionStore,
             permissionService, sessionGate, activeRunRegistry,
@@ -127,7 +134,9 @@ public sealed class QQChannelService(
             agentFactory: agentFactory,
             traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
-            customCommandLoader: customCommandLoader
+            customCommandLoader: customCommandLoader,
+            sessionService: sessionService,
+            workspacePath: paths.WorkspacePath
         );
 
         await qqClient.StartAsync(cancellationToken);

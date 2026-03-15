@@ -1,5 +1,6 @@
 using System.ClientModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +12,7 @@ using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
@@ -54,6 +56,7 @@ public sealed class ApiChannelService(
 {
     private WebApplication? _webApp;
     private AgentFactory? _agentFactory;
+    private ISessionService? _sessionService;
 
     // Stored during ConfigureBuilder, consumed during ConfigureApp
     private IHostedAgentBuilder? _agentBuilder;
@@ -191,7 +194,12 @@ public sealed class ApiChannelService(
 
         var agent = _agentFactory!.CreateAgentWithTools(_tools!);
         var sessionGate = sp.GetRequiredService<SessionGate>();
+        var threadStore = sp.GetRequiredService<ThreadStore>();
         var hookRunner = sp.GetService<HookRunner>();
+        var scopedApproval = new SessionScopedApprovalService(approvalService);
+        _sessionService = new SessionService(
+            _agentFactory, agent, threadStore, sessionGate,
+            hookRunner, traceCollector);
         var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner);
 
         MapAdditionalRoutes(app, runner);
@@ -379,6 +387,172 @@ public sealed class ApiChannelService(
 
             return Results.Json(new { id, approved = body.Approved });
         });
+
+        // Session Protocol endpoint: POST /dotcraft/v1/chat/completions
+        // Mirrors the OpenAI-compatible format but uses ISessionService for persistence.
+        if (_sessionService != null)
+        {
+            var capturedSessionService = _sessionService;
+            endpoints.MapPost("/dotcraft/v1/chat/completions", async (HttpContext context) =>
+            {
+                if (!Authenticate(context))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await context.Response.WriteAsJsonAsync(new { error = "unauthorized" });
+                    return;
+                }
+
+                context.Request.EnableBuffering();
+                string requestBody;
+                using (var reader = new StreamReader(context.Request.Body, leaveOpen: true))
+                    requestBody = await reader.ReadToEndAsync();
+                context.Request.Body.Position = 0;
+
+                JsonElement root;
+                try
+                {
+                    using var doc = JsonDocument.Parse(requestBody);
+                    root = doc.RootElement.Clone();
+                }
+                catch
+                {
+                    context.Response.StatusCode = 400;
+                    await context.Response.WriteAsJsonAsync(new { error = "invalid JSON" });
+                    return;
+                }
+
+                var sessionKey = await ResolveSessionKeyAsync(context);
+                var identity = new SessionIdentity
+                {
+                    ChannelName = "api",
+                    UserId = sessionKey,
+                    ChannelContext = sessionKey,
+                    WorkspacePath = paths.WorkspacePath
+                };
+
+                // Find or create a Thread with client-managed history
+                var threads = await capturedSessionService.FindThreadsAsync(identity);
+                string threadId;
+                if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
+                {
+                    threadId = threads[0].Id;
+                    if (threads[0].Status == ThreadStatus.Paused)
+                        await capturedSessionService.ResumeThreadAsync(threadId);
+                }
+                else
+                {
+                    var thread = await capturedSessionService.CreateThreadAsync(
+                        identity,
+                        historyMode: HistoryMode.Client);
+                    threadId = thread.Id;
+                }
+
+                // Extract messages from request body for client-managed history
+                ChatMessage[]? chatMessages = null;
+                var promptText = string.Empty;
+                if (root.TryGetProperty("messages", out var msgsEl) &&
+                    msgsEl.ValueKind == JsonValueKind.Array)
+                {
+                    var msgs = new List<ChatMessage>();
+                    foreach (var m in msgsEl.EnumerateArray())
+                    {
+                        var role = m.TryGetProperty("role", out var r) ? r.GetString() : "user";
+                        var content = m.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
+                        msgs.Add(new ChatMessage(
+                            role == "assistant" ? ChatRole.Assistant :
+                            role == "system" ? ChatRole.System : ChatRole.User,
+                            content));
+                        if (role == "user")
+                            promptText = content;
+                    }
+                    chatMessages = msgs.ToArray();
+                }
+
+                bool streamMode = root.TryGetProperty("stream", out var streamProp) &&
+                                  streamProp.ValueKind == JsonValueKind.True;
+
+                if (streamMode)
+                {
+                    context.Response.ContentType = "text/event-stream";
+                    context.Response.Headers.CacheControl = "no-cache";
+                    var created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                    await foreach (var evt in capturedSessionService
+                        .SubmitInputAsync(threadId, promptText, messages: chatMessages,
+                                         ct: context.RequestAborted))
+                    {
+                        if (evt.EventType == SessionEventType.ItemDelta &&
+                            evt.DeltaPayload is { } delta &&
+                            !string.IsNullOrEmpty(delta.TextDelta))
+                        {
+                            var chunk = new
+                            {
+                                id = $"chatcmpl-{threadId}",
+                                @object = "chat.completion.chunk",
+                                created,
+                                model = config.Model,
+                                choices = new[]
+                                {
+                                    new
+                                    {
+                                        index = 0,
+                                        delta = new { content = delta.TextDelta, role = "assistant" },
+                                        finish_reason = (string?)null
+                                    }
+                                }
+                            };
+                            var line = "data: " + JsonSerializer.Serialize(chunk) + "\n\n";
+                            await context.Response.WriteAsync(line, context.RequestAborted);
+                            await context.Response.Body.FlushAsync(context.RequestAborted);
+                        }
+                        else if (evt.EventType == SessionEventType.TurnCompleted)
+                        {
+                            var finChunk = new
+                            {
+                                id = $"chatcmpl-{threadId}",
+                                @object = "chat.completion.chunk",
+                                created,
+                                model = config.Model,
+                                choices = new[] { new { index = 0, delta = new { }, finish_reason = "stop" } }
+                            };
+                            await context.Response.WriteAsync("data: " + JsonSerializer.Serialize(finChunk) + "\n\n", context.RequestAborted);
+                            await context.Response.WriteAsync("data: [DONE]\n\n", context.RequestAborted);
+                        }
+                    }
+                }
+                else
+                {
+                    // Non-streaming: accumulate response
+                    var responseBuilder = new StringBuilder();
+                    await foreach (var evt in capturedSessionService
+                        .SubmitInputAsync(threadId, promptText, messages: chatMessages,
+                                         ct: context.RequestAborted))
+                    {
+                        if (evt.EventType == SessionEventType.ItemDelta &&
+                            evt.DeltaPayload is { } delta)
+                            responseBuilder.Append(delta.TextDelta);
+                    }
+
+                    var response = new
+                    {
+                        id = $"chatcmpl-{threadId}",
+                        @object = "chat.completion",
+                        created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                        model = config.Model,
+                        choices = new[]
+                        {
+                            new
+                            {
+                                index = 0,
+                                message = new { role = "assistant", content = responseBuilder.ToString() },
+                                finish_reason = "stop"
+                            }
+                        }
+                    };
+                    await context.Response.WriteAsJsonAsync(response);
+                }
+            });
+        }
     }
 
     private ChatClientAgentOptions CreateApiAgentOptions(IReadOnlyList<AITool> tools,

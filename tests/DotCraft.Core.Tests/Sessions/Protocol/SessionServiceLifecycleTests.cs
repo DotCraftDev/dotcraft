@@ -241,6 +241,7 @@ internal sealed class FakeSessionService : ISessionService
     public async Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
+        HistoryMode historyMode = HistoryMode.Server,
         CancellationToken ct = default)
     {
         var thread = new SessionThread
@@ -250,11 +251,15 @@ internal sealed class FakeSessionService : ISessionService
             UserId = identity.UserId,
             OriginChannel = identity.ChannelName,
             Status = ThreadStatus.Active,
+            HistoryMode = historyMode,
             CreatedAt = DateTimeOffset.UtcNow,
             LastActiveAt = DateTimeOffset.UtcNow,
-            HistoryMode = HistoryMode.Server,
             Configuration = config
         };
+
+        if (identity.ChannelContext != null)
+            thread.Metadata["channelContext"] = identity.ChannelContext;
+
         _threads[thread.Id] = thread;
         await _store.SaveThreadAsync(thread, ct);
         await _store.UpdateIndexEntryAsync(thread, ct);

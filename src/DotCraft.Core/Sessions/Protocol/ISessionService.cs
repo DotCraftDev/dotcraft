@@ -13,10 +13,15 @@ public interface ISessionService
     /// </summary>
     /// <param name="identity">Channel and user context for the new Thread.</param>
     /// <param name="config">Optional per-thread agent configuration. Null means workspace defaults.</param>
+    /// <param name="historyMode">
+    /// <see cref="HistoryMode.Server"/> (default): Session Core manages conversation history.
+    /// <see cref="HistoryMode.Client"/>: The adapter provides message history with each SubmitInput call.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
+        HistoryMode historyMode = HistoryMode.Server,
         CancellationToken ct = default);
 
     /// <summary>

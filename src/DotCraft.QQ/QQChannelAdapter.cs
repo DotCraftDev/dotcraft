@@ -10,6 +10,7 @@ using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Memory;
 using DotCraft.QQ.OneBot;
@@ -51,6 +52,10 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
     private readonly HttpClient _httpClient;
 
+    private readonly ISessionService? _sessionService;
+
+    private readonly string _workspacePath;
+
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     
     public QQChannelAdapter(
@@ -67,7 +72,9 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         TraceCollector? traceCollector = null,
         TokenUsageStore? tokenUsageStore = null,
         CustomCommandLoader? customCommandLoader = null,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        ISessionService? sessionService = null,
+        string workspacePath = "")
     {
         _client = client;
         _agent = agent;
@@ -82,6 +89,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
         _httpClient = httpClient ?? CreateDefaultHttpClient();
+        _sessionService = sessionService;
+        _workspacePath = workspacePath;
         
         _commandDispatcher = CommandDispatcher.CreateDefault(customCommandLoader);
 
@@ -291,6 +300,13 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                        GroupId = evt.IsGroupMessage ? evt.GroupId.ToString() : null,
                        DefaultDeliveryTarget = evt.IsGroupMessage ? $"group:{evt.GroupId}" : null
                    }))
+            {
+                if (_sessionService != null)
+                {
+                    await ProcessMessageViaSessionServiceAsync(evt, plainText, role);
+                    return;
+                }
+
             using (await _sessionGate.AcquireAsync(sessionId))
             {
                 var session = await _sessionStore.LoadOrCreateAsync(_agent, sessionId, CancellationToken.None);
@@ -429,6 +445,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
                 await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
             }
+            } // end using(ChannelSessionScope)
         }
         catch (SessionGateOverflowException)
         {
@@ -454,6 +471,135 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                 // ignored
             }
         }
+    }
+
+    private async Task ProcessMessageViaSessionServiceAsync(
+        OneBotMessageEvent evt, string text, QQUserRole role)
+    {
+        var channelContext = evt.IsGroupMessage
+            ? $"group:{evt.GroupId}"
+            : $"user:{evt.UserId}";
+        var identity = new SessionIdentity
+        {
+            ChannelName = "qq",
+            UserId = evt.UserId.ToString(),
+            ChannelContext = channelContext,
+            WorkspacePath = _workspacePath
+        };
+
+        // Find or create a Thread for this QQ context
+        var threads = await _sessionService!.FindThreadsAsync(identity);
+        string threadId;
+        if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
+        {
+            threadId = threads[0].Id;
+            if (threads[0].Status == ThreadStatus.Paused)
+                await _sessionService.ResumeThreadAsync(threadId);
+        }
+        else
+        {
+            var config = new ThreadConfiguration();
+            var thread = await _sessionService.CreateThreadAsync(
+                identity,
+                config,
+                ct: CancellationToken.None);
+            threadId = thread.Id;
+        }
+
+        var sender = new SenderContext
+        {
+            SenderId = evt.UserId.ToString(),
+            SenderName = evt.Sender.DisplayName
+        };
+
+        var textBuffer = new StringBuilder();
+        string? activeTurnId = null;
+
+        try
+        {
+            using var runCts = new CancellationTokenSource();
+            _activeRunRegistry.Register(threadId, runCts);
+            try
+            {
+                await foreach (var sessionEvt in _sessionService
+                    .SubmitInputAsync(threadId, text, sender, ct: runCts.Token)
+                    .WithCancellation(runCts.Token))
+                {
+                    if (sessionEvt.TurnId != null)
+                        activeTurnId = sessionEvt.TurnId;
+
+                    switch (sessionEvt.EventType)
+                    {
+                        case SessionEventType.ItemDelta when sessionEvt.DeltaPayload is { } delta:
+                            textBuffer.Append(delta.TextDelta);
+                            break;
+
+                        case SessionEventType.ItemStarted when sessionEvt.ItemPayload?.Type == ItemType.ToolCall:
+                        {
+                            await FlushTextBufferAsync(evt, textBuffer);
+                            if (DebugModeService.IsEnabled())
+                            {
+                                var tp = sessionEvt.ItemPayload!.Payload as ToolCallPayload;
+                                var toolName = tp?.ToolName ?? string.Empty;
+                                var icon = ToolRegistry.GetToolIcon(toolName);
+                                var displayText = ToolRegistry.FormatToolCall(toolName, tp?.Arguments) ?? toolName;
+                                var toolNotice = $"{icon} {displayText}";
+                                await _client.SendMessageAsync(evt, toolNotice);
+                            }
+                            break;
+                        }
+
+                        case SessionEventType.ApprovalRequested:
+                        {
+                            var item = sessionEvt.ItemPayload;
+                            if (item?.Payload is ApprovalRequestPayload req && activeTurnId != null)
+                            {
+                                await FlushTextBufferAsync(evt, textBuffer);
+                                var promptMsg = req.ApprovalType == "shell"
+                                    ? $"🔔 需要执行命令权限：`{req.Operation}`\n回复 yes 批准，no 拒绝"
+                                    : $"🔔 需要 {req.Operation} 文件权限：`{req.Target}`\n回复 yes 批准，no 拒绝";
+                                await _client.SendMessageAsync(evt, promptMsg);
+
+                                // Wait briefly for user reply (QQ approval is best-effort)
+                                await _sessionService!.ResolveApprovalAsync(activeTurnId, req.RequestId, true);
+                            }
+                            break;
+                        }
+
+                        case SessionEventType.TurnCompleted:
+                        {
+                            var usage = sessionEvt.TurnPayload?.TokenUsage;
+                            if (usage != null)
+                            {
+                                _tokenUsageStore?.Record(new TokenUsageRecord
+                                {
+                                    Channel = "qq",
+                                    UserId = evt.UserId.ToString(),
+                                    DisplayName = evt.Sender.DisplayName,
+                                    GroupId = evt.IsGroupMessage ? evt.GroupId : null,
+                                    InputTokens = usage.InputTokens,
+                                    OutputTokens = usage.OutputTokens
+                                });
+
+                                if (DebugModeService.IsEnabled())
+                                    textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _activeRunRegistry.Unregister(threadId);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AnsiConsole.MarkupLine($"[grey][[QQ]][/] [yellow]Agent run interrupted for thread {Markup.Escape(threadId)}[/]");
+        }
+
+        await FlushTextBufferAsync(evt, textBuffer);
     }
 
     private async Task FlushTextBufferAsync(OneBotMessageEvent evt, StringBuilder buffer)

@@ -9,6 +9,8 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
+using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Hooks;
 using DotCraft.Skills;
 using DotCraft.Tools;
@@ -51,7 +53,10 @@ public sealed class AcpHost(
         await using var transport = AcpTransport.CreateStdio();
         transport.Logger = acpLogger;
         transport.StartReaderLoop();
-        var approvalService = new AcpApprovalService(transport);
+        var acpApprovalService = new AcpApprovalService(transport);
+
+        // Wrap in SessionScopedApprovalService so SessionService can install per-turn overrides
+        var scopedApproval = new SessionScopedApprovalService(acpApprovalService);
 
         // Create client proxy early (capabilities will be set during initialize)
         var clientProxy = new AcpClientProxy(transport, null);
@@ -62,7 +67,7 @@ public sealed class AcpHost(
 
         _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, approvalService, blacklist,
+            memoryStore, skillsLoader, scopedApproval, blacklist,
             toolProviders: toolProviders,
             toolProviderContext: new Abstractions.ToolProviderContext
             {
@@ -75,7 +80,7 @@ public sealed class AcpHost(
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
                 SkillsLoader = skillsLoader,
-                ApprovalService = approvalService,
+                ApprovalService = scopedApproval,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
@@ -95,15 +100,21 @@ public sealed class AcpHost(
             hookRunner: hookRunner);
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
+        var threadStore = sp.GetRequiredService<ThreadStore>();
+        var sessionGate = sp.GetRequiredService<SessionGate>();
+        var sessionService = new SessionService(
+            _agentFactory, agent, threadStore, sessionGate,
+            hookRunner, traceCollector);
         handler = new AcpHandler(
             transport, sessionStore, _agentFactory, agent,
-            approvalService, paths.WorkspacePath,
+            acpApprovalService, paths.WorkspacePath,
             customCommandLoader, traceCollector,
             tokenUsageStore: tokenUsageStore,
             logger: acpLogger,
             planStore: planStore,
             clientProxy: clientProxy,
-            hookRunner: hookRunner);
+            hookRunner: hookRunner,
+            sessionService: sessionService);
 
         AnsiConsole.MarkupLine("[green][[ACP]][/] DotCraft ACP agent started (stdio)");
         await handler.RunAsync(cancellationToken);

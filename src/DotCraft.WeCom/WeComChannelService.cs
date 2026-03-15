@@ -7,6 +7,7 @@ using DotCraft.Cron;
 using DotCraft.Tracing;
 using DotCraft.Diagnostics;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
@@ -88,14 +89,20 @@ public sealed class WeComChannelService(
     {
         _webApp = app;
 
-        _agentFactory = BuildAgentFactory();
+        var scopedApproval = new SessionScopedApprovalService(wecomApprovalService);
+        _agentFactory = BuildAgentFactory(scopedApproval);
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var traceCollector = sp.GetService<TraceCollector>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
         var sessionGate = sp.GetRequiredService<SessionGate>();
+        var threadStore = sp.GetRequiredService<ThreadStore>();
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
+        var hookRunner = sp.GetService<HookRunner>();
+        var sessionService = new SessionService(
+            _agentFactory, agent, threadStore, sessionGate,
+            hookRunner, traceCollector);
         _httpClient = new HttpClient(new SocketsHttpHandler
         {
             SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
@@ -115,7 +122,9 @@ public sealed class WeComChannelService(
             traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
             customCommandLoader: customCommandLoader,
-            httpClient: _httpClient);
+            httpClient: _httpClient,
+            sessionService: sessionService,
+            workspacePath: paths.WorkspacePath);
 
         var logger = new WeComServerLogger();
         var server = new WeComBotServer(registry, httpClient: _httpClient, logger: logger);
@@ -131,7 +140,7 @@ public sealed class WeComChannelService(
 
     #endregion
 
-    private AgentFactory BuildAgentFactory()
+    private AgentFactory BuildAgentFactory(SessionScopedApprovalService scopedApproval)
     {
         var cronTools = sp.GetService<CronTools>();
         var traceCollector = sp.GetService<TraceCollector>();
@@ -144,7 +153,7 @@ public sealed class WeComChannelService(
 
         return new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, wecomApprovalService, blacklist,
+            memoryStore, skillsLoader, scopedApproval, blacklist,
             toolProviders: toolProviders,
             toolProviderContext: new ToolProviderContext
             {
@@ -157,7 +166,7 @@ public sealed class WeComChannelService(
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
                 SkillsLoader = skillsLoader,
-                ApprovalService = wecomApprovalService,
+                ApprovalService = scopedApproval,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
