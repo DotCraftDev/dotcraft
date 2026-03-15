@@ -114,13 +114,13 @@ internal sealed class SessionApprovalService : IApprovalService
         _turn.Items.Add(requestItem);
         _turn.Status = TurnStatus.WaitingApproval;
 
-        _channel.EmitItemStarted(requestItem);
-        _channel.EmitItemCompleted(requestItem);
-        _channel.EmitApprovalRequested(requestItem);
-
         // Register TCS before emitting the event so there's no race
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[requestId] = tcs;
+
+        _channel.EmitItemStarted(requestItem);
+        _channel.EmitItemCompleted(requestItem);
+        _channel.EmitApprovalRequested(requestItem);
 
         // Apply timeout
         using var cts = new CancellationTokenSource(_timeout);
