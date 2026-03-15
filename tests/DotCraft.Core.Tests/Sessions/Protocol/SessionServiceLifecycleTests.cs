@@ -281,11 +281,12 @@ internal sealed class FakeSessionService : ISessionService
         SessionIdentity identity,
         ThreadConfiguration? config = null,
         HistoryMode historyMode = HistoryMode.Server,
+        string? threadId = null,
         CancellationToken ct = default)
     {
         var thread = new SessionThread
         {
-            Id = SessionIdGenerator.NewThreadId(),
+            Id = threadId ?? SessionIdGenerator.NewThreadId(),
             WorkspacePath = identity.WorkspacePath,
             UserId = identity.UserId,
             OriginChannel = identity.ChannelName,

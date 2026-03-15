@@ -17,11 +17,16 @@ public interface ISessionService
     /// <see cref="HistoryMode.Server"/> (default): Session Core manages conversation history.
     /// <see cref="HistoryMode.Client"/>: The adapter provides message history with each SubmitInput call.
     /// </param>
+    /// <param name="threadId">
+    /// Optional pre-assigned thread ID. When provided, this ID is used instead of generating a new one.
+    /// The caller is responsible for ensuring uniqueness (e.g. by using <see cref="SessionIdGenerator.NewThreadId"/>).
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
         HistoryMode historyMode = HistoryMode.Server,
+        string? threadId = null,
         CancellationToken ct = default);
 
     /// <summary>

@@ -49,6 +49,11 @@ public sealed class AcpHandler(
     private ClientCapabilities? _clientCapabilities;
     private bool _initialized;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activePrompts = new();
+    // Sessions created via session/new but not yet materialized (no messages sent).
+    // Key = placeholder thread ID; value is unused (byte as sentinel).
+    private readonly ConcurrentDictionary<string, byte> _pendingSessions = new();
+    // Optional per-session MCP config stored during session/new, consumed during materialization.
+    private readonly ConcurrentDictionary<string, ThreadConfiguration> _pendingConfigs = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -92,6 +97,19 @@ public sealed class AcpHandler(
     }
 
     private static Task DisposeSessionMcpManagersAsync() => Task.CompletedTask;
+
+    /// <summary>
+    /// Materializes a pending session on first use: creates and persists the thread using the
+    /// pre-assigned ID. No-op if the session has already been materialized.
+    /// </summary>
+    private async Task EnsureThreadMaterializedAsync(string sessionId, CancellationToken ct)
+    {
+        if (!_pendingSessions.TryRemove(sessionId, out _))
+            return;
+
+        _pendingConfigs.TryRemove(sessionId, out var config);
+        await sessionService.CreateThreadAsync(_acpIdentity, config, threadId: sessionId, ct: ct);
+    }
 
     private async Task DispatchAsync(JsonRpcRequest request, CancellationToken ct)
     {
@@ -222,12 +240,17 @@ public sealed class AcpHandler(
 
         var p = Deserialize<SessionNewParams>(request.Params);
 
-        // Create a Thread via Session Protocol
-        var config = p?.McpServers is { Count: > 0 }
-            ? new ThreadConfiguration { McpServers = ConvertToMcpConfigs(p.McpServers).ToArray() }
-            : null;
-        var thread = await sessionService.CreateThreadAsync(_acpIdentity, config, ct: ct);
-        var sessionId = thread.Id;
+        // Generate the thread ID eagerly so the client gets a stable ID,
+        // but defer disk writes until the first actual prompt arrives.
+        var sessionId = SessionIdGenerator.NewThreadId();
+        _pendingSessions.TryAdd(sessionId, 0);
+
+        // Store MCP config alongside the pending session so it can be used during materialization.
+        if (p?.McpServers is { Count: > 0 })
+        {
+            var config = new ThreadConfiguration { McpServers = ConvertToMcpConfigs(p.McpServers).ToArray() };
+            _pendingConfigs.TryAdd(sessionId, config);
+        }
 
         // Run SessionStart hooks
         if (hookRunner != null)
@@ -352,7 +375,15 @@ public sealed class AcpHandler(
             promptCts.Dispose();
         }
 
-        await sessionService.ArchiveThreadAsync(sessionId, ct);
+        // If the session was never materialized, just discard the pending state.
+        if (_pendingSessions.TryRemove(sessionId, out _))
+        {
+            _pendingConfigs.TryRemove(sessionId, out _);
+        }
+        else
+        {
+            await sessionService.ArchiveThreadAsync(sessionId, ct);
+        }
 
         transport.SendResponse(request.Id, new SessionDeleteResult());
     }
@@ -369,6 +400,10 @@ public sealed class AcpHandler(
         }
 
         var sessionId = p.SessionId;
+
+        // Materialize the thread on first use so empty threads are never written to disk.
+        await EnsureThreadMaterializedAsync(sessionId, ct);
+
         approvalService.SetSessionId(sessionId);
 
         using var promptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -404,7 +439,7 @@ public sealed class AcpHandler(
             }
             else if (p.Command != null)
             {
-                // Command was set but not resolved �?preserve the /{command} prefix as text,
+                // Command was set but not resolved ??preserve the /{command} prefix as text,
                 // plus any non-text blocks (e.g. images) from the original prompt.
                 contentParts = new List<AIContent> { new TextContent(promptText) };
                 foreach (var block in p.Prompt)
@@ -611,7 +646,7 @@ public sealed class AcpHandler(
         }
     }
 
-    // ───── Helper methods ─────
+    // ????? Helper methods ?????
 
     private static List<McpServerConfig> ConvertToMcpConfigs(List<AcpMcpServer> mcpServers)
     {
