@@ -57,6 +57,11 @@ public sealed record CommandContext
     public string? GroupId { get; init; }
     
     /// <summary>
+    /// The workspace path, used to construct a SessionIdentity for thread discovery.
+    /// </summary>
+    public string WorkspacePath { get; init; } = string.Empty;
+
+    /// <summary>
     /// The session service for managing conversation threads.
     /// </summary>
     public ISessionService? SessionService { get; init; }

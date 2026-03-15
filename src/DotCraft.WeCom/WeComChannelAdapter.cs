@@ -489,6 +489,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
             IsAdmin = userRole == WeComUserRole.Admin,
             Source = "WeCom",
             GroupId = chatId,
+            WorkspacePath = _workspacePath,
             SessionService = _sessionService,
             HeartbeatService = _heartbeatService,
             CronService = _cronService,
