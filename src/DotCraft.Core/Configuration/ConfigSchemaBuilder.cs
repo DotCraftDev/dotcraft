@@ -180,6 +180,8 @@ public static class ConfigSchemaBuilder
             if (countProp?.GetValue(value) is int count && count == 0) return null;
         }
 
+        if (type.IsEnum) return value.ToString();
+
         return value;
     }
 

@@ -1966,6 +1966,10 @@ function renderGlobalPanel(globalData) {
           display = '***';
         } else if (typeof rawVal === 'object') {
           display = JSON.stringify(rawVal);
+        } else if (field.type === 'select' && typeof rawVal === 'number') {
+          display = (field.options && field.options[rawVal] !== undefined)
+            ? field.options[rawVal]
+            : String(rawVal);
         } else {
           display = String(rawVal);
         }
