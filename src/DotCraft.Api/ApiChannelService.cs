@@ -101,8 +101,7 @@ public sealed class ApiChannelService(
             app.Use(async (context, next) =>
             {
                 var path = context.Request.Path.Value ?? "";
-                if (path.StartsWith("/dotcraft/", StringComparison.OrdinalIgnoreCase) ||
-                    path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
+                if (path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
                 {
                     if (path == "/v1/health")
                     {
@@ -376,7 +375,7 @@ public sealed class ApiChannelService(
         });
 
         // POST /v1/chat/completions — OpenAI-compatible endpoint backed by ISessionService.
-        endpoints.MapPost("/v1/chat/completions", async (HttpContext context) =>
+        endpoints.MapPost("/v1/chat/completions", async context =>
         {
             if (!Authenticate(context))
             {
@@ -591,7 +590,7 @@ public sealed class ApiChannelService(
                         new
                         {
                             index = 0,
-                            message = new { role = "assistant", content = responseBuilder.ToString() },
+                            message = new { content = responseBuilder.ToString(), role = "assistant" },
                             finish_reason = "stop"
                         }
                     }
