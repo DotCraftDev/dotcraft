@@ -9,6 +9,7 @@ if /i "%~1"=="--no-wecom" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleWeCom=
 if /i "%~1"=="--no-unity" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleUnity=false
 if /i "%~1"=="--no-github-tracker" set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleGitHubTracker=false
 if /i "%~1"=="--no-agui"         set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleAGUI=false
+if /i "%~1"=="--no-api"          set MODULE_PROPS=%MODULE_PROPS% /p:IncludeModuleAPI=false
 shift
 goto :parse_args
 :args_done

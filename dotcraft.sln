@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.GitHubTracker", "s
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.AGUI", "src\DotCraft.AGUI\DotCraft.AGUI.csproj", "{70A765C4-4AD7-4E0D-843F-E48D90E7D286}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.Api", "src\DotCraft.Api\DotCraft.Api.csproj", "{86A61B75-9A3A-4D1B-B36E-683E179022CE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -127,6 +129,18 @@ Global
 		{70A765C4-4AD7-4E0D-843F-E48D90E7D286}.Release|Any CPU.Build.0 = Release|Any CPU
 		{70A765C4-4AD7-4E0D-843F-E48D90E7D286}.Release|x86.ActiveCfg = Release|Any CPU
 		{70A765C4-4AD7-4E0D-843F-E48D90E7D286}.Release|x86.Build.0 = Release|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Debug|x64.Build.0 = Debug|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Debug|x86.Build.0 = Debug|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Release|x64.ActiveCfg = Release|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Release|x64.Build.0 = Release|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Release|x86.ActiveCfg = Release|Any CPU
+		{86A61B75-9A3A-4D1B-B36E-683E179022CE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
