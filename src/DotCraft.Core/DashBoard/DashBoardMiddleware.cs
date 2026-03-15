@@ -8,6 +8,8 @@ using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace DotCraft.DashBoard;
 
@@ -248,7 +250,10 @@ public static class DashBoardMiddleware
             ctx.Response.Headers.CacheControl = "no-cache";
             ctx.Response.Headers.Connection = "keep-alive";
 
-            var cancellationToken = ctx.RequestAborted;
+            var lifetime = ctx.RequestServices.GetRequiredService<IHostApplicationLifetime>();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+                ctx.RequestAborted, lifetime.ApplicationStopping);
+            var cancellationToken = cts.Token;
             var reader = traceStore.SseReader;
 
             try
@@ -262,7 +267,7 @@ public static class DashBoardMiddleware
             }
             catch (OperationCanceledException)
             {
-                // Client disconnected
+                // Client disconnected or server shutting down
             }
         });
     }
