@@ -95,14 +95,10 @@ public sealed class WeComChannelService(
         var traceCollector = sp.GetService<TraceCollector>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var threadStore = sp.GetRequiredService<ThreadStore>();
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
         var hookRunner = sp.GetService<HookRunner>();
-        var sessionService = new SessionService(
-            _agentFactory, agent, threadStore, sessionGate,
-            hookRunner, traceCollector);
+        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         _httpClient = new HttpClient(new SocketsHttpHandler
         {
             SslOptions = { RemoteCertificateValidationCallback = (_, _, _, _) => true },
@@ -114,8 +110,8 @@ public sealed class WeComChannelService(
             DefaultRequestHeaders = { { "User-Agent", "DotCraft/1.0" } }
         };
         _adapter = new WeComChannelAdapter(
-            agent, sessionStore, registry,
-            permissionService, wecomApprovalService, sessionGate, activeRunRegistry,
+            sessionStore, registry,
+            permissionService, wecomApprovalService, activeRunRegistry,
             heartbeatService: HeartbeatService,
             cronService: CronService,
             agentFactory: _agentFactory,

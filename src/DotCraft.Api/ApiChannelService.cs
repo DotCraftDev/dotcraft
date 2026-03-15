@@ -45,7 +45,6 @@ public sealed class ApiChannelService(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -189,18 +188,10 @@ public sealed class ApiChannelService(
             });
         }
 
-        app.Use(NonStreamingResponseMiddleware);
-        app.MapOpenAIChatCompletions(_agentBuilder!);
-
         var agent = _agentFactory!.CreateAgentWithTools(_tools!);
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var threadStore = sp.GetRequiredService<ThreadStore>();
         var hookRunner = sp.GetService<HookRunner>();
-        var scopedApproval = new SessionScopedApprovalService(approvalService);
-        _sessionService = new SessionService(
-            _agentFactory, agent, threadStore, sessionGate,
-            hookRunner, traceCollector);
-        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner);
+        _sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+        var runner = new AgentRunner(hookRunner, _sessionService);
 
         MapAdditionalRoutes(app, runner);
 
@@ -388,12 +379,10 @@ public sealed class ApiChannelService(
             return Results.Json(new { id, approved = body.Approved });
         });
 
-        // Session Protocol endpoint: POST /dotcraft/v1/chat/completions
-        // Mirrors the OpenAI-compatible format but uses ISessionService for persistence.
-        if (_sessionService != null)
+        // POST /v1/chat/completions — OpenAI-compatible endpoint backed by ISessionService.
         {
-            var capturedSessionService = _sessionService;
-            endpoints.MapPost("/dotcraft/v1/chat/completions", async (HttpContext context) =>
+            var capturedSessionService = _sessionService!;
+            endpoints.MapPost("/v1/chat/completions", async (HttpContext context) =>
             {
                 if (!Authenticate(context))
                 {
@@ -505,6 +494,30 @@ public sealed class ApiChannelService(
                             await context.Response.WriteAsync(line, context.RequestAborted);
                             await context.Response.Body.FlushAsync(context.RequestAborted);
                         }
+                        else if (evt.EventType == SessionEventType.ItemDelta &&
+                                 evt.ReasoningDeltaPayload is { } reasoning &&
+                                 !string.IsNullOrEmpty(reasoning.TextDelta))
+                        {
+                            // Emit reasoning as a separate chunk with role "reasoning" (non-standard extension)
+                            var reasoningChunk = new
+                            {
+                                id = $"chatcmpl-{threadId}",
+                                @object = "chat.completion.chunk",
+                                created,
+                                model = config.Model,
+                                choices = new[]
+                                {
+                                    new
+                                    {
+                                        index = 0,
+                                        delta = new { reasoning = reasoning.TextDelta },
+                                        finish_reason = (string?)null
+                                    }
+                                }
+                            };
+                            await context.Response.WriteAsync("data: " + JsonSerializer.Serialize(reasoningChunk) + "\n\n", context.RequestAborted);
+                            await context.Response.Body.FlushAsync(context.RequestAborted);
+                        }
                         else if (evt.EventType == SessionEventType.TurnCompleted)
                         {
                             var finChunk = new
@@ -586,153 +599,6 @@ public sealed class ApiChannelService(
             return authHeader["Bearer ".Length..].Trim() == apiKey;
 
         return false;
-    }
-
-    private static async Task NonStreamingResponseMiddleware(HttpContext context, RequestDelegate next)
-    {
-        var path = context.Request.Path.Value ?? "";
-        if (!path.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
-        {
-            await next(context);
-            return;
-        }
-
-        context.Request.EnableBuffering();
-        using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
-        var requestBody = await reader.ReadToEndAsync();
-        context.Request.Body.Position = 0;
-
-        var isStreaming = false;
-        try
-        {
-            using var doc = JsonDocument.Parse(requestBody);
-            if (doc.RootElement.TryGetProperty("stream", out var streamProp) &&
-                streamProp.ValueKind == JsonValueKind.True)
-                isStreaming = true;
-        }
-        catch { /* ignored */ }
-
-        if (isStreaming)
-        {
-            await next(context);
-            return;
-        }
-
-        var originalBody = context.Response.Body;
-        using var buffer = new MemoryStream();
-        context.Response.Body = buffer;
-
-        await next(context);
-
-        buffer.Position = 0;
-        var contentType = context.Response.ContentType ?? "";
-        if (contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                using var doc = await JsonDocument.ParseAsync(buffer);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("choices", out var choices) &&
-                    choices.ValueKind == JsonValueKind.Array)
-                {
-                    var candidateChoices = new List<JsonElement>();
-                    JsonElement? bestTextChoice = null;
-
-                    for (var i = 0; i < choices.GetArrayLength(); i++)
-                    {
-                        var choice = choices[i];
-                        var hasToolCalls = false;
-                        var hasNonEmptyContent = false;
-
-                        if (choice.TryGetProperty("message", out var msg) &&
-                            msg.ValueKind == JsonValueKind.Object)
-                        {
-                            if (msg.TryGetProperty("tool_calls", out var toolCalls) &&
-                                toolCalls.ValueKind == JsonValueKind.Array &&
-                                toolCalls.GetArrayLength() > 0)
-                                hasToolCalls = true;
-
-                            if (msg.TryGetProperty("content", out var content) &&
-                                content.ValueKind == JsonValueKind.String &&
-                                !string.IsNullOrWhiteSpace(content.GetString()))
-                            {
-                                hasNonEmptyContent = true;
-                                bestTextChoice = choice;
-                            }
-                        }
-
-                        if (hasToolCalls && !hasNonEmptyContent)
-                            continue;
-
-                        candidateChoices.Add(choice);
-                    }
-
-                    if (candidateChoices.Count > 0)
-                    {
-                        var selectedChoice = candidateChoices.Count == 1
-                            ? candidateChoices[0]
-                            : bestTextChoice ?? candidateChoices[^1];
-
-                        using var output = new MemoryStream();
-                        using (var writer = new Utf8JsonWriter(output))
-                        {
-                            writer.WriteStartObject();
-                            foreach (var prop in root.EnumerateObject())
-                            {
-                                if (prop.Name == "choices")
-                                {
-                                    writer.WriteStartArray("choices");
-                                    writer.WriteStartObject();
-                                    foreach (var cp in selectedChoice.EnumerateObject())
-                                    {
-                                        if (cp.Name == "index")
-                                        {
-                                            writer.WriteNumber("index", 0);
-                                        }
-                                        else if (cp.Name == "message" &&
-                                                 cp.Value.ValueKind == JsonValueKind.Object)
-                                        {
-                                            writer.WriteStartObject("message");
-                                            foreach (var mp in cp.Value.EnumerateObject())
-                                            {
-                                                if (!string.Equals(mp.Name, "tool_calls",
-                                                        StringComparison.Ordinal))
-                                                    mp.WriteTo(writer);
-                                            }
-                                            writer.WriteEndObject();
-                                        }
-                                        else
-                                        {
-                                            cp.WriteTo(writer);
-                                        }
-                                    }
-                                    writer.WriteEndObject();
-                                    writer.WriteEndArray();
-                                }
-                                else
-                                {
-                                    prop.WriteTo(writer);
-                                }
-                            }
-                            writer.WriteEndObject();
-                        }
-
-                        context.Response.Body = originalBody;
-                        context.Response.ContentLength = output.Length;
-                        output.Position = 0;
-                        await output.CopyToAsync(originalBody);
-                        return;
-                    }
-                }
-            }
-            catch { /* ignored */ }
-        }
-
-        buffer.Position = 0;
-        context.Response.Body = originalBody;
-        context.Response.ContentLength = buffer.Length;
-        await buffer.CopyToAsync(originalBody);
     }
 
     [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Local")]

@@ -1,5 +1,4 @@
 using DotCraft.Sessions.Protocol;
-using Microsoft.Extensions.AI;
 
 namespace DotCraft.Core.Tests.Sessions.Protocol;
 

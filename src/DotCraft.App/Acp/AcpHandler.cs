@@ -23,19 +23,17 @@ namespace DotCraft.Acp;
 /// </summary>
 public sealed class AcpHandler(
     AcpTransport transport,
-    SessionStore sessionStore,
     AgentFactory agentFactory,
     AIAgent agent,
     AcpApprovalService approvalService,
     string workspacePath,
+    ISessionService sessionService,
     CustomCommandLoader? customCommandLoader = null,
-    TraceCollector? traceCollector = null,
     TokenUsageStore? tokenUsageStore = null,
     AcpLogger? logger = null,
     PlanStore? planStore = null,
     AcpClientProxy? clientProxy = null,
-    HookRunner? hookRunner = null,
-    ISessionService? sessionService = null)
+    HookRunner? hookRunner = null)
 {
     // Identity used for thread discovery/creation in Session Protocol path
     private readonly SessionIdentity _acpIdentity = new()
@@ -51,10 +49,6 @@ public sealed class AcpHandler(
     private ClientCapabilities? _clientCapabilities;
     private bool _initialized;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _activePrompts = new();
-    private readonly ConcurrentDictionary<string, AgentModeManager> _sessionModes = new();
-    private readonly ConcurrentDictionary<string, AIAgent> _sessionAgents = new();
-    private readonly ConcurrentDictionary<string, McpClientManager> _sessionMcpManagers = new();
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -97,23 +91,7 @@ public sealed class AcpHandler(
         }
     }
 
-    private async Task DisposeSessionMcpManagersAsync()
-    {
-        foreach (var sessionId in _sessionMcpManagers.Keys.ToList())
-        {
-            if (_sessionMcpManagers.TryRemove(sessionId, out var manager))
-            {
-                try
-                {
-                    await manager.DisposeAsync();
-                }
-                catch (Exception ex)
-                {
-                    logger?.LogError($"Error disposing MCP manager for session {sessionId}", ex);
-                }
-            }
-        }
-    }
+    private static Task DisposeSessionMcpManagersAsync() => Task.CompletedTask;
 
     private async Task DispatchAsync(JsonRpcRequest request, CancellationToken ct)
     {
@@ -244,34 +222,12 @@ public sealed class AcpHandler(
 
         var p = Deserialize<SessionNewParams>(request.Params);
 
-        string sessionId;
-        if (sessionService != null)
-        {
-            // Session Protocol path: create a Thread
-            var config = p?.McpServers is { Count: > 0 }
-                ? new ThreadConfiguration { McpServers = ConvertToMcpConfigs(p.McpServers).ToArray() }
-                : null;
-            var thread = await sessionService.CreateThreadAsync(_acpIdentity, config, ct: ct);
-            sessionId = thread.Id;
-        }
-        else
-        {
-            // Legacy path
-            sessionId = $"acp_{SessionStore.GenerateSessionId()}";
-            approvalService.SetSessionId(sessionId);
-            _sessionModes[sessionId] = new AgentModeManager();
-
-            if (p?.McpServers is { Count: > 0 })
-            {
-                await ConnectSessionMcpAsync(sessionId, p.McpServers, ct);
-                _sessionAgents[sessionId] = CreateSessionAgentWithMcp(sessionId, AgentMode.Agent);
-            }
-
-            // Persist the new (empty) session to disk immediately so it appears in session/list
-            var currentAgent = _sessionAgents.GetValueOrDefault(sessionId, _defaultAgent);
-            var newSession = await sessionStore.LoadOrCreateAsync(currentAgent, sessionId, ct);
-            await sessionStore.SaveAsync(currentAgent, newSession, sessionId, ct);
-        }
+        // Create a Thread via Session Protocol
+        var config = p?.McpServers is { Count: > 0 }
+            ? new ThreadConfiguration { McpServers = ConvertToMcpConfigs(p.McpServers).ToArray() }
+            : null;
+        var thread = await sessionService.CreateThreadAsync(_acpIdentity, config, ct: ct);
+        var sessionId = thread.Id;
 
         // Run SessionStart hooks
         if (hookRunner != null)
@@ -308,64 +264,42 @@ public sealed class AcpHandler(
 
         var sessionId = p.SessionId;
 
-        if (sessionService != null)
+        // Resume the Thread via Session Protocol
+        var resumedThread = await sessionService.ResumeThreadAsync(sessionId, ct);
+
+        // Replay conversation history as session/update notifications
+        foreach (var turn in resumedThread.Turns)
         {
-            // Session Protocol path: resume the Thread
-            await sessionService.ResumeThreadAsync(sessionId, ct);
-        }
-        else
-        {
-            // Legacy path
-            approvalService.SetSessionId(sessionId);
-
-            if (p.McpServers is { Count: > 0 })
+            foreach (var item in turn.Items)
             {
-                await ConnectSessionMcpAsync(sessionId, p.McpServers, ct);
-                _sessionModes.TryAdd(sessionId, new AgentModeManager());
-                _sessionAgents[sessionId] = CreateSessionAgentWithMcp(sessionId, AgentMode.Agent);
-            }
-
-            // Load the session to get chat history
-            var currentAgent = _sessionAgents.GetValueOrDefault(sessionId, _defaultAgent);
-            var session = await sessionStore.LoadOrCreateAsync(currentAgent, sessionId, ct);
-            var chatHistory = session.GetService<ChatHistoryProvider>();
-
-            if (chatHistory is InMemoryChatHistoryProvider memoryProvider)
-            {
-                // Replay conversation as session/update notifications
-                foreach (var msg in memoryProvider)
+                if (item.Type == ItemType.UserMessage && item.Payload is UserMessagePayload userMsg)
                 {
-                    if (msg.Role == ChatRole.User)
+                    transport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
                     {
-                        transport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
+                        SessionId = sessionId,
+                        Update = new AcpSessionUpdate
                         {
-                            SessionId = sessionId,
-                            Update = new AcpSessionUpdate
-                            {
-                                SessionUpdate = AcpUpdateKind.UserMessageChunk,
-                                Content = new AcpContentBlock { Type = "text", Text = StripRuntimeContext(msg.Text) }
-                            }
-                        });
-                    }
-                    else if (msg.Role == ChatRole.Assistant && !string.IsNullOrEmpty(msg.Text))
+                            SessionUpdate = AcpUpdateKind.UserMessageChunk,
+                            Content = new AcpContentBlock { Type = "text", Text = userMsg.Text }
+                        }
+                    });
+                }
+                else if (item.Type == ItemType.AgentMessage && item.Payload is AgentMessagePayload agentMsg)
+                {
+                    transport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
                     {
-                        transport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
+                        SessionId = sessionId,
+                        Update = new AcpSessionUpdate
                         {
-                            SessionId = sessionId,
-                            Update = new AcpSessionUpdate
-                            {
-                                SessionUpdate = AcpUpdateKind.AgentMessageChunk,
-                                Content = new AcpContentBlock { Type = "text", Text = msg.Text }
-                            }
-                        });
-                    }
+                            SessionUpdate = AcpUpdateKind.AgentMessageChunk,
+                            Content = new AcpContentBlock { Type = "text", Text = agentMsg.Text }
+                        }
+                    });
                 }
             }
         }
 
-        var loadedMode = _sessionModes.TryGetValue(sessionId, out var mm)
-            ? mm.CurrentMode.ToString().ToLower()
-            : "agent";
+        var loadedMode = resumedThread.Configuration?.Mode ?? "agent";
         transport.SendResponse(request.Id, new SessionLoadResult
         {
             SessionId = sessionId,
@@ -387,33 +321,16 @@ public sealed class AcpHandler(
     {
         if (!EnsureInitialized(request)) return;
 
-        if (sessionService != null)
-        {
-            // Session Protocol path: use async FindThreadsAsync, but method is sync — run synchronously
-            var threads = sessionService.FindThreadsAsync(_acpIdentity).GetAwaiter().GetResult();
-            var sessions = threads
-                .Select(t => new SessionListEntry
-                {
-                    SessionId = t.Id,
-                    UpdatedAt = t.LastActiveAt.ToString("O"),
-                    Cwd = workspacePath
-                })
-                .ToList();
-            transport.SendResponse(request.Id, new SessionListResult { Sessions = sessions });
-        }
-        else
-        {
-            var sessions = sessionStore.ListSessions()
-                .Where(s => s.Key.StartsWith("acp_"))
-                .Select(s => new SessionListEntry
-                {
-                    SessionId = s.Key,
-                    UpdatedAt = s.UpdatedAt,
-                    Cwd = workspacePath
-                })
-                .ToList();
-            transport.SendResponse(request.Id, new SessionListResult { Sessions = sessions });
-        }
+        var threads = sessionService.FindThreadsAsync(_acpIdentity).GetAwaiter().GetResult();
+        var sessions = threads
+            .Select(t => new SessionListEntry
+            {
+                SessionId = t.Id,
+                UpdatedAt = t.LastActiveAt.ToString("O"),
+                Cwd = workspacePath
+            })
+            .ToList();
+        transport.SendResponse(request.Id, new SessionListResult { Sessions = sessions });
     }
 
     private async Task HandleDotCraftSessionDeleteAsync(JsonRpcRequest request, CancellationToken ct)
@@ -435,18 +352,7 @@ public sealed class AcpHandler(
             promptCts.Dispose();
         }
 
-        if (sessionService != null)
-        {
-            await sessionService.ArchiveThreadAsync(sessionId, ct);
-        }
-        else
-        {
-            sessionStore.Delete(sessionId);
-            planStore?.DeletePlan(sessionId);
-            _sessionModes.TryRemove(sessionId, out _);
-            _sessionAgents.TryRemove(sessionId, out _);
-            await DisposeSessionMcpManagerAsync(sessionId);
-        }
+        await sessionService.ArchiveThreadAsync(sessionId, ct);
 
         transport.SendResponse(request.Id, new SessionDeleteResult());
     }
@@ -498,7 +404,7 @@ public sealed class AcpHandler(
             }
             else if (p.Command != null)
             {
-                // Command was set but not resolved — preserve the /{command} prefix as text,
+                // Command was set but not resolved �?preserve the /{command} prefix as text,
                 // plus any non-text blocks (e.g. images) from the original prompt.
                 contentParts = new List<AIContent> { new TextContent(promptText) };
                 foreach (var block in p.Prompt)
@@ -537,9 +443,7 @@ public sealed class AcpHandler(
 
             logger?.LogEvent($"Prompt start [session={sessionId}]: {(promptText.Length > 200 ? promptText[..200] + "..." : promptText)}");
 
-            if (sessionService != null)
             {
-                // Session Protocol path
                 string? activeTurnId = null;
                 await foreach (var evt in sessionService
                     .SubmitInputAsync(sessionId, promptText, ct: promptCts.Token)
@@ -662,123 +566,17 @@ public sealed class AcpHandler(
                     await hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
                 }
 
+                // Send structured plan update (covers Plan mode creation and Agent mode todo updates)
+                if (planStore != null && planStore.StructuredPlanExists(sessionId))
+                {
+                    var structuredPlan = await planStore.LoadStructuredPlanAsync(sessionId);
+                    if (structuredPlan != null)
+                        SendPlanUpdate(sessionId, structuredPlan);
+                }
+
                 logger?.LogEvent($"Prompt complete [session={sessionId}] stop=end_turn (Session Protocol)");
                 transport.SendResponse(request.Id, new SessionPromptResult { StopReason = AcpStopReason.EndTurn });
             }
-            else
-            {
-            // Legacy path: Set up tracing
-            TracingChatClient.CurrentSessionKey = sessionId;
-            TracingChatClient.ResetCallState(sessionId);
-
-            traceCollector?.RecordSessionMetadata(
-                sessionId, null,
-                agentFactory.LastCreatedTools?.Select(t => t.Name));
-
-            var currentAgent = _sessionAgents.GetValueOrDefault(sessionId, _defaultAgent);
-            var session = await sessionStore.LoadOrCreateAsync(currentAgent, sessionId, promptCts.Token);
-            long inputTokens = 0, outputTokens = 0, totalTokens = 0;
-            var tokenTracker = agentFactory.GetOrCreateTokenTracker(sessionId);
-
-            try
-            {
-                var userMessage = new ChatMessage(ChatRole.User, contentParts);
-                await foreach (var update in currentAgent.RunStreamingAsync([userMessage], session, cancellationToken: promptCts.Token))
-                {
-                    foreach (var content in update.Contents)
-                    {
-                        switch (content)
-                        {
-                            case TextReasoningContent reasoning:
-                                if (ReasoningContentHelper.TryGetText(reasoning, out var reasoningText))
-                                    SendMessageChunk(sessionId, ReasoningContentHelper.FormatBlock(reasoningText));
-                                break;
-
-                            case FunctionCallContent fc:
-                                SendToolCallStarted(sessionId, fc);
-                                break;
-
-                            case FunctionResultContent fr:
-                                SendToolCallCompleted(sessionId, fr);
-                                break;
-
-                            case UsageContent usage:
-                                if (usage.Details.InputTokenCount.HasValue)
-                                    inputTokens = usage.Details.InputTokenCount.Value;
-                                if (usage.Details.OutputTokenCount.HasValue)
-                                    outputTokens = usage.Details.OutputTokenCount.Value;
-                                if (usage.Details.TotalTokenCount.HasValue)
-                                    totalTokens = usage.Details.TotalTokenCount.Value;
-                                break;
-                        }
-                    }
-
-                    if (!string.IsNullOrEmpty(update.Text))
-                    {
-                        SendMessageChunk(sessionId, update.Text);
-                    }
-                }
-            }
-            finally
-            {
-                TracingChatClient.ResetCallState(sessionId);
-                TracingChatClient.CurrentSessionKey = null;
-            }
-
-            if (totalTokens == 0 && (inputTokens > 0 || outputTokens > 0))
-                totalTokens = inputTokens + outputTokens;
-
-            await sessionStore.SaveAsync(currentAgent, session, sessionId, CancellationToken.None);
-
-            // Run Stop hooks after agent finishes responding
-            if (hookRunner != null)
-            {
-                var stopInput = new HookInput { SessionId = sessionId };
-                await hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
-            }
-
-            // Send structured plan update whenever a plan exists (covers both
-            // plan creation in Plan mode and todo updates in Agent mode)
-            if (planStore != null && planStore.StructuredPlanExists(sessionId))
-            {
-                var structuredPlan = await planStore.LoadStructuredPlanAsync(sessionId);
-                if (structuredPlan != null)
-                    SendPlanUpdate(sessionId, structuredPlan);
-            }
-
-            if (totalTokens > 0)
-            {
-                tokenTracker.Update(inputTokens, outputTokens);
-                tokenUsageStore?.Record(new TokenUsageRecord
-                {
-                    Channel = "acp",
-                    UserId = sessionId,
-                    DisplayName = sessionId,
-                    InputTokens = inputTokens,
-                    OutputTokens = outputTokens
-                });
-            }
-
-            // Handle context compaction
-            if (agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
-                inputTokens >= agentFactory.MaxContextTokens)
-            {
-                if (await agentFactory.Compactor.TryCompactAsync(session, promptCts.Token))
-                {
-                    tokenTracker.Reset();
-                    traceCollector?.RecordContextCompaction(sessionId);
-                }
-            }
-
-            _ = agentFactory.TryConsolidateMemory(session, sessionId);
-
-            logger?.LogEvent($"Prompt complete [session={sessionId}] stop=end_turn tokens(in={inputTokens},out={outputTokens},total={totalTokens})");
-
-            transport.SendResponse(request.Id, new SessionPromptResult
-            {
-                StopReason = AcpStopReason.EndTurn
-            });
-            } // end legacy path
         }
         catch (OperationCanceledException)
         {
@@ -843,43 +641,6 @@ public sealed class AcpHandler(
             configs.Add(config);
         }
         return configs;
-    }
-
-    private async Task ConnectSessionMcpAsync(string sessionId, List<AcpMcpServer> mcpServers, CancellationToken ct)
-    {
-        var configs = ConvertToMcpConfigs(mcpServers);
-        if (configs.Count == 0)
-            return;
-        var manager = new McpClientManager();
-        await manager.ConnectAsync(configs, ct);
-        _sessionMcpManagers[sessionId] = manager;
-    }
-
-    private async Task DisposeSessionMcpManagerAsync(string sessionId)
-    {
-        if (!_sessionMcpManagers.TryRemove(sessionId, out var manager))
-            return;
-
-        try
-        {
-            await manager.DisposeAsync();
-        }
-        catch (Exception ex)
-        {
-            logger?.LogError($"Error disposing MCP manager for session {sessionId}", ex);
-        }
-    }
-
-    private AIAgent CreateSessionAgentWithMcp(string sessionId, AgentMode mode)
-    {
-        var modeManager = _sessionModes.GetValueOrDefault(sessionId);
-        var tools = agentFactory.CreateToolsForMode(mode);
-        if (_sessionMcpManagers.TryGetValue(sessionId, out var mcpManager) && mcpManager.Tools.Count > 0)
-        {
-            foreach (var t in mcpManager.Tools)
-                tools.Add(t);
-        }
-        return agentFactory.CreateAgentWithTools(tools, modeManager);
     }
 
     private void SendMessageChunk(string sessionId, string text)
@@ -1037,20 +798,7 @@ public sealed class AcpHandler(
         var sessionId = p.SessionId;
         var modeName = p.Mode?.ToLowerInvariant() ?? "agent";
 
-        if (sessionService != null)
-        {
-            sessionService.SetThreadModeAsync(sessionId, modeName).GetAwaiter().GetResult();
-        }
-        else
-        {
-            var modeManager = _sessionModes.GetOrAdd(sessionId, _ => new AgentModeManager());
-            var newMode = modeName == "plan" ? AgentMode.Plan : AgentMode.Agent;
-            modeManager.SwitchMode(newMode);
-            var newAgent = _sessionMcpManagers.ContainsKey(sessionId)
-                ? CreateSessionAgentWithMcp(sessionId, newMode)
-                : agentFactory.CreateAgentForMode(newMode, modeManager);
-            _sessionAgents[sessionId] = newAgent;
-        }
+        sessionService.SetThreadModeAsync(sessionId, modeName).GetAwaiter().GetResult();
 
         var resolvedMode = modeName == "plan" ? AgentMode.Plan : AgentMode.Agent;
         transport.SendResponse(request.Id, new { mode = resolvedMode.ToString().ToLower() });
@@ -1077,20 +825,7 @@ public sealed class AcpHandler(
         {
             var modeName = p.Value.ToLowerInvariant();
 
-            if (sessionService != null)
-            {
-                sessionService.SetThreadModeAsync(sessionId, modeName).GetAwaiter().GetResult();
-            }
-            else
-            {
-                var modeManager = _sessionModes.GetOrAdd(sessionId, _ => new AgentModeManager());
-                var newMode = modeName == "plan" ? AgentMode.Plan : AgentMode.Agent;
-                modeManager.SwitchMode(newMode);
-                var newAgent = _sessionMcpManagers.ContainsKey(sessionId)
-                    ? CreateSessionAgentWithMcp(sessionId, newMode)
-                    : agentFactory.CreateAgentForMode(newMode, modeManager);
-                _sessionAgents[sessionId] = newAgent;
-            }
+            sessionService.SetThreadModeAsync(sessionId, modeName).GetAwaiter().GetResult();
 
             var updatedOptions = BuildConfigOptions(modeName);
             transport.SendResponse(request.Id, new SessionSetConfigOptionResult { ConfigOptions = updatedOptions });

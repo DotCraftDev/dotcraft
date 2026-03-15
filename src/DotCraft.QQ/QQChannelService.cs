@@ -117,17 +117,13 @@ public sealed class QQChannelService(
         var traceCollector = sp.GetService<TraceCollector>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var threadStore = sp.GetRequiredService<ThreadStore>();
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
         var hookRunner = sp.GetService<HookRunner>();
-        var sessionService = new SessionService(
-            agentFactory, agent, threadStore, sessionGate,
-            hookRunner, traceCollector);
+        var sessionService = SessionServiceFactory.Create(agentFactory, agent, sp);
         _adapter = new QQChannelAdapter(
-            qqClient, agent, sessionStore,
-            permissionService, sessionGate, activeRunRegistry,
+            qqClient, sessionStore,
+            permissionService, activeRunRegistry,
             qqApprovalService,
             heartbeatService: HeartbeatService,
             cronService: CronService,

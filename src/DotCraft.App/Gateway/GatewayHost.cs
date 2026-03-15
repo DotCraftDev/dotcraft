@@ -11,7 +11,7 @@ using DotCraft.Hosting;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
-using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,7 +29,6 @@ public sealed class GatewayHost : IDotCraftHost
     private readonly IServiceProvider _sp;
     private readonly AppConfig _config;
     private readonly DotCraftPaths _paths;
-    private readonly SessionStore _sessionStore;
     private readonly SkillsLoader _skillsLoader;
     private readonly CronService _cronService;
     private readonly IReadOnlyList<IChannelService> _channels;
@@ -41,7 +40,6 @@ public sealed class GatewayHost : IDotCraftHost
         IServiceProvider sp,
         AppConfig config,
         DotCraftPaths paths,
-        SessionStore sessionStore,
         SkillsLoader skillsLoader,
         CronService cronService,
         IEnumerable<IChannelService> channels,
@@ -51,7 +49,6 @@ public sealed class GatewayHost : IDotCraftHost
         _sp = sp;
         _config = config;
         _paths = paths;
-        _sessionStore = sessionStore;
         _skillsLoader = skillsLoader;
         _cronService = cronService;
         _channels = channels.ToList();
@@ -285,8 +282,8 @@ public sealed class GatewayHost : IDotCraftHost
             hookRunner: hookRunner);
 
         var agent = _sharedAgentFactory.CreateAgentForMode(AgentMode.Agent);
-        var sessionGate = _sp.GetRequiredService<SessionGate>();
-        var runner = new AgentRunner(agent, _sessionStore, _sharedAgentFactory, traceCollector, sessionGate, hookRunner);
+        var sessionService = SessionServiceFactory.Create(_sharedAgentFactory, agent, _sp);
+        var runner = new AgentRunner(hookRunner, sessionService);
         return runner.RunAsync;
     }
 

@@ -111,7 +111,6 @@ public sealed class WorkItemAgentRunnerFactory(
         var workspacePath = workspace.Path;
 
         var memoryStore = new MemoryStore(craftPath);
-        var sessionStore = new SessionStore(craftPath, config.CompactSessions);
         var approvalService = new AutoApproveApprovalService();
         var blacklist = new PathBlacklist([]);
 
@@ -166,9 +165,7 @@ public sealed class WorkItemAgentRunnerFactory(
         var sessionService = new SessionService(
             agentFactory, agent, threadStore, sessionGate,
             traceCollector: traceCollector);
-        var agentRunner = new AgentRunner(
-            agent, sessionStore, agentFactory, traceCollector,
-            sessionService: sessionService);
+        var agentRunner = new AgentRunner(sessionService: sessionService);
 
         var result = AgentRunResult.TurnsExhausted;
         var tokenTracker = agentFactory.GetOrCreateTokenTracker(sessionKey);

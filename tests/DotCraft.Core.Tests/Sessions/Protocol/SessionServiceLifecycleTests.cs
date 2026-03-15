@@ -1,4 +1,3 @@
-using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using Microsoft.Extensions.AI;
 

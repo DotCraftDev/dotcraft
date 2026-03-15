@@ -6,7 +6,6 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
 using DotCraft.Tracing;
-using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
@@ -27,7 +26,6 @@ public sealed class CliHost(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -87,12 +85,8 @@ public sealed class CliHost(
 
         var modeManager = new AgentModeManager();
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var threadStore = sp.GetRequiredService<ThreadStore>();
-        var sessionService = new SessionService(
-            _agentFactory, agent, threadStore, sessionGate,
-            hookRunner, traceCollector);
-        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner, sessionService);
+        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+        var runner = new AgentRunner(hookRunner, sessionService);
 
         DashBoardServer? dashBoardServer = null;
         string? dashBoardUrl = null;
@@ -111,7 +105,7 @@ public sealed class CliHost(
             enabled: false);
 
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var repl = new ReplHost(agent, sessionStore, skillsLoader,
+        var repl = new ReplHost(agent, skillsLoader, sessionService,
             paths.WorkspacePath, paths.CraftPath,
             heartbeatService: heartbeatService, cronService: cronService,
             agentFactory: _agentFactory, mcpClientManager: mcpClientManager,
@@ -119,9 +113,7 @@ public sealed class CliHost(
             languageService: languageService, tokenUsageStore: tokenUsageStore,
             customCommandLoader: customCommandLoader,
             modeManager: modeManager,
-            planStore: planStore,
-            hookRunner: hookRunner,
-            sessionService: sessionService);
+            hookRunner: hookRunner);
 
         cronService.OnJob = async job =>
         {

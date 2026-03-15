@@ -26,8 +26,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 {
     private readonly QQBotClient _client;
     
-    private readonly AIAgent _agent;
-    
     private readonly SessionStore _sessionStore;
 
     private readonly QQPermissionService _permissionService;
@@ -42,8 +40,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
     private readonly TraceCollector? _traceCollector;
 
-    private readonly SessionGate _sessionGate;
-
     private readonly TokenUsageStore? _tokenUsageStore;
     
     private readonly CommandDispatcher _commandDispatcher;
@@ -56,14 +52,16 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
     private readonly string _workspacePath;
 
+    // Pending session-protocol approval requests keyed by "{userContextKey}_{requestId}"
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<bool>>
+        _pendingSessionApprovals = new();
+
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     
     public QQChannelAdapter(
         QQBotClient client,
-        AIAgent agent,
         SessionStore sessionStore,
         QQPermissionService permissionService,
-        SessionGate sessionGate,
         ActiveRunRegistry activeRunRegistry,
         QQApprovalService? approvalService = null,
         HeartbeatService? heartbeatService = null,
@@ -77,14 +75,12 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         string workspacePath = "")
     {
         _client = client;
-        _agent = agent;
         _sessionStore = sessionStore;
         _permissionService = permissionService;
         _approvalService = approvalService;
         _heartbeatService = heartbeatService;
         _cronService = cronService;
         _agentFactory = agentFactory;
-        _sessionGate = sessionGate;
         _activeRunRegistry = activeRunRegistry;
         _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
@@ -115,6 +111,9 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             return;
 
         if (_approvalService != null && _approvalService.TryHandleApprovalReply(evt))
+            return;
+
+        if (TryHandleSessionApprovalReply(evt, plainText))
             return;
 
         var selfId = evt.SelfId;
@@ -153,6 +152,9 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             return;
 
         if (_approvalService != null && _approvalService.TryHandleApprovalReply(evt))
+            return;
+
+        if (TryHandleSessionApprovalReply(evt, plainText))
             return;
 
         var role = _permissionService.GetUserRole(evt.UserId);
@@ -301,151 +303,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                        DefaultDeliveryTarget = evt.IsGroupMessage ? $"group:{evt.GroupId}" : null
                    }))
             {
-                if (_sessionService != null)
-                {
-                    await ProcessMessageViaSessionServiceAsync(evt, plainText, role);
-                    return;
-                }
-
-            using (await _sessionGate.AcquireAsync(sessionId))
-            {
-                var session = await _sessionStore.LoadOrCreateAsync(_agent, sessionId, CancellationToken.None);
-
-                var textBuffer = new StringBuilder();
-                long inputTokens = 0, outputTokens = 0, totalTokens = 0;
-                var tokenTracker = _agentFactory?.GetOrCreateTokenTracker(sessionId);
-
-                _traceCollector?.RecordSessionMetadata(
-                    sessionId,
-                    null,
-                    _agentFactory?.LastCreatedTools?.Select(t => t.Name));
-
-                TracingChatClient.CurrentSessionKey = sessionId;
-                TracingChatClient.ResetCallState(sessionId);
-
-                using var runCts = new CancellationTokenSource();
-                _activeRunRegistry.Register(sessionId, runCts);
-                var runToken = runCts.Token;
-                var agentInterrupted = false;
-                try
-                {
-                    var userMessage = new ChatMessage(ChatRole.User, contentParts);
-                    await foreach (var update in _agent.RunStreamingAsync([userMessage], session, cancellationToken: runToken))
-                    {
-                        foreach (var content in update.Contents)
-                        {
-                            switch (content)
-                            {
-                                case TextReasoningContent reasoning:
-                                    if (ReasoningContentHelper.TryGetText(reasoning, out var reasoningText))
-                                    {
-                                        ReasoningContentHelper.AppendBlock(textBuffer, reasoningText);
-                                        LogThinking(reasoningText);
-                                    }
-                                    break;
-                                case FunctionCallContent functionCall:
-                                    await FlushTextBufferAsync(evt, textBuffer);
-
-                                    if (DebugModeService.IsEnabled())
-                                    {
-                                        var icon = ToolRegistry.GetToolIcon(functionCall.Name);
-                                        var displayText = ToolRegistry.FormatToolCall(functionCall.Name, functionCall.Arguments) ?? functionCall.Name;
-                                        var toolNotice = $"{icon} {displayText}";
-                                        await _client.SendMessageAsync(evt, toolNotice);
-                                        LogOutgoing(evt, toolNotice);
-                                    }
-                                    LogToolCall(functionCall.Name, functionCall.Arguments);
-                                    break;
-                                case FunctionResultContent fr:
-                                    LogToolResult(ImageContentSanitizingChatClient.DescribeResult(fr.Result));
-                                    break;
-                                case UsageContent usage:
-                                    if (usage.Details.InputTokenCount.HasValue)
-                                        inputTokens = usage.Details.InputTokenCount.Value;
-                                    if (usage.Details.OutputTokenCount.HasValue)
-                                        outputTokens = usage.Details.OutputTokenCount.Value;
-                                    if (usage.Details.TotalTokenCount.HasValue)
-                                        totalTokens = usage.Details.TotalTokenCount.Value;
-                                    break;
-                            }
-                        }
-
-                        if (!string.IsNullOrEmpty(update.Text))
-                            textBuffer.Append(update.Text);
-                    }
-                }
-                catch (OperationCanceledException) when (runCts.IsCancellationRequested)
-                {
-                    agentInterrupted = true;
-                    AnsiConsole.MarkupLine($"[grey][[QQ]][/] [yellow]Agent run interrupted for session {Markup.Escape(sessionId)}[/]");
-                }
-                finally
-                {
-                    _activeRunRegistry.Unregister(sessionId);
-                    TracingChatClient.ResetCallState(sessionId);
-                    TracingChatClient.CurrentSessionKey = null;
-                }
-
-                if (agentInterrupted)
-                {
-                    await FlushTextBufferAsync(evt, textBuffer);
-                    await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
-                    return;
-                }
-
-                if (!DebugModeService.IsEnabled())
-                {
-                    await FlushTextBufferAsync(evt, textBuffer);
-                }
-                
-                if (totalTokens == 0 && (inputTokens > 0 || outputTokens > 0))
-                    totalTokens = inputTokens + outputTokens;
-
-                if (totalTokens > 0)
-                {
-                    tokenTracker?.Update(inputTokens, outputTokens);
-                    var displayInput = tokenTracker?.LastInputTokens ?? inputTokens;
-                    var displayOutput = tokenTracker?.TotalOutputTokens ?? outputTokens;
-                    textBuffer.Append($"\n\n[↑ {displayInput} input ↓ {displayOutput} output]");
-                }
-
-                if (DebugModeService.IsEnabled())
-                {
-                    await FlushTextBufferAsync(evt, textBuffer);
-                }
-
-                if (totalTokens > 0)
-                {
-                    _tokenUsageStore?.Record(new TokenUsageRecord
-                    {
-                        Channel = "qq",
-                        UserId = evt.UserId.ToString(),
-                        DisplayName = evt.Sender.DisplayName,
-                        GroupId = evt.IsGroupMessage ? evt.GroupId : null,
-                        InputTokens = inputTokens,
-                        OutputTokens = outputTokens
-                    });
-                }
-
-                if (_agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
-                    inputTokens >= _agentFactory.MaxContextTokens)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[grey][[QQ]][/] [yellow]Context compacting for session {Markup.Escape(sessionId)}...[/]");
-                    await _client.SendMessageAsync(evt, "⚠️ 上下文过长，正在压缩历史对话...");
-                    if (await _agentFactory.Compactor.TryCompactAsync(session))
-                    {
-                        tokenTracker?.Reset();
-                        _traceCollector?.RecordContextCompaction(sessionId);
-                        await _client.SendMessageAsync(evt, "✅ 上下文压缩完成，可以继续对话。");
-                    }
-                }
-
-                _ = _agentFactory?.TryConsolidateMemory(session, sessionId);
-
-                await _sessionStore.SaveAsync(_agent, session, sessionId, CancellationToken.None);
+                await ProcessMessageViaSessionServiceAsync(evt, plainText, role);
             }
-            } // end using(ChannelSessionScope)
         }
         catch (SessionGateOverflowException)
         {
@@ -534,6 +393,14 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                             textBuffer.Append(delta.TextDelta);
                             break;
 
+                        case SessionEventType.ItemDelta when sessionEvt.ReasoningDeltaPayload is { } reasoning:
+                            // In debug mode, show reasoning inline; otherwise silently collect for console log
+                            if (DebugModeService.IsEnabled() && !string.IsNullOrEmpty(reasoning.TextDelta))
+                                textBuffer.Append(ReasoningContentHelper.FormatBlock(reasoning.TextDelta));
+                            else if (!string.IsNullOrEmpty(reasoning.TextDelta))
+                                LogThinking(reasoning.TextDelta);
+                            break;
+
                         case SessionEventType.ItemStarted when sessionEvt.ItemPayload?.Type == ItemType.ToolCall:
                         {
                             await FlushTextBufferAsync(evt, textBuffer);
@@ -555,13 +422,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                             if (item?.Payload is ApprovalRequestPayload req && activeTurnId != null)
                             {
                                 await FlushTextBufferAsync(evt, textBuffer);
-                                var promptMsg = req.ApprovalType == "shell"
-                                    ? $"🔔 需要执行命令权限：`{req.Operation}`\n回复 yes 批准，no 拒绝"
-                                    : $"🔔 需要 {req.Operation} 文件权限：`{req.Target}`\n回复 yes 批准，no 拒绝";
-                                await _client.SendMessageAsync(evt, promptMsg);
-
-                                // Wait briefly for user reply (QQ approval is best-effort)
-                                await _sessionService!.ResolveApprovalAsync(activeTurnId, req.RequestId, true);
+                                var approved = await RequestSessionApprovalAsync(evt, req);
+                                await _sessionService!.ResolveApprovalAsync(activeTurnId, req.RequestId, approved);
                             }
                             break;
                         }
@@ -695,5 +557,72 @@ public sealed class QQChannelAdapter : IAsyncDisposable
     {
         var preview = ReasoningContentHelper.ToInlinePreview(text);
         AnsiConsole.MarkupLine($"[grey][[QQ]][/] [cyan]💭 Thinking[/] [grey]{Markup.Escape(preview)}[/]");
+    }
+
+    /// <summary>
+    /// Checks whether <paramref name="plainText"/> is an approval reply for a pending session-protocol
+    /// approval request from this user/group. If so, resolves the pending TCS and returns true.
+    /// </summary>
+    private bool TryHandleSessionApprovalReply(OneBotMessageEvent evt, string plainText)
+    {
+        if (_pendingSessionApprovals.IsEmpty)
+            return false;
+
+        var approved = plainText is "同意" or "允许" or "yes" or "y" or "approve"
+                    or "同意全部" or "允许全部" or "yes all" or "approve all";
+        var rejected = plainText is "拒绝" or "不同意" or "no" or "n" or "reject" or "deny";
+
+        if (!approved && !rejected)
+            return false;
+
+        var keyPrefix = evt.IsGroupMessage
+            ? $"group_{evt.GroupId}_{evt.UserId}_"
+            : $"private_{evt.UserId}_";
+
+        foreach (var key in _pendingSessionApprovals.Keys)
+        {
+            if (!key.StartsWith(keyPrefix))
+                continue;
+
+            if (_pendingSessionApprovals.TryRemove(key, out var tcs))
+            {
+                tcs.TrySetResult(approved);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Sends an approval prompt to the QQ user and waits for their reply (or timeout).
+    /// Used in the session-protocol path instead of the legacy IApprovalService.
+    /// </summary>
+    private async Task<bool> RequestSessionApprovalAsync(
+        OneBotMessageEvent evt, ApprovalRequestPayload req, int timeoutSeconds = 60)
+    {
+        await FlushTextBufferAsync(evt, new StringBuilder());
+
+        var promptMsg = req.ApprovalType == "shell"
+            ? $"⚠️ 需要执行命令权限：`{req.Operation}`\n回复 同意/yes 批准，拒绝/no 拒绝（{timeoutSeconds}秒超时自动拒绝）"
+            : $"⚠️ 需要 {req.Operation} 文件权限：`{req.Target}`\n回复 同意/yes 批准，拒绝/no 拒绝（{timeoutSeconds}秒超时自动拒绝）";
+        await _client.SendMessageAsync(evt, promptMsg);
+
+        var key = evt.IsGroupMessage
+            ? $"group_{evt.GroupId}_{evt.UserId}_{req.RequestId}"
+            : $"private_{evt.UserId}_{req.RequestId}";
+
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingSessionApprovals[key] = tcs;
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+            cts.Token.Register(() => tcs.TrySetResult(false));
+            return await tcs.Task;
+        }
+        finally
+        {
+            _pendingSessionApprovals.TryRemove(key, out _);
+        }
     }
 }

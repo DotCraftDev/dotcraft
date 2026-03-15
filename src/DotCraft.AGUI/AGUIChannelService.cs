@@ -130,13 +130,7 @@ public sealed class AGUIChannelService(
 
         // Construct Session Protocol service (auto-approval for AG-UI; client sends full history).
         var sessionAgent = _agentFactory.CreateAgentWithTools(_agentFactory.CreateDefaultTools());
-        var threadStore = sp.GetRequiredService<ThreadStore>();
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var hookRunner = sp.GetService<HookRunner>();
-        var traceCollector = sp.GetService<TraceCollector>();
-        _sessionService = new SessionService(
-            _agentFactory, sessionAgent, threadStore, sessionGate,
-            hookRunner, traceCollector);
+        _sessionService = SessionServiceFactory.Create(_agentFactory, sessionAgent, sp);
 
         var pathPrefix = path.TrimEnd('/');
         if (agUiConfig.RequireAuth && !string.IsNullOrWhiteSpace(agUiConfig.ApiKey))
@@ -230,18 +224,13 @@ public sealed class AGUIChannelService(
             }
         });
 
-        app.MapAGUI(path, _agent!);
-        // Health probe endpoint — responds to GET so the frontend health check
-        // receives 200 instead of 405 (which MapAGUI only registers for POST).
+        // Health probe endpoint — responds to GET requests.
         app.MapGet(path, () => Results.Ok(new { status = "ok" }));
 
-        // Session Protocol endpoint: POST /dotcraft/ag-ui
-        // Same AG-UI event format but backed by ISessionService for thread persistence.
-        if (_sessionService != null)
+        // POST {path} — AG-UI event stream backed by ISessionService for thread persistence.
         {
-            var capturedSessionService = _sessionService;
-            var dotcraftPath = "/dotcraft" + pathPrefix;
-            app.MapPost(dotcraftPath, async (HttpContext context) =>
+            var capturedSessionService = _sessionService!;
+            app.MapPost(path, async (HttpContext context) =>
             {
                 context.Request.EnableBuffering();
                 string requestBody;
@@ -385,7 +374,6 @@ public sealed class AGUIChannelService(
                     }
                 }
             });
-            app.MapGet(dotcraftPath, () => Results.Ok(new { status = "ok" }));
         }
 
         var url = $"http://{ListenHost}:{ListenPort}";

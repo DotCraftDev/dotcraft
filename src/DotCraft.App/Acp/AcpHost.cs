@@ -9,7 +9,6 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
-using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Hooks;
 using DotCraft.Skills;
@@ -28,7 +27,6 @@ public sealed class AcpHost(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -100,21 +98,16 @@ public sealed class AcpHost(
             hookRunner: hookRunner);
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var threadStore = sp.GetRequiredService<ThreadStore>();
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var sessionService = new SessionService(
-            _agentFactory, agent, threadStore, sessionGate,
-            hookRunner, traceCollector);
+        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         handler = new AcpHandler(
-            transport, sessionStore, _agentFactory, agent,
-            acpApprovalService, paths.WorkspacePath,
-            customCommandLoader, traceCollector,
+            transport, _agentFactory, agent,
+            acpApprovalService, paths.WorkspacePath, sessionService,
+            customCommandLoader,
             tokenUsageStore: tokenUsageStore,
             logger: acpLogger,
             planStore: planStore,
             clientProxy: clientProxy,
-            hookRunner: hookRunner,
-            sessionService: sessionService);
+            hookRunner: hookRunner);
 
         AnsiConsole.MarkupLine("[green][[ACP]][/] DotCraft ACP agent started (stdio)");
         await handler.RunAsync(cancellationToken);
