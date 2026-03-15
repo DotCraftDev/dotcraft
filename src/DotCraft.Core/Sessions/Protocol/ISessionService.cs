@@ -1,0 +1,98 @@
+using Microsoft.Extensions.AI;
+
+namespace DotCraft.Sessions.Protocol;
+
+/// <summary>
+/// The central Session Core API consumed by all Channel Adapters.
+/// Manages Thread/Turn/Item lifecycle, event emission, and persistence.
+/// </summary>
+public interface ISessionService
+{
+    /// <summary>
+    /// Creates a new Thread for the given identity.
+    /// </summary>
+    /// <param name="identity">Channel and user context for the new Thread.</param>
+    /// <param name="config">Optional per-thread agent configuration. Null means workspace defaults.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<SessionThread> CreateThreadAsync(
+        SessionIdentity identity,
+        ThreadConfiguration? config = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Resumes a Paused or previously inactive Thread.
+    /// Loads Thread state and reconstructs agent session from persistence.
+    /// </summary>
+    Task<SessionThread> ResumeThreadAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Transitions an Active Thread to Paused status.
+    /// </summary>
+    Task PauseThreadAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Transitions a Thread to Archived status. Archived threads are read-only.
+    /// </summary>
+    Task ArchiveThreadAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Discovers Threads matching the given identity (workspace + user + channel).
+    /// Returns summaries ordered by LastActiveAt descending.
+    /// </summary>
+    Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
+        SessionIdentity identity,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Submits user input to a Thread, starting a new Turn.
+    /// Returns an async event stream that delivers Turn/Item lifecycle events.
+    /// </summary>
+    /// <param name="threadId">Target Thread ID.</param>
+    /// <param name="text">User's input text.</param>
+    /// <param name="sender">Sender identity and role for group sessions. Null for single-user channels.</param>
+    /// <param name="messages">
+    /// Client-provided conversation history for client-managed history mode (Section 15).
+    /// Null for server-managed mode (Session Core loads history from persistence).
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    IAsyncEnumerable<SessionEvent> SubmitInputAsync(
+        string threadId,
+        string text,
+        SenderContext? sender = null,
+        ChatMessage[]? messages = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves a pending approval request within a WaitingApproval Turn.
+    /// Resumes agent execution with the user's decision.
+    /// </summary>
+    Task ResolveApprovalAsync(
+        string turnId,
+        string requestId,
+        bool approved,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Cancels a Running or WaitingApproval Turn.
+    /// </summary>
+    Task CancelTurnAsync(string turnId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Changes the agent mode for a Thread (e.g., "agent" → "plan").
+    /// Rebuilds the agent's tool set. Does not create a Turn.
+    /// </summary>
+    Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates the per-thread agent configuration (e.g., MCP servers, extensions).
+    /// </summary>
+    Task UpdateThreadConfigurationAsync(
+        string threadId,
+        ThreadConfiguration config,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the full Thread state including all Turns and Items.
+    /// </summary>
+    Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default);
+}
