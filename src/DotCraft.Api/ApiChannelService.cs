@@ -1,5 +1,4 @@
 using System.ClientModel;
-using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
@@ -8,9 +7,9 @@ using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
+using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
-using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
@@ -18,13 +17,17 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using OpenAI;
 using Spectre.Console;
 
@@ -50,12 +53,9 @@ public sealed class ApiChannelService(
 {
     private WebApplication? _webApp;
     private AgentFactory? _agentFactory;
-    private ISessionService? _sessionService;
 
-    // Pending session-protocol interactive approvals keyed by requestId
-    private readonly ConcurrentDictionary<string, PendingSessionApproval> _pendingSessionApprovals = new();
-
-    // Tools built in ConfigureBuilder, consumed in ConfigureApp
+    // Stored during ConfigureBuilder, consumed during ConfigureApp
+    private IHostedAgentBuilder? _agentBuilder;
     private List<AITool>? _tools;
 
     private ApiConfig ApiConfig => config.GetSection<ApiConfig>("Api");
@@ -86,7 +86,18 @@ public sealed class ApiChannelService(
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
         _agentFactory = BuildAgentFactory();
+        var traceCollector = sp.GetService<TraceCollector>();
+
         _tools = _agentFactory.CreateDefaultTools();
+
+        builder.AddOpenAIChatCompletions();
+
+        _agentBuilder = builder.AddAIAgent(
+            "dotcraft",
+            _agentFactory.CreateToolCallFilteringChatClient(),
+            CreateApiAgentOptions(_tools, traceCollector))
+            .WithAITools(_tools.ToArray())
+            .WithInMemorySessionStore();
     }
 
     /// <inheritdoc />
@@ -101,7 +112,8 @@ public sealed class ApiChannelService(
             app.Use(async (context, next) =>
             {
                 var path = context.Request.Path.Value ?? "";
-                if (path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
+                if (path.StartsWith("/dotcraft/", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
                 {
                     if (path == "/v1/health")
                     {
@@ -173,16 +185,19 @@ public sealed class ApiChannelService(
             });
         }
 
+        app.Use(NonStreamingResponseMiddleware);
+        app.MapOpenAIChatCompletions(_agentBuilder!);
+
         var agent = _agentFactory!.CreateAgentWithTools(_tools!);
         var hookRunner = sp.GetService<HookRunner>();
-        _sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
-        var runner = new AgentRunner(hookRunner, _sessionService);
+        var runner = new AgentRunner(hookRunner, SessionServiceFactory.Create(_agentFactory, agent, sp));
 
-        var approvalMode = ApiApprovalService.ParseMode(ApiConfig.ApprovalMode, ApiConfig.AutoApprove);
-        MapAdditionalRoutes(app, runner, approvalMode);
+        MapAdditionalRoutes(app, runner);
 
         var url = $"http://{ListenHost}:{ListenPort}";
         AnsiConsole.MarkupLine($"[green][[Gateway]][/] API listening on {Markup.Escape(url)}");
+
+        var approvalMode = ApiApprovalService.ParseMode(ApiConfig.ApprovalMode, ApiConfig.AutoApprove);
         AnsiConsole.MarkupLine($"[grey]  Approval mode: {approvalMode.ToString().ToLowerInvariant()}[/]");
     }
 
@@ -197,15 +212,9 @@ public sealed class ApiChannelService(
         // Collect tool providers from modules
         var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
 
-        // Wrap the approval service so SessionService can install per-turn overrides via AsyncLocal.
-        // When SessionService runs a Turn it sets a SessionApprovalService override; tools call
-        // through the wrapper and are redirected to the per-turn service (which emits session events).
-        // When no override is set (e.g. outside a Turn), calls fall through to approvalService.
-        var scopedApproval = new SessionScopedApprovalService(approvalService);
-
         return new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, scopedApproval, blacklist,
+            memoryStore, skillsLoader, approvalService, blacklist,
             toolProviders: toolProviders,
             toolProviderContext: new ToolProviderContext
             {
@@ -218,7 +227,7 @@ public sealed class ApiChannelService(
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
                 SkillsLoader = skillsLoader,
-                ApprovalService = scopedApproval,
+                ApprovalService = approvalService,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
@@ -309,11 +318,8 @@ public sealed class ApiChannelService(
         return $"api:{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}";
     }
 
-    private void MapAdditionalRoutes(IEndpointRouteBuilder endpoints, AgentRunner runner, ApiApprovalMode approvalMode)
+    private void MapAdditionalRoutes(IEndpointRouteBuilder endpoints, AgentRunner runner)
     {
-        var capturedSessionService = _sessionService!;
-        var capturedPending = _pendingSessionApprovals;
-
         endpoints.MapGet("/v1/health", () => Results.Json(new
         {
             status = "ok",
@@ -323,26 +329,24 @@ public sealed class ApiChannelService(
             protocol = "openai-compatible"
         }));
 
-        // Lists pending session-protocol approval requests that require interactive resolution.
         endpoints.MapGet("/v1/approvals", (HttpContext context) =>
         {
             if (!Authenticate(context))
                 return Results.Json(new { error = "unauthorized" },
                     statusCode: StatusCodes.Status401Unauthorized);
 
-            var list = capturedPending.Select(kvp => new
+            var list = approvalService.PendingApprovals.Select(a => new
             {
-                id = kvp.Key,
-                type = kvp.Value.Type,
-                operation = kvp.Value.Operation,
-                detail = kvp.Value.Detail,
-                createdAt = kvp.Value.CreatedAt.ToString("o")
+                id = a.Id,
+                type = a.Type,
+                operation = a.Operation,
+                detail = a.Detail,
+                createdAt = a.CreatedAt.ToString("o")
             }).ToList();
 
             return Results.Json(new { approvals = list });
         });
 
-        // Resolves a pending approval request via the Session Protocol.
         endpoints.MapPost("/v1/approvals/{id}", async (HttpContext context, string id) =>
         {
             if (!Authenticate(context))
@@ -365,239 +369,34 @@ public sealed class ApiChannelService(
                 return Results.Json(new { error = "missing request body" },
                     statusCode: StatusCodes.Status400BadRequest);
 
-            if (!capturedPending.TryRemove(id, out var pending))
+            var resolved = approvalService.Resolve(id, body.Approved);
+            if (!resolved)
                 return Results.Json(
                     new { error = "approval not found or already resolved" },
                     statusCode: StatusCodes.Status404NotFound);
 
-            await capturedSessionService.ResolveApprovalAsync(pending.TurnId, id, body.Approved);
             return Results.Json(new { id, approved = body.Approved });
         });
+    }
 
-        // POST /v1/chat/completions — OpenAI-compatible endpoint backed by ISessionService.
-        endpoints.MapPost("/v1/chat/completions", async context =>
+    private ChatClientAgentOptions CreateApiAgentOptions(IReadOnlyList<AITool> tools,
+        TraceCollector? traceCollector)
+    {
+        return new ChatClientAgentOptions
         {
-            if (!Authenticate(context))
+            ChatOptions = new ChatOptions
             {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                await context.Response.WriteAsJsonAsync(new { error = "unauthorized" });
-                return;
-            }
-
-            context.Request.EnableBuffering();
-            string requestBody;
-            using (var reader = new StreamReader(context.Request.Body, leaveOpen: true))
-                requestBody = await reader.ReadToEndAsync();
-            context.Request.Body.Position = 0;
-
-            JsonElement root;
-            try
-            {
-                using var doc = JsonDocument.Parse(requestBody);
-                root = doc.RootElement.Clone();
-            }
-            catch
-            {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsJsonAsync(new { error = "invalid JSON" });
-                return;
-            }
-
-            var sessionKey = await ResolveSessionKeyAsync(context);
-            var identity = new SessionIdentity
-            {
-                ChannelName = "api",
-                UserId = sessionKey,
-                ChannelContext = sessionKey,
-                WorkspacePath = paths.WorkspacePath
-            };
-
-            // Find or create a Thread with client-managed history
-            var threads = await capturedSessionService.FindThreadsAsync(identity);
-            string threadId;
-            if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
-            {
-                threadId = threads[0].Id;
-                await capturedSessionService.ResumeThreadAsync(threadId);
-            }
-            else
-            {
-                var thread = await capturedSessionService.CreateThreadAsync(
-                    identity,
-                    historyMode: HistoryMode.Client);
-                threadId = thread.Id;
-            }
-
-            // Extract messages from request body for client-managed history
-            ChatMessage[]? chatMessages = null;
-            var promptText = string.Empty;
-            if (root.TryGetProperty("messages", out var msgsEl) &&
-                msgsEl.ValueKind == JsonValueKind.Array)
-            {
-                var msgs = new List<ChatMessage>();
-                foreach (var m in msgsEl.EnumerateArray())
-                {
-                    var role = m.TryGetProperty("role", out var r) ? r.GetString() : "user";
-                    var content = m.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
-                    msgs.Add(new ChatMessage(
-                        role == "assistant" ? ChatRole.Assistant :
-                        role == "system" ? ChatRole.System : ChatRole.User,
-                        content));
-                    if (role == "user")
-                        promptText = content;
-                }
-                chatMessages = msgs.ToArray();
-            }
-
-            bool streamMode = root.TryGetProperty("stream", out var streamProp) &&
-                              streamProp.ValueKind == JsonValueKind.True;
-
-            if (streamMode)
-            {
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers.CacheControl = "no-cache";
-                var created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-                await foreach (var evt in capturedSessionService
-                    .SubmitInputAsync(threadId, promptText, messages: chatMessages,
-                                     ct: context.RequestAborted))
-                {
-                    if (evt.EventType == SessionEventType.ItemDelta &&
-                        evt.DeltaPayload is { } delta &&
-                        !string.IsNullOrEmpty(delta.TextDelta))
-                    {
-                        var chunk = new
-                        {
-                            id = $"chatcmpl-{threadId}",
-                            @object = "chat.completion.chunk",
-                            created,
-                            model = config.Model,
-                            choices = new[]
-                            {
-                                new
-                                {
-                                    index = 0,
-                                    delta = new { content = delta.TextDelta, role = "assistant" },
-                                    finish_reason = (string?)null
-                                }
-                            }
-                        };
-                        var line = "data: " + JsonSerializer.Serialize(chunk) + "\n\n";
-                        await context.Response.WriteAsync(line, context.RequestAborted);
-                        await context.Response.Body.FlushAsync(context.RequestAborted);
-                    }
-                    else if (evt.EventType == SessionEventType.ItemDelta &&
-                             evt.ReasoningDeltaPayload is { } reasoning &&
-                             !string.IsNullOrEmpty(reasoning.TextDelta))
-                    {
-                        // Emit reasoning as a separate chunk with role "reasoning" (non-standard extension)
-                        var reasoningChunk = new
-                        {
-                            id = $"chatcmpl-{threadId}",
-                            @object = "chat.completion.chunk",
-                            created,
-                            model = config.Model,
-                            choices = new[]
-                            {
-                                new
-                                {
-                                    index = 0,
-                                    delta = new { reasoning = reasoning.TextDelta },
-                                    finish_reason = (string?)null
-                                }
-                            }
-                        };
-                        await context.Response.WriteAsync("data: " + JsonSerializer.Serialize(reasoningChunk) + "\n\n", context.RequestAborted);
-                        await context.Response.Body.FlushAsync(context.RequestAborted);
-                    }
-                    else if (evt.EventType == SessionEventType.ApprovalRequested &&
-                             evt.ItemPayload?.Payload is ApprovalRequestPayload approvalReq &&
-                             evt.TurnId != null)
-                    {
-                        // Route approval based on configured mode.
-                        // Interactive: store pending approval for the REST /v1/approvals endpoint.
-                        // The streaming connection stays open; the client polls GET /v1/approvals and
-                        // calls POST /v1/approvals/{id} to resolve, which unblocks agent execution.
-                        switch (approvalMode)
-                        {
-                            case ApiApprovalMode.Auto:
-                                await capturedSessionService.ResolveApprovalAsync(evt.TurnId, approvalReq.RequestId, true, context.RequestAborted);
-                                break;
-                            case ApiApprovalMode.Reject:
-                                await capturedSessionService.ResolveApprovalAsync(evt.TurnId, approvalReq.RequestId, false, context.RequestAborted);
-                                break;
-                            case ApiApprovalMode.Interactive:
-                                capturedPending[approvalReq.RequestId] = new PendingSessionApproval(
-                                    evt.TurnId, approvalReq.ApprovalType, approvalReq.Operation, approvalReq.Target, DateTimeOffset.UtcNow);
-                                break;
-                        }
-                    }
-                    else if (evt.EventType == SessionEventType.TurnCompleted)
-                    {
-                        var finChunk = new
-                        {
-                            id = $"chatcmpl-{threadId}",
-                            @object = "chat.completion.chunk",
-                            created,
-                            model = config.Model,
-                            choices = new[] { new { index = 0, delta = new { }, finish_reason = "stop" } }
-                        };
-                        await context.Response.WriteAsync("data: " + JsonSerializer.Serialize(finChunk) + "\n\n", context.RequestAborted);
-                        await context.Response.WriteAsync("data: [DONE]\n\n", context.RequestAborted);
-                    }
-                }
-            }
-            else
-            {
-                // Non-streaming: accumulate response
-                var responseBuilder = new StringBuilder();
-                await foreach (var evt in capturedSessionService
-                    .SubmitInputAsync(threadId, promptText, messages: chatMessages,
-                                     ct: context.RequestAborted))
-                {
-                    if (evt.EventType == SessionEventType.ItemDelta &&
-                        evt.DeltaPayload is { } delta)
-                    {
-                        responseBuilder.Append(delta.TextDelta);
-                    }
-                    else if (evt.EventType == SessionEventType.ApprovalRequested &&
-                             evt.ItemPayload?.Payload is ApprovalRequestPayload approvalReq &&
-                             evt.TurnId != null)
-                    {
-                        // Non-streaming interactive approval is not supported (no way to hold the
-                        // connection open while waiting for a separate REST call). Auto/reject
-                        // are resolved inline; interactive falls through to the 5-minute timeout.
-                        switch (approvalMode)
-                        {
-                            case ApiApprovalMode.Auto:
-                                await capturedSessionService.ResolveApprovalAsync(evt.TurnId, approvalReq.RequestId, true, context.RequestAborted);
-                                break;
-                            case ApiApprovalMode.Reject:
-                                await capturedSessionService.ResolveApprovalAsync(evt.TurnId, approvalReq.RequestId, false, context.RequestAborted);
-                                break;
-                        }
-                    }
-                }
-
-                var response = new
-                {
-                    id = $"chatcmpl-{threadId}",
-                    @object = "chat.completion",
-                    created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                    model = config.Model,
-                    choices = new[]
-                    {
-                        new
-                        {
-                            index = 0,
-                            message = new { content = responseBuilder.ToString(), role = "assistant" },
-                            finish_reason = "stop"
-                        }
-                    }
-                };
-                await context.Response.WriteAsJsonAsync(response);
-            }
-        });
+                Reasoning = _agentFactory?.CreateReasoningOptions()
+            },
+            AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
+                new MemoryContextProvider(
+                    memoryStore, skillsLoader,
+                    paths.CraftPath, paths.WorkspacePath,
+                    traceCollector,
+                    () => tools.Select(t => t.Name).ToArray(),
+                    sp.GetService<CustomCommandLoader>(),
+                    sandboxEnabled: config.Tools.Sandbox.Enabled))
+        };
     }
 
     private bool Authenticate(HttpContext context)
@@ -613,23 +412,159 @@ public sealed class ApiChannelService(
         return false;
     }
 
+    private static async Task NonStreamingResponseMiddleware(HttpContext context, RequestDelegate next)
+    {
+        var path = context.Request.Path.Value ?? "";
+        if (!path.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
+        {
+            await next(context);
+            return;
+        }
+
+        context.Request.EnableBuffering();
+        using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
+        var requestBody = await reader.ReadToEndAsync();
+        context.Request.Body.Position = 0;
+
+        var isStreaming = false;
+        try
+        {
+            using var doc = JsonDocument.Parse(requestBody);
+            if (doc.RootElement.TryGetProperty("stream", out var streamProp) &&
+                streamProp.ValueKind == JsonValueKind.True)
+                isStreaming = true;
+        }
+        catch { /* ignored */ }
+
+        if (isStreaming)
+        {
+            await next(context);
+            return;
+        }
+
+        var originalBody = context.Response.Body;
+        using var buffer = new MemoryStream();
+        context.Response.Body = buffer;
+
+        await next(context);
+
+        buffer.Position = 0;
+        var contentType = context.Response.ContentType ?? "";
+        if (contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using var doc = await JsonDocument.ParseAsync(buffer);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("choices", out var choices) &&
+                    choices.ValueKind == JsonValueKind.Array)
+                {
+                    var candidateChoices = new List<JsonElement>();
+                    JsonElement? bestTextChoice = null;
+
+                    for (var i = 0; i < choices.GetArrayLength(); i++)
+                    {
+                        var choice = choices[i];
+                        var hasToolCalls = false;
+                        var hasNonEmptyContent = false;
+
+                        if (choice.TryGetProperty("message", out var msg) &&
+                            msg.ValueKind == JsonValueKind.Object)
+                        {
+                            if (msg.TryGetProperty("tool_calls", out var toolCalls) &&
+                                toolCalls.ValueKind == JsonValueKind.Array &&
+                                toolCalls.GetArrayLength() > 0)
+                                hasToolCalls = true;
+
+                            if (msg.TryGetProperty("content", out var content) &&
+                                content.ValueKind == JsonValueKind.String &&
+                                !string.IsNullOrWhiteSpace(content.GetString()))
+                            {
+                                hasNonEmptyContent = true;
+                                bestTextChoice = choice;
+                            }
+                        }
+
+                        if (hasToolCalls && !hasNonEmptyContent)
+                            continue;
+
+                        candidateChoices.Add(choice);
+                    }
+
+                    if (candidateChoices.Count > 0)
+                    {
+                        var selectedChoice = candidateChoices.Count == 1
+                            ? candidateChoices[0]
+                            : bestTextChoice ?? candidateChoices[^1];
+
+                        using var output = new MemoryStream();
+                        using (var writer = new Utf8JsonWriter(output))
+                        {
+                            writer.WriteStartObject();
+                            foreach (var prop in root.EnumerateObject())
+                            {
+                                if (prop.Name == "choices")
+                                {
+                                    writer.WriteStartArray("choices");
+                                    writer.WriteStartObject();
+                                    foreach (var cp in selectedChoice.EnumerateObject())
+                                    {
+                                        if (cp.Name == "index")
+                                        {
+                                            writer.WriteNumber("index", 0);
+                                        }
+                                        else if (cp.Name == "message" &&
+                                                 cp.Value.ValueKind == JsonValueKind.Object)
+                                        {
+                                            writer.WriteStartObject("message");
+                                            foreach (var mp in cp.Value.EnumerateObject())
+                                            {
+                                                if (!string.Equals(mp.Name, "tool_calls",
+                                                        StringComparison.Ordinal))
+                                                    mp.WriteTo(writer);
+                                            }
+                                            writer.WriteEndObject();
+                                        }
+                                        else
+                                        {
+                                            cp.WriteTo(writer);
+                                        }
+                                    }
+                                    writer.WriteEndObject();
+                                    writer.WriteEndArray();
+                                }
+                                else
+                                {
+                                    prop.WriteTo(writer);
+                                }
+                            }
+                            writer.WriteEndObject();
+                        }
+
+                        context.Response.Body = originalBody;
+                        context.Response.ContentLength = output.Length;
+                        output.Position = 0;
+                        await output.CopyToAsync(originalBody);
+                        return;
+                    }
+                }
+            }
+            catch { /* ignored */ }
+        }
+
+        buffer.Position = 0;
+        context.Response.Body = originalBody;
+        context.Response.ContentLength = buffer.Length;
+        await buffer.CopyToAsync(originalBody);
+    }
+
     [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Local")]
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Local")]
     private sealed class ApprovalDecision
     {
         public bool Approved { get; set; }
     }
-
-    /// <summary>
-    /// Holds the details of a pending session-protocol approval request so the
-    /// REST <c>POST /v1/approvals/{id}</c> endpoint can resolve it.
-    /// </summary>
-    private sealed record PendingSessionApproval(
-        string TurnId,
-        string Type,
-        string Operation,
-        string Detail,
-        DateTimeOffset CreatedAt);
 
     public async ValueTask DisposeAsync()
     {
