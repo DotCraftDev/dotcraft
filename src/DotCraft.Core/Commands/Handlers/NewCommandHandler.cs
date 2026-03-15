@@ -14,7 +14,8 @@ public sealed class NewCommandHandler : ICommandHandler
     /// <inheritdoc />
     public async Task<CommandResult> HandleAsync(CommandContext context, ICommandResponder responder)
     {
-        context.SessionStore?.Delete(context.SessionId);
+        if (context.SessionService != null)
+            await context.SessionService.ArchiveThreadAsync(context.SessionId);
         context.AgentFactory?.RemoveTokenTracker(context.SessionId);
         
         await responder.SendTextAsync("会话已清除，开始新的对话。");

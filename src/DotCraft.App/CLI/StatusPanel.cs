@@ -1,7 +1,7 @@
 using System.Reflection;
 using DotCraft.Localization;
-using DotCraft.Mcp;
 using DotCraft.Memory;
+using DotCraft.Mcp;
 using DotCraft.Sessions.Protocol;
 using Spectre.Console;
 using static DotCraft.Skills.SkillsLoader;
@@ -159,62 +159,6 @@ public static class StatusPanel
         }
     }
     
-    public static void ShowSessionsTable(List<SessionStore.SessionInfo> sessions, LanguageService? lang = null)
-    {
-        lang ??= new LanguageService();
-        
-        if (sessions.Count == 0)
-        {
-            AnsiConsole.MarkupLine($"[grey]💬 {Strings.NoSessions(lang)}[/]");
-            return;
-        }
-
-        const int SummaryMaxLength = 50;
-
-        var table = new Table()
-            .Border(TableBorder.Rounded)
-            .BorderColor(Color.Grey);
-
-        table.AddColumn(new TableColumn($"[u]{Strings.Session(lang)}[/]").Width(30));
-        table.AddColumn(new TableColumn($"[u]{Strings.CreatedAt(lang)}[/]").Width(20));
-        table.AddColumn(new TableColumn($"[u]{Strings.UpdatedAt(lang)}[/]").Width(20));
-        table.AddColumn(new TableColumn($"[u]{Strings.Summary(lang)}[/]").Width(50));
-
-        foreach (var session in sessions)
-        {
-            var key = session.Key.Escape();
-            var created = DateTimeOffset.Parse(session.CreatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-            var updated = DateTimeOffset.Parse(session.UpdatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-            string summary;
-            if (string.IsNullOrWhiteSpace(session.FirstUserMessage))
-            {
-                summary = "[dim]-[/]";
-            }
-            else
-            {
-                var msg = session.FirstUserMessage.ReplaceLineEndings(" ").Trim();
-                if (msg.Length > SummaryMaxLength)
-                    msg = msg[..SummaryMaxLength] + "...";
-                summary = "[dim]" + msg.Escape() + "[/]";
-            }
-
-            table.AddRow(
-                $"[white]{key}[/]",
-                $"[grey]{created}[/]",
-                $"[grey]{updated}[/]",
-                summary);
-        }
-
-        var panel = new Panel(table)
-        {
-            Header = new PanelHeader($"[green]💬 {Strings.SavedSessions(lang)}[/]"),
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Green)
-        };
-
-        AnsiConsole.Write(panel);
-    }
-
     /// <summary>
     /// Displays a table of Session Protocol threads.
     /// </summary>

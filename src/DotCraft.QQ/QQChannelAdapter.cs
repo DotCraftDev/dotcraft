@@ -24,8 +24,6 @@ namespace DotCraft.QQ;
 public sealed class QQChannelAdapter : IAsyncDisposable
 {
     private readonly QQBotClient _client;
-    
-    private readonly SessionStore _sessionStore;
 
     private readonly QQPermissionService _permissionService;
 
@@ -59,7 +57,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
     
     public QQChannelAdapter(
         QQBotClient client,
-        SessionStore sessionStore,
         QQPermissionService permissionService,
         ActiveRunRegistry activeRunRegistry,
         QQApprovalService? approvalService = null,
@@ -74,7 +71,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         string workspacePath = "")
     {
         _client = client;
-        _sessionStore = sessionStore;
         _permissionService = permissionService;
         _approvalService = approvalService;
         _heartbeatService = heartbeatService;
@@ -485,7 +481,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             IsAdmin = role == QQUserRole.Admin,
             Source = "QQ",
             GroupId = evt.IsGroupMessage ? evt.GroupId.ToString() : null,
-            SessionStore = _sessionStore,
+            SessionService = _sessionService,
             HeartbeatService = _heartbeatService,
             CronService = _cronService,
             AgentFactory = _agentFactory,

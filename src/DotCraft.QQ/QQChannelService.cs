@@ -31,7 +31,6 @@ public sealed class QQChannelService(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -122,7 +121,7 @@ public sealed class QQChannelService(
         var hookRunner = sp.GetService<HookRunner>();
         var sessionService = SessionServiceFactory.Create(agentFactory, agent, sp);
         _adapter = new QQChannelAdapter(
-            qqClient, sessionStore,
+            qqClient,
             permissionService, activeRunRegistry,
             qqApprovalService,
             heartbeatService: HeartbeatService,

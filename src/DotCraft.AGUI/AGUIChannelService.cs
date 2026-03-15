@@ -38,7 +38,6 @@ public sealed class AGUIChannelService(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -422,8 +421,6 @@ public sealed class AGUIChannelService(
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _ = sessionStore; // reserved for future session key from threadId
-
         // Web server lifecycle is managed by WebHostPool in GatewayHost.
         // This task just holds open until the cancellation token fires.
         var tcs = new TaskCompletionSource();

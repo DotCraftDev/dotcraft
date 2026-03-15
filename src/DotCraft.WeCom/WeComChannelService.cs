@@ -34,7 +34,6 @@ public sealed class WeComChannelService(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -110,7 +109,7 @@ public sealed class WeComChannelService(
             DefaultRequestHeaders = { { "User-Agent", "DotCraft/1.0" } }
         };
         _adapter = new WeComChannelAdapter(
-            sessionStore, registry,
+            registry,
             permissionService, wecomApprovalService, activeRunRegistry,
             heartbeatService: HeartbeatService,
             cronService: CronService,

@@ -1,8 +1,8 @@
 using DotCraft.Agents;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
-using DotCraft.Memory;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 
 namespace DotCraft.Commands.Core;
 
@@ -57,9 +57,9 @@ public sealed record CommandContext
     public string? GroupId { get; init; }
     
     /// <summary>
-    /// The session store for managing conversations.
+    /// The session service for managing conversation threads.
     /// </summary>
-    public SessionStore? SessionStore { get; init; }
+    public ISessionService? SessionService { get; init; }
     
     /// <summary>
     /// The heartbeat service (may be null if not enabled).

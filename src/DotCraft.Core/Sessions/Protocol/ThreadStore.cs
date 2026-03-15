@@ -12,7 +12,6 @@ public sealed class ThreadStore
 {
     private readonly string _threadsDir;
 
-    // Compact tool results to this length, same as existing SessionStore.
     private const int ToolResultMaxChars = 500;
 
     public ThreadStore(string botPath)

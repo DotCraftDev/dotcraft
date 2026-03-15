@@ -24,8 +24,6 @@ namespace DotCraft.WeCom;
 /// </summary>
 public sealed class WeComChannelAdapter : IAsyncDisposable
 {
-    private readonly SessionStore _sessionStore;
-    
     private readonly HeartbeatService? _heartbeatService;
     
     private readonly CronService? _cronService;
@@ -56,7 +54,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         _pendingSessionApprovals = new();
 
     public WeComChannelAdapter(
-        SessionStore sessionStore,
         WeComBotRegistry registry,
         WeComPermissionService permissionService,
         WeComApprovalService approvalService,
@@ -71,7 +68,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         ISessionService? sessionService = null,
         string workspacePath = "")
     {
-        _sessionStore = sessionStore;
         _heartbeatService = heartbeatService;
         _cronService = cronService;
         _agentFactory = agentFactory;
@@ -493,7 +489,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
             IsAdmin = userRole == WeComUserRole.Admin,
             Source = "WeCom",
             GroupId = chatId,
-            SessionStore = _sessionStore,
+            SessionService = _sessionService,
             HeartbeatService = _heartbeatService,
             CronService = _cronService,
             AgentFactory = _agentFactory,

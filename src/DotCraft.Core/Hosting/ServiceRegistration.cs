@@ -55,7 +55,6 @@ public static class ServiceRegistration
         });
         services.AddSingleton(new PathBlacklist(config.Security.BlacklistedPaths));
         services.AddSingleton(new MemoryStore(botPath));
-        services.AddSingleton(new SessionStore(botPath, config.CompactSessions));
         services.AddSingleton(new ApprovalStore(botPath));
         var skillsLoader = new SkillsLoader(botPath);
         skillsLoader.DeployBuiltInSkills();
