@@ -1,3 +1,4 @@
+using DotCraft.Sessions.Protocol;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -75,6 +76,79 @@ public static class SessionHistoryPrinter
         }
 
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Prints a compact history of the last <paramref name="maxTurns"/> turns from a
+    /// Session Protocol <see cref="SessionThread"/>. Called after /load in Session Protocol mode.
+    /// </summary>
+    public static void Print(SessionThread thread, int maxTurns = 10)
+    {
+        if (thread.Turns.Count == 0) return;
+
+        var turns = thread.Turns.Count > maxTurns
+            ? thread.Turns.Skip(thread.Turns.Count - maxTurns).ToList()
+            : thread.Turns;
+
+        AnsiConsole.WriteLine();
+
+        var isFirstTurn = true;
+        foreach (var turn in turns)
+        {
+            if (turn.Status == TurnStatus.Cancelled) continue;
+
+            if (!isFirstTurn)
+                PrintSeparator();
+            isFirstTurn = false;
+
+            // User message
+            var userText = (turn.Input?.Payload as UserMessagePayload)?.Text ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(userText))
+                PrintUserMessageText(StripRuntimeContext(userText));
+
+            // Agent and tool items
+            foreach (var item in turn.Items)
+            {
+                switch (item.Type)
+                {
+                    case ItemType.AgentMessage:
+                    {
+                        var text = (item.Payload as AgentMessagePayload)?.Text ?? string.Empty;
+                        if (!string.IsNullOrWhiteSpace(text))
+                            PrintAssistantText(text);
+                        break;
+                    }
+                    case ItemType.ToolCall:
+                    {
+                        var tc = item.Payload as ToolCallPayload;
+                        if (tc != null)
+                            PrintToolCallItem(tc);
+                        break;
+                    }
+                }
+            }
+        }
+
+        AnsiConsole.WriteLine();
+    }
+
+    private static void PrintUserMessageText(string text)
+    {
+        var lines = WrapText(text.Trim(), UserWrapWidth - 2);
+        var display = lines.Count > MaxUserLines
+            ? string.Join("\n", lines.Take(MaxUserLines)) + " [dim]...[/]"
+            : string.Join("\n", lines);
+
+        AnsiConsole.MarkupLine($"[grey]>[/] [white]You:[/] {Markup.Escape(display.Split('\n')[0])}");
+        foreach (var line in display.Split('\n').Skip(1))
+            AnsiConsole.MarkupLine($"       {Markup.Escape(line)}");
+    }
+
+    private static void PrintToolCallItem(ToolCallPayload tc)
+    {
+        var icon = ToolRegistry.GetToolIcon(tc.ToolName);
+        var display = ToolRegistry.FormatToolCall(tc.ToolName, tc.Arguments) ?? tc.ToolName;
+        AnsiConsole.MarkupLine($"  [yellow]{Markup.Escape($"{icon} {display}")}[/]");
     }
 
     private static void PrintSeparator()

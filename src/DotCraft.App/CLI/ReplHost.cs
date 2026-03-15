@@ -65,10 +65,10 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
     {
         if (sessionService != null)
         {
-            // Session Protocol path: create a new Thread for this CLI session
-            var thread = await sessionService.CreateThreadAsync(_cliIdentity, ct: cancellationToken);
-            _currentThreadId = thread.Id;
-            _currentSessionId = thread.Id;
+            // Session Protocol path: defer thread creation until the user sends a first message.
+            // _currentThreadId stays null until RunSessionInputAsync materializes the thread.
+            _currentThreadId = null;
+            _currentSessionId = string.Empty;
         }
         else
         {
@@ -342,29 +342,40 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
         {
             if (sessionService != null)
             {
-                await sessionService.ResumeThreadAsync(newSessionId, cancellationToken);
+                var thread = await sessionService.ResumeThreadAsync(newSessionId, cancellationToken);
                 _currentThreadId = newSessionId;
                 _currentSessionId = newSessionId;
+
+                // Run SessionStart hooks for loaded session
+                await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
+
+                // Refresh display
+                AnsiConsole.Clear();
+                ShowWelcomeScreen(_currentSessionId);
+
+                AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionLoaded(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
+                AnsiConsole.WriteLine();
+
+                // Print conversation history from Session Protocol turns
+                if (thread.Turns.Count > 0)
+                    SessionHistoryPrinter.Print(thread);
             }
             else
             {
                 _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, newSessionId, cancellationToken);
                 _currentSessionId = newSessionId;
-            }
 
-            // Run SessionStart hooks for loaded session
-            await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
+                // Run SessionStart hooks for loaded session
+                await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
 
-            // Refresh display
-            AnsiConsole.Clear();
-            ShowWelcomeScreen(_currentSessionId);
-            
-            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionLoaded(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
-            AnsiConsole.WriteLine();
+                // Refresh display
+                AnsiConsole.Clear();
+                ShowWelcomeScreen(_currentSessionId);
 
-            if (sessionService == null)
-            {
-                // Print conversation history (legacy path only)
+                AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionLoaded(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
+                AnsiConsole.WriteLine();
+
+                // Print conversation history (legacy path)
                 var chatHistory = _agentSession.GetService<ChatHistoryProvider>();
                 if (chatHistory is InMemoryChatHistoryProvider memoryProvider && memoryProvider.Count > 0)
                     SessionHistoryPrinter.Print(memoryProvider);
@@ -378,36 +389,38 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
     }
 
     /// <summary>
-    /// Create a new session.
+    /// Create a new session (lazy: in Session Protocol mode, the thread is deferred until first input).
     /// </summary>
     private async Task NewSession(CancellationToken cancellationToken)
     {
         try
         {
-            string newSessionId;
             if (sessionService != null)
             {
-                var thread = await sessionService.CreateThreadAsync(_cliIdentity, ct: cancellationToken);
-                newSessionId = thread.Id;
-                _currentThreadId = newSessionId;
-                _currentSessionId = newSessionId;
+                // Lazy: reset to pending state; thread is created on first input.
+                _currentThreadId = null;
+                _currentSessionId = string.Empty;
+
+                await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
+
+                AnsiConsole.Clear();
+                ShowWelcomeScreen(_currentSessionId);
+                AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionCreated(_lang)}");
+                AnsiConsole.WriteLine();
             }
             else
             {
-                newSessionId = SessionStore.GenerateSessionId();
+                var newSessionId = SessionStore.GenerateSessionId();
                 _agentSession = await sessionStore.LoadOrCreateAsync(_currentAgent, newSessionId, cancellationToken);
                 _currentSessionId = newSessionId;
+
+                await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
+
+                AnsiConsole.Clear();
+                ShowWelcomeScreen(_currentSessionId);
+                AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionCreated(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
+                AnsiConsole.WriteLine();
             }
-
-            // Run SessionStart hooks for new session
-            await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
-
-            // Refresh display
-            AnsiConsole.Clear();
-            ShowWelcomeScreen(_currentSessionId);
-
-            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionCreated(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
-            AnsiConsole.WriteLine();
         }
         catch (Exception ex)
         {
@@ -429,10 +442,10 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
                 if (wasCurrent)
                 {
-                    var thread = await sessionService.CreateThreadAsync(_cliIdentity);
-                    _currentThreadId = thread.Id;
-                    _currentSessionId = thread.Id;
-                    AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionNewCreated(_lang)}：{_currentSessionId.EscapeMarkup()}[/]");
+                    // Lazy: reset to pending state; thread is created on next input.
+                    _currentThreadId = null;
+                    _currentSessionId = string.Empty;
+                    AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionNewCreated(_lang)}[/]");
                 }
             }
             else
@@ -916,10 +929,19 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
     /// <summary>
     /// Runs an interactive input turn via <see cref="ISessionService.SubmitInputAsync"/>.
+    /// If <see cref="_currentThreadId"/> is null (lazy-init pending), creates the thread first.
     /// Handles approval events inline by pausing the renderer and prompting the user.
     /// </summary>
     private async Task<bool> RunSessionInputAsync(string userInput, CancellationToken cancellationToken)
     {
+        // Materialize the thread on first user input (lazy creation).
+        if (_currentThreadId == null)
+        {
+            var newThread = await sessionService!.CreateThreadAsync(_cliIdentity, ct: cancellationToken);
+            _currentThreadId = newThread.Id;
+            _currentSessionId = newThread.Id;
+        }
+
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         using var interrupt = new InterruptHandler(cts);
         var token = cts.Token;
