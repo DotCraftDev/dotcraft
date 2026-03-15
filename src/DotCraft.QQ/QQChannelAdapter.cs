@@ -365,7 +365,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         };
 
         var textBuffer = new StringBuilder();
-        string? activeTurnId = null;
 
         try
         {
@@ -373,76 +372,52 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             _activeRunRegistry.Register(threadId, runCts);
             try
             {
-                await foreach (var sessionEvt in _sessionService
-                    .SubmitInputAsync(threadId, text, sender, ct: runCts.Token)
-                    .WithCancellation(runCts.Token))
+                var handler = new SessionEventHandler
                 {
-                    if (sessionEvt.TurnId != null)
-                        activeTurnId = sessionEvt.TurnId;
-
-                    switch (sessionEvt.EventType)
+                    OnTextDelta = text => { textBuffer.Append(text); return Task.CompletedTask; },
+                    OnReasoningDelta = reasoning =>
                     {
-                        case SessionEventType.ItemDelta when sessionEvt.DeltaPayload is { } delta:
-                            textBuffer.Append(delta.TextDelta);
-                            break;
-
-                        case SessionEventType.ItemDelta when sessionEvt.ReasoningDeltaPayload is { } reasoning:
-                            // In debug mode, show reasoning inline; otherwise silently collect for console log
-                            if (DebugModeService.IsEnabled() && !string.IsNullOrEmpty(reasoning.TextDelta))
-                                textBuffer.Append(ReasoningContentHelper.FormatBlock(reasoning.TextDelta));
-                            else if (!string.IsNullOrEmpty(reasoning.TextDelta))
-                                LogThinking(reasoning.TextDelta);
-                            break;
-
-                        case SessionEventType.ItemStarted when sessionEvt.ItemPayload?.Type == ItemType.ToolCall:
+                        if (DebugModeService.IsEnabled())
+                            textBuffer.Append(ReasoningContentHelper.FormatBlock(reasoning));
+                        else
+                            LogThinking(reasoning);
+                        return Task.CompletedTask;
+                    },
+                    OnToolStarted = async (toolName, icon, formatted, _) =>
+                    {
+                        await FlushTextBufferAsync(evt, textBuffer);
+                        if (DebugModeService.IsEnabled())
+                            await _client.SendMessageAsync(evt, $"{icon} {formatted ?? toolName}");
+                    },
+                    OnApprovalRequested = async req =>
+                    {
+                        await FlushTextBufferAsync(evt, textBuffer);
+                        return await RequestSessionApprovalAsync(evt, req);
+                    },
+                    OnTurnCompleted = usage =>
+                    {
+                        if (usage != null)
                         {
-                            await FlushTextBufferAsync(evt, textBuffer);
+                            _tokenUsageStore?.Record(new TokenUsageRecord
+                            {
+                                Channel = "qq",
+                                UserId = evt.UserId.ToString(),
+                                DisplayName = evt.Sender.DisplayName,
+                                GroupId = evt.IsGroupMessage ? evt.GroupId : null,
+                                InputTokens = usage.InputTokens,
+                                OutputTokens = usage.OutputTokens
+                            });
                             if (DebugModeService.IsEnabled())
-                            {
-                                var tp = sessionEvt.ItemPayload!.Payload as ToolCallPayload;
-                                var toolName = tp?.ToolName ?? string.Empty;
-                                var icon = ToolRegistry.GetToolIcon(toolName);
-                                var displayText = ToolRegistry.FormatToolCall(toolName, tp?.Arguments) ?? toolName;
-                                var toolNotice = $"{icon} {displayText}";
-                                await _client.SendMessageAsync(evt, toolNotice);
-                            }
-                            break;
+                                textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
                         }
-
-                        case SessionEventType.ApprovalRequested:
-                        {
-                            var item = sessionEvt.ItemPayload;
-                            if (item?.Payload is ApprovalRequestPayload req && activeTurnId != null)
-                            {
-                                await FlushTextBufferAsync(evt, textBuffer);
-                                var approved = await RequestSessionApprovalAsync(evt, req);
-                                await _sessionService!.ResolveApprovalAsync(activeTurnId, req.RequestId, approved);
-                            }
-                            break;
-                        }
-
-                        case SessionEventType.TurnCompleted:
-                        {
-                            var usage = sessionEvt.TurnPayload?.TokenUsage;
-                            if (usage != null)
-                            {
-                                _tokenUsageStore?.Record(new TokenUsageRecord
-                                {
-                                    Channel = "qq",
-                                    UserId = evt.UserId.ToString(),
-                                    DisplayName = evt.Sender.DisplayName,
-                                    GroupId = evt.IsGroupMessage ? evt.GroupId : null,
-                                    InputTokens = usage.InputTokens,
-                                    OutputTokens = usage.OutputTokens
-                                });
-
-                                if (DebugModeService.IsEnabled())
-                                    textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
-                            }
-                            break;
-                        }
+                        return Task.CompletedTask;
                     }
-                }
+                };
+
+                await handler.ProcessAsync(
+                    _sessionService!.SubmitInputAsync(threadId, text, sender, ct: runCts.Token),
+                    (tid, rid, ok) => _sessionService!.ResolveApprovalAsync(tid, rid, ok),
+                    runCts.Token);
             }
             finally
             {

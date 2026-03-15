@@ -479,120 +479,90 @@ public sealed class AcpHandler(
             logger?.LogEvent($"Prompt start [session={sessionId}]: {(promptText.Length > 200 ? promptText[..200] + "..." : promptText)}");
 
             {
-                string? activeTurnId = null;
-                await foreach (var evt in sessionService
-                    .SubmitInputAsync(sessionId, promptText, ct: promptCts.Token)
-                    .WithCancellation(promptCts.Token))
+                var handler = new SessionEventHandler
                 {
-                    if (evt.TurnId != null)
-                        activeTurnId = evt.TurnId;
-
-                    switch (evt.EventType)
+                    OnTextDelta = text => { SendMessageChunk(sessionId, text); return Task.CompletedTask; },
+                    OnReasoningDelta = reasoning =>
                     {
-                        case SessionEventType.ItemDelta when evt.DeltaPayload is { } delta:
-                            if (!string.IsNullOrEmpty(delta.TextDelta))
-                                SendMessageChunk(sessionId, delta.TextDelta);
-                            break;
-
-                        case SessionEventType.ItemDelta when evt.ReasoningDeltaPayload is { } reasoning:
-                            if (!string.IsNullOrEmpty(reasoning.TextDelta))
-                                SendMessageChunk(sessionId, ReasoningContentHelper.FormatBlock(reasoning.TextDelta));
-                            break;
-
-                        case SessionEventType.ItemStarted when evt.ItemPayload?.Type == ItemType.ToolCall:
-                        {
-                            var tp = evt.ItemPayload!.Payload as ToolCallPayload;
-                            IDictionary<string, object?>? tcArgs = tp?.Arguments != null
-                                ? new Dictionary<string, object?>(tp.Arguments.Select(kv =>
-                                    new KeyValuePair<string, object?>(kv.Key, kv.Value)))
-                                : null;
-                            var fc = new FunctionCallContent(
-                                tp?.CallId ?? string.Empty,
-                                tp?.ToolName ?? string.Empty,
-                                tcArgs);
-                            SendToolCallStarted(sessionId, fc);
-                            break;
-                        }
-
-                        case SessionEventType.ItemCompleted when evt.ItemPayload?.Type == ItemType.ToolResult:
-                        {
-                            var rp = evt.ItemPayload!.Payload as ToolResultPayload;
-                            var fr = new FunctionResultContent(rp?.CallId ?? string.Empty, rp?.Result ?? string.Empty);
-                            SendToolCallCompleted(sessionId, fr);
-                            break;
-                        }
-
-                        case SessionEventType.ApprovalRequested:
-                        {
-                            var item = evt.ItemPayload;
-                            if (item?.Payload is ApprovalRequestPayload req)
+                        SendMessageChunk(sessionId, ReasoningContentHelper.FormatBlock(reasoning));
+                        return Task.CompletedTask;
+                    },
+                    OnToolStarted = (toolName, _, _, callId) =>
+                    {
+                        var fc = new FunctionCallContent(callId, toolName, null);
+                        SendToolCallStarted(sessionId, fc);
+                        return Task.CompletedTask;
+                    },
+                    OnToolCompleted = (callId, result) =>
+                    {
+                        var fr = new FunctionResultContent(callId, result ?? string.Empty);
+                        SendToolCallCompleted(sessionId, fr);
+                        return Task.CompletedTask;
+                    },
+                    OnApprovalRequested = async req =>
+                    {
+                        var toolKind = req.ApprovalType == "shell"
+                            ? AcpToolKind.Execute
+                            : req.Operation.ToLowerInvariant() switch
                             {
-                                // Forward approval request to ACP client
-                                var toolKind = req.ApprovalType == "shell"
-                                    ? AcpToolKind.Execute
-                                    : req.Operation.ToLowerInvariant() switch
-                                    {
-                                        "write" or "edit" => AcpToolKind.Edit,
-                                        "delete" => AcpToolKind.Delete,
-                                        _ => AcpToolKind.Read
-                                    };
-                                var toolCall = new AcpToolCallInfo
-                                {
-                                    ToolCallId = req.RequestId,
-                                    Title = req.ApprovalType == "shell"
-                                        ? $"Shell: {(req.Operation.Length > 80 ? req.Operation[..80] + "..." : req.Operation)}"
-                                        : $"File {req.Operation}: {req.Target}",
-                                    Kind = toolKind,
-                                    Status = AcpToolStatus.Pending
-                                };
-                                var permParams = new RequestPermissionParams
-                                {
-                                    SessionId = sessionId,
-                                    ToolCall = toolCall,
-                                    Options =
-                                    [
-                                        new PermissionOption { OptionId = "allow-once",   Name = "Allow once",   Kind = AcpPermissionKind.AllowOnce   },
-                                        new PermissionOption { OptionId = "allow-always", Name = "Allow always", Kind = AcpPermissionKind.AllowAlways },
-                                        new PermissionOption { OptionId = "reject-once",  Name = "Reject",       Kind = AcpPermissionKind.RejectOnce  },
-                                    ]
-                                };
-                                bool approved;
-                                try
-                                {
-                                    var resultElement = await transport.SendClientRequestAsync(
-                                        AcpMethods.RequestPermission, permParams,
-                                        timeout: TimeSpan.FromSeconds(120));
-                                    var result = resultElement.Deserialize<RequestPermissionResult>();
-                                    approved = result?.Outcome?.OptionId is "allow-once" or "allow-always";
-                                }
-                                catch
-                                {
-                                    approved = false;
-                                }
-                                if (activeTurnId != null)
-                                    await sessionService.ResolveApprovalAsync(activeTurnId, req.RequestId, approved, promptCts.Token);
-                            }
-                            break;
-                        }
-
-                        case SessionEventType.TurnCompleted:
+                                "write" or "edit" => AcpToolKind.Edit,
+                                "delete" => AcpToolKind.Delete,
+                                _ => AcpToolKind.Read
+                            };
+                        var toolCall = new AcpToolCallInfo
                         {
-                            var usage = evt.TurnPayload?.TokenUsage;
-                            if (usage != null)
-                            {
-                                tokenUsageStore?.Record(new TokenUsageRecord
-                                {
-                                    Channel = "acp",
-                                    UserId = sessionId,
-                                    DisplayName = sessionId,
-                                    InputTokens = usage.InputTokens,
-                                    OutputTokens = usage.OutputTokens
-                                });
-                            }
-                            break;
+                            ToolCallId = req.RequestId,
+                            Title = req.ApprovalType == "shell"
+                                ? $"Shell: {(req.Operation.Length > 80 ? req.Operation[..80] + "..." : req.Operation)}"
+                                : $"File {req.Operation}: {req.Target}",
+                            Kind = toolKind,
+                            Status = AcpToolStatus.Pending
+                        };
+                        var permParams = new RequestPermissionParams
+                        {
+                            SessionId = sessionId,
+                            ToolCall = toolCall,
+                            Options =
+                            [
+                                new PermissionOption { OptionId = "allow-once",   Name = "Allow once",   Kind = AcpPermissionKind.AllowOnce   },
+                                new PermissionOption { OptionId = "allow-always", Name = "Allow always", Kind = AcpPermissionKind.AllowAlways },
+                                new PermissionOption { OptionId = "reject-once",  Name = "Reject",       Kind = AcpPermissionKind.RejectOnce  },
+                            ]
+                        };
+                        try
+                        {
+                            var resultElement = await transport.SendClientRequestAsync(
+                                AcpMethods.RequestPermission, permParams,
+                                timeout: TimeSpan.FromSeconds(120));
+                            var result = resultElement.Deserialize<RequestPermissionResult>();
+                            return result?.Outcome?.OptionId is "allow-once" or "allow-always";
                         }
+                        catch
+                        {
+                            return false;
+                        }
+                    },
+                    OnTurnCompleted = usage =>
+                    {
+                        if (usage != null)
+                        {
+                            tokenUsageStore?.Record(new TokenUsageRecord
+                            {
+                                Channel = "acp",
+                                UserId = sessionId,
+                                DisplayName = sessionId,
+                                InputTokens = usage.InputTokens,
+                                OutputTokens = usage.OutputTokens
+                            });
+                        }
+                        return Task.CompletedTask;
                     }
-                }
+                };
+
+                await handler.ProcessAsync(
+                    sessionService.SubmitInputAsync(sessionId, promptText, ct: promptCts.Token),
+                    (tid, rid, ok) => sessionService.ResolveApprovalAsync(tid, rid, ok, promptCts.Token),
+                    promptCts.Token);
 
                 // Run Stop hooks
                 if (hookRunner != null)

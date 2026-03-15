@@ -358,7 +358,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         };
 
         var textBuffer = new StringBuilder();
-        string? activeTurnId = null;
 
         try
         {
@@ -366,71 +365,49 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
             _activeRunRegistry.Register(threadId, runCts);
             try
             {
-                await foreach (var evt in _sessionService
-                    .SubmitInputAsync(threadId, text, sender, ct: runCts.Token)
-                    .WithCancellation(runCts.Token))
+                var handler = new SessionEventHandler
                 {
-                    if (evt.TurnId != null)
-                        activeTurnId = evt.TurnId;
-
-                    switch (evt.EventType)
+                    OnTextDelta = text => { textBuffer.Append(text); return Task.CompletedTask; },
+                    OnReasoningDelta = reasoning =>
                     {
-                        case SessionEventType.ItemDelta when evt.DeltaPayload is { } delta:
-                            textBuffer.Append(delta.TextDelta);
-                            break;
-
-                        case SessionEventType.ItemDelta when evt.ReasoningDeltaPayload is { } reasoning:
-                            // In debug mode show reasoning inline; otherwise log to console only
-                            if (DebugModeService.IsEnabled() && !string.IsNullOrEmpty(reasoning.TextDelta))
-                                textBuffer.Append(ReasoningContentHelper.FormatBlock(reasoning.TextDelta));
-                            break;
-
-                        case SessionEventType.ItemStarted when evt.ItemPayload?.Type == ItemType.ToolCall:
+                        if (DebugModeService.IsEnabled())
+                            textBuffer.Append(ReasoningContentHelper.FormatBlock(reasoning));
+                        return Task.CompletedTask;
+                    },
+                    OnToolStarted = async (toolName, icon, formatted, _) =>
+                    {
+                        await FlushTextBufferAsync(pusher, textBuffer);
+                        if (DebugModeService.IsEnabled())
+                            await pusher.PushTextAsync($"{icon} {formatted ?? toolName}");
+                    },
+                    OnApprovalRequested = async req =>
+                    {
+                        await FlushTextBufferAsync(pusher, textBuffer);
+                        return await RequestSessionApprovalAsync(pusher, from, req);
+                    },
+                    OnTurnCompleted = usage =>
+                    {
+                        if (usage != null)
                         {
-                            await FlushTextBufferAsync(pusher, textBuffer);
+                            _tokenUsageStore?.Record(new TokenUsageRecord
+                            {
+                                Channel = "wecom",
+                                UserId = from.UserId,
+                                DisplayName = from.Name,
+                                InputTokens = usage.InputTokens,
+                                OutputTokens = usage.OutputTokens
+                            });
                             if (DebugModeService.IsEnabled())
-                            {
-                                var tp = evt.ItemPayload!.Payload as ToolCallPayload;
-                                var toolName = tp?.ToolName ?? string.Empty;
-                                var icon = ToolRegistry.GetToolIcon(toolName);
-                                var displayText = ToolRegistry.FormatToolCall(toolName, tp?.Arguments) ?? toolName;
-                                await pusher.PushTextAsync($"{icon} {displayText}");
-                            }
-                            break;
+                                textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
                         }
-
-                        case SessionEventType.ApprovalRequested:
-                        {
-                            var item = evt.ItemPayload;
-                            if (item?.Payload is ApprovalRequestPayload req && activeTurnId != null)
-                            {
-                                await FlushTextBufferAsync(pusher, textBuffer);
-                                var approved = await RequestSessionApprovalAsync(pusher, from, req);
-                                await _sessionService!.ResolveApprovalAsync(activeTurnId, req.RequestId, approved);
-                            }
-                            break;
-                        }
-
-                        case SessionEventType.TurnCompleted:
-                        {
-                            var usage = evt.TurnPayload?.TokenUsage;
-                            if (usage != null)
-                            {
-                                _tokenUsageStore?.Record(new TokenUsageRecord
-                                {
-                                    Channel = "wecom",
-                                    UserId = from.UserId,
-                                    DisplayName = from.Name,
-                                    InputTokens = usage.InputTokens,
-                                    OutputTokens = usage.OutputTokens
-                                });
-                                if (DebugModeService.IsEnabled())
-                                    textBuffer.Append($"\n\n[↑ {usage.InputTokens} input ↓ {usage.OutputTokens} output]");
-                            }
-                            break;
-                        }
+                        return Task.CompletedTask;
                     }
-                }
+                };
+
+                await handler.ProcessAsync(
+                    _sessionService!.SubmitInputAsync(threadId, text, sender, ct: runCts.Token),
+                    (tid, rid, ok) => _sessionService!.ResolveApprovalAsync(tid, rid, ok),
+                    runCts.Token);
             }
             finally
             {

@@ -816,113 +816,70 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
             if (hookRunner != null)
                 hookRunner.DebugLogger = renderer.TryEnqueueDebug;
 
-            string? activeTurnId = null;
-
             try
             {
-                await foreach (var evt in sessionService
-                    .SubmitInputAsync(_currentThreadId!, userInput, ct: token)
-                    .WithCancellation(token))
+                var handler = new SessionEventHandler
                 {
-                    if (evt.TurnId != null)
-                        activeTurnId = evt.TurnId;
-
-                    if (evt.EventType == SessionEventType.ApprovalRequested)
+                    OnTextDelta = text => renderer.SendEventAsync(RenderEvent.Response(text), token).AsTask(),
+                    OnReasoningDelta = reasoning =>
+                        renderer.SendEventAsync(RenderEvent.Thinking("💭", "Thinking", reasoning), token).AsTask(),
+                    OnToolStarted = async (name, icon, formatted, callId) =>
                     {
-                        // Pause the renderer and prompt the user directly
-                        var item = evt.ItemPayload;
-                        if (item?.Payload is ApprovalRequestPayload req)
-                        {
-                            bool approved;
-                            if (req.ApprovalType == "shell")
-                            {
-                                var choice = await renderer.ExecuteWhilePausedAsync(
-                                    () => ApprovalPrompt.RequestShellApproval(req.Operation, req.Target));
-                                approved = choice != ApprovalOption.Reject;
-                            }
-                            else
-                            {
-                                var choice = await renderer.ExecuteWhilePausedAsync(
-                                    () => ApprovalPrompt.RequestFileApproval(req.Operation, req.Target));
-                                approved = choice != ApprovalOption.Reject;
-                            }
-                            if (activeTurnId != null)
-                                await sessionService.ResolveApprovalAsync(activeTurnId, req.RequestId, approved, token);
-                        }
-                        continue;
-                    }
-
-                    // Map SessionEvent → RenderEvent inline for all other events
-                    switch (evt.EventType)
+                        string? argsJson = null;
+                        await renderer.SendEventAsync(
+                            RenderEvent.ToolStarted(icon, name, string.Empty, argsJson, formatted, callId: callId),
+                            token);
+                    },
+                    OnToolCompleted = (callId, result) =>
+                        renderer.SendEventAsync(
+                            RenderEvent.ToolCompleted(null, null, string.Empty, result, callId: callId),
+                            token).AsTask(),
+                    OnApprovalRequested = async req =>
                     {
-                        case SessionEventType.ItemDelta when evt.DeltaPayload is { } delta:
-                            if (!string.IsNullOrEmpty(delta.TextDelta))
-                                await renderer.SendEventAsync(RenderEvent.Response(delta.TextDelta), token);
-                            break;
-
-                        case SessionEventType.ItemDelta when evt.ReasoningDeltaPayload is { } reasoning:
-                            if (!string.IsNullOrEmpty(reasoning.TextDelta))
-                                await renderer.SendEventAsync(RenderEvent.Thinking("💭", "Thinking", reasoning.TextDelta), token);
-                            break;
-
-                        case SessionEventType.ItemStarted when evt.ItemPayload?.Type == ItemType.ToolCall:
+                        bool approved;
+                        if (req.ApprovalType == "shell")
                         {
-                            var tp = evt.ItemPayload!.Payload as ToolCallPayload;
-                            var name = tp?.ToolName ?? string.Empty;
-                            var icon = DotCraft.Tools.ToolRegistry.GetToolIcon(name);
-                            string? argsJson = null;
-                            string? formatted = null;
-                            if (tp?.Arguments != null)
-                            {
-                                try { argsJson = tp.Arguments.ToJsonString(); } catch { argsJson = tp.Arguments.ToString(); }
-                                formatted = DotCraft.Tools.ToolRegistry.FormatToolCall(name, tp.Arguments);
-                            }
+                            var choice = await renderer.ExecuteWhilePausedAsync(
+                                () => ApprovalPrompt.RequestShellApproval(req.Operation, req.Target));
+                            approved = choice != ApprovalOption.Reject;
+                        }
+                        else
+                        {
+                            var choice = await renderer.ExecuteWhilePausedAsync(
+                                () => ApprovalPrompt.RequestFileApproval(req.Operation, req.Target));
+                            approved = choice != ApprovalOption.Reject;
+                        }
+                        return approved;
+                    },
+                    OnTurnCompleted = async usage =>
+                    {
+                        if (usage != null)
+                        {
                             await renderer.SendEventAsync(
-                                RenderEvent.ToolStarted(icon, name, string.Empty, argsJson, formatted, callId: tp?.CallId),
+                                RenderEvent.TokenUsage(usage.InputTokens, usage.OutputTokens, usage.TotalTokens),
                                 token);
-                            break;
-                        }
-
-                        case SessionEventType.ItemCompleted when evt.ItemPayload?.Type == ItemType.ToolResult:
-                        {
-                            var rp = evt.ItemPayload!.Payload as ToolResultPayload;
-                            await renderer.SendEventAsync(
-                                RenderEvent.ToolCompleted(null, null, string.Empty, rp?.Result, callId: rp?.CallId),
-                                token);
-                            break;
-                        }
-
-                        case SessionEventType.TurnCompleted:
-                        {
-                            var turn = evt.TurnPayload;
-                            var usage = turn?.TokenUsage;
-                            if (usage != null)
+                            tokenUsageStore?.Record(new TokenUsageRecord
                             {
-                                await renderer.SendEventAsync(
-                                    RenderEvent.TokenUsage(usage.InputTokens, usage.OutputTokens, usage.TotalTokens),
-                                    token);
-                                tokenUsageStore?.Record(new TokenUsageRecord
-                                {
-                                    Channel = "cli",
-                                    UserId = "local",
-                                    DisplayName = "CLI",
-                                    InputTokens = usage.InputTokens,
-                                    OutputTokens = usage.OutputTokens
-                                });
-                            }
-                            await renderer.SendEventAsync(RenderEvent.Completed(string.Empty), token);
-                            break;
+                                Channel = "cli",
+                                UserId = "local",
+                                DisplayName = "CLI",
+                                InputTokens = usage.InputTokens,
+                                OutputTokens = usage.OutputTokens
+                            });
                         }
-
-                        case SessionEventType.TurnFailed:
-                        {
-                            var errMsg = evt.TurnPayload?.Error ?? "Turn failed";
-                            await renderer.SendEventAsync(RenderEvent.ErrorEvent(errMsg), token);
-                            await renderer.SendEventAsync(RenderEvent.Completed(string.Empty), token);
-                            break;
-                        }
+                        await renderer.SendEventAsync(RenderEvent.Completed(string.Empty), token);
+                    },
+                    OnTurnFailed = async errMsg =>
+                    {
+                        await renderer.SendEventAsync(RenderEvent.ErrorEvent(errMsg), token);
+                        await renderer.SendEventAsync(RenderEvent.Completed(string.Empty), token);
                     }
-                }
+                };
+
+                await handler.ProcessAsync(
+                    sessionService.SubmitInputAsync(_currentThreadId!, userInput, ct: token),
+                    (tid, rid, ok) => sessionService.ResolveApprovalAsync(tid, rid, ok, token),
+                    token);
             }
             finally
             {
