@@ -286,8 +286,7 @@ public sealed class AGUIChannelService(
                 if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
                 {
                     sessionThreadId = threads[0].Id;
-                    if (threads[0].Status == ThreadStatus.Paused)
-                        await capturedSessionService.ResumeThreadAsync(sessionThreadId);
+                    await capturedSessionService.ResumeThreadAsync(sessionThreadId);
                 }
                 else
                 {

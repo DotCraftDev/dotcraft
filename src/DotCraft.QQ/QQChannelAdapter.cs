@@ -347,8 +347,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
         {
             threadId = threads[0].Id;
-            if (threads[0].Status == ThreadStatus.Paused)
-                await _sessionService.ResumeThreadAsync(threadId);
+            await _sessionService.ResumeThreadAsync(threadId);
         }
         else
         {

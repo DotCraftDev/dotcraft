@@ -423,8 +423,7 @@ public sealed class ApiChannelService(
                 if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
                 {
                     threadId = threads[0].Id;
-                    if (threads[0].Status == ThreadStatus.Paused)
-                        await capturedSessionService.ResumeThreadAsync(threadId);
+                    await capturedSessionService.ResumeThreadAsync(threadId);
                 }
                 else
                 {
