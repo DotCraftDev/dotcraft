@@ -10,6 +10,8 @@ public sealed class ThreadSummary
 
     public string? UserId { get; set; }
 
+    public string WorkspacePath { get; set; } = string.Empty;
+
     public string OriginChannel { get; set; } = string.Empty;
 
     public string? DisplayName { get; set; }
@@ -35,6 +37,7 @@ public sealed class ThreadSummary
         {
             Id = thread.Id,
             UserId = thread.UserId,
+            WorkspacePath = thread.WorkspacePath,
             OriginChannel = thread.OriginChannel,
             DisplayName = thread.DisplayName,
             Status = thread.Status,

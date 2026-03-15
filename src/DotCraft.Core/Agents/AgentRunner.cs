@@ -3,6 +3,7 @@ using DotCraft.Context;
 using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Memory;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
@@ -21,6 +22,8 @@ public delegate Task<string?> AgentRunSessionDelegate(
 
 /// <summary>
 /// Shared agent execution logic used across all channel modes for running an agent session.
+/// When <paramref name="sessionService"/> is provided, execution is delegated to Session Core
+/// and legacy session files are automatically wrapped as Threads.
 /// </summary>
 public sealed class AgentRunner(
     AIAgent agent,
@@ -28,15 +31,19 @@ public sealed class AgentRunner(
     AgentFactory? agentFactory = null,
     TraceCollector? traceCollector = null,
     SessionGate? sessionGate = null,
-    HookRunner? hookRunner = null)
+    HookRunner? hookRunner = null,
+    ISessionService? sessionService = null)
 {
     private static string AppendRuntimeContext(string prompt) => RuntimeContextBuilder.AppendTo(prompt);
 
     /// <summary>
     /// Run agent with a prompt, manage session lifecycle, stream output, and log results.
+    /// When a SessionService is configured, delegates to Session Core for unified Thread management.
     /// </summary>
     public async Task<string?> RunAsync(string prompt, string sessionKey, CancellationToken cancellationToken = default)
     {
+        if (sessionService != null)
+            return await RunViaSessionServiceAsync(prompt, sessionKey, cancellationToken);
         var tag = sessionKey.StartsWith("heartbeat") ? "Heartbeat"
             : sessionKey.StartsWith("cron:") ? "Cron"
             : "Agent";
@@ -204,5 +211,100 @@ public sealed class AgentRunner(
         {
             gateLock?.Dispose();
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Session Core backward-compatibility path
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Runs via ISessionService while preserving the string return value contract.
+    /// Finds or creates a Thread keyed by the legacy session key, runs the Turn,
+    /// accumulates AgentMessage text from events, and returns it.
+    /// </summary>
+    private async Task<string?> RunViaSessionServiceAsync(
+        string prompt,
+        string sessionKey,
+        CancellationToken cancellationToken)
+    {
+        // Apply cron prefix before passing to Session Core (runtime context is appended inside SessionService)
+        if (sessionKey.StartsWith("cron:"))
+        {
+            prompt = $"[System: Scheduled Task Triggered]\n" +
+                     $"The following is a scheduled cron job that has just been triggered. " +
+                     $"Execute the task described below directly and respond with the result. " +
+                     $"Do NOT treat this as a user conversation or create a new scheduled task.\n\n" +
+                     $"Task: {prompt}";
+        }
+
+        // Derive a synthetic workspace path from the legacy key (best-effort)
+        const string defaultWorkspace = "/";
+        const string legacyChannel = "legacy";
+
+        // Look for an existing Thread with a matching legacy session key
+        var identity = new SessionIdentity
+        {
+            ChannelName = legacyChannel,
+            UserId = sessionKey,
+            WorkspacePath = defaultWorkspace
+        };
+
+        IReadOnlyList<ThreadSummary> existing;
+        try
+        {
+            existing = await sessionService!.FindThreadsAsync(identity, cancellationToken);
+        }
+        catch
+        {
+            existing = [];
+        }
+
+        // Filter to threads that have the exact legacy session key in metadata
+        var matchingThread = existing
+            .FirstOrDefault(s => s.Metadata.TryGetValue("legacySessionKey", out var lk) && lk == sessionKey);
+
+        SessionThread thread;
+        if (matchingThread != null)
+        {
+            thread = await sessionService!.ResumeThreadAsync(matchingThread.Id, cancellationToken);
+        }
+        else
+        {
+            thread = await sessionService!.CreateThreadAsync(
+                identity,
+                config: null,
+                ct: cancellationToken);
+
+            // Record the legacy key so future lookups find this Thread
+            thread.Metadata["legacySessionKey"] = sessionKey;
+        }
+
+        // Consume the event stream and accumulate the agent response text
+        var sb = new StringBuilder();
+        await foreach (var evt in sessionService!.SubmitInputAsync(thread.Id, prompt, ct: cancellationToken))
+        {
+            if (evt.EventType == SessionEventType.ItemCompleted
+                && evt.ItemPayload?.Type == ItemType.AgentMessage
+                && evt.ItemPayload.AsAgentMessage is { } agentMsg)
+            {
+                sb.Append(agentMsg.Text);
+            }
+            else if (evt.EventType == SessionEventType.TurnFailed)
+            {
+                var errMsg = evt.TurnPayload?.Error ?? "Turn failed";
+                AnsiConsole.MarkupLine($"[grey][[Session]][/] [red]Turn failed: {Markup.Escape(errMsg)}[/]");
+                return null;
+            }
+        }
+
+        var response = sb.Length > 0 ? sb.ToString() : null;
+
+        if (response != null)
+        {
+            AnsiConsole.MarkupLine(
+                $"[grey][[Session]][/] Response: [dim]{Markup.Escape(response.Length > 200 ? response[..200] + "..." : response)}[/]");
+        }
+
+        return response;
     }
 }
