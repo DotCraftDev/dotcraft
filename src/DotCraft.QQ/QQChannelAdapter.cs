@@ -12,7 +12,6 @@ using DotCraft.Tracing;
 using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
-using DotCraft.Memory;
 using DotCraft.QQ.OneBot;
 using DotCraft.Security;
 using DotCraft.Tools;

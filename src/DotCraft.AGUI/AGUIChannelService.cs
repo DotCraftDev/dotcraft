@@ -16,13 +16,10 @@ using DotCraft.Security;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
-using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using OpenAI;
 using Spectre.Console;
 
@@ -48,9 +45,6 @@ public sealed class AGUIChannelService(
     private WebApplication? _webApp;
     private AgentFactory? _agentFactory;
     private ISessionService? _sessionService;
-
-    // Stored during ConfigureBuilder, consumed during ConfigureApp
-    private AIAgent? _agent;
 
     public string Name => "ag-ui";
 
@@ -81,14 +75,7 @@ public sealed class AGUIChannelService(
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
-        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
-
         _agentFactory = BuildAgentFactory();
-
-        builder.Services.AddAGUI();
-        if (!string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
-            builder.Services.ConfigureHttpJsonOptions(o =>
-                o.SerializerOptions.TypeInfoResolverChain.Add(ApprovalJsonContext.Default));
     }
 
     /// <inheritdoc />
@@ -100,32 +87,8 @@ public sealed class AGUIChannelService(
         var traceStore = sp.GetService<TraceStore>();
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
 
-        // Tools are created here (after Build) so app.Services is available for IOptions<JsonOptions>.
-        var tools = _agentFactory!.CreateDefaultTools();
-
-        if (string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
-        {
-            _agent = _agentFactory.CreateAgentWithTools(tools);
-        }
-        else
-        {
-            // Wrap sensitive tools so they emit FunctionApprovalRequestContent instead of running.
-            var approvalToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { "WriteFile", "EditFile", "Exec" };
-#pragma warning disable MEAI001
-            for (var i = 0; i < tools.Count; i++)
-            {
-                if (tools[i] is AIFunction fn && approvalToolNames.Contains(fn.Name))
-                    tools[i] = new ApprovalRequiredAIFunction(fn);
-            }
-#pragma warning restore MEAI001
-            var baseAgent = _agentFactory.CreateAgentWithTools(tools);
-            var jsonOptions = app.Services.GetRequiredService<IOptions<JsonOptions>>().Value;
-            _agent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
-        }
-
         // Construct Session Protocol service (auto-approval for AG-UI; client sends full history).
-        var sessionAgent = _agentFactory.CreateAgentWithTools(_agentFactory.CreateDefaultTools());
+        var sessionAgent = _agentFactory!.CreateAgentWithTools(_agentFactory.CreateDefaultTools());
         _sessionService = SessionServiceFactory.Create(_agentFactory, sessionAgent, sp);
 
         var pathPrefix = path.TrimEnd('/');

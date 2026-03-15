@@ -11,7 +11,6 @@ using DotCraft.Tracing;
 using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
-using DotCraft.Memory;
 using DotCraft.Security;
 using DotCraft.Tools;
 using Microsoft.Extensions.AI;

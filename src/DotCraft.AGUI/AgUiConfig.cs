@@ -39,10 +39,4 @@ public sealed class AgUiConfig
     [ConfigField(Sensitive = true, Hint = "Required when RequireAuth is on")]
     public string? ApiKey { get; set; }
 
-    /// <summary>
-    /// Approval mode for sensitive tool operations: "interactive" (request frontend approval, default)
-    /// or "auto" (auto-approve all, matches legacy behavior).
-    /// </summary>
-    [ConfigField(FieldType = "select", Options = ["interactive", "auto"])]
-    public string ApprovalMode { get; set; } = "interactive";
 }
