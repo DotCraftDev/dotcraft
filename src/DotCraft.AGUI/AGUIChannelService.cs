@@ -16,10 +16,14 @@ using DotCraft.Security;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using OpenAI;
 using Spectre.Console;
 
@@ -44,7 +48,9 @@ public sealed class AGUIChannelService(
 {
     private WebApplication? _webApp;
     private AgentFactory? _agentFactory;
-    private ISessionService? _sessionService;
+
+    // Stored during ConfigureBuilder, consumed during ConfigureApp
+    private AIAgent? _agent;
 
     public string Name => "ag-ui";
 
@@ -75,7 +81,14 @@ public sealed class AGUIChannelService(
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
+        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
+
         _agentFactory = BuildAgentFactory();
+
+        builder.Services.AddAGUI();
+        if (!string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
+            builder.Services.ConfigureHttpJsonOptions(o =>
+                o.SerializerOptions.TypeInfoResolverChain.Add(ApprovalJsonContext.Default));
     }
 
     /// <inheritdoc />
@@ -87,9 +100,36 @@ public sealed class AGUIChannelService(
         var traceStore = sp.GetService<TraceStore>();
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
 
-        // Construct Session Protocol service (auto-approval for AG-UI; client sends full history).
-        var sessionAgent = _agentFactory!.CreateAgentWithTools(_agentFactory.CreateDefaultTools());
-        _sessionService = SessionServiceFactory.Create(_agentFactory, sessionAgent, sp);
+        // Tools are created here (after Build) so app.Services is available for IOptions<JsonOptions>.
+        var tools = _agentFactory!.CreateDefaultTools();
+
+        AIAgent innerAgent;
+        if (string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            innerAgent = _agentFactory.CreateAgentWithTools(tools);
+        }
+        else
+        {
+            // Wrap sensitive tools so they emit FunctionApprovalRequestContent instead of running.
+            var approvalToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { "WriteFile", "EditFile", "Exec" };
+#pragma warning disable MEAI001
+            for (var i = 0; i < tools.Count; i++)
+            {
+                if (tools[i] is AIFunction fn && approvalToolNames.Contains(fn.Name))
+                    tools[i] = new ApprovalRequiredAIFunction(fn);
+            }
+#pragma warning restore MEAI001
+            var baseAgent = _agentFactory.CreateAgentWithTools(tools);
+            var jsonOptions = app.Services.GetRequiredService<IOptions<JsonOptions>>().Value;
+            innerAgent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
+        }
+
+        // Session Protocol bridge: wrap the agent pipeline so that each AG-UI run
+        // is tracked as a Thread/Turn in the Session Protocol for observability
+        // and cross-channel thread discovery, while MapAGUI handles the wire protocol.
+        var sessionService = SessionServiceFactory.Create(_agentFactory, innerAgent, sp);
+        _agent = new AGUISessionAgent(innerAgent, sessionService, paths.WorkspacePath);
 
         var pathPrefix = path.TrimEnd('/');
         if (agUiConfig.RequireAuth && !string.IsNullOrWhiteSpace(agUiConfig.ApiKey))
@@ -183,168 +223,16 @@ public sealed class AGUIChannelService(
             }
         });
 
-        // Health probe endpoint — responds to GET requests.
+        app.MapAGUI(path, _agent!);
+        // Health probe endpoint — responds to GET so the frontend health check
+        // receives 200 instead of 405 (which MapAGUI only registers for POST).
         app.MapGet(path, () => Results.Ok(new { status = "ok" }));
-
-        // POST {path} — AG-UI event stream backed by ISessionService for thread persistence.
-        {
-            var capturedSessionService = _sessionService!;
-            app.MapPost(path, async (HttpContext context) =>
-            {
-                context.Request.EnableBuffering();
-                string requestBody;
-                using (var reader = new StreamReader(context.Request.Body, leaveOpen: true))
-                    requestBody = await reader.ReadToEndAsync(context.RequestAborted);
-                context.Request.Body.Position = 0;
-
-                string agThreadId = string.Empty;
-                string runId = Guid.NewGuid().ToString("N")[..8];
-                var chatMessages = new List<ChatMessage>();
-                var promptText = string.Empty;
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(requestBody);
-                    var root = doc.RootElement;
-
-                    agThreadId = root.TryGetProperty("threadId", out var tidProp)
-                        ? tidProp.GetString() ?? string.Empty : string.Empty;
-                    if (root.TryGetProperty("runId", out var ridProp))
-                        runId = ridProp.GetString() ?? runId;
-
-                    if (root.TryGetProperty("messages", out var msgsProp) &&
-                        msgsProp.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var m in msgsProp.EnumerateArray())
-                        {
-                            var role = m.TryGetProperty("role", out var r) ? r.GetString() : "user";
-                            var content = m.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
-                            chatMessages.Add(new ChatMessage(
-                                role == "assistant" ? ChatRole.Assistant :
-                                role == "system" ? ChatRole.System : ChatRole.User,
-                                content));
-                            if (role == "user")
-                                promptText = content;
-                        }
-                    }
-                }
-                catch
-                {
-                    context.Response.StatusCode = 400;
-                    await context.Response.WriteAsync("Invalid JSON");
-                    return;
-                }
-
-                var identity = new SessionIdentity
-                {
-                    ChannelName = "agui",
-                    UserId = string.IsNullOrEmpty(agThreadId) ? "default" : agThreadId,
-                    ChannelContext = agThreadId,
-                    WorkspacePath = paths.WorkspacePath
-                };
-
-                // Find or create a persistent thread keyed by AG-UI threadId.
-                var threads = await capturedSessionService.FindThreadsAsync(identity);
-                string sessionThreadId;
-                if (threads.Count > 0 && threads[0].Status != ThreadStatus.Archived)
-                {
-                    sessionThreadId = threads[0].Id;
-                    await capturedSessionService.ResumeThreadAsync(sessionThreadId);
-                }
-                else
-                {
-                    var thread = await capturedSessionService.CreateThreadAsync(
-                        identity,
-                        historyMode: HistoryMode.Client);
-                    sessionThreadId = thread.Id;
-                }
-
-                context.Response.ContentType = "text/event-stream";
-                context.Response.Headers.CacheControl = "no-cache";
-
-                await WriteAguiSseAsync(context, $"{{\"type\":\"RUN_STARTED\",\"threadId\":{JsonSerializer.Serialize(agThreadId)},\"runId\":{JsonSerializer.Serialize(runId)}}}", context.RequestAborted);
-
-                string? currentMsgId = null;
-
-                await foreach (var evt in capturedSessionService
-                    .SubmitInputAsync(sessionThreadId, promptText,
-                                     messages: chatMessages.Count > 0 ? chatMessages.ToArray() : null,
-                                     ct: context.RequestAborted))
-                {
-                    switch (evt.EventType)
-                    {
-                        case SessionEventType.ItemDelta
-                            when evt.DeltaPayload is { } delta && !string.IsNullOrEmpty(delta.TextDelta):
-                            if (currentMsgId == null)
-                            {
-                                currentMsgId = evt.ItemId ?? Guid.NewGuid().ToString("N")[..8];
-                                await WriteAguiSseAsync(context,
-                                    $"{{\"type\":\"TEXT_MESSAGE_START\",\"messageId\":{JsonSerializer.Serialize(currentMsgId)},\"role\":\"assistant\"}}",
-                                    context.RequestAborted);
-                            }
-                            await WriteAguiSseAsync(context,
-                                $"{{\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":{JsonSerializer.Serialize(currentMsgId)},\"delta\":{JsonSerializer.Serialize(delta.TextDelta)}}}",
-                                context.RequestAborted);
-                            break;
-
-                        case SessionEventType.ItemStarted
-                            when evt.ItemPayload?.Type == ItemType.ToolCall &&
-                                 evt.ItemPayload.AsToolCall is { } tc:
-                            await WriteAguiSseAsync(context,
-                                $"{{\"type\":\"TOOL_CALL_START\",\"toolCallId\":{JsonSerializer.Serialize(tc.CallId)},\"toolCallName\":{JsonSerializer.Serialize(tc.ToolName)},\"parentMessageId\":{JsonSerializer.Serialize(currentMsgId ?? "")}}}",
-                                context.RequestAborted);
-                            if (tc.Arguments != null)
-                                await WriteAguiSseAsync(context,
-                                    $"{{\"type\":\"TOOL_CALL_ARGS\",\"toolCallId\":{JsonSerializer.Serialize(tc.CallId)},\"delta\":{JsonSerializer.Serialize(tc.Arguments.ToJsonString())}}}",
-                                    context.RequestAborted);
-                            break;
-
-                        case SessionEventType.ItemCompleted
-                            when evt.ItemPayload?.Type == ItemType.ToolResult &&
-                                 evt.ItemPayload.AsToolResult is { } tr:
-                            await WriteAguiSseAsync(context,
-                                $"{{\"type\":\"TOOL_CALL_END\",\"toolCallId\":{JsonSerializer.Serialize(tr.CallId)}}}",
-                                context.RequestAborted);
-                            await WriteAguiSseAsync(context,
-                                $"{{\"type\":\"TOOL_CALL_RESULT\",\"toolCallId\":{JsonSerializer.Serialize(tr.CallId)},\"result\":{JsonSerializer.Serialize(tr.Result)}}}",
-                                context.RequestAborted);
-                            break;
-
-                        case SessionEventType.TurnCompleted:
-                            if (currentMsgId != null)
-                            {
-                                await WriteAguiSseAsync(context,
-                                    $"{{\"type\":\"TEXT_MESSAGE_END\",\"messageId\":{JsonSerializer.Serialize(currentMsgId)}}}",
-                                    context.RequestAborted);
-                                currentMsgId = null;
-                            }
-                            await WriteAguiSseAsync(context,
-                                $"{{\"type\":\"RUN_FINISHED\",\"threadId\":{JsonSerializer.Serialize(agThreadId)},\"runId\":{JsonSerializer.Serialize(runId)}}}",
-                                context.RequestAborted);
-                            break;
-
-                        case SessionEventType.TurnFailed:
-                            var errMsg = evt.TurnPayload?.Error ?? "Turn failed";
-                            await WriteAguiSseAsync(context,
-                                $"{{\"type\":\"RUN_ERROR\",\"code\":\"turn_failed\",\"message\":{JsonSerializer.Serialize(errMsg)}}}",
-                                context.RequestAborted);
-                            break;
-                    }
-                }
-            });
-        }
 
         var url = $"http://{ListenHost}:{ListenPort}";
         AnsiConsole.MarkupLine($"[green][[Gateway]][/] AG-UI listening on {Markup.Escape(url)}{Markup.Escape(path)}");
     }
 
     #endregion
-
-    private static async Task WriteAguiSseAsync(HttpContext context, string json, CancellationToken ct)
-    {
-        await context.Response.WriteAsync("data: " + json + "\n\n", ct);
-        await context.Response.Body.FlushAsync(ct);
-    }
 
     private AgentFactory BuildAgentFactory()
     {
