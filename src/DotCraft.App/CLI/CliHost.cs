@@ -94,7 +94,8 @@ public sealed class CliHost(
         {
             dashBoardServer = new DashBoardServer();
             dashBoardServer.Start(traceStore, config, paths, tokenUsageStore,
-                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes());
+                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
+                sessionService: sessionService);
             dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
         }
 

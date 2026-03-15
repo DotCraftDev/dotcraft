@@ -35,6 +35,7 @@ public sealed class GatewayHost : IDotCraftHost
     private readonly MessageRouter _router;
     private readonly ModuleRegistry _moduleRegistry;
     private AgentFactory? _sharedAgentFactory;
+    private ISessionService? _sharedSessionService;
 
     public GatewayHost(
         IServiceProvider sp,
@@ -169,7 +170,8 @@ public sealed class GatewayHost : IDotCraftHost
             dashApp.UseDashBoardAuth(_config);
             dashApp.MapDashBoard(traceStore!, _paths, tokenUsageStore,
                 orchestratorProviders: capturedOrchestrators,
-                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes());
+                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
+                sessionService: _sharedSessionService);
 
             var dashboardUrl = $"http://{_config.DashBoard.Host}:{_config.DashBoard.Port}";
             AnsiConsole.MarkupLine(
@@ -282,8 +284,8 @@ public sealed class GatewayHost : IDotCraftHost
             hookRunner: hookRunner);
 
         var agent = _sharedAgentFactory.CreateAgentForMode(AgentMode.Agent);
-        var sessionService = SessionServiceFactory.Create(_sharedAgentFactory, agent, _sp);
-        var runner = new AgentRunner(hookRunner, sessionService);
+        _sharedSessionService = SessionServiceFactory.Create(_sharedAgentFactory, agent, _sp);
+        var runner = new AgentRunner(hookRunner, _sharedSessionService);
         return runner.RunAsync;
     }
 

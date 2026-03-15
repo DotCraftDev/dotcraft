@@ -153,6 +153,24 @@ public sealed class SessionService : ISessionService
     }
 
     /// <inheritdoc/>
+    public async Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
+    {
+        // Cancel any running turn for this thread
+        if (_runningTurns.TryRemove(threadId, out var cts))
+            await cts.CancelAsync();
+
+        // Remove all in-memory state
+        _threads.TryRemove(threadId, out _);
+        _threadAgents.TryRemove(threadId, out _);
+        _pendingApprovals.TryRemove(threadId, out _);
+
+        // Delete persisted files and index entry
+        _threadStore.DeleteThread(threadId);
+        _threadStore.DeleteSessionFile(threadId);
+        await _threadStore.RemoveIndexEntryAsync(threadId, ct);
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
         CancellationToken ct = default)
@@ -160,7 +178,8 @@ public sealed class SessionService : ISessionService
         var index = await _threadStore.LoadIndexAsync(ct);
         var results = index
             .Where(s =>
-                string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
+                s.Status != ThreadStatus.Archived
+                && string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
                 && (identity.UserId == null || s.UserId == identity.UserId))
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
@@ -170,7 +189,8 @@ public sealed class SessionService : ISessionService
         {
             results = _threads.Values
                 .Where(t =>
-                    string.Equals(t.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
+                    t.Status != ThreadStatus.Archived
+                    && string.Equals(t.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
                     && (identity.UserId == null || t.UserId == identity.UserId))
                 .OrderByDescending(t => t.LastActiveAt)
                 .Select(ThreadSummary.FromThread)

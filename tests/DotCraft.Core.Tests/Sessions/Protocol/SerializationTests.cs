@@ -610,4 +610,145 @@ public class SerializationTests
         Assert.NotNull(result);
         return result;
     }
+
+    // -------------------------------------------------------------------------
+    // SessionTurn.Input deserialization — regression guard for /load history display
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void SessionTurn_Input_UserMessagePayload_SurvivesRoundTrip()
+    {
+        var userItem = new SessionItem
+        {
+            Id = "item_001",
+            TurnId = "turn_001",
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = new DateTimeOffset(2026, 3, 15, 7, 32, 21, TimeSpan.Zero),
+            CompletedAt = new DateTimeOffset(2026, 3, 15, 7, 32, 21, TimeSpan.Zero),
+            Payload = new UserMessagePayload { Text = "你好" }
+        };
+
+        var turn = new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = "thread_20260315_lbdp2i",
+            Status = TurnStatus.Completed,
+            StartedAt = new DateTimeOffset(2026, 3, 15, 7, 32, 21, TimeSpan.Zero),
+            Input = userItem,
+            Items = [userItem]
+        };
+
+        var thread = new SessionThread
+        {
+            Id = "thread_20260315_lbdp2i",
+            WorkspacePath = "/workspace",
+            OriginChannel = "cli",
+            UserId = "local",
+            Status = ThreadStatus.Active,
+            CreatedAt = turn.StartedAt,
+            LastActiveAt = turn.StartedAt,
+            Turns = [turn]
+        };
+
+        var json = JsonSerializer.Serialize(thread, Opts);
+        var loaded = JsonSerializer.Deserialize<SessionThread>(json, Opts);
+
+        Assert.NotNull(loaded);
+        Assert.Single(loaded.Turns);
+
+        var loadedTurn = loaded.Turns[0];
+
+        // Verify turn.Input is deserialized with correct type
+        Assert.NotNull(loadedTurn.Input);
+        Assert.Equal(ItemType.UserMessage, loadedTurn.Input.Type);
+        var inputPayload = loadedTurn.Input.Payload as UserMessagePayload;
+        Assert.NotNull(inputPayload);
+        Assert.Equal("你好", inputPayload.Text);
+
+        // Verify turn.Items[0] also has correct payload
+        Assert.Single(loadedTurn.Items);
+        var firstItemPayload = loadedTurn.Items[0].Payload as UserMessagePayload;
+        Assert.NotNull(firstItemPayload);
+        Assert.Equal("你好", firstItemPayload.Text);
+    }
+
+    [Fact]
+    public void SessionThread_WithMultipleTurns_Input_UserMessagePayload_SurvivesRoundTrip()
+    {
+        static SessionItem MakeUserItem(string turnId, string text) => new()
+        {
+            Id = "item_001",
+            TurnId = turnId,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new UserMessagePayload { Text = text }
+        };
+
+        static SessionItem MakeAgentItem(string turnId, string text) => new()
+        {
+            Id = "item_002",
+            TurnId = turnId,
+            Type = ItemType.AgentMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new AgentMessagePayload { Text = text }
+        };
+
+        var turn1User = MakeUserItem("turn_001", "你好");
+        var turn2User = MakeUserItem("turn_002", "你有哪些工具呢");
+
+        var thread = new SessionThread
+        {
+            Id = "thread_20260315_test",
+            WorkspacePath = "/workspace",
+            OriginChannel = "cli",
+            UserId = "local",
+            Status = ThreadStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastActiveAt = DateTimeOffset.UtcNow,
+            Turns =
+            [
+                new SessionTurn
+                {
+                    Id = "turn_001",
+                    ThreadId = "thread_20260315_test",
+                    Status = TurnStatus.Completed,
+                    StartedAt = DateTimeOffset.UtcNow,
+                    Input = turn1User,
+                    Items = [turn1User, MakeAgentItem("turn_001", "你好！我是DotCraft")]
+                },
+                new SessionTurn
+                {
+                    Id = "turn_002",
+                    ThreadId = "thread_20260315_test",
+                    Status = TurnStatus.Completed,
+                    StartedAt = DateTimeOffset.UtcNow,
+                    Input = turn2User,
+                    Items = [turn2User, MakeAgentItem("turn_002", "我有以下工具...")]
+                }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(thread, Opts);
+        var loaded = JsonSerializer.Deserialize<SessionThread>(json, Opts);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(2, loaded.Turns.Count);
+
+        for (var i = 0; i < loaded.Turns.Count; i++)
+        {
+            var t = loaded.Turns[i];
+            Assert.NotNull(t.Input);
+            Assert.Equal(ItemType.UserMessage, t.Input.Type);
+            var payload = t.Input.Payload as UserMessagePayload;
+            Assert.NotNull(payload);
+        }
+
+        Assert.Equal("你好", (loaded.Turns[0].Input!.Payload as UserMessagePayload)!.Text);
+        Assert.Equal("你有哪些工具呢", (loaded.Turns[1].Input!.Payload as UserMessagePayload)!.Text);
+    }
 }

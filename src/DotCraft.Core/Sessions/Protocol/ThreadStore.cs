@@ -63,6 +63,16 @@ public sealed class ThreadStore
             File.Delete(path);
     }
 
+    /// <summary>
+    /// Deletes the agent session file (.session.json) for a Thread, if it exists.
+    /// </summary>
+    public void DeleteSessionFile(string threadId)
+    {
+        var path = GetSessionPath(threadId);
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+
     // -------------------------------------------------------------------------
     // AgentSession files: .craft/threads/{threadId}.session.json
     // -------------------------------------------------------------------------

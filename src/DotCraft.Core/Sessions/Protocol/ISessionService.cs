@@ -100,4 +100,10 @@ public interface ISessionService
     /// Returns the full Thread state including all Turns and Items.
     /// </summary>
     Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Permanently deletes a Thread and all its associated files from disk.
+    /// Unlike <see cref="ArchiveThreadAsync"/>, this operation is irreversible.
+    /// </summary>
+    Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default);
 }

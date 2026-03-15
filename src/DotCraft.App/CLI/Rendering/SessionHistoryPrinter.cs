@@ -101,8 +101,16 @@ public static class SessionHistoryPrinter
                 PrintSeparator();
             isFirstTurn = false;
 
-            // User message
-            var userText = (turn.Input?.Payload as UserMessagePayload)?.Text ?? string.Empty;
+            // User message — prefer turn.Input, fall back to first UserMessage item in Items
+            var userText = (turn.Input?.Payload as UserMessagePayload)?.Text;
+            if (string.IsNullOrWhiteSpace(userText))
+            {
+                userText = turn.Items
+                    .FirstOrDefault(i => i.Type == ItemType.UserMessage && i.Payload is UserMessagePayload)
+                    ?.Payload is UserMessagePayload fallbackPayload
+                    ? fallbackPayload.Text
+                    : string.Empty;
+            }
             if (!string.IsNullOrWhiteSpace(userText))
                 PrintUserMessageText(StripRuntimeContext(userText));
 

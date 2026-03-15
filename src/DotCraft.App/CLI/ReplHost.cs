@@ -382,6 +382,11 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
 
             AnsiConsole.WriteLine();
         }
+        catch (KeyNotFoundException)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Strings.SessionNotFound(_lang)}：{sessionId.EscapeMarkup()}[/]");
+            AnsiConsole.WriteLine();
+        }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[red]✗[/] {Strings.SessionDeleteFailed(_lang)}：{ex.Message.EscapeMarkup()}");
