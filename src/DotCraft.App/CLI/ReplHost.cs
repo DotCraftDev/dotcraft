@@ -237,9 +237,7 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
 
         if (!string.IsNullOrEmpty(_currentSessionId))
         {
-            var shortId = _currentSessionId.Length > 8
-                ? _currentSessionId[^8..]
-                : _currentSessionId;
+            var shortId = GetShortSessionId(_currentSessionId);
             AnsiConsole.Markup($"[grey]({shortId.EscapeMarkup()})[/] ");
         }
 
@@ -262,13 +260,27 @@ public sealed class ReplHost(AIAgent agent, SessionStore sessionStore, SkillsLoa
         int displayWidth = 0;
         if (!string.IsNullOrEmpty(_currentSessionId))
         {
-            var shortId = _currentSessionId.Length > 8
-                ? _currentSessionId[^8..]
-                : _currentSessionId;
+            var shortId = GetShortSessionId(_currentSessionId);
             displayWidth += LineEditor.GetDisplayWidth($"({shortId}) ");
         }
         displayWidth += LineEditor.GetDisplayWidth($"{emoji} ❯ ");
         return displayWidth;
+    }
+
+    /// <summary>
+    /// Returns a short display label for a session/thread ID.
+    /// For Session Protocol thread IDs (format: thread_{date}_{suffix}), shows only the suffix.
+    /// For legacy session IDs, falls back to the last 8 characters.
+    /// </summary>
+    private static string GetShortSessionId(string sessionId)
+    {
+        // Session Protocol thread IDs: "thread_20260315_lbdp2i" → "lbdp2i"
+        var lastUnderscore = sessionId.LastIndexOf('_');
+        if (lastUnderscore >= 0 && lastUnderscore < sessionId.Length - 1)
+            return sessionId[(lastUnderscore + 1)..];
+
+        // Legacy fallback: last 8 chars
+        return sessionId.Length > 8 ? sessionId[^8..] : sessionId;
     }
 
     public void ReprintPrompt()
