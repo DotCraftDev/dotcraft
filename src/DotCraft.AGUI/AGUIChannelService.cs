@@ -1,5 +1,4 @@
 using System.ClientModel;
-using System.Text;
 using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -14,12 +13,10 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
-using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;

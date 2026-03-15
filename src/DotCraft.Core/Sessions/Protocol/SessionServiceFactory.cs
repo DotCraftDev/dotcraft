@@ -1,6 +1,5 @@
 using DotCraft.Agents;
 using DotCraft.Hooks;
-using DotCraft.Sessions;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.DependencyInjection;

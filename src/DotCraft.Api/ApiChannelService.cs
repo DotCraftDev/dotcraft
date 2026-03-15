@@ -1,6 +1,5 @@
 using System.ClientModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,7 +10,6 @@ using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
-using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;

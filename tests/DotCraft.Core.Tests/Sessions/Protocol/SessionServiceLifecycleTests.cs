@@ -261,7 +261,6 @@ internal sealed class FakeSessionService : ISessionService
 
         _threads[thread.Id] = thread;
         await _store.SaveThreadAsync(thread, ct);
-        await _store.UpdateIndexEntryAsync(thread, ct);
         return thread;
     }
 
@@ -275,7 +274,6 @@ internal sealed class FakeSessionService : ISessionService
             thread.Status = ThreadStatus.Active;
             thread.LastActiveAt = DateTimeOffset.UtcNow;
             await _store.SaveThreadAsync(thread, ct);
-            await _store.UpdateIndexEntryAsync(thread, ct);
         }
         return thread;
     }
@@ -286,7 +284,6 @@ internal sealed class FakeSessionService : ISessionService
         if (thread.Status == ThreadStatus.Paused) return;
         thread.Status = ThreadStatus.Paused;
         await _store.SaveThreadAsync(thread, ct);
-        await _store.UpdateIndexEntryAsync(thread, ct);
     }
 
     public async Task ArchiveThreadAsync(string threadId, CancellationToken ct = default)
@@ -295,7 +292,6 @@ internal sealed class FakeSessionService : ISessionService
         if (thread.Status == ThreadStatus.Archived) return;
         thread.Status = ThreadStatus.Archived;
         await _store.SaveThreadAsync(thread, ct);
-        await _store.UpdateIndexEntryAsync(thread, ct);
     }
 
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
@@ -331,7 +327,6 @@ internal sealed class FakeSessionService : ISessionService
         thread.Configuration ??= new ThreadConfiguration();
         thread.Configuration.Mode = mode;
         await _store.SaveThreadAsync(thread, ct);
-        await _store.UpdateIndexEntryAsync(thread, ct);
     }
 
     public async Task UpdateThreadConfigurationAsync(string threadId, ThreadConfiguration config, CancellationToken ct = default)
@@ -339,7 +334,14 @@ internal sealed class FakeSessionService : ISessionService
         var thread = await GetOrLoadAsync(threadId, ct);
         thread.Configuration = config;
         await _store.SaveThreadAsync(thread, ct);
-        await _store.UpdateIndexEntryAsync(thread, ct);
+    }
+
+    public Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
+    {
+        _threads.Remove(threadId);
+        _store.DeleteThread(threadId);
+        _store.DeleteSessionFile(threadId);
+        return Task.CompletedTask;
     }
 
     private async Task<SessionThread> GetOrLoadAsync(string threadId, CancellationToken ct)

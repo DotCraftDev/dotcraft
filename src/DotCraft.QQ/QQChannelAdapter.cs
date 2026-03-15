@@ -16,7 +16,6 @@ using DotCraft.Memory;
 using DotCraft.QQ.OneBot;
 using DotCraft.Security;
 using DotCraft.Tools;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 

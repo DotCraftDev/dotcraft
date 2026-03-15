@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
-using DotCraft.Configuration;
 using DotCraft.GitHubTracker.Tracker;
 using Microsoft.Extensions.Logging;
 

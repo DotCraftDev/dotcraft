@@ -1,19 +1,16 @@
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
 
 namespace DotCraft.Sessions.Protocol;
 
 /// <summary>
 /// Manages all file I/O for Session Protocol data under the .craft directory.
-/// Handles Thread files, AgentSession files, the Thread index, and legacy session migration.
+/// Handles Thread files and AgentSession files.
 /// </summary>
 public sealed class ThreadStore
 {
     private readonly string _threadsDir;
-    private readonly string _sessionsDir;
-    private readonly string _indexPath;
 
     // Compact tool results to this length, same as existing SessionStore.
     private const int ToolResultMaxChars = 500;
@@ -21,8 +18,6 @@ public sealed class ThreadStore
     public ThreadStore(string botPath)
     {
         _threadsDir = Path.Combine(botPath, "threads");
-        _sessionsDir = Path.Combine(botPath, "sessions");
-        _indexPath = Path.Combine(botPath, "thread-index.json");
         Directory.CreateDirectory(_threadsDir);
     }
 
@@ -54,7 +49,7 @@ public sealed class ThreadStore
     }
 
     /// <summary>
-    /// Deletes a Thread file (does not remove from index or delete the session file).
+    /// Deletes a Thread file (does not delete the session file).
     /// </summary>
     public void DeleteThread(string threadId)
     {
@@ -120,148 +115,36 @@ public sealed class ThreadStore
     public bool SessionFileExists(string threadId) => File.Exists(GetSessionPath(threadId));
 
     // -------------------------------------------------------------------------
-    // Thread index: .craft/thread-index.json
+    // Thread discovery: scan thread files on demand
     // -------------------------------------------------------------------------
 
-    private readonly SemaphoreSlim _indexLock = new(1, 1);
-
     /// <summary>
-    /// Loads all ThreadSummary entries from the index. Returns empty list on error.
+    /// Scans the threads directory and returns a <see cref="ThreadSummary"/> for every
+    /// thread file found. Corrupt or unreadable files are silently skipped.
+    /// This replaces the old <c>thread-index.json</c> approach and is always in sync.
     /// </summary>
     public async Task<List<ThreadSummary>> LoadIndexAsync(CancellationToken ct = default)
     {
-        if (!File.Exists(_indexPath))
-            return [];
+        var entries = new List<ThreadSummary>();
 
-        try
+        foreach (var file in Directory.GetFiles(_threadsDir, "*.json"))
         {
-            var json = await File.ReadAllTextAsync(_indexPath, ct);
-            var data = JsonSerializer.Deserialize<ThreadIndexData>(json, JsonSerializerOptions.Web);
-            return data?.Threads ?? [];
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
-    /// <summary>
-    /// Adds or updates the index entry for a Thread.
-    /// </summary>
-    public async Task UpdateIndexEntryAsync(SessionThread thread, CancellationToken ct = default)
-    {
-        await _indexLock.WaitAsync(ct);
-        try
-        {
-            var entries = await LoadIndexAsync(ct);
-            entries.RemoveAll(e => e.Id == thread.Id);
-            entries.Add(ThreadSummary.FromThread(thread));
-            await SaveIndexAsync(entries, ct);
-        }
-        finally
-        {
-            _indexLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// Removes the index entry for a Thread.
-    /// </summary>
-    public async Task RemoveIndexEntryAsync(string threadId, CancellationToken ct = default)
-    {
-        await _indexLock.WaitAsync(ct);
-        try
-        {
-            var entries = await LoadIndexAsync(ct);
-            entries.RemoveAll(e => e.Id == threadId);
-            await SaveIndexAsync(entries, ct);
-        }
-        finally
-        {
-            _indexLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// Rebuilds the thread index by scanning all thread files in the threads directory.
-    /// Called on startup when the index is missing or corrupt.
-    /// </summary>
-    public async Task RebuildIndexAsync(ILogger? logger = null, CancellationToken ct = default)
-    {
-        await _indexLock.WaitAsync(ct);
-        try
-        {
-            logger?.LogWarning("Rebuilding thread index from thread files.");
-            var entries = new List<ThreadSummary>();
-            foreach (var file in Directory.GetFiles(_threadsDir, "*.json"))
+            if (file.EndsWith(".session.json", StringComparison.OrdinalIgnoreCase))
+                continue;
+            try
             {
-                // Skip .session.json files
-                if (file.EndsWith(".session.json", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                try
-                {
-                    var json = await File.ReadAllTextAsync(file, ct);
-                    var thread = JsonSerializer.Deserialize<SessionThread>(json, SessionJsonOptions.Default);
-                    if (thread != null)
-                        entries.Add(ThreadSummary.FromThread(thread));
-                }
-                catch
-                {
-                    // Skip corrupt files
-                }
+                var json = await File.ReadAllTextAsync(file, ct);
+                var thread = JsonSerializer.Deserialize<SessionThread>(json, SessionJsonOptions.Default);
+                if (thread != null)
+                    entries.Add(ThreadSummary.FromThread(thread));
             }
-            await SaveIndexAsync(entries, ct);
-        }
-        finally
-        {
-            _indexLock.Release();
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Legacy session migration
-    // -------------------------------------------------------------------------
-
-    /// <summary>
-    /// Lazily migrates a legacy session file (.craft/sessions/{key}.json) to the Thread format.
-    /// Creates the Thread file, copies the session file, and updates the index.
-    /// Returns the migrated Thread, or null if no legacy session exists for the given key.
-    /// </summary>
-    public async Task<SessionThread?> MigrateLegacySessionAsync(
-        string legacyKey,
-        string channelName,
-        string? userId,
-        string workspacePath,
-        CancellationToken ct = default)
-    {
-        var legacySessionPath = GetLegacySessionPath(legacyKey);
-        if (!File.Exists(legacySessionPath))
-            return null;
-
-        var thread = new SessionThread
-        {
-            Id = SessionIdGenerator.NewThreadId(),
-            WorkspacePath = workspacePath,
-            UserId = userId,
-            OriginChannel = channelName,
-            Status = ThreadStatus.Active,
-            CreatedAt = File.GetCreationTimeUtc(legacySessionPath),
-            LastActiveAt = File.GetLastWriteTimeUtc(legacySessionPath),
-            HistoryMode = HistoryMode.Server,
-            Metadata = new Dictionary<string, string>
+            catch
             {
-                ["legacySessionKey"] = legacyKey
+                // Skip corrupt files
             }
-        };
+        }
 
-        // Copy legacy session file to threads directory
-        var newSessionPath = GetSessionPath(thread.Id);
-        File.Copy(legacySessionPath, newSessionPath, overwrite: true);
-
-        await SaveThreadAsync(thread, ct);
-        await UpdateIndexEntryAsync(thread, ct);
-
-        return thread;
+        return entries;
     }
 
     // -------------------------------------------------------------------------
@@ -280,21 +163,8 @@ public sealed class ThreadStore
         return Path.Combine(_threadsDir, $"{safe}.session.json");
     }
 
-    private string GetLegacySessionPath(string sessionKey)
-    {
-        var safe = MakeSafe(sessionKey);
-        return Path.Combine(_sessionsDir, $"{safe}.json");
-    }
-
     private static string MakeSafe(string key) =>
         string.Concat(key.Split(Path.GetInvalidFileNameChars()));
-
-    private async Task SaveIndexAsync(List<ThreadSummary> entries, CancellationToken ct)
-    {
-        var data = new ThreadIndexData { Threads = entries };
-        var json = JsonSerializer.Serialize(data, JsonSerializerOptions.Web);
-        await File.WriteAllTextAsync(_indexPath, json, ct);
-    }
 
     private static void CompactSession(AgentSession session)
     {
@@ -313,14 +183,5 @@ public sealed class ThreadStore
                     textContent.Text = textContent.Text[..ToolResultMaxChars] + "\n... (truncated)";
             }
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Index data model
-    // -------------------------------------------------------------------------
-
-    private sealed class ThreadIndexData
-    {
-        public List<ThreadSummary> Threads { get; set; } = [];
     }
 }

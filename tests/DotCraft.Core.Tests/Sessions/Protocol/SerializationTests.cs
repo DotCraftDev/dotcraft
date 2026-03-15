@@ -310,7 +310,7 @@ public class SerializationTests
             HistoryMode = HistoryMode.Server,
             Metadata = new Dictionary<string, string>
             {
-                ["legacySessionKey"] = "qq_12345_67890",
+                ["customKey"] = "qq_12345_67890",
                 ["qqGroupId"] = "12345"
             }
         };
@@ -327,7 +327,7 @@ public class SerializationTests
         Assert.Equal(ThreadStatus.Active, deserialized.Status);
         Assert.Equal(HistoryMode.Server, deserialized.HistoryMode);
         Assert.Equal(2, deserialized.Metadata.Count);
-        Assert.Equal("qq_12345_67890", deserialized.Metadata["legacySessionKey"]);
+        Assert.Equal("qq_12345_67890", deserialized.Metadata["customKey"]);
         Assert.Empty(deserialized.Turns);
     }
 

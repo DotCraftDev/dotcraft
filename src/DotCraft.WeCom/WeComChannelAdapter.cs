@@ -14,7 +14,6 @@ using DotCraft.Heartbeat;
 using DotCraft.Memory;
 using DotCraft.Security;
 using DotCraft.Tools;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 

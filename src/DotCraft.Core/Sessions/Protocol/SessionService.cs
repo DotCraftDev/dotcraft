@@ -1,11 +1,9 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using DotCraft.Agents;
 using DotCraft.Context;
 using DotCraft.Hooks;
 using DotCraft.Security;
-using DotCraft.Sessions;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -88,7 +86,6 @@ public sealed class SessionService : ISessionService
             _threadAgents[thread.Id] = BuildAgentForConfig(config);
 
         await _threadStore.SaveThreadAsync(thread, ct);
-        await _threadStore.UpdateIndexEntryAsync(thread, ct);
 
         return thread;
     }
@@ -106,7 +103,6 @@ public sealed class SessionService : ISessionService
                 cached.Status = ThreadStatus.Active;
                 cached.LastActiveAt = DateTimeOffset.UtcNow;
                 await _threadStore.SaveThreadAsync(cached, ct);
-                await _threadStore.UpdateIndexEntryAsync(cached, ct);
             }
             return cached;
         }
@@ -126,7 +122,6 @@ public sealed class SessionService : ISessionService
             _threadAgents[thread.Id] = BuildAgentForConfig(thread.Configuration);
 
         await _threadStore.SaveThreadAsync(thread, ct);
-        await _threadStore.UpdateIndexEntryAsync(thread, ct);
 
         return thread;
     }
@@ -164,10 +159,9 @@ public sealed class SessionService : ISessionService
         _threadAgents.TryRemove(threadId, out _);
         _pendingApprovals.TryRemove(threadId, out _);
 
-        // Delete persisted files and index entry
+        // Delete persisted files
         _threadStore.DeleteThread(threadId);
         _threadStore.DeleteSessionFile(threadId);
-        await _threadStore.RemoveIndexEntryAsync(threadId, ct);
     }
 
     /// <inheritdoc/>
@@ -175,29 +169,14 @@ public sealed class SessionService : ISessionService
         SessionIdentity identity,
         CancellationToken ct = default)
     {
-        var index = await _threadStore.LoadIndexAsync(ct);
-        var results = index
+        var all = await _threadStore.LoadIndexAsync(ct);
+        return all
             .Where(s =>
                 s.Status != ThreadStatus.Archived
                 && string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
                 && (identity.UserId == null || s.UserId == identity.UserId))
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
-
-        // Fall back to checking in-memory threads if index is stale
-        if (results.Count == 0)
-        {
-            results = _threads.Values
-                .Where(t =>
-                    t.Status != ThreadStatus.Archived
-                    && string.Equals(t.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
-                    && (identity.UserId == null || t.UserId == identity.UserId))
-                .OrderByDescending(t => t.LastActiveAt)
-                .Select(ThreadSummary.FromThread)
-                .ToList();
-        }
-
-        return results;
     }
 
     /// <inheritdoc/>
@@ -273,6 +252,10 @@ public sealed class SessionService : ISessionService
         turn.Items.Add(userItem);
         thread.Turns.Add(turn);
         thread.LastActiveAt = DateTimeOffset.UtcNow;
+
+        // Set a display name from the first user message so the session list shows a preview.
+        if (string.IsNullOrEmpty(thread.DisplayName))
+            thread.DisplayName = text.Length > 50 ? text[..50] + "..." : text;
 
         // Step 3: Create event channel
         var eventChannel = new SessionEventChannel(threadId, turn.Id);
@@ -441,13 +424,13 @@ public sealed class SessionService : ISessionService
                                         CompletedAt = DateTimeOffset.UtcNow,
                                         Payload = new ToolCallPayload
                                         {
-                                            ToolName = fc.Name ?? string.Empty,
+                                            ToolName = fc.Name,
                                             Arguments = fc.Arguments != null
                                                 ? JsonNode.Parse(
                                                     System.Text.Json.JsonSerializer.Serialize(
                                                         fc.Arguments)) as JsonObject
                                                 : null,
-                                            CallId = fc.CallId ?? string.Empty
+                                            CallId = fc.CallId
                                         }
                                     };
                                     turn.Items.Add(toolCallItem);
@@ -592,7 +575,6 @@ public sealed class SessionService : ISessionService
                 try
                 {
                     await _threadStore.SaveThreadAsync(thread, CancellationToken.None);
-                    await _threadStore.UpdateIndexEntryAsync(thread, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
@@ -673,7 +655,6 @@ public sealed class SessionService : ISessionService
         _threadAgents[threadId] = _agentFactory.CreateAgentForMode(agentMode);
 
         await _threadStore.SaveThreadAsync(thread, ct);
-        await _threadStore.UpdateIndexEntryAsync(thread, ct);
     }
 
     /// <inheritdoc/>
@@ -686,7 +667,6 @@ public sealed class SessionService : ISessionService
         thread.Configuration = config;
         _threadAgents[threadId] = BuildAgentForConfig(config);
         await _threadStore.SaveThreadAsync(thread, ct);
-        await _threadStore.UpdateIndexEntryAsync(thread, ct);
     }
 
     // =========================================================================
@@ -708,7 +688,6 @@ public sealed class SessionService : ISessionService
     private async Task PersistThreadStatusAsync(SessionThread thread, CancellationToken ct)
     {
         await _threadStore.SaveThreadAsync(thread, ct);
-        await _threadStore.UpdateIndexEntryAsync(thread, ct);
     }
 
     private static void FailTurn(SessionTurn turn, SessionEventChannel channel, string errorMsg)
@@ -724,7 +703,6 @@ public sealed class SessionService : ISessionService
         try
         {
             await _threadStore.SaveThreadAsync(thread, CancellationToken.None);
-            await _threadStore.UpdateIndexEntryAsync(thread, CancellationToken.None);
         }
         catch (Exception ex)
         {

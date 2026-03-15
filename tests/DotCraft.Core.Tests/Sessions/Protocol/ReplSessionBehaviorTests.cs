@@ -110,11 +110,9 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         // Simulate adding turns directly (FakeSessionService doesn't run the agent)
         AddTurnWithUserMessage(thread, "First message");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
 
         AddTurnWithUserMessage(thread, "Second message");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
 
         var index = await _store.LoadIndexAsync();
         Assert.Single(index);
@@ -147,7 +145,6 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         var threadA = await _svc.CreateThreadAsync(_cliIdentity);
         AddTurnWithUserMessage(threadA, "Hello");
         await _store.SaveThreadAsync(threadA);
-        await _store.UpdateIndexEntryAsync(threadA);
 
         // /new in lazy mode: don't create a new thread yet
         // (ReplHost sets _currentThreadId = null without calling CreateThreadAsync)
@@ -168,7 +165,6 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         var thread = await _svc.CreateThreadAsync(_cliIdentity);
         AddTurnWithUserMessage(thread, "Remember this");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
 
         // Simulate a new REPL instance: fresh FakeSessionService with same store.
         var newSvc = new FakeSessionService(_store);
@@ -211,7 +207,6 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         AddTurnWithUserMessage(thread, "Turn 2");
         AddTurnWithUserMessage(thread, "Turn 3");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
 
         var loaded = await _store.LoadThreadAsync(thread.Id);
         Assert.NotNull(loaded);
@@ -225,7 +220,6 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         AddTurnWithMessages(thread, "Hello", "World response");
         AddTurnWithMessages(thread, "Follow-up question", "Another answer");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
 
         var loaded = await _store.LoadThreadAsync(thread.Id);
         Assert.NotNull(loaded);
@@ -242,7 +236,6 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         var thread = await _svc.CreateThreadAsync(_cliIdentity);
         AddTurnWithMessages(thread, "Hello", "Hi there, how can I help?");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
 
         var loaded = await _store.LoadThreadAsync(thread.Id);
         Assert.NotNull(loaded);
@@ -265,7 +258,6 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         var thread = await _svc.CreateThreadAsync(_cliIdentity);
         AddTurnWithUserMessage(thread, "Hello");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
 
         // Archive it (/delete in Session Protocol mode).
         await _svc.ArchiveThreadAsync(thread.Id);
@@ -335,35 +327,28 @@ public sealed class ReplSessionBehaviorTests : IDisposable
 
         AddTurnWithUserMessage(thread, "msg1");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
         Assert.Equal(1, (await _store.LoadIndexAsync())[0].TurnCount);
 
         AddTurnWithUserMessage(thread, "msg2");
         await _store.SaveThreadAsync(thread);
-        await _store.UpdateIndexEntryAsync(thread);
         Assert.Equal(2, (await _store.LoadIndexAsync())[0].TurnCount);
     }
 
     [Fact]
-    public async Task ThreadIndex_RebuildAsync_ReconstructsFromFiles()
+    public async Task ThreadIndex_AlwaysInSyncWithThreadFiles()
     {
+        // LoadIndexAsync scans thread files, so it is always current without any rebuild step.
         var t1 = await _svc.CreateThreadAsync(_cliIdentity);
         var t2 = await _svc.CreateThreadAsync(_cliIdentity);
         AddTurnWithUserMessage(t1, "hello");
         await _store.SaveThreadAsync(t1);
         await _store.SaveThreadAsync(t2);
 
-        // Corrupt the index by deleting it, then rebuild.
-        var indexPath = Path.Combine(_tempDir, "thread-index.json");
-        if (File.Exists(indexPath))
-            File.Delete(indexPath);
-
-        await _store.RebuildIndexAsync();
-
         var index = await _store.LoadIndexAsync();
         Assert.Equal(2, index.Count);
         Assert.Contains(index, e => e.Id == t1.Id);
         Assert.Contains(index, e => e.Id == t2.Id);
+        Assert.Equal(1, index.First(e => e.Id == t1.Id).TurnCount);
     }
 
     // -------------------------------------------------------------------------
