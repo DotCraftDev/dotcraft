@@ -15,11 +15,11 @@ public sealed partial class AGUIModule : ModuleBase
     private readonly AGUIConfigValidator _validator = new();
 
     /// <inheritdoc />
-    public override bool IsEnabled(AppConfig config) => config.GetSection<AgUiConfig>("AgUi").Enabled;
+    public override bool IsEnabled(AppConfig config) => config.GetSection<AGUIConfig>("AgUi").Enabled;
 
     /// <inheritdoc />
     public override IReadOnlyList<string> ValidateConfig(AppConfig config)
-        => _validator.Validate(config.GetSection<AgUiConfig>("AgUi"));
+        => _validator.Validate(config.GetSection<AGUIConfig>("AgUi"));
 
     /// <inheritdoc />
     public override IEnumerable<IAgentToolProvider> GetToolProviders() => [];

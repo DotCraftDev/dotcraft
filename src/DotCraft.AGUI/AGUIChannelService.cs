@@ -13,7 +13,6 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
-using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
@@ -73,15 +72,15 @@ public sealed class AGUIChannelService(
     #region IWebHostingChannel
 
     /// <inheritdoc />
-    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<AgUiConfig>("AgUi").Host) ? "127.0.0.1" : config.GetSection<AgUiConfig>("AgUi").Host;
+    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<AGUIConfig>("AgUi").Host) ? "127.0.0.1" : config.GetSection<AGUIConfig>("AgUi").Host;
 
     /// <inheritdoc />
-    public int ListenPort => config.GetSection<AgUiConfig>("AgUi").Port <= 0 ? 5100 : config.GetSection<AgUiConfig>("AgUi").Port;
+    public int ListenPort => config.GetSection<AGUIConfig>("AgUi").Port <= 0 ? 5100 : config.GetSection<AGUIConfig>("AgUi").Port;
 
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
-        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
+        var agUiConfig = config.GetSection<AGUIConfig>("AgUi");
 
         _agentFactory = BuildAgentFactory();
 
@@ -95,7 +94,7 @@ public sealed class AGUIChannelService(
     public void ConfigureApp(WebApplication app)
     {
         _webApp = app;
-        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
+        var agUiConfig = config.GetSection<AGUIConfig>("AgUi");
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var traceStore = sp.GetService<TraceStore>();
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
@@ -125,11 +124,7 @@ public sealed class AGUIChannelService(
             innerAgent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
         }
 
-        // Session Protocol bridge: wrap the agent pipeline so that each AG-UI run
-        // is tracked as a Thread/Turn in the Session Protocol for observability
-        // and cross-channel thread discovery, while MapAGUI handles the wire protocol.
-        var sessionService = SessionServiceFactory.Create(_agentFactory, innerAgent, sp);
-        _agent = new AGUISessionAgent(innerAgent, sessionService, paths.WorkspacePath);
+        _agent = innerAgent;
 
         var pathPrefix = path.TrimEnd('/');
         if (agUiConfig.RequireAuth && !string.IsNullOrWhiteSpace(agUiConfig.ApiKey))

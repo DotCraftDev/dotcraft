@@ -5,10 +5,10 @@ namespace DotCraft.AGUI;
 /// <summary>
 /// Validator for AG-UI channel configuration.
 /// </summary>
-public sealed class AGUIConfigValidator : IModuleConfigValidator<AgUiConfig>
+public sealed class AGUIConfigValidator : IModuleConfigValidator<AGUIConfig>
 {
     /// <inheritdoc />
-    public IReadOnlyList<string> Validate(AgUiConfig config)
+    public IReadOnlyList<string> Validate(AGUIConfig config)
     {
         var errors = new List<string>();
 

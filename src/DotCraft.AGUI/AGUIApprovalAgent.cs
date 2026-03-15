@@ -219,14 +219,6 @@ internal sealed class AGUIApprovalAgent(AIAgent innerAgent, JsonSerializerOption
         return result;
     }
 
-    private static List<AIContent> CopyContents(IList<AIContent> contents, int count)
-    {
-        var result = new List<AIContent>(count);
-        for (var i = 0; i < count; i++)
-            result.Add(contents[i]);
-        return result;
-    }
-
     private static ChatMessage BuildMessage(ChatMessage original, List<AIContent> contents)
         => new(original.Role, contents)
         {
