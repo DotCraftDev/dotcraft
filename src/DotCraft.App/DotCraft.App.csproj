@@ -29,6 +29,7 @@
     <IncludeModuleUnity Condition="'$(IncludeModuleUnity)' == ''">true</IncludeModuleUnity>
     <IncludeModuleAGUI Condition="'$(IncludeModuleAGUI)' == ''">true</IncludeModuleAGUI>
     <IncludeModuleGitHubTracker Condition="'$(IncludeModuleGitHubTracker)' == ''">true</IncludeModuleGitHubTracker>
+    <IncludeModuleAPI Condition="'$(IncludeModuleAPI)' == ''">true</IncludeModuleAPI>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
@@ -52,6 +53,7 @@
     <ProjectReference Include="..\DotCraft.Unity\DotCraft.Unity.csproj" Condition="'$(IncludeModuleUnity)' == 'true'" />
     <ProjectReference Include="..\DotCraft.WeCom\DotCraft.WeCom.csproj" Condition="'$(IncludeModuleWeCom)' == 'true'" />
     <ProjectReference Include="..\DotCraft.AGUI\DotCraft.AGUI.csproj" Condition="'$(IncludeModuleAGUI)' == 'true'" />
+    <ProjectReference Include="..\DotCraft.Api\DotCraft.Api.csproj" Condition="'$(IncludeModuleAPI)' == 'true'" />
     <ProjectReference Include="..\DotCraft.GitHubTracker\DotCraft.GitHubTracker.csproj" Condition="'$(IncludeModuleGitHubTracker)' == 'true'" />
   </ItemGroup>
 
