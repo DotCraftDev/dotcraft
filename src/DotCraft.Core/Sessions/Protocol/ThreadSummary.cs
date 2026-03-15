@@ -14,6 +14,13 @@ public sealed class ThreadSummary
 
     public string OriginChannel { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Channel-specific context key (mirrors SessionThread.ChannelContext).
+    /// Populated from the first-class property with a fallback to Metadata["channelContext"]
+    /// for threads created before this property was introduced.
+    /// </summary>
+    public string? ChannelContext { get; set; }
+
     public string? DisplayName { get; set; }
 
     public ThreadStatus Status { get; set; }
@@ -39,6 +46,9 @@ public sealed class ThreadSummary
             UserId = thread.UserId,
             WorkspacePath = thread.WorkspacePath,
             OriginChannel = thread.OriginChannel,
+            // Prefer the first-class property; fall back to Metadata for threads persisted before this field existed.
+            ChannelContext = thread.ChannelContext
+                ?? (thread.Metadata.TryGetValue("channelContext", out var mc) ? mc : null),
             DisplayName = thread.DisplayName,
             Status = thread.Status,
             CreatedAt = thread.CreatedAt,

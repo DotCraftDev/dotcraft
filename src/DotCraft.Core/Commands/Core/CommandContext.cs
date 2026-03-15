@@ -55,6 +55,14 @@ public sealed record CommandContext
     /// Optional group/chat identifier.
     /// </summary>
     public string? GroupId { get; init; }
+
+    /// <summary>
+    /// The fully-qualified channel context key matching the format used when the thread was created.
+    /// For QQ: "group:{groupId}" for group chats, "user:{userId}" for private chats.
+    /// For WeCom: "chat:{chatId}".
+    /// Null for channels with no sub-context (CLI, ACP).
+    /// </summary>
+    public string? ChannelContext { get; init; }
     
     /// <summary>
     /// The workspace path, used to construct a SessionIdentity for thread discovery.

@@ -28,6 +28,13 @@ public sealed class SessionThread
     public string OriginChannel { get; set; } = string.Empty;
 
     /// <summary>
+    /// Channel-specific context key stored on creation (e.g., "group:123456" or "user:789" for QQ,
+    /// "chat:abc" for WeCom). Null for channels that have no sub-context (CLI, ACP).
+    /// Used by FindThreadsAsync to isolate threads per context.
+    /// </summary>
+    public string? ChannelContext { get; set; }
+
+    /// <summary>
     /// Human-readable label. Defaults to the first user message text (truncated).
     /// </summary>
     public string? DisplayName { get; set; }

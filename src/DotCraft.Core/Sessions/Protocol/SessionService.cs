@@ -77,7 +77,10 @@ public sealed class SessionService : ISessionService
         };
 
         if (identity.ChannelContext != null)
+        {
+            thread.ChannelContext = identity.ChannelContext;
             thread.Metadata["channelContext"] = identity.ChannelContext;
+        }
 
         _threads[thread.Id] = thread;
 
@@ -174,7 +177,10 @@ public sealed class SessionService : ISessionService
             .Where(s =>
                 s.Status != ThreadStatus.Archived
                 && string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
-                && (identity.UserId == null || s.UserId == identity.UserId))
+                && (identity.UserId == null || s.UserId == identity.UserId)
+                && (identity.ChannelContext == null
+                    ? s.ChannelContext == null
+                    : s.ChannelContext == identity.ChannelContext))
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
     }

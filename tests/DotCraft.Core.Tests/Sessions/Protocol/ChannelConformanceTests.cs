@@ -78,19 +78,20 @@ public sealed class ChannelConformanceTests : IDisposable
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task CreateThread_ChannelContext_StoredInMetadata()
+    public async Task CreateThread_ChannelContext_StoredInMetadataAndFirstClassProperty()
     {
         var identity = new SessionIdentity
         {
             ChannelName = "qq",
             UserId = "user_123",
-            ChannelContext = "group_456",
+            ChannelContext = "group:456",
             WorkspacePath = _tempDir
         };
 
         var thread = await _svc.CreateThreadAsync(identity);
 
-        Assert.Equal("group_456", thread.Metadata["channelContext"]);
+        Assert.Equal("group:456", thread.ChannelContext);
+        Assert.Equal("group:456", thread.Metadata["channelContext"]);
     }
 
     [Fact]
@@ -291,6 +292,88 @@ public sealed class ChannelConformanceTests : IDisposable
 
         Assert.Single(results);
         Assert.Equal(qqThread.Id, results[0].Id);
+    }
+
+    [Fact]
+    public async Task FindThreads_QQ_PrivateAndGroupChatAreIsolated()
+    {
+        var userId = "12345678";
+        var privateIdentity = new SessionIdentity
+        {
+            ChannelName = "qq",
+            UserId = userId,
+            ChannelContext = $"user:{userId}",
+            WorkspacePath = _tempDir
+        };
+        var groupIdentity = new SessionIdentity
+        {
+            ChannelName = "qq",
+            UserId = userId,
+            ChannelContext = "group:987654",
+            WorkspacePath = _tempDir
+        };
+
+        var privateThread = await _svc.CreateThreadAsync(privateIdentity);
+        var groupThread = await _svc.CreateThreadAsync(groupIdentity);
+
+        var privateResults = await _svc.FindThreadsAsync(privateIdentity);
+        var groupResults = await _svc.FindThreadsAsync(groupIdentity);
+
+        Assert.Single(privateResults);
+        Assert.Equal(privateThread.Id, privateResults[0].Id);
+
+        Assert.Single(groupResults);
+        Assert.Equal(groupThread.Id, groupResults[0].Id);
+    }
+
+    [Fact]
+    public async Task FindThreads_WeCom_DifferentChatsAreIsolated()
+    {
+        var userId = "wc_user_01";
+        var chat1Identity = new SessionIdentity
+        {
+            ChannelName = "wecom",
+            UserId = userId,
+            ChannelContext = "chat:room_a",
+            WorkspacePath = _tempDir
+        };
+        var chat2Identity = new SessionIdentity
+        {
+            ChannelName = "wecom",
+            UserId = userId,
+            ChannelContext = "chat:room_b",
+            WorkspacePath = _tempDir
+        };
+
+        var thread1 = await _svc.CreateThreadAsync(chat1Identity);
+        var thread2 = await _svc.CreateThreadAsync(chat2Identity);
+
+        var room1Results = await _svc.FindThreadsAsync(chat1Identity);
+        var room2Results = await _svc.FindThreadsAsync(chat2Identity);
+
+        Assert.Single(room1Results);
+        Assert.Equal(thread1.Id, room1Results[0].Id);
+
+        Assert.Single(room2Results);
+        Assert.Equal(thread2.Id, room2Results[0].Id);
+    }
+
+    [Fact]
+    public async Task FindThreads_NullChannelContext_DoesNotMatchContextualThreads()
+    {
+        var cliIdentity = MakeIdentity("cli", "local");
+        var qqIdentity = new SessionIdentity
+        {
+            ChannelName = "qq",
+            UserId = "local",
+            ChannelContext = "user:local",
+            WorkspacePath = _tempDir
+        };
+
+        await _svc.CreateThreadAsync(qqIdentity);
+        var cliResults = await _svc.FindThreadsAsync(cliIdentity);
+
+        Assert.Empty(cliResults);
     }
 
     // -------------------------------------------------------------------------

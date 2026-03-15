@@ -23,7 +23,7 @@ public sealed class NewCommandHandler : ICommandHandler
             {
                 ChannelName = context.Source.ToLowerInvariant(),
                 UserId = context.UserId,
-                ChannelContext = context.GroupId,
+                ChannelContext = context.ChannelContext,
                 WorkspacePath = context.WorkspacePath
             };
             var threads = await context.SessionService.FindThreadsAsync(identity);

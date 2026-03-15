@@ -481,6 +481,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             IsAdmin = role == QQUserRole.Admin,
             Source = "QQ",
             GroupId = evt.IsGroupMessage ? evt.GroupId.ToString() : null,
+            ChannelContext = evt.IsGroupMessage ? $"group:{evt.GroupId}" : $"user:{evt.UserId}",
             WorkspacePath = _workspacePath,
             SessionService = _sessionService,
             HeartbeatService = _heartbeatService,

@@ -184,6 +184,46 @@ public sealed class SessionServiceLifecycleTests : IDisposable
         Assert.Empty(found);
     }
 
+    [Fact]
+    public async Task FindThreads_ChannelContextIsolation_DifferentContextsReturnSeparateThreads()
+    {
+        var ws = Path.Combine(Path.GetTempPath(), "ctx_test_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(ws);
+        try
+        {
+            var privateId = new SessionIdentity
+            {
+                ChannelName = "qq",
+                UserId = "42",
+                ChannelContext = "user:42",
+                WorkspacePath = ws
+            };
+            var groupId = new SessionIdentity
+            {
+                ChannelName = "qq",
+                UserId = "42",
+                ChannelContext = "group:99",
+                WorkspacePath = ws
+            };
+
+            var privateThread = await _svc.CreateThreadAsync(privateId);
+            var groupThread = await _svc.CreateThreadAsync(groupId);
+
+            var privateResults = await _svc.FindThreadsAsync(privateId);
+            var groupResults = await _svc.FindThreadsAsync(groupId);
+
+            Assert.Single(privateResults);
+            Assert.Equal(privateThread.Id, privateResults[0].Id);
+
+            Assert.Single(groupResults);
+            Assert.Equal(groupThread.Id, groupResults[0].Id);
+        }
+        finally
+        {
+            try { Directory.Delete(ws, recursive: true); } catch { /* best-effort */ }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // GetThread
     // -------------------------------------------------------------------------
@@ -257,7 +297,10 @@ internal sealed class FakeSessionService : ISessionService
         };
 
         if (identity.ChannelContext != null)
+        {
+            thread.ChannelContext = identity.ChannelContext;
             thread.Metadata["channelContext"] = identity.ChannelContext;
+        }
 
         _threads[thread.Id] = thread;
         await _store.SaveThreadAsync(thread, ct);
@@ -302,7 +345,10 @@ internal sealed class FakeSessionService : ISessionService
         return index
             .Where(s =>
                 string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
-                && (identity.UserId == null || s.UserId == identity.UserId))
+                && (identity.UserId == null || s.UserId == identity.UserId)
+                && (identity.ChannelContext == null
+                    ? s.ChannelContext == null
+                    : s.ChannelContext == identity.ChannelContext))
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
     }
