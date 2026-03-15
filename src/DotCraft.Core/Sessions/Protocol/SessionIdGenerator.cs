@@ -5,7 +5,7 @@ namespace DotCraft.Sessions.Protocol;
 /// </summary>
 public static class SessionIdGenerator
 {
-    private static readonly Random _random = new();
+    private static readonly Random _random = Random.Shared;
     private const string Chars = "abcdefghijklmnopqrstuvwxyz0123456789";
 
     /// <summary>
