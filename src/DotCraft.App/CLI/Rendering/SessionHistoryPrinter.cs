@@ -106,7 +106,16 @@ public static class SessionHistoryPrinter
             if (!string.IsNullOrWhiteSpace(userText))
                 PrintUserMessageText(StripRuntimeContext(userText));
 
-            // Agent and tool items
+            // Build a lookup of tool results by CallId for inline display
+            var resultsByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var item in turn.Items)
+            {
+                if (item.Type == ItemType.ToolResult && item.Payload is ToolResultPayload trp
+                    && !string.IsNullOrEmpty(trp.CallId))
+                    resultsByCallId[trp.CallId] = trp.Result;
+            }
+
+            // Agent and tool items (ToolResult items are rendered inline with their ToolCall)
             foreach (var item in turn.Items)
             {
                 switch (item.Type)
@@ -120,9 +129,8 @@ public static class SessionHistoryPrinter
                     }
                     case ItemType.ToolCall:
                     {
-                        var tc = item.Payload as ToolCallPayload;
-                        if (tc != null)
-                            PrintToolCallItem(tc);
+                        if (item.Payload is ToolCallPayload tc)
+                            PrintToolCallWithResult(tc, resultsByCallId);
                         break;
                     }
                 }
@@ -144,11 +152,28 @@ public static class SessionHistoryPrinter
             AnsiConsole.MarkupLine($"       {Markup.Escape(line)}");
     }
 
-    private static void PrintToolCallItem(ToolCallPayload tc)
+    private static void PrintToolCallWithResult(
+        ToolCallPayload tc, Dictionary<string, string> resultsByCallId)
     {
         var icon = ToolRegistry.GetToolIcon(tc.ToolName);
         var display = ToolRegistry.FormatToolCall(tc.ToolName, tc.Arguments) ?? tc.ToolName;
         AnsiConsole.MarkupLine($"  [yellow]{Markup.Escape($"{icon} {display}")}[/]");
+
+        if (!string.IsNullOrEmpty(tc.CallId)
+            && resultsByCallId.TryGetValue(tc.CallId, out var rawResult))
+        {
+            var formatted = ToolRegistry.FormatToolResult(tc.ToolName, rawResult);
+            if (formatted != null)
+            {
+                foreach (var line in formatted)
+                    AnsiConsole.MarkupLine($"    [grey]{Markup.Escape(line)}[/]");
+            }
+            else if (!string.IsNullOrWhiteSpace(rawResult))
+            {
+                AnsiConsole.MarkupLine(
+                    $"    [grey]{Markup.Escape(NormalizeInline(Truncate(rawResult, 200)))}[/]");
+            }
+        }
     }
 
     private static void PrintSeparator()

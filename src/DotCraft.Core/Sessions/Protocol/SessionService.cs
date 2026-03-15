@@ -458,6 +458,19 @@ public sealed class SessionService : ISessionService
                                     turn.Items.Add(toolResultItem);
                                     eventChannel.EmitItemStarted(toolResultItem);
                                     eventChannel.EmitItemCompleted(toolResultItem);
+
+                                    // Finalize the current AgentMessage so any subsequent
+                                    // text (post-tool response) starts a fresh item,
+                                    // preserving the natural interleaving in stored turns.
+                                    if (agentMessageItem != null)
+                                    {
+                                        agentMessageItem.Payload = new AgentMessagePayload { Text = agentText };
+                                        agentMessageItem.Status = ItemStatus.Completed;
+                                        agentMessageItem.CompletedAt = DateTimeOffset.UtcNow;
+                                        eventChannel.EmitItemCompleted(agentMessageItem);
+                                        agentMessageItem = null;
+                                        agentText = string.Empty;
+                                    }
                                     break;
                                 }
 
@@ -483,7 +496,8 @@ public sealed class SessionService : ISessionService
                     approvalContextDisposable?.Dispose();
                 }
 
-                // Step 5h: Finalize streaming items
+                // Step 5h: Finalize any still-streaming items (agentMessageItem is null if
+                // it was already finalized after the last tool result).
                 if (agentMessageItem != null)
                 {
                     agentMessageItem.Payload = new AgentMessagePayload { Text = agentText };
