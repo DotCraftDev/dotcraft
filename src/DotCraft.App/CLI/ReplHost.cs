@@ -97,25 +97,7 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
 
             var agentInput = expandedPrompt ?? trimmed;
 
-            // Run PrePrompt hooks (can block the prompt)
-            if (hookRunner != null)
-            {
-                var prePromptInput = new HookInput { SessionId = _currentSessionId, Prompt = agentInput };
-                var prePromptResult = await hookRunner.RunAsync(HookEvent.PrePrompt, prePromptInput, cancellationToken);
-                if (prePromptResult.Blocked)
-                {
-                    AnsiConsole.MarkupLine($"[yellow]Prompt blocked by hook: {Markup.Escape(prePromptResult.BlockReason ?? "no reason")}[/]");
-                    continue;
-                }
-            }
-
-            var success = await RunSessionInputAsync(agentInput, cancellationToken);
-
-            if (success)
-            {
-                // Run Stop hooks after agent finishes responding
-                await RunStopHooksAsync(_currentSessionId, null, cancellationToken);
-            }
+            await RunSessionInputAsync(agentInput, cancellationToken);
         }
 
         AnsiConsole.MarkupLine($"\n[blue]👋 {Strings.Goodbye(_lang)}[/]");

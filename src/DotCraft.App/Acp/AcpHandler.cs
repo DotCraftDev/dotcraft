@@ -459,23 +459,6 @@ public sealed class AcpHandler(
 
             RuntimeContextBuilder.AppendTo(contentParts);
 
-            // Run PrePrompt hooks (can block the prompt)
-            if (hookRunner != null)
-            {
-                var hookPromptText = RuntimeContextBuilder.AppendTo(promptText);
-                var prePromptInput = new HookInput { SessionId = sessionId, Prompt = hookPromptText };
-                var prePromptResult = await hookRunner.RunAsync(HookEvent.PrePrompt, prePromptInput, promptCts.Token);
-                if (prePromptResult.Blocked)
-                {
-                    logger?.LogEvent($"Prompt blocked by hook [session={sessionId}]: {prePromptResult.BlockReason}");
-                    transport.SendResponse(request.Id, new SessionPromptResult
-                    {
-                        StopReason = AcpStopReason.EndTurn
-                    });
-                    return;
-                }
-            }
-
             logger?.LogEvent($"Prompt start [session={sessionId}]: {(promptText.Length > 200 ? promptText[..200] + "..." : promptText)}");
 
             {
@@ -563,13 +546,6 @@ public sealed class AcpHandler(
                     sessionService.SubmitInputAsync(sessionId, promptText, ct: promptCts.Token),
                     (tid, rid, ok) => sessionService.ResolveApprovalAsync(tid, rid, ok, promptCts.Token),
                     promptCts.Token);
-
-                // Run Stop hooks
-                if (hookRunner != null)
-                {
-                    var stopInput = new HookInput { SessionId = sessionId };
-                    await hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
-                }
 
                 // Send structured plan update (covers Plan mode creation and Agent mode todo updates)
                 if (planStore != null && planStore.StructuredPlanExists(sessionId))
