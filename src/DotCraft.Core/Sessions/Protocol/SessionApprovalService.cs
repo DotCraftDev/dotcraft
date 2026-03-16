@@ -62,7 +62,8 @@ internal sealed class SessionApprovalService : IApprovalService
             Operation = operation,
             Target = path,
             RequestId = requestId,
-            ScopeKey = scopeKey
+            ScopeKey = scopeKey,
+            Reason = $"Agent wants to perform a '{operation}' file operation on: {path}"
         };
         return RequestApprovalAsync(requestId, scopeKey, payload);
     }
@@ -80,7 +81,8 @@ internal sealed class SessionApprovalService : IApprovalService
             Operation = command,
             Target = workingDir ?? string.Empty,
             RequestId = requestId,
-            ScopeKey = scopeKey
+            ScopeKey = scopeKey,
+            Reason = $"Agent wants to execute a shell command: {command}"
         };
         return RequestApprovalAsync(requestId, scopeKey, payload);
     }

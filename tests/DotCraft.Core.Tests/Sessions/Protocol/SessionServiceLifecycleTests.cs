@@ -364,6 +364,7 @@ internal sealed class FakeSessionService : ISessionService
         ThreadConfiguration? config = null,
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
+        string? displayName = null,
         CancellationToken ct = default)
     {
         var thread = new SessionThread
@@ -376,7 +377,8 @@ internal sealed class FakeSessionService : ISessionService
             HistoryMode = historyMode,
             CreatedAt = DateTimeOffset.UtcNow,
             LastActiveAt = DateTimeOffset.UtcNow,
-            Configuration = config
+            Configuration = config,
+            DisplayName = displayName
         };
 
         if (identity.ChannelContext != null)

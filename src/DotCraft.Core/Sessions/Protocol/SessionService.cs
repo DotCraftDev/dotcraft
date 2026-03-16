@@ -55,6 +55,7 @@ public sealed class SessionService(
         ThreadConfiguration? config = null,
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
+        string? displayName = null,
         CancellationToken ct = default)
     {
         var thread = new SessionThread
@@ -67,7 +68,8 @@ public sealed class SessionService(
             CreatedAt = DateTimeOffset.UtcNow,
             LastActiveAt = DateTimeOffset.UtcNow,
             HistoryMode = historyMode,
-            Configuration = config
+            Configuration = config,
+            DisplayName = displayName
         };
 
         if (identity.ChannelContext != null)
@@ -106,7 +108,9 @@ public sealed class SessionService(
                 GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, cached.Status);
             }
 
-            GetOrCreateBroker(threadId).PublishThreadEvent(SessionEventType.ThreadResumed, cached);
+            var resumedByChannel = ChannelSessionScope.Current?.Channel ?? cached.OriginChannel;
+            GetOrCreateBroker(threadId).PublishThreadEvent(SessionEventType.ThreadResumed,
+                new ThreadResumedPayload { Thread = cached, ResumedBy = resumedByChannel });
             return cached;
         }
 
@@ -126,7 +130,9 @@ public sealed class SessionService(
             _threadAgents[thread.Id] = await BuildAgentForConfigAsync(thread.Id, thread.Configuration, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
-        broker.PublishThreadEvent(SessionEventType.ThreadResumed, thread);
+        var resumedBy = ChannelSessionScope.Current?.Channel ?? thread.OriginChannel;
+        broker.PublishThreadEvent(SessionEventType.ThreadResumed,
+            new ThreadResumedPayload { Thread = thread, ResumedBy = resumedBy });
 
         return thread;
     }

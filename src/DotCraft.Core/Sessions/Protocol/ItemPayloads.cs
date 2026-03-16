@@ -138,6 +138,11 @@ public sealed record ApprovalRequestPayload
     /// Session-scoped cache key for repeated approvals of the same class of operation.
     /// </summary>
     public string ScopeKey { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Human-readable explanation of why this approval is needed, shown to the user in approval UIs.
+    /// </summary>
+    public string Reason { get; init; } = string.Empty;
 }
 
 /// <summary>

@@ -21,12 +21,17 @@ public interface ISessionService
     /// Optional pre-assigned thread ID. When provided, this ID is used instead of generating a new one.
     /// The caller is responsible for ensuring uniqueness (e.g. by using <see cref="SessionIdGenerator.NewThreadId"/>).
     /// </param>
+    /// <param name="displayName">
+    /// Optional explicit display name for the thread. If null, a display name is automatically set
+    /// from the first user message text during <see cref="SubmitInputAsync"/>.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
+        string? displayName = null,
         CancellationToken ct = default);
 
     /// <summary>

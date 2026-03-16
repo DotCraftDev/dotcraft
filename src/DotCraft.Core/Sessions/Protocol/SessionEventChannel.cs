@@ -73,7 +73,7 @@ internal sealed class SessionEventChannel(
         Write(SessionEventType.TurnFailed, null, turn);
 
     public void EmitTurnCancelled(SessionTurn turn, string reason) =>
-        Write(SessionEventType.TurnCancelled, null, turn);
+        Write(SessionEventType.TurnCancelled, null, new TurnCancelledPayload { Turn = turn, Reason = reason });
 
     // -------------------------------------------------------------------------
     // Item events
@@ -106,7 +106,8 @@ internal sealed class SessionEventChannel(
         WriteThreadLevel(SessionEventType.ThreadCreated, thread.Id, thread);
 
     public void EmitThreadResumed(SessionThread thread, string resumedBy) =>
-        WriteThreadLevel(SessionEventType.ThreadResumed, thread.Id, thread);
+        WriteThreadLevel(SessionEventType.ThreadResumed, thread.Id,
+            new ThreadResumedPayload { Thread = thread, ResumedBy = resumedBy });
 
     public void EmitThreadStatusChanged(string threadId, ThreadStatus prev, ThreadStatus next) =>
         WriteThreadLevel(SessionEventType.ThreadStatusChanged, threadId,
