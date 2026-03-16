@@ -86,7 +86,7 @@ public sealed class CliHost(
         var modeManager = new AgentModeManager();
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
-        var runner = new AgentRunner(hookRunner, sessionService);
+        var runner = new AgentRunner(sessionService);
 
         DashBoardServer? dashBoardServer = null;
         string? dashBoardUrl = null;

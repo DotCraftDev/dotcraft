@@ -21,6 +21,6 @@ public static class SessionServiceExtensions
         CancellationToken ct = default)
         => service.SubmitInputAsync(
             threadId,
-            (IList<AIContent>)[new TextContent(text)],
+            [new TextContent(text)],
             sender, messages, ct);
 }

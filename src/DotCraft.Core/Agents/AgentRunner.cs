@@ -1,5 +1,4 @@
 using System.Text;
-using DotCraft.Hooks;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Tools;
 using Spectre.Console;
@@ -18,9 +17,7 @@ public delegate Task<string?> AgentRunSessionDelegate(
 /// Shared agent execution logic used across all channel modes for running an agent session
 /// via <see cref="ISessionService"/>. Used for heartbeat and cron-triggered runs.
 /// </summary>
-public sealed class AgentRunner(
-    HookRunner? hookRunner = null,
-    ISessionService? sessionService = null)
+public sealed class AgentRunner(ISessionService? sessionService = null)
 {
     /// <summary>
     /// Run agent with a prompt, manage session lifecycle, stream output, and log results.
@@ -44,8 +41,7 @@ public sealed class AgentRunner(
                      $"Task: {prompt}";
         }
 
-        AnsiConsole.MarkupLine(
-            $"[grey][[{tag}]][/] Running: [dim]{Markup.Escape(prompt.Length > 120 ? prompt[..120] + "..." : prompt)}[/]");
+        AnsiConsole.MarkupLine($"[grey][[{tag}]][/] Running: [dim]{Markup.Escape(prompt.Length > 120 ? prompt[..120] + "..." : prompt)}[/]");
 
         // Build identity for this session type
         var channelName = sessionKey.StartsWith("heartbeat") ? "heartbeat"
@@ -69,19 +65,6 @@ public sealed class AgentRunner(
             thread = await sessionService.ResumeThreadAsync(matchingThread.Id, cancellationToken);
         else
             thread = await sessionService.CreateThreadAsync(identity, ct: cancellationToken);
-
-        // Run PrePrompt hooks
-        if (hookRunner != null)
-        {
-            var prePromptInput = new HookInput { SessionId = sessionKey, Prompt = prompt };
-            var prePromptResult = await hookRunner.RunAsync(HookEvent.PrePrompt, prePromptInput, cancellationToken);
-            if (prePromptResult.Blocked)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[grey][[{tag}]][/] [yellow]Prompt blocked by hook: {Markup.Escape(prePromptResult.BlockReason ?? "no reason")}[/]");
-                return $"Prompt blocked by hook: {prePromptResult.BlockReason ?? "no reason given"}";
-            }
-        }
 
         // Consume the event stream and accumulate the agent response text
         var sb = new StringBuilder();
@@ -107,7 +90,7 @@ public sealed class AgentRunner(
                 case SessionEventType.ItemCompleted when evt.ItemPayload?.Type == ItemType.ToolResult &&
                                                          evt.ItemPayload.AsToolResult is { } tr:
                 {
-                    var result = tr.Result ?? string.Empty;
+                    var result = tr.Result;
                     var preview = result.Length > 200 ? result[..200] + "..." : result;
                     var normalized = preview.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
                     AnsiConsole.MarkupLine($"[grey][[{tag}]][/]   [grey]{Markup.Escape(normalized)}[/]");
@@ -132,16 +115,9 @@ public sealed class AgentRunner(
         }
 
         var response = sb.Length > 0 ? sb.ToString() : null;
-
         if (response != null)
-            AnsiConsole.MarkupLine(
-                $"[grey][[{tag}]][/] Response: [dim]{Markup.Escape(response.Length > 200 ? response[..200] + "..." : response)}[/]");
-
-        // Run Stop hooks
-        if (hookRunner != null)
         {
-            var stopInput = new HookInput { SessionId = sessionKey, Response = response };
-            await hookRunner.RunAsync(HookEvent.Stop, stopInput, cancellationToken);
+            AnsiConsole.MarkupLine($"[grey][[{tag}]][/] Response: [dim]{Markup.Escape(response.Length > 200 ? response[..200] + "..." : response)}[/]");
         }
 
         return response;
