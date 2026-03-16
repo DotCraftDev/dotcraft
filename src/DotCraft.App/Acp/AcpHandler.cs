@@ -11,7 +11,6 @@ using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
 using DotCraft.Sessions.Protocol;
-using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 
@@ -24,7 +23,6 @@ namespace DotCraft.Acp;
 public sealed class AcpHandler(
     AcpTransport transport,
     AgentFactory agentFactory,
-    AIAgent agent,
     AcpApprovalService approvalService,
     string workspacePath,
     ISessionService sessionService,
@@ -42,9 +40,6 @@ public sealed class AcpHandler(
         UserId = "local",
         WorkspacePath = workspacePath
     };
-    // Mutable backing field so it can be rebuilt in HandleInitialize once
-    // clientProxy.Capabilities is populated (tool providers depend on extensions).
-    private AIAgent _defaultAgent = agent;
 
     private ClientCapabilities? _clientCapabilities;
     private bool _initialized;
@@ -218,7 +213,7 @@ public sealed class AcpHandler(
         if (clientProxy != null)
         {
             clientProxy.Capabilities = _clientCapabilities;
-            _defaultAgent = agentFactory.CreateAgentForMode(AgentMode.Agent);
+            agentFactory.CreateAgentForMode(AgentMode.Agent);
         }
 
         transport.SendResponse(request.Id, result);
@@ -371,7 +366,7 @@ public sealed class AcpHandler(
 
         if (_activePrompts.TryRemove(sessionId, out var promptCts))
         {
-            promptCts.Cancel();
+            await promptCts.CancelAsync();
             promptCts.Dispose();
         }
 
@@ -472,7 +467,7 @@ public sealed class AcpHandler(
                     },
                     OnToolStarted = (toolName, _, _, callId) =>
                     {
-                        var fc = new FunctionCallContent(callId, toolName, null);
+                        var fc = new FunctionCallContent(callId, toolName);
                         SendToolCallStarted(sessionId, fc);
                         return Task.CompletedTask;
                     },
@@ -592,7 +587,7 @@ public sealed class AcpHandler(
         }
     }
 
-    // ????? Helper methods ?????
+    // Helper methods
 
     private static List<McpServerConfig> ConvertToMcpConfigs(List<AcpMcpServer> mcpServers)
     {
@@ -808,7 +803,7 @@ public sealed class AcpHandler(
             var modeName = p.Value.ToLowerInvariant();
 
             await EnsureThreadMaterializedAsync(sessionId, ct);
-            await sessionService.SetThreadModeAsync(sessionId, modeName);
+            await sessionService.SetThreadModeAsync(sessionId, modeName, ct);
 
             var updatedOptions = BuildConfigOptions(modeName);
             transport.SendResponse(request.Id, new SessionSetConfigOptionResult { ConfigOptions = updatedOptions });
@@ -879,7 +874,7 @@ public sealed class AcpHandler(
     /// <summary>
     /// Builds multimodal content from ACP prompt blocks, supporting text, resource, and image blocks.
     /// </summary>
-    private static IList<AIContent> BuildPromptContent(List<AcpContentBlock> prompt)
+    private static List<AIContent> BuildPromptContent(List<AcpContentBlock> prompt)
     {
         var parts = new List<AIContent>();
         foreach (var block in prompt)
@@ -921,17 +916,6 @@ public sealed class AcpHandler(
         if (_initialized) return true;
         transport.SendError(request.Id, -32002, "Agent not initialized. Call 'initialize' first.");
         return false;
-    }
-
-    /// <summary>
-    /// Removes the [Runtime Context] block appended by RuntimeContextBuilder from a stored user message,
-    /// so that dynamic metadata (timestamps, etc.) is not shown in session history replay.
-    /// </summary>
-    private static string StripRuntimeContext(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return text;
-        var idx = text.IndexOf("\n\n[Runtime Context]", StringComparison.Ordinal);
-        return idx >= 0 ? text[..idx] : text;
     }
 
     private static T? Deserialize<T>(JsonElement? element) where T : class

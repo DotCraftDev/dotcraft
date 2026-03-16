@@ -106,7 +106,7 @@ public sealed class CliHost(
             enabled: false);
 
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var repl = new ReplHost(agent, skillsLoader, sessionService,
+        var repl = new ReplHost(skillsLoader, sessionService,
             paths.WorkspacePath, paths.CraftPath,
             heartbeatService: heartbeatService, cronService: cronService,
             agentFactory: _agentFactory, mcpClientManager: mcpClientManager,

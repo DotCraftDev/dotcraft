@@ -100,7 +100,7 @@ public sealed class AcpHost(
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         handler = new AcpHandler(
-            transport, _agentFactory, agent,
+            transport, _agentFactory,
             acpApprovalService, paths.WorkspacePath, sessionService,
             customCommandLoader,
             tokenUsageStore: tokenUsageStore,

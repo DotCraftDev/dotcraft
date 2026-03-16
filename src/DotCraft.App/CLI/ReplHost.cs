@@ -13,12 +13,12 @@ using DotCraft.Mcp;
 using DotCraft.Security;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
-using Microsoft.Agents.AI;
 using Spectre.Console;
 
 namespace DotCraft.CLI;
 
-public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
+public sealed class ReplHost(
+    SkillsLoader skillsLoader,
     ISessionService sessionService,
     string workspacePath = "", string dotCraftPath = "",
     HeartbeatService? heartbeatService = null, CronService? cronService = null,
@@ -45,10 +45,8 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
         WorkspacePath = workspacePath
     };
 
-    private AIAgent _currentAgent = agent;
-
     /// <summary>Command history shared across all line-editor instances.</summary>
-    private readonly List<string> _inputHistory = new();
+    private readonly List<string> _inputHistory = [];
 
     /// <summary>
     /// Buffer snapshot saved when the user presses Shift+Tab to switch mode,
@@ -111,16 +109,6 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
         if (hookRunner == null) return;
         var input = new HookInput { SessionId = sessionId };
         await hookRunner.RunAsync(HookEvent.SessionStart, input, ct);
-    }
-
-    /// <summary>
-    /// Runs Stop hooks after agent finishes responding.
-    /// </summary>
-    private async Task RunStopHooksAsync(string sessionId, string? response, CancellationToken ct)
-    {
-        if (hookRunner == null) return;
-        var input = new HookInput { SessionId = sessionId, Response = response };
-        await hookRunner.RunAsync(HookEvent.Stop, input, ct);
     }
 
     /// <summary>
@@ -285,7 +273,7 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
         if (agentFactory == null)
             return;
 
-        _currentAgent = agentFactory.CreateAgentForMode(_modeManager.CurrentMode, _modeManager);
+        agentFactory.CreateAgentForMode(_modeManager.CurrentMode, _modeManager);
     }
 
     private async Task LoadSessionAsync(string newSessionId, CancellationToken cancellationToken)
