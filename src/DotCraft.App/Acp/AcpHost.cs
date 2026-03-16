@@ -9,6 +9,7 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Hooks;
 using DotCraft.Skills;
 using DotCraft.Tools;
@@ -26,7 +27,6 @@ public sealed class AcpHost(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -51,7 +51,10 @@ public sealed class AcpHost(
         await using var transport = AcpTransport.CreateStdio();
         transport.Logger = acpLogger;
         transport.StartReaderLoop();
-        var approvalService = new AcpApprovalService(transport);
+        var acpApprovalService = new AcpApprovalService(transport);
+
+        // Wrap in SessionScopedApprovalService so SessionService can install per-turn overrides
+        var scopedApproval = new SessionScopedApprovalService(acpApprovalService);
 
         // Create client proxy early (capabilities will be set during initialize)
         var clientProxy = new AcpClientProxy(transport, null);
@@ -62,7 +65,7 @@ public sealed class AcpHost(
 
         _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, approvalService, blacklist,
+            memoryStore, skillsLoader, scopedApproval, blacklist,
             toolProviders: toolProviders,
             toolProviderContext: new Abstractions.ToolProviderContext
             {
@@ -75,7 +78,7 @@ public sealed class AcpHost(
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
                 SkillsLoader = skillsLoader,
-                ApprovalService = approvalService,
+                ApprovalService = scopedApproval,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
@@ -95,10 +98,11 @@ public sealed class AcpHost(
             hookRunner: hookRunner);
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
+        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         handler = new AcpHandler(
-            transport, sessionStore, _agentFactory, agent,
-            approvalService, paths.WorkspacePath,
-            customCommandLoader, traceCollector,
+            transport, _agentFactory,
+            acpApprovalService, paths.WorkspacePath, sessionService,
+            customCommandLoader,
             tokenUsageStore: tokenUsageStore,
             logger: acpLogger,
             planStore: planStore,

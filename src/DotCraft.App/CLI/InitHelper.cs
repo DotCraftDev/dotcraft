@@ -107,7 +107,6 @@ public static class InitHelper
             var directories = new[]
             {
                 workspacePath,
-                Path.Combine(workspacePath, "sessions"),
                 Path.Combine(workspacePath, "memory"),
                 Path.Combine(workspacePath, "skills"),
                 Path.Combine(workspacePath, "security")

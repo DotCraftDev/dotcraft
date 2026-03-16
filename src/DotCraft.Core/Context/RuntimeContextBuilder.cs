@@ -11,19 +11,9 @@ namespace DotCraft.Context;
 public static class RuntimeContextBuilder
 {
     /// <summary>
-    /// Appends a [Runtime Context] block to the given prompt containing:
-    /// - Current time (always)
-    /// - Any dynamic lines contributed by registered IChatContextProvider instances
-    /// </summary>
-    public static string AppendTo(string prompt)
-    {
-        return $"{prompt}\n\n{BuildBlock()}";
-    }
-
-    /// <summary>
     /// Appends a [Runtime Context] <see cref="TextContent"/> to a multimodal content list.
     /// </summary>
-    public static IList<AIContent> AppendTo(IList<AIContent> contents)
+    public static IList<AIContent> AppendRuntimeContext(this IList<AIContent> contents)
     {
         contents.Add(new TextContent($"\n\n{BuildBlock()}"));
         return contents;

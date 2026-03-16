@@ -35,7 +35,7 @@ Console output on successful start:
 ```
 DotCraft API listening on http://127.0.0.1:8080
 Endpoints (OpenAI-compatible):
-  POST /dotcraft/v1/chat/completions
+  POST /v1/chat/completions
 Additional endpoints:
   GET  /v1/health
 All tools enabled (9 tools)
@@ -55,7 +55,7 @@ Python sample code is available in `Samples/python`.
 from openai import OpenAI
 
 client = OpenAI(
-base_url="http://localhost:8080/dotcraft/v1",
+base_url="http://localhost:8080/v1",
 
 api_key="your-api-access-key"
 

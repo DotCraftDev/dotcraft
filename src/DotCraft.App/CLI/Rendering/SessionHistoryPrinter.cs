@@ -1,3 +1,4 @@
+using DotCraft.Sessions.Protocol;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -75,6 +76,112 @@ public static class SessionHistoryPrinter
         }
 
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Prints a compact history of the last <paramref name="maxTurns"/> turns from a
+    /// Session Protocol <see cref="SessionThread"/>. Called after /load in Session Protocol mode.
+    /// </summary>
+    public static void Print(SessionThread thread, int maxTurns = 10)
+    {
+        if (thread.Turns.Count == 0) return;
+
+        var turns = thread.Turns.Count > maxTurns
+            ? thread.Turns.Skip(thread.Turns.Count - maxTurns).ToList()
+            : thread.Turns;
+
+        AnsiConsole.WriteLine();
+
+        var isFirstTurn = true;
+        foreach (var turn in turns)
+        {
+            if (turn.Status == TurnStatus.Cancelled) continue;
+
+            if (!isFirstTurn)
+                PrintSeparator();
+            isFirstTurn = false;
+
+            // User message — prefer turn.Input, fall back to first UserMessage item in Items
+            var userText = (turn.Input?.Payload as UserMessagePayload)?.Text;
+            if (string.IsNullOrWhiteSpace(userText))
+            {
+                userText = turn.Items
+                    .FirstOrDefault(i => i.Type == ItemType.UserMessage && i.Payload is UserMessagePayload)
+                    ?.Payload is UserMessagePayload fallbackPayload
+                    ? fallbackPayload.Text
+                    : string.Empty;
+            }
+            if (!string.IsNullOrWhiteSpace(userText))
+                PrintUserMessageText(StripRuntimeContext(userText));
+
+            // Build a lookup of tool results by CallId for inline display
+            var resultsByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var item in turn.Items)
+            {
+                if (item.Type == ItemType.ToolResult && item.Payload is ToolResultPayload trp
+                    && !string.IsNullOrEmpty(trp.CallId))
+                    resultsByCallId[trp.CallId] = trp.Result;
+            }
+
+            // Agent and tool items (ToolResult items are rendered inline with their ToolCall)
+            foreach (var item in turn.Items)
+            {
+                switch (item.Type)
+                {
+                    case ItemType.AgentMessage:
+                    {
+                        var text = (item.Payload as AgentMessagePayload)?.Text ?? string.Empty;
+                        if (!string.IsNullOrWhiteSpace(text))
+                            PrintAssistantText(text);
+                        break;
+                    }
+                    case ItemType.ToolCall:
+                    {
+                        if (item.Payload is ToolCallPayload tc)
+                            PrintToolCallWithResult(tc, resultsByCallId);
+                        break;
+                    }
+                }
+            }
+        }
+
+        AnsiConsole.WriteLine();
+    }
+
+    private static void PrintUserMessageText(string text)
+    {
+        var lines = WrapText(text.Trim(), UserWrapWidth - 2);
+        var display = lines.Count > MaxUserLines
+            ? string.Join("\n", lines.Take(MaxUserLines)) + " [dim]...[/]"
+            : string.Join("\n", lines);
+
+        AnsiConsole.MarkupLine($"[grey]>[/] [white]You:[/] {Markup.Escape(display.Split('\n')[0])}");
+        foreach (var line in display.Split('\n').Skip(1))
+            AnsiConsole.MarkupLine($"       {Markup.Escape(line)}");
+    }
+
+    private static void PrintToolCallWithResult(
+        ToolCallPayload tc, Dictionary<string, string> resultsByCallId)
+    {
+        var icon = ToolRegistry.GetToolIcon(tc.ToolName);
+        var display = ToolRegistry.FormatToolCall(tc.ToolName, tc.Arguments) ?? tc.ToolName;
+        AnsiConsole.MarkupLine($"  [yellow]{Markup.Escape($"{icon} {display}")}[/]");
+
+        if (!string.IsNullOrEmpty(tc.CallId)
+            && resultsByCallId.TryGetValue(tc.CallId, out var rawResult))
+        {
+            var formatted = ToolRegistry.FormatToolResult(tc.ToolName, rawResult);
+            if (formatted != null)
+            {
+                foreach (var line in formatted)
+                    AnsiConsole.MarkupLine($"    [grey]{Markup.Escape(line)}[/]");
+            }
+            else if (!string.IsNullOrWhiteSpace(rawResult))
+            {
+                AnsiConsole.MarkupLine(
+                    $"    [grey]{Markup.Escape(NormalizeInline(Truncate(rawResult, 200)))}[/]");
+            }
+        }
     }
 
     private static void PrintSeparator()

@@ -1,5 +1,5 @@
 using DotCraft.Localization;
-using DotCraft.Memory;
+using DotCraft.Sessions.Protocol;
 using Spectre.Console;
 
 namespace DotCraft.CLI;
@@ -10,15 +10,11 @@ namespace DotCraft.CLI;
 public static class SessionPrompt
 {
     /// <summary>
-    /// Shows a selection prompt for loading a session.
+    /// Shows a selection prompt for loading a Session Protocol thread.
     /// </summary>
-    /// <param name="sessions">Available sessions.</param>
-    /// <param name="currentSessionId">The currently active session ID.</param>
-    /// <param name="lang">Language service for localization.</param>
-    /// <returns>The selected session key, or null if the user cancelled.</returns>
-    public static string? SelectSessionToLoad(List<SessionStore.SessionInfo> sessions, string? currentSessionId, LanguageService lang)
+    public static string? SelectThreadToLoad(IReadOnlyList<ThreadSummary> threads, string? currentThreadId, LanguageService lang)
     {
-        if (sessions.Count == 0)
+        if (threads.Count == 0)
         {
             AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsAvailable(lang)}[/]");
             return null;
@@ -26,13 +22,13 @@ public static class SessionPrompt
 
         AnsiConsole.WriteLine();
 
-        var options = sessions.Select(s => new SessionOption
+        var options = threads.Select(t => new SessionOption
         {
-            Key = s.Key,
-            CreatedAt = s.CreatedAt,
-            UpdatedAt = s.UpdatedAt,
-            IsCurrent = s.Key == currentSessionId,
-            FirstUserMessage = s.FirstUserMessage
+            Key = t.Id,
+            CreatedAt = t.CreatedAt.ToString("O"),
+            UpdatedAt = t.LastActiveAt.ToString("O"),
+            IsCurrent = t.Id == currentThreadId,
+            FirstUserMessage = t.DisplayName
         }).Prepend(BuildCancelOption(lang)).ToList();
 
         var choice = AnsiConsole.Prompt(
@@ -51,20 +47,15 @@ public static class SessionPrompt
 
         AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
         AnsiConsole.WriteLine();
-
         return choice.Key;
     }
 
     /// <summary>
-    /// Shows a selection prompt for deleting a session.
+    /// Shows a selection prompt for deleting a Session Protocol thread.
     /// </summary>
-    /// <param name="sessions">Available sessions.</param>
-    /// <param name="currentSessionId">The currently active session ID.</param>
-    /// <param name="lang">Language service for localization.</param>
-    /// <returns>The selected session key, or null if the user cancelled.</returns>
-    public static string? SelectSessionToDelete(List<SessionStore.SessionInfo> sessions, string currentSessionId, LanguageService lang)
+    public static string? SelectThreadToDelete(IReadOnlyList<ThreadSummary> threads, string? currentThreadId, LanguageService lang)
     {
-        if (sessions.Count == 0)
+        if (threads.Count == 0)
         {
             AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsToDelete(lang)}[/]");
             return null;
@@ -72,13 +63,13 @@ public static class SessionPrompt
 
         AnsiConsole.WriteLine();
 
-        var options = sessions.Select(s => new SessionOption
+        var options = threads.Select(t => new SessionOption
         {
-            Key = s.Key,
-            CreatedAt = s.CreatedAt,
-            UpdatedAt = s.UpdatedAt,
-            IsCurrent = s.Key == currentSessionId,
-            FirstUserMessage = s.FirstUserMessage
+            Key = t.Id,
+            CreatedAt = t.CreatedAt.ToString("O"),
+            UpdatedAt = t.LastActiveAt.ToString("O"),
+            IsCurrent = t.Id == currentThreadId,
+            FirstUserMessage = t.DisplayName
         }).Prepend(BuildCancelOption(lang)).ToList();
 
         var choice = AnsiConsole.Prompt(
@@ -97,7 +88,6 @@ public static class SessionPrompt
 
         AnsiConsole.MarkupLine($"[red]→[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
         AnsiConsole.WriteLine();
-
         return choice.Key;
     }
 

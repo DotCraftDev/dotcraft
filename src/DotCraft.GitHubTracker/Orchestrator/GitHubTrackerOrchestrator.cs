@@ -1,4 +1,3 @@
-using DotCraft.Configuration;
 using DotCraft.DashBoard;
 using DotCraft.GitHubTracker.Execution;
 using DotCraft.GitHubTracker.Tracker;

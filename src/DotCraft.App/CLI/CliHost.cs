@@ -6,7 +6,7 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
 using DotCraft.Tracing;
-using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Localization;
@@ -26,7 +26,6 @@ public sealed class CliHost(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -54,9 +53,12 @@ public sealed class CliHost(
 
         var planStore = new PlanStore(paths.CraftPath);
 
+        // Wrap the CLI approval service so SessionService can install per-turn overrides
+        var scopedApproval = new SessionScopedApprovalService(cliApprovalService);
+
         _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, cliApprovalService, blacklist,
+            memoryStore, skillsLoader, scopedApproval, blacklist,
             toolProviders: toolProviders,
             toolProviderContext: new ToolProviderContext
             {
@@ -69,7 +71,7 @@ public sealed class CliHost(
                 BotPath = paths.CraftPath,
                 MemoryStore = memoryStore,
                 SkillsLoader = skillsLoader,
-                ApprovalService = cliApprovalService,
+                ApprovalService = scopedApproval,
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
@@ -83,8 +85,8 @@ public sealed class CliHost(
 
         var modeManager = new AgentModeManager();
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
-        var sessionGate = sp.GetRequiredService<SessionGate>();
-        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner);
+        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+        var runner = new AgentRunner(paths.WorkspacePath, sessionService);
 
         DashBoardServer? dashBoardServer = null;
         string? dashBoardUrl = null;
@@ -92,7 +94,8 @@ public sealed class CliHost(
         {
             dashBoardServer = new DashBoardServer();
             dashBoardServer.Start(traceStore, config, paths, tokenUsageStore,
-                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes());
+                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
+                sessionService: sessionService);
             dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
         }
 
@@ -103,7 +106,7 @@ public sealed class CliHost(
             enabled: false);
 
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var repl = new ReplHost(agent, sessionStore, skillsLoader,
+        var repl = new ReplHost(skillsLoader, sessionService,
             paths.WorkspacePath, paths.CraftPath,
             heartbeatService: heartbeatService, cronService: cronService,
             agentFactory: _agentFactory, mcpClientManager: mcpClientManager,
@@ -111,7 +114,6 @@ public sealed class CliHost(
             languageService: languageService, tokenUsageStore: tokenUsageStore,
             customCommandLoader: customCommandLoader,
             modeManager: modeManager,
-            planStore: planStore,
             hookRunner: hookRunner);
 
         cronService.OnJob = async job =>

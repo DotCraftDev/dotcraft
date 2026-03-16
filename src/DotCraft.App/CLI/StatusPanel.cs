@@ -1,7 +1,8 @@
 using System.Reflection;
 using DotCraft.Localization;
-using DotCraft.Mcp;
 using DotCraft.Memory;
+using DotCraft.Mcp;
+using DotCraft.Sessions.Protocol;
 using Spectre.Console;
 using static DotCraft.Skills.SkillsLoader;
 
@@ -158,11 +159,14 @@ public static class StatusPanel
         }
     }
     
-    public static void ShowSessionsTable(List<SessionStore.SessionInfo> sessions, LanguageService? lang = null)
+    /// <summary>
+    /// Displays a table of Session Protocol threads.
+    /// </summary>
+    public static void ShowThreadsTable(IReadOnlyList<ThreadSummary> threads, LanguageService? lang = null)
     {
         lang ??= new LanguageService();
-        
-        if (sessions.Count == 0)
+
+        if (threads.Count == 0)
         {
             AnsiConsole.MarkupLine($"[grey]💬 {Strings.NoSessions(lang)}[/]");
             return;
@@ -179,26 +183,26 @@ public static class StatusPanel
         table.AddColumn(new TableColumn($"[u]{Strings.UpdatedAt(lang)}[/]").Width(20));
         table.AddColumn(new TableColumn($"[u]{Strings.Summary(lang)}[/]").Width(50));
 
-        foreach (var session in sessions)
+        foreach (var thread in threads)
         {
-            var key = session.Key.Escape();
-            var created = DateTimeOffset.Parse(session.CreatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-            var updated = DateTimeOffset.Parse(session.UpdatedAt).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            var id = thread.Id.Escape();
+            var created = thread.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+            var updated = thread.LastActiveAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             string summary;
-            if (string.IsNullOrWhiteSpace(session.FirstUserMessage))
+            if (!string.IsNullOrWhiteSpace(thread.DisplayName))
             {
-                summary = "[dim]-[/]";
-            }
-            else
-            {
-                var msg = session.FirstUserMessage.ReplaceLineEndings(" ").Trim();
+                var msg = thread.DisplayName.ReplaceLineEndings(" ").Trim();
                 if (msg.Length > SummaryMaxLength)
                     msg = msg[..SummaryMaxLength] + "...";
                 summary = "[dim]" + msg.Escape() + "[/]";
             }
+            else
+            {
+                summary = "[dim]-[/]";
+            }
 
             table.AddRow(
-                $"[white]{key}[/]",
+                $"[white]{id}[/]",
                 $"[grey]{created}[/]",
                 $"[grey]{updated}[/]",
                 summary);
@@ -247,6 +251,8 @@ public static class StatusPanel
         grid.AddRow(new Markup($"[yellow]{Strings.UsageTips(lang)}:[/]"), new Markup(""));
         grid.AddRow($"  • {Strings.TipDirectInput(lang)}", "");
         grid.AddRow($"  • {Strings.TipArrowKeys(lang)}", "");
+        grid.AddRow($"  • {Strings.TipTabComplete(lang)}", "");
+        grid.AddRow($"  • {Strings.TipShiftTabMode(lang)}", "");
         grid.AddRow($"  • {Strings.TipAutoSave(lang)}", "");
 
         var panel = new Panel(grid)

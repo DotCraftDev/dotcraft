@@ -31,7 +31,7 @@ import requests
 from openai import OpenAI
 
 DOTCRAFT_BASE = "http://localhost:8080"
-DOTCRAFT_URL = f"{DOTCRAFT_BASE}/dotcraft/v1"
+DOTCRAFT_URL = f"{DOTCRAFT_BASE}/v1"
 API_KEY = "your-api-access-key"
 
 client = OpenAI(base_url=DOTCRAFT_URL, api_key=API_KEY)

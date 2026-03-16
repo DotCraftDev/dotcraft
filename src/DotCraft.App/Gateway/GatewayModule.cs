@@ -71,7 +71,6 @@ public sealed class GatewayHostFactory : IHostFactory
             sp,
             config,
             context.Paths,
-            sp.GetRequiredService<Memory.SessionStore>(),
             sp.GetRequiredService<Skills.SkillsLoader>(),
             sp.GetRequiredService<Cron.CronService>(),
             channelServices,

@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotCraft.Context;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -203,6 +204,127 @@ public static partial class StreamAdapter
         }
 
         yield return RenderEvent.Completed(string.Empty);
+    }
+
+    /// <summary>
+    /// Adapts an <see cref="IAsyncEnumerable{SessionEvent}"/> stream produced by
+    /// <see cref="DotCraft.Sessions.Protocol.ISessionService.SubmitInputAsync"/> into a
+    /// <see cref="RenderEvent"/> stream consumed by <see cref="AgentRenderer"/>.
+    /// <para>
+    /// Approval events (<see cref="SessionEventType.ApprovalRequested"/> /
+    /// <see cref="SessionEventType.ApprovalResolved"/>) are translated to
+    /// <see cref="RenderEventType.ApprovalRequired"/> / <see cref="RenderEventType.ApprovalCompleted"/>
+    /// so the renderer can pause its spinner while the channel adapter handles the user prompt.
+    /// </para>
+    /// </summary>
+    public static async IAsyncEnumerable<RenderEvent> AdaptSessionEventsAsync(
+        IAsyncEnumerable<SessionEvent> events,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        // callId → (icon, name, argsJson, formattedDisplay)
+        var callIdMap = new Dictionary<string, (string? Icon, string? Name, string? ArgsJson, string? FormattedDisplay)>();
+
+        await foreach (var evt in events.WithCancellation(ct))
+        {
+            switch (evt.EventType)
+            {
+                // ---------------------------------------------------------
+                // Agent text streaming
+                // ---------------------------------------------------------
+                case SessionEventType.ItemDelta when evt.DeltaPayload is { } delta:
+                {
+                    var text = delta.TextDelta;
+                    if (!string.IsNullOrEmpty(text))
+                        yield return RenderEvent.Response(text);
+                    break;
+                }
+
+                case SessionEventType.ItemDelta when evt.ReasoningDeltaPayload is { } reasoning:
+                {
+                    var text = reasoning.TextDelta;
+                    if (!string.IsNullOrEmpty(text))
+                        yield return RenderEvent.Thinking("💭", "Thinking", text);
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Tool calls
+                // ---------------------------------------------------------
+                case SessionEventType.ItemStarted when evt.ItemPayload?.Type == ItemType.ToolCall:
+                {
+                    var item = evt.ItemPayload!;
+                    var toolPayload = item.Payload as ToolCallPayload;
+                    var toolName = toolPayload?.ToolName ?? string.Empty;
+                    var icon = ToolRegistry.GetToolIcon(toolName);
+                    string? argsJson = null;
+                    string? formattedDisplay = null;
+                    if (toolPayload?.Arguments != null)
+                    {
+                        try { argsJson = toolPayload.Arguments.ToJsonString(); }
+                        catch { argsJson = toolPayload.Arguments.ToString(); }
+                        formattedDisplay = ToolRegistry.FormatToolCall(toolName, toolPayload.Arguments);
+                    }
+                    var callId = toolPayload?.CallId;
+                    if (!string.IsNullOrEmpty(callId))
+                        callIdMap[callId] = (icon, toolName, argsJson, formattedDisplay);
+                    yield return RenderEvent.ToolStarted(icon, toolName, string.Empty, argsJson, formattedDisplay, callId: callId);
+                    break;
+                }
+
+                case SessionEventType.ItemCompleted when evt.ItemPayload?.Type == ItemType.ToolResult:
+                {
+                    var item = evt.ItemPayload!;
+                    var resultPayload = item.Payload as ToolResultPayload;
+                    var callId = resultPayload?.CallId;
+                    string? icon = null, name = null, argsJson = null, formattedDisplay = null;
+                    if (!string.IsNullOrEmpty(callId) && callIdMap.TryGetValue(callId, out var info))
+                    {
+                        icon = info.Icon;
+                        name = info.Name;
+                        argsJson = info.ArgsJson;
+                        formattedDisplay = info.FormattedDisplay;
+                        callIdMap.Remove(callId);
+                    }
+                    yield return RenderEvent.ToolCompleted(icon, name, argsJson ?? string.Empty, resultPayload?.Result, formattedDisplay, callId: callId);
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Approval flow
+                // ---------------------------------------------------------
+                case SessionEventType.ApprovalRequested:
+                    yield return RenderEvent.ApprovalRequest();
+                    break;
+
+                case SessionEventType.ApprovalResolved:
+                    yield return RenderEvent.ApprovalComplete();
+                    break;
+
+                // ---------------------------------------------------------
+                // Turn completed / failed
+                // ---------------------------------------------------------
+                case SessionEventType.TurnCompleted:
+                {
+                    var turn = evt.TurnPayload;
+                    var usage = turn?.TokenUsage;
+                    if (usage != null)
+                        yield return RenderEvent.TokenUsage(usage.InputTokens, usage.OutputTokens, usage.TotalTokens);
+                    yield return RenderEvent.Completed(string.Empty);
+                    break;
+                }
+
+                case SessionEventType.TurnFailed:
+                {
+                    var turn = evt.TurnPayload;
+                    var errMsg = turn?.Error ?? "Turn failed";
+                    yield return RenderEvent.ErrorEvent(errMsg);
+                    yield return RenderEvent.Completed(string.Empty);
+                    break;
+                }
+
+                // All other events (thread/created, turn/started, item/started for non-tool, etc.) are ignored.
+            }
+        }
     }
 }
 

@@ -5,6 +5,8 @@ using DotCraft.Tracing;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
+using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.GitHubTracker.Tracker;
 using DotCraft.GitHubTracker.Tools;
@@ -109,7 +111,6 @@ public sealed class WorkItemAgentRunnerFactory(
         var workspacePath = workspace.Path;
 
         var memoryStore = new MemoryStore(craftPath);
-        var sessionStore = new SessionStore(craftPath, config.CompactSessions);
         var approvalService = new AutoApproveApprovalService();
         var blacklist = new PathBlacklist([]);
 
@@ -159,7 +160,12 @@ public sealed class WorkItemAgentRunnerFactory(
             traceCollector: traceCollector);
 
         var agent = agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var agentRunner = new AgentRunner(agent, sessionStore, agentFactory, traceCollector);
+        var threadStore = new ThreadStore(craftPath);
+        var sessionGate = new SessionGate();
+        var sessionService = new SessionService(
+            agentFactory, agent, threadStore, sessionGate,
+            traceCollector: traceCollector);
+        var agentRunner = new AgentRunner(workspacePath, sessionService: sessionService);
 
         var result = AgentRunResult.TurnsExhausted;
         var tokenTracker = agentFactory.GetOrCreateTokenTracker(sessionKey);

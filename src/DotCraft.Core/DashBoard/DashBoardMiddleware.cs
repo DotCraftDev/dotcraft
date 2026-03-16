@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Tracing;
 using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
@@ -35,7 +36,8 @@ public static class DashBoardMiddleware
         TokenUsageStore? tokenUsageStore = null,
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
-        IEnumerable<Type>? configTypes = null)
+        IEnumerable<Type>? configTypes = null,
+        ISessionService? sessionService = null)
     {
         MapOrchestratorEndpoints(endpoints, orchestratorProviders);
 
@@ -94,9 +96,24 @@ public static class DashBoardMiddleware
             return Results.Json(events, JsonOptions);
         });
 
-        endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", (string sessionKey) =>
+        var capturedSessionService = sessionService;
+        endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", async (string sessionKey) =>
         {
             var deleted = traceStore.ClearSession(sessionKey);
+
+            // Permanently remove the underlying Thread from disk when a session service is available.
+            if (capturedSessionService != null)
+            {
+                try
+                {
+                    await capturedSessionService.DeleteThreadPermanentlyAsync(sessionKey);
+                }
+                catch (KeyNotFoundException)
+                {
+                    // Thread may not exist (e.g. tracing-only session without a persisted thread) — ignore.
+                }
+            }
+
             return deleted
                 ? Results.Json(new { deleted = true, sessionKey }, JsonOptions)
                 : Results.Json(new { deleted = false, sessionKey }, JsonOptions, statusCode: 404);

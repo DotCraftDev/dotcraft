@@ -79,6 +79,21 @@ public static class ToolRegistry
     }
 
     /// <summary>
+    /// Overload that accepts a <see cref="System.Text.Json.Nodes.JsonObject"/> argument map,
+    /// converting each value to <c>object?</c> before delegating to the primary overload.
+    /// </summary>
+    public static string? FormatToolCall(string toolName, System.Text.Json.Nodes.JsonObject? args)
+    {
+        if (args == null)
+            return FormatToolCall(toolName, (IDictionary<string, object?>?)null);
+
+        var dict = new Dictionary<string, object?>(args.Count);
+        foreach (var kv in args)
+            dict[kv.Key] = kv.Value;
+        return FormatToolCall(toolName, dict);
+    }
+
+    /// <summary>
     /// Returns structured human-readable lines for a tool result, or null if no formatter
     /// is available for this tool. Callers should fall back to generic truncation when null.
     /// </summary>

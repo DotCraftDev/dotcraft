@@ -1,0 +1,72 @@
+namespace DotCraft.Sessions.Protocol;
+
+/// <summary>
+/// A Thread is a persistent conversation between one user and one agent, tied to a workspace.
+/// </summary>
+public sealed class SessionThread
+{
+    /// <summary>
+    /// Globally unique identifier. Format: thread_{yyyyMMdd}_{6-char-random}.
+    /// Assigned by Session Core on creation. Immutable after creation.
+    /// </summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Absolute path to the workspace this Thread belongs to.
+    /// </summary>
+    public string WorkspacePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Opaque user identifier from the originating channel. Null for system-initiated threads.
+    /// </summary>
+    public string? UserId { get; set; }
+
+    /// <summary>
+    /// Name of the channel that created this Thread (e.g., "qq", "acp", "cli").
+    /// Informational only; does not restrict which channels can resume the Thread.
+    /// </summary>
+    public string OriginChannel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Channel-specific context key stored on creation (e.g., "group:123456" or "user:789" for QQ,
+    /// "chat:abc" for WeCom). Null for channels that have no sub-context (CLI, ACP).
+    /// Used by FindThreadsAsync to isolate threads per context.
+    /// </summary>
+    public string? ChannelContext { get; set; }
+
+    /// <summary>
+    /// Human-readable label. Defaults to the first user message text (truncated).
+    /// </summary>
+    public string? DisplayName { get; set; }
+
+    public ThreadStatus Status { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>
+    /// Updated when a Turn starts or completes.
+    /// </summary>
+    public DateTimeOffset LastActiveAt { get; set; }
+
+    /// <summary>
+    /// Extensible key-value pairs for channel-specific data.
+    /// Session Core preserves but does not interpret Metadata.
+    /// </summary>
+    public Dictionary<string, string> Metadata { get; set; } = [];
+
+    /// <summary>
+    /// Server: Session Core manages conversation history (default).
+    /// Client: The adapter provides message history with each SubmitInput call.
+    /// </summary>
+    public HistoryMode HistoryMode { get; set; } = HistoryMode.Server;
+
+    /// <summary>
+    /// Per-thread agent configuration. Null means workspace defaults apply.
+    /// </summary>
+    public ThreadConfiguration? Configuration { get; set; }
+
+    /// <summary>
+    /// Ordered list of Turns. Append-only.
+    /// </summary>
+    public List<SessionTurn> Turns { get; set; } = [];
+}

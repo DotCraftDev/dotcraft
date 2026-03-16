@@ -10,7 +10,6 @@ using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
-using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
@@ -18,6 +17,7 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
@@ -43,7 +43,6 @@ public sealed class ApiChannelService(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -190,9 +189,8 @@ public sealed class ApiChannelService(
         app.MapOpenAIChatCompletions(_agentBuilder!);
 
         var agent = _agentFactory!.CreateAgentWithTools(_tools!);
-        var sessionGate = sp.GetRequiredService<SessionGate>();
         var hookRunner = sp.GetService<HookRunner>();
-        var runner = new AgentRunner(agent, sessionStore, _agentFactory, traceCollector, sessionGate, hookRunner);
+        var runner = new AgentRunner(paths.WorkspacePath, SessionServiceFactory.Create(_agentFactory, agent, sp));
 
         MapAdditionalRoutes(app, runner);
 

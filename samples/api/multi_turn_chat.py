@@ -19,7 +19,7 @@ if sys.platform == 'win32':
 
 from openai import OpenAI
 
-DOTCRAFT_URL = "http://localhost:8080/dotcraft/v1"
+DOTCRAFT_URL = "http://localhost:8080/v1"
 API_KEY = "your-api-access-key"
 
 client = OpenAI(base_url=DOTCRAFT_URL, api_key=API_KEY)

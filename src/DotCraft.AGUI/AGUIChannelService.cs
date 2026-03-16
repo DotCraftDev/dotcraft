@@ -38,7 +38,6 @@ public sealed class AGUIChannelService(
     IServiceProvider sp,
     AppConfig config,
     DotCraftPaths paths,
-    SessionStore sessionStore,
     MemoryStore memoryStore,
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
@@ -73,15 +72,15 @@ public sealed class AGUIChannelService(
     #region IWebHostingChannel
 
     /// <inheritdoc />
-    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<AgUiConfig>("AgUi").Host) ? "127.0.0.1" : config.GetSection<AgUiConfig>("AgUi").Host;
+    public string ListenHost => string.IsNullOrWhiteSpace(config.GetSection<AGUIConfig>("AgUi").Host) ? "127.0.0.1" : config.GetSection<AGUIConfig>("AgUi").Host;
 
     /// <inheritdoc />
-    public int ListenPort => config.GetSection<AgUiConfig>("AgUi").Port <= 0 ? 5100 : config.GetSection<AgUiConfig>("AgUi").Port;
+    public int ListenPort => config.GetSection<AGUIConfig>("AgUi").Port <= 0 ? 5100 : config.GetSection<AGUIConfig>("AgUi").Port;
 
     /// <inheritdoc />
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
-        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
+        var agUiConfig = config.GetSection<AGUIConfig>("AgUi");
 
         _agentFactory = BuildAgentFactory();
 
@@ -95,7 +94,7 @@ public sealed class AGUIChannelService(
     public void ConfigureApp(WebApplication app)
     {
         _webApp = app;
-        var agUiConfig = config.GetSection<AgUiConfig>("AgUi");
+        var agUiConfig = config.GetSection<AGUIConfig>("AgUi");
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var traceStore = sp.GetService<TraceStore>();
         var path = string.IsNullOrWhiteSpace(agUiConfig.Path) ? "/ag-ui" : agUiConfig.Path.Trim();
@@ -103,9 +102,10 @@ public sealed class AGUIChannelService(
         // Tools are created here (after Build) so app.Services is available for IOptions<JsonOptions>.
         var tools = _agentFactory!.CreateDefaultTools();
 
+        AIAgent innerAgent;
         if (string.Equals(agUiConfig.ApprovalMode, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            _agent = _agentFactory.CreateAgentWithTools(tools);
+            innerAgent = _agentFactory.CreateAgentWithTools(tools);
         }
         else
         {
@@ -121,8 +121,10 @@ public sealed class AGUIChannelService(
 #pragma warning restore MEAI001
             var baseAgent = _agentFactory.CreateAgentWithTools(tools);
             var jsonOptions = app.Services.GetRequiredService<IOptions<JsonOptions>>().Value;
-            _agent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
+            innerAgent = new AGUIApprovalAgent(baseAgent, jsonOptions.SerializerOptions);
         }
+
+        _agent = innerAgent;
 
         var pathPrefix = path.TrimEnd('/');
         if (agUiConfig.RequireAuth && !string.IsNullOrWhiteSpace(agUiConfig.ApiKey))
@@ -264,8 +266,6 @@ public sealed class AGUIChannelService(
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _ = sessionStore; // reserved for future session key from threadId
-
         // Web server lifecycle is managed by WebHostPool in GatewayHost.
         // This task just holds open until the cancellation token fires.
         var tcs = new TaskCompletionSource();

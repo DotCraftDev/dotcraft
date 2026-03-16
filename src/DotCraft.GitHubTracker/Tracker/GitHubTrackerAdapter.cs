@@ -3,7 +3,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using DotCraft.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace DotCraft.GitHubTracker.Tracker;

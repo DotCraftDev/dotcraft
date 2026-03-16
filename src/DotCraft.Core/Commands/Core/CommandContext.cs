@@ -1,8 +1,8 @@
 using DotCraft.Agents;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
-using DotCraft.Memory;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 
 namespace DotCraft.Commands.Core;
 
@@ -55,11 +55,24 @@ public sealed record CommandContext
     /// Optional group/chat identifier.
     /// </summary>
     public string? GroupId { get; init; }
+
+    /// <summary>
+    /// The fully-qualified channel context key matching the format used when the thread was created.
+    /// For QQ: "group:{groupId}" for group chats, "user:{userId}" for private chats.
+    /// For WeCom: "chat:{chatId}".
+    /// Null for channels with no sub-context (CLI, ACP).
+    /// </summary>
+    public string? ChannelContext { get; init; }
     
     /// <summary>
-    /// The session store for managing conversations.
+    /// The workspace path, used to construct a SessionIdentity for thread discovery.
     /// </summary>
-    public SessionStore? SessionStore { get; init; }
+    public string WorkspacePath { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The session service for managing conversation threads.
+    /// </summary>
+    public ISessionService? SessionService { get; init; }
     
     /// <summary>
     /// The heartbeat service (may be null if not enabled).

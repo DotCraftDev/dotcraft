@@ -5,6 +5,7 @@ using DotCraft.Hooks;
 using DotCraft.Tracing;
 using DotCraft.Logging;
 using DotCraft.Sessions;
+using DotCraft.Sessions.Protocol;
 using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Memory;
@@ -54,7 +55,6 @@ public static class ServiceRegistration
         });
         services.AddSingleton(new PathBlacklist(config.Security.BlacklistedPaths));
         services.AddSingleton(new MemoryStore(botPath));
-        services.AddSingleton(new SessionStore(botPath, config.CompactSessions));
         services.AddSingleton(new ApprovalStore(botPath));
         var skillsLoader = new SkillsLoader(botPath);
         skillsLoader.DeployBuiltInSkills();
@@ -82,6 +82,7 @@ public static class ServiceRegistration
         services.AddSingleton<McpClientManager>();
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
         services.AddSingleton<ActiveRunRegistry>();
+        services.AddSingleton(new ThreadStore(botPath));
 
         // Register configuration validation
         services.AddConfigurationValidation();

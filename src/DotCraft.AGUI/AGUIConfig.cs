@@ -3,7 +3,7 @@ using DotCraft.Configuration;
 namespace DotCraft.AGUI;
 
 [ConfigSection("AgUi", DisplayName = "AG-UI", Order = 160)]
-public sealed class AgUiConfig
+public sealed class AGUIConfig
 {
     /// <summary>
     /// Enable AG-UI protocol server channel.
