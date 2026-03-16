@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>dotcraft-test-client</AssemblyName>
+    <RootNamespace>DotCraft.AppServerTestClient</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference DotCraft.Core for AppServer protocol DTOs and method constants -->
+    <ProjectReference Include="..\..\src\DotCraft.Core\DotCraft.Core.csproj" />
+  </ItemGroup>
+
+</Project>
