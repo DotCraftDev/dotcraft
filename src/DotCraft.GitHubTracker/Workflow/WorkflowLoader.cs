@@ -199,9 +199,9 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
     {
         if (raw.TryGetValue("tracker", out var trackerObj) && trackerObj is Dictionary<object, object> tracker)
         {
-            if (tracker.TryGetValue("endpoint", out var ep)) config.Tracker.Endpoint = ep?.ToString();
-            if (tracker.TryGetValue("api_key", out var key)) config.Tracker.ApiKey = key?.ToString();
-            if (tracker.TryGetValue("repository", out var repo)) config.Tracker.Repository = repo?.ToString();
+            if (tracker.TryGetValue("endpoint", out var ep)) config.Tracker.Endpoint = ep.ToString();
+            if (tracker.TryGetValue("api_key", out var key)) config.Tracker.ApiKey = key.ToString();
+            if (tracker.TryGetValue("repository", out var repo)) config.Tracker.Repository = repo.ToString();
             if (tracker.TryGetValue("active_states", out var active)) config.Tracker.ActiveStates = ParseStringList(active);
             if (tracker.TryGetValue("terminal_states", out var terminal)) config.Tracker.TerminalStates = ParseStringList(terminal);
             if (tracker.TryGetValue("pull_request_active_states", out var prActive))
@@ -220,7 +220,7 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
 
         if (raw.TryGetValue("workspace", out var wsObj) && wsObj is Dictionary<object, object> ws)
         {
-            if (ws.TryGetValue("root", out var root)) config.Workspace.Root = root?.ToString();
+            if (ws.TryGetValue("root", out var root)) config.Workspace.Root = root.ToString();
         }
 
         if (raw.TryGetValue("agent", out var agentObj) && agentObj is Dictionary<object, object> agent)
@@ -237,10 +237,10 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
 
         if (raw.TryGetValue("hooks", out var hooksObj) && hooksObj is Dictionary<object, object> hooks)
         {
-            if (hooks.TryGetValue("after_create", out var ac)) config.Hooks.AfterCreate = ac?.ToString();
-            if (hooks.TryGetValue("before_run", out var br)) config.Hooks.BeforeRun = br?.ToString();
-            if (hooks.TryGetValue("after_run", out var ar)) config.Hooks.AfterRun = ar?.ToString();
-            if (hooks.TryGetValue("before_remove", out var brm)) config.Hooks.BeforeRemove = brm?.ToString();
+            if (hooks.TryGetValue("after_create", out var ac)) config.Hooks.AfterCreate = ac.ToString();
+            if (hooks.TryGetValue("before_run", out var br)) config.Hooks.BeforeRun = br.ToString();
+            if (hooks.TryGetValue("after_run", out var ar)) config.Hooks.AfterRun = ar.ToString();
+            if (hooks.TryGetValue("before_remove", out var brm)) config.Hooks.BeforeRemove = brm.ToString();
             if (hooks.TryGetValue("timeout_ms", out var hto) && int.TryParse(hto?.ToString(), out var htoVal))
                 config.Hooks.TimeoutMs = htoVal;
         }
