@@ -70,7 +70,7 @@ internal sealed class SessionEventChannel(
         Write(SessionEventType.TurnCompleted, null, turn);
 
     public void EmitTurnFailed(SessionTurn turn, string error) =>
-        Write(SessionEventType.TurnFailed, null, turn);
+        Write(SessionEventType.TurnFailed, null, new TurnFailedPayload { Turn = turn, Error = error });
 
     public void EmitTurnCancelled(SessionTurn turn, string reason) =>
         Write(SessionEventType.TurnCancelled, null, new TurnCancelledPayload { Turn = turn, Reason = reason });

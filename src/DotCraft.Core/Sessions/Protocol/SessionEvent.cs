@@ -45,7 +45,8 @@ public sealed class SessionEvent
 
     [JsonIgnore]
     public SessionTurn? TurnPayload => Payload as SessionTurn
-        ?? (Payload as TurnCancelledPayload)?.Turn;
+        ?? (Payload as TurnCancelledPayload)?.Turn
+        ?? (Payload as TurnFailedPayload)?.Turn;
 
     [JsonIgnore]
     public SessionItem? ItemPayload => Payload as SessionItem;
@@ -64,6 +65,22 @@ public sealed class SessionEvent
 
     [JsonIgnore]
     public TurnCancelledPayload? TurnCancelledPayload => Payload as TurnCancelledPayload;
+
+    [JsonIgnore]
+    public TurnFailedPayload? TurnFailedPayload => Payload as TurnFailedPayload;
+}
+
+/// <summary>
+/// Payload for turn/failed events. Carries the failed turn and the error message.
+/// </summary>
+public sealed record TurnFailedPayload
+{
+    public SessionTurn Turn { get; init; } = null!;
+
+    /// <summary>
+    /// Human-readable error message describing why the turn failed.
+    /// </summary>
+    public string Error { get; init; } = string.Empty;
 }
 
 /// <summary>

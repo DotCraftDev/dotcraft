@@ -345,43 +345,48 @@ public static class SessionWireMapper
                 // Include items in turn notifications so clients receive the full turn state
                 SessionTurn turn => turn.ToWire(includeItems: true),
                 SessionItem item => item.ToWire(),
-                // Map ThreadResumedPayload to wire shape with thread DTO included
+                // Map ThreadResumedPayload to wire shape: { thread, resumedBy }
                 ThreadResumedPayload resumed => new { thread = resumed.Thread.ToWire(), resumedBy = resumed.ResumedBy },
-                // Map TurnCancelledPayload to wire shape with turn DTO included
+                // Map TurnCancelledPayload to wire shape: { turn, reason }
                 TurnCancelledPayload cancelled => new { turn = cancelled.Turn.ToWire(includeItems: true), reason = cancelled.Reason },
+                // Map TurnFailedPayload to wire shape: { turn, error }
+                TurnFailedPayload failed => new { turn = failed.Turn.ToWire(includeItems: true), error = failed.Error },
+                // Map ThreadStatusChangedPayload to wire shape: { threadId, previousStatus, newStatus }
+                ThreadStatusChangedPayload statusChanged => new { threadId = evt.ThreadId, previousStatus = statusChanged.PreviousStatus, newStatus = statusChanged.NewStatus },
+                // Flatten delta payloads to { delta } string per spec Section 6.3
+                AgentMessageDelta agentDelta => new { delta = agentDelta.TextDelta },
+                ReasoningContentDelta reasoningDelta => new { delta = reasoningDelta.TextDelta },
                 _ => evt.Payload
             }
         };
 
     /// <summary>
     /// Converts a wire input part into a <see cref="AIContent"/> for use with <see cref="ISessionService.SubmitInputAsync"/>.
-    /// Remote images are represented as <see cref="DataContent"/> with an image media type.
-    /// Local image paths are read by the AppServer before calling this method; the resulting bytes are
-    /// passed as <see cref="DataContent"/> with the appropriate media type.
+    /// For <c>text</c> parts, returns <see cref="TextContent"/> directly.
+    /// For <c>image</c> and <c>localImage</c> parts, returns a <see cref="TextContent"/> placeholder
+    /// because <see cref="DataContent"/> requires base64-encoded <c>data:</c> URIs.
+    /// The AppServer is responsible for fetching/reading image bytes and constructing proper
+    /// <see cref="DataContent"/> instances before passing them to <see cref="ISessionService.SubmitInputAsync"/>.
     /// </summary>
     public static AIContent ToAIContent(this SessionWireInputPart part) =>
         part.Type switch
         {
             "text" => new TextContent(part.Text ?? string.Empty),
-            "image" when part.Url is { } url => new DataContent(url, "image/*"),
-            // localImage paths must be resolved to bytes by the caller before wire dispatch;
-            // here we fall back to a data URI placeholder so the method always returns a value.
-            "localImage" when part.Path is { } path => new DataContent($"file://{path}", "image/*"),
+            // image/localImage: AppServer must resolve to DataContent(bytes, mediaType) before dispatch
+            "image" when part.Url is { } url => new TextContent($"[image:{url}]"),
+            "localImage" when part.Path is { } path => new TextContent($"[localImage:{path}]"),
             _ => new TextContent(part.Text ?? string.Empty)
         };
 
     /// <summary>
     /// Converts an <see cref="AIContent"/> into a wire input part for serialization.
+    /// <see cref="DataContent"/> instances carry base64 <c>data:</c> URIs and are mapped to
+    /// the <c>"image"</c> wire type with the data URI as the URL field.
     /// </summary>
     public static SessionWireInputPart ToWireInputPart(this AIContent content) =>
         content switch
         {
             TextContent tc => new SessionWireInputPart { Type = "text", Text = tc.Text },
-            DataContent dc when dc.Uri?.StartsWith("file://") == true => new SessionWireInputPart
-            {
-                Type = "localImage",
-                Path = dc.Uri["file://".Length..]
-            },
             DataContent dc => new SessionWireInputPart { Type = "image", Url = dc.Uri },
             _ => new SessionWireInputPart { Type = "text", Text = content.ToString() }
         };
@@ -402,9 +407,10 @@ public static class SessionWireMapper
             SessionThread => "thread",
             SessionTurn => "turn",
             SessionItem => "item",
-            ThreadStatusChangedPayload => "threadStatusChanged",
-            ThreadResumedPayload => "threadResumed",
-            TurnCancelledPayload => "turnCancelled",
-            _ => null
+        ThreadStatusChangedPayload => "threadStatusChanged",
+        ThreadResumedPayload => "threadResumed",
+        TurnCancelledPayload => "turnCancelled",
+        TurnFailedPayload => "turnFailed",
+        _ => null
         };
 }
