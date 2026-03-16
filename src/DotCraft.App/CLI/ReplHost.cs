@@ -848,7 +848,7 @@ public sealed class ReplHost(
 
                 await handler.ProcessAsync(
                     sessionService.SubmitInputAsync(_currentThreadId!, userInput, ct: token),
-                    (tid, rid, ok) => sessionService.ResolveApprovalAsync(tid, rid, ok, token),
+                    (thId, tid, rid, ok) => sessionService.ResolveApprovalAsync(thId, tid, rid, ok, token),
                     token);
             }
             finally

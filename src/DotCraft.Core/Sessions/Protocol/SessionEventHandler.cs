@@ -74,19 +74,22 @@ public sealed class SessionEventHandler
     /// </summary>
     /// <param name="events">The event stream returned by <see cref="ISessionService.SubmitInputAsync"/>.</param>
     /// <param name="resolveApproval">
-    /// Delegate called with <c>(turnId, requestId, approved)</c> to resolve a pending approval.
-    /// Typically: <c>(tid, rid, ok) => sessionService.ResolveApprovalAsync(tid, rid, ok, ct)</c>
+    /// Delegate called with <c>(threadId, turnId, requestId, approved)</c> to resolve a pending approval.
+    /// Typically: <c>(thId, tid, rid, ok) => sessionService.ResolveApprovalAsync(thId, tid, rid, ok, ct)</c>
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     public async Task ProcessAsync(
         IAsyncEnumerable<SessionEvent> events,
-        Func<string, string, bool, Task> resolveApproval,
+        Func<string, string, string, bool, Task> resolveApproval,
         CancellationToken ct = default)
     {
+        string? activeThreadId = null;
         string? activeTurnId = null;
 
         await foreach (var evt in events.WithCancellation(ct))
         {
+            if (evt.ThreadId != null)
+                activeThreadId = evt.ThreadId;
             if (evt.TurnId != null)
                 activeTurnId = evt.TurnId;
 
@@ -127,10 +130,10 @@ public sealed class SessionEventHandler
                 case SessionEventType.ApprovalRequested:
                 {
                     var item = evt.ItemPayload;
-                    if (item?.Payload is ApprovalRequestPayload req && activeTurnId != null)
+                    if (item?.Payload is ApprovalRequestPayload req && activeThreadId != null && activeTurnId != null)
                     {
                         var approved = await OnApprovalRequested(req);
-                        await resolveApproval(activeTurnId, req.RequestId, approved);
+                        await resolveApproval(activeThreadId, activeTurnId, req.RequestId, approved);
                     }
                     break;
                 }

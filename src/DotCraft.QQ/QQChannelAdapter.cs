@@ -402,7 +402,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
                 await handler.ProcessAsync(
                     _sessionService!.SubmitInputAsync(threadId, content, sender, ct: runCts.Token),
-                    (tid, rid, ok) => _sessionService!.ResolveApprovalAsync(tid, rid, ok),
+                    (thId, tid, rid, ok) => _sessionService!.ResolveApprovalAsync(thId, tid, rid, ok),
                     runCts.Token);
             }
             finally

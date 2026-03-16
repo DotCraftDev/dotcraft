@@ -80,6 +80,7 @@ public interface ISessionService
     /// Resumes agent execution with the user's decision.
     /// </summary>
     Task ResolveApprovalAsync(
+        string threadId,
         string turnId,
         string requestId,
         bool approved,
@@ -88,7 +89,7 @@ public interface ISessionService
     /// <summary>
     /// Cancels a Running or WaitingApproval Turn.
     /// </summary>
-    Task CancelTurnAsync(string turnId, CancellationToken ct = default);
+    Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default);
 
     /// <summary>
     /// Changes the agent mode for a Thread (e.g., "agent" → "plan").

@@ -12,6 +12,13 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.Sessions.Protocol;
 
 /// <summary>
+/// Composite dictionary key that uniquely identifies a Turn across all Threads.
+/// Turn IDs (e.g. <c>turn_001</c>) are only unique within a Thread; this struct
+/// pairs them with the parent Thread ID so they can safely key concurrent dictionaries.
+/// </summary>
+internal readonly record struct TurnKey(string ThreadId, string TurnId);
+
+/// <summary>
 /// Session Core implementation. Manages Thread/Turn/Item lifecycle, orchestrates agent
 /// execution, emits the structured event stream, and delegates persistence to ThreadStore.
 /// </summary>
@@ -31,8 +38,8 @@ public sealed class SessionService(
     // In-memory state
     private readonly ConcurrentDictionary<string, SessionThread> _threads = new();
     private readonly ConcurrentDictionary<string, AIAgent> _threadAgents = new();
-    private readonly ConcurrentDictionary<string, SessionApprovalService> _pendingApprovals = new();
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _runningTurns = new();
+    private readonly ConcurrentDictionary<TurnKey, SessionApprovalService> _pendingApprovals = new();
+    private readonly ConcurrentDictionary<TurnKey, CancellationTokenSource> _runningTurns = new();
 
     // =========================================================================
     // Thread lifecycle
@@ -140,9 +147,10 @@ public sealed class SessionService(
         {
             foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
             {
-                if (_runningTurns.TryRemove(turn.Id, out var turnCts))
+                var key = new TurnKey(threadId, turn.Id);
+                if (_runningTurns.TryRemove(key, out var turnCts))
                     await turnCts.CancelAsync();
-                _pendingApprovals.TryRemove(turn.Id, out _);
+                _pendingApprovals.TryRemove(key, out _);
             }
         }
 
@@ -223,7 +231,7 @@ public sealed class SessionService(
             OriginChannel = thread.OriginChannel
         };
 
-        var itemSeq = 1;
+        var itemSeq = 0;
 
         // Extract plain text from content parts for display and persistence
         var text = string.Concat(content.OfType<TextContent>().Select(t => t.Text));
@@ -262,8 +270,9 @@ public sealed class SessionService(
         eventChannel.EmitItemCompleted(userItem);
 
         // Step 5: Run execution in background
+        var turnKey = new TurnKey(threadId, turn.Id);
         var cts = new CancellationTokenSource();
-        _runningTurns[turn.Id] = cts;
+        _runningTurns[turnKey] = cts;
 
         _ = Task.Run(async () =>
         {
@@ -336,7 +345,7 @@ public sealed class SessionService(
                 // Step 5f: Set up approval service override
                 var approvalService = new SessionApprovalService(
                     eventChannel, turn, NextItemSeq, _approvalTimeout);
-                _pendingApprovals[turn.Id] = approvalService;
+                _pendingApprovals[turnKey] = approvalService;
                 approvalOverride = SessionScopedApprovalService.SetOverride(approvalService);
 
                 // Set ApprovalContext for tools that read ApprovalContextScope
@@ -603,8 +612,8 @@ public sealed class SessionService(
             {
                 approvalOverride?.Dispose();
                 gateLock?.Dispose();
-                _pendingApprovals.TryRemove(turn.Id, out _);
-                _runningTurns.TryRemove(turn.Id, out var runCts);
+                _pendingApprovals.TryRemove(turnKey, out _);
+                _runningTurns.TryRemove(turnKey, out var runCts);
                 runCts?.Dispose();
                 eventChannel.Complete();
             }
@@ -612,17 +621,18 @@ public sealed class SessionService(
 
         return eventChannel;
 
-        int NextItemSeq() => itemSeq++;
+        int NextItemSeq() => Interlocked.Increment(ref itemSeq);
     }
 
     /// <inheritdoc/>
     public Task ResolveApprovalAsync(
+        string threadId,
         string turnId,
         string requestId,
         bool approved,
         CancellationToken ct = default)
     {
-        if (_pendingApprovals.TryGetValue(turnId, out var svc))
+        if (_pendingApprovals.TryGetValue(new TurnKey(threadId, turnId), out var svc))
         {
             svc.TryResolve(requestId, approved);
         }
@@ -630,9 +640,9 @@ public sealed class SessionService(
     }
 
     /// <inheritdoc/>
-    public Task CancelTurnAsync(string turnId, CancellationToken ct = default)
+    public Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default)
     {
-        if (_runningTurns.TryGetValue(turnId, out var cts))
+        if (_runningTurns.TryGetValue(new TurnKey(threadId, turnId), out var cts))
             cts.Cancel();
         return Task.CompletedTask;
     }

@@ -382,6 +382,8 @@ public sealed class AcpHandler(
             await sessionService.ArchiveThreadAsync(sessionId, ct);
         }
 
+        planStore?.DeletePlan(sessionId);
+
         transport.SendResponse(request.Id, new SessionDeleteResult());
     }
 
@@ -539,7 +541,7 @@ public sealed class AcpHandler(
 
                 await handler.ProcessAsync(
                     sessionService.SubmitInputAsync(sessionId, contentParts, ct: promptCts.Token),
-                    (tid, rid, ok) => sessionService.ResolveApprovalAsync(tid, rid, ok, promptCts.Token),
+                    (thId, tid, rid, ok) => sessionService.ResolveApprovalAsync(thId, tid, rid, ok, promptCts.Token),
                     promptCts.Token);
 
                 // Send structured plan update (covers Plan mode creation and Agent mode todo updates)
