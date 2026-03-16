@@ -362,10 +362,10 @@ internal sealed class FakeSessionService : ISessionService
         ChatMessage[]? messages = null, CancellationToken ct = default) =>
         throw new NotSupportedException("Use FakeSessionService for lifecycle tests only.");
 
-    public Task ResolveApprovalAsync(string turnId, string requestId, bool approved, CancellationToken ct = default) =>
+    public Task ResolveApprovalAsync(string threadId, string turnId, string requestId, bool approved, CancellationToken ct = default) =>
         Task.CompletedTask;
 
-    public Task CancelTurnAsync(string turnId, CancellationToken ct = default) =>
+    public Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default) =>
         Task.CompletedTask;
 
     public async Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default)
