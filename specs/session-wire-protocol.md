@@ -418,7 +418,7 @@ Archive a thread. Archived threads are read-only — they can be listed and read
 
 The server emits a `thread/statusChanged` notification.
 
-### 4.7 `thread/delete`
+### 4.9 `thread/delete`
 
 Permanently delete a thread and its associated session data.
 
@@ -432,7 +432,7 @@ Permanently delete a thread and its associated session data.
 
 **Result**: `{}`
 
-### 4.8 `thread/mode/set`
+### 4.10 `thread/mode/set`
 
 Set the agent mode for a thread (e.g., `"suggest"`, `"auto-edit"`, `"full"`).
 
