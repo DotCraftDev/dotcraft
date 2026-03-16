@@ -117,8 +117,8 @@ internal sealed class SessionApprovalService : IApprovalService
         _turn.Status = TurnStatus.Running;
 
         _channel.EmitItemStarted(responseItem);
-        _channel.EmitItemCompleted(responseItem);
         _channel.EmitApprovalResolved(responseItem);
+        _channel.EmitItemCompleted(responseItem);
 
         if (decision == SessionApprovalDecision.CancelTurn)
             _cancelTurn();

@@ -64,39 +64,82 @@ internal sealed class SessionEventChannel(
     // -------------------------------------------------------------------------
 
     public void EmitTurnStarted(SessionTurn turn) =>
-        Write(SessionEventType.TurnStarted, null, turn);
+        Write(SessionEventType.TurnStarted, null, SnapshotTurn(turn));
 
     public void EmitTurnCompleted(SessionTurn turn) =>
-        Write(SessionEventType.TurnCompleted, null, turn);
+        Write(SessionEventType.TurnCompleted, null, SnapshotTurn(turn));
 
     public void EmitTurnFailed(SessionTurn turn, string error) =>
-        Write(SessionEventType.TurnFailed, null, new TurnFailedPayload { Turn = turn, Error = error });
+        Write(SessionEventType.TurnFailed, null, new TurnFailedPayload { Turn = SnapshotTurn(turn), Error = error });
 
     public void EmitTurnCancelled(SessionTurn turn, string reason) =>
-        Write(SessionEventType.TurnCancelled, null, new TurnCancelledPayload { Turn = turn, Reason = reason });
+        Write(SessionEventType.TurnCancelled, null, new TurnCancelledPayload { Turn = SnapshotTurn(turn), Reason = reason });
 
     // -------------------------------------------------------------------------
     // Item events
     // -------------------------------------------------------------------------
 
-    public void EmitItemStarted(SessionItem item) =>
-        Write(SessionEventType.ItemStarted, item.Id, item);
+    // Spec (session-wire-protocol.md §6.3): item/started must carry status="started" with no completedAt.
+    public void EmitItemStarted(SessionItem item)
+    {
+        var snapshot = SnapshotItem(item);
+        snapshot.Status = ItemStatus.Started;
+        snapshot.CompletedAt = null;
+        Write(SessionEventType.ItemStarted, item.Id, snapshot);
+    }
 
     public void EmitItemDelta(SessionItem item, object deltaPayload) =>
         Write(SessionEventType.ItemDelta, item.Id, deltaPayload);
 
-    public void EmitItemCompleted(SessionItem item) =>
-        Write(SessionEventType.ItemCompleted, item.Id, item);
+    // Spec (session-wire-protocol.md §6.3): item/completed must carry status="completed" with completedAt set.
+    public void EmitItemCompleted(SessionItem item)
+    {
+        var snapshot = SnapshotItem(item);
+        snapshot.Status = ItemStatus.Completed;
+        snapshot.CompletedAt ??= DateTimeOffset.UtcNow;
+        Write(SessionEventType.ItemCompleted, item.Id, snapshot);
+    }
 
     // -------------------------------------------------------------------------
     // Approval events
     // -------------------------------------------------------------------------
 
     public void EmitApprovalRequested(SessionItem item) =>
-        Write(SessionEventType.ApprovalRequested, item.Id, item);
+        Write(SessionEventType.ApprovalRequested, item.Id, SnapshotItem(item));
 
     public void EmitApprovalResolved(SessionItem item) =>
-        Write(SessionEventType.ApprovalResolved, item.Id, item);
+        Write(SessionEventType.ApprovalResolved, item.Id, SnapshotItem(item));
+
+    // -------------------------------------------------------------------------
+    // Snapshot helpers — produce immutable copies so async consumers see a
+    // consistent status regardless of when they dequeue the event.
+    // -------------------------------------------------------------------------
+
+    private static SessionItem SnapshotItem(SessionItem item) => new()
+    {
+        Id = item.Id,
+        TurnId = item.TurnId,
+        Type = item.Type,
+        Status = item.Status,
+        CreatedAt = item.CreatedAt,
+        CompletedAt = item.CompletedAt,
+        Payload = item.Payload
+    };
+
+    private static SessionTurn SnapshotTurn(SessionTurn turn) => new()
+    {
+        Id = turn.Id,
+        ThreadId = turn.ThreadId,
+        Status = turn.Status,
+        Input = turn.Input,
+        Items = [..turn.Items],
+        StartedAt = turn.StartedAt,
+        CompletedAt = turn.CompletedAt,
+        TokenUsage = turn.TokenUsage,
+        Error = turn.Error,
+        OriginChannel = turn.OriginChannel,
+        Initiator = turn.Initiator
+    };
 
     // -------------------------------------------------------------------------
     // Thread events (emitted when the Turn starts on a new or resumed thread)

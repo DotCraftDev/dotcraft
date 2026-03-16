@@ -192,6 +192,98 @@ public sealed class SessionEventChannelTests
     }
 
     // -------------------------------------------------------------------------
+    // Snapshot semantics (spec session-wire-protocol.md §6.3)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task EmitItemStarted_Snapshot_HasStartedStatus()
+    {
+        // item/started must carry status="started" with no completedAt (spec §6.3)
+        var channel = MakeChannel();
+        var item = new SessionItem
+        {
+            Id = "item_snap_01", TurnId = TestTurnId,
+            Type = ItemType.ToolCall,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolCallPayload { ToolName = "Exec", CallId = "c1" }
+        };
+
+        channel.EmitItemStarted(item);
+        channel.Complete();
+
+        var events = await CollectAsync(channel);
+        var snapshotItem = Assert.IsType<SessionItem>(events[0].Payload);
+        Assert.Equal(ItemStatus.Started, snapshotItem.Status);
+        Assert.Null(snapshotItem.CompletedAt);
+    }
+
+    [Fact]
+    public async Task EmitItemCompleted_Snapshot_HasCompletedStatus()
+    {
+        // item/completed must carry status="completed" with completedAt set (spec §6.3)
+        var channel = MakeChannel();
+        var item = new SessionItem
+        {
+            Id = "item_snap_02", TurnId = TestTurnId,
+            Type = ItemType.AgentMessage,
+            Status = ItemStatus.Streaming,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = null,
+            Payload = new AgentMessagePayload { Text = "done" }
+        };
+
+        channel.EmitItemCompleted(item);
+        channel.Complete();
+
+        var events = await CollectAsync(channel);
+        var snapshotItem = Assert.IsType<SessionItem>(events[0].Payload);
+        Assert.Equal(ItemStatus.Completed, snapshotItem.Status);
+        Assert.NotNull(snapshotItem.CompletedAt);
+    }
+
+    [Fact]
+    public async Task EmitItemStarted_SnapshotIsIndependent()
+    {
+        // Mutating the source item after emission must not affect the queued event snapshot.
+        var channel = MakeChannel();
+        var item = new SessionItem
+        {
+            Id = "item_snap_03", TurnId = TestTurnId,
+            Type = ItemType.ToolResult,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolResultPayload { CallId = "c1", Result = "ok", Success = true }
+        };
+
+        channel.EmitItemStarted(item);
+        item.Status = ItemStatus.Completed; // mutate source after emission
+        channel.Complete();
+
+        var events = await CollectAsync(channel);
+        var snapshotItem = Assert.IsType<SessionItem>(events[0].Payload);
+        Assert.Equal(ItemStatus.Started, snapshotItem.Status);
+    }
+
+    [Fact]
+    public async Task EmitTurnStarted_SnapshotItemsList_IsIndependent()
+    {
+        // Items added to source turn after EmitTurnStarted must not appear in the event.
+        var channel = MakeChannel();
+        var turn = MakeTurn();
+
+        channel.EmitTurnStarted(turn);
+        turn.Items.Add(MakeItem(ItemType.AgentMessage)); // added after emission
+        channel.Complete();
+
+        var events = await CollectAsync(channel);
+        var snapshotTurn = Assert.IsType<SessionTurn>(events[0].Payload);
+        Assert.Empty(snapshotTurn.Items);
+    }
+
+    // -------------------------------------------------------------------------
     // Approval events
     // -------------------------------------------------------------------------
 
