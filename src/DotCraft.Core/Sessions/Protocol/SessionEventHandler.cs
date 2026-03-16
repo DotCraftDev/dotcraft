@@ -38,9 +38,9 @@ public sealed class SessionEventHandler
 
     /// <summary>
     /// Called when an approval is required before executing a sensitive operation.
-    /// The adapter must present the request to the user and return <c>true</c> to approve or <c>false</c> to reject.
+    /// The adapter must present the request to the user and return the resulting approval decision.
     /// </summary>
-    public required Func<ApprovalRequestPayload, Task<bool>> OnApprovalRequested { get; init; }
+    public required Func<ApprovalRequestPayload, Task<SessionApprovalDecision>> OnApprovalRequested { get; init; }
 
     /// <summary>
     /// Called when the turn completes successfully.
@@ -74,13 +74,13 @@ public sealed class SessionEventHandler
     /// </summary>
     /// <param name="events">The event stream returned by <see cref="ISessionService.SubmitInputAsync"/>.</param>
     /// <param name="resolveApproval">
-    /// Delegate called with <c>(threadId, turnId, requestId, approved)</c> to resolve a pending approval.
-    /// Typically: <c>(thId, tid, rid, ok) => sessionService.ResolveApprovalAsync(thId, tid, rid, ok, ct)</c>
+    /// Delegate called with <c>(threadId, turnId, requestId, decision)</c> to resolve a pending approval.
+    /// Typically: <c>(thId, tid, rid, decision) => sessionService.ResolveApprovalAsync(thId, tid, rid, decision, ct)</c>
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     public async Task ProcessAsync(
         IAsyncEnumerable<SessionEvent> events,
-        Func<string, string, string, bool, Task> resolveApproval,
+        Func<string, string, string, SessionApprovalDecision, Task> resolveApproval,
         CancellationToken ct = default)
     {
         string? activeThreadId = null;
@@ -132,8 +132,8 @@ public sealed class SessionEventHandler
                     var item = evt.ItemPayload;
                     if (item?.Payload is ApprovalRequestPayload req && activeThreadId != null && activeTurnId != null)
                     {
-                        var approved = await OnApprovalRequested(req);
-                        await resolveApproval(activeThreadId, activeTurnId, req.RequestId, approved);
+                        var decision = await OnApprovalRequested(req);
+                        await resolveApproval(activeThreadId, activeTurnId, req.RequestId, decision);
                     }
                     break;
                 }

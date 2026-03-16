@@ -56,7 +56,7 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
 
         // Find or create a Thread for this session key
         IReadOnlyList<ThreadSummary> existing;
-        try { existing = await sessionService.FindThreadsAsync(identity, cancellationToken); }
+        try { existing = await sessionService.FindThreadsAsync(identity, ct: cancellationToken); }
         catch { existing = []; }
 
         SessionThread thread;

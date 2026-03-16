@@ -186,6 +186,21 @@ public sealed class SessionServiceLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task FindThreads_ArchivedExcludedByDefault_ButIncludedWhenRequested()
+    {
+        var identity = MakeIdentity("user1", "/ws/alpha");
+        var thread = await _svc.CreateThreadAsync(identity);
+        await _svc.ArchiveThreadAsync(thread.Id);
+
+        var defaultResults = await _svc.FindThreadsAsync(identity);
+        var includeArchivedResults = await _svc.FindThreadsAsync(identity, includeArchived: true);
+
+        Assert.Empty(defaultResults);
+        Assert.Single(includeArchivedResults);
+        Assert.Equal(ThreadStatus.Archived, includeArchivedResults[0].Status);
+    }
+
+    [Fact]
     public async Task FindThreads_ChannelContextIsolation_DifferentContextsReturnSeparateThreads()
     {
         var ws = Path.Combine(Path.GetTempPath(), "ctx_test_" + Guid.NewGuid().ToString("N")[..8]);
@@ -407,12 +422,14 @@ internal sealed class FakeSessionService : ISessionService
 
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
+        bool includeArchived = false,
         CancellationToken ct = default)
     {
         var index = await _store.LoadIndexAsync(ct);
         return index
             .Where(s =>
                 string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
+                && (includeArchived || s.Status != ThreadStatus.Archived)
                 && (identity.UserId == null || s.UserId == identity.UserId)
                 && (identity.ChannelContext == null
                     ? s.ChannelContext == null
@@ -429,7 +446,18 @@ internal sealed class FakeSessionService : ISessionService
         ChatMessage[]? messages = null, CancellationToken ct = default) =>
         throw new NotSupportedException("Use FakeSessionService for lifecycle tests only.");
 
-    public Task ResolveApprovalAsync(string threadId, string turnId, string requestId, bool approved, CancellationToken ct = default) =>
+    public IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(
+        string threadId,
+        bool replayRecent = false,
+        CancellationToken ct = default) =>
+        EmptyEvents();
+
+    public Task ResolveApprovalAsync(
+        string threadId,
+        string turnId,
+        string requestId,
+        SessionApprovalDecision decision,
+        CancellationToken ct = default) =>
         Task.CompletedTask;
 
     public Task CancelTurnAsync(string threadId, string turnId, CancellationToken ct = default) =>
@@ -465,5 +493,10 @@ internal sealed class FakeSessionService : ISessionService
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
         _threads[threadId] = loaded;
         return loaded;
+    }
+
+    private static async IAsyncEnumerable<SessionEvent> EmptyEvents()
+    {
+        yield break;
     }
 }

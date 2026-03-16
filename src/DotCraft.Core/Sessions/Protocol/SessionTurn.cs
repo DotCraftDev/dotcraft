@@ -50,4 +50,9 @@ public sealed class SessionTurn
     /// Channel that originated this Turn (recorded for cross-channel resume attribution).
     /// </summary>
     public string? OriginChannel { get; set; }
+
+    /// <summary>
+    /// Durable metadata describing who initiated this turn.
+    /// </summary>
+    public TurnInitiatorContext? Initiator { get; set; }
 }

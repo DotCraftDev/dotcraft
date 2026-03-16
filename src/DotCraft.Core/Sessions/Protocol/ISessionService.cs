@@ -51,6 +51,16 @@ public interface ISessionService
     /// </summary>
     Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
+        bool includeArchived = false,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Subscribes to thread-level events independently from turn execution.
+    /// Multiple passive subscribers may observe the same thread concurrently.
+    /// </summary>
+    IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(
+        string threadId,
+        bool replayRecent = false,
         CancellationToken ct = default);
 
     /// <summary>
@@ -83,7 +93,7 @@ public interface ISessionService
         string threadId,
         string turnId,
         string requestId,
-        bool approved,
+        SessionApprovalDecision decision,
         CancellationToken ct = default);
 
     /// <summary>

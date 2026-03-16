@@ -138,9 +138,19 @@ internal sealed class SessionEventConverter : JsonConverter<SessionEvent>
 
     private static object? DeserializeDeltaPayload(JsonElement payload, JsonSerializerOptions options)
     {
+        if (payload.TryGetProperty("deltaKind", out var deltaKind))
+        {
+            return (deltaKind.GetString() ?? string.Empty) switch
+            {
+                "reasoningContent" => payload.Deserialize<ReasoningContentDelta>(options),
+                "agentMessage" => payload.Deserialize<AgentMessageDelta>(options),
+                _ => payload.Deserialize<AgentMessageDelta>(options)
+            };
+        }
+
         if (payload.TryGetProperty("textDelta", out _))
         {
-            // Could be AgentMessageDelta or ReasoningContentDelta — both have identical shape
+            // Backward compatibility for payloads persisted before deltaKind existed.
             return payload.Deserialize<AgentMessageDelta>(options);
         }
         return null;

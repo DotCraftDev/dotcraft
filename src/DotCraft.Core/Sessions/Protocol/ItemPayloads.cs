@@ -18,6 +18,26 @@ public sealed record UserMessagePayload
     /// Display name of the sender (nullable).
     /// </summary>
     public string? SenderName { get; init; }
+
+    /// <summary>
+    /// Role of the sender when the originating channel provides it.
+    /// </summary>
+    public string? SenderRole { get; init; }
+
+    /// <summary>
+    /// Originating channel for this user message.
+    /// </summary>
+    public string? ChannelName { get; init; }
+
+    /// <summary>
+    /// Channel-specific context for this user message.
+    /// </summary>
+    public string? ChannelContext { get; init; }
+
+    /// <summary>
+    /// Group or chat identifier when the message originates from a group context.
+    /// </summary>
+    public string? GroupId { get; init; }
 }
 
 /// <summary>
@@ -33,6 +53,8 @@ public sealed record AgentMessagePayload
 /// </summary>
 public sealed record AgentMessageDelta
 {
+    public string DeltaKind { get; init; } = "agentMessage";
+
     public string TextDelta { get; init; } = string.Empty;
 }
 
@@ -49,6 +71,8 @@ public sealed record ReasoningContentPayload
 /// </summary>
 public sealed record ReasoningContentDelta
 {
+    public string DeltaKind { get; init; } = "reasoningContent";
+
     public string TextDelta { get; init; } = string.Empty;
 }
 
@@ -109,6 +133,11 @@ public sealed record ApprovalRequestPayload
     /// Unique ID for correlating with ApprovalResponse.
     /// </summary>
     public string RequestId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Session-scoped cache key for repeated approvals of the same class of operation.
+    /// </summary>
+    public string ScopeKey { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -122,6 +151,11 @@ public sealed record ApprovalResponsePayload
     public string RequestId { get; init; } = string.Empty;
 
     public bool Approved { get; init; }
+
+    /// <summary>
+    /// Rich decision captured for the request.
+    /// </summary>
+    public SessionApprovalDecision Decision { get; init; } = SessionApprovalDecision.Reject;
 }
 
 /// <summary>

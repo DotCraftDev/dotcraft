@@ -6,7 +6,11 @@ namespace DotCraft.Sessions.Protocol;
 /// Wraps a System.Threading.Channels channel to provide typed event emission
 /// during Turn execution. One instance is created per Turn.
 /// </summary>
-internal sealed class SessionEventChannel(string id, string turnId)
+internal sealed class SessionEventChannel(
+    string id,
+    string turnId,
+    Func<string>? nextEventId = null,
+    Action<SessionEvent>? publish = null)
 {
     private readonly Channel<SessionEvent> _channel = Channel.CreateUnbounded<SessionEvent>(new UnboundedChannelOptions
     {
@@ -21,7 +25,7 @@ internal sealed class SessionEventChannel(string id, string turnId)
     // -------------------------------------------------------------------------
 
     private string NextEventId() =>
-        $"evt_{Interlocked.Increment(ref _eventSequence):D4}";
+        nextEventId?.Invoke() ?? $"evt_{Interlocked.Increment(ref _eventSequence):D4}";
 
     private void Write(SessionEventType type, string? itemId, object? payload)
     {
@@ -36,6 +40,7 @@ internal sealed class SessionEventChannel(string id, string turnId)
             Payload = payload
         };
         _channel.Writer.TryWrite(evt);
+        publish?.Invoke(evt);
     }
 
     private void WriteThreadLevel(SessionEventType type, string? threadId, object? payload)
@@ -51,6 +56,7 @@ internal sealed class SessionEventChannel(string id, string turnId)
             Payload = payload
         };
         _channel.Writer.TryWrite(evt);
+        publish?.Invoke(evt);
     }
 
     // -------------------------------------------------------------------------

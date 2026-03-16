@@ -1,0 +1,1143 @@
+# DotCraft Session Wire Protocol Specification
+
+| Field | Value |
+|-------|-------|
+| **Version** | 0.1.0 |
+| **Status** | Draft |
+| **Date** | 2026-03-16 |
+| **Parent Spec** | [Session Protocol](session-protocol.md) (v0.2.0, Section 19) |
+
+Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) to out-of-process clients, enabling non-C# adapters to create and resume threads, submit turns, stream events, and participate in approval flows.
+
+## Table of Contents
+
+- [1. Scope](#1-scope)
+- [1.4 V1 Contract Snapshot](#14-v1-contract-snapshot)
+- [2. Protocol Fundamentals](#2-protocol-fundamentals)
+- [3. Initialization](#3-initialization)
+- [4. Thread Methods](#4-thread-methods)
+- [5. Turn Methods](#5-turn-methods)
+- [6. Event Notifications](#6-event-notifications)
+- [7. Approval Flow](#7-approval-flow)
+- [8. Error Handling](#8-error-handling)
+- [9. Backpressure](#9-backpressure)
+- [10. Notification Opt-Out](#10-notification-opt-out)
+- [11. Extension Methods](#11-extension-methods)
+- [12. Versioning and Compatibility](#12-versioning-and-compatibility)
+- [13. Full Turn Example](#13-full-turn-example)
+- [14. Relationship to Codex App Server](#14-relationship-to-codex-app-server)
+
+---
+
+## 1. Scope
+
+### 1.1 What This Spec Defines
+
+This specification defines the wire protocol — message formats, methods, notifications, and transport rules — that a DotCraft server exposes to external clients over stdio or WebSocket. It is the network-facing projection of the Session Protocol's `ISessionService` API.
+
+### 1.2 What This Spec Does Not Define
+
+- **Domain model semantics**: Thread, Turn, and Item lifecycle rules, persistence layout, and state machine invariants are defined in the [Session Protocol Specification](session-protocol.md). This spec references them but does not redefine them.
+- **Agent execution internals**: The Microsoft.Extensions.AI pipeline, tool invocation, and hook execution are unchanged and invisible to the wire client.
+- **Channel-specific UX**: How a client renders events (streaming text, diffs, approval dialogs) is a client concern.
+- **In-process adapter patterns**: `SessionEventHandler`, `SessionEventChannel`, and the adapter pattern for in-process channels (CLI, QQ, WeCom) are internal to the C# codebase and not part of this wire protocol.
+
+### 1.3 Design Reference
+
+This protocol is modeled after the [Codex App Server](https://github.com/openai/codex/tree/main/codex-rs/app-server) JSON-RPC protocol, adapted to DotCraft's domain model. The Thread/Turn/Item primitives, event streaming, and bidirectional approval flow follow the same patterns described in [Unlocking the Codex Harness](https://openai.com/index/unlocking-the-codex-harness/).
+
+### 1.4 V1 Contract Snapshot
+
+The current v1 contract is based on the refactored Session Core, not on the earlier draft assumptions. For implementation planning, features fall into three buckets:
+
+| Bucket | V1 Items |
+|-------|----------|
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. |
+| **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
+| **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
+
+---
+
+## 2. Protocol Fundamentals
+
+### 2.1 JSON-RPC 2.0
+
+The wire protocol uses **JSON-RPC 2.0** with the `"jsonrpc": "2.0"` header included on every message.
+
+Three message kinds:
+
+| Kind | Has `id` | Has `method` | Direction |
+|------|----------|--------------|-----------|
+| Request | yes | yes | either |
+| Response | yes | no | reply to request |
+| Notification | no | yes | either |
+
+- **Client-to-server requests**: thread and turn lifecycle operations.
+- **Server-to-client notifications**: event stream (thread/turn/item events).
+- **Server-to-client requests**: approval prompts that require a client response.
+- **Client-to-server notifications**: `initialized` handshake acknowledgement.
+
+### 2.2 Transports
+
+| Transport | Wire Format | Status |
+|-----------|-------------|--------|
+| stdio | Newline-delimited JSON (JSONL): one complete JSON-RPC message per line, UTF-8 encoded, over stdin (client→server) and stdout (server→client). | Primary |
+| WebSocket | One JSON-RPC message per WebSocket text frame. | Experimental |
+
+**stdio transport**: The server reads JSON-RPC requests from `stdin` and writes responses/notifications to `stdout`. Diagnostic and log output goes to `stderr`. This matches the transport used by ACP and Codex App Server.
+
+**WebSocket transport** (experimental): When listening on `ws://HOST:PORT`, the server also serves HTTP health probes:
+
+- `GET /healthz` — returns `200 OK` when the server is alive.
+- `GET /readyz` — returns `200 OK` when the server is accepting connections.
+
+### 2.3 Serialization Rules
+
+- All JSON property names use **camelCase** (e.g., `threadId`, `tokenUsage`, `approvalType`).
+- Timestamps are **ISO 8601 UTC** strings (e.g., `"2026-03-15T10:00:00Z"`).
+- Enums are serialized as **camelCase strings** (e.g., `"active"`, `"running"`, `"toolCall"`, `"waitingApproval"`).
+- Nullable fields are omitted from the JSON when `null`, unless explicitly stated otherwise.
+- Wire DTOs are distinct from the on-disk persistence models. Persisted thread JSON may keep internal compatibility quirks; the wire contract must remain lossless and transport-stable.
+- `item/delta` payloads must carry a `deltaKind` field so clients can distinguish agent text from reasoning text without inspecting surrounding state.
+- `id` fields in JSON-RPC messages may be strings or integers. The server preserves the type and value when responding.
+
+---
+
+## 3. Initialization
+
+### 3.1 Handshake
+
+The client must send an `initialize` request as the very first message on a new connection. Any other method sent before initialization is rejected with error code `-32002` (`"Not initialized"`). Repeated `initialize` calls on the same connection are rejected with error code `-32600` (`"Already initialized"`).
+
+After receiving the `initialize` response, the client must send an `initialized` notification to signal readiness. The server may begin sending notifications (e.g., for in-progress threads) after receiving `initialized`.
+
+```
+Client                              Server
+  |                                   |
+  | initialize (request, id: 0)      |
+  |---------------------------------->|
+  |                                   |
+  | (response, id: 0)                |
+  |<----------------------------------|
+  |                                   |
+  | initialized (notification)        |
+  |---------------------------------->|
+  |                                   |
+  | (protocol ready, both directions) |
+```
+
+### 3.2 `initialize`
+
+**Direction**: client → server (request)
+
+**Params**:
+
+```json
+{
+  "clientInfo": {
+    "name": "dotcraft-vscode",
+    "title": "DotCraft VS Code Extension",
+    "version": "1.0.0"
+  },
+  "capabilities": {
+    "approvalSupport": true,
+    "streamingSupport": true,
+    "optOutNotificationMethods": []
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `clientInfo.name` | string | yes | Machine-readable client identifier. |
+| `clientInfo.title` | string | no | Human-readable client name. |
+| `clientInfo.version` | string | yes | Client version string. |
+| `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
+| `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
+| `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
+
+**Result**:
+
+```json
+{
+  "serverInfo": {
+    "name": "dotcraft",
+    "version": "0.2.0",
+    "protocolVersion": "1",
+    "extensions": ["acp"]
+  },
+  "capabilities": {
+    "threadManagement": true,
+    "threadSubscriptions": true,
+    "approvalFlow": true,
+    "modeSwitch": true,
+    "configOverride": true
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `serverInfo.name` | string | Always `"dotcraft"`. |
+| `serverInfo.version` | string | DotCraft server version. |
+| `serverInfo.protocolVersion` | string | Wire protocol version. Currently `"1"`. |
+| `serverInfo.extensions` | string[] | Optional flat list of available extension namespaces. Structured extension capability metadata is deferred from v1. |
+| `capabilities.threadManagement` | boolean | Server supports thread CRUD operations. |
+| `capabilities.threadSubscriptions` | boolean | Server supports passive `thread/subscribe` observers independent from `turn/start`. |
+| `capabilities.approvalFlow` | boolean | Server may send approval requests. |
+| `capabilities.modeSwitch` | boolean | Server supports `thread/mode/set`. |
+| `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
+
+### 3.3 `initialized`
+
+**Direction**: client → server (notification, no `id`)
+
+**Params**: `{}` (empty object)
+
+No response. Signals the client is ready to receive notifications.
+
+---
+
+## 4. Thread Methods
+
+Thread methods correspond to `ISessionService` thread lifecycle operations defined in the [Session Protocol Specification, Section 5.1](session-protocol.md#51-thread-lifecycle).
+
+### 4.1 `thread/start`
+
+Create a new thread. The server generates a Thread ID and persists initial state.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `identity` | SessionIdentity | yes | Channel identity for thread ownership. See [Session Protocol, Section 4.1.4](session-protocol.md). |
+| `config` | ThreadConfiguration | no | Per-thread agent configuration. Null means workspace defaults. |
+| `historyMode` | string | no | `"server"` (default) or `"client"`. |
+| `displayName` | string | no | Explicit thread display name. |
+
+`SessionIdentity` on the wire:
+
+```json
+{
+  "channelName": "vscode",
+  "userId": "user-123",
+  "channelContext": "workspace:/path/to/project",
+  "workspacePath": "/path/to/project"
+}
+```
+
+**Result**:
+
+```json
+{
+  "thread": {
+    "id": "thread_20260316_x7k2m4",
+    "workspacePath": "/path/to/project",
+    "userId": "user-123",
+    "originChannel": "vscode",
+    "displayName": null,
+    "status": "active",
+    "createdAt": "2026-03-16T10:00:00Z",
+    "lastActiveAt": "2026-03-16T10:00:00Z",
+    "metadata": {},
+    "turns": []
+  }
+}
+```
+
+The server also emits a `thread/started` notification after the response.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "thread/start", "id": 1, "params": {
+    "identity": {
+      "channelName": "vscode",
+      "userId": "user-123",
+      "channelContext": "workspace:/home/dev/myproject",
+      "workspacePath": "/home/dev/myproject"
+    },
+    "historyMode": "server"
+} }
+
+{ "jsonrpc": "2.0", "id": 1, "result": {
+    "thread": {
+      "id": "thread_20260316_x7k2m4",
+      "status": "active",
+      "workspacePath": "/home/dev/myproject",
+      "createdAt": "2026-03-16T10:00:00Z",
+      "lastActiveAt": "2026-03-16T10:00:00Z",
+      "turns": []
+    }
+} }
+
+{ "jsonrpc": "2.0", "method": "thread/started", "params": {
+    "thread": { "id": "thread_20260316_x7k2m4", "status": "active" }
+} }
+```
+
+### 4.2 `thread/resume`
+
+Resume a paused or previously loaded thread. Session Core loads the thread from persistence, reconstructs the agent session, and sets status to Active.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID to resume. |
+
+**Result**: `{ "thread": Thread }` — the resumed thread object.
+
+The server emits a `thread/resumed` notification.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "thread/resume", "id": 2, "params": {
+    "threadId": "thread_20260316_x7k2m4"
+} }
+
+{ "jsonrpc": "2.0", "id": 2, "result": {
+    "thread": { "id": "thread_20260316_x7k2m4", "status": "active" }
+} }
+```
+
+### 4.3 `thread/list`
+
+List threads matching a given identity.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `identity` | SessionIdentity | yes | Identity to filter by. |
+| `includeArchived` | boolean | no | Default `false`. When `true`, archived threads are included in the result set. |
+
+**Result**:
+
+```json
+{
+  "data": [
+    {
+      "id": "thread_20260316_x7k2m4",
+      "displayName": "Fix login bug",
+      "status": "active",
+      "originChannel": "vscode",
+      "createdAt": "2026-03-16T10:00:00Z",
+      "lastActiveAt": "2026-03-16T10:05:00Z"
+    }
+  ]
+}
+```
+
+Results are ordered by `lastActiveAt` descending. Cursor pagination is deferred from v1 because the current Core only guarantees deterministic full-list ordering.
+
+### 4.4 `thread/read`
+
+Read a thread by ID without resuming it. Optionally includes turn history.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID to read. |
+| `includeTurns` | boolean | no | If `true`, include the full `turns` array. Default `false`. |
+
+**Result**: `{ "thread": Thread }` — the thread object, with `turns` populated if requested.
+
+### 4.5 `thread/subscribe`
+
+Subscribe the current connection to future lifecycle events for a thread. Multiple passive subscribers may observe the same thread concurrently.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread to observe. |
+| `replayRecent` | boolean | no | Default `false`. When `true`, the server may replay a small recent buffer for reconnect smoothing. |
+
+**Result**: `{}`
+
+After subscription succeeds, the server may emit future `thread/*`, `turn/*`, and `item/*` notifications for that thread even when the current connection did not originate the turn.
+
+### 4.6 `thread/unsubscribe`
+
+Remove the current connection's passive subscription to a thread.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread to stop observing. |
+
+**Result**: `{}`
+
+Cancellation of the transport connection also implicitly unsubscribes all active thread subscriptions owned by that connection.
+
+### 4.7 `thread/pause`
+
+Pause an active thread. A paused thread cannot accept new turns until resumed.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID to pause. |
+
+**Result**: `{}`
+
+The server emits a `thread/statusChanged` notification.
+
+### 4.8 `thread/archive`
+
+Archive a thread. Archived threads are read-only — they can be listed and read but not resumed or turned.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID to archive. |
+
+**Result**: `{}`
+
+The server emits a `thread/statusChanged` notification.
+
+### 4.7 `thread/delete`
+
+Permanently delete a thread and its associated session data.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID to delete. |
+
+**Result**: `{}`
+
+### 4.8 `thread/mode/set`
+
+Set the agent mode for a thread (e.g., `"suggest"`, `"auto-edit"`, `"full"`).
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID. |
+| `mode` | string | yes | New agent mode. |
+
+**Result**: `{}`
+
+### 4.9 `thread/config/update`
+
+Update per-thread agent configuration (MCP servers, extensions, etc.).
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID. |
+| `config` | ThreadConfiguration | yes | Configuration patch. |
+
+**Result**: `{}`
+
+---
+
+## 5. Turn Methods
+
+Turn methods correspond to `ISessionService` turn lifecycle operations defined in the [Session Protocol Specification, Section 5.2](session-protocol.md#52-turn-lifecycle).
+
+### 5.1 `turn/start`
+
+Submit user input to a thread and begin agent execution. The server creates a new Turn, records the user input as a `UserMessage` Item, and starts the agent.
+
+The response is returned **immediately** with the initial Turn object (status `"running"`, empty `items`). The agent's output then streams as notifications: `turn/started`, followed by `item/*` events, and finally `turn/completed` (or `turn/failed` / `turn/cancelled`).
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Target thread. Must be `"active"` with no running turn. |
+| `input` | InputPart[] | yes | User input. At least one part required. |
+| `sender` | SenderContext | no | Sender identity for group sessions. |
+| `messages` | ChatMessage[] | conditional | Required when the thread uses `historyMode = "client"`. Forbidden when the thread uses `historyMode = "server"`. |
+
+`InputPart` is a tagged union:
+
+- `{ "type": "text", "text": "..." }` — plain text input.
+- `{ "type": "image", "url": "https://..." }` — remote image URL.
+- `{ "type": "localImage", "path": "/tmp/screenshot.png" }` — local image file path.
+
+`SenderContext`:
+
+```json
+{
+  "senderId": "user-456",
+  "senderName": "Alice",
+  "senderRole": "admin",
+  "groupId": "group-123"
+}
+```
+
+The server records two separate provenance fields:
+
+- `thread.originChannel`: the channel that originally created the thread.
+- `turn.originChannel`: the channel that initiated this specific turn.
+
+Each persisted Turn also records an `initiator` object with durable actor metadata (`channelName`, `userId`, `userName`, `userRole`, `channelContext`, `groupId`) so cross-channel replay and auditing remain accurate after resume.
+
+**Result**:
+
+```json
+{
+  "turn": {
+    "id": "turn_001",
+    "threadId": "thread_20260316_x7k2m4",
+    "status": "running",
+    "items": [],
+    "startedAt": "2026-03-16T10:05:00Z"
+  }
+}
+```
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "turn/start", "id": 10, "params": {
+    "threadId": "thread_20260316_x7k2m4",
+    "input": [
+      { "type": "text", "text": "Run the tests and fix any failures" }
+    ]
+} }
+
+{ "jsonrpc": "2.0", "id": 10, "result": {
+    "turn": {
+      "id": "turn_001",
+      "threadId": "thread_20260316_x7k2m4",
+      "status": "running",
+      "items": [],
+      "startedAt": "2026-03-16T10:05:00Z"
+    }
+} }
+```
+
+### 5.2 `turn/interrupt`
+
+Request cancellation of an in-progress turn. The server cancels the agent execution via `CancellationToken` and emits `turn/cancelled` once shutdown completes.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID. |
+| `turnId` | string | yes | Turn ID to cancel. |
+
+**Result**: `{}`
+
+The actual cancellation is asynchronous. Rely on the `turn/cancelled` notification to know when the turn has stopped.
+
+---
+
+## 6. Event Notifications
+
+Event notifications are server-initiated messages (no `id`) that stream the turn lifecycle to the client. They correspond 1:1 to the `SessionEvent` types defined in the [Session Protocol Specification, Section 6](session-protocol.md#6-event-model).
+
+All notifications share the pattern:
+
+```json
+{ "jsonrpc": "2.0", "method": "<event-method>", "params": { ... } }
+```
+
+### 6.1 Thread Notifications
+
+#### `thread/started`
+
+Emitted when a new thread is created via `thread/start`.
+
+**Params**: `{ "thread": Thread }`
+
+#### `thread/resumed`
+
+Emitted when a thread is resumed via `thread/resume`.
+
+**Params**: `{ "thread": Thread, "resumedBy": "<channelName>" }`
+
+#### `thread/statusChanged`
+
+Emitted when a thread's status changes (Active → Paused, Active → Archived, etc.).
+
+**Params**: `{ "threadId": "<id>", "previousStatus": "<status>", "newStatus": "<status>" }`
+
+### 6.2 Turn Notifications
+
+#### `turn/started`
+
+Emitted when a turn begins execution (after `turn/start` response).
+
+**Params**: `{ "turn": Turn }`
+
+The `turn` object includes the `UserMessage` input item.
+
+#### `turn/completed`
+
+Emitted when a turn finishes successfully.
+
+**Params**:
+
+```json
+{
+  "turn": {
+    "id": "turn_001",
+    "threadId": "thread_...",
+    "status": "completed",
+    "items": [ ... ],
+    "startedAt": "2026-03-16T10:05:00Z",
+    "completedAt": "2026-03-16T10:07:30Z",
+    "tokenUsage": {
+      "inputTokens": 1200,
+      "outputTokens": 800,
+      "totalTokens": 2000
+    }
+  }
+}
+```
+
+#### `turn/failed`
+
+Emitted when a turn fails due to an unrecoverable error.
+
+**Params**: `{ "turn": Turn, "error": "<message>" }`
+
+The `turn.status` is `"failed"` and `turn.error` contains the error description.
+
+#### `turn/cancelled`
+
+Emitted when a turn is cancelled via `turn/interrupt` or client disconnect.
+
+**Params**: `{ "turn": Turn, "reason": "<description>" }`
+
+### 6.3 Item Notifications
+
+Items follow the lifecycle: `item/started` → zero or more `item/*/delta` → `item/completed`. See [Session Protocol, Section 5.3](session-protocol.md#53-item-lifecycle).
+
+#### `item/started`
+
+Emitted when a new item is created within a turn.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "item": {
+    "id": "item_002",
+    "turnId": "turn_001",
+    "type": "toolCall",
+    "status": "started",
+    "payload": {
+      "toolName": "Exec",
+      "arguments": { "command": "npm test" },
+      "callId": "call_001"
+    },
+    "createdAt": "2026-03-16T10:05:12Z"
+  }
+}
+```
+
+The `item.type` discriminates the payload shape. Supported types and their payloads are defined in [Session Protocol, Section 4.2](session-protocol.md#42-item-payload-schemas):
+
+| `item.type` | Payload fields |
+|-------------|----------------|
+| `userMessage` | `text`, `senderId?`, `senderName?` |
+| `agentMessage` | `text` |
+| `reasoningContent` | `text` |
+| `toolCall` | `toolName`, `arguments`, `callId` |
+| `toolResult` | `callId`, `result`, `success` |
+| `approvalRequest` | `approvalType`, `operation`, `target`, `requestId` |
+| `approvalResponse` | `requestId`, `approved` |
+| `error` | `message`, `code`, `fatal` |
+
+#### `item/agentMessage/delta`
+
+Streamed text delta for an `agentMessage` item. Concatenate `delta` values in order to reconstruct the full reply.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "itemId": "item_004",
+  "delta": "Here is my analysis of the"
+}
+```
+
+#### `item/reasoning/delta`
+
+Streamed text delta for a `reasoningContent` item.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "itemId": "item_003",
+  "delta": "I need to check the test output first"
+}
+```
+
+#### `item/completed`
+
+Emitted when an item is finalized. The `item.status` is `"completed"` and the payload contains the final accumulated value.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "item": {
+    "id": "item_004",
+    "turnId": "turn_001",
+    "type": "agentMessage",
+    "status": "completed",
+    "payload": {
+      "text": "Here is my analysis of the test failures..."
+    },
+    "createdAt": "2026-03-16T10:05:30Z",
+    "completedAt": "2026-03-16T10:06:15Z"
+  }
+}
+```
+
+### 6.4 Approval Notifications
+
+#### `item/approval/resolved`
+
+Emitted after the client responds to an approval request and the server processes the decision. This is distinct from `item/completed` for the `approvalResponse` item — `item/approval/resolved` is emitted first, then the regular `item/completed` follows.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "item": {
+    "id": "item_006",
+    "type": "approvalResponse",
+    "status": "completed",
+    "payload": {
+      "requestId": "approval_001",
+      "approved": true
+    }
+  }
+}
+```
+
+---
+
+## 7. Approval Flow
+
+When the agent encounters a sensitive operation (file write, shell command) that requires user consent, the server initiates a bidirectional approval exchange. This is a **server-to-client request** — the server sends a JSON-RPC request with an `id`, and the client must respond.
+
+### 7.1 Sequence
+
+```
+Server                              Client
+  |                                   |
+  | item/started (notification)       |
+  |   type: "approvalRequest"         |
+  |---------------------------------->|
+  |                                   |
+  | item/approval/request (request)   |
+  |   id: <server-assigned>           |
+  |---------------------------------->|
+  |                                   |
+  |   (client shows approval UI)      |
+  |                                   |
+  | response (id: <same>)             |
+  |   result: { decision: "..." }     |
+  |<----------------------------------|
+  |                                   |
+  | item/approval/resolved (notify)   |
+  |---------------------------------->|
+  |                                   |
+  | item/completed (notification)     |
+  |   (for the tool call item)        |
+  |---------------------------------->|
+```
+
+The turn enters `"waitingApproval"` status while the server waits for the client's response.
+
+### 7.2 `item/approval/request`
+
+**Direction**: server → client (request)
+
+**Params**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | string | Parent thread. |
+| `turnId` | string | Active turn. |
+| `itemId` | string | The `approvalRequest` item ID. |
+| `requestId` | string | Unique correlation ID for this approval. |
+| `approvalType` | string | `"shell"` or `"file"`. |
+| `operation` | string | For shell: the command. For file: `"read"`, `"write"`, `"edit"`, `"list"`. |
+| `target` | string | For shell: working directory. For file: the file path. |
+| `scopeKey` | string | Session-scoped cache key used when the client returns `acceptForSession`. In v1, DotCraft Core uses coarse scopes such as `file:write` and `shell:*`. |
+| `reason` | string | Human-readable explanation of why approval is needed. |
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "item/approval/request", "id": 100, "params": {
+    "threadId": "thread_20260316_x7k2m4",
+    "turnId": "turn_001",
+    "itemId": "item_005",
+    "requestId": "approval_001",
+    "approvalType": "shell",
+    "operation": "npm test",
+    "target": "/home/dev/myproject",
+    "scopeKey": "shell:*",
+    "reason": "Agent wants to execute a shell command"
+} }
+```
+
+### 7.3 Client Response
+
+The client responds with the standard JSON-RPC response format:
+
+```json
+{ "jsonrpc": "2.0", "id": 100, "result": {
+    "decision": "accept"
+} }
+```
+
+**Decision values**:
+
+| Value | Meaning |
+|-------|---------|
+| `"accept"` | Approve this single operation. |
+| `"acceptForSession"` | Approve this operation and similar operations for the remainder of the thread's lifetime. |
+| `"decline"` | Reject the operation. The agent receives a rejection signal and may try an alternative approach. |
+| `"cancel"` | Reject and cancel the entire turn. Equivalent to `turn/interrupt`. |
+
+When approval resolution is persisted or echoed back in a later event, the response item carries both:
+
+- `approved`: boolean convenience field for legacy consumers.
+- `decision`: the exact rich decision value chosen by the user.
+
+### 7.4 Clients Without Approval Support
+
+If a client declared `capabilities.approvalSupport = false` during initialization, the server must not send `item/approval/request`. Instead, the server applies the workspace's default approval policy (auto-approve or auto-reject based on configuration).
+
+---
+
+## 8. Error Handling
+
+### 8.1 JSON-RPC Error Response
+
+Errors follow the standard JSON-RPC 2.0 error response format:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "error": {
+    "code": -32600,
+    "message": "Invalid request",
+    "data": { "detail": "Thread not found: thread_invalid" }
+  }
+}
+```
+
+### 8.2 Standard Error Codes
+
+| Code | Name | When |
+|------|------|------|
+| `-32700` | Parse error | Malformed JSON. |
+| `-32600` | Invalid request | Missing required fields, invalid params, or constraint violation. |
+| `-32601` | Method not found | Unknown method name. |
+| `-32602` | Invalid params | Params present but do not match the expected schema. |
+| `-32603` | Internal error | Unexpected server failure. |
+
+### 8.3 DotCraft-Specific Error Codes
+
+| Code | Name | When |
+|------|------|------|
+| `-32001` | Server overloaded | Backpressure: too many in-flight requests. Retryable. |
+| `-32002` | Not initialized | Method called before `initialize` handshake. |
+| `-32003` | Already initialized | `initialize` called more than once on the same connection. |
+| `-32010` | Thread not found | The specified `threadId` does not exist. |
+| `-32011` | Thread not active | Operation requires an active thread but the thread is paused or archived. |
+| `-32012` | Turn in progress | A turn is already running or waiting for approval on this thread. |
+| `-32013` | Turn not found | The specified `turnId` does not exist on the thread. |
+| `-32014` | Turn not running | `turn/interrupt` called on a turn that is not in progress. |
+| `-32020` | Approval timeout | The client took too long to respond to an approval request. |
+
+### 8.4 Turn-Level Errors
+
+Errors during agent execution are delivered as `turn/failed` notifications (not as JSON-RPC error responses to the `turn/start` request, because the request itself succeeded — it is the asynchronous agent run that failed).
+
+The `turn/failed` notification includes the error in `turn.error`:
+
+```json
+{ "jsonrpc": "2.0", "method": "turn/failed", "params": {
+    "turn": {
+      "id": "turn_001",
+      "threadId": "thread_...",
+      "status": "failed",
+      "error": "Model returned an error: context window exceeded"
+    }
+} }
+```
+
+If an `Error` item was created during the turn, it appears in the `items` array and is also emitted via `item/started` / `item/completed` before the `turn/failed` notification.
+
+---
+
+## 9. Backpressure
+
+### 9.1 Server-Side Queuing
+
+The server uses bounded internal queues between transport ingress, request processing, and outbound writes. When the inbound queue is saturated:
+
+- New requests are rejected with error code `-32001` and message `"Server overloaded; retry later."`.
+- Clients should treat this as retryable and use **exponential backoff with jitter**.
+
+### 9.2 Client-Side Considerations
+
+- Clients should not send a `turn/start` while a turn is already in progress on the same thread. The server rejects this with error code `-32012`.
+- Clients should consume notifications promptly. If a client falls behind on reading stdout (stdio transport) or WebSocket frames, the server may buffer up to a limit and then drop the connection.
+
+---
+
+## 10. Notification Opt-Out
+
+Clients can suppress specific notification methods per connection by listing exact method names in `initialize.params.capabilities.optOutNotificationMethods`.
+
+- Matching is **exact** — no wildcards or prefix matching.
+- Unknown method names are accepted and silently ignored.
+- Applies only to server-to-client notifications, not to requests or responses.
+- Opt-out is negotiated once at initialization time and cannot be changed for the connection's lifetime.
+
+**Common opt-out targets**:
+
+| Method | When to opt out |
+|--------|-----------------|
+| `item/agentMessage/delta` | Client does not support streaming; will wait for `item/completed`. |
+| `item/reasoning/delta` | Client does not display reasoning content. |
+| `thread/started` | Client does not need thread lifecycle events. |
+| `thread/statusChanged` | Client manages thread status locally. |
+
+**Example**:
+
+```json
+{
+  "clientInfo": { "name": "batch-runner", "version": "1.0.0" },
+  "capabilities": {
+    "streamingSupport": false,
+    "optOutNotificationMethods": [
+      "item/agentMessage/delta",
+      "item/reasoning/delta"
+    ]
+  }
+}
+```
+
+---
+
+## 11. Extension Methods
+
+The core wire protocol (Sections 3–10) covers the `ISessionService` surface. Channels or integrations that need additional capabilities can expose **extension methods** under a channel-specific namespace.
+
+### 11.1 Design Rules
+
+- Extension methods must use a namespace prefix that does not collide with core methods: `ext/<namespace>/...` (e.g., `ext/acp/fs/readFile`, `ext/acp/terminal/create`).
+- Extension methods are not part of the core protocol and not covered by the versioning guarantee in Section 12.
+- In v1, the `initialize` response may advertise available extensions only as a flat namespace array in `serverInfo.extensions`.
+- A richer structured extension registry is deferred from v1; clients must not require per-extension schema metadata to use the core Session protocol.
+
+### 11.2 ACP Tool Proxy (Reference Extension)
+
+ACP currently exposes bidirectional tool proxy methods (`FsReadTextFile`, `TerminalCreate`, etc.) that allow the agent's tools to access the client's filesystem and terminals. Under the wire protocol, these become extension methods:
+
+| ACP Method | Wire Extension Method |
+|------------|----------------------|
+| `FsReadTextFile` | `ext/acp/fs/readTextFile` |
+| `FsWriteTextFile` | `ext/acp/fs/writeTextFile` |
+| `TerminalCreate` | `ext/acp/terminal/create` |
+| `TerminalGetOutput` | `ext/acp/terminal/getOutput` |
+| `TerminalWaitForExit` | `ext/acp/terminal/waitForExit` |
+| `TerminalKill` | `ext/acp/terminal/kill` |
+| `TerminalRelease` | `ext/acp/terminal/release` |
+
+This extension is not normative — it documents the intended migration path for ACP's current capabilities.
+
+---
+
+## 12. Versioning and Compatibility
+
+### 12.1 Protocol Version
+
+The protocol version is a single integer string (`"1"`, `"2"`, etc.) returned in `initialize` as `serverInfo.protocolVersion`.
+
+### 12.2 Compatibility Rules
+
+- **Within a major version**: The server may add new optional fields to existing method params/results, add new notification methods, and add new error codes. Clients must ignore unknown fields and unknown notification methods.
+- **Breaking changes** (removing fields, changing semantics, removing methods) require incrementing the protocol version.
+- **Method additions**: New methods may be added within a major version. Clients that call an unknown method receive a `-32601` error and can fall back gracefully.
+
+### 12.3 Negotiation
+
+The client and server agree on the protocol version during `initialize`. If the server's `protocolVersion` is higher than what the client supports, the client should log a warning and proceed with best-effort compatibility (ignoring unknown fields and methods). If the server's version is lower, the client should restrict itself to the server's supported surface.
+
+---
+
+## 13. Full Turn Example
+
+This section shows the complete message sequence for a turn where the agent reads a file, runs a test (requiring approval), and responds.
+
+```
+Client                                          Server
+  |                                               |
+  | turn/start (request, id: 10)                  |
+  |  threadId, input: "Run tests and fix"         |
+  |---------------------------------------------->|
+  |                                               |
+  | (response, id: 10)                            |
+  |  turn: { id: "turn_001", status: "running" }  |
+  |<----------------------------------------------|
+  |                                               |
+  | turn/started (notification)                   |
+  |  turn: { id: "turn_001", ... }                |
+  |<----------------------------------------------|
+  |                                               |
+  | item/started (notification)                   |
+  |  item: { type: "userMessage", text: "..." }   |
+  |<----------------------------------------------|
+  |                                               |
+  | item/completed (notification)                 |
+  |  item: { type: "userMessage", ... }           |
+  |<----------------------------------------------|
+  |                                               |
+  | item/started (notification)                   |
+  |  item: { type: "toolCall",                    |
+  |    toolName: "ReadFile", callId: "c1" }       |
+  |<----------------------------------------------|
+  |                                               |
+  | item/completed (notification)                 |
+  |  item: { type: "toolResult",                  |
+  |    callId: "c1", success: true }              |
+  |<----------------------------------------------|
+  |                                               |
+  | item/started (notification)                   |
+  |  item: { type: "approvalRequest",             |
+  |    approvalType: "shell",                     |
+  |    operation: "npm test" }                    |
+  |<----------------------------------------------|
+  |                                               |
+  | item/approval/request (request, id: 100)      |
+  |  requestId: "approval_001",                   |
+  |  approvalType: "shell",                       |
+  |  operation: "npm test"                        |
+  |<----------------------------------------------|
+  |                                               |
+  | (response, id: 100)                           |
+  |  decision: "accept"                           |
+  |---------------------------------------------->|
+  |                                               |
+  | item/approval/resolved (notification)         |
+  |  requestId: "approval_001", approved: true    |
+  |<----------------------------------------------|
+  |                                               |
+  | item/started (notification)                   |
+  |  item: { type: "toolCall",                    |
+  |    toolName: "Exec", callId: "c2" }           |
+  |<----------------------------------------------|
+  |                                               |
+  | item/completed (notification)                 |
+  |  item: { type: "toolResult",                  |
+  |    callId: "c2", success: true }              |
+  |<----------------------------------------------|
+  |                                               |
+  | item/started (notification)                   |
+  |  item: { type: "agentMessage" }               |
+  |<----------------------------------------------|
+  |                                               |
+  | item/agentMessage/delta (notification) x N    |
+  |  delta: "I found 2 failing tests..."          |
+  |<----------------------------------------------|
+  |                                               |
+  | item/completed (notification)                 |
+  |  item: { type: "agentMessage",                |
+  |    text: "I found 2 failing tests..." }       |
+  |<----------------------------------------------|
+  |                                               |
+  | turn/completed (notification)                 |
+  |  turn: { status: "completed",                 |
+  |    tokenUsage: { ... }, items: [...] }        |
+  |<----------------------------------------------|
+```
+
+---
+
+## 14. Relationship to Codex App Server
+
+This protocol is modeled after Codex App Server. The following table summarizes key differences:
+
+| Aspect | Codex App Server | DotCraft Wire Protocol |
+|--------|------------------|------------------------|
+| JSON-RPC header | Omitted (`"jsonrpc":"2.0"` not sent) | Included (standard JSON-RPC 2.0 compliance) |
+| Primary transport | stdio JSONL | stdio JSONL |
+| Optional transport | WebSocket (experimental) | WebSocket (experimental) |
+| Thread primitives | `thread/start`, `resume`, `fork`, `list`, `read`, `archive`, `unarchive` | `thread/start`, `resume`, `list`, `read`, `pause`, `archive`, `delete` |
+| Turn primitives | `turn/start`, `turn/steer`, `turn/interrupt` | `turn/start`, `turn/interrupt` |
+| Item types | `userMessage`, `agentMessage`, `reasoning`, `commandExecution`, `fileChange`, `mcpToolCall`, etc. | `userMessage`, `agentMessage`, `reasoningContent`, `toolCall`, `toolResult`, `approvalRequest`, `approvalResponse`, `error` |
+| Approval model | Per-item-type requests (`commandExecution/requestApproval`, `fileChange/requestApproval`) | Unified `item/approval/request` with `approvalType` discriminator |
+| Turn failure | Encoded in `turn/completed` with `status: "failed"` | Separate `turn/failed` notification |
+| Turn cancel | Encoded in `turn/completed` with `status: "interrupted"` | Separate `turn/cancelled` notification |
+| Auth | Built-in (`account/login`, ChatGPT OAuth) | Outside wire protocol scope; handled by bearer token or channel auth |
+| Config | `config/read`, `config/value/write` | `thread/config/update`, `thread/mode/set` |
+| Review | `review/start`, `enteredReviewMode`, `exitedReviewMode` | Not in v1 (future extension) |
+| Skills/Apps | `skills/list`, `app/list`, `plugin/list` | Not in v1 core; extension surface |
+| Command exec | `command/exec` (standalone sandbox execution) | Not in v1 core; ACP extension surface |
+| Filesystem | `fs/readFile`, `fs/writeFile`, etc. | Not in v1 core; ACP extension surface |
+| Extension model | Experimental API opt-in via `capabilities.experimentalApi` | `ext/<namespace>/...` method namespace |
+
+### 14.1 Design Rationale for Key Differences
+
+**Unified approval request**: Codex uses separate request methods per item type (`commandExecution/requestApproval`, `fileChange/requestApproval`). DotCraft uses a single `item/approval/request` with an `approvalType` discriminator. This matches the Session Protocol's unified `ApprovalRequest` Item type and reduces the number of methods clients need to implement.
+
+**Separate failure/cancel notifications**: Codex encodes turn failure and interruption as `turn/completed` with different status values. DotCraft uses distinct `turn/failed` and `turn/cancelled` notifications. This matches the Session Protocol's `SessionEventType` enum, which has separate `TurnFailed` and `TurnCancelled` event types, making it easier for clients to switch on the notification method without inspecting the payload.
+
+**No `turn/steer`**: Codex supports `turn/steer` to inject additional user input into a running turn. DotCraft's Session Protocol does not currently model mid-turn user input injection. This may be added as a future extension.
+
+**No `thread/fork`**: Codex supports forking a thread into a new branch. DotCraft's Session Protocol does not currently model thread forking. This may be added as a future extension.
