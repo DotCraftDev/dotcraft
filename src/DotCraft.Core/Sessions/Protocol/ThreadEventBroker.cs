@@ -65,20 +65,20 @@ internal sealed class ThreadEventBroker(string threadId)
             SingleWriter = false
         });
 
-        _subscribers[subscriberId] = channel;
-
         if (replayRecent)
         {
-            SessionEvent[] replay;
             lock (_recentEventsLock)
             {
-                replay = [.. _recentEvents];
+                _subscribers[subscriberId] = channel;
+                foreach (var evt in _recentEvents)
+                {
+                    channel.Writer.TryWrite(evt);
+                }
             }
-
-            foreach (var evt in replay)
-            {
-                channel.Writer.TryWrite(evt);
-            }
+        }
+        else
+        {
+            _subscribers[subscriberId] = channel;
         }
 
         return ReadAllAsync(subscriberId, channel, ct);
@@ -96,11 +96,11 @@ internal sealed class ThreadEventBroker(string threadId)
             {
                 _recentEvents.Dequeue();
             }
-        }
 
-        foreach (var subscriber in _subscribers.Values)
-        {
-            subscriber.Writer.TryWrite(evt);
+            foreach (var subscriber in _subscribers.Values)
+            {
+                subscriber.Writer.TryWrite(evt);
+            }
         }
     }
 
