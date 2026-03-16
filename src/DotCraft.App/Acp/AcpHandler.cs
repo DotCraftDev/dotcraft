@@ -348,7 +348,7 @@ public sealed class AcpHandler(
     {
         if (!EnsureInitialized(request)) return;
 
-        var threads = await sessionService.FindThreadsAsync(_acpIdentity, ct);
+        var threads = await sessionService.FindThreadsAsync(_acpIdentity, ct: ct);
         var sessions = threads
             .Select(t => new SessionListEntry
             {
@@ -522,11 +522,17 @@ public sealed class AcpHandler(
                                 AcpMethods.RequestPermission, permParams,
                                 timeout: TimeSpan.FromSeconds(120));
                             var result = resultElement.Deserialize<RequestPermissionResult>();
-                            return result?.Outcome?.OptionId is "allow-once" or "allow-always";
+                            return result?.Outcome?.OptionId switch
+                            {
+                                "allow-always" => SessionApprovalDecision.AcceptForSession,
+                                "allow-once" => SessionApprovalDecision.AcceptOnce,
+                                _ when result?.Outcome?.Outcome == "cancelled" => SessionApprovalDecision.CancelTurn,
+                                _ => SessionApprovalDecision.Reject
+                            };
                         }
                         catch
                         {
-                            return false;
+                            return SessionApprovalDecision.Reject;
                         }
                     },
                     OnTurnCompleted = usage =>

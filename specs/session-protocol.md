@@ -1217,37 +1217,47 @@ The design rule is simple:
 
 ---
 
-## 19. Wire Protocol (Future: Cross-Language SDK Support)
+## 19. Wire Protocol (Cross-Language SDK Support)
 
-> **Status**: Design only.
+> **Status**: Specified. See [Session Wire Protocol Specification](session-wire-protocol.md) for the full definition.
 
 ### 19.1 Goal
 
-The long-term goal is to expose Session Core over a language-neutral protocol so that future non-C# adapters can participate in the same server-managed thread model.
+Expose Session Core over a language-neutral protocol so that non-C# adapters (IDE extensions, web frontends, third-party integrations) can participate in the same server-managed thread model without linking DotCraft.Core directly.
 
 ### 19.2 Design Direction
 
-The preferred direction is:
+The wire protocol uses **bidirectional JSON-RPC 2.0** over stdio (JSONL) or WebSocket, modeled after the [Codex App Server](https://github.com/openai/codex/tree/main/codex-rs/app-server) protocol:
 
-- HTTP for request/response operations
-- SSE for turn event streaming
-- bearer-token authentication
-- JSON-serialized `SessionEvent` payloads
+- JSON-RPC 2.0 with `"jsonrpc":"2.0"` header on the wire
+- stdio (JSONL) as the primary transport; WebSocket as experimental alternative
+- `initialize` / `initialized` handshake before any other method
+- Thread, Turn, and Item lifecycle methods that map 1:1 to `ISessionService`
+- Server-to-client event notifications for the `SessionEvent` stream
+- Server-initiated requests for bidirectional approval flows
+- Extension namespace (`ext/<ns>/...`) for channel-specific capabilities
 
 ### 19.3 Required Capabilities
 
-Any future wire protocol must support:
+The wire protocol supports:
 
-- thread creation, listing, resume, and archive
-- turn submission against an existing thread
-- streaming of typed session events
-- out-of-band approval resolution
-- identity-based thread discovery consistent with Section 9
+- Thread creation, listing, reading, resume, pause, archive, and delete
+- Turn submission against an existing thread with multimodal input
+- Streaming of typed session events (`item/started`, `item/*/delta`, `item/completed`)
+- Bidirectional approval resolution via server-initiated `item/approval/request`
+- Identity-based thread discovery consistent with Section 9
+- Per-thread mode switching and configuration updates
+- Notification opt-out for clients that do not need streaming or specific event types
 
 ### 19.4 Relationship to Existing API
 
-This future wire protocol would complement, not replace, `/v1/chat/completions`.
+The wire protocol complements, not replaces, `/v1/chat/completions`.
 
-- `/v1/chat/completions` remains the simple client-managed entry point.
-- The future session wire protocol would be the server-managed entry point for persistent threads and structured events.
+- `/v1/chat/completions` remains the simple client-managed entry point (API channel).
+- The wire protocol is the server-managed entry point for persistent threads and structured events.
+- AG-UI retains its own client-managed transport.
+
+### 19.5 Relationship to ACP
+
+ACP currently uses a DotCraft-specific JSON-RPC vocabulary (`session/new`, `session/prompt`, `session/update`). The wire protocol generalizes and formalizes this into a stable contract. ACP is expected to migrate its core session methods to the wire protocol, retaining its tool-proxy capabilities (filesystem access, terminal control) as extension methods under the `ext/acp/` namespace.
 

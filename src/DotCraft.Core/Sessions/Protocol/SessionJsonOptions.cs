@@ -122,13 +122,18 @@ internal sealed class SessionEventConverter : JsonConverter<SessionEvent>
     private static object? DeserializeEventPayload(SessionEventType eventType, JsonElement payload, JsonSerializerOptions options) =>
         eventType switch
         {
-            SessionEventType.ThreadCreated or SessionEventType.ThreadResumed =>
+            SessionEventType.ThreadCreated =>
                 payload.Deserialize<SessionThread>(options),
+            SessionEventType.ThreadResumed =>
+                payload.Deserialize<ThreadResumedPayload>(options),
             SessionEventType.ThreadStatusChanged =>
                 payload.Deserialize<ThreadStatusChangedPayload>(options),
-            SessionEventType.TurnStarted or SessionEventType.TurnCompleted
-                or SessionEventType.TurnFailed or SessionEventType.TurnCancelled =>
+            SessionEventType.TurnStarted or SessionEventType.TurnCompleted =>
                 payload.Deserialize<SessionTurn>(options),
+            SessionEventType.TurnFailed =>
+                payload.Deserialize<TurnFailedPayload>(options),
+            SessionEventType.TurnCancelled =>
+                payload.Deserialize<TurnCancelledPayload>(options),
             SessionEventType.ItemStarted or SessionEventType.ItemCompleted
                 or SessionEventType.ApprovalRequested or SessionEventType.ApprovalResolved =>
                 payload.Deserialize<SessionItem>(options),
@@ -138,9 +143,19 @@ internal sealed class SessionEventConverter : JsonConverter<SessionEvent>
 
     private static object? DeserializeDeltaPayload(JsonElement payload, JsonSerializerOptions options)
     {
+        if (payload.TryGetProperty("deltaKind", out var deltaKind))
+        {
+            return (deltaKind.GetString() ?? string.Empty) switch
+            {
+                "reasoningContent" => payload.Deserialize<ReasoningContentDelta>(options),
+                "agentMessage" => payload.Deserialize<AgentMessageDelta>(options),
+                _ => payload.Deserialize<AgentMessageDelta>(options)
+            };
+        }
+
         if (payload.TryGetProperty("textDelta", out _))
         {
-            // Could be AgentMessageDelta or ReasoningContentDelta — both have identical shape
+            // Backward compatibility for payloads persisted before deltaKind existed.
             return payload.Deserialize<AgentMessageDelta>(options);
         }
         return null;

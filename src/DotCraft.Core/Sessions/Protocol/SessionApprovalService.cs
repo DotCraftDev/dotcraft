@@ -14,19 +14,30 @@ internal sealed class SessionApprovalService : IApprovalService
     private readonly SessionTurn _turn;
     private readonly Func<int> _nextItemSeq;
     private readonly TimeSpan _timeout;
+    private readonly Action _cancelTurn;
 
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _pending = new();
+    private readonly ConcurrentDictionary<string, PendingApproval> _pending = new();
+    private readonly ConcurrentDictionary<string, byte> _sessionApprovedScopes = new();
+
+    private sealed class PendingApproval(string scopeKey, TaskCompletionSource<SessionApprovalDecision> completion)
+    {
+        public string ScopeKey { get; } = scopeKey;
+
+        public TaskCompletionSource<SessionApprovalDecision> Completion { get; } = completion;
+    }
 
     public SessionApprovalService(
         SessionEventChannel channel,
         SessionTurn turn,
         Func<int> nextItemSeq,
-        TimeSpan timeout)
+        TimeSpan timeout,
+        Action cancelTurn)
     {
         _channel = channel;
         _turn = turn;
         _nextItemSeq = nextItemSeq;
         _timeout = timeout;
+        _cancelTurn = cancelTurn;
     }
 
     /// <summary>
@@ -44,14 +55,17 @@ internal sealed class SessionApprovalService : IApprovalService
         ApprovalContext? context = null)
     {
         var requestId = Guid.NewGuid().ToString("N")[..12];
+        var scopeKey = BuildScopeKey("file", operation, path);
         var payload = new ApprovalRequestPayload
         {
             ApprovalType = "file",
             Operation = operation,
             Target = path,
-            RequestId = requestId
+            RequestId = requestId,
+            ScopeKey = scopeKey,
+            Reason = $"Agent wants to perform a '{operation}' file operation on: {path}"
         };
-        return RequestApprovalAsync(requestId, payload);
+        return RequestApprovalAsync(requestId, scopeKey, payload);
     }
 
     public Task<bool> RequestShellApprovalAsync(
@@ -60,14 +74,17 @@ internal sealed class SessionApprovalService : IApprovalService
         ApprovalContext? context = null)
     {
         var requestId = Guid.NewGuid().ToString("N")[..12];
+        var scopeKey = BuildScopeKey("shell", command, workingDir);
         var payload = new ApprovalRequestPayload
         {
             ApprovalType = "shell",
             Operation = command,
             Target = workingDir ?? string.Empty,
-            RequestId = requestId
+            RequestId = requestId,
+            ScopeKey = scopeKey,
+            Reason = $"Agent wants to execute a shell command: {command}"
         };
-        return RequestApprovalAsync(requestId, payload);
+        return RequestApprovalAsync(requestId, scopeKey, payload);
     }
 
     // -------------------------------------------------------------------------
@@ -78,16 +95,20 @@ internal sealed class SessionApprovalService : IApprovalService
     /// Resolves a pending approval request with the user's decision.
     /// Returns false if no matching pending request exists.
     /// </summary>
-    public bool TryResolve(string requestId, bool approved)
+    public bool TryResolve(string requestId, SessionApprovalDecision decision)
     {
-        if (!_pending.TryRemove(requestId, out var tcs))
+        if (!_pending.TryRemove(requestId, out var pending))
             return false;
+
+        if (decision.AppliesToSession())
+            _sessionApprovedScopes.TryAdd(pending.ScopeKey, 0);
 
         // Create and emit ApprovalResponse Item
         var responseItem = CreateItem(ItemType.ApprovalResponse, new ApprovalResponsePayload
         {
             RequestId = requestId,
-            Approved = approved
+            Approved = decision.IsApproved(),
+            Decision = decision
         });
         _turn.Items.Add(responseItem);
 
@@ -96,10 +117,13 @@ internal sealed class SessionApprovalService : IApprovalService
         _turn.Status = TurnStatus.Running;
 
         _channel.EmitItemStarted(responseItem);
-        _channel.EmitItemCompleted(responseItem);
         _channel.EmitApprovalResolved(responseItem);
+        _channel.EmitItemCompleted(responseItem);
 
-        tcs.TrySetResult(approved);
+        if (decision == SessionApprovalDecision.CancelTurn)
+            _cancelTurn();
+
+        pending.Completion.TrySetResult(decision);
         return true;
     }
 
@@ -107,16 +131,22 @@ internal sealed class SessionApprovalService : IApprovalService
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private async Task<bool> RequestApprovalAsync(string requestId, ApprovalRequestPayload payload)
+    private async Task<bool> RequestApprovalAsync(
+        string requestId,
+        string scopeKey,
+        ApprovalRequestPayload payload)
     {
+        if (_sessionApprovedScopes.ContainsKey(scopeKey))
+            return true;
+
         // Create ApprovalRequest Item
         var requestItem = CreateItem(ItemType.ApprovalRequest, payload);
         _turn.Items.Add(requestItem);
         _turn.Status = TurnStatus.WaitingApproval;
 
         // Register TCS before emitting the event so there's no race
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pending[requestId] = tcs;
+        var tcs = new TaskCompletionSource<SessionApprovalDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[requestId] = new PendingApproval(scopeKey, tcs);
 
         _channel.EmitItemStarted(requestItem);
         _channel.EmitItemCompleted(requestItem);
@@ -126,7 +156,7 @@ internal sealed class SessionApprovalService : IApprovalService
         using var cts = new CancellationTokenSource(_timeout);
         await using var reg = cts.Token.Register(() =>
         {
-            if (_pending.TryRemove(requestId, out var pendingTcs))
+            if (_pending.TryRemove(requestId, out var pending))
             {
                 // Timeout: emit an Error Item and auto-reject
                 var errorItem = CreateItem(ItemType.Error, new ErrorPayload
@@ -140,11 +170,24 @@ internal sealed class SessionApprovalService : IApprovalService
                 _channel.EmitItemStarted(errorItem);
                 _channel.EmitItemCompleted(errorItem);
 
-                pendingTcs.TrySetResult(false);
+                pending.Completion.TrySetResult(SessionApprovalDecision.Reject);
             }
         });
 
-        return await tcs.Task;
+        var decision = await tcs.Task;
+        return decision.IsApproved();
+    }
+
+    private static string BuildScopeKey(string approvalType, string operation, string? target)
+    {
+        var normalizedType = approvalType.ToLowerInvariant();
+        var normalizedOperation = operation.ToLowerInvariant();
+        return normalizedType switch
+        {
+            "shell" => "shell:*",
+            "file" => $"file:{normalizedOperation}",
+            _ => $"{normalizedType}:{normalizedOperation}:{target ?? string.Empty}"
+        };
     }
 
     private SessionItem CreateItem(ItemType type, object payload)

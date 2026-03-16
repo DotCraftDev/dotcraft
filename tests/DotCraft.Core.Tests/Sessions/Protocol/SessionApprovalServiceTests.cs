@@ -27,7 +27,12 @@ public sealed class SessionApprovalServiceTests
             StartedAt = DateTimeOffset.UtcNow
         };
         var seq = 1;
-        var svc = new SessionApprovalService(channel, turn, () => seq++, timeout ?? TimeSpan.FromMinutes(1));
+        var svc = new SessionApprovalService(
+            channel,
+            turn,
+            () => seq++,
+            timeout ?? TimeSpan.FromMinutes(1),
+            () => { });
         return (svc, channel, turn);
     }
 
@@ -58,7 +63,7 @@ public sealed class SessionApprovalServiceTests
         }
 
         Assert.NotNull(requestId);
-        svc.TryResolve(requestId!, approved: true);
+        svc.TryResolve(requestId!, SessionApprovalDecision.AcceptOnce);
 
         var result = await requestTask;
         Assert.True(result);
@@ -83,7 +88,7 @@ public sealed class SessionApprovalServiceTests
         }
 
         Assert.NotNull(requestId);
-        svc.TryResolve(requestId!, approved: false);
+        svc.TryResolve(requestId!, SessionApprovalDecision.Reject);
 
         var result = await requestTask;
         Assert.False(result);
@@ -112,7 +117,7 @@ public sealed class SessionApprovalServiceTests
         }
 
         Assert.NotNull(requestId);
-        svc.TryResolve(requestId!, approved: true);
+        svc.TryResolve(requestId!, SessionApprovalDecision.AcceptOnce);
 
         var result = await requestTask;
         Assert.True(result);
@@ -143,7 +148,7 @@ public sealed class SessionApprovalServiceTests
                 break;
             }
         }
-        svc.TryResolve(requestId!, approved: true);
+        svc.TryResolve(requestId!, SessionApprovalDecision.AcceptOnce);
         await requestTask;
     }
 
@@ -165,7 +170,7 @@ public sealed class SessionApprovalServiceTests
             }
         }
 
-        svc.TryResolve(requestId!, approved: true);
+        svc.TryResolve(requestId!, SessionApprovalDecision.AcceptOnce);
         await requestTask;
 
         Assert.Equal(TurnStatus.Running, turn.Status);
@@ -191,7 +196,7 @@ public sealed class SessionApprovalServiceTests
     public void TryResolve_UnknownRequestId_ReturnsFalse()
     {
         var (svc, _, _) = MakeApprovalService();
-        var result = svc.TryResolve("nonexistent_req", approved: true);
+        var result = svc.TryResolve("nonexistent_req", SessionApprovalDecision.AcceptOnce);
         Assert.False(result);
     }
 
@@ -205,7 +210,7 @@ public sealed class SessionApprovalServiceTests
 
         // We need to find the requestId; since we can't await the drain easily,
         // just verify that resolving a made-up ID returns false
-        var result = svc.TryResolve("made_up_id", approved: true);
+        var result = svc.TryResolve("made_up_id", SessionApprovalDecision.AcceptOnce);
         Assert.False(result);
     }
 
@@ -260,7 +265,7 @@ public sealed class SessionApprovalServiceTests
         Assert.Equal("write", payload.Operation);
 
         // Resolve to clean up
-        svc.TryResolve(payload.RequestId, approved: true);
+        svc.TryResolve(payload.RequestId, SessionApprovalDecision.AcceptOnce);
         await requestTask;
     }
 
@@ -274,7 +279,7 @@ public sealed class SessionApprovalServiceTests
         var requestItem = turn.Items.First(i => i.Type == ItemType.ApprovalRequest);
         var requestId = requestItem.AsApprovalRequest!.RequestId;
 
-        svc.TryResolve(requestId, approved: true);
+        svc.TryResolve(requestId, SessionApprovalDecision.AcceptOnce);
         await requestTask;
 
         var responseItem = turn.Items.FirstOrDefault(i => i.Type == ItemType.ApprovalResponse);
@@ -283,6 +288,55 @@ public sealed class SessionApprovalServiceTests
         Assert.NotNull(payload);
         Assert.True(payload!.Approved);
         Assert.Equal(requestId, payload.RequestId);
+        Assert.Equal(SessionApprovalDecision.AcceptOnce, payload.Decision);
+    }
+
+    [Fact]
+    public async Task AcceptForSession_CachesMatchingApprovalScope()
+    {
+        var (svc, channel, _) = MakeApprovalService();
+        var firstRequest = svc.RequestFileApprovalAsync("write", "/path/a.txt");
+        await Task.Delay(10);
+
+        var firstRequestId = await GetApprovalRequestIdAsync(channel);
+        Assert.NotNull(firstRequestId);
+
+        svc.TryResolve(firstRequestId!, SessionApprovalDecision.AcceptForSession);
+        Assert.True(await firstRequest);
+
+        var secondRequest = await svc.RequestFileApprovalAsync("write", "/path/b.txt");
+        Assert.True(secondRequest);
+    }
+
+    [Fact]
+    public async Task CancelTurn_Decision_InvokesCancellationCallback()
+    {
+        var threadId = "thread_aprv_001";
+        var channel = new SessionEventChannel(threadId, TurnId);
+        var turn = new SessionTurn
+        {
+            Id = TurnId,
+            ThreadId = threadId,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        var seq = 1;
+        var cancelled = false;
+        var svc = new SessionApprovalService(
+            channel,
+            turn,
+            () => seq++,
+            TimeSpan.FromMinutes(1),
+            () => cancelled = true);
+
+        var requestTask = svc.RequestShellApprovalAsync("rm -rf /tmp/data", "/tmp");
+        await Task.Delay(10);
+        var requestId = await GetApprovalRequestIdAsync(channel);
+
+        svc.TryResolve(requestId!, SessionApprovalDecision.CancelTurn);
+
+        Assert.False(await requestTask);
+        Assert.True(cancelled);
     }
 
     // -------------------------------------------------------------------------
@@ -357,6 +411,17 @@ public sealed class SessionApprovalServiceTests
         {
             yield return evt;
         }
+    }
+
+    private static async Task<string?> GetApprovalRequestIdAsync(SessionEventChannel channel)
+    {
+        await foreach (var evt in DrainWithTimeout(channel))
+        {
+            if (evt.EventType == SessionEventType.ApprovalRequested)
+                return (evt.ItemPayload?.Payload as ApprovalRequestPayload)?.RequestId;
+        }
+
+        return null;
     }
 }
 

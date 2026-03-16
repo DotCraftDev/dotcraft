@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
+using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Context;
 using DotCraft.Hooks;
@@ -42,6 +43,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<TurnKey, SessionApprovalService> _pendingApprovals = new();
     private readonly ConcurrentDictionary<TurnKey, CancellationTokenSource> _runningTurns = new();
     private readonly ConcurrentDictionary<string, McpClientManager> _threadMcpManagers = new();
+    private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
 
     // =========================================================================
     // Thread lifecycle
@@ -53,6 +55,7 @@ public sealed class SessionService(
         ThreadConfiguration? config = null,
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
+        string? displayName = null,
         CancellationToken ct = default)
     {
         var thread = new SessionThread
@@ -65,7 +68,8 @@ public sealed class SessionService(
             CreatedAt = DateTimeOffset.UtcNow,
             LastActiveAt = DateTimeOffset.UtcNow,
             HistoryMode = historyMode,
-            Configuration = config
+            Configuration = config,
+            DisplayName = displayName
         };
 
         if (identity.ChannelContext != null)
@@ -75,12 +79,14 @@ public sealed class SessionService(
         }
 
         _threads[thread.Id] = thread;
+        var broker = GetOrCreateBroker(thread.Id);
 
         // Create per-thread agent if custom configuration provided
         if (config != null)
             _threadAgents[thread.Id] = await BuildAgentForConfigAsync(thread.Id, config, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
+        broker.PublishThreadEvent(SessionEventType.ThreadCreated, thread);
 
         return thread;
     }
@@ -95,10 +101,16 @@ public sealed class SessionService(
 
             if (cached.Status != ThreadStatus.Active)
             {
+                var previousStatus = cached.Status;
                 cached.Status = ThreadStatus.Active;
                 cached.LastActiveAt = DateTimeOffset.UtcNow;
                 await threadStore.SaveThreadAsync(cached, ct);
+                GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, cached.Status);
             }
+
+            var resumedByChannel = ChannelSessionScope.Current?.Channel ?? cached.OriginChannel;
+            GetOrCreateBroker(threadId).PublishThreadEvent(SessionEventType.ThreadResumed,
+                new ThreadResumedPayload { Thread = cached, ResumedBy = resumedByChannel });
             return cached;
         }
 
@@ -112,11 +124,15 @@ public sealed class SessionService(
         thread.LastActiveAt = DateTimeOffset.UtcNow;
 
         _threads[thread.Id] = thread;
+        var broker = GetOrCreateBroker(thread.Id);
 
         if (thread.Configuration != null)
             _threadAgents[thread.Id] = await BuildAgentForConfigAsync(thread.Id, thread.Configuration, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
+        var resumedBy = ChannelSessionScope.Current?.Channel ?? thread.OriginChannel;
+        broker.PublishThreadEvent(SessionEventType.ThreadResumed,
+            new ThreadResumedPayload { Thread = thread, ResumedBy = resumedBy });
 
         return thread;
     }
@@ -126,8 +142,10 @@ public sealed class SessionService(
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         if (thread.Status == ThreadStatus.Paused) return;
+        var previousStatus = thread.Status;
         thread.Status = ThreadStatus.Paused;
         await PersistThreadStatusAsync(thread, ct);
+        GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
     }
 
     /// <inheritdoc/>
@@ -135,10 +153,12 @@ public sealed class SessionService(
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         if (thread.Status == ThreadStatus.Archived) return;
+        var previousStatus = thread.Status;
         thread.Status = ThreadStatus.Archived;
         // Release per-thread agent if any
         _threadAgents.TryRemove(threadId, out _);
         await PersistThreadStatusAsync(thread, ct);
+        GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
     }
 
     /// <inheritdoc/>
@@ -159,6 +179,7 @@ public sealed class SessionService(
         // Remove all in-memory state
         _threads.TryRemove(threadId, out _);
         _threadAgents.TryRemove(threadId, out _);
+        _threadEventBrokers.TryRemove(threadId, out _);
         if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
             await mcpManager.DisposeAsync();
 
@@ -170,12 +191,13 @@ public sealed class SessionService(
     /// <inheritdoc/>
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
+        bool includeArchived = false,
         CancellationToken ct = default)
     {
         var all = await threadStore.LoadIndexAsync(ct);
         return all
             .Where(s =>
-                s.Status != ThreadStatus.Archived
+                (includeArchived || s.Status != ThreadStatus.Archived)
                 && string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
                 && (identity.UserId == null || s.UserId == identity.UserId)
                 && (identity.ChannelContext == null
@@ -183,6 +205,16 @@ public sealed class SessionService(
                     : s.ChannelContext == identity.ChannelContext))
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
+    }
+
+    /// <inheritdoc/>
+    public IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(
+        string threadId,
+        bool replayRecent = false,
+        CancellationToken ct = default)
+    {
+        var broker = GetOrCreateBroker(threadId);
+        return broker.SubscribeAsync(replayRecent, ct);
     }
 
     /// <inheritdoc/>
@@ -224,6 +256,16 @@ public sealed class SessionService(
         if (thread.Turns.Any(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
             throw new InvalidOperationException($"Thread '{threadId}' already has a running Turn. Wait for it to complete or cancel it first.");
 
+        if (thread.HistoryMode == HistoryMode.Client && messages is not { Length: > 0 })
+            throw new InvalidOperationException($"Thread '{threadId}' requires client-managed history, but no messages were provided.");
+
+        if (thread.HistoryMode == HistoryMode.Server && messages is { Length: > 0 })
+            throw new InvalidOperationException($"Thread '{threadId}' uses server-managed history and does not accept client-supplied messages.");
+
+        var channelInfo = ChannelSessionScope.Current;
+        var turnOriginChannel = channelInfo?.Channel ?? thread.OriginChannel;
+        var turnChannelContext = channelInfo?.DefaultDeliveryTarget ?? thread.ChannelContext;
+
         // Step 2: Create Turn and UserMessage Item
         var turnSeq = thread.Turns.Count + 1;
         var turn = new SessionTurn
@@ -232,7 +274,16 @@ public sealed class SessionService(
             ThreadId = threadId,
             Status = TurnStatus.Running,
             StartedAt = DateTimeOffset.UtcNow,
-            OriginChannel = thread.OriginChannel
+            OriginChannel = turnOriginChannel,
+            Initiator = new TurnInitiatorContext
+            {
+                ChannelName = turnOriginChannel,
+                UserId = sender?.SenderId ?? channelInfo?.UserId ?? thread.UserId,
+                UserName = sender?.SenderName,
+                UserRole = sender?.SenderRole,
+                ChannelContext = turnChannelContext,
+                GroupId = sender?.GroupId ?? channelInfo?.GroupId
+            }
         };
 
         var itemSeq = 0;
@@ -252,7 +303,11 @@ public sealed class SessionService(
             {
                 Text = text,
                 SenderId = sender?.SenderId,
-                SenderName = sender?.SenderName
+                SenderName = sender?.SenderName,
+                SenderRole = sender?.SenderRole,
+                ChannelName = turnOriginChannel,
+                ChannelContext = turnChannelContext,
+                GroupId = sender?.GroupId ?? channelInfo?.GroupId
             }
         };
 
@@ -266,7 +321,8 @@ public sealed class SessionService(
             thread.DisplayName = text.Length > 50 ? text[..50] + "..." : text;
 
         // Step 3: Create event channel
-        var eventChannel = new SessionEventChannel(threadId, turn.Id);
+        var broker = GetOrCreateBroker(threadId);
+        var eventChannel = broker.CreateTurnChannel(turn.Id);
 
         // Step 4: Emit initial events synchronously so the caller sees them before awaiting
         eventChannel.EmitTurnStarted(turn);
@@ -348,7 +404,11 @@ public sealed class SessionService(
 
                 // Step 5f: Set up approval service override
                 var approvalService = new SessionApprovalService(
-                    eventChannel, turn, NextItemSeq, _approvalTimeout);
+                    eventChannel,
+                    turn,
+                    NextItemSeq,
+                    _approvalTimeout,
+                    cts.Cancel);
                 _pendingApprovals[turnKey] = approvalService;
                 approvalOverride = SessionScopedApprovalService.SetOverride(approvalService);
 
@@ -358,7 +418,8 @@ public sealed class SessionService(
                     {
                         UserId = sender.SenderId,
                         UserRole = sender.SenderRole,
-                        Source = ApprovalSource.Console // default; adapters can set this
+                        GroupId = long.TryParse(sender.GroupId ?? channelInfo?.GroupId, out var groupId) ? groupId : 0,
+                        Source = ResolveApprovalSource(channelInfo?.Channel)
                     })
                     : null;
 
@@ -633,12 +694,12 @@ public sealed class SessionService(
         string threadId,
         string turnId,
         string requestId,
-        bool approved,
+        SessionApprovalDecision decision,
         CancellationToken ct = default)
     {
         if (_pendingApprovals.TryGetValue(new TurnKey(threadId, turnId), out var svc))
         {
-            svc.TryResolve(requestId, approved);
+            svc.TryResolve(requestId, decision);
         }
         return Task.CompletedTask;
     }
@@ -695,6 +756,7 @@ public sealed class SessionService(
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
 
         _threads[thread.Id] = thread;
+        _ = GetOrCreateBroker(thread.Id);
         return thread;
     }
 
@@ -702,6 +764,18 @@ public sealed class SessionService(
     {
         await threadStore.SaveThreadAsync(thread, ct);
     }
+
+    private ThreadEventBroker GetOrCreateBroker(string threadId) =>
+        _threadEventBrokers.GetOrAdd(threadId, static id => new ThreadEventBroker(id));
+
+    private static ApprovalSource ResolveApprovalSource(string? channelName) =>
+        channelName?.ToLowerInvariant() switch
+        {
+            "qq" => ApprovalSource.QQ,
+            "wecom" => ApprovalSource.WeCom,
+            "api" => ApprovalSource.Api,
+            _ => ApprovalSource.Console
+        };
 
     private static void FailTurn(SessionTurn turn, SessionEventChannel channel, string errorMsg)
     {

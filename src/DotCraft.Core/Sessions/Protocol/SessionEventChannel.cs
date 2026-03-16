@@ -6,7 +6,11 @@ namespace DotCraft.Sessions.Protocol;
 /// Wraps a System.Threading.Channels channel to provide typed event emission
 /// during Turn execution. One instance is created per Turn.
 /// </summary>
-internal sealed class SessionEventChannel(string id, string turnId)
+internal sealed class SessionEventChannel(
+    string id,
+    string turnId,
+    Func<string>? nextEventId = null,
+    Action<SessionEvent>? publish = null)
 {
     private readonly Channel<SessionEvent> _channel = Channel.CreateUnbounded<SessionEvent>(new UnboundedChannelOptions
     {
@@ -21,7 +25,7 @@ internal sealed class SessionEventChannel(string id, string turnId)
     // -------------------------------------------------------------------------
 
     private string NextEventId() =>
-        $"evt_{Interlocked.Increment(ref _eventSequence):D4}";
+        nextEventId?.Invoke() ?? $"evt_{Interlocked.Increment(ref _eventSequence):D4}";
 
     private void Write(SessionEventType type, string? itemId, object? payload)
     {
@@ -36,6 +40,7 @@ internal sealed class SessionEventChannel(string id, string turnId)
             Payload = payload
         };
         _channel.Writer.TryWrite(evt);
+        publish?.Invoke(evt);
     }
 
     private void WriteThreadLevel(SessionEventType type, string? threadId, object? payload)
@@ -51,6 +56,7 @@ internal sealed class SessionEventChannel(string id, string turnId)
             Payload = payload
         };
         _channel.Writer.TryWrite(evt);
+        publish?.Invoke(evt);
     }
 
     // -------------------------------------------------------------------------
@@ -58,39 +64,82 @@ internal sealed class SessionEventChannel(string id, string turnId)
     // -------------------------------------------------------------------------
 
     public void EmitTurnStarted(SessionTurn turn) =>
-        Write(SessionEventType.TurnStarted, null, turn);
+        Write(SessionEventType.TurnStarted, null, SnapshotTurn(turn));
 
     public void EmitTurnCompleted(SessionTurn turn) =>
-        Write(SessionEventType.TurnCompleted, null, turn);
+        Write(SessionEventType.TurnCompleted, null, SnapshotTurn(turn));
 
     public void EmitTurnFailed(SessionTurn turn, string error) =>
-        Write(SessionEventType.TurnFailed, null, turn);
+        Write(SessionEventType.TurnFailed, null, new TurnFailedPayload { Turn = SnapshotTurn(turn), Error = error });
 
     public void EmitTurnCancelled(SessionTurn turn, string reason) =>
-        Write(SessionEventType.TurnCancelled, null, turn);
+        Write(SessionEventType.TurnCancelled, null, new TurnCancelledPayload { Turn = SnapshotTurn(turn), Reason = reason });
 
     // -------------------------------------------------------------------------
     // Item events
     // -------------------------------------------------------------------------
 
-    public void EmitItemStarted(SessionItem item) =>
-        Write(SessionEventType.ItemStarted, item.Id, item);
+    // Spec (session-wire-protocol.md §6.3): item/started must carry status="started" with no completedAt.
+    public void EmitItemStarted(SessionItem item)
+    {
+        var snapshot = SnapshotItem(item);
+        snapshot.Status = ItemStatus.Started;
+        snapshot.CompletedAt = null;
+        Write(SessionEventType.ItemStarted, item.Id, snapshot);
+    }
 
     public void EmitItemDelta(SessionItem item, object deltaPayload) =>
         Write(SessionEventType.ItemDelta, item.Id, deltaPayload);
 
-    public void EmitItemCompleted(SessionItem item) =>
-        Write(SessionEventType.ItemCompleted, item.Id, item);
+    // Spec (session-wire-protocol.md §6.3): item/completed must carry status="completed" with completedAt set.
+    public void EmitItemCompleted(SessionItem item)
+    {
+        var snapshot = SnapshotItem(item);
+        snapshot.Status = ItemStatus.Completed;
+        snapshot.CompletedAt ??= DateTimeOffset.UtcNow;
+        Write(SessionEventType.ItemCompleted, item.Id, snapshot);
+    }
 
     // -------------------------------------------------------------------------
     // Approval events
     // -------------------------------------------------------------------------
 
     public void EmitApprovalRequested(SessionItem item) =>
-        Write(SessionEventType.ApprovalRequested, item.Id, item);
+        Write(SessionEventType.ApprovalRequested, item.Id, SnapshotItem(item));
 
     public void EmitApprovalResolved(SessionItem item) =>
-        Write(SessionEventType.ApprovalResolved, item.Id, item);
+        Write(SessionEventType.ApprovalResolved, item.Id, SnapshotItem(item));
+
+    // -------------------------------------------------------------------------
+    // Snapshot helpers — produce immutable copies so async consumers see a
+    // consistent status regardless of when they dequeue the event.
+    // -------------------------------------------------------------------------
+
+    private static SessionItem SnapshotItem(SessionItem item) => new()
+    {
+        Id = item.Id,
+        TurnId = item.TurnId,
+        Type = item.Type,
+        Status = item.Status,
+        CreatedAt = item.CreatedAt,
+        CompletedAt = item.CompletedAt,
+        Payload = item.Payload
+    };
+
+    private static SessionTurn SnapshotTurn(SessionTurn turn) => new()
+    {
+        Id = turn.Id,
+        ThreadId = turn.ThreadId,
+        Status = turn.Status,
+        Input = turn.Input,
+        Items = [..turn.Items],
+        StartedAt = turn.StartedAt,
+        CompletedAt = turn.CompletedAt,
+        TokenUsage = turn.TokenUsage,
+        Error = turn.Error,
+        OriginChannel = turn.OriginChannel,
+        Initiator = turn.Initiator
+    };
 
     // -------------------------------------------------------------------------
     // Thread events (emitted when the Turn starts on a new or resumed thread)
@@ -100,7 +149,8 @@ internal sealed class SessionEventChannel(string id, string turnId)
         WriteThreadLevel(SessionEventType.ThreadCreated, thread.Id, thread);
 
     public void EmitThreadResumed(SessionThread thread, string resumedBy) =>
-        WriteThreadLevel(SessionEventType.ThreadResumed, thread.Id, thread);
+        WriteThreadLevel(SessionEventType.ThreadResumed, thread.Id,
+            new ThreadResumedPayload { Thread = thread, ResumedBy = resumedBy });
 
     public void EmitThreadStatusChanged(string threadId, ThreadStatus prev, ThreadStatus next) =>
         WriteThreadLevel(SessionEventType.ThreadStatusChanged, threadId,

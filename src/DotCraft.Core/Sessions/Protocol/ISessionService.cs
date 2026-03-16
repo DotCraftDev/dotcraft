@@ -21,12 +21,17 @@ public interface ISessionService
     /// Optional pre-assigned thread ID. When provided, this ID is used instead of generating a new one.
     /// The caller is responsible for ensuring uniqueness (e.g. by using <see cref="SessionIdGenerator.NewThreadId"/>).
     /// </param>
+    /// <param name="displayName">
+    /// Optional explicit display name for the thread. If null, a display name is automatically set
+    /// from the first user message text during <see cref="SubmitInputAsync"/>.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
         HistoryMode historyMode = HistoryMode.Server,
         string? threadId = null,
+        string? displayName = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -51,6 +56,16 @@ public interface ISessionService
     /// </summary>
     Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
+        bool includeArchived = false,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Subscribes to thread-level events independently from turn execution.
+    /// Multiple passive subscribers may observe the same thread concurrently.
+    /// </summary>
+    IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(
+        string threadId,
+        bool replayRecent = false,
         CancellationToken ct = default);
 
     /// <summary>
@@ -83,7 +98,7 @@ public interface ISessionService
         string threadId,
         string turnId,
         string requestId,
-        bool approved,
+        SessionApprovalDecision decision,
         CancellationToken ct = default);
 
     /// <summary>

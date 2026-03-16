@@ -45,7 +45,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     private readonly string _workspacePath;
 
     // Pending session-protocol approval requests keyed by "user_{userId}_{requestId}"
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _pendingSessionApprovals = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<SessionApprovalDecision>> _pendingSessionApprovals = new();
 
     public WeComChannelAdapter(
         WeComBotRegistry registry,
@@ -515,11 +515,11 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         if (_pendingSessionApprovals.IsEmpty)
             return false;
 
-        var approved = plainText is "同意" or "允许" or "yes" or "y" or "approve"
-                    or "同意全部" or "允许全部" or "yes all" or "approve all";
+        var approved = plainText is "同意" or "允许" or "yes" or "y" or "approve";
+        var approvedForSession = plainText is "同意全部" or "允许全部" or "yes all" or "approve all";
         var rejected = plainText is "拒绝" or "不同意" or "no" or "n" or "reject" or "deny";
 
-        if (!approved && !rejected)
+        if (!approved && !approvedForSession && !rejected)
             return false;
 
         var keyPrefix = $"user_{userId}_";
@@ -530,7 +530,12 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
 
             if (_pendingSessionApprovals.TryRemove(key, out var tcs))
             {
-                tcs.TrySetResult(approved);
+                tcs.TrySetResult(
+                    approvedForSession
+                        ? SessionApprovalDecision.AcceptForSession
+                        : approved
+                            ? SessionApprovalDecision.AcceptOnce
+                            : SessionApprovalDecision.Reject);
                 return true;
             }
         }
@@ -540,22 +545,22 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     /// <summary>
     /// Sends an approval prompt via <paramref name="pusher"/> and waits for the user's WeCom reply.
     /// </summary>
-    private async Task<bool> RequestSessionApprovalAsync(
+    private async Task<SessionApprovalDecision> RequestSessionApprovalAsync(
         IWeComPusher pusher, WeComFrom from, ApprovalRequestPayload req, int timeoutSeconds = 60)
     {
         var promptMsg = req.ApprovalType == "shell"
-            ? $"⚠️ 需要执行命令权限：`{req.Operation}`\n回复 同意/yes 批准，拒绝/no 拒绝（{timeoutSeconds}秒超时自动拒绝）"
-            : $"⚠️ 需要 {req.Operation} 文件权限：`{req.Target}`\n回复 同意/yes 批准，拒绝/no 拒绝（{timeoutSeconds}秒超时自动拒绝）";
+            ? $"⚠️ 需要执行命令权限：`{req.Operation}`\n回复 同意/yes 批准，同意全部/yes all 本会话放行同类操作，拒绝/no 拒绝（{timeoutSeconds}秒超时自动拒绝）"
+            : $"⚠️ 需要 {req.Operation} 文件权限：`{req.Target}`\n回复 同意/yes 批准，同意全部/yes all 本会话放行同类操作，拒绝/no 拒绝（{timeoutSeconds}秒超时自动拒绝）";
         await pusher.PushTextAsync(promptMsg);
 
         var key = $"user_{from.UserId}_{req.RequestId}";
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<SessionApprovalDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingSessionApprovals[key] = tcs;
 
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-            cts.Token.Register(() => tcs.TrySetResult(false));
+            cts.Token.Register(() => tcs.TrySetResult(SessionApprovalDecision.Reject));
             return await tcs.Task;
         }
         finally

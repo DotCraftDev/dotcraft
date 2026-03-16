@@ -806,20 +806,23 @@ public sealed class ReplHost(
                             token).AsTask(),
                     OnApprovalRequested = async req =>
                     {
-                        bool approved;
+                        ApprovalOption choice;
                         if (req.ApprovalType == "shell")
                         {
-                            var choice = await renderer.ExecuteWhilePausedAsync(
+                            choice = await renderer.ExecuteWhilePausedAsync(
                                 () => ApprovalPrompt.RequestShellApproval(req.Operation, req.Target));
-                            approved = choice != ApprovalOption.Reject;
                         }
                         else
                         {
-                            var choice = await renderer.ExecuteWhilePausedAsync(
+                            choice = await renderer.ExecuteWhilePausedAsync(
                                 () => ApprovalPrompt.RequestFileApproval(req.Operation, req.Target));
-                            approved = choice != ApprovalOption.Reject;
                         }
-                        return approved;
+                        return choice switch
+                        {
+                            ApprovalOption.Once => SessionApprovalDecision.AcceptOnce,
+                            ApprovalOption.Session or ApprovalOption.Always => SessionApprovalDecision.AcceptForSession,
+                            _ => SessionApprovalDecision.Reject
+                        };
                     },
                     OnTurnCompleted = async usage =>
                     {
