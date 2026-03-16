@@ -213,8 +213,8 @@ public sealed class SessionService(
         bool replayRecent = false,
         CancellationToken ct = default)
     {
-        _ = GetOrCreateBroker(threadId);
-        return _threadEventBrokers[threadId].SubscribeAsync(replayRecent, ct);
+        var broker = GetOrCreateBroker(threadId);
+        return broker.SubscribeAsync(replayRecent, ct);
     }
 
     /// <inheritdoc/>
