@@ -15,23 +15,9 @@ public sealed class ApiConfig
     [ConfigField(Sensitive = true)]
     public string ApiKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// When true, all file and shell operations are auto-approved.
+    /// When false, all such operations are auto-rejected.
+    /// </summary>
     public bool AutoApprove { get; set; } = true;
-
-    /// <summary>
-    /// Approval mode for sensitive operations in API mode.
-    /// "auto" = auto-approve all operations (default, same as AutoApprove=true).
-    /// "reject" = auto-reject all operations (same as AutoApprove=false).
-    /// "interactive" = pause and wait for approval via /v1/approvals endpoint (Human-in-the-Loop).
-    /// When set, takes precedence over AutoApprove.
-    /// </summary>
-    [ConfigField(FieldType = "select", Options = ["", "auto", "reject", "interactive"], Hint = "When set, takes precedence over AutoApprove")]
-    public string ApprovalMode { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Timeout in seconds for interactive approval requests (default: 120).
-    /// If no approval decision is received within this time, the operation is rejected.
-    /// Only applies when ApprovalMode is "interactive".
-    /// </summary>
-    [ConfigField(Min = 0)]
-    public int ApprovalTimeoutSeconds { get; set; } = 120;
 }

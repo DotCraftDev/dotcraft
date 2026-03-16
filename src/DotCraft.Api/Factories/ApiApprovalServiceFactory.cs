@@ -12,11 +12,9 @@ public sealed class ApiApprovalServiceFactory : IApprovalServiceFactory
     public IApprovalService Create(ApprovalServiceContext context)
     {
         var config = context.Config.GetSection<ApiConfig>("Api");
-        var approvalMode = ApiApprovalService.ParseMode(
-            context.ApprovalMode ?? config.ApprovalMode,
-            context.AutoApprove ?? config.AutoApprove);
-        var timeoutSeconds = context.ApprovalTimeoutSeconds ?? config.ApprovalTimeoutSeconds;
+        var autoApprove = context.AutoApprove ?? config.AutoApprove;
+        var approvalMode = ApiApprovalService.ParseMode(autoApprove);
 
-        return new ApiApprovalService(approvalMode, timeoutSeconds);
+        return new ApiApprovalService(approvalMode);
     }
 }

@@ -1,5 +1,4 @@
 using System.ClientModel;
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,7 +16,6 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
-using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
@@ -120,10 +118,8 @@ public sealed class ApiChannelService(
                         await next();
                         return;
                     }
-
-                    var authHeader = context.Request.Headers.Authorization.ToString();
-                    if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
-                        authHeader["Bearer ".Length..].Trim() != ApiConfig.ApiKey)
+                    
+                    if (!Authenticate(context))
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         await context.Response.WriteAsJsonAsync(new { error = "unauthorized" });
@@ -187,17 +183,12 @@ public sealed class ApiChannelService(
 
         app.Use(NonStreamingResponseMiddleware);
         app.MapOpenAIChatCompletions(_agentBuilder!);
-
-        var agent = _agentFactory!.CreateAgentWithTools(_tools!);
-        var hookRunner = sp.GetService<HookRunner>();
-        var runner = new AgentRunner(paths.WorkspacePath, SessionServiceFactory.Create(_agentFactory, agent, sp));
-
-        MapAdditionalRoutes(app, runner);
+        MapAdditionalRoutes(app);
 
         var url = $"http://{ListenHost}:{ListenPort}";
         AnsiConsole.MarkupLine($"[green][[Gateway]][/] API listening on {Markup.Escape(url)}");
 
-        var approvalMode = ApiApprovalService.ParseMode(ApiConfig.ApprovalMode, ApiConfig.AutoApprove);
+        var approvalMode = ApiApprovalService.ParseMode(ApiConfig.AutoApprove);
         AnsiConsole.MarkupLine($"[grey]  Approval mode: {approvalMode.ToString().ToLowerInvariant()}[/]");
     }
 
@@ -318,7 +309,7 @@ public sealed class ApiChannelService(
         return $"api:{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}";
     }
 
-    private void MapAdditionalRoutes(IEndpointRouteBuilder endpoints, AgentRunner runner)
+    private void MapAdditionalRoutes(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/v1/health", () => Results.Json(new
         {
@@ -328,55 +319,6 @@ public sealed class ApiChannelService(
             model = config.Model,
             protocol = "openai-compatible"
         }));
-
-        endpoints.MapGet("/v1/approvals", (HttpContext context) =>
-        {
-            if (!Authenticate(context))
-                return Results.Json(new { error = "unauthorized" },
-                    statusCode: StatusCodes.Status401Unauthorized);
-
-            var list = approvalService.PendingApprovals.Select(a => new
-            {
-                id = a.Id,
-                type = a.Type,
-                operation = a.Operation,
-                detail = a.Detail,
-                createdAt = a.CreatedAt.ToString("o")
-            }).ToList();
-
-            return Results.Json(new { approvals = list });
-        });
-
-        endpoints.MapPost("/v1/approvals/{id}", async (HttpContext context, string id) =>
-        {
-            if (!Authenticate(context))
-                return Results.Json(new { error = "unauthorized" },
-                    statusCode: StatusCodes.Status401Unauthorized);
-
-            ApprovalDecision? body;
-            try
-            {
-                body = await context.Request.ReadFromJsonAsync<ApprovalDecision>();
-            }
-            catch
-            {
-                return Results.Json(
-                    new { error = "invalid request body, expected {\"approved\": true/false}" },
-                    statusCode: StatusCodes.Status400BadRequest);
-            }
-
-            if (body == null)
-                return Results.Json(new { error = "missing request body" },
-                    statusCode: StatusCodes.Status400BadRequest);
-
-            var resolved = approvalService.Resolve(id, body.Approved);
-            if (!resolved)
-                return Results.Json(
-                    new { error = "approval not found or already resolved" },
-                    statusCode: StatusCodes.Status404NotFound);
-
-            return Results.Json(new { id, approved = body.Approved });
-        });
     }
 
     private ChatClientAgentOptions CreateApiAgentOptions(IReadOnlyList<AITool> tools,
@@ -557,13 +499,6 @@ public sealed class ApiChannelService(
         context.Response.Body = originalBody;
         context.Response.ContentLength = buffer.Length;
         await buffer.CopyToAsync(originalBody);
-    }
-
-    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Local")]
-    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Local")]
-    private sealed class ApprovalDecision
-    {
-        public bool Approved { get; set; }
     }
 
     public async ValueTask DisposeAsync()

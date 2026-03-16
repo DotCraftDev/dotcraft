@@ -35,9 +35,7 @@ public sealed partial class ApiModule : ModuleBase
             {
                 Config = context.Config,
                 WorkspacePath = context.Paths.WorkspacePath,
-                ApprovalMode = config.ApprovalMode,
-                AutoApprove = config.AutoApprove,
-                ApprovalTimeoutSeconds = config.ApprovalTimeoutSeconds
+                AutoApprove = config.AutoApprove
             });
         });
     }
@@ -47,6 +45,6 @@ public sealed partial class ApiModule : ModuleBase
         => [];
 
     /// <inheritdoc />
-    public override IChannelService? CreateChannelService(IServiceProvider sp, ModuleContext context)
+    public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
         => ActivatorUtilities.CreateInstance<ApiChannelService>(sp);
 }
