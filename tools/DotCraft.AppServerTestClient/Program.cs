@@ -282,6 +282,27 @@ static async Task<int> RunTriggerApprovalAsync(string bin, string workspace, str
     Console.Error.WriteLine($"[trigger-approval] prompt='{prompt}'");
     await using var client = await AppServerClient.SpawnAsync(bin, workspace);
 
+    var approvalCount = 0;
+
+    // Register a handler for server-initiated item/approval/request messages.
+    // The reader loop dispatches these on a background Task and sends the response automatically,
+    // avoiding any blocking .GetAwaiter().GetResult() calls.
+    client.ServerRequestHandler = serverReq =>
+    {
+        if (!serverReq.RootElement.TryGetProperty("method", out var methodEl) ||
+            methodEl.GetString() != AppServerMethods.ItemApprovalRequest)
+            return Task.FromResult<object?>(null);
+
+        approvalCount++;
+        var @params = serverReq.RootElement.GetProperty("params");
+        var requestId = @params.TryGetProperty("requestId", out var rid) ? rid.GetString() : "?";
+        var operation = @params.TryGetProperty("operation", out var op) ? op.GetString() : "?";
+        Console.Error.WriteLine($"[trigger-approval] approval #{approvalCount}: requestId={requestId} op={operation}");
+        Console.Error.WriteLine("[trigger-approval] Auto-accepting...");
+
+        return Task.FromResult<object?>(new { decision = "accept" });
+    };
+
     await client.InitializeAsync();
 
     var threadResp = await client.SendRequestAsync(AppServerMethods.ThreadStart, new
@@ -299,31 +320,11 @@ static async Task<int> RunTriggerApprovalAsync(string bin, string workspace, str
     var turnId = turnResp.RootElement.GetProperty("result").GetProperty("turn").GetProperty("id").GetString()!;
     Console.Error.WriteLine($"[trigger-approval] turn={turnId}");
 
-    var approvalCount = 0;
-
-    // Stream notifications, handling approval requests inline
+    // Stream all notifications to stdout; approval requests are handled automatically
+    // by the ServerRequestHandler registered above.
     await client.StreamTurnAsync(threadId, turnId, onNotification: notif =>
     {
-        if (!notif.RootElement.TryGetProperty("method", out var method)) return;
-        var m = method.GetString();
-
-        if (m == AppServerMethods.ItemApprovalRequest)
-        {
-            approvalCount++;
-            var @params = notif.RootElement.GetProperty("params");
-            var requestId = @params.TryGetProperty("requestId", out var rid) ? rid.GetString() : "?";
-            var operation = @params.TryGetProperty("operation", out var op) ? op.GetString() : "?";
-            Console.Error.WriteLine($"[trigger-approval] approval #{approvalCount}: requestId={requestId} op={operation}");
-            Console.Error.WriteLine("[trigger-approval] Auto-accepting...");
-
-            // Send approval response back to server
-            if (notif.RootElement.TryGetProperty("id", out var approvalReqId))
-                client.SendApprovalResponseAsync(approvalReqId, "accept").GetAwaiter().GetResult();
-        }
-        else
-        {
-            PrintJson("< notification", notif);
-        }
+        PrintJson("< notification", notif);
     }, timeout: TimeSpan.FromMinutes(5));
 
     Console.Error.WriteLine($"[trigger-approval] Turn complete. Total approvals: {approvalCount}");

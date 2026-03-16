@@ -62,7 +62,7 @@ public sealed class AppServerHandshakeTests : IDisposable
     }
 
     // -------------------------------------------------------------------------
-    // AlreadyInitialized error (spec Section 3.1 — code -32600)
+    // AlreadyInitialized error (spec Section 8.3 — code -32003)
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -70,7 +70,7 @@ public sealed class AppServerHandshakeTests : IDisposable
     {
         await _h.InitializeAsync();
 
-        // Second call should produce AlreadyInitialized (-32600)
+        // Second call should produce AlreadyInitialized (-32003)
         var secondInit = _h.BuildRequest(AppServerMethods.Initialize, new
         {
             clientInfo = new { name = "test-client", version = "0.0.1" }

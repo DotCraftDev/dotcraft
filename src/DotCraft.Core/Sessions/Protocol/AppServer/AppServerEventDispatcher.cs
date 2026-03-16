@@ -103,9 +103,11 @@ public sealed class AppServerEventDispatcher
                 break;
 
             case SessionEventType.ItemDelta:
-                // Fix 4: Suppress delta notifications when client declared streamingSupport = false
+                // Fix 4: Suppress delta notifications when client declared streamingSupport = false.
+                // Also skip empty deltas — the LLM emits empty string chunks at stream boundaries.
                 if (_connection.IsClientReady
                     && _connection.SupportsStreaming
+                    && !IsEmptyDelta(evt)
                     && _connection.ShouldSendNotification(method))
                     await SendNotificationAsync(method, BuildParams(evt), ct);
                 break;
@@ -302,6 +304,16 @@ public sealed class AppServerEventDispatcher
     // -------------------------------------------------------------------------
     // Transport helpers
     // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Returns true when an ItemDelta event carries an empty text chunk.
+    /// The LLM streaming API emits empty strings at stream open/close boundaries;
+    /// these carry no information and should not be forwarded to the client.
+    /// </summary>
+    private static bool IsEmptyDelta(SessionEvent evt) =>
+        evt.EventType == SessionEventType.ItemDelta &&
+        (evt.DeltaPayload is { } d ? string.IsNullOrEmpty(d.TextDelta)
+            : evt.ReasoningDeltaPayload is { } r && string.IsNullOrEmpty(r.TextDelta));
 
     private Task SendNotificationAsync(string method, object? @params, CancellationToken ct)
     {

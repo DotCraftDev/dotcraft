@@ -107,7 +107,7 @@ Three message kinds:
 
 ### 3.1 Handshake
 
-The client must send an `initialize` request as the very first message on a new connection. Any other method sent before initialization is rejected with error code `-32002` (`"Not initialized"`). Repeated `initialize` calls on the same connection are rejected with error code `-32600` (`"Already initialized"`).
+The client must send an `initialize` request as the very first message on a new connection. Any other method sent before initialization is rejected with error code `-32002` (`"Not initialized"`). Repeated `initialize` calls on the same connection are rejected with error code `-32003` (`"Already initialized"`).
 
 After receiving the `initialize` response, the client must send an `initialized` notification to signal readiness. The server may begin sending notifications (e.g., for in-progress threads) after receiving `initialized`.
 
@@ -694,6 +694,7 @@ Streamed text delta for an `agentMessage` item. Concatenate `delta` values in or
   "threadId": "thread_...",
   "turnId": "turn_001",
   "itemId": "item_004",
+  "deltaKind": "agentMessage",
   "delta": "Here is my analysis of the"
 }
 ```
@@ -709,6 +710,7 @@ Streamed text delta for a `reasoningContent` item.
   "threadId": "thread_...",
   "turnId": "turn_001",
   "itemId": "item_003",
+  "deltaKind": "reasoningContent",
   "delta": "I need to check the test output first"
 }
 ```

@@ -48,8 +48,7 @@ public static class AppServerErrors
 
     public const int ServerOverloadedCode = -32001;
     public const int NotInitializedCode = -32002;
-    // Spec Section 3.1 normative text uses -32600 (InvalidRequest) for "already initialized"
-    public const int AlreadyInitializedCode = -32600;
+    public const int AlreadyInitializedCode = -32003;
     public const int ThreadNotFoundCode = -32010;
     public const int ThreadNotActiveCode = -32011;
     public const int TurnInProgressCode = -32012;

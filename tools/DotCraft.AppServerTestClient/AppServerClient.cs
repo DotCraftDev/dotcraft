@@ -16,8 +16,11 @@ namespace DotCraft.AppServerTestClient;
 /// <code>
 /// await using var client = await AppServerClient.SpawnAsync(dotcraftBin, workspacePath);
 /// await client.InitializeAsync();
-/// var thread = await client.SendRequestAsync&lt;ThreadStartResult&gt;("thread/start", params);
+/// var thread = await client.SendRequestAsync("thread/start", params);
 /// </code>
+///
+/// Server-initiated requests (e.g. <c>item/approval/request</c>) are dispatched through
+/// <see cref="ServerRequestHandler"/> if set, or enqueued in the notification queue otherwise.
 /// </summary>
 public sealed class AppServerClient : IAsyncDisposable
 {
@@ -25,10 +28,10 @@ public sealed class AppServerClient : IAsyncDisposable
     private readonly StreamReader _stdout;
     private readonly StreamWriter _stdin;
 
-    // Pending requests keyed by id, awaiting a server response
+    // Pending client-initiated requests keyed by id, awaiting a server response
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonDocument>> _pending = new();
 
-    // All received server notifications (method + params), in order
+    // Server-to-client notifications (no id), in arrival order
     private readonly ConcurrentQueue<JsonDocument> _notifications = new();
     private readonly SemaphoreSlim _notificationSignal = new(0);
 
@@ -41,6 +44,17 @@ public sealed class AppServerClient : IAsyncDisposable
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true
     };
+
+    /// <summary>
+    /// Optional handler for server-initiated JSON-RPC requests (messages with both
+    /// <c>method</c> and <c>id</c>). The handler receives the full message document
+    /// and returns a result object. The client sends a well-formed JSON-RPC response
+    /// automatically using the same <c>id</c>.
+    ///
+    /// When null (default), server requests are placed in the notification queue so
+    /// callers can handle them via <see cref="WaitForNotificationAsync"/>.
+    /// </summary>
+    public Func<JsonDocument, Task<object?>>? ServerRequestHandler { get; set; }
 
     private AppServerClient(Process process)
     {
@@ -57,7 +71,7 @@ public sealed class AppServerClient : IAsyncDisposable
     /// Spawns <c>dotcraft app-server</c> as a child process and starts the background reader.
     /// </summary>
     /// <param name="dotcraftBin">Path to the <c>dotcraft</c> executable.</param>
-    /// <param name="workspacePath">Workspace path passed via the environment. If null, uses the current directory.</param>
+    /// <param name="workspacePath">Workspace path for the subprocess. Defaults to current directory.</param>
     public static Task<AppServerClient> SpawnAsync(
         string dotcraftBin,
         string? workspacePath = null)
@@ -113,7 +127,7 @@ public sealed class AppServerClient : IAsyncDisposable
     /// <summary>
     /// Streams notifications for the given turn until <c>turn/completed</c>,
     /// <c>turn/failed</c>, or <c>turn/cancelled</c> is received.
-    /// Each notification is passed to <paramref name="onNotification"/>.
+    /// Each notification (and unhandled server request) is passed to <paramref name="onNotification"/>.
     /// </summary>
     public async Task StreamTurnAsync(
         string threadId,
@@ -234,18 +248,24 @@ public sealed class AppServerClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends an approval response back to the server (for item/approval/request).
+    /// Sends a JSON-RPC response to a server-initiated request (for manual approval handling).
     /// </summary>
-    public async Task SendApprovalResponseAsync(JsonElement requestId, string decision)
+    public async Task SendResponseAsync(JsonElement requestId, object? result)
     {
         var response = JsonSerializer.Serialize(new
         {
             jsonrpc = "2.0",
             id = requestId,
-            result = new { decision }
+            result
         }, SessionWireJsonOptions.Default);
         await WriteLineAsync(response);
     }
+
+    /// <summary>
+    /// Sends an approval response back to the server (for item/approval/request).
+    /// </summary>
+    public Task SendApprovalResponseAsync(JsonElement requestId, string decision) =>
+        SendResponseAsync(requestId, new { decision });
 
     // -------------------------------------------------------------------------
     // Background reader loop
@@ -268,11 +288,13 @@ public sealed class AppServerClient : IAsyncDisposable
                 catch (JsonException) { continue; }
 
                 var root = doc.RootElement;
+                var hasMethod = root.TryGetProperty("method", out _);
+                var hasId = root.TryGetProperty("id", out var idEl) &&
+                            idEl.ValueKind != JsonValueKind.Null &&
+                            idEl.ValueKind != JsonValueKind.Undefined;
 
-                // Response to a client-initiated request
-                if (!root.TryGetProperty("method", out _) &&
-                    root.TryGetProperty("id", out var idEl) &&
-                    idEl.ValueKind == JsonValueKind.Number)
+                // Response to a client-initiated request (no method, numeric id)
+                if (!hasMethod && hasId && idEl.ValueKind == JsonValueKind.Number)
                 {
                     var id = idEl.GetInt32();
                     if (_pending.TryRemove(id, out var tcs))
@@ -282,13 +304,44 @@ public sealed class AppServerClient : IAsyncDisposable
                     }
                 }
 
-                // Server-initiated request (e.g. item/approval/request) — treat as notification
-                // so the caller can handle it with WaitForNotificationAsync
-                if (root.TryGetProperty("method", out _))
+                // Server-initiated request (has both method and id)
+                if (hasMethod && hasId)
+                {
+                    if (ServerRequestHandler != null)
+                    {
+                        // Dispatch to handler on a background task so the reader loop isn't blocked
+                        var capture = doc;
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var result = await ServerRequestHandler(capture);
+                                await SendResponseAsync(idEl, result);
+                            }
+                            catch (Exception ex)
+                            {
+                                // Send a JSON-RPC error response so the server isn't left waiting
+                                var errResponse = JsonSerializer.Serialize(new
+                                {
+                                    jsonrpc = "2.0",
+                                    id = idEl,
+                                    error = new { code = -32603, message = ex.Message }
+                                }, SessionWireJsonOptions.Default);
+                                await WriteLineAsync(errResponse);
+                            }
+                        }, ct);
+                        continue;
+                    }
+
+                    // No handler registered — fall through to notification queue so callers
+                    // can handle it manually via WaitForNotificationAsync
+                }
+
+                // Pure notifications (has method, no id) and unhandled server requests
+                if (hasMethod)
                 {
                     _notifications.Enqueue(doc);
                     _notificationSignal.Release();
-                    continue;
                 }
             }
         }

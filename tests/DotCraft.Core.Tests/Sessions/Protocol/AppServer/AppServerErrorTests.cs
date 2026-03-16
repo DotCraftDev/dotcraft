@@ -13,7 +13,7 @@ namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 /// - -32601 method not found
 /// - -32602 invalid params
 /// - -32002 not initialized
-/// - -32600 already initialized
+/// - -32003 already initialized
 /// - -32001 backpressure / server overloaded
 /// </summary>
 public sealed class AppServerErrorTests : IDisposable
@@ -132,7 +132,7 @@ public sealed class AppServerErrorTests : IDisposable
     }
 
     // -------------------------------------------------------------------------
-    // -32600 Already initialized
+    // -32003 Already initialized
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -148,8 +148,8 @@ public sealed class AppServerErrorTests : IDisposable
 
         var doc = await _h.Transport.ReadNextSentAsync();
         AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.AlreadyInitializedCode);
-        // -32600 per spec Section 3.1 normative text
-        Assert.Equal(-32600, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        // -32003 per spec Section 8.3 dedicated code
+        Assert.Equal(-32003, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
     }
 
     // -------------------------------------------------------------------------
