@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol;

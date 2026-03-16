@@ -1,4 +1,4 @@
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;

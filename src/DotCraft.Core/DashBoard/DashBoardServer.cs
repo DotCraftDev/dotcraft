@@ -1,6 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.Hosting;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using DotCraft.Tracing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;

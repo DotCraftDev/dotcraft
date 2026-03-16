@@ -10,7 +10,7 @@ using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 

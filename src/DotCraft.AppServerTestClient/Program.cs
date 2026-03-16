@@ -1,6 +1,6 @@
 using System.Text.Json;
 using DotCraft.AppServerTestClient;
-using DotCraft.Sessions.Protocol.AppServer;
+using DotCraft.Protocol.AppServer;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  dotcraft-test-client -- CLI tool for end-to-end AppServer protocol testing

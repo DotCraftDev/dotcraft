@@ -1,4 +1,4 @@
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 
 namespace DotCraft.Tests.Sessions.Protocol;
 

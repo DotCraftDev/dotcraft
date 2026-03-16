@@ -1,5 +1,5 @@
 using DotCraft.Commands.Core;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using Spectre.Console;
 
 namespace DotCraft.Commands.Handlers;

@@ -2,7 +2,7 @@ using System.Reflection;
 using DotCraft.Localization;
 using DotCraft.Memory;
 using DotCraft.Mcp;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using Spectre.Console;
 using static DotCraft.Skills.SkillsLoader;
 

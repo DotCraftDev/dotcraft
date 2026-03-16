@@ -3,7 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotCraft.Context;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -208,7 +208,7 @@ public static partial class StreamAdapter
 
     /// <summary>
     /// Adapts an <see cref="IAsyncEnumerable{SessionEvent}"/> stream produced by
-    /// <see cref="DotCraft.Sessions.Protocol.ISessionService.SubmitInputAsync"/> into a
+    /// <see cref="ISessionService.SubmitInputAsync"/> into a
     /// <see cref="RenderEvent"/> stream consumed by <see cref="AgentRenderer"/>.
     /// <para>
     /// Approval events (<see cref="SessionEventType.ApprovalRequested"/> /

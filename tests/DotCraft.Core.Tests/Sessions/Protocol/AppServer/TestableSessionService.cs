@@ -1,5 +1,5 @@
 using DotCraft.Mcp;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;

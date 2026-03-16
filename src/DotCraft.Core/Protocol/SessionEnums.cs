@@ -1,0 +1,66 @@
+using System.Text.Json.Serialization;
+
+namespace DotCraft.Protocol;
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ThreadStatus
+{
+    Active,
+    Paused,
+    Archived
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TurnStatus
+{
+    Running,
+    Completed,
+    WaitingApproval,
+    Failed,
+    Cancelled
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ItemType
+{
+    UserMessage,
+    AgentMessage,
+    ReasoningContent,
+    ToolCall,
+    ToolResult,
+    ApprovalRequest,
+    ApprovalResponse,
+    Error
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ItemStatus
+{
+    Started,
+    Streaming,
+    Completed
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SessionEventType
+{
+    ThreadCreated,
+    ThreadResumed,
+    ThreadStatusChanged,
+    TurnStarted,
+    TurnCompleted,
+    TurnFailed,
+    TurnCancelled,
+    ItemStarted,
+    ItemDelta,
+    ItemCompleted,
+    ApprovalRequested,
+    ApprovalResolved
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum HistoryMode
+{
+    Server,
+    Client
+}

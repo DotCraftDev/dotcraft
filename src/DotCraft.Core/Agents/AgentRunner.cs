@@ -1,5 +1,5 @@
 using System.Text;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using DotCraft.Tools;
 using Spectre.Console;
 

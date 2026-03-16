@@ -1,4 +1,4 @@
-using DotCraft.Sessions.Protocol.AppServer;
+using DotCraft.Protocol.AppServer;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 

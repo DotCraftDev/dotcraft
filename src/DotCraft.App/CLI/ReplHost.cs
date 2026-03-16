@@ -10,8 +10,8 @@ using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Localization;
 using DotCraft.Mcp;
+using DotCraft.Protocol;
 using DotCraft.Security;
-using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using Spectre.Console;
 

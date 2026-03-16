@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 
 namespace DotCraft.AppServerTestClient;
 
