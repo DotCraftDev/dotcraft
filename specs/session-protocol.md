@@ -446,7 +446,7 @@ Delta payload (during streaming):
 
 **Transitions**:
 
-- `SubmitInput(threadId, text)` → `Running`
+- `SubmitInput(threadId, content)` → `Running`
   - Session Core creates a new Turn, creates a `UserMessage` Item from the input, invokes the agent.
   - Precondition: Thread status is `Active` and no other Turn is `Running` or `WaitingApproval`.
 
@@ -634,10 +634,12 @@ Session Core does not expose a standalone `SubscribeToTurn` API. Instead, the tu
 ```
 IAsyncEnumerable<SessionEvent> SubmitInputAsync(
     string threadId,
-    string text,
+    IList<AIContent> content,
     SenderContext? sender = null,
     ...)
 ```
+
+The `content` parameter accepts multimodal input (text, images, etc.) as a list of `AIContent` parts. Session Core extracts the text portion for display and persistence (`UserMessagePayload.Text`, `Thread.DisplayName`) and passes the full multimodal content to the agent via `ChatMessage`. A convenience extension method `SubmitInputAsync(string threadId, string text, ...)` wraps plain text into `[new TextContent(text)]` for text-only callers.
 
 The adapter starts a turn and immediately consumes the returned async stream. Callback-style consumption is a helper-layer concern (for example, wrapping the stream in a local event handler), not part of the `ISessionService` contract.
 

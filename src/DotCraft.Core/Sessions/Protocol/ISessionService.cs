@@ -58,7 +58,10 @@ public interface ISessionService
     /// Returns an async event stream that delivers Turn/Item lifecycle events.
     /// </summary>
     /// <param name="threadId">Target Thread ID.</param>
-    /// <param name="text">User's input text.</param>
+    /// <param name="content">
+    /// User's input as a list of <see cref="AIContent"/> parts (text, images, etc.).
+    /// For text-only input, use the <c>string</c> extension method in <see cref="SessionServiceExtensions"/>.
+    /// </param>
     /// <param name="sender">Sender identity and role for group sessions. Null for single-user channels.</param>
     /// <param name="messages">
     /// Client-provided conversation history for client-managed history mode (Section 15).
@@ -67,7 +70,7 @@ public interface ISessionService
     /// <param name="ct">Cancellation token.</param>
     IAsyncEnumerable<SessionEvent> SubmitInputAsync(
         string threadId,
-        string text,
+        IList<AIContent> content,
         SenderContext? sender = null,
         ChatMessage[]? messages = null,
         CancellationToken ct = default);

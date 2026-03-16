@@ -1,5 +1,5 @@
+using System.Collections.Concurrent;
 using System.Text;
-using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Diagnostics;
@@ -12,7 +12,6 @@ using DotCraft.Sessions;
 using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Security;
-using DotCraft.Tools;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 
@@ -31,8 +30,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     
     private readonly WeComApprovalService _approvalService;
 
-    private readonly TraceCollector? _traceCollector;
-
     private readonly TokenUsageStore? _tokenUsageStore;
     
     private readonly AgentFactory? _agentFactory;
@@ -49,8 +46,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     private readonly string _workspacePath;
 
     // Pending session-protocol approval requests keyed by "user_{userId}_{requestId}"
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<bool>>
-        _pendingSessionApprovals = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _pendingSessionApprovals = new();
 
     public WeComChannelAdapter(
         WeComBotRegistry registry,
@@ -60,7 +56,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         HeartbeatService? heartbeatService = null,
         CronService? cronService = null,
         AgentFactory? agentFactory = null,
-        TraceCollector? traceCollector = null,
         TokenUsageStore? tokenUsageStore = null,
         CustomCommandLoader? customCommandLoader = null,
         HttpClient? httpClient = null,
@@ -73,7 +68,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         _permissionService = permissionService;
         _approvalService = approvalService;
         _activeRunRegistry = activeRunRegistry;
-        _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
         _ownsHttpClient = httpClient == null;
         _httpClient = httpClient ?? CreateDefaultHttpClient();
@@ -296,9 +290,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                        DefaultDeliveryTarget = chatId
                    }))
             {
-                // Extract text from content parts for Session Protocol path
-                var textContent = string.Join(" ", contentParts.OfType<TextContent>().Select(t => t.Text));
-                await RunAgentViaSessionServiceAsync(textContent, from, pusher, chatId);
+                await RunAgentViaSessionServiceAsync(contentParts, from, pusher, chatId);
             }
         }
         catch (SessionGateOverflowException)
@@ -327,7 +319,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         }
     }
 
-    private async Task RunAgentViaSessionServiceAsync(string text, WeComFrom from, IWeComPusher pusher, string chatId)
+    private async Task RunAgentViaSessionServiceAsync(IList<AIContent> content, WeComFrom from, IWeComPusher pusher, string chatId)
     {
         var identity = new SessionIdentity
         {
@@ -405,7 +397,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
                 };
 
                 await handler.ProcessAsync(
-                    _sessionService!.SubmitInputAsync(threadId, text, sender, ct: runCts.Token),
+                    _sessionService!.SubmitInputAsync(threadId, content, sender, ct: runCts.Token),
                     (tid, rid, ok) => _sessionService!.ResolveApprovalAsync(tid, rid, ok),
                     runCts.Token);
             }
@@ -516,39 +508,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
     {
         AnsiConsole.MarkupLine(
             $"[grey][[WeCom]][/] [red]Error[/] processing message from [green]{Markup.Escape(sender)}[/]: {Markup.Escape(error)}");
-    }
-
-    private static void LogToolCall(string name, IDictionary<string, object?>? args)
-    {
-        var icon = ToolRegistry.GetToolIcon(name);
-        var displayText = ToolRegistry.FormatToolCall(name, args) ?? name;
-        AnsiConsole.MarkupLine(
-            $"[grey][[WeCom]][/] [yellow]{Markup.Escape($"{icon} {displayText}")}[/]");
-
-        if (DebugModeService.IsEnabled() && args != null)
-        {
-            try
-            {
-                var argsStr = JsonSerializer.Serialize(args, new JsonSerializerOptions { WriteIndented = false });
-                AnsiConsole.MarkupLine($"[grey][[WeCom]][/]   [dim]{Markup.Escape(argsStr)}[/]");
-            }
-            catch { /* ignore serialization errors in debug logging */ }
-        }
-    }
-
-    private static void LogToolResult(string? result)
-    {
-        var text = result ?? "(no output)";
-        var preview = text.Length > 200 ? text[..200] + "..." : text;
-        var normalized = preview.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
-        AnsiConsole.MarkupLine(
-            $"[grey][[WeCom]][/]   [grey]{Markup.Escape(normalized)}[/]");
-    }
-
-    private static void LogThinking(string text)
-    {
-        var preview = ReasoningContentHelper.ToInlinePreview(text);
-        AnsiConsole.MarkupLine($"[grey][[WeCom]][/] [cyan]💭 Thinking[/] [grey]{Markup.Escape(preview)}[/]");
     }
 
     /// <summary>

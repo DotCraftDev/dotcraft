@@ -1,12 +1,10 @@
+using System.Collections.Concurrent;
 using System.Text;
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Diagnostics;
 using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
-using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
 using DotCraft.Sessions;
@@ -14,7 +12,6 @@ using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.QQ.OneBot;
 using DotCraft.Security;
-using DotCraft.Tools;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 
@@ -34,8 +31,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
     private readonly AgentFactory? _agentFactory;
 
-    private readonly TraceCollector? _traceCollector;
-
     private readonly TokenUsageStore? _tokenUsageStore;
     
     private readonly CommandDispatcher _commandDispatcher;
@@ -49,11 +44,8 @@ public sealed class QQChannelAdapter : IAsyncDisposable
     private readonly string _workspacePath;
 
     // Pending session-protocol approval requests keyed by "{userContextKey}_{requestId}"
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<bool>>
-        _pendingSessionApprovals = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _pendingSessionApprovals = new();
 
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-    
     public QQChannelAdapter(
         QQBotClient client,
         QQPermissionService permissionService,
@@ -62,7 +54,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         HeartbeatService? heartbeatService = null,
         CronService? cronService = null,
         AgentFactory? agentFactory = null,
-        TraceCollector? traceCollector = null,
         TokenUsageStore? tokenUsageStore = null,
         CustomCommandLoader? customCommandLoader = null,
         HttpClient? httpClient = null,
@@ -76,7 +67,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         _cronService = cronService;
         _agentFactory = agentFactory;
         _activeRunRegistry = activeRunRegistry;
-        _traceCollector = traceCollector;
         _tokenUsageStore = tokenUsageStore;
         _httpClient = httpClient ?? CreateDefaultHttpClient();
         _sessionService = sessionService;
@@ -240,8 +230,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         DefaultRequestHeaders = { { "User-Agent", "DotCraft/1.0" } }
     };
 
-    private async Task ProcessMessageAsync(
-        OneBotMessageEvent evt, string plainText, IList<AIContent>? multimodalContent, QQUserRole role)
+    private async Task ProcessMessageAsync(OneBotMessageEvent evt, string plainText, IList<AIContent>? multimodalContent, QQUserRole role)
     {
         var sessionId = $"qq_{evt.GetSessionId()}";
 
@@ -266,8 +255,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         {
             contentParts = [new TextContent(plainText)];
         }
-
-        RuntimeContextBuilder.AppendTo(contentParts);
 
         var approvalContext = new ApprovalContext
         {
@@ -297,7 +284,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                        DefaultDeliveryTarget = evt.IsGroupMessage ? $"group:{evt.GroupId}" : null
                    }))
             {
-                await ProcessMessageViaSessionServiceAsync(evt, plainText, role);
+                await ProcessMessageViaSessionServiceAsync(evt, contentParts, role);
             }
         }
         catch (SessionGateOverflowException)
@@ -326,8 +313,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         }
     }
 
-    private async Task ProcessMessageViaSessionServiceAsync(
-        OneBotMessageEvent evt, string text, QQUserRole role)
+    private async Task ProcessMessageViaSessionServiceAsync(OneBotMessageEvent evt, IList<AIContent> content, QQUserRole role)
     {
         var channelContext = evt.IsGroupMessage
             ? $"group:{evt.GroupId}"
@@ -415,7 +401,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
                 };
 
                 await handler.ProcessAsync(
-                    _sessionService!.SubmitInputAsync(threadId, text, sender, ct: runCts.Token),
+                    _sessionService!.SubmitInputAsync(threadId, content, sender, ct: runCts.Token),
                     (tid, rid, ok) => _sessionService!.ResolveApprovalAsync(tid, rid, ok),
                     runCts.Token);
             }
@@ -496,31 +482,6 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             ? $"[cyan]Group {Markup.Escape(targetId)}[/]"
             : "[cyan]Private[/]";
         AnsiConsole.MarkupLine($"[grey][[QQ]][/] {tag} [yellow]Unauthorized[/] user [green]{Markup.Escape(sender)}[/] ignored");
-    }
-
-    private static void LogToolCall(string name, IDictionary<string, object?>? args)
-    {
-        var icon = ToolRegistry.GetToolIcon(name);
-        var displayText = ToolRegistry.FormatToolCall(name, args) ?? name;
-        AnsiConsole.MarkupLine($"[grey][[QQ]][/] [yellow]{Markup.Escape($"{icon} {displayText}")}[/]");
-
-        if (DebugModeService.IsEnabled() && args != null)
-        {
-            try
-            {
-                var argsStr = JsonSerializer.Serialize(args, SerializerOptions);
-                AnsiConsole.MarkupLine($"[grey][[QQ]][/]   [dim]{Markup.Escape(argsStr)}[/]");
-            }
-            catch { /* ignore serialization errors in debug logging */ }
-        }
-    }
-
-    private static void LogToolResult(string? result)
-    {
-        var text = result ?? "(no output)";
-        var preview = text.Length > 200 ? text[..200] + "..." : text;
-        var normalized = preview.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
-        AnsiConsole.MarkupLine($"[grey][[QQ]][/]   [grey]{Markup.Escape(normalized)}[/]");
     }
 
     private static void LogThinking(string text)

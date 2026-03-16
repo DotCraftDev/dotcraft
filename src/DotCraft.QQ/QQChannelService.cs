@@ -127,7 +127,6 @@ public sealed class QQChannelService(
             heartbeatService: HeartbeatService,
             cronService: CronService,
             agentFactory: agentFactory,
-            traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
             customCommandLoader: customCommandLoader,
             sessionService: sessionService,

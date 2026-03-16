@@ -114,7 +114,6 @@ public sealed class WeComChannelService(
             heartbeatService: HeartbeatService,
             cronService: CronService,
             agentFactory: _agentFactory,
-            traceCollector: traceCollector,
             tokenUsageStore: tokenUsageStore,
             customCommandLoader: customCommandLoader,
             httpClient: _httpClient,

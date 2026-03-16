@@ -538,7 +538,7 @@ public sealed class AcpHandler(
                 };
 
                 await handler.ProcessAsync(
-                    sessionService.SubmitInputAsync(sessionId, promptText, ct: promptCts.Token),
+                    sessionService.SubmitInputAsync(sessionId, contentParts, ct: promptCts.Token),
                     (tid, rid, ok) => sessionService.ResolveApprovalAsync(tid, rid, ok, promptCts.Token),
                     promptCts.Token);
 

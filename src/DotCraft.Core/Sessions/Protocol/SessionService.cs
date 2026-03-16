@@ -203,20 +203,20 @@ public sealed class SessionService : ISessionService
     /// <inheritdoc/>
     public IAsyncEnumerable<SessionEvent> SubmitInputAsync(
         string threadId,
-        string text,
+        IList<AIContent> content,
         SenderContext? sender = null,
         ChatMessage[]? messages = null,
         CancellationToken ct = default)
     {
         // This method returns immediately; execution happens in a background Task.
         // We use a SessionEventChannel to bridge the background task to the caller.
-        var channel = StartTurnAsync(threadId, text, sender, messages, ct);
+        var channel = StartTurnAsync(threadId, content, sender, messages, ct);
         return channel.ReadAllAsync(ct);
     }
 
     private SessionEventChannel StartTurnAsync(
         string threadId,
-        string text,
+        IList<AIContent> content,
         SenderContext? sender,
         ChatMessage[]? messages,
         CancellationToken callerCt)
@@ -244,6 +244,9 @@ public sealed class SessionService : ISessionService
 
         var itemSeq = 1;
         int NextItemSeq() => itemSeq++;
+
+        // Extract plain text from content parts for display and persistence
+        var text = string.Concat(content.OfType<TextContent>().Select(t => t.Text));
 
         var userItem = new SessionItem
         {
@@ -324,13 +327,14 @@ public sealed class SessionService : ISessionService
                     session = await _threadStore.LoadOrCreateSessionAsync(agent, threadId, executionCt);
                 }
 
-                // Step 5c: Append runtime context
-                var prompt = RuntimeContextBuilder.AppendTo(text);
+                // Step 5c: Append runtime context to the multimodal content list
+                RuntimeContextBuilder.AppendTo(content);
+                var userMessage = new ChatMessage(ChatRole.User, content);
 
                 // Step 5d: Run PrePrompt hooks
                 if (_hookRunner != null)
                 {
-                    var hookInput = new HookInput { SessionId = threadId, Prompt = prompt };
+                    var hookInput = new HookInput { SessionId = threadId, Prompt = text };
                     var hookResult = await _hookRunner.RunAsync(HookEvent.PrePrompt, hookInput, executionCt);
                     if (hookResult.Blocked)
                     {
@@ -375,12 +379,12 @@ public sealed class SessionService : ISessionService
 
                 try
                 {
-                    await foreach (var update in agent.RunStreamingAsync(prompt, session)
+                    await foreach (var update in agent.RunStreamingAsync(userMessage, session)
                         .WithCancellation(executionCt))
                     {
-                        foreach (var content in update.Contents)
+                        foreach (var responseContent in update.Contents)
                         {
-                            switch (content)
+                            switch (responseContent)
                             {
                                 case TextContent tc:
                                     // Agent message text
