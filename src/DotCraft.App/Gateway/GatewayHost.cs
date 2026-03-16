@@ -285,7 +285,7 @@ public sealed class GatewayHost : IDotCraftHost
 
         var agent = _sharedAgentFactory.CreateAgentForMode(AgentMode.Agent);
         _sharedSessionService = SessionServiceFactory.Create(_sharedAgentFactory, agent, _sp);
-        var runner = new AgentRunner(_sharedSessionService);
+        var runner = new AgentRunner(_paths.WorkspacePath, _sharedSessionService);
         return runner.RunAsync;
     }
 

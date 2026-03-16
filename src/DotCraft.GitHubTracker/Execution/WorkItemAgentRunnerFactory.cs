@@ -165,7 +165,7 @@ public sealed class WorkItemAgentRunnerFactory(
         var sessionService = new SessionService(
             agentFactory, agent, threadStore, sessionGate,
             traceCollector: traceCollector);
-        var agentRunner = new AgentRunner(sessionService: sessionService);
+        var agentRunner = new AgentRunner(workspacePath, sessionService: sessionService);
 
         var result = AgentRunResult.TurnsExhausted;
         var tokenTracker = agentFactory.GetOrCreateTokenTracker(sessionKey);

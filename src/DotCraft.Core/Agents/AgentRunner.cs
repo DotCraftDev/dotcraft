@@ -17,7 +17,7 @@ public delegate Task<string?> AgentRunSessionDelegate(
 /// Shared agent execution logic used across all channel modes for running an agent session
 /// via <see cref="ISessionService"/>. Used for heartbeat and cron-triggered runs.
 /// </summary>
-public sealed class AgentRunner(ISessionService? sessionService = null)
+public sealed class AgentRunner(string workspacePath, ISessionService? sessionService = null)
 {
     /// <summary>
     /// Run agent with a prompt, manage session lifecycle, stream output, and log results.
@@ -51,7 +51,7 @@ public sealed class AgentRunner(ISessionService? sessionService = null)
         {
             ChannelName = channelName,
             UserId = sessionKey,
-            WorkspacePath = "/"
+            WorkspacePath = workspacePath
         };
 
         // Find or create a Thread for this session key

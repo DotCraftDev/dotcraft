@@ -190,7 +190,7 @@ public sealed class ApiChannelService(
 
         var agent = _agentFactory!.CreateAgentWithTools(_tools!);
         var hookRunner = sp.GetService<HookRunner>();
-        var runner = new AgentRunner(SessionServiceFactory.Create(_agentFactory, agent, sp));
+        var runner = new AgentRunner(paths.WorkspacePath, SessionServiceFactory.Create(_agentFactory, agent, sp));
 
         MapAdditionalRoutes(app, runner);
 
