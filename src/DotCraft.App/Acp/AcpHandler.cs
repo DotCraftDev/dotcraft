@@ -128,7 +128,7 @@ public sealed class AcpHandler(
                 break;
 
             case AcpMethods.SessionList:
-                HandleSessionList(request);
+                await HandleSessionListAsync(request, ct);
                 break;
 
             case AcpMethods.DotCraftSessionDelete:
@@ -157,11 +157,11 @@ public sealed class AcpHandler(
                 break;
 
             case AcpMethods.SessionMode:
-                HandleSessionMode(request);
+                await HandleSessionModeAsync(request, ct);
                 break;
 
             case AcpMethods.SessionSetConfigOption:
-                HandleSessionSetConfigOption(request);
+                await HandleSessionSetConfigOptionAsync(request, ct);
                 break;
 
             default:
@@ -340,11 +340,11 @@ public sealed class AcpHandler(
         AnsiConsole.MarkupLine($"[green][[ACP]][/] Session loaded: {Markup.Escape(sessionId)}");
     }
 
-    private void HandleSessionList(JsonRpcRequest request)
+    private async Task HandleSessionListAsync(JsonRpcRequest request, CancellationToken ct)
     {
         if (!EnsureInitialized(request)) return;
 
-        var threads = sessionService.FindThreadsAsync(_acpIdentity).GetAwaiter().GetResult();
+        var threads = await sessionService.FindThreadsAsync(_acpIdentity, ct);
         var sessions = threads
             .Select(t => new SessionListEntry
             {
@@ -789,7 +789,7 @@ public sealed class AcpHandler(
         ];
     }
 
-    private void HandleSessionMode(JsonRpcRequest request)
+    private async Task HandleSessionModeAsync(JsonRpcRequest request, CancellationToken ct)
     {
         if (!EnsureInitialized(request)) return;
 
@@ -803,7 +803,8 @@ public sealed class AcpHandler(
         var sessionId = p.SessionId;
         var modeName = p.Mode?.ToLowerInvariant() ?? "agent";
 
-        sessionService.SetThreadModeAsync(sessionId, modeName).GetAwaiter().GetResult();
+        await EnsureThreadMaterializedAsync(sessionId, ct);
+        await sessionService.SetThreadModeAsync(sessionId, modeName);
 
         var resolvedMode = modeName == "plan" ? AgentMode.Plan : AgentMode.Agent;
         transport.SendResponse(request.Id, new { mode = resolvedMode.ToString().ToLower() });
@@ -813,7 +814,7 @@ public sealed class AcpHandler(
         AnsiConsole.MarkupLine($"[green][[ACP]][/] Mode changed to {Markup.Escape(modeName)} [[session={Markup.Escape(sessionId)}]]");
     }
 
-    private void HandleSessionSetConfigOption(JsonRpcRequest request)
+    private async Task HandleSessionSetConfigOptionAsync(JsonRpcRequest request, CancellationToken ct)
     {
         if (!EnsureInitialized(request)) return;
 
@@ -830,7 +831,8 @@ public sealed class AcpHandler(
         {
             var modeName = p.Value.ToLowerInvariant();
 
-            sessionService.SetThreadModeAsync(sessionId, modeName).GetAwaiter().GetResult();
+            await EnsureThreadMaterializedAsync(sessionId, ct);
+            await sessionService.SetThreadModeAsync(sessionId, modeName);
 
             var updatedOptions = BuildConfigOptions(modeName);
             transport.SendResponse(request.Id, new SessionSetConfigOptionResult { ConfigOptions = updatedOptions });
