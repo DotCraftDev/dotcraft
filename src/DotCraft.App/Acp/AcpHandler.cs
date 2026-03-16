@@ -282,6 +282,8 @@ public sealed class AcpHandler(
 
         var sessionId = p.SessionId;
 
+        await EnsureThreadMaterializedAsync(sessionId, ct);
+
         // Resume the Thread via Session Protocol
         var resumedThread = await sessionService.ResumeThreadAsync(sessionId, ct);
 
