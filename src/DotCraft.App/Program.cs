@@ -1,5 +1,6 @@
 using System.Text;
 using DotCraft.Acp;
+using DotCraft.AppServer;
 using DotCraft.CLI;
 using DotCraft.Diagnostics;
 using DotCraft.Configuration;
@@ -16,10 +17,13 @@ Console.OutputEncoding = Encoding.UTF8;
 var isAcpMode = args.Any(a => a.Equals("-acp", StringComparison.OrdinalIgnoreCase)
                             || a.Equals("acp", StringComparison.OrdinalIgnoreCase));
 
-if (isAcpMode)
+var isAppServerMode = args.Any(a => a.Equals("app-server", StringComparison.OrdinalIgnoreCase));
+
+// Both ACP and AppServer reserve stdout for JSON-RPC; redirect all diagnostics to stderr
+if (isAcpMode || isAppServerMode)
 {
     // stdout is reserved for JSON-RPC; redirect all console diagnostics to stderr immediately
-    // so nothing pollutes the transport before AcpHost starts.
+    // so nothing pollutes the transport before the host starts.
     AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
     {
         Out = new AnsiConsoleOutput(Console.Error)
@@ -33,7 +37,7 @@ var workspaceJustInitialized = false;
 
 if (!Directory.Exists(botPath))
 {
-    if (isAcpMode)
+    if (isAcpMode || isAppServerMode)
     {
         await Console.Error.WriteLineAsync($"DotCraft workspace not found: {botPath}");
         Environment.Exit(1);
@@ -96,7 +100,14 @@ var config = AppConfig.LoadWithGlobalFallback(configPath);
 if (isAcpMode)
 {
     config.SetSection("Acp", new AcpConfig { Enabled = true });
-    // Dashboard is not useful in ACP mode (process is managed by the editor).
+    // Dashboard is not useful when the process is managed by an external client.
+    config.DashBoard.Enabled = false;
+}
+
+if (isAppServerMode)
+{
+    config.SetSection("AppServer", new AppServerConfig { Enabled = true });
+    // Dashboard is not useful when the process is managed by an external client.
     config.DashBoard.Enabled = false;
 }
 
@@ -111,7 +122,7 @@ if (config.DebugMode)
 
 if (string.IsNullOrWhiteSpace(config.ApiKey))
 {
-    if (isAcpMode)
+    if (isAcpMode || isAppServerMode)
     {
         await Console.Error.WriteLineAsync("API Key not configured. Please set ApiKey in config.json.");
         Environment.Exit(1);
