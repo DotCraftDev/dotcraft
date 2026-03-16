@@ -1,3 +1,4 @@
+using DotCraft.Mcp;
 using DotCraft.Sessions.Protocol;
 using Microsoft.Extensions.AI;
 
@@ -256,6 +257,72 @@ public sealed class SessionServiceLifecycleTests : IDisposable
         var loaded = await _store.LoadThreadAsync(thread.Id);
         Assert.NotNull(loaded);
         Assert.Equal("plan", loaded.Configuration?.Mode);
+    }
+
+    // -------------------------------------------------------------------------
+    // UpdateThreadConfiguration
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task UpdateThreadConfiguration_PersistsMcpServers()
+    {
+        var thread = await _svc.CreateThreadAsync(MakeIdentity());
+
+        var config = new ThreadConfiguration
+        {
+            Mode = "agent",
+            McpServers =
+            [
+                new McpServerConfig { Name = "test-mcp", Transport = "stdio", Command = "echo" }
+            ]
+        };
+        await _svc.UpdateThreadConfigurationAsync(thread.Id, config);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded?.Configuration?.McpServers);
+        Assert.Single(loaded!.Configuration!.McpServers);
+        Assert.Equal("test-mcp", loaded.Configuration.McpServers[0].Name);
+    }
+
+    [Fact]
+    public async Task CreateThread_WithConfig_PersistsConfiguration()
+    {
+        var config = new ThreadConfiguration
+        {
+            Mode = "plan",
+            McpServers =
+            [
+                new McpServerConfig { Name = "srv1", Transport = "http", Url = "http://localhost:3000" }
+            ]
+        };
+        var thread = await _svc.CreateThreadAsync(MakeIdentity(), config);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded?.Configuration);
+        Assert.Equal("plan", loaded!.Configuration!.Mode);
+        Assert.NotNull(loaded.Configuration.McpServers);
+        Assert.Single(loaded.Configuration.McpServers);
+        Assert.Equal("srv1", loaded.Configuration.McpServers[0].Name);
+    }
+
+    [Fact]
+    public async Task UpdateThreadConfiguration_NullMcpServers_ClearsExisting()
+    {
+        var config = new ThreadConfiguration
+        {
+            Mode = "agent",
+            McpServers =
+            [
+                new McpServerConfig { Name = "old-mcp", Transport = "stdio", Command = "echo" }
+            ]
+        };
+        var thread = await _svc.CreateThreadAsync(MakeIdentity(), config);
+
+        var updatedConfig = new ThreadConfiguration { Mode = "agent", McpServers = null };
+        await _svc.UpdateThreadConfigurationAsync(thread.Id, updatedConfig);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.Null(loaded?.Configuration?.McpServers);
     }
 
     // -------------------------------------------------------------------------
