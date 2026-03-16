@@ -1,7 +1,7 @@
 using DotCraft.Security;
 using DotCraft.Sessions.Protocol;
 
-namespace DotCraft.Core.Tests.Sessions.Protocol;
+namespace DotCraft.Tests.Sessions.Protocol;
 
 /// <summary>
 /// Tests for SessionApprovalService: approval request/resolve, rejection, and timeout.

@@ -1,6 +1,6 @@
 using DotCraft.Sessions.Protocol;
 
-namespace DotCraft.Core.Tests.Sessions.Protocol;
+namespace DotCraft.Tests.Sessions.Protocol;
 
 /// <summary>
 /// Tests for SessionEventChannel: event emission ordering, completion, and reader behavior.

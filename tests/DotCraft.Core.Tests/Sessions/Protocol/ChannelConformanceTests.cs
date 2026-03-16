@@ -1,6 +1,6 @@
 using DotCraft.Sessions.Protocol;
 
-namespace DotCraft.Core.Tests.Sessions.Protocol;
+namespace DotCraft.Tests.Sessions.Protocol;
 
 /// <summary>
 /// Conformance tests verifying Phase 3 channel migration contracts:

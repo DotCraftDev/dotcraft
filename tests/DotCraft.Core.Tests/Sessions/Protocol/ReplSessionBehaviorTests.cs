@@ -1,6 +1,6 @@
 using DotCraft.Sessions.Protocol;
 
-namespace DotCraft.Core.Tests.Sessions.Protocol;
+namespace DotCraft.Tests.Sessions.Protocol;
 
 /// <summary>
 /// Tests verifying the REPL session behavior contract after the Phase 3 Session Protocol migration:

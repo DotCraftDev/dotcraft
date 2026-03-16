@@ -2,7 +2,7 @@ using DotCraft.Mcp;
 using DotCraft.Sessions.Protocol;
 using Microsoft.Extensions.AI;
 
-namespace DotCraft.Core.Tests.Sessions.Protocol;
+namespace DotCraft.Tests.Sessions.Protocol;
 
 /// <summary>
 /// Unit tests for ISessionService lifecycle: create, pause, resume, archive, find.
