@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using DotCraft.Sessions.Protocol;
-using DotCraft.Sessions.Protocol.AppServer;
 
 namespace DotCraft.AppServerTestClient;
 

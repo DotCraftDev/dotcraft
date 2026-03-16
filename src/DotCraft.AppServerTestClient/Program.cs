@@ -1,6 +1,5 @@
 using System.Text.Json;
 using DotCraft.AppServerTestClient;
-using DotCraft.Sessions.Protocol;
 using DotCraft.Sessions.Protocol.AppServer;
 
 // ─────────────────────────────────────────────────────────────────────────────
