@@ -10,7 +10,7 @@ internal sealed class SessionEventChannel(string id, string turnId)
 {
     private readonly Channel<SessionEvent> _channel = Channel.CreateUnbounded<SessionEvent>(new UnboundedChannelOptions
     {
-        SingleWriter = true,
+        SingleWriter = false,
         SingleReader = false
     });
 
