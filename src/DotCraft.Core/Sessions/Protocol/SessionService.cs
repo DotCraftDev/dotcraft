@@ -15,42 +15,24 @@ namespace DotCraft.Sessions.Protocol;
 /// Session Core implementation. Manages Thread/Turn/Item lifecycle, orchestrates agent
 /// execution, emits the structured event stream, and delegates persistence to ThreadStore.
 /// </summary>
-public sealed class SessionService : ISessionService
+public sealed class SessionService(
+    AgentFactory agentFactory,
+    AIAgent defaultAgent,
+    ThreadStore threadStore,
+    SessionGate sessionGate,
+    HookRunner? hookRunner = null,
+    TraceCollector? traceCollector = null,
+    TimeSpan? approvalTimeout = null,
+    ILogger<SessionService>? logger = null)
+    : ISessionService
 {
-    private readonly AgentFactory _agentFactory;
-    private readonly AIAgent _defaultAgent;
-    private readonly ThreadStore _threadStore;
-    private readonly SessionGate _sessionGate;
-    private readonly HookRunner? _hookRunner;
-    private readonly TraceCollector? _traceCollector;
-    private readonly TimeSpan _approvalTimeout;
-    private readonly ILogger<SessionService>? _logger;
+    private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
     // In-memory state
     private readonly ConcurrentDictionary<string, SessionThread> _threads = new();
     private readonly ConcurrentDictionary<string, AIAgent> _threadAgents = new();
     private readonly ConcurrentDictionary<string, SessionApprovalService> _pendingApprovals = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _runningTurns = new();
-
-    public SessionService(
-        AgentFactory agentFactory,
-        AIAgent defaultAgent,
-        ThreadStore threadStore,
-        SessionGate sessionGate,
-        HookRunner? hookRunner = null,
-        TraceCollector? traceCollector = null,
-        TimeSpan? approvalTimeout = null,
-        ILogger<SessionService>? logger = null)
-    {
-        _agentFactory = agentFactory;
-        _defaultAgent = defaultAgent;
-        _threadStore = threadStore;
-        _sessionGate = sessionGate;
-        _hookRunner = hookRunner;
-        _traceCollector = traceCollector;
-        _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
-        _logger = logger;
-    }
 
     // =========================================================================
     // Thread lifecycle
@@ -89,7 +71,7 @@ public sealed class SessionService : ISessionService
         if (config != null)
             _threadAgents[thread.Id] = BuildAgentForConfig(config);
 
-        await _threadStore.SaveThreadAsync(thread, ct);
+        await threadStore.SaveThreadAsync(thread, ct);
 
         return thread;
     }
@@ -106,12 +88,12 @@ public sealed class SessionService : ISessionService
             {
                 cached.Status = ThreadStatus.Active;
                 cached.LastActiveAt = DateTimeOffset.UtcNow;
-                await _threadStore.SaveThreadAsync(cached, ct);
+                await threadStore.SaveThreadAsync(cached, ct);
             }
             return cached;
         }
 
-        var thread = await _threadStore.LoadThreadAsync(threadId, ct)
+        var thread = await threadStore.LoadThreadAsync(threadId, ct)
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
 
         if (thread.Status == ThreadStatus.Archived)
@@ -125,7 +107,7 @@ public sealed class SessionService : ISessionService
         if (thread.Configuration != null)
             _threadAgents[thread.Id] = BuildAgentForConfig(thread.Configuration);
 
-        await _threadStore.SaveThreadAsync(thread, ct);
+        await threadStore.SaveThreadAsync(thread, ct);
 
         return thread;
     }
@@ -135,7 +117,6 @@ public sealed class SessionService : ISessionService
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         if (thread.Status == ThreadStatus.Paused) return;
-        var prev = thread.Status;
         thread.Status = ThreadStatus.Paused;
         await PersistThreadStatusAsync(thread, ct);
     }
@@ -170,8 +151,8 @@ public sealed class SessionService : ISessionService
         _threadAgents.TryRemove(threadId, out _);
 
         // Delete persisted files
-        _threadStore.DeleteThread(threadId);
-        _threadStore.DeleteSessionFile(threadId);
+        threadStore.DeleteThread(threadId);
+        threadStore.DeleteSessionFile(threadId);
     }
 
     /// <inheritdoc/>
@@ -179,7 +160,7 @@ public sealed class SessionService : ISessionService
         SessionIdentity identity,
         CancellationToken ct = default)
     {
-        var all = await _threadStore.LoadIndexAsync(ct);
+        var all = await threadStore.LoadIndexAsync(ct);
         return all
             .Where(s =>
                 s.Status != ThreadStatus.Archived
@@ -243,7 +224,6 @@ public sealed class SessionService : ISessionService
         };
 
         var itemSeq = 1;
-        int NextItemSeq() => itemSeq++;
 
         // Extract plain text from content parts for display and persistence
         var text = string.Concat(content.OfType<TextContent>().Select(t => t.Text));
@@ -299,17 +279,17 @@ public sealed class SessionService : ISessionService
                 // Step 5a: Acquire SessionGate
                 try
                 {
-                    gateLock = await _sessionGate.AcquireAsync(threadId, executionCt);
+                    gateLock = await sessionGate.AcquireAsync(threadId, executionCt);
                 }
                 catch (SessionGateOverflowException ex)
                 {
-                    _logger?.LogWarning("Session gate overflow for thread {ThreadId}: {Message}", threadId, ex.Message);
+                    logger?.LogWarning("Session gate overflow for thread {ThreadId}: {Message}", threadId, ex.Message);
                     FailTurn(turn, eventChannel, $"Session queue overflow: {ex.Message}");
                     return;
                 }
 
                 // Step 5b: Load/create AgentSession
-                var agent = _threadAgents.GetValueOrDefault(threadId, _defaultAgent);
+                var agent = _threadAgents.GetValueOrDefault(threadId, defaultAgent);
                 AgentSession session;
                 if (thread.HistoryMode == HistoryMode.Client && messages != null)
                 {
@@ -324,18 +304,17 @@ public sealed class SessionService : ISessionService
                 }
                 else
                 {
-                    session = await _threadStore.LoadOrCreateSessionAsync(agent, threadId, executionCt);
+                    session = await threadStore.LoadOrCreateSessionAsync(agent, threadId, executionCt);
                 }
 
                 // Step 5c: Append runtime context to the multimodal content list
-                RuntimeContextBuilder.AppendTo(content);
-                var userMessage = new ChatMessage(ChatRole.User, content);
+                var userMessage = new ChatMessage(ChatRole.User, content.AppendRuntimeContext());
 
                 // Step 5d: Run PrePrompt hooks
-                if (_hookRunner != null)
+                if (hookRunner != null)
                 {
                     var hookInput = new HookInput { SessionId = threadId, Prompt = text };
-                    var hookResult = await _hookRunner.RunAsync(HookEvent.PrePrompt, hookInput, executionCt);
+                    var hookResult = await hookRunner.RunAsync(HookEvent.PrePrompt, hookInput, executionCt);
                     if (hookResult.Blocked)
                     {
                         var errorMsg = $"Prompt blocked by hook: {hookResult.BlockReason ?? "no reason given"}";
@@ -351,7 +330,7 @@ public sealed class SessionService : ISessionService
                 // Step 5e: Set tracing context
                 TracingChatClient.CurrentSessionKey = threadId;
                 TracingChatClient.ResetCallState(threadId);
-                var tokenTracker = _agentFactory.GetOrCreateTokenTracker(threadId);
+                var tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
                 TokenTracker.Current = tokenTracker;
 
                 // Step 5f: Set up approval service override
@@ -471,7 +450,7 @@ public sealed class SessionService : ISessionService
                                         CompletedAt = DateTimeOffset.UtcNow,
                                         Payload = new ToolResultPayload
                                         {
-                                            CallId = fr.CallId ?? string.Empty,
+                                            CallId = fr.CallId,
                                             Result = resultText,
                                             Success = true
                                         }
@@ -550,38 +529,38 @@ public sealed class SessionService : ISessionService
                 {
                     try
                     {
-                        await _threadStore.SaveSessionAsync(agent, session, threadId, compact: true,
+                        await threadStore.SaveSessionAsync(agent, session, threadId, compact: true,
                             ct: CancellationToken.None);
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogError(ex, "Failed to save agent session for thread {ThreadId}", threadId);
+                        logger?.LogError(ex, "Failed to save agent session for thread {ThreadId}", threadId);
                     }
                 }
 
                 // Step 5j: Run Stop hooks
-                if (_hookRunner != null)
+                if (hookRunner != null)
                 {
                     var stopInput = new HookInput { SessionId = threadId, Response = agentText };
-                    await _hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
+                    await hookRunner.RunAsync(HookEvent.Stop, stopInput, CancellationToken.None);
                 }
 
                 // Step 5k: Compaction
-                if (_agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
-                    (tokenTracker.LastInputTokens) >= _agentFactory.MaxContextTokens)
+                if (agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
+                    (tokenTracker.LastInputTokens) >= agentFactory.MaxContextTokens)
                 {
-                    if (await _agentFactory.Compactor.TryCompactAsync(session, CancellationToken.None))
+                    if (await agentFactory.Compactor.TryCompactAsync(session, CancellationToken.None))
                     {
                         tokenTracker.Reset();
-                        _traceCollector?.RecordContextCompaction(threadId);
+                        traceCollector?.RecordContextCompaction(threadId);
                     }
                 }
 
                 // Step 5l: Memory consolidation (fire-and-forget)
-                _ = _agentFactory.TryConsolidateMemory(session, threadId);
+                _ = agentFactory.TryConsolidateMemory(session, threadId);
 
                 // Step 5m: Release gate
-                gateLock?.Dispose();
+                gateLock.Dispose();
                 gateLock = null;
 
                 // Steps 5n-5r: Complete Turn
@@ -592,11 +571,11 @@ public sealed class SessionService : ISessionService
 
                 try
                 {
-                    await _threadStore.SaveThreadAsync(thread, CancellationToken.None);
+                    await threadStore.SaveThreadAsync(thread, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Failed to persist thread state after turn completion for thread {ThreadId}", threadId);
+                    logger?.LogError(ex, "Failed to persist thread state after turn completion for thread {ThreadId}", threadId);
                 }
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
@@ -616,7 +595,7 @@ public sealed class SessionService : ISessionService
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Turn execution failed for thread {ThreadId}", threadId);
+                logger?.LogError(ex, "Turn execution failed for thread {ThreadId}", threadId);
                 FailTurn(turn, eventChannel, ex.Message);
                 await TrySaveThreadAsync(thread);
             }
@@ -632,6 +611,8 @@ public sealed class SessionService : ISessionService
         }, CancellationToken.None); // Run regardless of caller ct; we handle it internally
 
         return eventChannel;
+
+        int NextItemSeq() => itemSeq++;
     }
 
     /// <inheritdoc/>
@@ -670,9 +651,9 @@ public sealed class SessionService : ISessionService
         var agentMode = mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
             ? AgentMode.Plan
             : AgentMode.Agent;
-        _threadAgents[threadId] = _agentFactory.CreateAgentForMode(agentMode);
+        _threadAgents[threadId] = agentFactory.CreateAgentForMode(agentMode);
 
-        await _threadStore.SaveThreadAsync(thread, ct);
+        await threadStore.SaveThreadAsync(thread, ct);
     }
 
     /// <inheritdoc/>
@@ -684,7 +665,7 @@ public sealed class SessionService : ISessionService
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         thread.Configuration = config;
         _threadAgents[threadId] = BuildAgentForConfig(config);
-        await _threadStore.SaveThreadAsync(thread, ct);
+        await threadStore.SaveThreadAsync(thread, ct);
     }
 
     // =========================================================================
@@ -696,7 +677,7 @@ public sealed class SessionService : ISessionService
         if (_threads.TryGetValue(threadId, out var cached))
             return cached;
 
-        var thread = await _threadStore.LoadThreadAsync(threadId, ct)
+        var thread = await threadStore.LoadThreadAsync(threadId, ct)
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
 
         _threads[thread.Id] = thread;
@@ -705,7 +686,7 @@ public sealed class SessionService : ISessionService
 
     private async Task PersistThreadStatusAsync(SessionThread thread, CancellationToken ct)
     {
-        await _threadStore.SaveThreadAsync(thread, ct);
+        await threadStore.SaveThreadAsync(thread, ct);
     }
 
     private static void FailTurn(SessionTurn turn, SessionEventChannel channel, string errorMsg)
@@ -720,11 +701,11 @@ public sealed class SessionService : ISessionService
     {
         try
         {
-            await _threadStore.SaveThreadAsync(thread, CancellationToken.None);
+            await threadStore.SaveThreadAsync(thread, CancellationToken.None);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to persist thread state for thread {ThreadId}", thread.Id);
+            logger?.LogError(ex, "Failed to persist thread state for thread {ThreadId}", thread.Id);
         }
     }
 
@@ -745,10 +726,9 @@ public sealed class SessionService : ISessionService
 
     private AIAgent BuildAgentForConfig(ThreadConfiguration config)
     {
-        var mode = config.Mode?.Equals("plan", StringComparison.OrdinalIgnoreCase) == true
+        var mode = config.Mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
             ? AgentMode.Plan
             : AgentMode.Agent;
-        return _agentFactory.CreateAgentForMode(mode);
+        return agentFactory.CreateAgentForMode(mode);
     }
-
 }

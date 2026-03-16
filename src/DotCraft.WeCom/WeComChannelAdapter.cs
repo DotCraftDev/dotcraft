@@ -5,7 +5,6 @@ using DotCraft.Agents;
 using DotCraft.Diagnostics;
 using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
-using DotCraft.Context;
 using DotCraft.Cron;
 using DotCraft.Tracing;
 using DotCraft.Sessions;
@@ -132,8 +131,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
             plainText = cmdResult.ExpandedPrompt;
 
         IList<AIContent> contentParts = [new TextContent(plainText)];
-        RuntimeContextBuilder.AppendTo(contentParts);
-
         await RunAgentAsync(contentParts, from, pusher);
     }
 
@@ -146,7 +143,6 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
         {
             var logType = message.MsgType == WeComMsgType.Mixed ? "mixed" : message.MsgType;
             LogIncoming(logType, message.ChatId, from.Name, $"发送了{DescribeMsgType(message.MsgType)}");
-            RuntimeContextBuilder.AppendTo(contentParts);
             await RunAgentAsync(contentParts, from, pusher);
             return;
         }

@@ -5,7 +5,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
-using DotCraft.Context;
+
 using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
@@ -451,8 +451,6 @@ public sealed class AcpHandler(
             {
                 contentParts = BuildPromptContent(p.Prompt);
             }
-
-            RuntimeContextBuilder.AppendTo(contentParts);
 
             logger?.LogEvent($"Prompt start [session={sessionId}]: {(promptText.Length > 200 ? promptText[..200] + "..." : promptText)}");
 
