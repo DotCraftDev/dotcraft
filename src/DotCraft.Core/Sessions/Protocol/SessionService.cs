@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using DotCraft.Agents;
 using DotCraft.Context;
 using DotCraft.Hooks;
+using DotCraft.Mcp;
 using DotCraft.Security;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
@@ -40,6 +41,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, AIAgent> _threadAgents = new();
     private readonly ConcurrentDictionary<TurnKey, SessionApprovalService> _pendingApprovals = new();
     private readonly ConcurrentDictionary<TurnKey, CancellationTokenSource> _runningTurns = new();
+    private readonly ConcurrentDictionary<string, McpClientManager> _threadMcpManagers = new();
 
     // =========================================================================
     // Thread lifecycle
@@ -76,7 +78,7 @@ public sealed class SessionService(
 
         // Create per-thread agent if custom configuration provided
         if (config != null)
-            _threadAgents[thread.Id] = BuildAgentForConfig(config);
+            _threadAgents[thread.Id] = await BuildAgentForConfigAsync(thread.Id, config, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
 
@@ -112,7 +114,7 @@ public sealed class SessionService(
         _threads[thread.Id] = thread;
 
         if (thread.Configuration != null)
-            _threadAgents[thread.Id] = BuildAgentForConfig(thread.Configuration);
+            _threadAgents[thread.Id] = await BuildAgentForConfigAsync(thread.Id, thread.Configuration, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
 
@@ -157,6 +159,8 @@ public sealed class SessionService(
         // Remove all in-memory state
         _threads.TryRemove(threadId, out _);
         _threadAgents.TryRemove(threadId, out _);
+        if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
+            await mcpManager.DisposeAsync();
 
         // Delete persisted files
         threadStore.DeleteThread(threadId);
@@ -674,7 +678,7 @@ public sealed class SessionService(
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         thread.Configuration = config;
-        _threadAgents[threadId] = BuildAgentForConfig(config);
+        _threadAgents[threadId] = await BuildAgentForConfigAsync(threadId, config, ct);
         await threadStore.SaveThreadAsync(thread, ct);
     }
 
@@ -734,11 +738,26 @@ public sealed class SessionService(
         };
     }
 
-    private AIAgent BuildAgentForConfig(ThreadConfiguration config)
+    private async Task<AIAgent> BuildAgentForConfigAsync(
+        string threadId, ThreadConfiguration config, CancellationToken ct)
     {
         var mode = config.Mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
             ? AgentMode.Plan
             : AgentMode.Agent;
-        return agentFactory.CreateAgentForMode(mode);
+
+        if (config.McpServers is not { Length: > 0 })
+            return agentFactory.CreateAgentForMode(mode);
+
+        // Dispose previous per-thread MCP manager if replacing config
+        if (_threadMcpManagers.TryRemove(threadId, out var oldManager))
+            await oldManager.DisposeAsync();
+
+        var mcpManager = new McpClientManager();
+        await mcpManager.ConnectAsync(config.McpServers, ct);
+        _threadMcpManagers[threadId] = mcpManager;
+
+        var tools = agentFactory.CreateToolsForMode(mode);
+        tools.AddRange(mcpManager.Tools);
+        return agentFactory.CreateAgentWithTools(tools);
     }
 }

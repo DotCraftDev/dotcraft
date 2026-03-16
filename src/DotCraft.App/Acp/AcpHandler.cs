@@ -287,6 +287,13 @@ public sealed class AcpHandler(
         // Resume the Thread via Session Protocol
         var resumedThread = await sessionService.ResumeThreadAsync(sessionId, ct);
 
+        if (p.McpServers is { Count: > 0 })
+        {
+            var config = resumedThread.Configuration ?? new ThreadConfiguration();
+            config.McpServers = ConvertToMcpConfigs(p.McpServers).ToArray();
+            await sessionService.UpdateThreadConfigurationAsync(sessionId, config, ct);
+        }
+
         // Replay conversation history as session/update notifications
         foreach (var turn in resumedThread.Turns)
         {
