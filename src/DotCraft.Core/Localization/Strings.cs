@@ -122,6 +122,8 @@ public static class Strings
     public static string TipDirectInput(LanguageService lang) => lang.GetString("直接输入问题与 DotCraft 对话", "Directly input questions to chat with DotCraft");
     public static string TipArrowKeys(LanguageService lang) => lang.GetString("使用方向键 ↑↓ 浏览历史", "Use arrow keys ↑↓ to browse history");
     public static string TipAutoSave(LanguageService lang) => lang.GetString("会话结束会自动保存", "Sessions are saved automatically");
+    public static string TipTabComplete(LanguageService lang) => lang.GetString("按 Tab 自动补全命令", "Press Tab to auto-complete commands");
+    public static string TipShiftTabMode(LanguageService lang) => lang.GetString("按 Shift+Tab 切换 Plan/Agent 模式", "Press Shift+Tab to switch Plan/Agent mode");
 
     // Skills panel
     public static string AvailableSkills(LanguageService lang) => lang.GetString("可用技能", "Available skills");

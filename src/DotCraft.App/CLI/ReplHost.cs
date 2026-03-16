@@ -51,7 +51,7 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
     private readonly List<string> _inputHistory = new();
 
     /// <summary>
-    /// Buffer snapshot saved when the user presses Tab to switch mode,
+    /// Buffer snapshot saved when the user presses Shift+Tab to switch mode,
     /// so it can be restored on the next prompt.
     /// </summary>
     private List<string>? _pendingBuffer;
@@ -73,7 +73,7 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
             var (result, input) = await ReadInputAsync(cancellationToken);
             if (result == LineEditResult.ModeSwitch)
             {
-                // Tab was pressed -- mode already toggled, just re-loop for new prompt
+                // Shift+Tab was pressed -- mode already toggled, just re-loop for new prompt
                 continue;
             }
             if (string.IsNullOrWhiteSpace(input))
@@ -144,7 +144,7 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
     /// <summary>
     /// Reads a line of input using the <see cref="LineEditor"/>.
     /// Supports cursor movement, command history, multi-line input (Ctrl+Enter),
-    /// word-wrap across terminal width, command hints, and Tab mode-switch.
+    /// word-wrap across terminal width, command hints, Tab auto-complete, and Shift+Tab mode-switch.
     /// </summary>
     private async Task<(LineEditResult Result, string Text)> ReadInputAsync(CancellationToken cancellationToken)
     {
@@ -152,7 +152,7 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
 
         var editor = new LineEditor(_inputHistory, promptWidth, GetCommandHints);
 
-        // Restore buffer that was saved during a previous Tab mode-switch
+        // Restore buffer that was saved during a previous Shift+Tab mode-switch
         if (_pendingBuffer is { Count: > 0 })
         {
             editor.SetInitialBuffer(_pendingBuffer);
@@ -163,7 +163,7 @@ public sealed class ReplHost(AIAgent agent, SkillsLoader skillsLoader,
 
         if (result == LineEditResult.ModeSwitch)
         {
-            // Save current buffer so it survives the mode switch
+            // Save current buffer so it survives the Shift+Tab mode switch
             _pendingBuffer = new List<string>(editor.Buffer);
             var next = _modeManager.CurrentMode == AgentMode.Plan
                 ? AgentMode.Agent

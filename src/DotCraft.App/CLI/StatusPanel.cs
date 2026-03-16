@@ -251,6 +251,8 @@ public static class StatusPanel
         grid.AddRow(new Markup($"[yellow]{Strings.UsageTips(lang)}:[/]"), new Markup(""));
         grid.AddRow($"  • {Strings.TipDirectInput(lang)}", "");
         grid.AddRow($"  • {Strings.TipArrowKeys(lang)}", "");
+        grid.AddRow($"  • {Strings.TipTabComplete(lang)}", "");
+        grid.AddRow($"  • {Strings.TipShiftTabMode(lang)}", "");
         grid.AddRow($"  • {Strings.TipAutoSave(lang)}", "");
 
         var panel = new Panel(grid)

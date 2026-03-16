@@ -10,7 +10,7 @@ public enum LineEditResult
     /// <summary>User pressed Enter to submit the input.</summary>
     Submitted,
 
-    /// <summary>User pressed Tab to switch agent mode.</summary>
+    /// <summary>User pressed Shift+Tab to switch agent mode.</summary>
     ModeSwitch
 }
 
@@ -65,7 +65,7 @@ public sealed class LineEditor
     }
 
     /// <summary>
-    /// Pre-populate the buffer (e.g. after a Tab mode-switch) and display it.
+    /// Pre-populate the buffer (e.g. after a Shift+Tab mode-switch) and display it.
     /// </summary>
     public void SetInitialBuffer(IEnumerable<string> chars)
     {
@@ -79,6 +79,7 @@ public sealed class LineEditor
     /// Read one line of input, returning the result kind and the text.
     /// When <see cref="LineEditResult.ModeSwitch"/> is returned, <paramref name="text"/>
     /// contains the current buffer so the caller can restore it later.
+    /// Tab accepts the first command hint; Shift+Tab switches agent mode;
     /// Ctrl+Enter inserts a newline into the buffer; plain Enter submits.
     /// </summary>
     public async Task<(LineEditResult Result, string Text)> ReadLineAsync(CancellationToken ct)
@@ -92,9 +93,14 @@ public sealed class LineEditor
             switch (key.Key)
             {
                 case ConsoleKey.Tab:
-                    ClearHints();
-                    AnsiConsole.WriteLine();
-                    return (LineEditResult.ModeSwitch, string.Concat(_buffer));
+                    if ((key.Modifiers & ConsoleModifiers.Shift) != 0)
+                    {
+                        ClearHints();
+                        AnsiConsole.WriteLine();
+                        return (LineEditResult.ModeSwitch, string.Concat(_buffer));
+                    }
+                    AcceptFirstHint();
+                    break;
 
                 case ConsoleKey.Enter:
                     if ((key.Modifiers & ConsoleModifiers.Control) != 0)
@@ -457,6 +463,21 @@ public sealed class LineEditor
         int count = _lastHintLineCount;
         _lastHintLineCount = 0;
         DrawInHintArea(count, _ => { });
+    }
+
+    /// <summary>Accept the first hint into the buffer, replacing current content.</summary>
+    private void AcceptFirstHint()
+    {
+        if (_hintProvider == null) return;
+
+        var bufferText = string.Concat(_buffer);
+        var hints = _hintProvider(bufferText);
+        if (hints.Count == 0) return;
+
+        var completed = hints[0].Command;
+        if (completed == bufferText) return;
+
+        ReplaceBuffer(completed);
     }
 
     private static string SanitizeHintText(string text)
