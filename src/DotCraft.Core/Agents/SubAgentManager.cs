@@ -230,7 +230,17 @@ public sealed class SubAgentManager
             {
                 fic.FunctionInvoker = async (context, ct) =>
                 {
-                    progressEntry.CurrentTool = context.Function.Name;
+                    var toolName = context.Function.Name;
+                    progressEntry.CurrentTool = toolName;
+                    progressEntry.LastTool = toolName;
+
+                    // Generate human-readable display text via ToolRegistry
+                    var args = context.Arguments as IDictionary<string, object?>
+                               ?? context.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value);
+                    var display = ToolRegistry.FormatToolCall(toolName, args);
+                    progressEntry.CurrentToolDisplay = display;
+                    progressEntry.LastToolDisplay = display;
+
                     try
                     {
                         return await context.Function.InvokeAsync(context.Arguments, ct);
@@ -238,6 +248,7 @@ public sealed class SubAgentManager
                     finally
                     {
                         progressEntry.CurrentTool = null;
+                        progressEntry.CurrentToolDisplay = null;
                     }
                 };
             }

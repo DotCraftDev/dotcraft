@@ -76,10 +76,14 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
         // Event-driven progress fields (populated by SubAgentProgress RenderEvents in Wire mode)
         public string? CurrentTool { get; set; }
+        public string? CurrentToolDisplay { get; set; }
         public long InputTokens { get; set; }
         public long OutputTokens { get; set; }
         /// <summary>True when at least one SubAgentProgress event has been received for this entry.</summary>
         public bool HasProgressData { get; set; }
+        /// <summary>True when a SubAgentProgress event with IsCompleted=true has been received for this entry.
+        /// This signals that the final snapshot (with complete token stats) has arrived.</summary>
+        public bool ProgressCompleted { get; set; }
     }
 
     private enum RenderState
@@ -511,11 +515,15 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                                                 string.Equals(e.Label, pe.Label, StringComparison.Ordinal));
                                             if (target == null) continue;
                                             target.CurrentTool = pe.CurrentTool;
+                                            target.CurrentToolDisplay = pe.CurrentToolDisplay;
                                             target.InputTokens = pe.InputTokens;
                                             target.OutputTokens = pe.OutputTokens;
                                             target.HasProgressData = true;
                                             if (pe.IsCompleted)
+                                            {
                                                 target.Completed = true;
+                                                target.ProgressCompleted = true;
+                                            }
                                         }
                                         break;
 
@@ -545,6 +553,19 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
                             if (entries.TrueForAll(e => e.Completed || e.Failed))
                             {
+                                // In Wire mode, the final SubAgentProgress snapshot (with complete
+                                // token stats) is emitted by the server's DisposeAsync() *after*
+                                // the ToolResult ItemCompleted that triggers Completed=true above.
+                                // The DisposeAsync involves an async await (_runTask), so the final
+                                // snapshot may not yet be in the channel when TryRead runs.
+                                //
+                                // Strategy: wait (with timeout) for the final SubAgentProgress that
+                                // has IsCompleted=true for all progress-tracked entries. The server
+                                // guarantees this event arrives before TurnCompleted, so a bounded
+                                // wait is safe.
+                                await DrainFinalSubAgentProgressAsync(
+                                    reader, entries, buffered, ct);
+
                                 ctx.UpdateTarget(BuildSubAgentTable(entries, frames, frameIndex));
                                 return;
                             }
@@ -609,6 +630,108 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         }
     }
 
+    /// <summary>
+    /// After all SubAgent entries are marked Completed, wait (with timeout) for the
+    /// final <see cref="RenderEventType.SubAgentProgress"/> event that carries the
+    /// complete token statistics. In Wire mode, this event is emitted by the server's
+    /// <c>SubAgentProgressAggregator.DisposeAsync()</c> which runs after the last
+    /// <c>EmitItemCompleted(ToolResult)</c> and involves an async <c>await _runTask</c>.
+    /// A non-blocking <c>TryRead</c> is therefore insufficient — the final snapshot
+    /// may still be in transit. We wait up to a bounded timeout for it to arrive.
+    /// </summary>
+    private static async Task DrainFinalSubAgentProgressAsync(
+        ChannelReader<RenderEvent> reader,
+        List<SubAgentEntry> entries,
+        List<RenderEvent> buffered,
+        CancellationToken ct)
+    {
+        // Determine whether we need to wait: only if at least one entry has received
+        // event-driven progress data (Wire mode). In InProcess mode entries use
+        // SubAgentProgressBridge directly and HasProgressData is false.
+        bool anyProgressTracked = entries.Exists(e => e.HasProgressData);
+
+        // Phase 1: non-blocking sweep of anything already in the channel.
+        DrainAvailableProgress(reader, entries, buffered);
+
+        if (!anyProgressTracked || AllProgressComplete(entries))
+            return;
+
+        // Phase 2: bounded wait. The server guarantees the final SubAgentProgress
+        // snapshot arrives before TurnCompleted, so this should resolve quickly.
+        // Timeout is generous to cover slow networks / thread-pool saturation.
+        const int maxWaitMs = 2000;
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        waitCts.CancelAfter(maxWaitMs);
+
+        try
+        {
+            while (!AllProgressComplete(entries))
+            {
+                // Block until at least one event is available, then sweep.
+                await reader.WaitToReadAsync(waitCts.Token);
+                DrainAvailableProgress(reader, entries, buffered);
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Timeout expired — accept whatever data we have. This is a safety
+            // net; under normal conditions the final snapshot arrives well within
+            // the timeout.
+        }
+    }
+
+    /// <summary>
+    /// Non-blocking sweep: read all available events from the channel, apply any
+    /// <see cref="RenderEventType.SubAgentProgress"/> data, and buffer the rest.
+    /// </summary>
+    private static void DrainAvailableProgress(
+        ChannelReader<RenderEvent> reader,
+        List<SubAgentEntry> entries,
+        List<RenderEvent> buffered)
+    {
+        while (reader.TryRead(out var evt))
+        {
+            if (evt.Type == RenderEventType.SubAgentProgress
+                && evt.SubAgentEntries is { } progressEntries)
+            {
+                foreach (var pe in progressEntries)
+                {
+                    var target = entries.Find(e =>
+                        string.Equals(e.Label, pe.Label, StringComparison.Ordinal));
+                    if (target == null) continue;
+                    target.CurrentTool = pe.CurrentTool;
+                    target.CurrentToolDisplay = pe.CurrentToolDisplay;
+                    target.InputTokens = pe.InputTokens;
+                    target.OutputTokens = pe.OutputTokens;
+                    target.HasProgressData = true;
+                    if (pe.IsCompleted)
+                        target.ProgressCompleted = true;
+                }
+            }
+            else
+            {
+                buffered.Add(evt);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns true when every entry that has received event-driven progress data
+    /// also received a SubAgentProgress event with IsCompleted=true (the final snapshot).
+    /// Entries without progress data (InProcess mode) are excluded from the check.
+    /// </summary>
+    private static bool AllProgressComplete(List<SubAgentEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            if (!entry.HasProgressData)
+                continue;
+            if (!entry.ProgressCompleted)
+                return false;
+        }
+        return true;
+    }
+
     private static void AddSubAgentEntry(List<SubAgentEntry> entries, RenderEvent evt)
     {
         var display = evt.FormattedDisplay ?? evt.Title ?? "SubAgent";
@@ -653,6 +776,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                 : entry.Label;
 
             var activity = string.Empty;
+            const int maxActivityLen = 24;
 
             // Dual data source: prefer event-driven data (HasProgressData = Wire mode),
             // fall back to SubAgentProgressBridge polling (InProcess mode).
@@ -666,9 +790,9 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                 }
                 else
                 {
-                    var tool = entry.CurrentTool;
-                    activity = !string.IsNullOrEmpty(tool)
-                        ? $"[dim]{Markup.Escape(tool)}[/]"
+                    var display = entry.CurrentToolDisplay ?? entry.CurrentTool;
+                    activity = !string.IsNullOrEmpty(display)
+                        ? $"[dim]{Markup.Escape(ToolDisplayHelpers.Truncate(display, maxActivityLen))}[/]"
                         : "[dim]Thinking...[/]";
 
                     if (entry.InputTokens > 0 || entry.OutputTokens > 0)
@@ -686,9 +810,10 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                 }
                 else if (progress != null)
                 {
-                    var tool = progress.CurrentTool;
-                    activity = !string.IsNullOrEmpty(tool)
-                        ? $"[dim]{Markup.Escape(tool)}[/]"
+                    var display = progress.CurrentToolDisplay ?? progress.LastToolDisplay
+                                  ?? progress.CurrentTool ?? progress.LastTool;
+                    activity = !string.IsNullOrEmpty(display)
+                        ? $"[dim]{Markup.Escape(ToolDisplayHelpers.Truncate(display, maxActivityLen))}[/]"
                         : "[dim]Thinking...[/]";
 
                     if (progress.InputTokens > 0 || progress.OutputTokens > 0)

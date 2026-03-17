@@ -4,8 +4,6 @@ using DotCraft.Hooks;
 using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Tracing;
-using DotCraft.Tools;
-using Spectre.Console;
 
 namespace DotCraft.CLI;
 

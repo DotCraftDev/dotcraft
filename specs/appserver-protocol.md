@@ -435,7 +435,7 @@ Permanently delete a thread and its associated session data.
 
 ### 4.10 `thread/mode/set`
 
-Set the agent mode for a thread (e.g., `"suggest"`, `"auto-edit"`, `"full"`).
+Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
 **Direction**: client → server (request)
 
@@ -447,6 +447,8 @@ Set the agent mode for a thread (e.g., `"suggest"`, `"auto-edit"`, `"full"`).
 | `mode` | string | yes | New agent mode. |
 
 **Result**: `{}`
+
+**Behavior**: The server recreates the agent for the specified thread with the new mode's tool set. The resulting agent must have the same mode-specific tools as an equivalent in-process agent (see Session Core spec §16.3.1). In particular, the AppServer process must supply `PlanStore` to `AgentFactory` so that plan-mode tools (`CreatePlan`) and agent-mode plan tools (`UpdateTodos`, `TodoWrite`) are correctly injected.
 
 ### 4.9 `thread/config/update`
 

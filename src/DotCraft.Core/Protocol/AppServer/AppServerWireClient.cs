@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 
 namespace DotCraft.Protocol.AppServer;
 
@@ -14,26 +15,22 @@ namespace DotCraft.Protocol.AppServer;
 /// <see cref="ServerRequestHandler"/> when set; otherwise they are placed in the notification
 /// queue and can be retrieved via <see cref="WaitForNotificationAsync"/>.
 /// </summary>
-public sealed class AppServerWireClient : IAsyncDisposable
+public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDisposable
 {
-    private readonly StreamReader _reader;
-    private readonly StreamWriter _writer;
+    private readonly StreamReader _reader = new(input, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+    private readonly StreamWriter _writer = new(output, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), leaveOpen: true)
+    {
+        AutoFlush = true
+    };
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonDocument>> _pending = new();
-    private readonly System.Threading.Channels.Channel<JsonDocument> _notifications =
-        System.Threading.Channels.Channel.CreateUnbounded<JsonDocument>();
+    private readonly Channel<JsonDocument> _notifications = Channel.CreateUnbounded<JsonDocument>();
 
     private Task? _readerTask;
     private readonly CancellationTokenSource _disposeCts = new();
     private int _nextId;
     private bool _disposed;
-
-    private static readonly JsonSerializerOptions ReadOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
-    };
 
     /// <summary>
     /// Optional handler for server-initiated JSON-RPC requests (messages with both
@@ -43,15 +40,6 @@ public sealed class AppServerWireClient : IAsyncDisposable
     /// When null (default), server requests are placed in the notification queue.
     /// </summary>
     public Func<JsonDocument, Task<object?>>? ServerRequestHandler { get; set; }
-
-    public AppServerWireClient(Stream input, Stream output)
-    {
-        _reader = new StreamReader(input, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-        _writer = new StreamWriter(output, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), leaveOpen: true)
-        {
-            AutoFlush = true
-        };
-    }
 
     /// <summary>
     /// Starts the background reader loop. Must be called before sending any requests.
@@ -90,7 +78,6 @@ public sealed class AppServerWireClient : IAsyncDisposable
     /// <summary>
     /// Reads all JSON-RPC notifications until a terminal turn event is received
     /// (<c>turn/completed</c>, <c>turn/failed</c>, or <c>turn/cancelled</c>).
-    /// Intended for consumption by <see cref="DotCraft.CLI.Rendering.StreamAdapter.AdaptWireNotificationsAsync"/>.
     /// </summary>
     public async IAsyncEnumerable<JsonDocument> ReadTurnNotificationsAsync(
         TimeSpan? timeout = null,
@@ -185,7 +172,7 @@ public sealed class AppServerWireClient : IAsyncDisposable
             JsonDocument notif;
             try { notif = await _notifications.Reader.ReadAsync(cts.Token); }
             catch (OperationCanceledException) { break; }
-            catch (System.Threading.Channels.ChannelClosedException) { break; }
+            catch (ChannelClosedException) { break; }
 
             if (method == null) return notif;
 
@@ -298,10 +285,26 @@ public sealed class AppServerWireClient : IAsyncDisposable
         await _disposeCts.CancelAsync();
         _reader.Dispose();
         await _writeLock.WaitAsync();
-        try { _writer.Dispose(); }
-        finally { _writeLock.Release(); }
+        try
+        {
+            await _writer.DisposeAsync();
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
         if (_readerTask != null)
-            try { await _readerTask; } catch { }
+        {
+            try
+            {
+                await _readerTask;
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
         _disposeCts.Dispose();
         _writeLock.Dispose();
     }

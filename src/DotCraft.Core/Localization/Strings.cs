@@ -13,7 +13,6 @@ public static class Strings
     public static string CmdLoad(LanguageService lang) => lang.GetString("选择并切换到另一个会话", "Select and switch to another session");
     public static string CmdDelete(LanguageService lang) => lang.GetString("选择并删除一个会话", "Select and delete a session");
     public static string CmdInit(LanguageService lang) => lang.GetString("初始化工作区", "Initialize workspace");
-    public static string CmdConfig(LanguageService lang) => lang.GetString("查看当前配置信息", "View current configuration");
     public static string CmdDebug(LanguageService lang) => lang.GetString("切换调试模式", "Toggle debug mode");
     public static string CmdSkills(LanguageService lang) => lang.GetString("显示可用技能列表", "Show available skills");
     public static string CmdMcp(LanguageService lang) => lang.GetString("显示 MCP 服务状态", "Show MCP service status");
@@ -49,15 +48,6 @@ public static class Strings
     public static string InitCancelled(LanguageService lang) => lang.GetString("初始化已取消", "Initialization cancelled");
     public static string InitComplete(LanguageService lang) => lang.GetString("初始化完成！", "Initialization complete!");
     public static string InitFailed(LanguageService lang) => lang.GetString("初始化失败，错误码", "Initialization failed, error code");
-
-    // Config command
-    public static string CurrentConfig(LanguageService lang) => lang.GetString("当前配置", "Current configuration");
-    public static string ConfigItem(LanguageService lang) => lang.GetString("配置项", "Config item");
-    public static string NotConfigured(LanguageService lang) => lang.GetString("未配置", "Not configured");
-    public static string Configured(LanguageService lang) => lang.GetString("已配置", "Configured");
-    public static string ConfigFilePath(LanguageService lang) => lang.GetString("配置文件路径", "Configuration file path");
-    public static string ConfigTip(LanguageService lang) => lang.GetString("提示", "Tip");
-    public static string ConfigEditTip(LanguageService lang) => lang.GetString("要修改配置，请编辑配置文件并重启程序。", "To modify configuration, edit the config file and restart the program.");
 
     // Memory command
     public static string LongTermMemory(LanguageService lang) => lang.GetString("长期记忆 (MEMORY.md)", "Long-term Memory (MEMORY.md)");
@@ -108,10 +98,6 @@ public static class Strings
 
     // Agent interrupt
     public static string AgentInterrupted(LanguageService lang) => lang.GetString("Agent 已中断", "Agent interrupted");
-
-    // Stop command
-    public static string AgentStopped(LanguageService lang) => lang.GetString("Agent 已停止。", "Agent stopped.");
-    public static string NoActiveRun(LanguageService lang) => lang.GetString("当前没有正在运行的 Agent。", "No active agent run for this session.");
 
     // Goodbye
     public static string Goodbye(LanguageService lang) => lang.GetString("再见！", "Goodbye!");

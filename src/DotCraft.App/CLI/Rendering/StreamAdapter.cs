@@ -511,6 +511,8 @@ public static partial class StreamAdapter
                             Label = label!,
                             CurrentTool = item.TryGetProperty("currentTool", out var ct2) && ct2.ValueKind == JsonValueKind.String
                                 ? ct2.GetString() : null,
+                            CurrentToolDisplay = item.TryGetProperty("currentToolDisplay", out var ctd) && ctd.ValueKind == JsonValueKind.String
+                                ? ctd.GetString() : null,
                             InputTokens = item.TryGetProperty("inputTokens", out var it) ? it.GetInt64() : 0L,
                             OutputTokens = item.TryGetProperty("outputTokens", out var ot) ? ot.GetInt64() : 0L,
                             IsCompleted = item.TryGetProperty("isCompleted", out var ic) && ic.GetBoolean()

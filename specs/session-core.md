@@ -1137,6 +1137,24 @@ ISessionService.SetThreadMode(threadId: string, mode: string) → void
 - No Turn is created. This is a metadata operation.
 - Emits `thread/statusChanged` event with mode information.
 
+### 16.3.1 Mode-Specific Tool Injection
+
+Each agent mode defines a **mode-specific tool set** that is injected (or removed) when the agent is created for that mode. The `AgentFactory` is responsible for assembling the correct tools based on the mode:
+
+| Mode | Injected Tools | Required Dependency | Removed Tools |
+|------|---------------|---------------------|---------------|
+| `plan` | `CreatePlan` | `PlanStore` | Tools in the plan-mode deny list (e.g., `TodoWrite`, `UpdateTodos`) |
+| `agent` | `UpdateTodos`, `TodoWrite` | `PlanStore` | _(none beyond global deny list)_ |
+
+**`PlanStore` as a Required Dependency**: `PlanStore` provides per-session plan persistence and is required for plan-related tool injection. All hosts that support mode switching **must** supply a `PlanStore` instance to `AgentFactory`. When `PlanStore` is `null`, plan-related tools are silently omitted regardless of the requested mode — this is considered a host configuration error, not a graceful degradation.
+
+**`onPlanUpdated` Callback**: Hosts may optionally supply a plan-update callback to propagate plan state changes to their UX layer (e.g., CLI status panel, ACP notification, Wire notification). The absence of this callback does not affect tool injection; it only disables real-time plan status updates to the client.
+
+**Host Equivalence Requirement**: Every host that exposes `ISessionService` (and therefore mode switching) must construct `AgentFactory` with equivalent mode-critical dependencies. The minimum set is:
+
+- `PlanStore` — required for plan/agent mode tools
+- `HookRunner` — optional but recommended for lifecycle hooks
+
 ### 16.4 MCP Lifecycle
 
 MCP server connections are thread-scoped, not turn-scoped:

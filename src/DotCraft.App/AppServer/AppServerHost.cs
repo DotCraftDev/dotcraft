@@ -49,6 +49,8 @@ public sealed class AppServerHost(
         var fallbackApproval = new AutoApproveApprovalService();
         var scopedApproval = new SessionScopedApprovalService(fallbackApproval);
 
+        var planStore = new PlanStore(paths.CraftPath);
+
         _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
             memoryStore, skillsLoader,
@@ -72,7 +74,8 @@ public sealed class AppServerHost(
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
                 TraceCollector = traceCollector
             },
-            traceCollector: traceCollector);
+            traceCollector: traceCollector,
+            planStore: planStore);
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);

@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -46,6 +45,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<TurnKey, SessionApprovalService> _pendingApprovals = new();
     private readonly ConcurrentDictionary<TurnKey, CancellationTokenSource> _runningTurns = new();
     private readonly ConcurrentDictionary<string, McpClientManager> _threadMcpManagers = new();
+    private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
 
     // =========================================================================
@@ -160,6 +160,7 @@ public sealed class SessionService(
         thread.Status = ThreadStatus.Archived;
         // Release per-thread agent if any
         _threadAgents.TryRemove(threadId, out _);
+        _threadModeManagers.TryRemove(threadId, out _);
         await PersistThreadStatusAsync(thread, ct);
         GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
     }
@@ -182,6 +183,7 @@ public sealed class SessionService(
         // Remove all in-memory state
         _threads.TryRemove(threadId, out _);
         _threadAgents.TryRemove(threadId, out _);
+        _threadModeManagers.TryRemove(threadId, out _);
         _threadEventBrokers.TryRemove(threadId, out _);
         if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
             await mcpManager.DisposeAsync();
@@ -519,17 +521,20 @@ public sealed class SessionService(
                                     if (string.Equals(fc.Name, "SpawnSubagent", StringComparison.Ordinal)
                                         && fc.Arguments != null)
                                     {
-                                        var label = fc.Arguments.TryGetValue("label", out var labelObj)
+                                        var rawLabel = fc.Arguments.TryGetValue("label", out var labelObj)
                                             ? labelObj?.ToString()
-                                            : fc.Arguments.TryGetValue("task", out var taskObj)
-                                                ? taskObj?.ToString()
-                                                : null;
+                                            : null;
+                                        var rawTask = fc.Arguments.TryGetValue("task", out var taskObj)
+                                            ? taskObj?.ToString()
+                                            : null;
 
-                                        if (label != null)
+                                        if (rawLabel != null || rawTask != null)
                                         {
+                                            var normalizedLabel = SubAgentManager.NormalizeLabel(
+                                                rawLabel, rawTask ?? "task");
                                             progressAggregator ??= new SubAgentProgressAggregator(
                                                 eventChannel, threadId, turn.Id);
-                                            progressAggregator.TrackLabel(label);
+                                            progressAggregator.TrackLabel(normalizedLabel);
                                         }
                                     }
                                     break;
@@ -616,14 +621,16 @@ public sealed class SessionService(
                     eventChannel.EmitItemCompleted(reasoningItem);
                 }
 
-                // Step 5i: Accumulate token usage
-                if (inputTokens > 0 || outputTokens > 0)
+                // Step 5i: Accumulate token usage (include SubAgent tokens)
+                var totalInput = inputTokens + tokenTracker.SubAgentInputTokens;
+                var totalOutput = outputTokens + tokenTracker.SubAgentOutputTokens;
+                if (totalInput > 0 || totalOutput > 0)
                 {
                     turn.TokenUsage = new TokenUsageInfo
                     {
-                        InputTokens = inputTokens,
-                        OutputTokens = outputTokens,
-                        TotalTokens = inputTokens + outputTokens
+                        InputTokens = totalInput,
+                        OutputTokens = totalOutput,
+                        TotalTokens = totalInput + totalOutput
                     };
                 }
 
@@ -755,7 +762,8 @@ public sealed class SessionService(
         var agentMode = mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
             ? AgentMode.Plan
             : AgentMode.Agent;
-        _threadAgents[threadId] = agentFactory.CreateAgentForMode(agentMode);
+        var mm = GetOrCreateModeManager(threadId, agentMode);
+        _threadAgents[threadId] = agentFactory.CreateAgentForMode(agentMode, mm);
 
         await threadStore.SaveThreadAsync(thread, ct);
     }
@@ -796,6 +804,27 @@ public sealed class SessionService(
 
     private ThreadEventBroker GetOrCreateBroker(string threadId) =>
         _threadEventBrokers.GetOrAdd(threadId, static id => new ThreadEventBroker(id));
+
+    /// <summary>
+    /// Returns or creates an <see cref="AgentModeManager"/> for the given thread,
+    /// ensuring the mode manager reflects the requested <paramref name="mode"/>.
+    /// </summary>
+    private AgentModeManager GetOrCreateModeManager(string threadId, AgentMode mode)
+    {
+        return _threadModeManagers.AddOrUpdate(
+            threadId,
+            _ =>
+            {
+                var mm = new AgentModeManager();
+                if (mode != AgentMode.Agent) mm.SwitchMode(mode);
+                return mm;
+            },
+            (_, existing) =>
+            {
+                if (existing.CurrentMode != mode) existing.SwitchMode(mode);
+                return existing;
+            });
+    }
 
     private static ApprovalSource ResolveApprovalSource(string? channelName) =>
         channelName?.ToLowerInvariant() switch
@@ -847,9 +876,10 @@ public sealed class SessionService(
         var mode = config.Mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
             ? AgentMode.Plan
             : AgentMode.Agent;
+        var mm = GetOrCreateModeManager(threadId, mode);
 
         if (config.McpServers is not { Length: > 0 })
-            return agentFactory.CreateAgentForMode(mode);
+            return agentFactory.CreateAgentForMode(mode, mm);
 
         // Dispose previous per-thread MCP manager if replacing config
         if (_threadMcpManagers.TryRemove(threadId, out var oldManager))
@@ -861,6 +891,6 @@ public sealed class SessionService(
 
         var tools = agentFactory.CreateToolsForMode(mode);
         tools.AddRange(mcpManager.Tools);
-        return agentFactory.CreateAgentWithTools(tools);
+        return agentFactory.CreateAgentWithTools(tools, mm);
     }
 }

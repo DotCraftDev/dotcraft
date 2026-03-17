@@ -55,6 +55,7 @@ public sealed class CliHost(
         CliBackendInfo backendInfo;
         AgentRunner? runner = null;
         AgentModeManager? modeManager = null;
+        ISessionService? sessionServiceForDashboard = null;
 
         if (cliConfig.InProcess)
         {
@@ -96,6 +97,7 @@ public sealed class CliHost(
             modeManager = new AgentModeManager();
             var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
             var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+            sessionServiceForDashboard = sessionService;
 
             runner = new AgentRunner(paths.WorkspacePath, sessionService);
             cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner);
@@ -134,7 +136,8 @@ public sealed class CliHost(
             // In wire mode it still starts but without session integration.
             dashBoardServer = new DashBoardServer();
             dashBoardServer.Start(traceStore, config, paths, tokenUsageStore,
-                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes());
+                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
+                sessionService: sessionServiceForDashboard);
             dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
         }
 

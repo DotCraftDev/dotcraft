@@ -54,7 +54,7 @@ public sealed class DashBoardServer : IAsyncDisposable
         _app = app;
         _runTask = app.RunAsync(url);
 
-        AnsiConsole.MarkupLine($"[green]DashBoard started at[/] [link={url}/dashboard]{url}/dashboard[/]");
+        AnsiConsole.MarkupLine($"[green]●[/] [bold]Dashboard[/] [green]started[/]  [grey][link={url}/dashboard]{url}/dashboard[/][/]");
     }
 
     public async ValueTask DisposeAsync()

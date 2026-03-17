@@ -37,7 +37,7 @@ public static class StatusPanel
         if (!string.IsNullOrEmpty(dashBoardUrl))
         {
             var escapedUrl = dashBoardUrl.Escape();
-            AnsiConsole.MarkupLine($"[green]DashBoard:[/] [link={escapedUrl}]{escapedUrl}[/]");
+            AnsiConsole.MarkupLine($"[blue]●[/] [bold]Dashboard[/]  [grey][link={escapedUrl}]{escapedUrl}[/][/]");
         }
         AnsiConsole.WriteLine();
 
@@ -411,10 +411,11 @@ public static class StatusPanel
         if (backendInfo.IsWire)
         {
             var pid = backendInfo.ProcessId.HasValue ? $"PID {backendInfo.ProcessId}" : null;
-            var ver = backendInfo.ServerVersion != null ? $"server v{backendInfo.ServerVersion}" : null;
+            var shortVer = backendInfo.ServerVersion?.Split('+')[0];
+            var ver = shortVer != null ? $"server v{shortVer}" : null;
             var detail = string.Join(" · ", new[] { pid, ver }.Where(s => s != null));
             var detailPart = detail.Length > 0 ? $"  [grey]{detail.Escape()}[/]" : string.Empty;
-            AnsiConsole.MarkupLine($"[green]●[/] [bold]AppServer[/] [green]Connected[/]{detailPart}");
+            AnsiConsole.MarkupLine($"[green]●[/] [bold]AppServer[/]{detailPart}");
         }
         else
         {

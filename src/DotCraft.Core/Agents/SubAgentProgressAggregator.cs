@@ -118,7 +118,8 @@ internal sealed class SubAgentProgressAggregator : IAsyncDisposable
             entries.Add(new SubAgentProgressEntry
             {
                 Label = label,
-                CurrentTool = progress?.CurrentTool,
+                CurrentTool = progress?.CurrentTool ?? progress?.LastTool,
+                CurrentToolDisplay = progress?.CurrentToolDisplay ?? progress?.LastToolDisplay,
                 InputTokens = progress?.InputTokens ?? 0,
                 OutputTokens = progress?.OutputTokens ?? 0,
                 IsCompleted = progress?.IsCompleted ?? false

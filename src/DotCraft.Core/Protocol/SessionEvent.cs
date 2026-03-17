@@ -147,6 +147,12 @@ public sealed record SubAgentProgressEntry
     public string? CurrentTool { get; init; }
 
     /// <summary>
+    /// Human-readable formatted display text for the current tool (e.g. "Read src/foo.cs lines 10-20").
+    /// Null when no display formatter is registered; clients should fall back to <see cref="CurrentTool"/>.
+    /// </summary>
+    public string? CurrentToolDisplay { get; init; }
+
+    /// <summary>
     /// Cumulative input token consumption.
     /// </summary>
     public long InputTokens { get; init; }

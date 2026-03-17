@@ -10,7 +10,6 @@ using DotCraft.Hooks;
 using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Protocol;
-using DotCraft.Security;
 using DotCraft.Skills;
 using Spectre.Console;
 
@@ -264,10 +263,16 @@ public sealed class ReplHost(
 
         if (_currentThreadId != null)
         {
+            // SessionService.SetThreadModeAsync rebuilds the agent with a per-thread
+            // ModeManager, so no local rebuild is needed when a thread exists.
             await session.SetThreadModeAsync(_currentThreadId, mode.ToString().ToLowerInvariant());
         }
+        else
+        {
+            // No thread yet — rebuild local default agent so it's ready when thread is created
+            RebuildAgentForCurrentMode();
+        }
 
-        RebuildAgentForCurrentMode();
         var (emoji, color) = mode == AgentMode.Plan ? ("📋", "yellow") : ("⚡", "green");
         var rule = new Rule($"[{color}]{emoji} {mode.ToString().ToLower()}[/]");
         rule.RuleStyle($"{color} dim");
@@ -775,6 +780,18 @@ public sealed class ReplHost(
         {
             _currentThreadId = await session.CreateThreadAsync(_cliIdentity, cancellationToken);
             _currentSessionId = _currentThreadId;
+
+            // In Wire mode, if the user switched to a non-default mode (e.g. Plan)
+            // before sending the first message, the server doesn't know about it yet
+            // because SwitchToModeAsync couldn't notify the server without a threadId.
+            // Sync the mode now so the server-side agent gets the correct tool set.
+            if (_modeManager.CurrentMode != AgentMode.Agent)
+            {
+                await session.SetThreadModeAsync(
+                    _currentThreadId,
+                    _modeManager.CurrentMode.ToString().ToLowerInvariant(),
+                    cancellationToken);
+            }
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
