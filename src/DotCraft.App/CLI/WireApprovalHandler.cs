@@ -61,7 +61,8 @@ public static class WireApprovalHandler
             var decision = choice switch
             {
                 ApprovalOption.Once => "accept",
-                ApprovalOption.Session or ApprovalOption.Always => "acceptForSession",
+                ApprovalOption.Session => "acceptForSession",
+                ApprovalOption.Always => "acceptAlways",
                 _ => "decline"
             };
 

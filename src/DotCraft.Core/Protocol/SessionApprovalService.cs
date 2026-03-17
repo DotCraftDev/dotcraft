@@ -15,14 +15,18 @@ internal sealed class SessionApprovalService : IApprovalService
     private readonly Func<int> _nextItemSeq;
     private readonly TimeSpan _timeout;
     private readonly Action _cancelTurn;
+    private readonly ApprovalStore? _store;
 
     private readonly ConcurrentDictionary<string, PendingApproval> _pending = new();
     private readonly ConcurrentDictionary<string, byte> _sessionApprovedScopes = new();
 
-    private sealed class PendingApproval(string scopeKey, TaskCompletionSource<SessionApprovalDecision> completion)
+    private sealed class PendingApproval(
+        string scopeKey,
+        ApprovalRequestPayload payload,
+        TaskCompletionSource<SessionApprovalDecision> completion)
     {
         public string ScopeKey { get; } = scopeKey;
-
+        public ApprovalRequestPayload Payload { get; } = payload;
         public TaskCompletionSource<SessionApprovalDecision> Completion { get; } = completion;
     }
 
@@ -31,13 +35,15 @@ internal sealed class SessionApprovalService : IApprovalService
         SessionTurn turn,
         Func<int> nextItemSeq,
         TimeSpan timeout,
-        Action cancelTurn)
+        Action cancelTurn,
+        ApprovalStore? store = null)
     {
         _channel = channel;
         _turn = turn;
         _nextItemSeq = nextItemSeq;
         _timeout = timeout;
         _cancelTurn = cancelTurn;
+        _store = store;
     }
 
     /// <summary>
@@ -103,6 +109,9 @@ internal sealed class SessionApprovalService : IApprovalService
         if (decision.AppliesToSession())
             _sessionApprovedScopes.TryAdd(pending.ScopeKey, 0);
 
+        if (decision.IsPersistent())
+            PersistApproval(pending.Payload);
+
         // Create and emit ApprovalResponse Item
         var responseItem = CreateItem(ItemType.ApprovalResponse, new ApprovalResponsePayload
         {
@@ -139,6 +148,9 @@ internal sealed class SessionApprovalService : IApprovalService
         if (_sessionApprovedScopes.ContainsKey(scopeKey))
             return true;
 
+        if (IsPersistedApproval(payload))
+            return true;
+
         // Create ApprovalRequest Item
         var requestItem = CreateItem(ItemType.ApprovalRequest, payload);
         _turn.Items.Add(requestItem);
@@ -146,7 +158,7 @@ internal sealed class SessionApprovalService : IApprovalService
 
         // Register TCS before emitting the event so there's no race
         var tcs = new TaskCompletionSource<SessionApprovalDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pending[requestId] = new PendingApproval(scopeKey, tcs);
+        _pending[requestId] = new PendingApproval(scopeKey, payload, tcs);
 
         _channel.EmitItemStarted(requestItem);
         _channel.EmitItemCompleted(requestItem);
@@ -176,6 +188,31 @@ internal sealed class SessionApprovalService : IApprovalService
 
         var decision = await tcs.Task;
         return decision.IsApproved();
+    }
+
+    private bool IsPersistedApproval(ApprovalRequestPayload payload)
+    {
+        if (_store == null) return false;
+        return payload.ApprovalType switch
+        {
+            "file" => _store.IsFileOperationApproved(payload.Operation, payload.Target),
+            "shell" => _store.IsShellCommandApproved(payload.Operation, payload.Target),
+            _ => false
+        };
+    }
+
+    private void PersistApproval(ApprovalRequestPayload payload)
+    {
+        if (_store == null) return;
+        switch (payload.ApprovalType)
+        {
+            case "file":
+                _store.RecordFileOperation(payload.Operation, payload.Target);
+                break;
+            case "shell":
+                _store.RecordShellCommand(payload.Operation, payload.Target);
+                break;
+        }
     }
 
     private static string BuildScopeKey(string approvalType, string operation, string? target)

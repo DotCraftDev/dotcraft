@@ -967,6 +967,7 @@ public class SerializationTests
     [Theory]
     [InlineData(SessionApprovalDecision.AcceptOnce, "accept")]
     [InlineData(SessionApprovalDecision.AcceptForSession, "acceptForSession")]
+    [InlineData(SessionApprovalDecision.AcceptAlways, "acceptAlways")]
     [InlineData(SessionApprovalDecision.Reject, "decline")]
     [InlineData(SessionApprovalDecision.CancelTurn, "cancel")]
     public void WireApprovalDecision_SerializesAsWireNames(SessionApprovalDecision decision, string expectedWire)
@@ -978,6 +979,7 @@ public class SerializationTests
     [Theory]
     [InlineData("accept", SessionApprovalDecision.AcceptOnce)]
     [InlineData("acceptForSession", SessionApprovalDecision.AcceptForSession)]
+    [InlineData("acceptAlways", SessionApprovalDecision.AcceptAlways)]
     [InlineData("decline", SessionApprovalDecision.Reject)]
     [InlineData("cancel", SessionApprovalDecision.CancelTurn)]
     public void WireApprovalDecision_DeserializesFromWireNames(string wireValue, SessionApprovalDecision expected)

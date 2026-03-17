@@ -524,7 +524,7 @@ public sealed class AcpHandler(
                             var result = resultElement.Deserialize<RequestPermissionResult>();
                             return result?.Outcome?.OptionId switch
                             {
-                                "allow-always" => SessionApprovalDecision.AcceptForSession,
+                                "allow-always" => SessionApprovalDecision.AcceptAlways,
                                 "allow-once" => SessionApprovalDecision.AcceptOnce,
                                 _ when result?.Outcome?.Outcome == "cancelled" => SessionApprovalDecision.CancelTurn,
                                 _ => SessionApprovalDecision.Reject

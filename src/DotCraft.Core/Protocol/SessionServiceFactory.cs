@@ -1,5 +1,6 @@
 using DotCraft.Agents;
 using DotCraft.Hooks;
+using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
@@ -32,6 +33,7 @@ public static class SessionServiceFactory
             sp.GetRequiredService<SessionGate>(),
             sp.GetService<HookRunner>(),
             sp.GetService<TraceCollector>(),
-            approvalTimeout);
+            approvalTimeout,
+            approvalStore: sp.GetService<ApprovalStore>());
     }
 }

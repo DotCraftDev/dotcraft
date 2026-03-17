@@ -820,7 +820,8 @@ public sealed class ReplHost(
                         return choice switch
                         {
                             ApprovalOption.Once => SessionApprovalDecision.AcceptOnce,
-                            ApprovalOption.Session or ApprovalOption.Always => SessionApprovalDecision.AcceptForSession,
+                            ApprovalOption.Session => SessionApprovalDecision.AcceptForSession,
+                            ApprovalOption.Always => SessionApprovalDecision.AcceptAlways,
                             _ => SessionApprovalDecision.Reject
                         };
                     },

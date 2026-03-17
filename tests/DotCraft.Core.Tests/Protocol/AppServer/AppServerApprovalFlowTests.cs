@@ -103,6 +103,29 @@ public sealed class AppServerApprovalFlowTests : IDisposable
         Assert.Equal(SessionApprovalDecision.AcceptForSession, _h.Service.ResolvedApprovals[0].decision);
     }
 
+    [Fact]
+    public async Task ApprovalFlow_ClientAcceptsAlways_ResolveWithAcceptAlways()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        _h.Service.EnqueueSubmitEvents(
+            thread.Id, AppServerTestHarness.BuildApprovalEventSequence(thread.Id));
+
+        _h.Transport.ApprovalHandler = (method, @params) =>
+            InMemoryTransport.BuildClientResponse(999, new { decision = "acceptAlways" });
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnStart, new
+        {
+            threadId = thread.Id,
+            input = new[] { new { type = "text", text = "Accept permanently" } }
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        await _h.Transport.WaitAndDrainAsync(5, TimeSpan.FromSeconds(10));
+
+        Assert.Single(_h.Service.ResolvedApprovals);
+        Assert.Equal(SessionApprovalDecision.AcceptAlways, _h.Service.ResolvedApprovals[0].decision);
+    }
+
     // -------------------------------------------------------------------------
     // Fix 6: approvalSupport=false uses workspace default policy (not hard-reject)
     // -------------------------------------------------------------------------

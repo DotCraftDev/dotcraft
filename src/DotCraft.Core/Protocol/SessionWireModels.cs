@@ -52,6 +52,7 @@ internal sealed class WireApprovalDecisionConverter : JsonConverter<SessionAppro
         {
             "accept" => SessionApprovalDecision.AcceptOnce,
             "acceptForSession" => SessionApprovalDecision.AcceptForSession,
+            "acceptAlways" => SessionApprovalDecision.AcceptAlways,
             "decline" => SessionApprovalDecision.Reject,
             "cancel" => SessionApprovalDecision.CancelTurn,
             _ => throw new JsonException($"Unknown approval decision wire value: '{value}'")
@@ -67,6 +68,7 @@ internal sealed class WireApprovalDecisionConverter : JsonConverter<SessionAppro
         {
             SessionApprovalDecision.AcceptOnce => "accept",
             SessionApprovalDecision.AcceptForSession => "acceptForSession",
+            SessionApprovalDecision.AcceptAlways => "acceptAlways",
             SessionApprovalDecision.Reject => "decline",
             SessionApprovalDecision.CancelTurn => "cancel",
             _ => throw new JsonException($"Unknown SessionApprovalDecision value: {value}")

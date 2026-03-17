@@ -15,7 +15,7 @@ public sealed class SessionApprovalServiceTests
     // -------------------------------------------------------------------------
 
     private static (SessionApprovalService svc, SessionEventChannel channel, SessionTurn turn)
-        MakeApprovalService(TimeSpan? timeout = null)
+        MakeApprovalService(TimeSpan? timeout = null, ApprovalStore? store = null)
     {
         var threadId = "thread_aprv_001";
         var channel = new SessionEventChannel(threadId, TurnId);
@@ -32,9 +32,41 @@ public sealed class SessionApprovalServiceTests
             turn,
             () => seq++,
             timeout ?? TimeSpan.FromMinutes(1),
-            () => { });
+            () => { },
+            store);
         return (svc, channel, turn);
     }
+
+    // -------------------------------------------------------------------------
+    // SessionApprovalDecision extension methods
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(SessionApprovalDecision.AcceptOnce, true)]
+    [InlineData(SessionApprovalDecision.AcceptForSession, true)]
+    [InlineData(SessionApprovalDecision.AcceptAlways, true)]
+    [InlineData(SessionApprovalDecision.Reject, false)]
+    [InlineData(SessionApprovalDecision.CancelTurn, false)]
+    public void IsApproved_ReturnsCorrectValue(SessionApprovalDecision decision, bool expected) =>
+        Assert.Equal(expected, decision.IsApproved());
+
+    [Theory]
+    [InlineData(SessionApprovalDecision.AcceptOnce, false)]
+    [InlineData(SessionApprovalDecision.AcceptForSession, true)]
+    [InlineData(SessionApprovalDecision.AcceptAlways, true)]
+    [InlineData(SessionApprovalDecision.Reject, false)]
+    [InlineData(SessionApprovalDecision.CancelTurn, false)]
+    public void AppliesToSession_ReturnsCorrectValue(SessionApprovalDecision decision, bool expected) =>
+        Assert.Equal(expected, decision.AppliesToSession());
+
+    [Theory]
+    [InlineData(SessionApprovalDecision.AcceptOnce, false)]
+    [InlineData(SessionApprovalDecision.AcceptForSession, false)]
+    [InlineData(SessionApprovalDecision.AcceptAlways, true)]
+    [InlineData(SessionApprovalDecision.Reject, false)]
+    [InlineData(SessionApprovalDecision.CancelTurn, false)]
+    public void IsPersistent_ReturnsCorrectValue(SessionApprovalDecision decision, bool expected) =>
+        Assert.Equal(expected, decision.IsPersistent());
 
     // -------------------------------------------------------------------------
     // File approval: approve
@@ -306,6 +338,143 @@ public sealed class SessionApprovalServiceTests
 
         var secondRequest = await svc.RequestFileApprovalAsync("write", "/path/b.txt");
         Assert.True(secondRequest);
+    }
+
+    // -------------------------------------------------------------------------
+    // AcceptAlways: session cache + persistence
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task AcceptAlways_CachesForSessionAndPersistsToStore()
+    {
+        var storeDir = Path.Combine(Path.GetTempPath(), $"dotcraft_test_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(storeDir);
+            var store = new ApprovalStore(storeDir);
+            var (svc, channel, _) = MakeApprovalService(store: store);
+
+            var requestTask = svc.RequestFileApprovalAsync("write", "/path/important.txt");
+            await Task.Delay(10);
+
+            var requestId = await GetApprovalRequestIdAsync(channel);
+            Assert.NotNull(requestId);
+
+            svc.TryResolve(requestId!, SessionApprovalDecision.AcceptAlways);
+            Assert.True(await requestTask);
+
+            // Session cache should prevent a second prompt
+            Assert.True(await svc.RequestFileApprovalAsync("write", "/path/other.txt"));
+
+            // Persistent store should have recorded the operation
+            Assert.True(store.IsFileOperationApproved("write", "/path/important.txt"));
+        }
+        finally
+        {
+            Directory.Delete(storeDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AcceptAlways_Shell_PersistsToStore()
+    {
+        var storeDir = Path.Combine(Path.GetTempPath(), $"dotcraft_test_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(storeDir);
+            var store = new ApprovalStore(storeDir);
+            var (svc, channel, _) = MakeApprovalService(store: store);
+
+            var requestTask = svc.RequestShellApprovalAsync("rm -rf /tmp/data", "/tmp");
+            await Task.Delay(10);
+
+            var requestId = await GetApprovalRequestIdAsync(channel);
+            Assert.NotNull(requestId);
+
+            svc.TryResolve(requestId!, SessionApprovalDecision.AcceptAlways);
+            Assert.True(await requestTask);
+
+            Assert.True(store.IsShellCommandApproved("rm -rf /tmp/data", "/tmp"));
+        }
+        finally
+        {
+            Directory.Delete(storeDir, recursive: true);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Pre-check: persistent store skips prompt
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task RequestFileApproval_WhenPersistedInStore_SkipsPrompt()
+    {
+        var storeDir = Path.Combine(Path.GetTempPath(), $"dotcraft_test_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(storeDir);
+            var store = new ApprovalStore(storeDir);
+            store.RecordFileOperation("write", "/pre-approved.txt");
+
+            var (svc, channel, turn) = MakeApprovalService(store: store);
+
+            var result = await svc.RequestFileApprovalAsync("write", "/pre-approved.txt");
+            Assert.True(result);
+
+            Assert.DoesNotContain(turn.Items, i => i.Type == ItemType.ApprovalRequest);
+        }
+        finally
+        {
+            Directory.Delete(storeDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RequestShellApproval_WhenPersistedInStore_SkipsPrompt()
+    {
+        var storeDir = Path.Combine(Path.GetTempPath(), $"dotcraft_test_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(storeDir);
+            var store = new ApprovalStore(storeDir);
+            store.RecordShellCommand("npm install", "/workspace");
+
+            var (svc, channel, turn) = MakeApprovalService(store: store);
+
+            var result = await svc.RequestShellApprovalAsync("npm install", "/workspace");
+            Assert.True(result);
+            Assert.DoesNotContain(turn.Items, i => i.Type == ItemType.ApprovalRequest);
+        }
+        finally
+        {
+            Directory.Delete(storeDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RequestFileApproval_NotInStore_StillPromptsNormally()
+    {
+        var storeDir = Path.Combine(Path.GetTempPath(), $"dotcraft_test_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(storeDir);
+            var store = new ApprovalStore(storeDir);
+
+            var (svc, channel, turn) = MakeApprovalService(store: store);
+            var requestTask = svc.RequestFileApprovalAsync("write", "/not-approved.txt");
+            await Task.Delay(10);
+
+            Assert.Equal(TurnStatus.WaitingApproval, turn.Status);
+            Assert.True(svc.HasPendingApproval);
+
+            var requestId = await GetApprovalRequestIdAsync(channel);
+            svc.TryResolve(requestId!, SessionApprovalDecision.AcceptOnce);
+            Assert.True(await requestTask);
+        }
+        finally
+        {
+            Directory.Delete(storeDir, recursive: true);
+        }
     }
 
     [Fact]

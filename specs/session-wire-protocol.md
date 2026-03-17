@@ -848,6 +848,7 @@ The client responds with the standard JSON-RPC response format:
 |-------|---------|
 | `"accept"` | Approve this single operation. |
 | `"acceptForSession"` | Approve this operation and similar operations for the remainder of the thread's lifetime. |
+| `"acceptAlways"` | Approve this operation permanently. The server persists the approval so future sessions do not prompt again. Also suppresses further prompts for the current session. |
 | `"decline"` | Reject the operation. The agent receives a rejection signal and may try an alternative approach. |
 | `"cancel"` | Reject and cancel the entire turn. Equivalent to `turn/interrupt`. |
 

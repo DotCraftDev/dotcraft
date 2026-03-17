@@ -290,6 +290,7 @@ public sealed class AppServerEventDispatcher
             {
                 "accept" => SessionApprovalDecision.AcceptOnce,
                 "acceptForSession" => SessionApprovalDecision.AcceptForSession,
+                "acceptAlways" => SessionApprovalDecision.AcceptAlways,
                 "decline" => SessionApprovalDecision.Reject,
                 "cancel" => SessionApprovalDecision.CancelTurn,
                 _ => SessionApprovalDecision.Reject

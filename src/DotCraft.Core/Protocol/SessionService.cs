@@ -33,7 +33,8 @@ public sealed class SessionService(
     HookRunner? hookRunner = null,
     TraceCollector? traceCollector = null,
     TimeSpan? approvalTimeout = null,
-    ILogger<SessionService>? logger = null)
+    ILogger<SessionService>? logger = null,
+    ApprovalStore? approvalStore = null)
     : ISessionService
 {
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
@@ -409,7 +410,8 @@ public sealed class SessionService(
                     turn,
                     NextItemSeq,
                     _approvalTimeout,
-                    cts.Cancel);
+                    cts.Cancel,
+                    approvalStore);
                 _pendingApprovals[turnKey] = approvalService;
                 approvalOverride = SessionScopedApprovalService.SetOverride(approvalService);
 
