@@ -29,6 +29,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [12. Versioning and Compatibility](#12-versioning-and-compatibility)
 - [13. Full Turn Example](#13-full-turn-example)
 - [14. Relationship to Codex App Server](#14-relationship-to-codex-app-server)
+- [15. WebSocket Transport](#15-websocket-transport)
 
 ---
 
@@ -87,12 +88,9 @@ Three message kinds:
 | stdio | Newline-delimited JSON (JSONL): one complete JSON-RPC message per line, UTF-8 encoded, over stdin (client→server) and stdout (server→client). | Primary |
 | WebSocket | One JSON-RPC message per WebSocket text frame. | Experimental |
 
-**stdio transport**: The server reads JSON-RPC requests from `stdin` and writes responses/notifications to `stdout`. Diagnostic and log output goes to `stderr`. This matches the transport used by ACP and Codex App Server.
+**stdio transport**: The server reads JSON-RPC requests from `stdin` and writes responses/notifications to `stdout`. Diagnostic and log output goes to `stderr`. This matches the transport used by ACP and Codex App Server. Stdio is a 1:1 transport — exactly one client per server process.
 
-**WebSocket transport** (experimental): When listening on `ws://HOST:PORT`, the server also serves HTTP health probes:
-
-- `GET /healthz` — returns `200 OK` when the server is alive.
-- `GET /readyz` — returns `200 OK` when the server is accepting connections.
+**WebSocket transport**: When listening on `ws://HOST:PORT/ws`, the server supports multiple concurrent client connections. Each connection is fully independent and maintains its own initialization state and thread subscriptions. Full behavior is specified in [Section 15](#15-websocket-transport).
 
 ### 2.3 Serialization Rules
 
@@ -1395,3 +1393,135 @@ This protocol is modeled after Codex App Server. The following table summarizes 
 **No `turn/steer`**: Codex supports `turn/steer` to inject additional user input into a running turn. DotCraft's Session Protocol does not currently model mid-turn user input injection. This may be added as a future extension.
 
 **No `thread/fork`**: Codex supports forking a thread into a new branch. DotCraft's Session Protocol does not currently model thread forking. This may be added as a future extension.
+
+---
+
+## 15. WebSocket Transport
+
+### 15.1 Overview
+
+The WebSocket transport is a network-accessible alternative to the stdio transport. It is the primary transport for external channel adapters (see the [External Channel Adapter Specification](external-channel-adapter.md)) and for any client that cannot be co-located with the server process.
+
+Both transports use identical JSON-RPC 2.0 message shapes. The only differences are at the framing and connection-lifecycle layers described in this section.
+
+| Property | stdio | WebSocket |
+|----------|-------|-----------|
+| Connection model | 1:1 (one client per server process) | N:1 (multiple concurrent clients per server process) |
+| Frame format | Newline-delimited JSON (JSONL) | One JSON-RPC message per WebSocket text frame (UTF-8) |
+| Client lifecycle | Bounded to process lifetime | Independent per-connection |
+| Authentication | Not applicable (process isolation) | Optional bearer token (see §15.4) |
+| Health probes | Not applicable | HTTP `GET /healthz` and `GET /readyz` |
+
+### 15.2 Endpoint
+
+The server listens on a configurable host and port. The WebSocket upgrade endpoint is:
+
+```
+ws://HOST:PORT/ws
+```
+
+The same HTTP server also serves the health probe endpoints:
+
+- `GET /healthz` — returns `200 OK` with body `{"status":"ok"}` when the server process is alive.
+- `GET /readyz` — returns `200 OK` when the server has completed startup and is ready to accept connections.
+
+The default listen address binds to `127.0.0.1` only. Binding to `0.0.0.0` or a public interface must be explicitly configured and requires authentication to be enabled (see §15.4).
+
+### 15.3 Connection Lifecycle
+
+Each WebSocket connection is fully independent:
+
+1. Client opens a WebSocket connection to `ws://HOST:PORT/ws` (with optional `?token=` query parameter, see §15.4).
+2. Server accepts the connection and creates a new `AppServerConnection` state object. At this point the connection is **unauthenticated and uninitialized**.
+3. Client sends `initialize` as the first JSON-RPC message (same as stdio, see §3.1).
+4. Server responds and the standard initialization handshake proceeds.
+5. Normal protocol operation: client sends requests, server sends responses and notifications.
+6. On connection close (either side), the server cancels all active thread subscriptions for that connection.
+
+```
+Client                                    Server
+  |                                         |
+  | WebSocket upgrade (GET /ws)             |
+  |---------------------------------------->|
+  |                                         |
+  | 101 Switching Protocols                 |
+  |<----------------------------------------|
+  |                                         |
+  | initialize (request, id: 0)             |
+  |---------------------------------------->|
+  |                                         |
+  | (response, id: 0)                       |
+  |<----------------------------------------|
+  |                                         |
+  | initialized (notification)              |
+  |---------------------------------------->|
+  |                                         |
+  | (protocol ready)                        |
+```
+
+### 15.4 Authentication
+
+When the server is configured with a bearer token, the token must be provided by the client in the WebSocket upgrade request URL:
+
+```
+ws://HOST:PORT/ws?token=<token>
+```
+
+The server validates the token before completing the WebSocket upgrade. If the token is missing or invalid, the server closes the connection with HTTP `401 Unauthorized` before the WebSocket handshake completes. The client never reaches the JSON-RPC `initialize` step.
+
+Token validation rules:
+
+- Tokens are compared using constant-time equality to resist timing attacks.
+- An empty string is not a valid token. If the server is configured with an empty token, authentication is disabled.
+- Token values must be URL-safe (alphanumeric plus `-`, `_`, `.`). Tokens that do not meet this requirement must be URL-percent-encoded by the client.
+
+When the server is bound to `127.0.0.1` only, authentication is optional. When the server is bound to a non-loopback address, authentication must be enabled — the server refuses to start without a token in this configuration.
+
+### 15.5 Multi-Connection Behavior
+
+Multiple clients may be connected simultaneously. Each connection has isolated state:
+
+- Its own `initialize`/`initialized` handshake.
+- Its own set of active thread subscriptions (registered via `thread/subscribe`).
+- Its own backpressure gate (32 concurrent in-flight requests, same as stdio).
+
+Shared state across all connections on the same server process:
+
+- The `ISessionService` instance (and therefore thread persistence) is shared. A thread started by one connection is visible to other connections that look it up via `thread/list` or `thread/read`.
+- A `thread/subscribe` from Connection A will receive notifications for events triggered by Connection B on the same thread.
+
+There is no built-in per-connection identity isolation. Callers with different privilege levels must use separate server processes or implement identity enforcement in the `SessionIdentity` layer.
+
+### 15.6 Framing
+
+Each JSON-RPC message is sent as a single WebSocket **text frame** (opcode `0x1`). The message must be a complete, valid JSON object. Binary frames are not used.
+
+Servers and clients must not split a single JSON-RPC message across multiple frames, and must not combine multiple JSON-RPC messages into a single frame.
+
+Maximum message size is 4 MB by default. Messages exceeding this limit cause the connection to be closed with WebSocket close code `1009` (message too big).
+
+### 15.7 Reconnection
+
+The WebSocket transport does not provide built-in session resumption. When a client reconnects after a disconnect:
+
+- The client must perform the full `initialize` / `initialized` handshake again.
+- Active thread subscriptions are lost and must be re-registered via `thread/subscribe`.
+- Any turn that was in progress when the disconnect occurred continues executing on the server. The client can re-subscribe to the thread to receive subsequent notifications, but events emitted during the disconnection period are not replayed unless `replayRecent = true` is used in `thread/subscribe`.
+- Server-to-client approval requests (`item/approval/request`) that were in flight when the client disconnected will time out according to the approval timeout policy (error code `-32020`), and the turn will fail.
+
+Clients should implement reconnection with **exponential backoff with jitter** starting at 1 second, capping at 30 seconds.
+
+### 15.8 Native WebSocket Ping/Pong
+
+The server sends native WebSocket ping frames every 30 seconds to detect stale connections. If a client does not respond with a pong frame within 10 seconds, the server closes the connection. Clients that use compliant WebSocket libraries will handle pong responses automatically.
+
+### 15.9 Differences from Stdio
+
+| Behavior | stdio | WebSocket |
+|----------|-------|-----------|
+| Connection count | One (process boundary) | Many (network connections) |
+| Authentication | N/A | Optional token query param |
+| Turn cancellation on disconnect | Turn is cancelled (process exit) | Turn continues; client must re-subscribe |
+| Event replay on reconnect | N/A | Via `thread/subscribe replayRecent: true` |
+| Approval request on disconnect | Turn cancelled (process exit) | Turn fails with `-32020` approval timeout |
+| Diagnostic output | stderr | Not available on wire; use server logs |

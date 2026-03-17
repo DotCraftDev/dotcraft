@@ -1334,7 +1334,13 @@ Expose Session Core over a language-neutral protocol so that non-C# adapters (ID
 
 The AppServer wire protocol is specified in [appserver-protocol.md](appserver-protocol.md). That document defines the transport, JSON-RPC message shapes, method surface, event notifications, error handling, and approval request/response mechanics that project this Session Core model to external clients.
 
-### 19.4 Relationship to Existing API
+### 19.2 External Channel Adapters
+
+The wire protocol also enables out-of-process social channel adapters written in any language. By implementing a Wire Protocol client, a channel adapter gains the full session model — thread lifecycle, streaming events, bidirectional approval — without any C# binding.
+
+This is specified in the [External Channel Adapter Specification](external-channel-adapter.md) (Draft). The key prerequisite for external channels is the WebSocket transport defined in [appserver-protocol.md §15](appserver-protocol.md#15-websocket-transport).
+
+### 19.3 Relationship to Existing API
 
 The AppServer protocol complements, not replaces, `/v1/chat/completions`.
 
