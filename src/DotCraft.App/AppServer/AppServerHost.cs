@@ -1,5 +1,7 @@
 using System.ClientModel;
+using System.Net.WebSockets;
 using DotCraft.Agents;
+using Microsoft.Extensions.Logging;
 using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
@@ -12,6 +14,8 @@ using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using DotCraft.Tracing;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI;
 using Spectre.Console;
@@ -20,8 +24,10 @@ namespace DotCraft.AppServer;
 
 /// <summary>
 /// Host for AppServer mode.
-/// Runs a single-connection stdio JSON-RPC 2.0 server that exposes
-/// <see cref="ISessionService"/> over the Session Wire Protocol.
+/// Runs a stdio JSON-RPC 2.0 server that exposes <see cref="ISessionService"/> over the
+/// Session Wire Protocol. When <see cref="WebSocketServerConfig"/> is present in configuration,
+/// additionally starts a WebSocket listener that accepts multiple concurrent connections,
+/// each with an isolated <see cref="AppServerConnection"/> sharing the same session service.
 /// </summary>
 public sealed class AppServerHost(
     IServiceProvider sp,
@@ -80,6 +86,22 @@ public sealed class AppServerHost(
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
 
+        var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
+        var wsConfig = appServerConfig.Mode == AppServerMode.StdioAndWebSocket
+            ? appServerConfig.WebSocket
+            : null;
+
+        // Start the optional WebSocket listener before entering the stdio loop (same pattern as DashBoardServer)
+        WebApplication? wsApp = null;
+        Task? wsRunTask = null;
+        if (wsConfig != null)
+        {
+            (wsApp, var wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken);
+            wsRunTask = wsApp.RunAsync(wsUrl);
+            AnsiConsole.MarkupLine(
+                $"[green][[AppServer]][/] WebSocket listener started at ws://{wsConfig.Host}:{wsConfig.Port}/ws");
+        }
+
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
 
@@ -89,9 +111,85 @@ public sealed class AppServerHost(
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
-        await RunLoopAsync(transport, connection, handler, cancellationToken);
+        try
+        {
+            await RunLoopAsync(transport, connection, handler, cancellationToken);
+        }
+        finally
+        {
+            // Stop the WebSocket server when stdio exits
+            if (wsApp != null)
+            {
+                await wsApp.StopAsync(CancellationToken.None);
+                try { await wsRunTask!; } catch { }
+            }
+        }
 
         AnsiConsole.MarkupLine("[grey][[AppServer]][/] AppServer stopped");
+    }
+
+    // -------------------------------------------------------------------------
+    // WebSocket server
+    // -------------------------------------------------------------------------
+
+    private static (WebApplication App, string Url) BuildWebSocketApp(
+        WebSocketServerConfig wsConfig,
+        ISessionService sessionService,
+        CancellationToken hostCt)
+    {
+        // Refuse to start if the binding is non-loopback without a token (spec §15.4)
+        var isLoopback = wsConfig.Host is "127.0.0.1" or "::1" or "localhost";
+        if (!isLoopback && string.IsNullOrEmpty(wsConfig.Token))
+            throw new InvalidOperationException(
+                "WebSocket listener bound to a non-loopback address requires a bearer token (AppServer.WebSocket.Token).");
+
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+
+        var app = builder.Build();
+        app.UseWebSockets(new WebSocketOptions
+        {
+            KeepAliveInterval = TimeSpan.FromSeconds(30)
+        });
+
+        // WebSocket upgrade endpoint
+        app.Map("/ws", async context =>
+        {
+            // Token authentication: require ?token= when a token is configured (spec §15.4)
+            if (!string.IsNullOrEmpty(wsConfig.Token))
+            {
+                var supplied = context.Request.Query["token"].FirstOrDefault();
+                if (!string.Equals(supplied, wsConfig.Token, StringComparison.Ordinal))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await context.Response.WriteAsync("Unauthorized");
+                    return;
+                }
+            }
+
+            if (!context.WebSockets.IsWebSocketRequest)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsync("WebSocket upgrade required");
+                return;
+            }
+
+            using WebSocket ws = await context.WebSockets.AcceptWebSocketAsync();
+            await using var wsTransport = new WebSocketTransport(ws);
+            wsTransport.Start();
+
+            var wsConnection = new AppServerConnection();
+            var wsHandler = new AppServerRequestHandler(
+                sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational);
+
+            await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
+        });
+
+        // Health probes (spec §15.2)
+        app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
+        app.MapGet("/readyz", () => Results.Ok(new { status = "ok" }));
+
+        return (app, $"http://{wsConfig.Host}:{wsConfig.Port}");
     }
 
     // -------------------------------------------------------------------------

@@ -14,7 +14,8 @@ namespace DotCraft.AppServer;
 public sealed partial class AppServerModule : ModuleBase
 {
     /// <inheritdoc />
-    public override bool IsEnabled(AppConfig config) => config.GetSection<AppServerConfig>("AppServer").Enabled;
+    public override bool IsEnabled(AppConfig config) =>
+        config.GetSection<AppServerConfig>("AppServer").Mode != AppServerMode.Disabled;
 }
 
 /// <summary>

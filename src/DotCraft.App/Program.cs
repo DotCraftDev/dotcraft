@@ -120,7 +120,7 @@ if (isAcpMode)
 
 if (isAppServerMode)
 {
-    config.SetSection("AppServer", new AppServerConfig { Enabled = true });
+    config.SetSection("AppServer", new AppServerConfig { Mode = AppServerMode.Stdio });
     // Dashboard is not useful when the process is managed by an external client.
     config.DashBoard.Enabled = false;
 }

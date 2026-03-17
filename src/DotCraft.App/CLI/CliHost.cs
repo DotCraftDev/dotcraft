@@ -1,5 +1,7 @@
 using System.ClientModel;
+using System.Text.Json;
 using DotCraft.Abstractions;
+using DotCraft.Common;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
@@ -15,6 +17,7 @@ using DotCraft.Modules;
 using DotCraft.Security;
 using DotCraft.Hooks;
 using DotCraft.Protocol;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +41,7 @@ public sealed class CliHost(
 {
     private AgentFactory? _agentFactory;
     private AppServerProcess? _appServerProcess;
+    private WebSocketClientConnection? _wsConnection;
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -102,6 +106,35 @@ public sealed class CliHost(
             runner = new AgentRunner(paths.WorkspacePath, sessionService);
             cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner);
             backendInfo = new CliBackendInfo { IsWire = false };
+        }
+        else if (cliConfig.AppServerUrl is not null)
+        {
+            // -------------------------------------------------------------------
+            // WebSocket mode: connect to an already-running AppServer via WebSocket
+            // -------------------------------------------------------------------
+            var wsUri = new Uri(cliConfig.AppServerUrl);
+            AnsiConsole.MarkupLine($"[grey][[CLI]][/] Connecting to AppServer at {wsUri}...");
+
+            _wsConnection = await WebSocketClientConnection.ConnectAsync(
+                wsUri,
+                cliConfig.AppServerToken,
+                cancellationToken);
+
+            // Perform the mandatory JSON-RPC initialize/initialized handshake,
+            // mirroring AppServerProcess.StartAsync which does the same for subprocess mode.
+            var wsInitResponse = await _wsConnection.Wire.InitializeAsync(
+                clientName: "dotcraft-cli",
+                clientVersion: AppVersion.Informational,
+                approvalSupport: true,
+                streamingSupport: true);
+
+            cliSession = new WireCliSession(_wsConnection.Wire, tokenUsageStore);
+            backendInfo = new CliBackendInfo
+            {
+                IsWire = true,
+                ServerVersion = TryGetServerVersion(wsInitResponse),
+                ServerUrl = wsUri.ToString()
+            };
         }
         else
         {
@@ -192,5 +225,24 @@ public sealed class CliHost(
 
         if (_appServerProcess != null)
             await _appServerProcess.DisposeAsync();
+
+        if (_wsConnection != null)
+            await _wsConnection.DisposeAsync();
+    }
+
+    private static string? TryGetServerVersion(JsonDocument response)
+    {
+        try
+        {
+            return response.RootElement
+                .GetProperty("result")
+                .GetProperty("serverInfo")
+                .GetProperty("version")
+                .GetString();
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

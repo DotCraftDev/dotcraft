@@ -22,7 +22,13 @@ public sealed record CliBackendInfo
 
     /// <summary>
     /// OS process ID of the AppServer subprocess.
-    /// Null in in-process mode.
+    /// Null in in-process mode or WebSocket mode.
     /// </summary>
     public int? ProcessId { get; init; }
+
+    /// <summary>
+    /// WebSocket URL used to connect to a remote AppServer (e.g. "ws://127.0.0.1:9100/ws").
+    /// Non-null only in WebSocket mode; null in subprocess and in-process modes.
+    /// </summary>
+    public string? ServerUrl { get; init; }
 }

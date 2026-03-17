@@ -2,7 +2,7 @@ namespace DotCraft.Protocol.AppServer;
 
 /// <summary>
 /// Abstraction over the physical transport layer for the AppServer JSON-RPC protocol.
-/// V1 implements stdio JSONL; future versions may add WebSocket.
+/// Implementations: <see cref="StdioTransport"/> (stdio JSONL) and <see cref="WebSocketTransport"/> (WebSocket).
 /// </summary>
 public interface IAppServerTransport : IAsyncDisposable
 {
