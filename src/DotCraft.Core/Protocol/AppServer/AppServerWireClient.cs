@@ -27,6 +27,7 @@ public sealed class AppServerWireClient : IAsyncDisposable
     private Task? _readerTask;
     private readonly CancellationTokenSource _disposeCts = new();
     private int _nextId;
+    private bool _disposed;
 
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -291,6 +292,9 @@ public sealed class AppServerWireClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         await _disposeCts.CancelAsync();
         _reader.Dispose();
         await _writeLock.WaitAsync();

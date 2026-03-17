@@ -138,7 +138,7 @@ public sealed class ReplHost(
             var next = _modeManager.CurrentMode == AgentMode.Plan
                 ? AgentMode.Agent
                 : AgentMode.Plan;
-            SwitchToMode(next);
+            await SwitchToModeAsync(next);
         }
 
         return (result, text);
@@ -252,7 +252,7 @@ public sealed class ReplHost(
         StatusPanel.ShowWelcome(currentSessionId, dashBoardUrl, _lang, backendInfo);
     }
 
-    private void SwitchToMode(AgentMode mode)
+    private async Task SwitchToModeAsync(AgentMode mode)
     {
         if (_modeManager.CurrentMode == mode)
         {
@@ -261,6 +261,12 @@ public sealed class ReplHost(
         }
 
         _modeManager.SwitchMode(mode);
+
+        if (_currentThreadId != null)
+        {
+            await session.SetThreadModeAsync(_currentThreadId, mode.ToString().ToLowerInvariant());
+        }
+
         RebuildAgentForCurrentMode();
         var (emoji, color) = mode == AgentMode.Plan ? ("📋", "yellow") : ("⚡", "green");
         var rule = new Rule($"[{color}]{emoji} {mode.ToString().ToLower()}[/]");
@@ -451,11 +457,11 @@ public sealed class ReplHost(
                 return (true, false, null);
 
             case "/plan":
-                SwitchToMode(AgentMode.Plan);
+                await SwitchToModeAsync(AgentMode.Plan);
                 return (true, false, null);
 
             case "/agent":
-                SwitchToMode(AgentMode.Agent);
+                await SwitchToModeAsync(AgentMode.Agent);
                 return (true, false, null);
         }
 

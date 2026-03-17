@@ -624,6 +624,35 @@ SessionEvent
   - Payload: `{ item: Item }` (the `ApprovalResponse` Item).
   - The Turn returns to `Running` status.
 
+#### SubAgent Progress Events
+
+- **`subagent/progress`**
+  - Emitted periodically (~200ms) during Turn execution when one or more SubAgent tool calls (`SpawnSubagent`) are active.
+  - Provides a snapshot of all active SubAgents' real-time execution progress, including the tool currently being executed, cumulative token consumption, and completion status.
+  - Payload:
+
+    ```
+    {
+      "entries": [
+        {
+          "label": string,          // SubAgent identifier/label (matches the label argument passed to SpawnSubagent)
+          "currentTool": string,    // Name of the tool the SubAgent is currently executing (nullable, null when thinking)
+          "inputTokens": long,      // Cumulative input token consumption
+          "outputTokens": long,     // Cumulative output token consumption
+          "isCompleted": boolean    // Whether the SubAgent has finished execution
+        }
+      ]
+    }
+    ```
+
+  - **Emission rules**:
+    - The event is emitted by a periodic aggregator (~200ms interval) that snapshots the in-process `SubAgentProgressBridge` state.
+    - The aggregator starts when the first `SpawnSubagent` tool call begins within a Turn, and stops when the Turn ends or all tracked SubAgents have completed.
+    - Each notification contains the **complete snapshot** of all tracked SubAgents (not incremental deltas), so clients can replace their local state on each receipt.
+    - The event is injected into the Turn's event stream as a sideband signal — it may interleave with `item/started`, `item/delta`, and `item/completed` events. This is expected behavior.
+  - **Relationship to Item events**: SubAgent execution is triggered by `SpawnSubagent` tool calls, which appear as `item/started` (type `toolCall`, toolName `SpawnSubagent`) and `item/completed` (type `toolResult`) events. The `subagent/progress` event provides fine-grained intermediate progress that is not captured by the standard Item lifecycle.
+  - **Adapters**: Adapters that render SubAgent progress (e.g., CLI Live Table) should consume `subagent/progress` events to update their UI. Adapters that do not need SubAgent progress may ignore this event type or opt out via `optOutNotificationMethods`.
+
 ### 6.4 Event Delivery Semantics
 
 - **Ordering**: Events within a Turn are emitted in causal order. `item/started` always precedes `item/delta` and `item/completed` for the same Item. `turn/started` always precedes all item events for that Turn. `turn/completed` (or `turn/failed`, `turn/cancelled`) is always the last event for a Turn.

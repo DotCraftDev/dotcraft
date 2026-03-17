@@ -111,6 +111,17 @@ internal sealed class SessionEventChannel(
         Write(SessionEventType.ApprovalResolved, item.Id, SnapshotItem(item));
 
     // -------------------------------------------------------------------------
+    // SubAgent progress events
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Emits a SubAgent progress snapshot event. Called by <see cref="Agents.SubAgentProgressAggregator"/>
+    /// at ~200ms intervals during SubAgent execution.
+    /// </summary>
+    public void EmitSubAgentProgress(SubAgentProgressPayload payload) =>
+        Write(SessionEventType.SubAgentProgress, null, payload);
+
+    // -------------------------------------------------------------------------
     // Snapshot helpers — produce immutable copies so async consumers see a
     // consistent status regardless of when they dequeue the event.
     // -------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -433,6 +434,9 @@ public sealed class SessionService(
                 var reasoningText = string.Empty;
                 long inputTokens = 0, outputTokens = 0;
 
+                // SubAgent progress aggregator: lazily created when SpawnSubagent tool calls appear
+                SubAgentProgressAggregator? progressAggregator = null;
+
                 try
                 {
                     await foreach (var update in agent.RunStreamingAsync(userMessage, session)
@@ -510,6 +514,24 @@ public sealed class SessionService(
                                     turn.Items.Add(toolCallItem);
                                     eventChannel.EmitItemStarted(toolCallItem);
                                     eventChannel.EmitItemCompleted(toolCallItem);
+
+                                    // Track SubAgent progress when SpawnSubagent tool calls are detected
+                                    if (string.Equals(fc.Name, "SpawnSubagent", StringComparison.Ordinal)
+                                        && fc.Arguments != null)
+                                    {
+                                        var label = fc.Arguments.TryGetValue("label", out var labelObj)
+                                            ? labelObj?.ToString()
+                                            : fc.Arguments.TryGetValue("task", out var taskObj)
+                                                ? taskObj?.ToString()
+                                                : null;
+
+                                        if (label != null)
+                                        {
+                                            progressAggregator ??= new SubAgentProgressAggregator(
+                                                eventChannel, threadId, turn.Id);
+                                            progressAggregator.TrackLabel(label);
+                                        }
+                                    }
                                     break;
                                 }
 
@@ -567,6 +589,10 @@ public sealed class SessionService(
                 }
                 finally
                 {
+                    // Stop SubAgent progress aggregator before cleaning up AsyncLocal context
+                    if (progressAggregator != null)
+                        await progressAggregator.DisposeAsync();
+
                     TracingChatClient.ResetCallState(threadId);
                     TracingChatClient.CurrentSessionKey = null;
                     TokenTracker.Current = null;

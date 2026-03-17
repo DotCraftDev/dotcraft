@@ -68,6 +68,13 @@ public sealed class SessionEventHandler
     public Func<string, Task>? OnTurnFailed { get; init; }
 
     /// <summary>
+    /// Called when a SubAgent progress snapshot arrives (<see cref="SessionEventType.SubAgentProgress"/>).
+    /// The payload contains a complete snapshot of all active SubAgents' progress.
+    /// Optional; if null, SubAgent progress events are silently dropped.
+    /// </summary>
+    public Func<SubAgentProgressPayload, Task>? OnSubAgentProgress { get; init; }
+
+    /// <summary>
     /// Processes the <see cref="SessionEvent"/> stream, calling the appropriate callback for each event.
     /// The <paramref name="resolveApproval"/> delegate is called after <see cref="OnApprovalRequested"/>
     /// returns, to inform Session Core of the user's decision.
@@ -146,6 +153,13 @@ public sealed class SessionEventHandler
                 {
                     if (OnTurnFailed != null)
                         await OnTurnFailed(evt.TurnPayload?.Error ?? "Turn failed");
+                    break;
+                }
+
+                case SessionEventType.SubAgentProgress:
+                {
+                    if (OnSubAgentProgress != null && evt.SubAgentProgressPayload is { } progress)
+                        await OnSubAgentProgress(progress);
                     break;
                 }
             }

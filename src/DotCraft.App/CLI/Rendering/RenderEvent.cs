@@ -1,3 +1,5 @@
+using DotCraft.Protocol;
+
 namespace DotCraft.CLI.Rendering;
 
 /// <summary>
@@ -60,7 +62,13 @@ public enum RenderEventType
     /// <summary>
     /// Agent stream has started — triggers the thinking spinner while waiting for the first response
     /// </summary>
-    StreamStarted
+    StreamStarted,
+
+    /// <summary>
+    /// SubAgent progress snapshot — periodic aggregated progress data for all active SubAgents.
+    /// Emitted by the server-side SubAgentProgressAggregator and relayed via wire notifications.
+    /// </summary>
+    SubAgentProgress
 }
 
 /// <summary>
@@ -111,6 +119,12 @@ public class RenderEvent
     /// <see cref="RenderEventType.ToolCallCompleted"/> event (e.g. for parallel SubAgent tracking).
     /// </summary>
     public string? CallId { get; init; }
+
+    /// <summary>
+    /// SubAgent progress entries snapshot. Populated only for <see cref="RenderEventType.SubAgentProgress"/> events.
+    /// Each entry contains the current tool, token counts, and completion status for a tracked SubAgent.
+    /// </summary>
+    public IReadOnlyList<SubAgentProgressEntry>? SubAgentEntries { get; init; }
 
     /// <summary>
     /// Create a ToolCallStarted event
@@ -264,6 +278,15 @@ public class RenderEvent
         Type = RenderEventType.StreamStarted,
         Icon = "💭",
         Title = "Thinking"
+    };
+
+    /// <summary>
+    /// Create a SubAgentProgress event carrying a snapshot of all active SubAgent entries.
+    /// </summary>
+    public static RenderEvent SubAgentProgressUpdate(IReadOnlyList<SubAgentProgressEntry> entries) => new()
+    {
+        Type = RenderEventType.SubAgentProgress,
+        SubAgentEntries = entries
     };
 }
 

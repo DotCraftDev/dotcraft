@@ -205,6 +205,14 @@ public sealed class AppServerEventDispatcher
             item = evt.ItemPayload?.ToWire()
         },
 
+        // SubAgent progress notification (spec Section 6.5)
+        SessionEventType.SubAgentProgress when evt.SubAgentProgressPayload is { } progress => new
+        {
+            threadId = evt.ThreadId,
+            turnId = evt.TurnId,
+            entries = progress.Entries
+        },
+
         _ => null
     };
 

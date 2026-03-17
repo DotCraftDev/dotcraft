@@ -299,4 +299,7 @@ public static class AppServerMethods
 
     // Server → Client request (bidirectional approval)
     public const string ItemApprovalRequest = "item/approval/request";
+
+    // Server → Client notification (SubAgent progress)
+    public const string SubAgentProgress = "subagent/progress";
 }

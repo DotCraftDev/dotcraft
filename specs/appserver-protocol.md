@@ -18,6 +18,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [4. Thread Methods](#4-thread-methods)
 - [5. Turn Methods](#5-turn-methods)
 - [6. Event Notifications](#6-event-notifications)
+  - [6.5 SubAgent Notifications](#65-subagent-notifications)
 - [7. Approval Flow](#7-approval-flow)
 - [8. Error Handling](#8-error-handling)
 - [9. Backpressure](#9-backpressure)
@@ -763,6 +764,100 @@ Emitted after the client responds to an approval request and the server processe
 }
 ```
 
+### 6.5 SubAgent Notifications
+
+#### `subagent/progress`
+
+Emitted periodically (~200ms) when one or more SubAgent tool calls (`SpawnSubagent`) are active during a Turn. Each notification carries a **complete snapshot** of all tracked SubAgents' progress, allowing clients to replace their local state on each receipt.
+
+This notification is a sideband signal — it may interleave with `item/*` and `turn/*` notifications. Clients should use it to update SubAgent progress displays (e.g., Live Tables showing per-SubAgent activity and token consumption).
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "entries": [
+    {
+      "label": "code-explorer",
+      "currentTool": "ReadFile",
+      "inputTokens": 4500,
+      "outputTokens": 1200,
+      "isCompleted": false
+    },
+    {
+      "label": "test-runner",
+      "currentTool": null,
+      "inputTokens": 2000,
+      "outputTokens": 600,
+      "isCompleted": true
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | string | Parent thread. |
+| `turnId` | string | Active turn. |
+| `entries` | SubAgentEntry[] | Snapshot of all tracked SubAgents. |
+
+`SubAgentEntry` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | string | SubAgent identifier/label (matches the `label` argument passed to `SpawnSubagent`). |
+| `currentTool` | string? | Name of the tool the SubAgent is currently executing. `null` when the SubAgent is thinking (waiting for model response). |
+| `inputTokens` | integer | Cumulative input token consumption. |
+| `outputTokens` | integer | Cumulative output token consumption. |
+| `isCompleted` | boolean | Whether the SubAgent has finished execution. |
+
+**Emission rules**:
+
+- The server emits this notification at ~200ms intervals while SubAgents are active. The exact interval is an implementation detail and may vary.
+- Each notification contains the **complete set** of tracked SubAgents for the current Turn — not incremental deltas.
+- The server stops emitting once all tracked SubAgents have completed and a final snapshot with all `isCompleted = true` has been sent.
+- Clients that do not need SubAgent progress can opt out via `optOutNotificationMethods: ["subagent/progress"]` during `initialize`.
+
+**Example sequence**:
+
+```
+Server                                          Client
+  |                                               |
+  | item/started (notification)                   |
+  |  item: { type: "toolCall",                    |
+  |    toolName: "SpawnSubagent",                 |
+  |    arguments: { label: "code-explorer" } }    |
+  |---------------------------------------------->|
+  |                                               |
+  | subagent/progress (notification)              |
+  |  entries: [{ label: "code-explorer",          |
+  |    currentTool: "ReadFile",                   |
+  |    inputTokens: 1200, outputTokens: 300,      |
+  |    isCompleted: false }]                      |
+  |<----------------------------------------------|
+  |                                               |
+  | subagent/progress (notification)  (~200ms)    |
+  |  entries: [{ label: "code-explorer",          |
+  |    currentTool: "SearchContent",              |
+  |    inputTokens: 3500, outputTokens: 900,      |
+  |    isCompleted: false }]                      |
+  |<----------------------------------------------|
+  |                                               |
+  | subagent/progress (notification)              |
+  |  entries: [{ label: "code-explorer",          |
+  |    currentTool: null,                         |
+  |    inputTokens: 4500, outputTokens: 1200,     |
+  |    isCompleted: true }]                       |
+  |<----------------------------------------------|
+  |                                               |
+  | item/completed (notification)                 |
+  |  item: { type: "toolResult",                  |
+  |    callId: "...", success: true }             |
+  |---------------------------------------------->|
+```
+
 ---
 
 ## 7. Approval Flow
@@ -959,6 +1054,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `item/reasoning/delta` | Client does not display reasoning content. |
 | `thread/started` | Client does not need thread lifecycle events. |
 | `thread/statusChanged` | Client manages thread status locally. |
+| `subagent/progress` | Client does not display SubAgent real-time progress. |
 
 **Example**:
 
@@ -1089,6 +1185,27 @@ Client                                          Server
   | item/completed (notification)                 |
   |  item: { type: "toolResult",                  |
   |    callId: "c2", success: true }              |
+  |<----------------------------------------------|
+  |                                               |
+  | item/started (notification)                   |
+  |  item: { type: "toolCall",                    |
+  |    toolName: "SpawnSubagent",                 |
+  |    arguments: { label: "analyzer" } }         |
+  |<----------------------------------------------|
+  |                                               |
+  | subagent/progress (notification)              |
+  |  entries: [{ label: "analyzer",               |
+  |    currentTool: "ReadFile", ... }]            |
+  |<----------------------------------------------|
+  |                                               |
+  | subagent/progress (notification)  (~200ms)    |
+  |  entries: [{ label: "analyzer",               |
+  |    isCompleted: true, ... }]                  |
+  |<----------------------------------------------|
+  |                                               |
+  | item/completed (notification)                 |
+  |  item: { type: "toolResult",                  |
+  |    callId: "c3", success: true }              |
   |<----------------------------------------------|
   |                                               |
   | item/started (notification)                   |

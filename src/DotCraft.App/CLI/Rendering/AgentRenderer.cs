@@ -73,6 +73,13 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         public required string Label { get; init; }
         public bool Completed { get; set; }
         public bool Failed { get; set; }
+
+        // Event-driven progress fields (populated by SubAgentProgress RenderEvents in Wire mode)
+        public string? CurrentTool { get; set; }
+        public long InputTokens { get; set; }
+        public long OutputTokens { get; set; }
+        /// <summary>True when at least one SubAgentProgress event has been received for this entry.</summary>
+        public bool HasProgressData { get; set; }
     }
 
     private enum RenderState
@@ -494,6 +501,24 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                                         buffered.Add(evt);
                                         break;
 
+                                    case RenderEventType.SubAgentProgress when evt.SubAgentEntries is { } progressEntries:
+                                        // Event-driven update path: apply snapshot data to tracked entries.
+                                        // This is the primary data source in Wire mode where SubAgentProgressBridge
+                                        // is unavailable (cross-process). In InProcess mode this is a no-op redundancy.
+                                        foreach (var pe in progressEntries)
+                                        {
+                                            var target = entries.Find(e =>
+                                                string.Equals(e.Label, pe.Label, StringComparison.Ordinal));
+                                            if (target == null) continue;
+                                            target.CurrentTool = pe.CurrentTool;
+                                            target.InputTokens = pe.InputTokens;
+                                            target.OutputTokens = pe.OutputTokens;
+                                            target.HasProgressData = true;
+                                            if (pe.IsCompleted)
+                                                target.Completed = true;
+                                        }
+                                        break;
+
                                     case RenderEventType.ApprovalRequired:
                                         approvalPaused = true;
                                         return;
@@ -504,10 +529,11 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                                 }
                             }
 
-                            // Check bridge for early completion signals (before FIC yields ToolCallCompleted)
+                            // Check bridge for early completion signals (before FIC yields ToolCallCompleted).
+                            // Skip bridge polling for entries that have event-driven data (Wire mode).
                             foreach (var entry in entries)
                             {
-                                if (!entry.Completed && !entry.Failed)
+                                if (!entry.Completed && !entry.Failed && !entry.HasProgressData)
                                 {
                                     var progress = SubAgentProgressBridge.TryGet(entry.Label);
                                     if (progress is { IsCompleted: true })
@@ -560,9 +586,13 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             _currentState = RenderState.ToolExecuting;
         }
 
-        // Clean up bridge entries now that the live table session is done
+        // Clean up bridge entries now that the live table session is done.
+        // Only needed for InProcess mode where entries were polled from SubAgentProgressBridge.
         foreach (var entry in entries)
-            SubAgentProgressBridge.Remove(entry.Label);
+        {
+            if (!entry.HasProgressData)
+                SubAgentProgressBridge.Remove(entry.Label);
+        }
 
         // Reset state
         _currentState = RenderState.Idle;
@@ -623,21 +653,47 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                 : entry.Label;
 
             var activity = string.Empty;
-            var progress = SubAgentProgressBridge.TryGet(entry.Label);
-            if (entry.Completed)
-            {
-                if (progress != null && (progress.InputTokens > 0 || progress.OutputTokens > 0))
-                    activity = $"[blue]↑ {progress.InputTokens}[/] [green]↓ {progress.OutputTokens}[/]";
-            }
-            else if (progress != null)
-            {
-                var tool = progress.CurrentTool;
-                activity = !string.IsNullOrEmpty(tool)
-                    ? $"[dim]{Markup.Escape(tool)}[/]"
-                    : "[dim]Thinking...[/]";
 
-                if (progress.InputTokens > 0 || progress.OutputTokens > 0)
-                    activity = $"{activity} [dim grey]· ↑{progress.InputTokens} ↓{progress.OutputTokens}[/]";
+            // Dual data source: prefer event-driven data (HasProgressData = Wire mode),
+            // fall back to SubAgentProgressBridge polling (InProcess mode).
+            if (entry.HasProgressData)
+            {
+                // Wire mode: use event-driven progress fields from SubAgentProgress RenderEvents
+                if (entry.Completed)
+                {
+                    if (entry.InputTokens > 0 || entry.OutputTokens > 0)
+                        activity = $"[blue]↑ {entry.InputTokens}[/] [green]↓ {entry.OutputTokens}[/]";
+                }
+                else
+                {
+                    var tool = entry.CurrentTool;
+                    activity = !string.IsNullOrEmpty(tool)
+                        ? $"[dim]{Markup.Escape(tool)}[/]"
+                        : "[dim]Thinking...[/]";
+
+                    if (entry.InputTokens > 0 || entry.OutputTokens > 0)
+                        activity = $"{activity} [dim grey]· ↑{entry.InputTokens} ↓{entry.OutputTokens}[/]";
+                }
+            }
+            else
+            {
+                // InProcess mode: poll SubAgentProgressBridge directly
+                var progress = SubAgentProgressBridge.TryGet(entry.Label);
+                if (entry.Completed)
+                {
+                    if (progress != null && (progress.InputTokens > 0 || progress.OutputTokens > 0))
+                        activity = $"[blue]↑ {progress.InputTokens}[/] [green]↓ {progress.OutputTokens}[/]";
+                }
+                else if (progress != null)
+                {
+                    var tool = progress.CurrentTool;
+                    activity = !string.IsNullOrEmpty(tool)
+                        ? $"[dim]{Markup.Escape(tool)}[/]"
+                        : "[dim]Thinking...[/]";
+
+                    if (progress.InputTokens > 0 || progress.OutputTokens > 0)
+                        activity = $"{activity} [dim grey]· ↑{progress.InputTokens} ↓{progress.OutputTokens}[/]";
+                }
             }
 
             table.AddRow(
@@ -698,6 +754,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
             case RenderEventType.ApprovalRequired:
             case RenderEventType.ApprovalCompleted:
+            case RenderEventType.SubAgentProgress:
                 break;
         }
     }

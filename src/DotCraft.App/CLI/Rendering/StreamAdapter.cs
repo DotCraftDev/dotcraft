@@ -324,6 +324,15 @@ public static partial class StreamAdapter
                     break;
                 }
 
+                // ---------------------------------------------------------
+                // SubAgent progress (aggregated snapshot)
+                // ---------------------------------------------------------
+                case SessionEventType.SubAgentProgress when evt.SubAgentProgressPayload is { } progress:
+                {
+                    yield return RenderEvent.SubAgentProgressUpdate(progress.Entries);
+                    break;
+                }
+
                 // All other events (thread/created, turn/started, item/started for non-tool, etc.) are ignored.
             }
         }
@@ -479,6 +488,37 @@ public static partial class StreamAdapter
                 case AppServerMethods.TurnCancelled:
                 {
                     yield return RenderEvent.Completed("cancelled");
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // SubAgent progress (spec Section 6.5)
+                // ---------------------------------------------------------
+                case AppServerMethods.SubAgentProgress:
+                {
+                    if (!hasParams || !@params.TryGetProperty("entries", out var entriesEl)
+                        || entriesEl.ValueKind != JsonValueKind.Array)
+                        break;
+
+                    var entries = new List<Protocol.SubAgentProgressEntry>();
+                    foreach (var item in entriesEl.EnumerateArray())
+                    {
+                        var label = item.TryGetProperty("label", out var l) ? l.GetString() : null;
+                        if (string.IsNullOrEmpty(label)) continue;
+
+                        entries.Add(new Protocol.SubAgentProgressEntry
+                        {
+                            Label = label!,
+                            CurrentTool = item.TryGetProperty("currentTool", out var ct2) && ct2.ValueKind == JsonValueKind.String
+                                ? ct2.GetString() : null,
+                            InputTokens = item.TryGetProperty("inputTokens", out var it) ? it.GetInt64() : 0L,
+                            OutputTokens = item.TryGetProperty("outputTokens", out var ot) ? ot.GetInt64() : 0L,
+                            IsCompleted = item.TryGetProperty("isCompleted", out var ic) && ic.GetBoolean()
+                        });
+                    }
+
+                    if (entries.Count > 0)
+                        yield return RenderEvent.SubAgentProgressUpdate(entries);
                     break;
                 }
 

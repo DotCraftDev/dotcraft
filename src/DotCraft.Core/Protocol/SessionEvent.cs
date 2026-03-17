@@ -68,6 +68,9 @@ public sealed class SessionEvent
 
     [JsonIgnore]
     public TurnFailedPayload? TurnFailedPayload => Payload as TurnFailedPayload;
+
+    [JsonIgnore]
+    public SubAgentProgressPayload? SubAgentProgressPayload => Payload as SubAgentProgressPayload;
 }
 
 /// <summary>
@@ -117,4 +120,44 @@ public sealed record TurnCancelledPayload
     /// Human-readable description of why the turn was cancelled.
     /// </summary>
     public string Reason { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// Payload for subagent/progress events. A snapshot of all active SubAgents' real-time progress,
+/// aggregated and emitted periodically (~200ms) during Turn execution.
+/// </summary>
+public sealed record SubAgentProgressPayload
+{
+    public required IReadOnlyList<SubAgentProgressEntry> Entries { get; init; }
+}
+
+/// <summary>
+/// A single SubAgent's progress snapshot within a <see cref="SubAgentProgressPayload"/>.
+/// </summary>
+public sealed record SubAgentProgressEntry
+{
+    /// <summary>
+    /// SubAgent identifier/label (matches the label argument passed to SpawnSubagent).
+    /// </summary>
+    public required string Label { get; init; }
+
+    /// <summary>
+    /// Name of the tool the SubAgent is currently executing. Null when thinking (waiting for model response).
+    /// </summary>
+    public string? CurrentTool { get; init; }
+
+    /// <summary>
+    /// Cumulative input token consumption.
+    /// </summary>
+    public long InputTokens { get; init; }
+
+    /// <summary>
+    /// Cumulative output token consumption.
+    /// </summary>
+    public long OutputTokens { get; init; }
+
+    /// <summary>
+    /// Whether the SubAgent has finished execution.
+    /// </summary>
+    public bool IsCompleted { get; init; }
 }

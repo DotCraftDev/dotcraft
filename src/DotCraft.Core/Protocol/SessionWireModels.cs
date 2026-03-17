@@ -324,6 +324,7 @@ public static class SessionWireMapper
             SessionEventType.ItemCompleted => "item/completed",
             SessionEventType.ApprovalRequested => "item/approval/request",
             SessionEventType.ApprovalResolved => "item/approval/resolved",
+            SessionEventType.SubAgentProgress => "subagent/progress",
             _ => evt.EventType.ToString()
         };
 
@@ -357,6 +358,8 @@ public static class SessionWireMapper
                 // Flatten delta payloads to { delta } string per spec Section 6.3
                 AgentMessageDelta agentDelta => new { delta = agentDelta.TextDelta },
                 ReasoningContentDelta reasoningDelta => new { delta = reasoningDelta.TextDelta },
+                // SubAgent progress: pass through the payload as-is (entries array serialized directly)
+                SubAgentProgressPayload => evt.Payload,
                 _ => evt.Payload
             }
         };
@@ -412,6 +415,7 @@ public static class SessionWireMapper
         ThreadResumedPayload => "threadResumed",
         TurnCancelledPayload => "turnCancelled",
         TurnFailedPayload => "turnFailed",
+        SubAgentProgressPayload => "subAgentProgress",
         _ => null
         };
 }
