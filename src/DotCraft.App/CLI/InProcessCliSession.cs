@@ -127,6 +127,35 @@ public sealed class InProcessCliSession(
                 {
                     await renderer.SendEventAsync(RenderEvent.ErrorEvent(errMsg), ct);
                     await renderer.SendEventAsync(RenderEvent.Completed(string.Empty), ct);
+                },
+
+                OnSystemEvent = async sysEvt =>
+                {
+                    switch (sysEvt.Kind)
+                    {
+                        case "compacting":
+                            await renderer.SendEventAsync(
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Compacting context..."), ct);
+                            break;
+                        case "compacted":
+                            await renderer.SendEventAsync(
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compacted successfully."), ct);
+                            break;
+                        case "compactSkipped":
+                            await renderer.SendEventAsync(
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compaction skipped."), ct);
+                            break;
+                        case "consolidating":
+                            await renderer.SendEventAsync(
+                                RenderEvent.SystemStatusEvent(
+                                    sysEvt.Message ?? "Consolidating memory...",
+                                    "Memory consolidation complete."), ct);
+                            break;
+                        case "consolidated":
+                            await renderer.SendEventAsync(
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Memory consolidation complete."), ct);
+                            break;
+                    }
                 }
             };
 

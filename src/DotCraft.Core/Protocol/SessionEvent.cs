@@ -74,6 +74,9 @@ public sealed class SessionEvent
 
     [JsonIgnore]
     public UsageDeltaPayload? UsageDeltaPayload => Payload as UsageDeltaPayload;
+
+    [JsonIgnore]
+    public SystemEventPayload? SystemEventPayload => Payload as SystemEventPayload;
 }
 
 /// <summary>
@@ -186,4 +189,23 @@ public sealed record UsageDeltaPayload
     /// Output tokens consumed in this LLM iteration (delta, not cumulative).
     /// </summary>
     public long OutputTokens { get; init; }
+}
+
+/// <summary>
+/// Payload for system/event events. Carries information about system-level maintenance
+/// operations (context compaction, memory consolidation) that occur during a Turn's
+/// post-processing phase.
+/// </summary>
+public sealed record SystemEventPayload
+{
+    /// <summary>
+    /// System event kind. One of: "compacting", "compacted", "compactSkipped",
+    /// "consolidating", "consolidated".
+    /// </summary>
+    public required string Kind { get; init; }
+
+    /// <summary>
+    /// Optional human-readable message describing the operation.
+    /// </summary>
+    public string? Message { get; init; }
 }

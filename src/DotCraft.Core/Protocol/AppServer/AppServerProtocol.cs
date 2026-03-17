@@ -305,4 +305,7 @@ public static class AppServerMethods
 
     // Server → Client notification (incremental token usage)
     public const string ItemUsageDelta = "item/usage/delta";
+
+    // Server → Client notification (system maintenance events)
+    public const string SystemEvent = "system/event";
 }

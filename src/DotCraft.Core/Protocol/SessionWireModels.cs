@@ -326,6 +326,7 @@ public static class SessionWireMapper
             SessionEventType.ApprovalResolved => "item/approval/resolved",
             SessionEventType.SubAgentProgress => "subagent/progress",
             SessionEventType.UsageDelta => "item/usage/delta",
+            SessionEventType.SystemEvent => "system/event",
             _ => evt.EventType.ToString()
         };
 
@@ -361,6 +362,8 @@ public static class SessionWireMapper
                 ReasoningContentDelta reasoningDelta => new { delta = reasoningDelta.TextDelta },
                 // SubAgent progress: pass through the payload as-is (entries array serialized directly)
                 SubAgentProgressPayload => evt.Payload,
+                // System event: pass through the payload as-is (kind + message)
+                SystemEventPayload => evt.Payload,
                 _ => evt.Payload
             }
         };
@@ -417,6 +420,7 @@ public static class SessionWireMapper
         TurnCancelledPayload => "turnCancelled",
         TurnFailedPayload => "turnFailed",
         SubAgentProgressPayload => "subAgentProgress",
+        SystemEventPayload => "systemEvent",
         _ => null
         };
 }

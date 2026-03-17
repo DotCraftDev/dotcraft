@@ -222,6 +222,15 @@ public sealed class AppServerEventDispatcher
             outputTokens = usage.OutputTokens
         },
 
+        // System event notification (spec Section 6.7)
+        SessionEventType.SystemEvent when evt.SystemEventPayload is { } sysEvt => new
+        {
+            threadId = evt.ThreadId,
+            turnId = evt.TurnId,
+            kind = sysEvt.Kind,
+            message = sysEvt.Message
+        },
+
         _ => null
     };
 

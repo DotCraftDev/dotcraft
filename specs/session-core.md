@@ -653,6 +653,38 @@ SessionEvent
   - **Relationship to Item events**: SubAgent execution is triggered by `SpawnSubagent` tool calls, which appear as `item/started` (type `toolCall`, toolName `SpawnSubagent`) and `item/completed` (type `toolResult`) events. The `subagent/progress` event provides fine-grained intermediate progress that is not captured by the standard Item lifecycle.
   - **Adapters**: Adapters that render SubAgent progress (e.g., CLI Live Table) should consume `subagent/progress` events to update their UI. Adapters that do not need SubAgent progress may ignore this event type or opt out via `optOutNotificationMethods`.
 
+#### System Events
+
+- **`system/event`**
+  - Emitted by Session Core when a system-level maintenance operation occurs during a Turn's post-processing phase. These operations are not part of the agent's conversational output but affect the session's internal state.
+  - Payload:
+
+    ```
+    {
+      "kind": string,          // One of: "compacting", "compacted", "compactSkipped",
+                                //         "consolidating", "consolidated"
+      "message": string        // Human-readable description (nullable)
+    }
+    ```
+
+  - **Defined `kind` values**:
+
+    | Kind | Meaning | Timing |
+    |------|---------|--------|
+    | `compacting` | Context compaction is starting (input tokens exceeded `MaxContextTokens`). | Synchronous, before compaction executes. |
+    | `compacted` | Context compaction completed successfully. Token tracker has been reset. | Synchronous, immediately after compaction succeeds. |
+    | `compactSkipped` | Context compaction was triggered but skipped (insufficient history to compact). | Synchronous, immediately after compaction returns false. |
+    | `consolidating` | Memory consolidation is starting (message count exceeded `MemoryWindow`). | Synchronous, before consolidation executes. |
+    | `consolidated` | Memory consolidation completed successfully. MEMORY.md and HISTORY.md have been updated. | After consolidation completes (awaited within turn). |
+
+  - **Emission rules**:
+    - System events are emitted during the Turn's post-processing phase (after agent execution completes, before `turn/completed`).
+    - Compaction events (`compacting`, `compacted`, `compactSkipped`) are synchronous — they are emitted and the operation completes within the same execution flow.
+    - Consolidation events (`consolidating`, `consolidated`) bracket an awaited async operation. The Turn's completion is deferred until consolidation finishes.
+    - All system events are emitted through the turn-scoped `SessionEventChannel`, so they are guaranteed to arrive before `turn/completed`.
+    - The `message` field carries a localized human-readable description suitable for display. Adapters may use it directly or substitute their own text.
+  - **Adapters**: Adapters that display session maintenance status (e.g., CLI spinner for consolidation, status text for compaction) should consume `system/event` notifications. Adapters that do not need maintenance status may ignore this event type or opt out via `optOutNotificationMethods`.
+
 #### Usage Events
 
 - **`usage/delta`**

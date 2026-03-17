@@ -7,8 +7,6 @@ namespace DotCraft.QQ;
 
 public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = null)
 {
-    private readonly IAgentFileSystem? _fileSystem = fileSystem;
-
     private static bool IsRemoteOrInline(string file)
         => file.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
            || file.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
@@ -106,8 +104,8 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
     {
         try
         {
-            using var handle = _fileSystem != null
-                ? await _fileSystem.ResolveHostFileAsync(filePath)
+            using var handle = fileSystem != null
+                ? await fileSystem.ResolveHostFileAsync(filePath)
                 : new HostFileHandle(filePath);
             var resp = await client.UploadGroupFileAsync(groupId, handle.HostPath, fileName, folder);
             return resp.IsOk
@@ -129,8 +127,8 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
     {
         try
         {
-            using var handle = _fileSystem != null
-                ? await _fileSystem.ResolveHostFileAsync(filePath)
+            using var handle = fileSystem != null
+                ? await fileSystem.ResolveHostFileAsync(filePath)
                 : new HostFileHandle(filePath);
             var resp = await client.UploadPrivateFileAsync(userId, handle.HostPath, fileName);
             return resp.IsOk
@@ -149,10 +147,10 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
     /// </summary>
     private async Task<string> ResolveVoiceFileAsync(string file)
     {
-        if (IsRemoteOrInline(file) || _fileSystem == null)
+        if (IsRemoteOrInline(file) || fileSystem == null)
             return file;
 
-        var b64 = await _fileSystem.ReadAsBase64Async(file);
+        var b64 = await fileSystem.ReadAsBase64Async(file);
         return "base64://" + b64;
     }
 
@@ -162,8 +160,8 @@ public sealed class QQTools(QQBotClient client, IAgentFileSystem? fileSystem = n
         if (IsRemoteOrInline(file))
             return null;
 
-        return _fileSystem != null
-            ? await _fileSystem.ResolveHostFileAsync(file)
+        return fileSystem != null
+            ? await fileSystem.ResolveHostFileAsync(file)
             : new HostFileHandle(file);
     }
 }

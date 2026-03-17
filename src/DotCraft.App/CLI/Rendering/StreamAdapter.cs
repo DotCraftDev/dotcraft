@@ -342,6 +342,16 @@ public static partial class StreamAdapter
                     break;
                 }
 
+                // ---------------------------------------------------------
+                // System events (compaction, consolidation)
+                // ---------------------------------------------------------
+                case SessionEventType.SystemEvent when evt.SystemEventPayload is { } sysEvt:
+                {
+                    foreach (var re in MapSystemEvent(sysEvt))
+                        yield return re;
+                    break;
+                }
+
                 // All other events (thread/created, turn/started, item/started for non-tool, etc.) are ignored.
             }
         }
@@ -546,8 +556,53 @@ public static partial class StreamAdapter
                     break;
                 }
 
+                // ---------------------------------------------------------
+                // System events (spec Section 6.7)
+                // ---------------------------------------------------------
+                case AppServerMethods.SystemEvent:
+                {
+                    if (!hasParams) break;
+                    var kind = @params.TryGetProperty("kind", out var k) ? k.GetString() : null;
+                    if (string.IsNullOrEmpty(kind)) break;
+                    var message = @params.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String
+                        ? m.GetString() : null;
+                    var payload = new Protocol.SystemEventPayload { Kind = kind!, Message = message };
+                    foreach (var re in MapSystemEvent(payload))
+                        yield return re;
+                    break;
+                }
+
                 // All other notifications (thread/*, turn/started, item/started for non-tool, etc.) are ignored.
             }
+        }
+    }
+
+    /// <summary>
+    /// Maps a <see cref="SystemEventPayload"/> to zero or more <see cref="RenderEvent"/>s.
+    /// Shared by both <see cref="AdaptSessionEventsAsync"/> and <see cref="AdaptWireNotificationsAsync"/>.
+    /// </summary>
+    private static IEnumerable<RenderEvent> MapSystemEvent(Protocol.SystemEventPayload sysEvt)
+    {
+        switch (sysEvt.Kind)
+        {
+            case "compacting":
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Compacting context...");
+                break;
+            case "compacted":
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compacted successfully.");
+                break;
+            case "compactSkipped":
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compaction skipped.");
+                break;
+            case "consolidating":
+                yield return RenderEvent.SystemStatusEvent(
+                    sysEvt.Message ?? "Consolidating memory...",
+                    "Memory consolidation complete.");
+                break;
+            case "consolidated":
+                // The completion event dismisses the SystemStatus spinner in the renderer.
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Memory consolidation complete.");
+                break;
         }
     }
 }

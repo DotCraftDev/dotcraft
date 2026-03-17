@@ -137,6 +137,21 @@ internal sealed class SessionEventChannel(
         });
 
     // -------------------------------------------------------------------------
+    // System events
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Emits a system-level maintenance event (context compaction, memory consolidation).
+    /// Called by <see cref="SessionService"/> during the Turn's post-processing phase.
+    /// </summary>
+    public void EmitSystemEvent(string kind, string? message = null) =>
+        Write(SessionEventType.SystemEvent, null, new SystemEventPayload
+        {
+            Kind = kind,
+            Message = message
+        });
+
+    // -------------------------------------------------------------------------
     // Snapshot helpers — produce immutable copies so async consumers see a
     // consistent status regardless of when they dequeue the event.
     // -------------------------------------------------------------------------

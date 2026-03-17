@@ -20,10 +20,8 @@ namespace DotCraft.CLI.Rendering;
 /// - Stream model response chunks as normal text (kept as history).
 /// - Handle approval prompts by pausing/resuming rendering.
 /// </summary>
-public sealed class AgentRenderer : IRenderControl, IDisposable
+public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : IRenderControl, IDisposable
 {
-    private readonly Context.TokenTracker? _tokenTracker;
-
     private readonly Channel<RenderEvent> _eventQueue = Channel.CreateUnbounded<RenderEvent>(new UnboundedChannelOptions
     {
         SingleReader = true,
@@ -64,8 +62,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
     private const string SubAgentToolName = "SpawnSubagent";
     private const string SubAgentDisplayPrefix = "Spawned subagent: ";
 
-    private static bool IsSubAgentTool(RenderEvent evt) =>
-        string.Equals(evt.Title, SubAgentToolName, StringComparison.Ordinal);
+    private static bool IsSubAgentTool(RenderEvent evt) => string.Equals(evt.Title, SubAgentToolName, StringComparison.Ordinal);
 
     private sealed class SubAgentEntry
     {
@@ -94,16 +91,11 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         ApprovalPaused
     }
 
-    public AgentRenderer(Context.TokenTracker? tokenTracker = null)
-    {
-        _tokenTracker = tokenTracker;
-    }
-
     private string GetTokenSuffix()
     {
-        if (_tokenTracker == null) return string.Empty;
-        var input = _tokenTracker.TotalInputTokens + _tokenTracker.SubAgentInputTokens;
-        var output = _tokenTracker.TotalOutputTokens + _tokenTracker.SubAgentOutputTokens;
+        if (tokenTracker == null) return string.Empty;
+        var input = tokenTracker.TotalInputTokens + tokenTracker.SubAgentInputTokens;
+        var output = tokenTracker.TotalOutputTokens + tokenTracker.SubAgentOutputTokens;
         if (input == 0 && output == 0) return string.Empty;
         return $" [dim grey]· ↑{Context.TokenTracker.FormatCompact(input)} ↓{Context.TokenTracker.FormatCompact(output)}[/]";
     }
@@ -227,6 +219,10 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
                         case RenderEventType.ToolCallStarted:
                             await RunToolStatusSessionAsync(evt, cancellationToken);
+                            break;
+
+                        case RenderEventType.SystemStatus:
+                            await RunSystemStatusSessionAsync(evt, cancellationToken);
                             break;
 
                         default:
@@ -760,23 +756,21 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey)
             .AddColumn(new TableColumn("[grey]Task[/]"))
-            .AddColumn(new TableColumn("[grey]Activity[/]").Width(28))
+            .AddColumn(new TableColumn("[grey]Activity[/]").Width(52))
             .AddColumn(new TableColumn("[grey]Status[/]").Centered().Width(8));
 
         foreach (var entry in entries)
         {
             var status = entry.Completed
                 ? "[green]✓[/]"
-                : entry.Failed
-                    ? "[red]✗[/]"
-                    : $"[yellow]{Markup.Escape(frame)}[/]";
+                : $"[yellow]{Markup.Escape(frame)}[/]";
 
             var label = entry.Label.Length > 60
                 ? entry.Label[..57] + "..."
                 : entry.Label;
 
             var activity = string.Empty;
-            const int maxActivityLen = 24;
+            const int maxActivityLen = 48;
 
             // Dual data source: prefer event-driven data (HasProgressData = Wire mode),
             // fall back to SubAgentProgressBridge polling (InProcess mode).
@@ -828,9 +822,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         }
 
         var tokenSuffix = GetTokenSuffix();
-        return new Rows(
-            new Markup($"[purple]🐧 SubAgents ({completed}/{total})[/]{tokenSuffix}"),
-            table);
+        return new Rows(new Markup($"[purple]🐧 SubAgents ({completed}/{total})[/]{tokenSuffix}"), table);
     }
 
     #endregion
@@ -882,6 +874,116 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             case RenderEventType.SubAgentProgress:
             case RenderEventType.UsageDelta:
                 break;
+
+            case RenderEventType.SystemInfo:
+                HandleSystemInfo(evt);
+                break;
+
+            case RenderEventType.SystemStatus:
+                // SystemStatus should not arrive here in normal flow because it's handled
+                // in the render loop as a spinner session. But if it arrives as a buffered event,
+                // fall back to a simple info line.
+                HandleSystemInfo(evt);
+                break;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // System events rendering
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Renders a one-line informational message for system-level operations
+    /// (e.g., "Context compacted successfully.").
+    /// </summary>
+    private static void HandleSystemInfo(RenderEvent evt)
+    {
+        if (!string.IsNullOrWhiteSpace(evt.Content))
+        {
+            AnsiConsole.MarkupLine($"[dim]ℹ {Markup.Escape(evt.Content)}[/]");
+        }
+    }
+
+    /// <summary>
+    /// Enters a live Status spinner session for an in-progress system operation
+    /// (e.g., memory consolidation). Waits for a <see cref="RenderEventType.SystemInfo"/>
+    /// event signalling completion, then displays the completion message.
+    /// Other events arriving during the spinner are buffered and replayed after.
+    /// </summary>
+    private async Task RunSystemStatusSessionAsync(RenderEvent statusEvt, CancellationToken ct)
+    {
+        var reader = _eventQueue.Reader;
+        var buffered = new List<RenderEvent>(capacity: 4);
+        var spinnerText = statusEvt.Content;
+        bool completed = false;
+
+        try
+        {
+            await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(new Style(Color.Cyan))
+                .StartAsync($"[cyan]ℹ {Markup.Escape(spinnerText)}[/]", async ctx =>
+                {
+                    var sw = Stopwatch.StartNew();
+
+                    while (!ct.IsCancellationRequested)
+                    {
+                        // Wait up to 1 second for events, then update elapsed time
+                        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        delayCts.CancelAfter(TimeSpan.FromSeconds(1));
+
+                        bool hasData;
+                        try
+                        {
+                            hasData = await reader.WaitToReadAsync(delayCts.Token);
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            // 1-second tick: update elapsed
+                            var elapsed = (long)sw.Elapsed.TotalSeconds;
+                            if (elapsed > 0)
+                                ctx.Status = $"[cyan]ℹ {Markup.Escape(spinnerText)} ({elapsed}s)[/]";
+                            continue;
+                        }
+
+                        if (!hasData) break;
+
+                        while (reader.TryRead(out var evt))
+                        {
+                            // SystemInfo arriving while spinner is active signals completion
+                            if (evt.Type == RenderEventType.SystemInfo)
+                            {
+                                completed = true;
+                                return;
+                            }
+
+                            // Complete event means the turn is ending; exit spinner
+                            if (evt.Type == RenderEventType.Complete
+                                || evt.Type == RenderEventType.Error)
+                            {
+                                buffered.Add(evt);
+                                completed = true;
+                                return;
+                            }
+
+                            buffered.Add(evt);
+                        }
+                    }
+                });
+        }
+        catch (OperationCanceledException) { /* clean exit */ }
+
+        // Show completion message after spinner closes
+        if (completed)
+        {
+            var completionText = statusEvt.AdditionalInfo ?? "Done.";
+            AnsiConsole.MarkupLine($"[dim]ℹ {Markup.Escape(completionText)}[/]");
+        }
+
+        // Replay buffered events
+        foreach (var evt in buffered)
+        {
+            ProcessNonToolStartEvent(evt);
         }
     }
 

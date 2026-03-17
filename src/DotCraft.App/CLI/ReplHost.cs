@@ -73,6 +73,7 @@ public sealed class ReplHost(
                 // Shift+Tab was pressed -- mode already toggled, just re-loop for new prompt
                 continue;
             }
+
             if (string.IsNullOrWhiteSpace(input))
             {
                 continue;
@@ -89,6 +90,7 @@ public sealed class ReplHost(
                 {
                     break;
                 }
+
                 continue;
             }
 

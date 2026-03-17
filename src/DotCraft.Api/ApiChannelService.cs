@@ -110,8 +110,7 @@ public sealed class ApiChannelService(
             app.Use(async (context, next) =>
             {
                 var path = context.Request.Path.Value ?? "";
-                if (path.StartsWith("/dotcraft/", StringComparison.OrdinalIgnoreCase) ||
-                    path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
+                if (path.StartsWith("/v1/", StringComparison.OrdinalIgnoreCase))
                 {
                     if (path == "/v1/health")
                     {

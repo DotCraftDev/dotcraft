@@ -660,15 +660,29 @@ public sealed class SessionService(
                 if (agentFactory is { Compactor: not null, MaxContextTokens: > 0 } &&
                     (tokenTracker.LastInputTokens) >= agentFactory.MaxContextTokens)
                 {
+                    eventChannel.EmitSystemEvent("compacting");
                     if (await agentFactory.Compactor.TryCompactAsync(session, CancellationToken.None))
                     {
                         tokenTracker.Reset();
                         traceCollector?.RecordContextCompaction(threadId);
+                        eventChannel.EmitSystemEvent("compacted");
+                    }
+                    else
+                    {
+                        eventChannel.EmitSystemEvent("compactSkipped");
                     }
                 }
 
-                // Step 5l: Memory consolidation (fire-and-forget)
-                _ = agentFactory.TryConsolidateMemory(session, threadId);
+                // Step 5l: Memory consolidation (awaited for client notification)
+                {
+                    var consolidationTask = agentFactory.TryConsolidateMemory(session, threadId);
+                    if (consolidationTask != null)
+                    {
+                        eventChannel.EmitSystemEvent("consolidating");
+                        await consolidationTask;
+                        eventChannel.EmitSystemEvent("consolidated");
+                    }
+                }
 
                 // Step 5m: Release gate
                 gateLock.Dispose();

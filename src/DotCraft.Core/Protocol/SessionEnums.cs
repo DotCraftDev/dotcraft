@@ -57,7 +57,8 @@ public enum SessionEventType
     ApprovalRequested,
     ApprovalResolved,
     SubAgentProgress,
-    UsageDelta
+    UsageDelta,
+    SystemEvent
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

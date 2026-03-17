@@ -20,6 +20,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [6. Event Notifications](#6-event-notifications)
   - [6.5 SubAgent Notifications](#65-subagent-notifications)
   - [6.6 Usage Notifications](#66-usage-notifications)
+  - [6.7 System Notifications](#67-system-notifications)
 - [7. Approval Flow](#7-approval-flow)
 - [8. Error Handling](#8-error-handling)
 - [9. Backpressure](#9-backpressure)
@@ -914,6 +915,77 @@ Server                                          Client
   |<----------------------------------------------|
 ```
 
+### 6.7 System Notifications
+
+#### `system/event`
+
+Emitted when a system-level maintenance operation occurs during a Turn's post-processing phase. These operations (context compaction, memory consolidation) are not part of the agent's conversational output but affect the session's internal state.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "kind": "compacting",
+  "message": "Context token limit reached, compacting conversation..."
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | string | Parent thread. |
+| `turnId` | string | Active turn. |
+| `kind` | string | Event kind. One of: `"compacting"`, `"compacted"`, `"compactSkipped"`, `"consolidating"`, `"consolidated"`. |
+| `message` | string? | Human-readable description. May be null. |
+
+**Defined `kind` values**:
+
+| Kind | Meaning |
+|------|---------|
+| `compacting` | Context compaction is starting. |
+| `compacted` | Context compaction completed successfully. |
+| `compactSkipped` | Context compaction was skipped (insufficient history). |
+| `consolidating` | Memory consolidation is starting. |
+| `consolidated` | Memory consolidation completed successfully. |
+
+**Emission rules**:
+
+- System events are emitted during the Turn's post-processing phase, before `turn/completed`.
+- Compaction events are synchronous pairs: `compacting` → `compacted` or `compactSkipped`.
+- Consolidation events bracket an async operation: `consolidating` → (await) → `consolidated`.
+- Clients that do not need system maintenance status can opt out via `optOutNotificationMethods: ["system/event"]` during `initialize`.
+
+**Example sequence**:
+
+```
+Server                                          Client
+  |                                               |
+  | system/event (notification)                   |
+  |  kind: "compacting",                          |
+  |  message: "Context token limit reached..."    |
+  |<----------------------------------------------|
+  |                                               |
+  | system/event (notification)                   |
+  |  kind: "compacted",                           |
+  |  message: "Context compacted successfully."   |
+  |<----------------------------------------------|
+  |                                               |
+  | system/event (notification)                   |
+  |  kind: "consolidating",                       |
+  |  message: "Consolidating memory..."           |
+  |<----------------------------------------------|
+  |                                               |
+  | system/event (notification)                   |
+  |  kind: "consolidated",                        |
+  |  message: "Memory consolidation complete."    |
+  |<----------------------------------------------|
+  |                                               |
+  | turn/completed (notification)                 |
+  |  turn: { ... }                                |
+  |<----------------------------------------------|
+```
+
 ---
 
 ## 7. Approval Flow
@@ -1112,6 +1184,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `thread/statusChanged` | Client manages thread status locally. |
 | `subagent/progress` | Client does not display SubAgent real-time progress. |
 | `item/usage/delta` | Client does not need real-time token consumption display; will use `turn/completed.tokenUsage` for final totals. |
+| `system/event` | Client does not need system maintenance status (compaction, consolidation). |
 
 **Example**:
 

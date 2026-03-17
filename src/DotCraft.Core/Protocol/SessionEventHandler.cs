@@ -75,6 +75,13 @@ public sealed class SessionEventHandler
     public Func<SubAgentProgressPayload, Task>? OnSubAgentProgress { get; init; }
 
     /// <summary>
+    /// Called when a system-level maintenance event arrives (<see cref="SessionEventType.SystemEvent"/>).
+    /// The payload carries the event kind (compacting, compacted, consolidating, etc.) and an optional message.
+    /// Optional; if null, system events are silently dropped.
+    /// </summary>
+    public Func<SystemEventPayload, Task>? OnSystemEvent { get; init; }
+
+    /// <summary>
     /// Processes the <see cref="SessionEvent"/> stream, calling the appropriate callback for each event.
     /// The <paramref name="resolveApproval"/> delegate is called after <see cref="OnApprovalRequested"/>
     /// returns, to inform Session Core of the user's decision.
@@ -160,6 +167,13 @@ public sealed class SessionEventHandler
                 {
                     if (OnSubAgentProgress != null && evt.SubAgentProgressPayload is { } progress)
                         await OnSubAgentProgress(progress);
+                    break;
+                }
+
+                case SessionEventType.SystemEvent:
+                {
+                    if (OnSystemEvent != null && evt.SystemEventPayload is { } sysEvt)
+                        await OnSystemEvent(sysEvt);
                     break;
                 }
             }

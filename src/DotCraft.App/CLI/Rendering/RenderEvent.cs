@@ -75,7 +75,22 @@ public enum RenderEventType
     /// Carries input/output token deltas in Content as "inputTokens,outputTokens".
     /// Used to update a local TokenTracker for real-time spinner display in Wire mode.
     /// </summary>
-    UsageDelta
+    UsageDelta,
+
+    /// <summary>
+    /// System informational message — a one-line notification about a system-level operation
+    /// (e.g., "Context compacted successfully."). Rendered as a dim markup line.
+    /// </summary>
+    SystemInfo,
+
+    /// <summary>
+    /// System status with spinner — a system-level operation in progress
+    /// (e.g., "Consolidating memory..."). Rendered as a live Status spinner
+    /// that is dismissed when the corresponding completion event arrives.
+    /// The <see cref="RenderEvent.Content"/> carries the spinner text,
+    /// and <see cref="RenderEvent.AdditionalInfo"/> carries the completion text (if known).
+    /// </summary>
+    SystemStatus
 }
 
 /// <summary>
@@ -314,6 +329,28 @@ public class RenderEvent
         Type = RenderEventType.UsageDelta,
         InputTokensDelta = inputTokens,
         OutputTokensDelta = outputTokens
+    };
+
+    /// <summary>
+    /// Create a SystemInfo event — a one-line informational message about a system operation.
+    /// </summary>
+    public static RenderEvent SystemInfoEvent(string message) => new()
+    {
+        Type = RenderEventType.SystemInfo,
+        Content = message,
+        Color = "dim"
+    };
+
+    /// <summary>
+    /// Create a SystemStatus event — triggers a spinner for an in-progress system operation.
+    /// Use <paramref name="completedMessage"/> to indicate the text to show when the operation completes.
+    /// </summary>
+    public static RenderEvent SystemStatusEvent(string spinnerText, string? completedMessage = null) => new()
+    {
+        Type = RenderEventType.SystemStatus,
+        Content = spinnerText,
+        AdditionalInfo = completedMessage,
+        Color = "cyan"
     };
 }
 
