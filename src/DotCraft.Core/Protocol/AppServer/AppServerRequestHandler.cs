@@ -388,6 +388,10 @@ public sealed class AppServerRequestHandler
                 initialTurnTcs.TrySetException(t.Exception!.GetBaseException());
             else if (t.IsCanceled)
                 initialTurnTcs.TrySetCanceled(ct);
+            else
+                initialTurnTcs.TrySetException(new AppServerException(
+                    AppServerErrors.InternalErrorCode,
+                    "Event dispatch completed without emitting a TurnStarted event."));
         }, TaskContinuationOptions.ExecuteSynchronously);
 
         // Wait until the response has been sent (or dispatch failed)
