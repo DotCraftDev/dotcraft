@@ -188,7 +188,7 @@ public sealed class AppServerProcess : IAsyncDisposable
                 .GetProperty("version")
                 .GetString();
         }
-        catch (KeyNotFoundException)
+        catch (Exception) when (true)
         {
             return null;
         }
