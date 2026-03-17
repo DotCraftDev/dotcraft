@@ -1,11 +1,11 @@
-# DotCraft Session Wire Protocol Specification
+# DotCraft AppServer Protocol Specification
 
 | Field | Value |
 |-------|-------|
 | **Version** | 0.1.0 |
-| **Status** | Draft |
+| **Status** | Living Spec |
 | **Date** | 2026-03-16 |
-| **Parent Spec** | [Session Protocol](session-protocol.md) (v0.2.0, Section 19) |
+| **Parent Spec** | [Session Core](session-core.md) (v0.2.0, Section 19) |
 
 Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) to out-of-process clients, enabling non-C# adapters to create and resume threads, submit turns, stream events, and participate in approval flows.
 
@@ -33,11 +33,11 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 
 ### 1.1 What This Spec Defines
 
-This specification defines the wire protocol — message formats, methods, notifications, and transport rules — that a DotCraft server exposes to external clients over stdio or WebSocket. It is the network-facing projection of the Session Protocol's `ISessionService` API.
+This specification defines the wire protocol — message formats, methods, notifications, and transport rules — that a DotCraft server exposes to external clients over stdio or WebSocket. It is the network-facing projection of the Session Core `ISessionService` API.
 
 ### 1.2 What This Spec Does Not Define
 
-- **Domain model semantics**: Thread, Turn, and Item lifecycle rules, persistence layout, and state machine invariants are defined in the [Session Protocol Specification](session-protocol.md). This spec references them but does not redefine them.
+- **Domain model semantics**: Thread, Turn, and Item lifecycle rules, persistence layout, and state machine invariants are defined in the [Session Core Specification](session-core.md). This spec references them but does not redefine them.
 - **Agent execution internals**: The Microsoft.Extensions.AI pipeline, tool invocation, and hook execution are unchanged and invisible to the wire client.
 - **Channel-specific UX**: How a client renders events (streaming text, diffs, approval dialogs) is a client concern.
 - **In-process adapter patterns**: `SessionEventHandler`, `SessionEventChannel`, and the adapter pattern for in-process channels (CLI, QQ, WeCom) are internal to the C# codebase and not part of this wire protocol.
@@ -52,7 +52,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -200,7 +200,7 @@ No response. Signals the client is ready to receive notifications.
 
 ## 4. Thread Methods
 
-Thread methods correspond to `ISessionService` thread lifecycle operations defined in the [Session Protocol Specification, Section 5.1](session-protocol.md#51-thread-lifecycle).
+Thread methods correspond to `ISessionService` thread lifecycle operations defined in the [Session Core Specification, Section 5.1](session-core.md#51-thread-lifecycle).
 
 ### 4.1 `thread/start`
 
@@ -212,7 +212,7 @@ Create a new thread. The server generates a Thread ID and persists initial state
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `identity` | SessionIdentity | yes | Channel identity for thread ownership. See [Session Protocol, Section 4.1.4](session-protocol.md). |
+| `identity` | SessionIdentity | yes | Channel identity for thread ownership. See [Session Core, Section 4.1.4](session-core.md#414-sessionidentity). |
 | `config` | ThreadConfiguration | no | Per-thread agent configuration. Null means workspace defaults. |
 | `historyMode` | string | no | `"server"` (default) or `"client"`. |
 | `displayName` | string | no | Explicit thread display name. |
@@ -466,7 +466,7 @@ Update per-thread agent configuration (MCP servers, extensions, etc.).
 
 ## 5. Turn Methods
 
-Turn methods correspond to `ISessionService` turn lifecycle operations defined in the [Session Protocol Specification, Section 5.2](session-protocol.md#52-turn-lifecycle).
+Turn methods correspond to `ISessionService` turn lifecycle operations defined in the [Session Core Specification, Section 5.2](session-core.md#52-turn-lifecycle).
 
 ### 5.1 `turn/start`
 
@@ -565,7 +565,7 @@ The actual cancellation is asynchronous. Rely on the `turn/cancelled` notificati
 
 ## 6. Event Notifications
 
-Event notifications are server-initiated messages (no `id`) that stream the turn lifecycle to the client. They correspond 1:1 to the `SessionEvent` types defined in the [Session Protocol Specification, Section 6](session-protocol.md#6-event-model).
+Event notifications are server-initiated messages (no `id`) that stream the turn lifecycle to the client. They correspond 1:1 to the `SessionEvent` types defined in the [Session Core Specification, Section 6](session-core.md#6-event-model).
 
 All notifications share the pattern:
 
@@ -643,7 +643,7 @@ Emitted when a turn is cancelled via `turn/interrupt` or client disconnect.
 
 ### 6.3 Item Notifications
 
-Items follow the lifecycle: `item/started` → zero or more `item/*/delta` → `item/completed`. See [Session Protocol, Section 5.3](session-protocol.md#53-item-lifecycle).
+Items follow the lifecycle: `item/started` → zero or more `item/*/delta` → `item/completed`. See [Session Core, Section 5.3](session-core.md#53-item-lifecycle).
 
 #### `item/started`
 
@@ -670,18 +670,18 @@ Emitted when a new item is created within a turn.
 }
 ```
 
-The `item.type` discriminates the payload shape. Supported types and their payloads are defined in [Session Protocol, Section 4.2](session-protocol.md#42-item-payload-schemas):
+The canonical item payload schemas are defined in [Session Core, Section 4.2](session-core.md#42-item-payload-schemas). On the wire, clients should treat `item.type` as the discriminator and apply the following mapping rules:
 
-| `item.type` | Payload fields |
-|-------------|----------------|
-| `userMessage` | `text`, `senderId?`, `senderName?` |
-| `agentMessage` | `text` |
-| `reasoningContent` | `text` |
-| `toolCall` | `toolName`, `arguments`, `callId` |
-| `toolResult` | `callId`, `result`, `success` |
-| `approvalRequest` | `approvalType`, `operation`, `target`, `requestId` |
-| `approvalResponse` | `requestId`, `approved` |
-| `error` | `message`, `code`, `fatal` |
+| `item.type` | Wire-specific notes |
+|-------------|---------------------|
+| `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. |
+| `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
+| `reasoningContent` | Reasoning deltas stream through `item/reasoningContent/delta`; snapshots still use the canonical payload schema. |
+| `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. |
+| `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
+| `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
+| `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
+| `error` | Error payload uses the canonical fields; transport-level JSON-RPC errors remain separate from item-level error items. |
 
 #### `item/agentMessage/delta`
 

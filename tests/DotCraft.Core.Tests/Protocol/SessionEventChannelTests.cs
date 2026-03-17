@@ -192,7 +192,7 @@ public sealed class SessionEventChannelTests
     }
 
     // -------------------------------------------------------------------------
-    // Snapshot semantics (spec session-wire-protocol.md §6.3)
+    // Snapshot semantics (spec appserver-protocol.md §6.3)
     // -------------------------------------------------------------------------
 
     [Fact]

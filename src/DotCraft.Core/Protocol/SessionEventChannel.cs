@@ -79,7 +79,7 @@ internal sealed class SessionEventChannel(
     // Item events
     // -------------------------------------------------------------------------
 
-    // Spec (session-wire-protocol.md §6.3): item/started must carry status="started" with no completedAt.
+    // Spec (appserver-protocol.md §6.3): item/started must carry status="started" with no completedAt.
     public void EmitItemStarted(SessionItem item)
     {
         var snapshot = SnapshotItem(item);
@@ -91,7 +91,7 @@ internal sealed class SessionEventChannel(
     public void EmitItemDelta(SessionItem item, object deltaPayload) =>
         Write(SessionEventType.ItemDelta, item.Id, deltaPayload);
 
-    // Spec (session-wire-protocol.md §6.3): item/completed must carry status="completed" with completedAt set.
+    // Spec (appserver-protocol.md §6.3): item/completed must carry status="completed" with completedAt set.
     public void EmitItemCompleted(SessionItem item)
     {
         var snapshot = SnapshotItem(item);

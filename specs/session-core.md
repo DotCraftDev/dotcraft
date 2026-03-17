@@ -1,4 +1,4 @@
-# DotCraft Session Protocol Specification
+# DotCraft Session Core Specification
 
 | Field | Value |
 |-------|-------|
@@ -6,11 +6,18 @@
 | **Status** | Living Spec |
 | **Date** | 2026-03-15 |
 
-Purpose: Define the current **server-managed** session model (Thread / Turn / Item) used by `DotCraft.Core`, including persistence, event semantics, adapter boundaries, and future wire protocol direction.
+Purpose: Define the current **server-managed** session model (Thread / Turn / Item) used by `DotCraft.Core`, including lifecycle, persistence, event semantics, approval semantics, and adapter boundaries.
 
 ## 1. Scope
 
-This specification applies to the channels whose conversation state is owned by the server and executed through `ISessionService`.
+This specification defines the **internal domain model and execution engine** for channels whose conversation state is owned by the server and executed through `ISessionService`.
+
+For the external JSON-RPC API that projects these primitives to out-of-process clients, see the [DotCraft AppServer Protocol Specification](appserver-protocol.md).
+
+| Document | Defines |
+|----------|---------|
+| `session-core.md` | Domain model, lifecycle rules, event semantics, persistence layout, approval semantics, and adapter contracts inside `DotCraft.Core`. |
+| `appserver-protocol.md` | JSON-RPC methods, notifications, transport rules, wire DTOs, error codes, and approval mechanics for out-of-process clients. |
 
 ### 1.1 In-Scope Channels
 
@@ -60,8 +67,8 @@ This boundary is intentional. DotCraft does **not** attempt to force client-owne
 - **Real-time cross-device sync**: Session Core does not push notifications to idle channels when a thread updates elsewhere. Channels discover thread state on resume.
 - **Multi-user thread collaboration**: Collaborative editing of a thread (multiple users editing simultaneously) is not in scope. Sequential group input is supported as described in Section 17.
 - **Unifying client-managed channels**: API and AG-UI retain their own hosting and history models.
-- **Standards-body compatibility**: Section 19 sketches a future DotCraft-native wire protocol, but this spec does not attempt to be an OpenAI/Codex-compatible public standard.
-- **Replacing `IChannelService`**: The channel module contract (`IChannelService`, `IDotCraftModule`) is unchanged. Session Protocol is a layer *inside* channel implementations, not a replacement of the module system.
+- **Standards-body compatibility**: This spec defines DotCraft's internal session model. It does not attempt to be an OpenAI/Codex-compatible public standard.
+- **Replacing `IChannelService`**: The channel module contract (`IChannelService`, `IDotCraftModule`) is unchanged. Session Core is a layer *inside* channel implementations, not a replacement of the module system.
 
 ## 3. System Overview
 
@@ -1219,45 +1226,19 @@ The design rule is simple:
 
 ## 19. Wire Protocol (Cross-Language SDK Support)
 
-> **Status**: Specified. See [Session Wire Protocol Specification](session-wire-protocol.md) for the full definition.
+> **Status**: Specified. See the [DotCraft AppServer Protocol Specification](appserver-protocol.md) for the full definition.
 
 ### 19.1 Goal
 
 Expose Session Core over a language-neutral protocol so that non-C# adapters (IDE extensions, web frontends, third-party integrations) can participate in the same server-managed thread model without linking DotCraft.Core directly.
 
-### 19.2 Design Direction
-
-The wire protocol uses **bidirectional JSON-RPC 2.0** over stdio (JSONL) or WebSocket, modeled after the [Codex App Server](https://github.com/openai/codex/tree/main/codex-rs/app-server) protocol:
-
-- JSON-RPC 2.0 with `"jsonrpc":"2.0"` header on the wire
-- stdio (JSONL) as the primary transport; WebSocket as experimental alternative
-- `initialize` / `initialized` handshake before any other method
-- Thread, Turn, and Item lifecycle methods that map 1:1 to `ISessionService`
-- Server-to-client event notifications for the `SessionEvent` stream
-- Server-initiated requests for bidirectional approval flows
-- Extension namespace (`ext/<ns>/...`) for channel-specific capabilities
-
-### 19.3 Required Capabilities
-
-The wire protocol supports:
-
-- Thread creation, listing, reading, resume, pause, archive, and delete
-- Turn submission against an existing thread with multimodal input
-- Streaming of typed session events (`item/started`, `item/*/delta`, `item/completed`)
-- Bidirectional approval resolution via server-initiated `item/approval/request`
-- Identity-based thread discovery consistent with Section 9
-- Per-thread mode switching and configuration updates
-- Notification opt-out for clients that do not need streaming or specific event types
+The AppServer wire protocol is specified in [appserver-protocol.md](appserver-protocol.md). That document defines the transport, JSON-RPC message shapes, method surface, event notifications, error handling, and approval request/response mechanics that project this Session Core model to external clients.
 
 ### 19.4 Relationship to Existing API
 
-The wire protocol complements, not replaces, `/v1/chat/completions`.
+The AppServer protocol complements, not replaces, `/v1/chat/completions`.
 
 - `/v1/chat/completions` remains the simple client-managed entry point (API channel).
-- The wire protocol is the server-managed entry point for persistent threads and structured events.
+- The AppServer protocol is the server-managed entry point for persistent threads and structured events.
 - AG-UI retains its own client-managed transport.
-
-### 19.5 Relationship to ACP
-
-ACP currently uses a DotCraft-specific JSON-RPC vocabulary (`session/new`, `session/prompt`, `session/update`). The wire protocol generalizes and formalizes this into a stable contract. ACP is expected to migrate its core session methods to the wire protocol, retaining its tool-proxy capabilities (filesystem access, terminal control) as extension methods under the `ext/acp/` namespace.
 
