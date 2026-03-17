@@ -1,56 +1,51 @@
 namespace DotCraft.CLI;
 
 /// <summary>
-/// Registers a <see cref="Console.CancelKeyPress"/> handler that requires two Ctrl+C presses
-/// within a confirmation window to cancel the active agent run.
-///
-/// The first press suppresses termination and prints a hint; the second press (within
-/// <see cref="ConfirmWindowSeconds"/> seconds) cancels the supplied <see cref="CancellationTokenSource"/>.
-/// Disposing this handler unregisters the event subscription.
+/// Registers a background thread that polls for an Escape key press and cancels
+/// the active agent run when detected.
 /// </summary>
 internal sealed class InterruptHandler : IDisposable
 {
-    private const int ConfirmWindowSeconds = 2;
-
     private readonly CancellationTokenSource _cts;
-    private readonly ConsoleCancelEventHandler _handler;
-
-    private long _firstPressTicks;
+    private readonly ConsoleCancelEventHandler _ctrlCHandler;
+    private volatile bool _disposed;
 
     public InterruptHandler(CancellationTokenSource cts)
     {
         _cts = cts;
-        _handler = OnCancelKeyPress;
-        Console.CancelKeyPress += _handler;
+
+        // Suppress Ctrl+C default termination so the process stays alive.
+        _ctrlCHandler = (_, e) => e.Cancel = true;
+        Console.CancelKeyPress += _ctrlCHandler;
+
+        var pollThread = new Thread(PollEscapeKey)
+        {
+            IsBackground = true,
+            Name = "EscKeyPoller"
+        };
+        pollThread.Start();
     }
 
-    private void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
+    private void PollEscapeKey()
     {
-        // Always suppress the default termination behavior.
-        e.Cancel = true;
-
-        if (_cts.IsCancellationRequested)
-            return;
-
-        long now = Environment.TickCount64;
-        long first = Volatile.Read(ref _firstPressTicks);
-
-        if (first == 0 || (now - first) > ConfirmWindowSeconds * 1000L)
+        while (!_disposed && !_cts.IsCancellationRequested)
         {
-            // First press (or window expired): record timestamp and show hint.
-            Volatile.Write(ref _firstPressTicks, now);
-            Console.Error.WriteLine("\n[Interrupt] Press Ctrl+C again to cancel the agent.");
-        }
-        else
-        {
-            // Second press within the window: cancel the run.
-            Volatile.Write(ref _firstPressTicks, 0);
-            _cts.Cancel();
+            if (Console.KeyAvailable)
+            {
+                var key = Console.ReadKey(intercept: true);
+                if (key.Key == ConsoleKey.Escape)
+                {
+                    _cts.Cancel();
+                    return;
+                }
+            }
+            Thread.Sleep(100);
         }
     }
 
     public void Dispose()
     {
-        Console.CancelKeyPress -= _handler;
+        _disposed = true;
+        Console.CancelKeyPress -= _ctrlCHandler;
     }
 }
