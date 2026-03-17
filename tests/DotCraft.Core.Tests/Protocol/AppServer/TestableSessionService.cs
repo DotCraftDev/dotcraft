@@ -162,7 +162,21 @@ internal sealed class TestableSessionService : ISessionService
     public IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(
         string threadId,
         bool replayRecent = false,
-        CancellationToken ct = default) => EmptyEvents();
+        CancellationToken ct = default)
+    {
+        // Keep the subscription alive until the token is cancelled so that
+        // AppServerConnection.HasSubscription(threadId) stays true for the lifetime of the subscription.
+        // In the real SessionService, this stream is driven by the ThreadEventBroker.
+        return BlockUntilCancelledAsync(ct);
+    }
+
+    private static async IAsyncEnumerable<SessionEvent> BlockUntilCancelledAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        try { await Task.Delay(Timeout.Infinite, ct); }
+        catch (OperationCanceledException) { }
+        yield break;
+    }
 
     public Task ResolveApprovalAsync(
         string threadId, string turnId, string requestId,

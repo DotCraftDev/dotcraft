@@ -184,6 +184,111 @@ public sealed class AppServerErrorTests : IDisposable
     }
 
     // -------------------------------------------------------------------------
+    // -32010 Thread not found (Gap A)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ThreadRead_UnknownThreadId_ReturnsThreadNotFound()
+    {
+        await _h.InitializeAsync();
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadRead, new { threadId = "thread_does_not_exist" });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.ThreadNotFoundCode);
+    }
+
+    [Fact]
+    public async Task ThreadPause_UnknownThreadId_ReturnsThreadNotFound()
+    {
+        await _h.InitializeAsync();
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadPause, new { threadId = "thread_ghost" });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.ThreadNotFoundCode);
+    }
+
+    [Fact]
+    public async Task ThreadResume_UnknownThreadId_ReturnsThreadNotFound()
+    {
+        await _h.InitializeAsync();
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadResume, new { threadId = "thread_ghost" });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.ThreadNotFoundCode);
+    }
+
+    // -------------------------------------------------------------------------
+    // -32013 Turn not found / -32014 Turn not running (Issue E)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task TurnInterrupt_UnknownTurnId_ReturnsTurnNotFound()
+    {
+        await _h.InitializeAsync();
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnInterrupt, new
+        {
+            threadId = thread.Id,
+            turnId = "turn_does_not_exist"
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.TurnNotFoundCode);
+    }
+
+    [Fact]
+    public async Task TurnInterrupt_UnknownThread_ReturnsThreadNotFound()
+    {
+        await _h.InitializeAsync();
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnInterrupt, new
+        {
+            threadId = "thread_ghost",
+            turnId = "turn_001"
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.ThreadNotFoundCode);
+    }
+
+    [Fact]
+    public async Task TurnInterrupt_TurnNotRunning_ReturnsTurnNotRunning()
+    {
+        await _h.InitializeAsync();
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        // Add a completed turn directly to the thread so the handler can inspect its status
+        var completedTurn = new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = thread.Id,
+            Status = TurnStatus.Completed,
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+        thread.Turns.Add(completedTurn);
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnInterrupt, new
+        {
+            threadId = thread.Id,
+            turnId = "turn_001"
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var doc = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(doc, AppServerErrors.TurnNotRunningCode);
+    }
+
+    // -------------------------------------------------------------------------
     // Error response includes the request id
     // -------------------------------------------------------------------------
 

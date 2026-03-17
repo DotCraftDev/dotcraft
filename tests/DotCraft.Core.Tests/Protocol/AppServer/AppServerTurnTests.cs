@@ -236,6 +236,16 @@ public sealed class AppServerTurnTests : IDisposable
     {
         var thread = await _h.Service.CreateThreadAsync(_h.Identity);
 
+        // Add a running turn to the thread so validation passes (Issue E fix)
+        var runningTurn = new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = thread.Id,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        thread.Turns.Add(runningTurn);
+
         var msg = _h.BuildRequest(AppServerMethods.TurnInterrupt, new
         {
             threadId = thread.Id,

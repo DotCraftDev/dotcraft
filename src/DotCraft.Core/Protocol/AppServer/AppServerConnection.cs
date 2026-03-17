@@ -118,6 +118,11 @@ public sealed class AppServerConnection
     }
 
     /// <summary>
+    /// Returns <c>true</c> if the connection has an active passive subscription for the given thread.
+    /// </summary>
+    public bool HasSubscription(string threadId) => _subscriptions.ContainsKey(threadId);
+
+    /// <summary>
     /// Cancels all active subscriptions. Called on connection close or dispose.
     /// </summary>
     public void CancelAllSubscriptions()

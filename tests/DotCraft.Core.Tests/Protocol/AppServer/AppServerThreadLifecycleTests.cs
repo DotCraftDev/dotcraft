@@ -1,3 +1,4 @@
+using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
@@ -137,6 +138,65 @@ public sealed class AppServerThreadLifecycleTests : IDisposable
             notification.RootElement.GetProperty("params").GetProperty("newStatus").GetString());
     }
 
+    [Fact]
+    public async Task ThreadPause_NotificationIncludesPreviousStatus()
+    {
+        // Gap B: previousStatus must be present in thread/statusChanged notification
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        Assert.Equal(ThreadStatus.Active, thread.Status);
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadPause, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(msg);
+
+        await _h.Transport.ReadNextSentAsync(); // response
+        var notification = await _h.Transport.ReadNextSentAsync();
+
+        var @params = notification.RootElement.GetProperty("params");
+        Assert.Equal("active", @params.GetProperty("previousStatus").GetString());
+        Assert.Equal("paused", @params.GetProperty("newStatus").GetString());
+    }
+
+    [Fact]
+    public async Task ThreadPause_WhenSubscribed_SendsOnlyResponse_NoDuplicateNotification()
+    {
+        // Gap C: if the connection has an active subscription to the thread, the handler
+        // must not send an inline notification (the broker/dispatcher path handles it).
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        // Subscribe to the thread first
+        var subscribeMsg = _h.BuildRequest(AppServerMethods.ThreadSubscribe, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(subscribeMsg);
+        await _h.Transport.ReadNextSentAsync(); // drain subscribe response
+
+        // Now pause — should produce exactly one message (the response), not two
+        var pauseMsg = _h.BuildRequest(AppServerMethods.ThreadPause, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(pauseMsg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        // Verify no additional message was sent (no duplicate notification)
+        await Task.Delay(20); // small delay to let any fire-and-forget tasks settle
+        var extra = _h.Transport.TryReadSent();
+        Assert.Null(extra);
+    }
+
+    [Fact]
+    public async Task ThreadPause_AlreadyPaused_SendsOnlyResponse_NoNotification()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        await _h.Service.PauseThreadAsync(thread.Id); // pre-pause
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadPause, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        await Task.Delay(20);
+        Assert.Null(_h.Transport.TryReadSent());
+    }
+
     // -------------------------------------------------------------------------
     // thread/archive
     // -------------------------------------------------------------------------
@@ -156,6 +216,85 @@ public sealed class AppServerThreadLifecycleTests : IDisposable
         AppServerTestHarness.AssertIsNotification(notification, AppServerMethods.ThreadStatusChanged);
         Assert.Equal("archived",
             notification.RootElement.GetProperty("params").GetProperty("newStatus").GetString());
+    }
+
+    [Fact]
+    public async Task ThreadArchive_NotificationIncludesPreviousStatus()
+    {
+        // Gap B: previousStatus must be present in thread/statusChanged notification
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadArchive, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(msg);
+
+        await _h.Transport.ReadNextSentAsync(); // response
+        var notification = await _h.Transport.ReadNextSentAsync();
+
+        var @params = notification.RootElement.GetProperty("params");
+        Assert.Equal("active", @params.GetProperty("previousStatus").GetString());
+        Assert.Equal("archived", @params.GetProperty("newStatus").GetString());
+    }
+
+    [Fact]
+    public async Task ThreadArchive_WhenSubscribed_SendsOnlyResponse_NoDuplicateNotification()
+    {
+        // Gap C: subscribed connection should not receive a duplicate statusChanged
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var subscribeMsg = _h.BuildRequest(AppServerMethods.ThreadSubscribe, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(subscribeMsg);
+        await _h.Transport.ReadNextSentAsync(); // drain subscribe response
+
+        var archiveMsg = _h.BuildRequest(AppServerMethods.ThreadArchive, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(archiveMsg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        await Task.Delay(20);
+        Assert.Null(_h.Transport.TryReadSent());
+    }
+
+    // -------------------------------------------------------------------------
+    // thread/resume — resumedBy (Gap D)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ThreadResume_NotificationIncludesClientNameAsResumedBy()
+    {
+        // Gap D: resumedBy must use the client's declared name from initialize, not hardcoded "appserver"
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadResume, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(msg);
+
+        await _h.Transport.ReadNextSentAsync(); // response
+        var notification = await _h.Transport.ReadNextSentAsync();
+
+        AppServerTestHarness.AssertIsNotification(notification, AppServerMethods.ThreadResumed);
+        // The harness initializes with clientInfo.name = "test-client"
+        Assert.Equal("test-client",
+            notification.RootElement.GetProperty("params").GetProperty("resumedBy").GetString());
+    }
+
+    [Fact]
+    public async Task ThreadResume_WhenSubscribed_SendsOnlyResponse_NoDuplicateNotification()
+    {
+        // Gap C: subscribed connection should not receive a duplicate thread/resumed notification
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var subscribeMsg = _h.BuildRequest(AppServerMethods.ThreadSubscribe, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(subscribeMsg);
+        await _h.Transport.ReadNextSentAsync(); // drain subscribe response
+
+        var resumeMsg = _h.BuildRequest(AppServerMethods.ThreadResume, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(resumeMsg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        await Task.Delay(20);
+        Assert.Null(_h.Transport.TryReadSent());
     }
 
     // -------------------------------------------------------------------------

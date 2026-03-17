@@ -45,8 +45,10 @@ public sealed class AppServerRequestHandler
     /// Dispatches an incoming request to the appropriate handler.
     /// Returns the JSON-RPC response to send to the client.
     /// Throws <see cref="AppServerException"/> for protocol errors.
+    /// Domain exceptions from <see cref="ISessionService"/> are translated to spec-defined
+    /// error codes (Section 8.3): -32010 ThreadNotFound, -32011 ThreadNotActive, -32012 TurnInProgress.
     /// </summary>
-    public Task<object?> HandleRequestAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    public async Task<object?> HandleRequestAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var method = msg.Method ?? string.Empty;
 
@@ -54,31 +56,47 @@ public sealed class AppServerRequestHandler
         if (method != AppServerMethods.Initialize && !_connection.IsInitialized)
             throw AppServerErrors.NotInitialized();
 
-        // Fix 7: After initialize response, block all requests until the client sends the
+        // After initialize response, block all requests until the client sends the
         // `initialized` notification (IsClientReady). This prevents premature operations
         // before the client has finished processing server capabilities.
         if (method != AppServerMethods.Initialize && _connection.IsInitialized && !_connection.IsClientReady)
             throw AppServerErrors.InvalidRequest("Server is awaiting the 'initialized' notification before handling requests.");
 
-        // Route to the appropriate handler
-        return method switch
+        try
         {
-            AppServerMethods.Initialize => HandleInitializeAsync(msg, ct),
-            AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
-            AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
-            AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
-            AppServerMethods.ThreadRead => HandleThreadReadAsync(msg, ct),
-            AppServerMethods.ThreadSubscribe => HandleThreadSubscribeAsync(msg, ct),
-            AppServerMethods.ThreadUnsubscribe => HandleThreadUnsubscribeAsync(msg, ct),
-            AppServerMethods.ThreadPause => HandleThreadPauseAsync(msg, ct),
-            AppServerMethods.ThreadArchive => HandleThreadArchiveAsync(msg, ct),
-            AppServerMethods.ThreadDelete => HandleThreadDeleteAsync(msg, ct),
-            AppServerMethods.ThreadModeSet => HandleThreadModeSetAsync(msg, ct),
-            AppServerMethods.ThreadConfigUpdate => HandleThreadConfigUpdateAsync(msg, ct),
-            AppServerMethods.TurnStart => HandleTurnStartAsync(msg, ct),
-            AppServerMethods.TurnInterrupt => HandleTurnInterruptAsync(msg, ct),
-            _ => throw AppServerErrors.MethodNotFound(method)
-        };
+            // Route to the appropriate handler
+            return await (method switch
+            {
+                AppServerMethods.Initialize => HandleInitializeAsync(msg, ct),
+                AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
+                AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
+                AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
+                AppServerMethods.ThreadRead => HandleThreadReadAsync(msg, ct),
+                AppServerMethods.ThreadSubscribe => HandleThreadSubscribeAsync(msg, ct),
+                AppServerMethods.ThreadUnsubscribe => HandleThreadUnsubscribeAsync(msg, ct),
+                AppServerMethods.ThreadPause => HandleThreadPauseAsync(msg, ct),
+                AppServerMethods.ThreadArchive => HandleThreadArchiveAsync(msg, ct),
+                AppServerMethods.ThreadDelete => HandleThreadDeleteAsync(msg, ct),
+                AppServerMethods.ThreadModeSet => HandleThreadModeSetAsync(msg, ct),
+                AppServerMethods.ThreadConfigUpdate => HandleThreadConfigUpdateAsync(msg, ct),
+                AppServerMethods.TurnStart => HandleTurnStartAsync(msg, ct),
+                AppServerMethods.TurnInterrupt => HandleTurnInterruptAsync(msg, ct),
+                _ => throw AppServerErrors.MethodNotFound(method)
+            });
+        }
+        catch (AppServerException)
+        {
+            throw;
+        }
+        catch (KeyNotFoundException ex)
+        {
+            // Thread or turn not found in persistence or in-memory state
+            throw AppServerErrors.ThreadNotFound(ExtractQuotedId(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw MapOperationException(ex);
+        }
     }
 
     /// <summary>
@@ -157,14 +175,21 @@ public sealed class AppServerRequestHandler
         var p = GetParams<ThreadResumeParams>(msg);
         var thread = await _sessionService.ResumeThreadAsync(p.ThreadId, ct);
 
-        // Fix 8: Emit thread/resumed after the thread/resume response (spec Section 4.2).
-        _ = SendNotificationAfterResponseAsync(
-            msg.Id,
-            new { thread = thread.ToWire() },
-            AppServerMethods.ThreadResumed,
-            new { thread = thread.ToWire(), resumedBy = "appserver" },
-            ct);
+        // Gap D: use the client's declared name from initialize instead of hardcoded "appserver".
+        var resumedBy = _connection.ClientInfo?.Name ?? "appserver";
+        var responseResult = new { thread = thread.ToWire() };
+        var notifParams = new { thread = thread.ToWire(), resumedBy };
 
+        if (_connection.HasSubscription(p.ThreadId))
+        {
+            // Gap C: connection has a passive subscription — the broker/dispatcher path will
+            // emit thread/resumed. Send only the response to avoid duplicating the notification.
+            await _transport.WriteMessageAsync(BuildResponse(msg.Id, responseResult), ct);
+            return null;
+        }
+
+        // No subscription: send response then notification inline.
+        _ = SendNotificationAfterResponseAsync(msg.Id, responseResult, AppServerMethods.ThreadResumed, notifParams, ct);
         return null;
     }
 
@@ -229,32 +254,58 @@ public sealed class AppServerRequestHandler
     private async Task<object?> HandleThreadPauseAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadPauseParams>(msg);
+
+        // Gap B: capture previousStatus before the operation so the notification is accurate.
+        var thread = await _sessionService.GetThreadAsync(p.ThreadId, ct);
+        var previousStatus = thread.Status;
+
         await _sessionService.PauseThreadAsync(p.ThreadId, ct);
 
-        // Fix 8: Emit thread/statusChanged after thread/pause response (spec Section 4).
-        _ = SendNotificationAfterResponseAsync(
-            msg.Id,
-            new { },
-            AppServerMethods.ThreadStatusChanged,
-            new { threadId = p.ThreadId, newStatus = "paused" },
-            ct);
+        // Idempotent: if the thread was already paused, no status change occurred.
+        if (previousStatus == ThreadStatus.Paused)
+            return new { };
 
+        if (_connection.HasSubscription(p.ThreadId))
+        {
+            // Gap C: subscription exists — broker/dispatcher will emit thread/statusChanged.
+            await _transport.WriteMessageAsync(BuildResponse(msg.Id, new { }), ct);
+            return null;
+        }
+
+        _ = SendNotificationAfterResponseAsync(
+            msg.Id, new { },
+            AppServerMethods.ThreadStatusChanged,
+            new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Paused },
+            ct);
         return null;
     }
 
     private async Task<object?> HandleThreadArchiveAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadArchiveParams>(msg);
+
+        // Gap B: capture previousStatus before the operation so the notification is accurate.
+        var thread = await _sessionService.GetThreadAsync(p.ThreadId, ct);
+        var previousStatus = thread.Status;
+
         await _sessionService.ArchiveThreadAsync(p.ThreadId, ct);
 
-        // Fix 8: Emit thread/statusChanged after thread/archive response (spec Section 4).
-        _ = SendNotificationAfterResponseAsync(
-            msg.Id,
-            new { },
-            AppServerMethods.ThreadStatusChanged,
-            new { threadId = p.ThreadId, newStatus = "archived" },
-            ct);
+        // Idempotent: if the thread was already archived, no status change occurred.
+        if (previousStatus == ThreadStatus.Archived)
+            return new { };
 
+        if (_connection.HasSubscription(p.ThreadId))
+        {
+            // Gap C: subscription exists — broker/dispatcher will emit thread/statusChanged.
+            await _transport.WriteMessageAsync(BuildResponse(msg.Id, new { }), ct);
+            return null;
+        }
+
+        _ = SendNotificationAfterResponseAsync(
+            msg.Id, new { },
+            AppServerMethods.ThreadStatusChanged,
+            new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Archived },
+            ct);
         return null;
     }
 
@@ -349,6 +400,18 @@ public sealed class AppServerRequestHandler
     private async Task<object?> HandleTurnInterruptAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<TurnInterruptParams>(msg);
+
+        // Issue E: validate thread and turn existence/status before cancelling.
+        // GetThreadAsync throws KeyNotFoundException → mapped to -32010 by the outer catch.
+        var thread = await _sessionService.GetThreadAsync(p.ThreadId, ct);
+
+        var turn = thread.Turns.FirstOrDefault(t => t.Id == p.TurnId);
+        if (turn == null)
+            throw AppServerErrors.TurnNotFound(p.TurnId);
+
+        if (turn.Status != TurnStatus.Running && turn.Status != TurnStatus.WaitingApproval)
+            throw AppServerErrors.TurnNotRunning(p.TurnId);
+
         await _sessionService.CancelTurnAsync(p.ThreadId, p.TurnId, ct);
         return new { };
     }
@@ -436,6 +499,44 @@ public sealed class AppServerRequestHandler
             ".webp" => "image/webp",
             _ => "image/jpeg"
         };
+    }
+
+    // -------------------------------------------------------------------------
+    // Domain exception → wire error code translation (Gap A, spec Section 8.3)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Translates an <see cref="InvalidOperationException"/> from the domain layer into the
+    /// appropriate <see cref="AppServerException"/> with a spec-defined error code.
+    /// </summary>
+    private static AppServerException MapOperationException(InvalidOperationException ex)
+    {
+        var msg = ex.Message;
+        var id = ExtractQuotedId(msg);
+
+        if (msg.Contains("archived and cannot be resumed") || msg.Contains("is not Active"))
+            return AppServerErrors.ThreadNotActive(id);
+
+        if (msg.Contains("already has a running Turn"))
+            return AppServerErrors.TurnInProgress(id);
+
+        // historyMode contract violations are caller errors → InvalidParams (-32602)
+        if (msg.Contains("client-managed history") || msg.Contains("server-managed history"))
+            return AppServerErrors.InvalidParams(msg);
+
+        return AppServerErrors.InternalError(msg);
+    }
+
+    /// <summary>
+    /// Extracts the first single-quoted identifier from an exception message.
+    /// For example: "Thread 'thread_001' not found." → "thread_001".
+    /// </summary>
+    private static string ExtractQuotedId(string message)
+    {
+        var start = message.IndexOf('\'');
+        if (start < 0) return string.Empty;
+        var end = message.IndexOf('\'', start + 1);
+        return end > start ? message[(start + 1)..end] : string.Empty;
     }
 
     private static T GetParams<T>(AppServerIncomingMessage msg) where T : new()
