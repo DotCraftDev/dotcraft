@@ -96,10 +96,9 @@ public sealed class AppServerConnection
     /// </summary>
     public bool TryAddSubscription(string threadId, CancellationTokenSource cts)
     {
-        if (_subscriptions.ContainsKey(threadId))
+        if (!_subscriptions.TryAdd(threadId, cts))
             return false;
 
-        _subscriptions[threadId] = cts;
         return true;
     }
 
