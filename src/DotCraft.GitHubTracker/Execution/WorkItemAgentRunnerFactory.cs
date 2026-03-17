@@ -6,12 +6,12 @@ using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
 using DotCraft.Sessions;
-using DotCraft.Sessions.Protocol;
 using DotCraft.Skills;
 using DotCraft.GitHubTracker.Tracker;
 using DotCraft.GitHubTracker.Tools;
 using DotCraft.GitHubTracker.Workflow;
 using DotCraft.GitHubTracker.Workspace;
+using DotCraft.Protocol;
 using DotCraft.Tools;
 using Microsoft.Extensions.Logging;
 

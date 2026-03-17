@@ -1,6 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.Hosting;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using DotCraft.Tracing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -54,7 +54,7 @@ public sealed class DashBoardServer : IAsyncDisposable
         _app = app;
         _runTask = app.RunAsync(url);
 
-        AnsiConsole.MarkupLine($"[green]DashBoard started at[/] [link={url}/dashboard]{url}/dashboard[/]");
+        AnsiConsole.MarkupLine($"[green]●[/] [bold]Dashboard[/] [green]started[/]  [grey][link={url}/dashboard]{url}/dashboard[/][/]");
     }
 
     public async ValueTask DisposeAsync()

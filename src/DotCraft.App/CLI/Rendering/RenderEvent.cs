@@ -1,3 +1,5 @@
+using DotCraft.Protocol;
+
 namespace DotCraft.CLI.Rendering;
 
 /// <summary>
@@ -60,7 +62,35 @@ public enum RenderEventType
     /// <summary>
     /// Agent stream has started — triggers the thinking spinner while waiting for the first response
     /// </summary>
-    StreamStarted
+    StreamStarted,
+
+    /// <summary>
+    /// SubAgent progress snapshot — periodic aggregated progress data for all active SubAgents.
+    /// Emitted by the server-side SubAgentProgressAggregator and relayed via wire notifications.
+    /// </summary>
+    SubAgentProgress,
+
+    /// <summary>
+    /// Incremental token usage delta — emitted each time the agent completes an LLM iteration.
+    /// Carries input/output token deltas in Content as "inputTokens,outputTokens".
+    /// Used to update a local TokenTracker for real-time spinner display in Wire mode.
+    /// </summary>
+    UsageDelta,
+
+    /// <summary>
+    /// System informational message — a one-line notification about a system-level operation
+    /// (e.g., "Context compacted successfully."). Rendered as a dim markup line.
+    /// </summary>
+    SystemInfo,
+
+    /// <summary>
+    /// System status with spinner — a system-level operation in progress
+    /// (e.g., "Consolidating memory..."). Rendered as a live Status spinner
+    /// that is dismissed when the corresponding completion event arrives.
+    /// The <see cref="RenderEvent.Content"/> carries the spinner text,
+    /// and <see cref="RenderEvent.AdditionalInfo"/> carries the completion text (if known).
+    /// </summary>
+    SystemStatus
 }
 
 /// <summary>
@@ -111,6 +141,22 @@ public class RenderEvent
     /// <see cref="RenderEventType.ToolCallCompleted"/> event (e.g. for parallel SubAgent tracking).
     /// </summary>
     public string? CallId { get; init; }
+
+    /// <summary>
+    /// SubAgent progress entries snapshot. Populated only for <see cref="RenderEventType.SubAgentProgress"/> events.
+    /// Each entry contains the current tool, token counts, and completion status for a tracked SubAgent.
+    /// </summary>
+    public IReadOnlyList<SubAgentProgressEntry>? SubAgentEntries { get; init; }
+
+    /// <summary>
+    /// Incremental input tokens for <see cref="RenderEventType.UsageDelta"/> events.
+    /// </summary>
+    public long InputTokensDelta { get; init; }
+
+    /// <summary>
+    /// Incremental output tokens for <see cref="RenderEventType.UsageDelta"/> events.
+    /// </summary>
+    public long OutputTokensDelta { get; init; }
 
     /// <summary>
     /// Create a ToolCallStarted event
@@ -264,6 +310,47 @@ public class RenderEvent
         Type = RenderEventType.StreamStarted,
         Icon = "💭",
         Title = "Thinking"
+    };
+
+    /// <summary>
+    /// Create a SubAgentProgress event carrying a snapshot of all active SubAgent entries.
+    /// </summary>
+    public static RenderEvent SubAgentProgressUpdate(IReadOnlyList<SubAgentProgressEntry> entries) => new()
+    {
+        Type = RenderEventType.SubAgentProgress,
+        SubAgentEntries = entries
+    };
+
+    /// <summary>
+    /// Create a UsageDelta event carrying incremental token consumption from a single LLM iteration.
+    /// </summary>
+    public static RenderEvent UsageDeltaEvent(long inputTokens, long outputTokens) => new()
+    {
+        Type = RenderEventType.UsageDelta,
+        InputTokensDelta = inputTokens,
+        OutputTokensDelta = outputTokens
+    };
+
+    /// <summary>
+    /// Create a SystemInfo event — a one-line informational message about a system operation.
+    /// </summary>
+    public static RenderEvent SystemInfoEvent(string message) => new()
+    {
+        Type = RenderEventType.SystemInfo,
+        Content = message,
+        Color = "dim"
+    };
+
+    /// <summary>
+    /// Create a SystemStatus event — triggers a spinner for an in-progress system operation.
+    /// Use <paramref name="completedMessage"/> to indicate the text to show when the operation completes.
+    /// </summary>
+    public static RenderEvent SystemStatusEvent(string spinnerText, string? completedMessage = null) => new()
+    {
+        Type = RenderEventType.SystemStatus,
+        Content = spinnerText,
+        AdditionalInfo = completedMessage,
+        Color = "cyan"
     };
 }
 

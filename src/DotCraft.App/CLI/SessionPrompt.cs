@@ -1,5 +1,5 @@
 using DotCraft.Localization;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using Spectre.Console;
 
 namespace DotCraft.CLI;

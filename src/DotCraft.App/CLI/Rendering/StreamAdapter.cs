@@ -1,9 +1,11 @@
 using System.Runtime.CompilerServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using DotCraft.Context;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -208,7 +210,7 @@ public static partial class StreamAdapter
 
     /// <summary>
     /// Adapts an <see cref="IAsyncEnumerable{SessionEvent}"/> stream produced by
-    /// <see cref="DotCraft.Sessions.Protocol.ISessionService.SubmitInputAsync"/> into a
+    /// <see cref="ISessionService.SubmitInputAsync"/> into a
     /// <see cref="RenderEvent"/> stream consumed by <see cref="AgentRenderer"/>.
     /// <para>
     /// Approval events (<see cref="SessionEventType.ApprovalRequested"/> /
@@ -322,8 +324,285 @@ public static partial class StreamAdapter
                     break;
                 }
 
+                // ---------------------------------------------------------
+                // SubAgent progress (aggregated snapshot)
+                // ---------------------------------------------------------
+                case SessionEventType.SubAgentProgress when evt.SubAgentProgressPayload is { } progress:
+                {
+                    yield return RenderEvent.SubAgentProgressUpdate(progress.Entries);
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Usage delta (incremental token consumption)
+                // ---------------------------------------------------------
+                case SessionEventType.UsageDelta when evt.UsageDeltaPayload is { } usage:
+                {
+                    yield return RenderEvent.UsageDeltaEvent(usage.InputTokens, usage.OutputTokens);
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // System events (compaction, consolidation)
+                // ---------------------------------------------------------
+                case SessionEventType.SystemEvent when evt.SystemEventPayload is { } sysEvt:
+                {
+                    foreach (var re in MapSystemEvent(sysEvt))
+                        yield return re;
+                    break;
+                }
+
                 // All other events (thread/created, turn/started, item/started for non-tool, etc.) are ignored.
             }
+        }
+    }
+
+    /// <summary>
+    /// Adapts an <see cref="IAsyncEnumerable{JsonDocument}"/> of JSON-RPC notifications
+    /// produced by <see cref="DotCraft.Protocol.AppServer.AppServerWireClient.ReadTurnNotificationsAsync"/>
+    /// into the same <see cref="RenderEvent"/> stream consumed by <see cref="AgentRenderer"/>.
+    ///
+    /// This is the wire-protocol counterpart of <see cref="AdaptSessionEventsAsync"/> for use
+    /// when the CLI connects to the AppServer over the JSON-RPC 2.0 wire protocol.
+    ///
+    /// Approval flow: <c>item/approval/request</c> server requests are handled out-of-band by
+    /// <c>AppServerWireClient.ServerRequestHandler</c> before reaching this adapter. The adapter
+    /// observes only the resulting <c>item/started (approvalRequest)</c> and <c>item/approval/resolved</c>
+    /// notifications for spinner control.
+    /// </summary>
+    public static async IAsyncEnumerable<RenderEvent> AdaptWireNotificationsAsync(
+        IAsyncEnumerable<JsonDocument> notifications,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var callIdMap = new Dictionary<string, (string? Icon, string? Name, string? ArgsJson, string? FormattedDisplay)>();
+
+        await foreach (var doc in notifications.WithCancellation(ct))
+        {
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("method", out var methodEl)) continue;
+            var method = methodEl.GetString() ?? string.Empty;
+
+            var hasParams = root.TryGetProperty("params", out var @params);
+
+            switch (method)
+            {
+                // ---------------------------------------------------------
+                // Agent text and reasoning streaming (spec Section 6.3)
+                // ---------------------------------------------------------
+                case AppServerMethods.ItemAgentMessageDelta:
+                {
+                    if (!hasParams) break;
+                    var delta = @params.TryGetProperty("delta", out var d) ? d.GetString() : null;
+                    if (!string.IsNullOrEmpty(delta))
+                        yield return RenderEvent.Response(delta);
+                    break;
+                }
+
+                case AppServerMethods.ItemReasoningDelta:
+                {
+                    if (!hasParams) break;
+                    var delta = @params.TryGetProperty("delta", out var d) ? d.GetString() : null;
+                    if (!string.IsNullOrEmpty(delta))
+                        yield return RenderEvent.Thinking("💭", "Thinking", delta);
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Item lifecycle (spec Section 6.3)
+                // ---------------------------------------------------------
+                case AppServerMethods.ItemStarted:
+                {
+                    if (!hasParams || !@params.TryGetProperty("item", out var item)) break;
+                    var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
+
+                    if (type == "toolCall")
+                    {
+                        var payload = item.TryGetProperty("payload", out var p) ? p : default;
+                        var toolName = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("toolName", out var tn)
+                            ? tn.GetString() : null;
+                        var callId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("callId", out var ci)
+                            ? ci.GetString() : null;
+                        var icon = ToolRegistry.GetToolIcon(toolName ?? string.Empty);
+                        string? argsJson = null, formattedDisplay = null;
+                        if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("arguments", out var args)
+                            && args.ValueKind == JsonValueKind.Object)
+                        {
+                            argsJson = args.GetRawText();
+                            var argsNode = JsonNode.Parse(argsJson) as JsonObject;
+                            formattedDisplay = ToolRegistry.FormatToolCall(toolName ?? string.Empty, argsNode);
+                        }
+                        if (!string.IsNullOrEmpty(callId))
+                            callIdMap[callId] = (icon, toolName, argsJson, formattedDisplay);
+                        yield return RenderEvent.ToolStarted(icon, toolName, string.Empty, argsJson, formattedDisplay, callId: callId);
+                    }
+                    else if (type == "approvalRequest")
+                    {
+                        // Signal the renderer to pause the spinner while approval is handled
+                        // out-of-band by AppServerWireClient.ServerRequestHandler.
+                        yield return RenderEvent.ApprovalRequest();
+                    }
+                    break;
+                }
+
+                case AppServerMethods.ItemCompleted:
+                {
+                    if (!hasParams || !@params.TryGetProperty("item", out var item)) break;
+                    var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
+
+                    if (type == "toolResult")
+                    {
+                        var payload = item.TryGetProperty("payload", out var p) ? p : default;
+                        var callId = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("callId", out var ci)
+                            ? ci.GetString() : null;
+                        var result = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("result", out var r)
+                            ? r.GetString() : null;
+                        string? icon = null, name = null, argsJson = null, formattedDisplay = null;
+                        if (!string.IsNullOrEmpty(callId) && callIdMap.TryGetValue(callId!, out var info))
+                        {
+                            (icon, name, argsJson, formattedDisplay) = info;
+                            callIdMap.Remove(callId!);
+                        }
+                        yield return RenderEvent.ToolCompleted(icon, name, argsJson ?? string.Empty, result, formattedDisplay, callId: callId);
+                    }
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Approval flow (spec Section 7)
+                // ---------------------------------------------------------
+                case AppServerMethods.ItemApprovalResolved:
+                {
+                    yield return RenderEvent.ApprovalComplete();
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Turn lifecycle (spec Section 6.2)
+                // ---------------------------------------------------------
+                case AppServerMethods.TurnCompleted:
+                {
+                    if (hasParams && @params.TryGetProperty("turn", out var turn)
+                        && turn.TryGetProperty("tokenUsage", out var tu)
+                        && tu.ValueKind == JsonValueKind.Object)
+                    {
+                        var inputTokens = tu.TryGetProperty("inputTokens", out var it) ? it.GetInt64() : 0L;
+                        var outputTokens = tu.TryGetProperty("outputTokens", out var ot) ? ot.GetInt64() : 0L;
+                        var totalTokens = tu.TryGetProperty("totalTokens", out var tt) ? tt.GetInt64() : inputTokens + outputTokens;
+                        if (inputTokens > 0 || outputTokens > 0)
+                            yield return RenderEvent.TokenUsage(inputTokens, outputTokens, totalTokens);
+                    }
+                    yield return RenderEvent.Completed(string.Empty);
+                    break;
+                }
+
+                case AppServerMethods.TurnFailed:
+                {
+                    var errMsg = hasParams && @params.TryGetProperty("error", out var e)
+                        ? e.GetString() : null;
+                    yield return RenderEvent.ErrorEvent(errMsg ?? "Turn failed");
+                    yield return RenderEvent.Completed(string.Empty);
+                    break;
+                }
+
+                case AppServerMethods.TurnCancelled:
+                {
+                    yield return RenderEvent.Completed("cancelled");
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Usage delta (spec Section 6.6)
+                // ---------------------------------------------------------
+                case AppServerMethods.ItemUsageDelta:
+                {
+                    if (!hasParams) break;
+                    var inputTokens = @params.TryGetProperty("inputTokens", out var it) ? it.GetInt64() : 0L;
+                    var outputTokens = @params.TryGetProperty("outputTokens", out var ot) ? ot.GetInt64() : 0L;
+                    if (inputTokens > 0 || outputTokens > 0)
+                        yield return RenderEvent.UsageDeltaEvent(inputTokens, outputTokens);
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // SubAgent progress (spec Section 6.5)
+                // ---------------------------------------------------------
+                case AppServerMethods.SubAgentProgress:
+                {
+                    if (!hasParams || !@params.TryGetProperty("entries", out var entriesEl)
+                        || entriesEl.ValueKind != JsonValueKind.Array)
+                        break;
+
+                    var entries = new List<Protocol.SubAgentProgressEntry>();
+                    foreach (var item in entriesEl.EnumerateArray())
+                    {
+                        var label = item.TryGetProperty("label", out var l) ? l.GetString() : null;
+                        if (string.IsNullOrEmpty(label)) continue;
+
+                        entries.Add(new Protocol.SubAgentProgressEntry
+                        {
+                            Label = label!,
+                            CurrentTool = item.TryGetProperty("currentTool", out var ct2) && ct2.ValueKind == JsonValueKind.String
+                                ? ct2.GetString() : null,
+                            CurrentToolDisplay = item.TryGetProperty("currentToolDisplay", out var ctd) && ctd.ValueKind == JsonValueKind.String
+                                ? ctd.GetString() : null,
+                            InputTokens = item.TryGetProperty("inputTokens", out var it) ? it.GetInt64() : 0L,
+                            OutputTokens = item.TryGetProperty("outputTokens", out var ot) ? ot.GetInt64() : 0L,
+                            IsCompleted = item.TryGetProperty("isCompleted", out var ic) && ic.GetBoolean()
+                        });
+                    }
+
+                    if (entries.Count > 0)
+                        yield return RenderEvent.SubAgentProgressUpdate(entries);
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // System events (spec Section 6.7)
+                // ---------------------------------------------------------
+                case AppServerMethods.SystemEvent:
+                {
+                    if (!hasParams) break;
+                    var kind = @params.TryGetProperty("kind", out var k) ? k.GetString() : null;
+                    if (string.IsNullOrEmpty(kind)) break;
+                    var message = @params.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String
+                        ? m.GetString() : null;
+                    var payload = new Protocol.SystemEventPayload { Kind = kind!, Message = message };
+                    foreach (var re in MapSystemEvent(payload))
+                        yield return re;
+                    break;
+                }
+
+                // All other notifications (thread/*, turn/started, item/started for non-tool, etc.) are ignored.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Maps a <see cref="SystemEventPayload"/> to zero or more <see cref="RenderEvent"/>s.
+    /// Shared by both <see cref="AdaptSessionEventsAsync"/> and <see cref="AdaptWireNotificationsAsync"/>.
+    /// </summary>
+    private static IEnumerable<RenderEvent> MapSystemEvent(Protocol.SystemEventPayload sysEvt)
+    {
+        switch (sysEvt.Kind)
+        {
+            case "compacting":
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Compacting context...");
+                break;
+            case "compacted":
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compacted successfully.");
+                break;
+            case "compactSkipped":
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compaction skipped.");
+                break;
+            case "consolidating":
+                yield return RenderEvent.SystemStatusEvent(
+                    sysEvt.Message ?? "Consolidating memory...",
+                    "Memory consolidation complete.");
+                break;
+            case "consolidated":
+                // The completion event dismisses the SystemStatus spinner in the renderer.
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Memory consolidation complete.");
+                break;
         }
     }
 }

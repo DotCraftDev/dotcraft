@@ -729,7 +729,7 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         return workflow;
     }
 
-    private WorkflowDefinition? ReloadWorkflowIfAvailable(WorkflowLoader loader, string? path)
+    private static WorkflowDefinition? ReloadWorkflowIfAvailable(WorkflowLoader loader, string? path)
     {
         if (!WorkflowFileExists(path))
             return null;

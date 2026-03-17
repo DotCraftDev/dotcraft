@@ -267,14 +267,14 @@ public sealed class AgentFactory : IAsyncDisposable
             if (_planStore != null)
             {
                 // Use GetActiveSessionKey for reliable session key retrieval across async boundaries
-                var planTools = new PlanTools(_planStore, () => TracingChatClient.GetActiveSessionKey(), _onPlanUpdated);
+                var planTools = new PlanTools(_planStore, TracingChatClient.GetActiveSessionKey, _onPlanUpdated);
                 tools.Add(AIFunctionFactory.Create(planTools.CreatePlan));
             }
         }
         else if (mode == AgentMode.Agent && _planStore != null)
         {
             // Use GetActiveSessionKey for reliable session key retrieval across async boundaries
-            var planTools = new PlanTools(_planStore, () => TracingChatClient.GetActiveSessionKey(), _onPlanUpdated);
+            var planTools = new PlanTools(_planStore, TracingChatClient.GetActiveSessionKey, _onPlanUpdated);
             tools.Add(AIFunctionFactory.Create(planTools.UpdateTodos));
             tools.Add(AIFunctionFactory.Create(planTools.TodoWrite));
         }

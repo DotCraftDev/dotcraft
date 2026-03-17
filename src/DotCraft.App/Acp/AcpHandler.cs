@@ -1,16 +1,15 @@
 using System.Collections.Concurrent;
-using System.Reflection;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
-
+using DotCraft.Common;
 using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
 using DotCraft.Mcp;
-using DotCraft.Sessions.Protocol;
+using DotCraft.Protocol;
 using Microsoft.Extensions.AI;
 using Spectre.Console;
 
@@ -174,7 +173,7 @@ public sealed class AcpHandler(
 
         _clientCapabilities = p?.ClientCapabilities;
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+        var version = AppVersion.Short;
 
         var result = new InitializeResult
         {
@@ -524,7 +523,7 @@ public sealed class AcpHandler(
                             var result = resultElement.Deserialize<RequestPermissionResult>();
                             return result?.Outcome?.OptionId switch
                             {
-                                "allow-always" => SessionApprovalDecision.AcceptForSession,
+                                "allow-always" => SessionApprovalDecision.AcceptAlways,
                                 "allow-once" => SessionApprovalDecision.AcceptOnce,
                                 _ when result?.Outcome?.Outcome == "cancelled" => SessionApprovalDecision.CancelTurn,
                                 _ => SessionApprovalDecision.Reject

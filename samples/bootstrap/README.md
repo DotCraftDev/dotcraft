@@ -6,12 +6,16 @@ Bootstrap file samples that can be copied directly into your workspace `.craft/`
 
 ## Usage
 
-Copy the files from any sample role directory into your workspace:
+Sample files are named with a `.template.md` suffix (e.g. `AGENTS.template.md`). To use a sample:
+
+1. Copy the `.template.md` files from the sample role directory into your workspace `.craft/` folder.
+2. Rename each file by removing the `.template` part so they become `AGENTS.md`, `SOUL.md`, and `USER.md`.
 
 ```text
-<workspace>/.craft/AGENTS.md
-<workspace>/.craft/SOUL.md
-<workspace>/.craft/USER.md
+# Example: from samples/bootstrap/senior-engineer/
+<workspace>/.craft/AGENTS.md   (from AGENTS.template.md)
+<workspace>/.craft/SOUL.md     (from SOUL.template.md)
+<workspace>/.craft/USER.md     (from USER.template.md)
 ```
 
 You can also mix files from different sample directories and tailor them to your own scenario.
@@ -33,4 +37,4 @@ You can also mix files from different sample directories and tailor them to your
 
 ## Notes
 
-These files are plain Markdown with no special format requirements. DotCraft reads them from `.craft/` and injects them into the system prompt.
+These files are plain Markdown with no special format requirements. In this repository they are stored as `*.template.md`; DotCraft only loads them after you copy them into your workspace `.craft/` and rename to `.md`. DotCraft then reads them from `.craft/` and injects them into the system prompt.

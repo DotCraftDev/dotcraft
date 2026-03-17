@@ -20,10 +20,8 @@ namespace DotCraft.CLI.Rendering;
 /// - Stream model response chunks as normal text (kept as history).
 /// - Handle approval prompts by pausing/resuming rendering.
 /// </summary>
-public sealed class AgentRenderer : IRenderControl, IDisposable
+public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : IRenderControl, IDisposable
 {
-    private readonly Context.TokenTracker? _tokenTracker;
-
     private readonly Channel<RenderEvent> _eventQueue = Channel.CreateUnbounded<RenderEvent>(new UnboundedChannelOptions
     {
         SingleReader = true,
@@ -64,8 +62,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
     private const string SubAgentToolName = "SpawnSubagent";
     private const string SubAgentDisplayPrefix = "Spawned subagent: ";
 
-    private static bool IsSubAgentTool(RenderEvent evt) =>
-        string.Equals(evt.Title, SubAgentToolName, StringComparison.Ordinal);
+    private static bool IsSubAgentTool(RenderEvent evt) => string.Equals(evt.Title, SubAgentToolName, StringComparison.Ordinal);
 
     private sealed class SubAgentEntry
     {
@@ -73,6 +70,17 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         public required string Label { get; init; }
         public bool Completed { get; set; }
         public bool Failed { get; set; }
+
+        // Event-driven progress fields (populated by SubAgentProgress RenderEvents in Wire mode)
+        public string? CurrentTool { get; set; }
+        public string? CurrentToolDisplay { get; set; }
+        public long InputTokens { get; set; }
+        public long OutputTokens { get; set; }
+        /// <summary>True when at least one SubAgentProgress event has been received for this entry.</summary>
+        public bool HasProgressData { get; set; }
+        /// <summary>True when a SubAgentProgress event with IsCompleted=true has been received for this entry.
+        /// This signals that the final snapshot (with complete token stats) has arrived.</summary>
+        public bool ProgressCompleted { get; set; }
     }
 
     private enum RenderState
@@ -83,16 +91,11 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         ApprovalPaused
     }
 
-    public AgentRenderer(Context.TokenTracker? tokenTracker = null)
-    {
-        _tokenTracker = tokenTracker;
-    }
-
     private string GetTokenSuffix()
     {
-        if (_tokenTracker == null) return string.Empty;
-        var input = _tokenTracker.TotalInputTokens + _tokenTracker.SubAgentInputTokens;
-        var output = _tokenTracker.TotalOutputTokens + _tokenTracker.SubAgentOutputTokens;
+        if (tokenTracker == null) return string.Empty;
+        var input = tokenTracker.TotalInputTokens + tokenTracker.SubAgentInputTokens;
+        var output = tokenTracker.TotalOutputTokens + tokenTracker.SubAgentOutputTokens;
         if (input == 0 && output == 0) return string.Empty;
         return $" [dim grey]· ↑{Context.TokenTracker.FormatCompact(input)} ↓{Context.TokenTracker.FormatCompact(output)}[/]";
     }
@@ -216,6 +219,10 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
                         case RenderEventType.ToolCallStarted:
                             await RunToolStatusSessionAsync(evt, cancellationToken);
+                            break;
+
+                        case RenderEventType.SystemStatus:
+                            await RunSystemStatusSessionAsync(evt, cancellationToken);
                             break;
 
                         default:
@@ -494,6 +501,28 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                                         buffered.Add(evt);
                                         break;
 
+                                    case RenderEventType.SubAgentProgress when evt.SubAgentEntries is { } progressEntries:
+                                        // Event-driven update path: apply snapshot data to tracked entries.
+                                        // This is the primary data source in Wire mode where SubAgentProgressBridge
+                                        // is unavailable (cross-process). In InProcess mode this is a no-op redundancy.
+                                        foreach (var pe in progressEntries)
+                                        {
+                                            var target = entries.Find(e =>
+                                                string.Equals(e.Label, pe.Label, StringComparison.Ordinal));
+                                            if (target == null) continue;
+                                            target.CurrentTool = pe.CurrentTool;
+                                            target.CurrentToolDisplay = pe.CurrentToolDisplay;
+                                            target.InputTokens = pe.InputTokens;
+                                            target.OutputTokens = pe.OutputTokens;
+                                            target.HasProgressData = true;
+                                            if (pe.IsCompleted)
+                                            {
+                                                target.Completed = true;
+                                                target.ProgressCompleted = true;
+                                            }
+                                        }
+                                        break;
+
                                     case RenderEventType.ApprovalRequired:
                                         approvalPaused = true;
                                         return;
@@ -504,10 +533,11 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
                                 }
                             }
 
-                            // Check bridge for early completion signals (before FIC yields ToolCallCompleted)
+                            // Check bridge for early completion signals (before FIC yields ToolCallCompleted).
+                            // Skip bridge polling for entries that have event-driven data (Wire mode).
                             foreach (var entry in entries)
                             {
-                                if (!entry.Completed && !entry.Failed)
+                                if (!entry.Completed && !entry.Failed && !entry.HasProgressData)
                                 {
                                     var progress = SubAgentProgressBridge.TryGet(entry.Label);
                                     if (progress is { IsCompleted: true })
@@ -519,6 +549,19 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
                             if (entries.TrueForAll(e => e.Completed || e.Failed))
                             {
+                                // In Wire mode, the final SubAgentProgress snapshot (with complete
+                                // token stats) is emitted by the server's DisposeAsync() *after*
+                                // the ToolResult ItemCompleted that triggers Completed=true above.
+                                // The DisposeAsync involves an async await (_runTask), so the final
+                                // snapshot may not yet be in the channel when TryRead runs.
+                                //
+                                // Strategy: wait (with timeout) for the final SubAgentProgress that
+                                // has IsCompleted=true for all progress-tracked entries. The server
+                                // guarantees this event arrives before TurnCompleted, so a bounded
+                                // wait is safe.
+                                await DrainFinalSubAgentProgressAsync(
+                                    reader, entries, buffered, ct);
+
                                 ctx.UpdateTarget(BuildSubAgentTable(entries, frames, frameIndex));
                                 return;
                             }
@@ -560,9 +603,13 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             _currentState = RenderState.ToolExecuting;
         }
 
-        // Clean up bridge entries now that the live table session is done
+        // Clean up bridge entries now that the live table session is done.
+        // Only needed for InProcess mode where entries were polled from SubAgentProgressBridge.
         foreach (var entry in entries)
-            SubAgentProgressBridge.Remove(entry.Label);
+        {
+            if (!entry.HasProgressData)
+                SubAgentProgressBridge.Remove(entry.Label);
+        }
 
         // Reset state
         _currentState = RenderState.Idle;
@@ -577,6 +624,108 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         {
             ProcessNonToolStartEvent(evt);
         }
+    }
+
+    /// <summary>
+    /// After all SubAgent entries are marked Completed, wait (with timeout) for the
+    /// final <see cref="RenderEventType.SubAgentProgress"/> event that carries the
+    /// complete token statistics. In Wire mode, this event is emitted by the server's
+    /// <c>SubAgentProgressAggregator.DisposeAsync()</c> which runs after the last
+    /// <c>EmitItemCompleted(ToolResult)</c> and involves an async <c>await _runTask</c>.
+    /// A non-blocking <c>TryRead</c> is therefore insufficient — the final snapshot
+    /// may still be in transit. We wait up to a bounded timeout for it to arrive.
+    /// </summary>
+    private static async Task DrainFinalSubAgentProgressAsync(
+        ChannelReader<RenderEvent> reader,
+        List<SubAgentEntry> entries,
+        List<RenderEvent> buffered,
+        CancellationToken ct)
+    {
+        // Determine whether we need to wait: only if at least one entry has received
+        // event-driven progress data (Wire mode). In InProcess mode entries use
+        // SubAgentProgressBridge directly and HasProgressData is false.
+        bool anyProgressTracked = entries.Exists(e => e.HasProgressData);
+
+        // Phase 1: non-blocking sweep of anything already in the channel.
+        DrainAvailableProgress(reader, entries, buffered);
+
+        if (!anyProgressTracked || AllProgressComplete(entries))
+            return;
+
+        // Phase 2: bounded wait. The server guarantees the final SubAgentProgress
+        // snapshot arrives before TurnCompleted, so this should resolve quickly.
+        // Timeout is generous to cover slow networks / thread-pool saturation.
+        const int maxWaitMs = 2000;
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        waitCts.CancelAfter(maxWaitMs);
+
+        try
+        {
+            while (!AllProgressComplete(entries))
+            {
+                // Block until at least one event is available, then sweep.
+                await reader.WaitToReadAsync(waitCts.Token);
+                DrainAvailableProgress(reader, entries, buffered);
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Timeout expired — accept whatever data we have. This is a safety
+            // net; under normal conditions the final snapshot arrives well within
+            // the timeout.
+        }
+    }
+
+    /// <summary>
+    /// Non-blocking sweep: read all available events from the channel, apply any
+    /// <see cref="RenderEventType.SubAgentProgress"/> data, and buffer the rest.
+    /// </summary>
+    private static void DrainAvailableProgress(
+        ChannelReader<RenderEvent> reader,
+        List<SubAgentEntry> entries,
+        List<RenderEvent> buffered)
+    {
+        while (reader.TryRead(out var evt))
+        {
+            if (evt.Type == RenderEventType.SubAgentProgress
+                && evt.SubAgentEntries is { } progressEntries)
+            {
+                foreach (var pe in progressEntries)
+                {
+                    var target = entries.Find(e =>
+                        string.Equals(e.Label, pe.Label, StringComparison.Ordinal));
+                    if (target == null) continue;
+                    target.CurrentTool = pe.CurrentTool;
+                    target.CurrentToolDisplay = pe.CurrentToolDisplay;
+                    target.InputTokens = pe.InputTokens;
+                    target.OutputTokens = pe.OutputTokens;
+                    target.HasProgressData = true;
+                    if (pe.IsCompleted)
+                        target.ProgressCompleted = true;
+                }
+            }
+            else
+            {
+                buffered.Add(evt);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns true when every entry that has received event-driven progress data
+    /// also received a SubAgentProgress event with IsCompleted=true (the final snapshot).
+    /// Entries without progress data (InProcess mode) are excluded from the check.
+    /// </summary>
+    private static bool AllProgressComplete(List<SubAgentEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            if (!entry.HasProgressData)
+                continue;
+            if (!entry.ProgressCompleted)
+                return false;
+        }
+        return true;
     }
 
     private static void AddSubAgentEntry(List<SubAgentEntry> entries, RenderEvent evt)
@@ -607,37 +756,63 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey)
             .AddColumn(new TableColumn("[grey]Task[/]"))
-            .AddColumn(new TableColumn("[grey]Activity[/]").Width(28))
+            .AddColumn(new TableColumn("[grey]Activity[/]").Width(52))
             .AddColumn(new TableColumn("[grey]Status[/]").Centered().Width(8));
 
         foreach (var entry in entries)
         {
             var status = entry.Completed
                 ? "[green]✓[/]"
-                : entry.Failed
-                    ? "[red]✗[/]"
-                    : $"[yellow]{Markup.Escape(frame)}[/]";
+                : $"[yellow]{Markup.Escape(frame)}[/]";
 
             var label = entry.Label.Length > 60
                 ? entry.Label[..57] + "..."
                 : entry.Label;
 
             var activity = string.Empty;
-            var progress = SubAgentProgressBridge.TryGet(entry.Label);
-            if (entry.Completed)
-            {
-                if (progress != null && (progress.InputTokens > 0 || progress.OutputTokens > 0))
-                    activity = $"[blue]↑ {progress.InputTokens}[/] [green]↓ {progress.OutputTokens}[/]";
-            }
-            else if (progress != null)
-            {
-                var tool = progress.CurrentTool;
-                activity = !string.IsNullOrEmpty(tool)
-                    ? $"[dim]{Markup.Escape(tool)}[/]"
-                    : "[dim]Thinking...[/]";
+            const int maxActivityLen = 48;
 
-                if (progress.InputTokens > 0 || progress.OutputTokens > 0)
-                    activity = $"{activity} [dim grey]· ↑{progress.InputTokens} ↓{progress.OutputTokens}[/]";
+            // Dual data source: prefer event-driven data (HasProgressData = Wire mode),
+            // fall back to SubAgentProgressBridge polling (InProcess mode).
+            if (entry.HasProgressData)
+            {
+                // Wire mode: use event-driven progress fields from SubAgentProgress RenderEvents
+                if (entry.Completed)
+                {
+                    if (entry.InputTokens > 0 || entry.OutputTokens > 0)
+                        activity = $"[blue]↑ {entry.InputTokens}[/] [green]↓ {entry.OutputTokens}[/]";
+                }
+                else
+                {
+                    var display = entry.CurrentToolDisplay ?? entry.CurrentTool;
+                    activity = !string.IsNullOrEmpty(display)
+                        ? $"[dim]{Markup.Escape(ToolDisplayHelpers.Truncate(display, maxActivityLen))}[/]"
+                        : "[dim]Thinking...[/]";
+
+                    if (entry.InputTokens > 0 || entry.OutputTokens > 0)
+                        activity = $"{activity} [dim grey]· ↑{entry.InputTokens} ↓{entry.OutputTokens}[/]";
+                }
+            }
+            else
+            {
+                // InProcess mode: poll SubAgentProgressBridge directly
+                var progress = SubAgentProgressBridge.TryGet(entry.Label);
+                if (entry.Completed)
+                {
+                    if (progress != null && (progress.InputTokens > 0 || progress.OutputTokens > 0))
+                        activity = $"[blue]↑ {progress.InputTokens}[/] [green]↓ {progress.OutputTokens}[/]";
+                }
+                else if (progress != null)
+                {
+                    var display = progress.CurrentToolDisplay ?? progress.LastToolDisplay
+                                  ?? progress.CurrentTool ?? progress.LastTool;
+                    activity = !string.IsNullOrEmpty(display)
+                        ? $"[dim]{Markup.Escape(ToolDisplayHelpers.Truncate(display, maxActivityLen))}[/]"
+                        : "[dim]Thinking...[/]";
+
+                    if (progress.InputTokens > 0 || progress.OutputTokens > 0)
+                        activity = $"{activity} [dim grey]· ↑{progress.InputTokens} ↓{progress.OutputTokens}[/]";
+                }
             }
 
             table.AddRow(
@@ -647,9 +822,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
         }
 
         var tokenSuffix = GetTokenSuffix();
-        return new Rows(
-            new Markup($"[purple]🐧 SubAgents ({completed}/{total})[/]{tokenSuffix}"),
-            table);
+        return new Rows(new Markup($"[purple]🐧 SubAgents ({completed}/{total})[/]{tokenSuffix}"), table);
     }
 
     #endregion
@@ -698,7 +871,119 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
 
             case RenderEventType.ApprovalRequired:
             case RenderEventType.ApprovalCompleted:
+            case RenderEventType.SubAgentProgress:
+            case RenderEventType.UsageDelta:
                 break;
+
+            case RenderEventType.SystemInfo:
+                HandleSystemInfo(evt);
+                break;
+
+            case RenderEventType.SystemStatus:
+                // SystemStatus should not arrive here in normal flow because it's handled
+                // in the render loop as a spinner session. But if it arrives as a buffered event,
+                // fall back to a simple info line.
+                HandleSystemInfo(evt);
+                break;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // System events rendering
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Renders a one-line informational message for system-level operations
+    /// (e.g., "Context compacted successfully.").
+    /// </summary>
+    private static void HandleSystemInfo(RenderEvent evt)
+    {
+        if (!string.IsNullOrWhiteSpace(evt.Content))
+        {
+            AnsiConsole.MarkupLine($"[dim]ℹ {Markup.Escape(evt.Content)}[/]");
+        }
+    }
+
+    /// <summary>
+    /// Enters a live Status spinner session for an in-progress system operation
+    /// (e.g., memory consolidation). Waits for a <see cref="RenderEventType.SystemInfo"/>
+    /// event signalling completion, then displays the completion message.
+    /// Other events arriving during the spinner are buffered and replayed after.
+    /// </summary>
+    private async Task RunSystemStatusSessionAsync(RenderEvent statusEvt, CancellationToken ct)
+    {
+        var reader = _eventQueue.Reader;
+        var buffered = new List<RenderEvent>(capacity: 4);
+        var spinnerText = statusEvt.Content;
+        bool completed = false;
+
+        try
+        {
+            await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .SpinnerStyle(new Style(Color.Cyan))
+                .StartAsync($"[cyan]ℹ {Markup.Escape(spinnerText)}[/]", async ctx =>
+                {
+                    var sw = Stopwatch.StartNew();
+
+                    while (!ct.IsCancellationRequested)
+                    {
+                        // Wait up to 1 second for events, then update elapsed time
+                        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        delayCts.CancelAfter(TimeSpan.FromSeconds(1));
+
+                        bool hasData;
+                        try
+                        {
+                            hasData = await reader.WaitToReadAsync(delayCts.Token);
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            // 1-second tick: update elapsed
+                            var elapsed = (long)sw.Elapsed.TotalSeconds;
+                            if (elapsed > 0)
+                                ctx.Status = $"[cyan]ℹ {Markup.Escape(spinnerText)} ({elapsed}s)[/]";
+                            continue;
+                        }
+
+                        if (!hasData) break;
+
+                        while (reader.TryRead(out var evt))
+                        {
+                            // SystemInfo arriving while spinner is active signals completion
+                            if (evt.Type == RenderEventType.SystemInfo)
+                            {
+                                completed = true;
+                                return;
+                            }
+
+                            // Complete event means the turn is ending; exit spinner
+                            if (evt.Type == RenderEventType.Complete
+                                || evt.Type == RenderEventType.Error)
+                            {
+                                buffered.Add(evt);
+                                completed = true;
+                                return;
+                            }
+
+                            buffered.Add(evt);
+                        }
+                    }
+                });
+        }
+        catch (OperationCanceledException) { /* clean exit */ }
+
+        // Show completion message after spinner closes
+        if (completed)
+        {
+            var completionText = statusEvt.AdditionalInfo ?? "Done.";
+            AnsiConsole.MarkupLine($"[dim]ℹ {Markup.Escape(completionText)}[/]");
+        }
+
+        // Replay buffered events
+        foreach (var evt in buffered)
+        {
+            ProcessNonToolStartEvent(evt);
         }
     }
 

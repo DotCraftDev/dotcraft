@@ -6,7 +6,6 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
 using DotCraft.Tracing;
-using DotCraft.Sessions.Protocol;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Localization;
@@ -15,10 +14,12 @@ using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Security;
 using DotCraft.Hooks;
+using DotCraft.Protocol;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI;
+using Spectre.Console;
 
 namespace DotCraft.CLI;
 
@@ -36,6 +37,7 @@ public sealed class CliHost(
     ModuleRegistry moduleRegistry) : IDotCraftHost
 {
     private AgentFactory? _agentFactory;
+    private AppServerProcess? _appServerProcess;
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -44,84 +46,131 @@ public sealed class CliHost(
         var traceStore = sp.GetService<TraceStore>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var hookRunner = sp.GetService<HookRunner>();
+        var cliConfig = config.GetSection<CliConfig>("CLI");
 
-        // Scan for tool icons at startup
+        // Scan tool icons for CLI-side rendering (needed in both in-process and wire mode)
         ToolProviderCollector.ScanToolIcons(moduleRegistry, config);
 
-        // Collect tool providers from modules
-        var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
+        ICliSession cliSession;
+        CliBackendInfo backendInfo;
+        AgentRunner? runner = null;
+        AgentModeManager? modeManager = null;
+        ISessionService? sessionServiceForDashboard = null;
 
-        var planStore = new PlanStore(paths.CraftPath);
+        if (cliConfig.InProcess)
+        {
+            // -------------------------------------------------------------------
+            // In-process mode: build the agent stack in the same process
+            // -------------------------------------------------------------------
+            var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
 
-        // Wrap the CLI approval service so SessionService can install per-turn overrides
-        var scopedApproval = new SessionScopedApprovalService(cliApprovalService);
+            var planStore = new PlanStore(paths.CraftPath);
+            var scopedApproval = new SessionScopedApprovalService(cliApprovalService);
 
-        _agentFactory = new AgentFactory(
-            paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, scopedApproval, blacklist,
-            toolProviders: toolProviders,
-            toolProviderContext: new ToolProviderContext
-            {
-                Config = config,
-                ChatClient = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
+            _agentFactory = new AgentFactory(
+                paths.CraftPath, paths.WorkspacePath, config,
+                memoryStore, skillsLoader, scopedApproval, blacklist,
+                toolProviders: toolProviders,
+                toolProviderContext: new ToolProviderContext
                 {
-                    Endpoint = new Uri(config.EndPoint)
-                }).GetChatClient(config.Model),
-                WorkspacePath = paths.WorkspacePath,
-                BotPath = paths.CraftPath,
-                MemoryStore = memoryStore,
-                SkillsLoader = skillsLoader,
-                ApprovalService = scopedApproval,
-                PathBlacklist = blacklist,
-                CronTools = cronTools,
-                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
-                TraceCollector = traceCollector
-            },
-            traceCollector: traceCollector,
-            customCommandLoader: sp.GetService<CustomCommandLoader>(),
-            planStore: planStore,
-            onPlanUpdated: StatusPanel.ShowPlanStatus,
-            hookRunner: hookRunner);
+                    Config = config,
+                    ChatClient = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
+                    {
+                        Endpoint = new Uri(config.EndPoint)
+                    }).GetChatClient(config.Model),
+                    WorkspacePath = paths.WorkspacePath,
+                    BotPath = paths.CraftPath,
+                    MemoryStore = memoryStore,
+                    SkillsLoader = skillsLoader,
+                    ApprovalService = scopedApproval,
+                    PathBlacklist = blacklist,
+                    CronTools = cronTools,
+                    McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                    TraceCollector = traceCollector
+                },
+                traceCollector: traceCollector,
+                customCommandLoader: sp.GetService<CustomCommandLoader>(),
+                planStore: planStore,
+                onPlanUpdated: StatusPanel.ShowPlanStatus,
+                hookRunner: hookRunner);
 
-        var modeManager = new AgentModeManager();
-        var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
-        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
-        var runner = new AgentRunner(paths.WorkspacePath, sessionService);
+            modeManager = new AgentModeManager();
+            var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent, modeManager);
+            var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+            sessionServiceForDashboard = sessionService;
+
+            runner = new AgentRunner(paths.WorkspacePath, sessionService);
+            cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner);
+            backendInfo = new CliBackendInfo { IsWire = false };
+        }
+        else
+        {
+            // -------------------------------------------------------------------
+            // Wire mode (default): spawn dotcraft app-server as a subprocess
+            // -------------------------------------------------------------------
+            AnsiConsole.MarkupLine("[grey][[CLI]][/] Starting AppServer subprocess...");
+
+            var dotcraftBin = cliConfig.AppServerBin;
+            _appServerProcess = await AppServerProcess.StartAsync(
+                dotcraftBin: dotcraftBin,
+                workspacePath: paths.WorkspacePath,
+                ct: cancellationToken);
+
+            _appServerProcess.OnCrashed += () =>
+                AnsiConsole.MarkupLine("[red][[CLI]][/] AppServer subprocess exited unexpectedly.");
+
+            cliSession = new WireCliSession(_appServerProcess.Wire, tokenUsageStore);
+            backendInfo = new CliBackendInfo
+            {
+                IsWire = true,
+                ServerVersion = _appServerProcess.ServerVersion,
+                ProcessId = _appServerProcess.ProcessId
+            };
+        }
 
         DashBoardServer? dashBoardServer = null;
         string? dashBoardUrl = null;
         if (config.DashBoard.Enabled && traceStore != null)
         {
+            // Dashboard is only fully functional in in-process mode (requires ISessionService).
+            // In wire mode it still starts but without session integration.
             dashBoardServer = new DashBoardServer();
             dashBoardServer.Start(traceStore, config, paths, tokenUsageStore,
                 configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
-                sessionService: sessionService);
+                sessionService: sessionServiceForDashboard);
             dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
         }
 
+        AgentRunSessionDelegate heartbeatDelegate = runner != null
+            ? runner.RunAsync
+            : static (_, _, _) => Task.FromResult<string?>(null);
         using var heartbeatService = new HeartbeatService(
             paths.CraftPath,
-            onHeartbeat: runner.RunAsync,
+            onHeartbeat: heartbeatDelegate,
             intervalSeconds: config.Heartbeat.IntervalSeconds,
             enabled: false);
 
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var repl = new ReplHost(skillsLoader, sessionService,
+        var repl = new ReplHost(skillsLoader, cliSession,
             paths.WorkspacePath, paths.CraftPath,
             heartbeatService: heartbeatService, cronService: cronService,
             agentFactory: _agentFactory, mcpClientManager: mcpClientManager,
             dashBoardUrl: dashBoardUrl,
-            languageService: languageService, tokenUsageStore: tokenUsageStore,
+            languageService: languageService,
             customCommandLoader: customCommandLoader,
             modeManager: modeManager,
-            hookRunner: hookRunner);
+            hookRunner: hookRunner,
+            backendInfo: backendInfo);
 
-        cronService.OnJob = async job =>
+        if (runner != null)
         {
-            var sessionKey = $"cron:{job.Id}";
-            await runner.RunAsync(job.Payload.Message, sessionKey);
-            repl.ReprintPrompt();
-        };
+            cronService.OnJob = async job =>
+            {
+                var sessionKey = $"cron:{job.Id}";
+                await runner.RunAsync(job.Payload.Message, sessionKey);
+                repl.ReprintPrompt();
+            };
+        }
 
         if (config.Cron.Enabled)
             cronService.Start();
@@ -132,11 +181,16 @@ public sealed class CliHost(
 
         if (dashBoardServer != null)
             await dashBoardServer.DisposeAsync();
+
+        await cliSession.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+
+        if (_appServerProcess != null)
+            await _appServerProcess.DisposeAsync();
     }
 }
