@@ -1,4 +1,4 @@
-using System.Reflection;
+using DotCraft.Common;
 using DotCraft.Localization;
 using DotCraft.Memory;
 using DotCraft.Mcp;
@@ -10,7 +10,11 @@ namespace DotCraft.CLI;
 
 public static class StatusPanel
 {
-    public static void ShowWelcome(string? currentSessionId = null, string? dashBoardUrl = null, LanguageService? lang = null)
+    public static void ShowWelcome(
+        string? currentSessionId = null,
+        string? dashBoardUrl = null,
+        LanguageService? lang = null,
+        CliBackendInfo? backendInfo = null)
     {
         lang ??= new LanguageService();
         
@@ -21,9 +25,10 @@ public static class StatusPanel
                 .LeftJustified()
                 .Color(Color.Blue));
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
-        AnsiConsole.Write(new Text($"Version {version}", new Style(Color.Grey)).LeftJustified());
+        AnsiConsole.Write(new Text($"Version {AppVersion.Short}", new Style(Color.Grey)).LeftJustified());
         AnsiConsole.WriteLine();
+
+        RenderBackendStatus(backendInfo);
 
         if (!string.IsNullOrEmpty(currentSessionId))
         {
@@ -397,6 +402,24 @@ public static class StatusPanel
         var progressColor = completed == active && active > 0 ? "green" : "grey";
         AnsiConsole.MarkupLine($"  [{progressColor}]{completed}/{active} completed[/]");
         AnsiConsole.WriteLine();
+    }
+
+    private static void RenderBackendStatus(CliBackendInfo? backendInfo)
+    {
+        if (backendInfo == null) return;
+
+        if (backendInfo.IsWire)
+        {
+            var pid = backendInfo.ProcessId.HasValue ? $"PID {backendInfo.ProcessId}" : null;
+            var ver = backendInfo.ServerVersion != null ? $"server v{backendInfo.ServerVersion}" : null;
+            var detail = string.Join(" · ", new[] { pid, ver }.Where(s => s != null));
+            var detailPart = detail.Length > 0 ? $"  [grey]{detail.Escape()}[/]" : string.Empty;
+            AnsiConsole.MarkupLine($"[green]●[/] [bold]AppServer[/] [green]Connected[/]{detailPart}");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[blue]●[/] [bold]In-process[/]  [grey]agent running in-process[/]");
+        }
     }
 
     private static string Escape(this string text)

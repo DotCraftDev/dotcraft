@@ -127,7 +127,8 @@ public sealed class AppServerWireClient : IAsyncDisposable
     public async Task<JsonDocument> SendRequestAsync(
         string method,
         object? @params = null,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
     {
         var id = Interlocked.Increment(ref _nextId);
         var tcs = new TaskCompletionSource<JsonDocument>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -140,7 +141,7 @@ public sealed class AppServerWireClient : IAsyncDisposable
                 SessionWireJsonOptions.Default);
             await WriteLineAsync(request);
 
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token, ct);
             cts.CancelAfter(timeout ?? TimeSpan.FromSeconds(30));
             await using var reg = cts.Token.Register(() => tcs.TrySetCanceled(cts.Token));
 

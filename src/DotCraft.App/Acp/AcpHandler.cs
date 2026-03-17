@@ -1,11 +1,10 @@
 using System.Collections.Concurrent;
-using System.Reflection;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
-
+using DotCraft.Common;
 using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Memory;
@@ -174,7 +173,7 @@ public sealed class AcpHandler(
 
         _clientCapabilities = p?.ClientCapabilities;
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+        var version = AppVersion.Short;
 
         var result = new InitializeResult
         {

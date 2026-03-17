@@ -1,6 +1,6 @@
 using System.ClientModel;
-using System.Reflection;
 using DotCraft.Agents;
+using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
 using DotCraft.Memory;
@@ -82,7 +82,7 @@ public sealed class AppServerHost(
 
         var connection = new AppServerConnection();
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: GetVersion());
+            sessionService, connection, transport, serverVersion: AppVersion.Informational);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -203,15 +203,6 @@ public sealed class AppServerHost(
                 break;
             // Other client notifications (none defined in v1) are silently ignored
         }
-    }
-
-    private static string GetVersion()
-    {
-        return typeof(AppServerHost).Assembly
-            .GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), false)
-            .OfType<AssemblyInformationalVersionAttribute>()
-            .FirstOrDefault()?.InformationalVersion
-            ?? "0.1.0";
     }
 
     public async ValueTask DisposeAsync()

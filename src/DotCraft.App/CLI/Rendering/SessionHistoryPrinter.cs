@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotCraft.Protocol;
 using DotCraft.Tools;
 using Microsoft.Agents.AI;
@@ -147,6 +148,126 @@ public static class SessionHistoryPrinter
 
         AnsiConsole.WriteLine();
     }
+
+    /// <summary>
+    /// Prints a compact history of the last <paramref name="maxTurns"/> turns from a
+    /// <see cref="SessionWireThread"/> received over the wire protocol.
+    /// Payload fields are read from <see cref="JsonElement"/> (wire deserialization) or
+    /// from typed C# objects (in-process deserialization via <see cref="SessionWireMapper"/>).
+    /// </summary>
+    public static void Print(SessionWireThread thread, int maxTurns = 10)
+    {
+        var turns = thread.Turns;
+        if (turns == null || turns.Count == 0) return;
+
+        var slice = turns.Count > maxTurns
+            ? turns.Skip(turns.Count - maxTurns).ToList()
+            : turns;
+
+        AnsiConsole.WriteLine();
+
+        var isFirstTurn = true;
+        foreach (var turn in slice)
+        {
+            if (turn.Status == TurnStatus.Cancelled) continue;
+
+            if (!isFirstTurn)
+                PrintSeparator();
+            isFirstTurn = false;
+
+            // User message text
+            var userText = GetWirePayloadString(turn.Items?.FirstOrDefault(i => i.Type == ItemType.UserMessage)?.Payload, "text");
+            if (!string.IsNullOrWhiteSpace(userText))
+                PrintUserMessageText(StripRuntimeContext(userText));
+
+            // Build tool-result lookup by callId
+            var resultsByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var item in turn.Items ?? [])
+            {
+                if (item.Type != ItemType.ToolResult) continue;
+                var callId = GetWirePayloadString(item.Payload, "callId");
+                var result = GetWirePayloadString(item.Payload, "result");
+                if (!string.IsNullOrEmpty(callId))
+                    resultsByCallId[callId!] = result ?? string.Empty;
+            }
+
+            // Render agent messages and tool calls
+            foreach (var item in turn.Items ?? [])
+            {
+                switch (item.Type)
+                {
+                    case ItemType.AgentMessage:
+                    {
+                        var text = GetWirePayloadString(item.Payload, "text") ?? string.Empty;
+                        if (!string.IsNullOrWhiteSpace(text))
+                            PrintAssistantText(text);
+                        break;
+                    }
+                    case ItemType.ToolCall:
+                    {
+                        var toolName = GetWirePayloadString(item.Payload, "toolName") ?? string.Empty;
+                        var callId = GetWirePayloadString(item.Payload, "callId");
+                        var argsJson = GetWirePayloadRaw(item.Payload, "arguments");
+                        var argsNode = argsJson != null
+                            ? System.Text.Json.Nodes.JsonNode.Parse(argsJson) as System.Text.Json.Nodes.JsonObject
+                            : null;
+                        var tc = new ToolCallPayload
+                        {
+                            ToolName = toolName,
+                            CallId = callId ?? string.Empty,
+                            Arguments = argsNode
+                        };
+                        PrintToolCallWithResult(tc, resultsByCallId);
+                        break;
+                    }
+                }
+            }
+        }
+
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Reads a string field from a wire item payload, which may be a typed C# object
+    /// (from in-process mapping) or a <see cref="JsonElement"/> (from JSON deserialization).
+    /// </summary>
+    private static string? GetWirePayloadString(object? payload, string field) =>
+        payload switch
+        {
+            UserMessagePayload um => field == "text" ? um.Text : null,
+            AgentMessagePayload am => field == "text" ? am.Text : null,
+            ToolCallPayload tc => field switch
+            {
+                "toolName" => tc.ToolName,
+                "callId" => tc.CallId,
+                _ => null
+            },
+            ToolResultPayload tr => field switch
+            {
+                "callId" => tr.CallId,
+                "result" => tr.Result,
+                _ => null
+            },
+            JsonElement je when je.ValueKind == JsonValueKind.Object
+                                && je.TryGetProperty(field, out var v)
+                                && v.ValueKind == JsonValueKind.String
+                => v.GetString(),
+            _ => null
+        };
+
+    /// <summary>
+    /// Reads a field from a wire item payload and returns its raw JSON text,
+    /// for use when the field contains a nested object (e.g., tool arguments).
+    /// </summary>
+    private static string? GetWirePayloadRaw(object? payload, string field) =>
+        payload switch
+        {
+            ToolCallPayload tc when field == "arguments" => tc.Arguments?.ToJsonString(),
+            JsonElement je when je.ValueKind == JsonValueKind.Object
+                                && je.TryGetProperty(field, out var v)
+                => v.GetRawText(),
+            _ => null
+        };
 
     private static void PrintUserMessageText(string text)
     {

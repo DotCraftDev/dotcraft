@@ -126,8 +126,9 @@ public sealed class AppServerClient : IAsyncDisposable
     public Task<JsonDocument> SendRequestAsync(
         string method,
         object? @params = null,
-        TimeSpan? timeout = null) =>
-        _wire.SendRequestAsync(method, @params, timeout);
+        TimeSpan? timeout = null,
+        CancellationToken ct = default) =>
+        _wire.SendRequestAsync(method, @params, timeout, ct);
 
     /// <summary>Sends a JSON-RPC notification (no id, no response expected).</summary>
     public Task SendNotificationAsync(string method, object? @params = null) =>
