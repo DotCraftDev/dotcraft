@@ -880,6 +880,7 @@ public sealed class AgentRenderer : IRenderControl, IDisposable
             case RenderEventType.ApprovalRequired:
             case RenderEventType.ApprovalCompleted:
             case RenderEventType.SubAgentProgress:
+            case RenderEventType.UsageDelta:
                 break;
         }
     }

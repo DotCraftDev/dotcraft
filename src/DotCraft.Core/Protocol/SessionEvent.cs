@@ -71,6 +71,9 @@ public sealed class SessionEvent
 
     [JsonIgnore]
     public SubAgentProgressPayload? SubAgentProgressPayload => Payload as SubAgentProgressPayload;
+
+    [JsonIgnore]
+    public UsageDeltaPayload? UsageDeltaPayload => Payload as UsageDeltaPayload;
 }
 
 /// <summary>
@@ -166,4 +169,21 @@ public sealed record SubAgentProgressEntry
     /// Whether the SubAgent has finished execution.
     /// </summary>
     public bool IsCompleted { get; init; }
+}
+
+/// <summary>
+/// Payload for usage/delta events. Carries the incremental token consumption
+/// from a single LLM iteration.
+/// </summary>
+public sealed record UsageDeltaPayload
+{
+    /// <summary>
+    /// Input tokens consumed in this LLM iteration (delta, not cumulative).
+    /// </summary>
+    public long InputTokens { get; init; }
+
+    /// <summary>
+    /// Output tokens consumed in this LLM iteration (delta, not cumulative).
+    /// </summary>
+    public long OutputTokens { get; init; }
 }

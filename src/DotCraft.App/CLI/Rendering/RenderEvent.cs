@@ -68,7 +68,14 @@ public enum RenderEventType
     /// SubAgent progress snapshot — periodic aggregated progress data for all active SubAgents.
     /// Emitted by the server-side SubAgentProgressAggregator and relayed via wire notifications.
     /// </summary>
-    SubAgentProgress
+    SubAgentProgress,
+
+    /// <summary>
+    /// Incremental token usage delta — emitted each time the agent completes an LLM iteration.
+    /// Carries input/output token deltas in Content as "inputTokens,outputTokens".
+    /// Used to update a local TokenTracker for real-time spinner display in Wire mode.
+    /// </summary>
+    UsageDelta
 }
 
 /// <summary>
@@ -125,6 +132,16 @@ public class RenderEvent
     /// Each entry contains the current tool, token counts, and completion status for a tracked SubAgent.
     /// </summary>
     public IReadOnlyList<SubAgentProgressEntry>? SubAgentEntries { get; init; }
+
+    /// <summary>
+    /// Incremental input tokens for <see cref="RenderEventType.UsageDelta"/> events.
+    /// </summary>
+    public long InputTokensDelta { get; init; }
+
+    /// <summary>
+    /// Incremental output tokens for <see cref="RenderEventType.UsageDelta"/> events.
+    /// </summary>
+    public long OutputTokensDelta { get; init; }
 
     /// <summary>
     /// Create a ToolCallStarted event
@@ -287,6 +304,16 @@ public class RenderEvent
     {
         Type = RenderEventType.SubAgentProgress,
         SubAgentEntries = entries
+    };
+
+    /// <summary>
+    /// Create a UsageDelta event carrying incremental token consumption from a single LLM iteration.
+    /// </summary>
+    public static RenderEvent UsageDeltaEvent(long inputTokens, long outputTokens) => new()
+    {
+        Type = RenderEventType.UsageDelta,
+        InputTokensDelta = inputTokens,
+        OutputTokensDelta = outputTokens
     };
 }
 

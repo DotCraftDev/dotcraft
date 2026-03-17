@@ -19,6 +19,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [5. Turn Methods](#5-turn-methods)
 - [6. Event Notifications](#6-event-notifications)
   - [6.5 SubAgent Notifications](#65-subagent-notifications)
+  - [6.6 Usage Notifications](#66-usage-notifications)
 - [7. Approval Flow](#7-approval-flow)
 - [8. Error Handling](#8-error-handling)
 - [9. Backpressure](#9-backpressure)
@@ -860,6 +861,59 @@ Server                                          Client
   |---------------------------------------------->|
 ```
 
+### 6.6 Usage Notifications
+
+#### `item/usage/delta`
+
+Emitted each time the agent completes an LLM iteration and produces a `UsageContent` with non-zero token counts. Carries the **incremental** token consumption for that single iteration, allowing clients to maintain a running total for real-time display (e.g., Thinking/Tool spinner token counters).
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "inputTokens": 1200,
+  "outputTokens": 350
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | string | Parent thread. |
+| `turnId` | string | Active turn. |
+| `inputTokens` | integer | Input tokens consumed in this LLM iteration (delta, not cumulative). |
+| `outputTokens` | integer | Output tokens consumed in this LLM iteration (delta, not cumulative). |
+
+**Emission rules**:
+
+- Emitted once per LLM iteration, immediately after the provider's `UsageContent` is processed.
+- Each notification carries only the delta for the current iteration. Clients must accumulate deltas locally.
+- The sum of all `item/usage/delta` notifications for a Turn's main agent equals the main-agent portion of `turn/completed.tokenUsage`.
+- SubAgent tokens are reported separately via `subagent/progress` and are not included in `item/usage/delta`.
+- Clients that do not need real-time token display can opt out via `optOutNotificationMethods: ["item/usage/delta"]` during `initialize`.
+
+**Example sequence**:
+
+```
+Server                                          Client
+  |                                               |
+  | item/usage/delta (notification)               |
+  |  inputTokens: 1200, outputTokens: 350         |
+  |<----------------------------------------------|
+  |                                               |
+  | (tool calls execute...)                       |
+  |                                               |
+  | item/usage/delta (notification)               |
+  |  inputTokens: 2100, outputTokens: 480         |
+  |<----------------------------------------------|
+  |                                               |
+  | turn/completed (notification)                 |
+  |  tokenUsage: { inputTokens: 3300,             |
+  |    outputTokens: 830, totalTokens: 4130 }     |
+  |<----------------------------------------------|
+```
+
 ---
 
 ## 7. Approval Flow
@@ -1057,6 +1111,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `thread/started` | Client does not need thread lifecycle events. |
 | `thread/statusChanged` | Client manages thread status locally. |
 | `subagent/progress` | Client does not display SubAgent real-time progress. |
+| `item/usage/delta` | Client does not need real-time token consumption display; will use `turn/completed.tokenUsage` for final totals. |
 
 **Example**:
 
@@ -1157,6 +1212,10 @@ Client                                          Server
   | item/completed (notification)                 |
   |  item: { type: "toolResult",                  |
   |    callId: "c1", success: true }              |
+  |<----------------------------------------------|
+  |                                               |
+  | item/usage/delta (notification)               |
+  |  inputTokens: 1200, outputTokens: 350         |
   |<----------------------------------------------|
   |                                               |
   | item/started (notification)                   |

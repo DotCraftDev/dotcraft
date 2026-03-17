@@ -653,6 +653,27 @@ SessionEvent
   - **Relationship to Item events**: SubAgent execution is triggered by `SpawnSubagent` tool calls, which appear as `item/started` (type `toolCall`, toolName `SpawnSubagent`) and `item/completed` (type `toolResult`) events. The `subagent/progress` event provides fine-grained intermediate progress that is not captured by the standard Item lifecycle.
   - **Adapters**: Adapters that render SubAgent progress (e.g., CLI Live Table) should consume `subagent/progress` events to update their UI. Adapters that do not need SubAgent progress may ignore this event type or opt out via `optOutNotificationMethods`.
 
+#### Usage Events
+
+- **`usage/delta`**
+  - Emitted each time the agent completes an LLM iteration and a `UsageContent` is received from the streaming response. Carries the **incremental** token consumption for that single iteration.
+  - Payload:
+
+    ```
+    {
+      "inputTokens": long,      // Input tokens consumed in this iteration
+      "outputTokens": long      // Output tokens consumed in this iteration
+    }
+    ```
+
+  - **Emission rules**:
+    - The event is emitted by Session Core immediately after processing a `UsageContent` from the agent's streaming output, provided the token counts are non-zero.
+    - Each emission carries only the delta for the current iteration, not cumulative totals. Clients must accumulate deltas locally to display running totals.
+    - At most one `usage/delta` event is emitted per LLM iteration (the `UsageContent` is emitted once at the end of each iteration by the provider, not per token).
+    - The event is a sideband signal — it may interleave with `item/started`, `item/delta`, and `item/completed` events. This is expected behavior.
+  - **Relationship to Turn.TokenUsage**: The sum of all `usage/delta` events for a Turn's main agent equals the main-agent portion of `Turn.TokenUsage`. SubAgent tokens are reported separately via `subagent/progress` and are added to `Turn.TokenUsage` at turn completion.
+  - **Adapters**: Adapters that display real-time token consumption (e.g., CLI Thinking/Tool spinners) should consume `usage/delta` events to maintain a running total. Adapters that only need final totals may ignore this event type or opt out via `optOutNotificationMethods`.
+
 ### 6.4 Event Delivery Semantics
 
 - **Ordering**: Events within a Turn are emitted in causal order. `item/started` always precedes `item/delta` and `item/completed` for the same Item. `turn/started` always precedes all item events for that Turn. `turn/completed` (or `turn/failed`, `turn/cancelled`) is always the last event for a Turn.

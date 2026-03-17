@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotCraft.CLI.Rendering;
+using DotCraft.Context;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Tracing;
@@ -99,10 +100,19 @@ public sealed class WireCliSession(
     /// <summary>
     /// Submits user input over the wire, streams turn notifications to <see cref="AgentRenderer"/>,
     /// and handles approval requests interactively.
+    /// <para>
+    /// Creates a local <see cref="TokenTracker"/> to accumulate incremental <c>item/usage/delta</c>
+    /// and <c>subagent/progress</c> token data, then passes it to <see cref="AgentRenderer"/> so
+    /// Thinking/Tool spinners display real-time token consumption — matching InProcess mode behavior.
+    /// </para>
     /// </summary>
     public async Task RunTurnAsync(string threadId, string input, CancellationToken ct = default)
     {
-        using var renderer = new AgentRenderer(tokenTracker: null);
+        // Create a local TokenTracker to accumulate incremental usage deltas from wire notifications.
+        // This mirrors the server-side TokenTracker that InProcessCliSession reads directly.
+        var tokenTracker = new TokenTracker();
+
+        using var renderer = new AgentRenderer(tokenTracker);
         await renderer.StartAsync(ct);
         await renderer.SendEventAsync(RenderEvent.StreamStart(), ct);
 
@@ -129,6 +139,35 @@ public sealed class WireCliSession(
 
             await foreach (var evt in StreamAdapter.AdaptWireNotificationsAsync(notifications, ct))
             {
+                // Intercept UsageDelta events to update the local TokenTracker
+                // before forwarding to the renderer (which reads the tracker for spinner display).
+                if (evt.Type == RenderEventType.UsageDelta)
+                {
+                    tokenTracker.Update(evt.InputTokensDelta, evt.OutputTokensDelta);
+                    // No need to forward — AgentRenderer ignores UsageDelta events;
+                    // it reads the tracker directly via GetTokenSuffix().
+                    continue;
+                }
+
+                // Intercept SubAgentProgress events to update the local TokenTracker's SubAgent totals.
+                // The entries carry cumulative (not delta) values, so we replace rather than add.
+                if (evt.Type == RenderEventType.SubAgentProgress && evt.SubAgentEntries is { } entries)
+                {
+                    long subInput = 0, subOutput = 0;
+                    foreach (var entry in entries)
+                    {
+                        subInput += entry.InputTokens;
+                        subOutput += entry.OutputTokens;
+                    }
+                    // TokenTracker.AddSubAgentTokens is additive, but SubAgentProgress carries
+                    // cumulative snapshots. We need to replace, not add. Since TokenTracker only
+                    // exposes Add, we compute the delta from the current values.
+                    var deltaInput = subInput - tokenTracker.SubAgentInputTokens;
+                    var deltaOutput = subOutput - tokenTracker.SubAgentOutputTokens;
+                    if (deltaInput > 0 || deltaOutput > 0)
+                        tokenTracker.AddSubAgentTokens(deltaInput, deltaOutput);
+                }
+
                 // Record token usage when the turn completes (content is "inputTokens,outputTokens,totalTokens")
                 if (evt.Type == RenderEventType.Usage && tokenUsageStore != null)
                 {

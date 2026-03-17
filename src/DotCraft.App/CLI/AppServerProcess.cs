@@ -150,11 +150,25 @@ public sealed class AppServerProcess : IAsyncDisposable
         if (await Task.WhenAny(exited, deadline) != exited)
         {
             // Graceful exit timed out — force-kill the process tree
-            try { _process.Kill(entireProcessTree: true); } catch { }
+            try
+            {
+                _process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
 
         // Drain stderr forwarder
-        try { await _stderrForwarderTask; } catch { }
+        try
+        {
+            await _stderrForwarderTask;
+        }
+        catch
+        {
+            // ignored
+        }
 
         _process.Dispose();
     }
@@ -188,7 +202,7 @@ public sealed class AppServerProcess : IAsyncDisposable
                 .GetProperty("version")
                 .GetString();
         }
-        catch (Exception) when (true)
+        catch (Exception)
         {
             return null;
         }

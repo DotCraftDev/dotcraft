@@ -586,6 +586,7 @@ public sealed class SessionService(
                                         inputTokens += iterInput;
                                         outputTokens += iterOutput;
                                         tokenTracker.Update(iterInput, iterOutput);
+                                        eventChannel.EmitUsageDelta(iterInput, iterOutput);
                                     }
                                     break;
                             }

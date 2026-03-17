@@ -302,4 +302,7 @@ public static class AppServerMethods
 
     // Server → Client notification (SubAgent progress)
     public const string SubAgentProgress = "subagent/progress";
+
+    // Server → Client notification (incremental token usage)
+    public const string ItemUsageDelta = "item/usage/delta";
 }

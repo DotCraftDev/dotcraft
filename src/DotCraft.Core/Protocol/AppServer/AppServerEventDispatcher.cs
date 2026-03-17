@@ -213,6 +213,15 @@ public sealed class AppServerEventDispatcher
             entries = progress.Entries
         },
 
+        // Usage delta notification (spec Section 6.6)
+        SessionEventType.UsageDelta when evt.UsageDeltaPayload is { } usage => new
+        {
+            threadId = evt.ThreadId,
+            turnId = evt.TurnId,
+            inputTokens = usage.InputTokens,
+            outputTokens = usage.OutputTokens
+        },
+
         _ => null
     };
 

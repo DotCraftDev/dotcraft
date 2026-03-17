@@ -333,6 +333,15 @@ public static partial class StreamAdapter
                     break;
                 }
 
+                // ---------------------------------------------------------
+                // Usage delta (incremental token consumption)
+                // ---------------------------------------------------------
+                case SessionEventType.UsageDelta when evt.UsageDeltaPayload is { } usage:
+                {
+                    yield return RenderEvent.UsageDeltaEvent(usage.InputTokens, usage.OutputTokens);
+                    break;
+                }
+
                 // All other events (thread/created, turn/started, item/started for non-tool, etc.) are ignored.
             }
         }
@@ -488,6 +497,19 @@ public static partial class StreamAdapter
                 case AppServerMethods.TurnCancelled:
                 {
                     yield return RenderEvent.Completed("cancelled");
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Usage delta (spec Section 6.6)
+                // ---------------------------------------------------------
+                case AppServerMethods.ItemUsageDelta:
+                {
+                    if (!hasParams) break;
+                    var inputTokens = @params.TryGetProperty("inputTokens", out var it) ? it.GetInt64() : 0L;
+                    var outputTokens = @params.TryGetProperty("outputTokens", out var ot) ? ot.GetInt64() : 0L;
+                    if (inputTokens > 0 || outputTokens > 0)
+                        yield return RenderEvent.UsageDeltaEvent(inputTokens, outputTokens);
                     break;
                 }
 

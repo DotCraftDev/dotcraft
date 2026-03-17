@@ -325,6 +325,7 @@ public static class SessionWireMapper
             SessionEventType.ApprovalRequested => "item/approval/request",
             SessionEventType.ApprovalResolved => "item/approval/resolved",
             SessionEventType.SubAgentProgress => "subagent/progress",
+            SessionEventType.UsageDelta => "item/usage/delta",
             _ => evt.EventType.ToString()
         };
 

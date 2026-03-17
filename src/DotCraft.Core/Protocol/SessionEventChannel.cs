@@ -122,6 +122,21 @@ internal sealed class SessionEventChannel(
         Write(SessionEventType.SubAgentProgress, null, payload);
 
     // -------------------------------------------------------------------------
+    // Usage delta events
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Emits an incremental token usage event. Called by <see cref="SessionService"/>
+    /// each time a <c>UsageContent</c> is received from the agent's streaming response.
+    /// </summary>
+    public void EmitUsageDelta(long inputTokens, long outputTokens) =>
+        Write(SessionEventType.UsageDelta, null, new UsageDeltaPayload
+        {
+            InputTokens = inputTokens,
+            OutputTokens = outputTokens
+        });
+
+    // -------------------------------------------------------------------------
     // Snapshot helpers — produce immutable copies so async consumers see a
     // consistent status regardless of when they dequeue the event.
     // -------------------------------------------------------------------------
