@@ -31,6 +31,8 @@ https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 </tr>
 </table>
 
+![intro](https://github.com/DotCraftDev/resources/raw/master/dotcraft/intro.png)
+
 - 🛠️ 文件、Shell、Web 与 SubAgent 工具，面向真实工作流
 - 🔗 支持 MCP、ACP、AG-UI 与 OpenAI 兼容 API
 - 🖥️ 原生编辑器集成：Unity、JetBrains 系列 IDE、Obsidian

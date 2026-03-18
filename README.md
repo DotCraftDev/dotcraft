@@ -31,6 +31,8 @@ https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 </tr>
 </table>
 
+![intro](https://github.com/DotCraftDev/resources/raw/master/dotcraft/intro.png)
+
 - 🛠️ File, Shell, Web, and SubAgent tools for real workflows
 - 🔗 MCP, ACP, AG-UI, and OpenAI-compatible API support
 - 🖥️ Native editor integration for Unity, JetBrains IDEs, and Obsidian
