@@ -1221,6 +1221,63 @@ The server uses bounded internal queues between transport ingress, request proce
 - Clients should not send a `turn/start` while a turn is already in progress on the same thread. The server rejects this with error code `-32012`.
 - Clients should consume notifications promptly. If a client falls behind on reading stdout (stdio transport) or WebSocket frames, the server may buffer up to a limit and then drop the connection.
 
+### 6.9 Job Result Notifications
+
+#### `system/jobResult`
+
+Emitted by the AppServer after a server-managed cron or heartbeat job completes. This allows connected wire clients (e.g. the CLI) to receive the agent's response as an out-of-band notification, without the client initiating a turn.
+
+This notification is **only emitted in standalone AppServer mode** (the CLI subprocess/WebSocket scenario). In Gateway mode the result is delivered through the social channel that originally created the job (e.g. `MessageRouter.DeliverAsync` → `IChannelService.DeliverMessageAsync` → `ext/channel/deliver` for external channel adapters). The delivery channel is determined by `CronPayload.Channel` captured at job creation time from `ChannelSessionScope`.
+
+Clients can opt out via `optOutNotificationMethods: ["system/jobResult"]` during `initialize`.
+
+**Params**:
+
+```json
+{
+  "source": "cron",
+  "jobId": "9c933b01",
+  "jobName": "喝水提醒",
+  "threadId": "thread_abc123",
+  "result": "提醒：该喝水了！保持水分对健康很重要。",
+  "error": null,
+  "tokenUsage": { "inputTokens": 420, "outputTokens": 38 }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | `"cron"` or `"heartbeat"`. |
+| `jobId` | string? | Cron job ID. Present when `source` is `"cron"`; absent for heartbeat. |
+| `jobName` | string? | Human-readable job name. |
+| `threadId` | string? | The thread ID used for execution. |
+| `result` | string? | Agent's text response. Null if the turn failed or produced no text output. |
+| `error` | string? | Error message if the turn failed. |
+| `tokenUsage` | object? | `{ inputTokens, outputTokens }`. |
+
+**Targeting rules**:
+
+- Emitted via the broadcast mechanism (`_activeTransports`) used by `plan/updated`. In stdio mode there is exactly one connected client; in WebSocket mode all initialized clients receive it.
+- Only emitted when the job's `CronPayload.Channel` is `"cli"` or null (i.e. no social channel delivery target). Jobs created from QQ, WeCom, or ExternalChannel adapters deliver their result through the respective channel's delivery mechanism and do **not** emit `system/jobResult`.
+- Clients that do not wish to display cron/heartbeat results can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
+
+**Example sequence**:
+
+```
+Server                                         Client
+  |                                               |
+  | (60 s after job was scheduled)                |
+  |                                               |
+  | [CronService timer fires, AgentRunner runs]   |
+  |                                               |
+  | system/jobResult (notification)               |
+  |  source: "cron",                              |
+  |  jobId: "9c933b01",                           |
+  |  jobName: "喝水提醒",                         |
+  |  result: "该喝水了！"                          |
+  |<----------------------------------------------|
+```
+
 ---
 
 ## 10. Notification Opt-Out
@@ -1244,6 +1301,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `item/usage/delta` | Client does not need real-time token consumption display; will use `turn/completed.tokenUsage` for final totals. |
 | `system/event` | Client does not need system maintenance status (compaction, consolidation). |
 | `plan/updated` | Client does not need real-time plan/todo progress display. |
+| `system/jobResult` | Client does not need cron/heartbeat result notifications (e.g. batch or headless client). |
 
 **Example**:
 

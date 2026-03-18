@@ -324,6 +324,37 @@ public sealed class LineEditor
         else if (colDelta > 0) AnsiConsole.Write($"\x1b[{colDelta}C");
     }
 
+    // ───────── External output interruption ──────────────────────────────────
+
+    /// <summary>
+    /// Clears the prompt, current input, and hints from the terminal so that external
+    /// output (e.g. a server notification) can be printed cleanly.
+    /// After calling this, the caller is responsible for printing the prompt and then
+    /// calling <see cref="ResumeDisplay"/> to restore the buffer and hints.
+    /// </summary>
+    public void SuspendDisplay()
+    {
+        // Clear hints first, then move to the cursor's current visual position.
+        ClearHints();
+        // Move to the start of the prompt line (col 0), erasing the prompt + buffer.
+        var (curRow, _) = GetVisualPosition(_cursorPos);
+        if (curRow > 0) AnsiConsole.Write($"\x1b[{curRow}A");
+        AnsiConsole.Write("\r");
+        AnsiConsole.Write(Ansi.EraseToEndOfScreen);
+    }
+
+    /// <summary>
+    /// Re-renders the buffer content and hints after the caller has re-printed the prompt.
+    /// Must be called after <see cref="SuspendDisplay"/> and after the prompt has been printed.
+    /// Positions the terminal cursor back at the user's logical cursor position.
+    /// </summary>
+    public void ResumeDisplay()
+    {
+        WriteBufferFrom(0);
+        MoveTerminalCursor(_buffer.Count, _cursorPos);
+        UpdateHints();
+    }
+
     // ───────── Buffer display ─────────────────────────────────────────────────
 
     /// <summary>

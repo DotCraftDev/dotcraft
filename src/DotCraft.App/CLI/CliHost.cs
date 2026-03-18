@@ -1,12 +1,11 @@
 using System.Text.Json;
-using DotCraft.Agents;
+using DotCraft.CLI.Rendering;
 using DotCraft.Commands.Custom;
 using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
 using DotCraft.Tracing;
-using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
 using DotCraft.Mcp;
@@ -24,7 +23,6 @@ public sealed class CliHost(
     AppConfig config,
     DotCraftPaths paths,
     SkillsLoader skillsLoader,
-    CronService cronService,
     McpClientManager mcpClientManager,
     ModuleRegistry moduleRegistry) : IDotCraftHost
 {
@@ -42,7 +40,7 @@ public sealed class CliHost(
 
         ICliSession cliSession;
         CliBackendInfo backendInfo;
-        WireAgentRunner? wireRunner;
+        AppServerWireClient wire;
 
         if (!string.IsNullOrWhiteSpace(cliConfig.AppServerUrl))
         {
@@ -63,8 +61,8 @@ public sealed class CliHost(
                 approvalSupport: true,
                 streamingSupport: true);
 
-            cliSession = new WireCliSession(_wsConnection.Wire, tokenUsageStore);
-            wireRunner = new WireAgentRunner(_wsConnection.Wire, paths.WorkspacePath);
+            wire = _wsConnection.Wire;
+            cliSession = new WireCliSession(wire, tokenUsageStore);
             backendInfo = new CliBackendInfo
             {
                 ServerVersion = TryGetServerVersion(wsInitResponse),
@@ -87,8 +85,8 @@ public sealed class CliHost(
             _appServerProcess.OnCrashed += () =>
                 AnsiConsole.MarkupLine("[red][[CLI]][/] AppServer subprocess exited unexpectedly.");
 
-            cliSession = new WireCliSession(_appServerProcess.Wire, tokenUsageStore);
-            wireRunner = new WireAgentRunner(_appServerProcess.Wire, paths.WorkspacePath);
+            wire = _appServerProcess.Wire;
+            cliSession = new WireCliSession(wire, tokenUsageStore);
             backendInfo = new CliBackendInfo
             {
                 ServerVersion = _appServerProcess.ServerVersion,
@@ -107,36 +105,28 @@ public sealed class CliHost(
             dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
         }
 
-        AgentRunSessionDelegate heartbeatDelegate = wireRunner.RunAsync;
-        using var heartbeatService = new HeartbeatService(
-            paths.CraftPath,
-            onHeartbeat: heartbeatDelegate,
-            intervalSeconds: config.Heartbeat.IntervalSeconds,
-            enabled: false);
+        var cronService = sp.GetService<CronService>();
 
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
         var repl = new ReplHost(skillsLoader, cliSession,
             paths.WorkspacePath, paths.CraftPath,
-            heartbeatService: heartbeatService, cronService: cronService,
+            cronService: cronService,
             mcpClientManager: mcpClientManager,
             dashBoardUrl: dashBoardUrl,
             customCommandLoader: customCommandLoader,
             hookRunner: hookRunner,
             backendInfo: backendInfo);
 
-        cronService.OnJob = async job =>
-        {
-            var sessionKey = $"cron:{job.Id}";
-            await wireRunner.RunAsync(job.Payload.Message, sessionKey);
-            repl.ReprintPrompt();
-        };
-
-        if (config.Cron.Enabled)
-            cronService.Start();
+        // Background listener for out-of-band server notifications (e.g. system/jobResult).
+        // Cron and heartbeat now run server-side; results arrive as wire notifications
+        // while the REPL is idle. The loop drains system/jobResult and displays them.
+        using var notifCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var notifTask = Task.Run(() => ListenForJobResultsAsync(wire, repl, notifCts.Token), notifCts.Token);
 
         await repl.RunAsync(cancellationToken);
 
-        cronService.Stop();
+        notifCts.Cancel();
+        try { await notifTask; } catch (OperationCanceledException) { }
 
         if (dashBoardServer != null)
             await dashBoardServer.DisposeAsync();
@@ -151,6 +141,55 @@ public sealed class CliHost(
 
         if (_wsConnection != null)
             await _wsConnection.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Background loop that drains <c>system/jobResult</c> notifications arriving on the wire
+    /// while the REPL is idle and prints them cleanly, suspending and restoring the prompt.
+    /// </summary>
+    private static async Task ListenForJobResultsAsync(
+        AppServerWireClient wire, ReplHost repl, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var notif = await wire.WaitForNotificationAsync(
+                AppServerMethods.SystemJobResult,
+                timeout: TimeSpan.FromSeconds(5),
+                ct: ct);
+
+            if (notif == null)
+                continue;
+
+            try
+            {
+                var p = notif.RootElement.GetProperty("params");
+                var source = p.TryGetProperty("source", out var s) ? s.GetString() : null;
+                var jobName = p.TryGetProperty("jobName", out var n) ? n.GetString() : null;
+                var result = p.TryGetProperty("result", out var r) ? r.GetString() : null;
+                var error = p.TryGetProperty("error", out var e) ? e.GetString() : null;
+
+                var tag = string.Equals(source, "heartbeat", StringComparison.OrdinalIgnoreCase)
+                    ? "Heartbeat" : "Cron";
+
+                repl.WriteExternalOutput(() =>
+                {
+                    // Header line: [Cron] JobName  (or [Heartbeat])
+                    var header = jobName != null
+                        ? $"[grey][[{tag}]][/] [bold]{Markup.Escape(jobName)}[/]"
+                        : $"[grey][[{tag}]][/]";
+                    AnsiConsole.MarkupLine(header);
+
+                    if (error != null)
+                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+                    else if (!string.IsNullOrEmpty(result))
+                        MarkdownConsoleRenderer.Render(result);
+                });
+            }
+            catch
+            {
+                // Malformed notification — ignore and continue
+            }
+        }
     }
 
     private static string? TryGetServerVersion(JsonDocument response)

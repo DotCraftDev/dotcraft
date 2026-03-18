@@ -50,6 +50,14 @@ public sealed class ReplHost(
     /// </summary>
     private List<string>? _pendingBuffer;
 
+    /// <summary>
+    /// The <see cref="LineEditor"/> currently blocking on user input, or null when no prompt is active.
+    /// Used by <see cref="WriteExternalOutput"/> to suspend and restore the prompt around out-of-band output.
+    /// </summary>
+    private LineEditor? _activeEditor;
+
+    private readonly Lock _outputLock = new();
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         // Defer thread creation until the user sends a first message.
@@ -119,6 +127,7 @@ public sealed class ReplHost(
         var promptWidth = PrintPrompt();
 
         var editor = new LineEditor(_inputHistory, promptWidth, GetCommandHints);
+        lock (_outputLock) _activeEditor = editor;
 
         // Restore buffer that was saved during a previous Shift+Tab mode-switch
         if (_pendingBuffer is { Count: > 0 })
@@ -128,6 +137,7 @@ public sealed class ReplHost(
         }
 
         var (result, text) = await editor.ReadLineAsync(cancellationToken);
+        lock (_outputLock) _activeEditor = null;
 
         if (result == LineEditResult.ModeSwitch)
         {
@@ -207,6 +217,35 @@ public sealed class ReplHost(
 
         // Legacy fallback: last 8 chars
         return sessionId.Length > 8 ? sessionId[^8..] : sessionId;
+    }
+
+    /// <summary>
+    /// Suspends the active prompt and input area, executes <paramref name="writeAction"/>
+    /// to print out-of-band output (e.g. a server notification), then re-prints the prompt
+    /// and restores the user's in-progress input buffer.
+    ///
+    /// Safe to call from any thread while the REPL is waiting for user input.
+    /// When no prompt is currently active, the output is printed directly.
+    /// </summary>
+    public void WriteExternalOutput(Action writeAction)
+    {
+        lock (_outputLock)
+        {
+            var editor = _activeEditor;
+            if (editor != null)
+            {
+                editor.SuspendDisplay();
+                writeAction();
+                AnsiConsole.WriteLine();
+                PrintPrompt();
+                editor.ResumeDisplay();
+            }
+            else
+            {
+                writeAction();
+                AnsiConsole.WriteLine();
+            }
+        }
     }
 
     public void ReprintPrompt()
@@ -670,6 +709,10 @@ public sealed class ReplHost(
             AnsiConsole.MarkupLine($"[yellow]{Strings.CronUnavailable}[/]\n");
             return;
         }
+
+        // The AppServer subprocess owns the cron store; reload from disk before any read
+        // so the CLI sees jobs created or modified by the server.
+        cronService.ReloadStore();
 
         var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var subCmd = parts.Length > 1 ? parts[1].ToLowerInvariant() : "list";

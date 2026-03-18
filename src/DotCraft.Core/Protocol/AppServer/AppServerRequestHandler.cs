@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotCraft.Abstractions;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol.AppServer;
@@ -343,6 +344,19 @@ public sealed class AppServerRequestHandler
 
         var content = await ResolveInputPartsAsync(p.Input, ct);
 
+        // Set ChannelSessionScope for non-adapter clients (e.g. CLI) so that tools like
+        // CronTools can capture the delivery context (channel="cli") at job creation time.
+        // External channel adapters manage their own scope via SenderContext.
+        ChannelSessionInfo? channelScopeInfo = null;
+        if (!_connection.IsChannelAdapter)
+        {
+            channelScopeInfo = new ChannelSessionInfo
+            {
+                Channel = "cli",
+                UserId = _connection.ClientInfo?.Name ?? "anonymous"
+            };
+        }
+
         // Fix 5: Deserialize client-provided history for historyMode=client threads.
         ChatMessage[]? messages = null;
         if (p.Messages.HasValue && p.Messages.Value.ValueKind != JsonValueKind.Null)
@@ -373,6 +387,8 @@ public sealed class AppServerRequestHandler
             // Signal that the response was sent successfully
             initialTurnTcs.TrySetResult(initialTurn);
         }
+
+        using var channelScope = channelScopeInfo != null ? ChannelSessionScope.Set(channelScopeInfo) : null;
 
         var events = _sessionService.SubmitInputAsync(p.ThreadId, content, p.Sender, messages, ct);
         var dispatcher = new AppServerEventDispatcher(

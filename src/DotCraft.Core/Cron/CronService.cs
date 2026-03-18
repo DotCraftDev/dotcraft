@@ -41,6 +41,17 @@ public sealed class CronService : IDisposable
         _cts = null;
     }
 
+    /// <summary>
+    /// Reloads the cron store from disk. Call before reading jobs in processes that do not own
+    /// the cron timer (e.g. the CLI process, where the AppServer subprocess owns the store).
+    /// </summary>
+    public void ReloadStore()
+    {
+        var fresh = LoadStore();
+        _store.Jobs.Clear();
+        _store.Jobs.AddRange(fresh.Jobs);
+    }
+
     public CronJob AddJob(string name, CronSchedule schedule, CronPayload payload, bool deleteAfterRun = false)
     {
         var job = new CronJob

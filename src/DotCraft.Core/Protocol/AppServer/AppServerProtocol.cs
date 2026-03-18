@@ -341,6 +341,9 @@ public static class AppServerMethods
     // Server → Client notification (plan/todo progress updates, spec Section 6.8)
     public const string PlanUpdated = "plan/updated";
 
+    // Server → Client notification (cron/heartbeat job result, spec Section 6.9)
+    public const string SystemJobResult = "system/jobResult";
+
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
     public const string ExtChannelDeliver = "ext/channel/deliver";
     public const string ExtChannelHeartbeat = "ext/channel/heartbeat";
