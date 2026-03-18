@@ -1,6 +1,7 @@
 using DotCraft.Agents;
 using DotCraft.CLI.Rendering;
 using DotCraft.Hooks;
+using DotCraft.Localization;
 using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Tracing;
@@ -17,8 +18,10 @@ public sealed class InProcessCliSession(
     ISessionService sessionService,
     AgentFactory? agentFactory = null,
     TokenUsageStore? tokenUsageStore = null,
-    HookRunner? hookRunner = null) : ICliSession
+    HookRunner? hookRunner = null,
+    LanguageService? languageService = null) : ICliSession
 {
+    private readonly LanguageService _lang = languageService ?? new LanguageService();
     // -------------------------------------------------------------------------
     // ICliSession implementation
     // -------------------------------------------------------------------------
@@ -135,25 +138,25 @@ public sealed class InProcessCliSession(
                     {
                         case "compacting":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Compacting context..."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextLimitReached(_lang)), ct);
                             break;
                         case "compacted":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compacted successfully."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompacted(_lang)), ct);
                             break;
                         case "compactSkipped":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compaction skipped."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompactSkipped(_lang)), ct);
                             break;
                         case "consolidating":
                             await renderer.SendEventAsync(
                                 RenderEvent.SystemStatusEvent(
-                                    sysEvt.Message ?? "Consolidating memory...",
-                                    "Memory consolidation complete."), ct);
+                                    sysEvt.Message ?? Strings.MemoryConsolidating(_lang),
+                                    Strings.MemoryConsolidated(_lang)), ct);
                             break;
                         case "consolidated":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Memory consolidation complete."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated(_lang)), ct);
                             break;
                     }
                 }

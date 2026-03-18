@@ -104,7 +104,7 @@ public sealed class CliHost(
             sessionServiceForDashboard = sessionService;
 
             runner = new AgentRunner(paths.WorkspacePath, sessionService);
-            cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner);
+            cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner, languageService);
             backendInfo = new CliBackendInfo { IsWire = false };
         }
         else if (!string.IsNullOrWhiteSpace(cliConfig.AppServerUrl))

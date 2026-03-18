@@ -137,7 +137,7 @@ public sealed class WireCliSession(
             // Stream notifications and adapt to RenderEvents
             var notifications = wire.ReadTurnNotificationsAsync(ct: ct);
 
-            await foreach (var evt in StreamAdapter.AdaptWireNotificationsAsync(notifications, ct))
+            await foreach (var evt in StreamAdapter.AdaptWireNotificationsAsync(notifications, ct: ct))
             {
                 // Intercept UsageDelta events to update the local TokenTracker
                 // before forwarding to the renderer (which reads the tracker for spinner display).

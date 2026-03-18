@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Diagnostics;
+using DotCraft.Memory;
 using DotCraft.Tools;
 using Spectre.Console;
 using Spectre.Console.Rendering;
@@ -885,6 +886,10 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
                 // fall back to a simple info line.
                 HandleSystemInfo(evt);
                 break;
+
+            case RenderEventType.PlanUpdate:
+                HandlePlanUpdate(evt);
+                break;
         }
     }
 
@@ -902,6 +907,30 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
         {
             AnsiConsole.MarkupLine($"[dim]ℹ {Markup.Escape(evt.Content)}[/]");
         }
+    }
+
+    /// <summary>
+    /// Renders a plan/todo progress panel by converting <see cref="PlanUpdateData"/>
+    /// to a <see cref="StructuredPlan"/> and delegating to <see cref="StatusPanel.ShowPlanStatus"/>.
+    /// </summary>
+    private static void HandlePlanUpdate(RenderEvent evt)
+    {
+        if (evt.PlanData is not { } data) return;
+
+        var plan = new StructuredPlan
+        {
+            Title = data.Title,
+            Overview = data.Overview,
+            Todos = data.Todos.Select(t => new PlanTodo
+            {
+                Id = t.Id,
+                Content = t.Content,
+                Priority = t.Priority,
+                Status = t.Status
+            }).ToList()
+        };
+
+        StatusPanel.ShowPlanStatus(plan);
     }
 
     /// <summary>

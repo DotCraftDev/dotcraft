@@ -21,6 +21,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
   - [6.5 SubAgent Notifications](#65-subagent-notifications)
   - [6.6 Usage Notifications](#66-usage-notifications)
   - [6.7 System Notifications](#67-system-notifications)
+- [6.8 Plan Notifications](#68-plan-notifications)
 - [7. Approval Flow](#7-approval-flow)
 - [8. Error Handling](#8-error-handling)
 - [9. Backpressure](#9-backpressure)
@@ -984,6 +985,65 @@ Server                                          Client
   |<----------------------------------------------|
 ```
 
+### 6.8 Plan Notifications
+
+#### `plan/updated`
+
+Emitted when the agent creates or updates a structured plan via the `CreatePlan`, `UpdateTodos`, or `TodoWrite` tools. The notification carries the complete plan snapshot, allowing the client to render a Todolist progress panel.
+
+This notification is independent of the Turn event stream — it is sent directly by the server host when the `onPlanUpdated` callback fires in `AgentFactory`. Clients that do not need plan progress display can opt out via `optOutNotificationMethods: ["plan/updated"]` during `initialize`.
+
+**Params**:
+
+```json
+{
+  "title": "Implement user authentication",
+  "overview": "Add JWT-based auth with login and registration endpoints",
+  "todos": [
+    {
+      "id": "setup-models",
+      "content": "Create User model and migration",
+      "priority": "high",
+      "status": "completed"
+    },
+    {
+      "id": "auth-endpoints",
+      "content": "Implement login and register API endpoints",
+      "priority": "high",
+      "status": "in_progress"
+    },
+    {
+      "id": "jwt-middleware",
+      "content": "Add JWT validation middleware",
+      "priority": "medium",
+      "status": "pending"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Plan title. |
+| `overview` | string | Brief plan overview/description. May be empty. |
+| `todos` | PlanTodo[] | Complete list of plan tasks. |
+
+`PlanTodo` fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Short kebab-case task identifier. |
+| `content` | string | Human-readable task description. |
+| `priority` | string | One of: `"high"`, `"medium"`, `"low"`. |
+| `status` | string | One of: `"pending"`, `"in_progress"`, `"completed"`, `"cancelled"`. |
+
+**Emission rules**:
+
+- Emitted each time any plan tool (`CreatePlan`, `UpdateTodos`, `TodoWrite`) completes successfully.
+- Each notification carries the **complete plan snapshot** — not incremental deltas. Clients should replace their local plan state on each receipt.
+- The notification is sent outside the `SessionEvent` stream; it is a direct JSON-RPC notification from the host to all connected transports.
+- Clients that do not need plan progress can opt out via `optOutNotificationMethods: ["plan/updated"]` during `initialize`.
+
 ---
 
 ## 7. Approval Flow
@@ -1183,6 +1243,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `subagent/progress` | Client does not display SubAgent real-time progress. |
 | `item/usage/delta` | Client does not need real-time token consumption display; will use `turn/completed.tokenUsage` for final totals. |
 | `system/event` | Client does not need system maintenance status (compaction, consolidation). |
+| `plan/updated` | Client does not need real-time plan/todo progress display. |
 
 **Example**:
 

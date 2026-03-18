@@ -1,5 +1,7 @@
 using System.ClientModel;
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using System.Text.Json;
 using DotCraft.Agents;
 using Microsoft.Extensions.Logging;
 using DotCraft.Common;
@@ -42,6 +44,12 @@ public sealed class AppServerHost(
 {
     private AgentFactory? _agentFactory;
 
+    /// <summary>
+    /// Thread-safe set of currently connected transports. Used to broadcast
+    /// out-of-band notifications (e.g. <c>plan/updated</c>) to all clients.
+    /// </summary>
+    private readonly ConcurrentDictionary<IAppServerTransport, byte> _activeTransports = new();
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         var traceCollector = sp.GetService<TraceCollector>();
@@ -82,7 +90,8 @@ public sealed class AppServerHost(
                 TraceCollector = traceCollector
             },
             traceCollector: traceCollector,
-            planStore: planStore);
+            planStore: planStore,
+            onPlanUpdated: plan => BroadcastPlanUpdated(plan));
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
@@ -121,12 +130,14 @@ public sealed class AppServerHost(
     // Run modes
     // -------------------------------------------------------------------------
 
-    private static async Task RunStdioOnlyAsync(
+    private async Task RunStdioOnlyAsync(
         ISessionService sessionService,
         CancellationToken cancellationToken)
     {
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
+
+        _activeTransports.TryAdd(transport, 0);
 
         var connection = new AppServerConnection();
         var handler = new AppServerRequestHandler(
@@ -134,7 +145,14 @@ public sealed class AppServerHost(
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
-        await RunLoopAsync(transport, connection, handler, cancellationToken);
+        try
+        {
+            await RunLoopAsync(transport, connection, handler, cancellationToken);
+        }
+        finally
+        {
+            _activeTransports.TryRemove(transport, out _);
+        }
     }
 
     private async Task RunWebSocketOnlyAsync(
@@ -168,6 +186,8 @@ public sealed class AppServerHost(
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
 
+        _activeTransports.TryAdd(transport, 0);
+
         var connection = new AppServerConnection();
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational);
@@ -180,6 +200,7 @@ public sealed class AppServerHost(
         }
         finally
         {
+            _activeTransports.TryRemove(transport, out _);
             // Stop the WebSocket server when stdio exits
             await wsApp.StopAsync(CancellationToken.None);
         }
@@ -189,7 +210,7 @@ public sealed class AppServerHost(
     // WebSocket server
     // -------------------------------------------------------------------------
 
-    private static (WebApplication App, string Url) BuildWebSocketApp(
+    private (WebApplication App, string Url) BuildWebSocketApp(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
         CancellationToken hostCt,
@@ -235,6 +256,10 @@ public sealed class AppServerHost(
             using WebSocket ws = await context.WebSockets.AcceptWebSocketAsync();
             await using var wsTransport = new WebSocketTransport(ws);
             wsTransport.Start();
+
+            _activeTransports.TryAdd(wsTransport, 0);
+            try
+            {
 
             var wsConnection = new AppServerConnection();
             var wsHandler = new AppServerRequestHandler(
@@ -318,6 +343,12 @@ public sealed class AppServerHost(
             }
 
             await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
+
+            } // end try
+            finally
+            {
+                _activeTransports.TryRemove(wsTransport, out _);
+            }
         });
 
         // Health probes (spec §15.2)
@@ -445,6 +476,51 @@ public sealed class AppServerHost(
     {
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Broadcasts a <c>plan/updated</c> JSON-RPC notification to all connected transports.
+    /// Called from the <c>onPlanUpdated</c> callback injected into <see cref="AgentFactory"/>.
+    /// The callback fires synchronously on the tool execution thread; transport writes are
+    /// thread-safe (both stdio and WebSocket transports use internal write locks).
+    /// </summary>
+    private void BroadcastPlanUpdated(StructuredPlan plan)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.PlanUpdated,
+            @params = new
+            {
+                title = plan.Title,
+                overview = plan.Overview,
+                todos = plan.Todos.Select(t => new
+                {
+                    id = t.Id,
+                    content = t.Content,
+                    priority = t.Priority,
+                    status = t.Status
+                }).ToArray()
+            }
+        };
+
+        // Fire-and-forget broadcast to all connected clients.
+        // Errors on individual transports (e.g. disconnected) are silently ignored.
+        foreach (var transport in _activeTransports.Keys)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    // Transport may have been disposed or disconnected; remove it.
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
     }
 
     /// <summary>

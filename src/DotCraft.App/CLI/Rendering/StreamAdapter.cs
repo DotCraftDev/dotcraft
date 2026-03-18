@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DotCraft.Localization;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Tools;
@@ -24,8 +25,10 @@ public static class StreamAdapter
     /// </summary>
     public static async IAsyncEnumerable<RenderEvent> AdaptWireNotificationsAsync(
         IAsyncEnumerable<JsonDocument> notifications,
+        LanguageService? lang = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        lang ??= new LanguageService();
         var callIdMap = new Dictionary<string, (string? Icon, string? Name, string? ArgsJson, string? FormattedDisplay)>();
 
         await foreach (var doc in notifications.WithCancellation(ct))
@@ -219,8 +222,39 @@ public static class StreamAdapter
                     var message = @params.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String
                         ? m.GetString() : null;
                     var payload = new SystemEventPayload { Kind = kind!, Message = message };
-                    foreach (var re in MapSystemEvent(payload))
+                    foreach (var re in MapSystemEvent(payload, lang))
                         yield return re;
+                    break;
+                }
+
+                // ---------------------------------------------------------
+                // Plan/todo progress (spec Section 6.8)
+                // ---------------------------------------------------------
+                case AppServerMethods.PlanUpdated:
+                {
+                    if (!hasParams) break;
+                    var title = @params.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+                    var overview = @params.TryGetProperty("overview", out var o) ? o.GetString() ?? "" : "";
+                    var todos = new List<PlanTodoData>();
+                    if (@params.TryGetProperty("todos", out var todosEl) && todosEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in todosEl.EnumerateArray())
+                        {
+                            todos.Add(new PlanTodoData
+                            {
+                                Id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "",
+                                Content = item.TryGetProperty("content", out var cEl) ? cEl.GetString() ?? "" : "",
+                                Priority = item.TryGetProperty("priority", out var pEl) ? pEl.GetString() ?? "medium" : "medium",
+                                Status = item.TryGetProperty("status", out var sEl) ? sEl.GetString() ?? "pending" : "pending"
+                            });
+                        }
+                    }
+                    yield return RenderEvent.PlanUpdateEvent(new PlanUpdateData
+                    {
+                        Title = title,
+                        Overview = overview,
+                        Todos = todos
+                    });
                     break;
                 }
 
@@ -232,27 +266,29 @@ public static class StreamAdapter
     /// <summary>
     /// Maps a <see cref="SystemEventPayload"/> to zero or more <see cref="RenderEvent"/>s.
     /// </summary>
-    private static IEnumerable<RenderEvent> MapSystemEvent(SystemEventPayload sysEvt)
+    private static IEnumerable<RenderEvent> MapSystemEvent(SystemEventPayload sysEvt, LanguageService? lang = null)
     {
+        lang ??= new LanguageService();
+
         switch (sysEvt.Kind)
         {
             case "compacting":
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Compacting context...");
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextLimitReached(lang));
                 break;
             case "compacted":
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compacted successfully.");
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompacted(lang));
                 break;
             case "compactSkipped":
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compaction skipped.");
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompactSkipped(lang));
                 break;
             case "consolidating":
                 yield return RenderEvent.SystemStatusEvent(
-                    sysEvt.Message ?? "Consolidating memory...",
-                    "Memory consolidation complete.");
+                    sysEvt.Message ?? Strings.MemoryConsolidating(lang),
+                    Strings.MemoryConsolidated(lang));
                 break;
             case "consolidated":
                 // The completion event dismisses the SystemStatus spinner in the renderer.
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Memory consolidation complete.");
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated(lang));
                 break;
         }
     }
