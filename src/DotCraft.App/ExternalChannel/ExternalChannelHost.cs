@@ -261,10 +261,19 @@ public sealed class ExternalChannelHost : IChannelService
         // Run the message loop
         await RunMessageLoopAsync(transport, _connection, _handler, ct);
 
+        // Terminate the subprocess after the message loop exits.
+        // When the loop exits due to heartbeat-timeout (transport disposed), the process
+        // may still be running. Kill it first to avoid hanging on WaitForExitAsync.
+        await TerminateSubprocessAsync();
+
         // Process exited — check if it was expected
-        if (!ct.IsCancellationRequested)
+        if (!ct.IsCancellationRequested && !process.HasExited)
         {
             await process.WaitForExitAsync(ct);
+        }
+
+        if (!ct.IsCancellationRequested && process.HasExited)
+        {
             var exitCode = process.ExitCode;
             AnsiConsole.MarkupLine(
                 $"[yellow][[ExternalChannel]][/] Adapter [yellow]{Name}[/] exited with code {exitCode}");
@@ -540,9 +549,12 @@ public sealed class ExternalChannelHost : IChannelService
                 $"[red][[ExternalChannel]][/] Heartbeat timeout for [yellow]{Name}[/] — " +
                 "connection unhealthy, triggering reconnect");
 
-            // Cancel the current message loop to trigger reconnect
-            if (_runCts is { } cts)
-                await cts.CancelAsync();
+            // Dispose the transport to trigger reconnect.
+            // This causes ReadMessageAsync to return null, exiting RunMessageLoopAsync normally.
+            // The StartAsync while-loop then retries the cycle.
+            // NOTE: Do NOT cancel _runCts here — that would exit the while-loop permanently.
+            if (_transport is IAsyncDisposable disposable)
+                await disposable.DisposeAsync();
         }
         catch (Exception ex)
         {
