@@ -136,6 +136,13 @@ public sealed class AppServerServerCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool CronManagement { get; set; }
+
+    /// <summary>
+    /// Server supports heartbeat management methods (heartbeat/trigger).
+    /// False when the heartbeat service is not configured. See spec Section 17.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HeartbeatManagement { get; set; }
 }
 
 // ───── thread/start ─────
@@ -335,6 +342,17 @@ public sealed class CronEnableResult
     public CronJobWireInfo Job { get; set; } = new();
 }
 
+// ───── heartbeat/trigger (spec Section 17.2) ─────
+
+public sealed class HeartbeatTriggerResult
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Result { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; set; }
+}
+
 // ───── CronJobInfo wire DTO (spec Section 16.2) ─────
 
 /// <summary>
@@ -448,4 +466,7 @@ public static class AppServerMethods
     public const string CronList = "cron/list";
     public const string CronRemove = "cron/remove";
     public const string CronEnable = "cron/enable";
+
+    // Client → Server requests (heartbeat management, spec Section 17)
+    public const string HeartbeatTrigger = "heartbeat/trigger";
 }

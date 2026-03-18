@@ -167,6 +167,26 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
     }
 
     /// <summary>
+    /// Triggers an immediate heartbeat run on the server (spec Section 17.2).
+    /// Uses a 120-second timeout because the heartbeat runs the full agent pipeline.
+    /// </summary>
+    public async Task<HeartbeatTriggerResult> HeartbeatTriggerAsync(CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.HeartbeatTrigger,
+            new { },
+            timeout: TimeSpan.FromSeconds(120),
+            ct: ct);
+
+        ThrowIfError(doc, "heartbeat/trigger");
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<HeartbeatTriggerResult>(
+            result.GetRawText(), SessionWireJsonOptions.Default)
+               ?? new HeartbeatTriggerResult();
+    }
+
+    /// <summary>
     /// Throws <see cref="InvalidOperationException"/> if the JSON-RPC document contains an
     /// error field, using the error message from the server response.
     /// </summary>

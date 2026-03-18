@@ -52,6 +52,12 @@ public sealed class AppServerHost(
     private CronService? _cronService;
 
     /// <summary>
+    /// Heartbeat service instance owned by this AppServer process. Set during RunAsync and passed
+    /// to request handlers so wire clients can trigger heartbeats via heartbeat/trigger (spec §17).
+    /// </summary>
+    private HeartbeatService? _heartbeatService;
+
+    /// <summary>
     /// Thread-safe set of currently connected transports. Used to broadcast
     /// out-of-band notifications (e.g. <c>plan/updated</c>) to all clients.
     /// </summary>
@@ -159,6 +165,7 @@ public sealed class AppServerHost(
             },
             intervalSeconds: config.Heartbeat.IntervalSeconds,
             enabled: config.Heartbeat.Enabled);
+        _heartbeatService = heartbeatService;
 
         if (config.Cron.Enabled)
         {
@@ -219,7 +226,7 @@ public sealed class AppServerHost(
 
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
-            cronService: _cronService);
+            cronService: _cronService, heartbeatService: _heartbeatService);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -269,7 +276,7 @@ public sealed class AppServerHost(
 
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
-            cronService: _cronService);
+            cronService: _cronService, heartbeatService: _heartbeatService);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -342,7 +349,7 @@ public sealed class AppServerHost(
             {
                 var wsHandler = new AppServerRequestHandler(
                     sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
-                    cronService: _cronService);
+                    cronService: _cronService, heartbeatService: _heartbeatService);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //

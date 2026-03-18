@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Cron;
+using DotCraft.Heartbeat;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol.AppServer;
@@ -19,6 +20,7 @@ public sealed class AppServerRequestHandler
     private readonly IAppServerTransport _transport;
     private readonly string _serverVersion;
     private readonly CronService? _cronService;
+    private readonly HeartbeatService? _heartbeatService;
 
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -32,7 +34,8 @@ public sealed class AppServerRequestHandler
         IAppServerTransport transport,
         string serverVersion = "0.1.0",
         SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
-        CronService? cronService = null)
+        CronService? cronService = null,
+        HeartbeatService? heartbeatService = null)
     {
         _sessionService = sessionService;
         _connection = connection;
@@ -40,6 +43,7 @@ public sealed class AppServerRequestHandler
         _serverVersion = serverVersion;
         _defaultApprovalDecision = defaultApprovalDecision;
         _cronService = cronService;
+        _heartbeatService = heartbeatService;
     }
 
     // -------------------------------------------------------------------------
@@ -89,6 +93,7 @@ public sealed class AppServerRequestHandler
                 AppServerMethods.CronList => HandleCronListAsync(msg, ct),
                 AppServerMethods.CronRemove => HandleCronRemoveAsync(msg, ct),
                 AppServerMethods.CronEnable => HandleCronEnableAsync(msg, ct),
+                AppServerMethods.HeartbeatTrigger => HandleHeartbeatTriggerAsync(msg, ct),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -140,7 +145,8 @@ public sealed class AppServerRequestHandler
                 ApprovalFlow = true,
                 ModeSwitch = true,
                 ConfigOverride = true,
-                CronManagement = _cronService != null
+                CronManagement = _cronService != null,
+                HeartbeatManagement = _heartbeatService != null
             }
         };
 
@@ -502,6 +508,25 @@ public sealed class AppServerRequestHandler
             LastError = job.State.LastError
         }
     };
+
+    // ── heartbeat/trigger (spec Section 17.2) ────────────────────────────────
+
+    private async Task<object?> HandleHeartbeatTriggerAsync(
+        AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (_heartbeatService == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.HeartbeatTrigger);
+
+        try
+        {
+            var result = await _heartbeatService.TriggerNowAsync();
+            return new HeartbeatTriggerResult { Result = result };
+        }
+        catch (Exception ex)
+        {
+            return new HeartbeatTriggerResult { Error = ex.Message };
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Helpers

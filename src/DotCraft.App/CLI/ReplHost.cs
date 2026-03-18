@@ -678,7 +678,7 @@ public sealed class ReplHost(
 
     private async Task HandleHeartbeatCommandAsync(string input)
     {
-        if (heartbeatService == null)
+        if (heartbeatService == null && wireClient == null)
         {
             AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUnavailable}[/]\n");
             return;
@@ -690,18 +690,44 @@ public sealed class ReplHost(
         switch (subCmd)
         {
             case "trigger":
-                AnsiConsole.MarkupLine($"[blue]{Strings.TriggeringHeartbeat}[/]");
-                var result = await heartbeatService.TriggerNowAsync();
-                if (result != null)
-                    AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult}：[/] {Markup.Escape(result)}");
-                else
-                    AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse}[/]");
+                await HandleHeartbeatTriggerAsync();
                 break;
             default:
                 AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUsage}[/]");
                 break;
         }
         AnsiConsole.WriteLine();
+    }
+
+    private async Task HandleHeartbeatTriggerAsync()
+    {
+        AnsiConsole.MarkupLine($"[blue]{Strings.TriggeringHeartbeat}[/]");
+
+        if (wireClient != null)
+        {
+            try
+            {
+                var response = await wireClient.HeartbeatTriggerAsync();
+                if (response.Error != null)
+                    AnsiConsole.MarkupLine($"[red]{Markup.Escape(response.Error)}[/]");
+                else if (response.Result != null)
+                    AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult}:[/] {Markup.Escape(response.Result)}");
+                else
+                    AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse}[/]");
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+            }
+            return;
+        }
+
+        // Fallback: local HeartbeatService (standalone mode without AppServer)
+        var result = await heartbeatService!.TriggerNowAsync();
+        if (result != null)
+            AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult}:[/] {Markup.Escape(result)}");
+        else
+            AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse}[/]");
     }
 
     private async Task HandleCronCommandAsync(string input)

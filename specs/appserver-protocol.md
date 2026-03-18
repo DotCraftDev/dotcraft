@@ -32,6 +32,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [14. Relationship to Codex App Server](#14-relationship-to-codex-app-server)
 - [15. WebSocket Transport](#15-websocket-transport)
 - [16. Cron Management Methods](#16-cron-management-methods)
+- [17. Heartbeat Management Methods](#17-heartbeat-management-methods)
 
 ---
 
@@ -58,7 +59,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -175,7 +176,8 @@ Client                              Server
     "approvalFlow": true,
     "modeSwitch": true,
     "configOverride": true,
-    "cronManagement": true
+    "cronManagement": true,
+    "heartbeatManagement": true
   }
 }
 ```
@@ -192,6 +194,7 @@ Client                              Server
 | `capabilities.modeSwitch` | boolean | Server supports `thread/mode/set`. |
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
+| `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 
 ### 3.3 `initialized`
 
@@ -1852,3 +1855,58 @@ The `job` field contains the updated `CronJobInfo` object reflecting the new `en
 ### 16.6 Notification Opt-Out
 
 Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) are request/response pairs — they do not produce notifications. The existing `system/jobResult` notification (Section 6.9) is the cron result delivery mechanism and remains independent. Clients that do not need cron result notifications can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
+
+---
+
+## 17. Heartbeat Management Methods
+
+### 17.1 Scope
+
+Like cron management (Section 16), these methods cover a server-managed background service. The AppServer owns a `HeartbeatService` that periodically reads `HEARTBEAT.md` and runs the agent. The `heartbeat/trigger` method lets wire clients trigger a heartbeat run on demand.
+
+Clients must check `capabilities.heartbeatManagement` before calling any method in this section. If the capability is absent or `false`, the server does not have a heartbeat service configured and will return a `-32601` (Method not found) error.
+
+### 17.2 `heartbeat/trigger`
+
+Trigger an immediate heartbeat run on the server.
+
+**Direction**: client → server (request)
+
+**Params**: `{}` (empty object, no parameters required)
+
+**Result**:
+
+```json
+{
+  "result": "HEARTBEAT_OK",
+  "error": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `result` | string? | Agent response text. `null` if no `HEARTBEAT.md` was found or its content was empty. |
+| `error` | string? | Error message if the heartbeat run failed. `null` on success. |
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32601` | The heartbeat service is not configured on this server. |
+
+**Timeout note**: This is a **long-running request** — the agent may take tens of seconds to complete. Clients should use a generous timeout (e.g. 120 s). The result is also separately broadcast via `system/jobResult` with `source: "heartbeat"` to all subscribed clients.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "heartbeat/trigger", "id": 60, "params": {} }
+
+{ "jsonrpc": "2.0", "id": 60, "result": {
+    "result": "Reviewed open issues and updated tracking.",
+    "error": null
+} }
+```
+
+### 17.3 Capability Advertisement
+
+Clients must check `capabilities.heartbeatManagement` before calling `heartbeat/trigger`. The capability is present and `true` only when the AppServer has a `HeartbeatService` configured.
