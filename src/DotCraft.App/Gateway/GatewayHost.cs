@@ -21,8 +21,7 @@ using Spectre.Console;
 namespace DotCraft.Gateway;
 
 /// <summary>
-/// Hosts multiple channel services concurrently (QQ, WeCom, API) sharing
-/// a single CronService, HeartbeatService, and DashBoardServer instance.
+/// Hosts multiple channel services concurrently sharing a single CronService, HeartbeatService, and DashBoardServer instance.
 /// </summary>
 public sealed class GatewayHost : IDotCraftHost
 {
@@ -231,18 +230,10 @@ public sealed class GatewayHost : IDotCraftHost
         var hookRunner = _sp.GetService<HookRunner>();
 
         // Build a routing approval service that delegates to the originating channel's
-        // approval service based on ApprovalContext.Source, with Console as fallback.
+        // approval service based on ApprovalContext.Source (channel name), with Console as fallback.
         var channelServiceMap = _channels
             .Where(ch => ch.ApprovalService != null)
-            .ToDictionary(
-                ch => ch.Name switch
-                {
-                    "qq"    => ApprovalSource.QQ,
-                    "wecom" => ApprovalSource.WeCom,
-                    "api"   => ApprovalSource.Api,
-                    _       => ApprovalSource.Console
-                },
-                ch => ch.ApprovalService!);
+            .ToDictionary(ch => ch.Name, ch => ch.ApprovalService!);
         var approvalService = new ChannelRoutingApprovalService(
             channelServiceMap,
             fallback: new ConsoleApprovalService());
@@ -333,15 +324,8 @@ public sealed class GatewayHost : IDotCraftHost
         if (string.IsNullOrEmpty(payload.CreatorSource) || string.IsNullOrEmpty(payload.CreatorId))
             return null;
 
-        var source = payload.CreatorSource switch
-        {
-            "qq"    => ApprovalSource.QQ,
-            "wecom" => ApprovalSource.WeCom,
-            "api"   => ApprovalSource.Api,
-            _       => ApprovalSource.Console
-        };
-        var groupId = source == ApprovalSource.QQ && long.TryParse(payload.CreatorGroupId, out var gid) ? gid : 0L;
-        return new ApprovalContext { UserId = payload.CreatorId, Source = source, GroupId = groupId };
+        var groupId = !string.IsNullOrEmpty(payload.CreatorGroupId) && long.TryParse(payload.CreatorGroupId, out var gid) ? gid : 0L;
+        return new ApprovalContext { UserId = payload.CreatorId, Source = payload.CreatorSource, GroupId = groupId };
     }
 
     public async ValueTask DisposeAsync()

@@ -261,7 +261,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             UserId = evt.UserId.ToString(),
             UserRole = role.ToString(),
             GroupId = evt.IsGroupMessage ? evt.GroupId : 0,
-            Source = ApprovalSource.QQ
+            Source = "qq"
         };
 
         var chatContext = new QQChatContext

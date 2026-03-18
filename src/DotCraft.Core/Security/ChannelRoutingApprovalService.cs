@@ -6,7 +6,7 @@ namespace DotCraft.Security;
 /// when context is null (e.g. heartbeat tasks without a creator channel).
 /// </summary>
 public sealed class ChannelRoutingApprovalService(
-    IReadOnlyDictionary<ApprovalSource, IApprovalService> channelServices,
+    IReadOnlyDictionary<string, IApprovalService> channelServices,
     IApprovalService fallback) : IApprovalService
 {
     public Task<bool> RequestFileApprovalAsync(string operation, string path, ApprovalContext? context = null)
