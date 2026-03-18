@@ -215,8 +215,8 @@ public sealed class WebSocketClientConnection : IAsyncDisposable
         _disposed = true;
 
         await _cts.CancelAsync();
-        _inboundPipe.Writer.Complete();
-        _outboundPipe.Writer.Complete();
+        try { _inboundPipe.Writer.Complete(); } catch { }
+        try { _outboundPipe.Writer.Complete(); } catch { }
 
         try { await Task.WhenAll(_receiveLoop, _sendLoop); } catch { }
 
