@@ -31,8 +31,10 @@ public sealed class GatewayHost : IDotCraftHost
     private readonly SkillsLoader _skillsLoader;
     private readonly CronService _cronService;
     private readonly IReadOnlyList<IChannelService> _channels;
+    private readonly List<IChannelService> _allChannels; // native + external, populated during RunAsync
     private readonly MessageRouter _router;
     private readonly ModuleRegistry _moduleRegistry;
+    private readonly ExternalChannel.ExternalChannelRegistry _externalChannelRegistry;
     private AgentFactory? _sharedAgentFactory;
     private ISessionService? _sharedSessionService;
 
@@ -44,7 +46,8 @@ public sealed class GatewayHost : IDotCraftHost
         CronService cronService,
         IEnumerable<IChannelService> channels,
         MessageRouter router,
-        ModuleRegistry moduleRegistry)
+        ModuleRegistry moduleRegistry,
+        ExternalChannel.ExternalChannelRegistry externalChannelRegistry)
     {
         _sp = sp;
         _config = config;
@@ -52,8 +55,10 @@ public sealed class GatewayHost : IDotCraftHost
         _skillsLoader = skillsLoader;
         _cronService = cronService;
         _channels = channels.ToList();
+        _allChannels = new List<IChannelService>(_channels);
         _router = router;
         _moduleRegistry = moduleRegistry;
+        _externalChannelRegistry = externalChannelRegistry;
 
         foreach (var ch in _channels)
         {
@@ -104,6 +109,21 @@ public sealed class GatewayHost : IDotCraftHost
         // --- Phase 3: Build shared agent runner (required before HeartbeatService) ---
         var sharedAgentRunner = BuildSharedAgentRunner();
 
+        // --- Phase 3.5: Create external channel hosts (requires SessionService from Phase 3) ---
+        ExternalChannel.ExternalChannelManager? externalChannelManager = null;
+        if (ExternalChannel.ExternalChannelManager.HasEnabledChannels(_config) && _sharedSessionService != null)
+        {
+            var nativeChannelNames = _channels.Select(ch => ch.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            externalChannelManager = new ExternalChannel.ExternalChannelManager(
+                _config, _sharedSessionService, nativeChannelNames, _externalChannelRegistry);
+
+            foreach (var extCh in externalChannelManager.Channels)
+            {
+                _allChannels.Add(extCh);
+                _router.RegisterChannel(extCh);
+            }
+        }
+
         // Heartbeat service (shared, notifies all admin channels)
         using var heartbeatService = new HeartbeatService(
             _paths.CraftPath,
@@ -151,7 +171,7 @@ public sealed class GatewayHost : IDotCraftHost
 
         // Inject shared services into channels BEFORE ConfigureApps so channel adapters
         // (e.g. WeComChannelAdapter) can reference them at construction time.
-        foreach (var ch in _channels)
+        foreach (var ch in _allChannels)
         {
             ch.HeartbeatService = heartbeatService;
             ch.CronService = _cronService;
@@ -198,7 +218,7 @@ public sealed class GatewayHost : IDotCraftHost
         // Web-hosting channels now just wait for cancellation; non-web channels run their own loops.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-        var channelTasks = _channels
+        var channelTasks = _allChannels
             .Select(ch => RunChannelAsync(ch, cts.Token))
             .ToList();
 
@@ -330,8 +350,8 @@ public sealed class GatewayHost : IDotCraftHost
 
     public async ValueTask DisposeAsync()
     {
-        // Dispose channels
-        foreach (var ch in _channels)
+        // Dispose channels (native + external)
+        foreach (var ch in _allChannels)
             await ch.DisposeAsync();
         
         // Dispose shared agent factory

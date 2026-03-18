@@ -37,7 +37,7 @@ Purpose: Define the architecture, protocol extensions, configuration model, and 
 - The protocol extensions to the `initialize` handshake that identify a client as a channel adapter.
 - The server-to-client extension methods for message delivery and heartbeat.
 - The server-side `ExternalChannelHost` and `ExternalChannelManager` components that integrate external adapters into the `GatewayHost`.
-- The configuration schema for declaring external channels in `dotcraft.toml`.
+- The configuration schema for declaring external channels in `config.json`.
 - The behavioral contract that any conforming channel adapter must satisfy.
 - The Approval flow contract for external channels.
 
@@ -150,19 +150,20 @@ Best for: single-machine deployments, simple operational model.
 
 ### 4.2 WebSocket (connect-out)
 
-DotCraft starts its WebSocket endpoint (appserver-protocol.md §15). The adapter process connects independently.
+The adapter connects to DotCraft's existing AppServer WebSocket endpoint (appserver-protocol.md §15). The same `/ws` endpoint serves both regular AppServer clients (CLI, VS Code) and external channel adapters; the server distinguishes them by the presence of `channelAdapter` in the `initialize` handshake.
 
 ```
 Adapter process
   └─ Wire Protocol WebSocket client
-       └─ connects to ws://127.0.0.1:{port}/ws?token={token}
-            └─ ExternalChannelHost (accept)
+       └─ connects to ws://{AppServer.WebSocket.Host}:{AppServer.WebSocket.Port}/ws?token={token}
+            └─ AppServerHost routes to ExternalChannelHost (via ExternalChannelRegistry)
                  └─ WebSocket connection
 ```
 
 - The adapter manages its own lifecycle, deployment, and reconnection.
 - DotCraft does not spawn the adapter; the adapter must be started separately.
-- On connection, the adapter performs the `initialize` handshake with the `channelAdapter` capability (see §5).
+- On connection, the adapter performs the `initialize` handshake with the `channelAdapter` capability (see §5). `AppServerHost` detects the `channelAdapter` capability and routes the connection to the corresponding `ExternalChannelHost` via `ExternalChannelRegistry`.
+- No per-channel WebSocket port is needed. All external channel adapters share the AppServer WebSocket endpoint.
 
 Best for: distributed deployments, containerized adapters, adapters that need independent scaling.
 
@@ -328,64 +329,71 @@ If the adapter process exits unexpectedly, `ExternalChannelHost` logs the exit c
 
 ### 8.1 Responsibilities
 
-- Parse `[channels.*]` entries from `dotcraft.toml` where `type = "external"`.
-- For each enabled external channel, create an `ExternalChannelHost` with the appropriate transport.
-- For WebSocket-mode channels, manage a shared WebSocket endpoint and route incoming connections to the correct `ExternalChannelHost` by matching `channelAdapter.channelName` from the `initialize` params.
+- Load the `"ExternalChannels"` section from `config.json` via `AppConfig.GetSection<ExternalChannelsConfig>("ExternalChannels")`.
+- For each enabled external channel entry, create an `ExternalChannelHost` with the appropriate transport.
+- For WebSocket-mode channels, register the channel in `ExternalChannelRegistry`. The adapter connects to the existing AppServer WebSocket endpoint (`/ws`), and `AppServerHost` routes the connection to the correct `ExternalChannelHost` by matching `channelAdapter.channelName` from the `initialize` params (see §4.2).
 - Provide the created `IChannelService` list to `GatewayHost` alongside native channel services.
 
 ### 8.2 Integration Point in GatewayHost
 
 `ExternalChannelManager` produces `IChannelService` instances that `GatewayHost` treats identically to native channels. The gateway's existing startup sequence applies to external channels without modification.
 
-The only addition is a **Phase 0** step (before the existing Phase 1 web host registration): `ExternalChannelManager` reads configuration and registers `ExternalChannelHost` instances. For WebSocket-mode channels, the WebSocket HTTP endpoint is registered here so it participates in Phase 1's web host pool.
+`ExternalChannelManager` is invoked during gateway host construction (inside `GatewayHostFactory.CreateHost()`). It reads configuration, creates `ExternalChannelHost` instances, and merges them into the channel list alongside native channels. For WebSocket-mode channels, no additional HTTP endpoint registration is needed — they reuse the existing AppServer WebSocket endpoint (`/ws`), with `AppServerHost` routing incoming `channelAdapter` connections to the corresponding `ExternalChannelHost` via `ExternalChannelRegistry`.
 
 ---
 
 ## 9. Configuration
 
-External channels are declared in `dotcraft.toml` under the `[channels.<name>]` table.
+External channels are declared in `config.json` under the `"ExternalChannels"` key. Each property name under `"ExternalChannels"` is the canonical channel name. Configuration is loaded via `AppConfig.GetSection<ExternalChannelsConfig>("ExternalChannels")`, following the same pattern as other DotCraft modules.
 
 ### 9.1 Schema
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `enabled` | boolean | yes | Whether this channel is active. |
-| `type` | string | yes | Must be `"external"`. |
 | `transport` | string | yes | `"subprocess"` or `"websocket"`. |
 | `command` | string | if subprocess | Command to start the adapter process. |
 | `args` | string[] | no | Additional command-line arguments. |
 | `workingDirectory` | string | no | Working directory for the subprocess. Defaults to workspace root. |
-| `env` | table | no | Additional environment variables passed to the subprocess. |
-| `token` | string | if websocket | Bearer token the adapter must present. Required for non-loopback WebSocket connections. |
-| `port` | integer | if websocket | Port for the WebSocket endpoint. |
+| `env` | object | no | Additional environment variables passed to the subprocess. |
+
+> **WebSocket mode note**: WebSocket-mode channels reuse the existing AppServer WebSocket endpoint (configured under `"AppServer.WebSocket"`). The adapter connects to `ws://{host}:{port}/ws?token={token}` using the AppServer's host, port, and token settings. No per-channel port or token configuration is needed — the adapter is identified by `channelAdapter.channelName` during the `initialize` handshake.
 
 ### 9.2 Examples
 
 **Subprocess mode** — DotCraft spawns and owns the adapter process:
 
-```toml
-[channels.telegram]
-enabled = true
-type = "external"
-transport = "subprocess"
-command = "python"
-args = ["-m", "dotcraft_telegram"]
-workingDirectory = "."
-env = { TELEGRAM_BOT_TOKEN = "your-token-here" }
+```json
+{
+  "ExternalChannels": {
+    "telegram": {
+      "enabled": true,
+      "transport": "subprocess",
+      "command": "python",
+      "args": ["-m", "dotcraft_telegram"],
+      "workingDirectory": ".",
+      "env": {
+        "TELEGRAM_BOT_TOKEN": "your-token-here"
+      }
+    }
+  }
+}
 ```
 
 **WebSocket mode** — adapter connects independently (the same adapter, different deployment):
 
-```toml
-[channels.telegram]
-enabled = true
-type = "external"
-transport = "websocket"
-port = 9100
-token = "change-me-in-production"
+```json
+{
+  "ExternalChannels": {
+    "telegram": {
+      "enabled": true,
+      "transport": "websocket"
+    }
+  }
+}
 ```
 
-The adapter connects to `ws://127.0.0.1:9100/ws?token=change-me-in-production` and presents `channelAdapter.channelName = "telegram"` in its `initialize` params.
+The adapter connects to `ws://127.0.0.1:{AppServer.WebSocket.Port}/ws?token={AppServer.WebSocket.Token}` and presents `channelAdapter.channelName = "telegram"` in its `initialize` params. The AppServer WebSocket endpoint is configured separately under the `"AppServer"` section (see appserver-protocol.md §15).
 
 ---
 
@@ -484,9 +492,10 @@ Security is provided by OS process isolation. Communication is over anonymous pi
 
 ### 12.2 WebSocket Mode
 
-- **Loopback-only binding** (default): The WebSocket endpoint binds to `127.0.0.1`. Remote adapters cannot connect without explicit configuration.
-- **Bearer token**: Required when the endpoint is exposed beyond loopback. Passed as `?token=...` in the URL (see appserver-protocol.md §15.4).
-- **Channel name verification**: The server verifies that `channelAdapter.channelName` is registered in configuration. An adapter may not register under an unknown or disabled channel name.
+- **Shared AppServer endpoint**: WebSocket-mode external channels reuse the AppServer WebSocket endpoint (`/ws`), which is configured under the `"AppServer.WebSocket"` section of `config.json`. No per-channel endpoint is created.
+- **Loopback-only binding** (default): The AppServer WebSocket endpoint binds to `127.0.0.1`. Remote adapters cannot connect without explicit configuration.
+- **Bearer token**: Required when the endpoint is exposed beyond loopback. Passed as `?token=...` in the URL (see appserver-protocol.md §15.4). The token is shared across all AppServer clients (adapters and regular clients alike).
+- **Channel name verification**: The server verifies that `channelAdapter.channelName` is registered in the `"ExternalChannels"` configuration. An adapter may not register under an unknown or disabled channel name.
 - **No per-adapter identity isolation**: All connections to the same server process share `ISessionService`. An authorized adapter can operate on any thread matching its `SessionIdentity`. Operators requiring strict cross-channel isolation should use separate DotCraft instances.
 
 ---

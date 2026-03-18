@@ -1,5 +1,6 @@
 using DotCraft.Abstractions;
 using DotCraft.Configuration;
+using DotCraft.ExternalChannel;
 using DotCraft.Hosting;
 using DotCraft.Modules;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,13 +18,17 @@ public sealed partial class GatewayModule : ModuleBase
     public override bool IsEnabled(AppConfig config)
         => config.IsSectionEnabled("QQBot") || config.IsSectionEnabled("WeComBot")
            || config.IsSectionEnabled("Api") || config.IsSectionEnabled("AgUi")
-           || config.IsSectionEnabled("GitHubTracker");
+           || config.IsSectionEnabled("GitHubTracker")
+           || ExternalChannelManager.HasEnabledChannels(config);
 
     /// <inheritdoc />
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
         // Register MessageRouter as a singleton for cross-channel delivery
         services.AddSingleton(_ => new MessageRouter());
+
+        // Register ExternalChannelRegistry as a singleton for WebSocket adapter routing
+        services.AddSingleton<ExternalChannelRegistry>();
     }
 
     /// <inheritdoc />
@@ -32,7 +37,8 @@ public sealed partial class GatewayModule : ModuleBase
         var errors = new List<string>();
         if (!config.IsSectionEnabled("QQBot") && !config.IsSectionEnabled("WeComBot")
             && !config.IsSectionEnabled("Api") && !config.IsSectionEnabled("AgUi")
-            && !config.IsSectionEnabled("GitHubTracker"))
+            && !config.IsSectionEnabled("GitHubTracker")
+            && !ExternalChannelManager.HasEnabledChannels(config))
             errors.Add("Gateway mode is enabled but no channel modules are enabled.");
         return errors;
     }
@@ -66,6 +72,7 @@ public sealed class GatewayHostFactory : IHostFactory
             .ToList();
 
         var router = sp.GetRequiredService<MessageRouter>();
+        var externalChannelRegistry = sp.GetRequiredService<ExternalChannelRegistry>();
 
         return new GatewayHost(
             sp,
@@ -75,6 +82,7 @@ public sealed class GatewayHostFactory : IHostFactory
             sp.GetRequiredService<Cron.CronService>(),
             channelServices,
             router,
-            registry);
+            registry,
+            externalChannelRegistry);
     }
 }

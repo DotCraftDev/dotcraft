@@ -67,6 +67,35 @@ public sealed class AppServerClientCapabilities
 
     /// <summary>Exact notification method names to suppress for this connection.</summary>
     public List<string>? OptOutNotificationMethods { get; set; }
+
+    /// <summary>
+    /// Channel adapter capability (external-channel-adapter.md §5.1).
+    /// Null for regular clients (CLI, VS Code, etc.).
+    /// When present, identifies this connection as an external channel adapter.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelAdapterCapability? ChannelAdapter { get; set; }
+}
+
+/// <summary>
+/// Declares that this client is an external channel adapter.
+/// Sent inside <see cref="AppServerClientCapabilities"/> during the initialize handshake.
+/// See external-channel-adapter.md §5.1.
+/// </summary>
+public sealed class ChannelAdapterCapability
+{
+    /// <summary>
+    /// Canonical channel name (e.g. "telegram"). Must match the server-side
+    /// ExternalChannels configuration key.
+    /// </summary>
+    public string ChannelName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether this adapter can receive <c>ext/channel/deliver</c> requests.
+    /// Defaults to true when not specified.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? DeliverySupport { get; set; }
 }
 
 public sealed class AppServerInitializeResult
@@ -308,4 +337,8 @@ public static class AppServerMethods
 
     // Server → Client notification (system maintenance events)
     public const string SystemEvent = "system/event";
+
+    // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
+    public const string ExtChannelDeliver = "ext/channel/deliver";
+    public const string ExtChannelHeartbeat = "ext/channel/heartbeat";
 }

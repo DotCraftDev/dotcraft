@@ -49,11 +49,10 @@ public sealed class StdioTransport : IAppServerTransport
         new(Console.OpenStandardInput(), Console.OpenStandardOutput());
 
     /// <summary>
-    /// Creates a transport over arbitrary in-memory or pipe streams.
-    /// Intended for integration tests that connect the transport to an <see cref="AppServerWireClient"/>
-    /// via <see cref="System.IO.Pipelines.Pipe"/> or anonymous pipe pairs.
+    /// Creates a transport over arbitrary streams (e.g. subprocess stdin/stdout pipes,
+    /// in-memory streams for testing).
     /// </summary>
-    internal static StdioTransport Create(Stream input, Stream output) => new(input, output);
+    public static StdioTransport Create(Stream input, Stream output) => new(input, output);
 
     /// <summary>
     /// Starts the background reader loop. Must be called before any read/write operations.

@@ -1,0 +1,123 @@
+using DotCraft.Abstractions;
+using DotCraft.AppServer;
+using DotCraft.Common;
+using DotCraft.Configuration;
+using DotCraft.Protocol;
+using Spectre.Console;
+
+namespace DotCraft.ExternalChannel;
+
+/// <summary>
+/// Reads external channel configuration and creates <see cref="ExternalChannelHost"/> instances.
+/// Invoked during <c>GatewayHostFactory.CreateHost()</c> to merge external channels into
+/// the gateway's channel list alongside native channels.
+/// </summary>
+public sealed class ExternalChannelManager
+{
+    private readonly List<ExternalChannelHost> _hosts = [];
+    private readonly ExternalChannelRegistry _registry;
+
+    /// <summary>
+    /// The <see cref="ExternalChannelRegistry"/> used to route WebSocket adapter connections
+    /// from <c>AppServerHost</c> to the correct <see cref="ExternalChannelHost"/>.
+    /// </summary>
+    public ExternalChannelRegistry Registry => _registry;
+
+    /// <summary>
+    /// All created external channel hosts (both subprocess and WebSocket modes).
+    /// These should be merged into <c>GatewayHost</c>'s channel list.
+    /// </summary>
+    public IReadOnlyList<IChannelService> Channels => _hosts;
+
+    /// <summary>
+    /// Creates an <see cref="ExternalChannelManager"/> that reads the <c>"ExternalChannels"</c>
+    /// configuration section and creates host instances.
+    /// </summary>
+    /// <param name="config">Application configuration.</param>
+    /// <param name="sessionService">Shared session service for all external channels.</param>
+    /// <param name="nativeChannelNames">Names of native channels (for conflict detection).</param>
+    /// <param name="registry">
+    /// External channel registry for WebSocket routing. If null, a new instance is created.
+    /// </param>
+    public ExternalChannelManager(
+        AppConfig config,
+        ISessionService sessionService,
+        IReadOnlyCollection<string> nativeChannelNames,
+        ExternalChannelRegistry? registry = null)
+    {
+        _registry = registry ?? new ExternalChannelRegistry();
+
+        var externalChannelsConfig = config.GetSection<ExternalChannelsConfig>("ExternalChannels");
+        var channels = externalChannelsConfig.GetChannels();
+
+        if (channels.Count == 0)
+            return;
+
+        var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
+        var serverVersion = AppVersion.Informational;
+
+        foreach (var (name, entry) in channels)
+        {
+            if (!entry.Enabled)
+                continue;
+
+            // Validate channel name doesn't conflict with native channels
+            if (nativeChannelNames.Contains(name))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red][[ExternalChannel]][/] Channel name [yellow]{name}[/] conflicts with " +
+                    "a native channel. Skipping.");
+                continue;
+            }
+
+            // Validate subprocess config
+            if (entry.Transport == ExternalChannelTransport.Subprocess
+                && string.IsNullOrWhiteSpace(entry.Command))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red][[ExternalChannel]][/] Subprocess channel [yellow]{name}[/] has no " +
+                    "'command' configured. Skipping.");
+                continue;
+            }
+
+            // Validate WebSocket config — requires AppServer WebSocket to be enabled
+            if (entry.Transport == ExternalChannelTransport.Websocket)
+            {
+                var wsEnabled = appServerConfig.Mode is AppServerMode.WebSocket
+                    or AppServerMode.StdioAndWebSocket;
+
+                if (!wsEnabled)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[red][[ExternalChannel]][/] WebSocket channel [yellow]{name}[/] requires " +
+                        "AppServer WebSocket mode to be enabled. Skipping.");
+                    continue;
+                }
+            }
+
+            var host = new ExternalChannelHost(entry, sessionService, serverVersion);
+            _hosts.Add(host);
+
+            // Register WebSocket channels for connection routing
+            if (entry.Transport == ExternalChannelTransport.Websocket)
+            {
+                _registry.Register(name, host);
+            }
+
+            AnsiConsole.MarkupLine(
+                $"[green][[ExternalChannel]][/] Registered external channel [yellow]{name}[/] " +
+                $"({entry.Transport})");
+        }
+    }
+
+    /// <summary>
+    /// Returns true if any external channels are configured and enabled.
+    /// Used by <see cref="GatewayModule"/> to include external channels in the enabled check.
+    /// </summary>
+    public static bool HasEnabledChannels(AppConfig config)
+    {
+        var externalChannelsConfig = config.GetSection<ExternalChannelsConfig>("ExternalChannels");
+        var channels = externalChannelsConfig.GetChannels();
+        return channels.Values.Any(e => e.Enabled);
+    }
+}

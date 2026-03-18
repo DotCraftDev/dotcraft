@@ -37,7 +37,8 @@ public sealed class AppServerHost(
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
     McpClientManager mcpClientManager,
-    ModuleRegistry moduleRegistry) : IDotCraftHost
+    ModuleRegistry moduleRegistry,
+    ExternalChannel.ExternalChannelRegistry? externalChannelRegistry = null) : IDotCraftHost
 {
     private AgentFactory? _agentFactory;
 
@@ -133,16 +134,15 @@ public sealed class AppServerHost(
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
-        var requestGate = new SemaphoreSlim(MaxConcurrentRequestsPerConnection, MaxConcurrentRequestsPerConnection);
-        await RunLoopAsync(transport, connection, handler, requestGate, cancellationToken);
+        await RunLoopAsync(transport, connection, handler, cancellationToken);
     }
 
-    private static async Task RunWebSocketOnlyAsync(
+    private async Task RunWebSocketOnlyAsync(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
         CancellationToken cancellationToken)
     {
-        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken);
+        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken, externalChannelRegistry);
 
         AnsiConsole.MarkupLine(
             $"[green][[AppServer]][/] DotCraft AppServer started (WebSocket at ws://{wsConfig.Host}:{wsConfig.Port}/ws)");
@@ -151,14 +151,16 @@ public sealed class AppServerHost(
         await wsApp.RunAsync(wsUrl);
     }
 
-    private static async Task RunStdioWithWebSocketAsync(
+    private async Task RunStdioWithWebSocketAsync(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
         CancellationToken cancellationToken)
     {
-        // Start the WebSocket listener first, then enter the stdio loop.
-        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken);
-        var wsRunTask = wsApp.RunAsync(wsUrl);
+        // Build the WebSocket app and start it explicitly so that bind failures
+        // surface immediately (fail-fast) instead of being deferred to finally.
+        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken, externalChannelRegistry);
+        wsApp.Urls.Add(wsUrl);
+        await wsApp.StartAsync(cancellationToken);
 
         AnsiConsole.MarkupLine(
             $"[green][[AppServer]][/] WebSocket listener started at ws://{wsConfig.Host}:{wsConfig.Port}/ws");
@@ -180,7 +182,6 @@ public sealed class AppServerHost(
         {
             // Stop the WebSocket server when stdio exits
             await wsApp.StopAsync(CancellationToken.None);
-            try { await wsRunTask; } catch { /* ignored */ }
         }
     }
 
@@ -191,7 +192,8 @@ public sealed class AppServerHost(
     private static (WebApplication App, string Url) BuildWebSocketApp(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
-        CancellationToken hostCt)
+        CancellationToken hostCt,
+        ExternalChannel.ExternalChannelRegistry? channelRegistry = null)
     {
         // Refuse to start if the binding is non-loopback without a token (spec §15.4)
         var isLoopback = wsConfig.Host is "127.0.0.1" or "::1" or "[::1]" or "localhost";
@@ -237,6 +239,83 @@ public sealed class AppServerHost(
             var wsConnection = new AppServerConnection();
             var wsHandler = new AppServerRequestHandler(
                 sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational);
+
+            // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
+            //
+            // Process the first message (must be 'initialize') manually. After the
+            // handshake, if the client declared channelAdapter capability, route the
+            // connection to the matching ExternalChannelHost and exit this handler.
+            if (channelRegistry != null)
+            {
+                var firstMsg = await wsTransport.ReadMessageAsync(hostCt);
+                if (firstMsg == null)
+                    return; // Client disconnected before sending anything
+
+                if (firstMsg.IsRequest && firstMsg.Method == AppServerMethods.Initialize)
+                {
+                    // Process the initialize request normally
+                    await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
+
+                    // Check if this is a channel adapter connection
+                    if (wsConnection.IsChannelAdapter)
+                    {
+                        var channelName = wsConnection.ChannelAdapterName!;
+
+                        if (channelRegistry.TryGet(channelName, out var host) && host != null)
+                        {
+                            // Wait for the 'initialized' notification before handover
+                            var initdMsg = await wsTransport.ReadMessageAsync(hostCt);
+                            if (initdMsg is { IsNotification: true, Method: AppServerMethods.Initialized })
+                            {
+                                wsHandler.HandleInitializedNotification();
+                            }
+
+                            // Hand over transport and connection to the ExternalChannelHost.
+                            // The host takes over the message loop; this handler returns.
+                            host.AttachTransport(wsTransport, wsConnection);
+
+                            // Block this handler until the WebSocket closes to keep the
+                            // WebSocket and transport alive (they are 'using' scoped).
+                            await WaitForWebSocketCloseAsync(ws, hostCt);
+                            return;
+                        }
+
+                        // Channel name not registered — reject with system/event
+                        AnsiConsole.MarkupLine(
+                            $"[yellow][[AppServer]][/] Rejected channel adapter '{channelName}': " +
+                            "not registered in ExternalChannels configuration.");
+
+                        await wsTransport.WriteMessageAsync(new
+                        {
+                            jsonrpc = "2.0",
+                            method = AppServerMethods.SystemEvent,
+                            @params = new
+                            {
+                                kind = "channelRejected",
+                                channelName,
+                                message = $"Channel '{channelName}' is not registered in server configuration."
+                            }
+                        }, hostCt);
+
+                        return; // Close connection
+                    }
+
+                    // Not a channel adapter — fall through to normal RunLoopAsync
+                    // (initialize already processed, loop will handle subsequent messages)
+                    await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
+                    return;
+                }
+
+                // First message was not initialize — process normally and enter loop
+                if (firstMsg.IsNotification)
+                {
+                    HandleNotification(firstMsg, wsHandler);
+                }
+                else if (firstMsg.IsRequest)
+                {
+                    await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
+                }
+            }
 
             await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
         });
@@ -366,5 +445,26 @@ public sealed class AppServerHost(
     {
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Blocks until the WebSocket connection closes or the host is cancelled.
+    /// Used after handing over a channel adapter connection to <see cref="ExternalChannel.ExternalChannelHost"/>
+    /// to keep the ASP.NET request pipeline (and the <c>using</c> scopes for WebSocket/transport) alive.
+    /// </summary>
+    private static async Task WaitForWebSocketCloseAsync(WebSocket ws, CancellationToken ct)
+    {
+        try
+        {
+            var buffer = new byte[1]; // Minimal buffer — we're not reading real data
+            while (ws.State is WebSocketState.Open or WebSocketState.CloseSent)
+            {
+                var result = await ws.ReceiveAsync(buffer, ct);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (WebSocketException) { }
     }
 }
