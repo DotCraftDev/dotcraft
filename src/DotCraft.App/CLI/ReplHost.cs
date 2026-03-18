@@ -20,14 +20,13 @@ public sealed class ReplHost(
     ICliSession session,
     string workspacePath = "", string dotCraftPath = "",
     HeartbeatService? heartbeatService = null, CronService? cronService = null,
-    AgentFactory? agentFactory = null, McpClientManager? mcpClientManager = null,
+    McpClientManager? mcpClientManager = null,
     string? dashBoardUrl = null,
     CustomCommandLoader? customCommandLoader = null,
-    AgentModeManager? modeManager = null,
     HookRunner? hookRunner = null,
     CliBackendInfo? backendInfo = null)
 {
-    private readonly AgentModeManager _modeManager = modeManager ?? new AgentModeManager();
+    private readonly AgentModeManager _modeManager = new();
 
     private string _currentSessionId = string.Empty;
 
@@ -267,24 +266,10 @@ public sealed class ReplHost(
             // ModeManager, so no local rebuild is needed when a thread exists.
             await session.SetThreadModeAsync(_currentThreadId, mode.ToString().ToLowerInvariant());
         }
-        else
-        {
-            // No thread yet — rebuild local default agent so it's ready when thread is created
-            RebuildAgentForCurrentMode();
-        }
-
         var (emoji, color) = mode == AgentMode.Plan ? ("📋", "yellow") : ("⚡", "green");
         var rule = new Rule($"[{color}]{emoji} {mode.ToString().ToLower()}[/]");
         rule.RuleStyle($"{color} dim");
         AnsiConsole.Write(rule);
-    }
-
-    private void RebuildAgentForCurrentMode()
-    {
-        if (agentFactory == null)
-            return;
-
-        agentFactory.CreateAgentForMode(_modeManager.CurrentMode, _modeManager);
     }
 
     private async Task LoadSessionAsync(string newSessionId, CancellationToken cancellationToken)

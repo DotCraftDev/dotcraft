@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
-using DotCraft.Protocol;
 using DotCraft.Tracing;
 using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
@@ -37,7 +36,7 @@ public static class DashBoardMiddleware
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
         IEnumerable<Type>? configTypes = null,
-        ISessionService? sessionService = null)
+        Func<string, Task>? deleteThread = null)
     {
         MapOrchestratorEndpoints(endpoints, orchestratorProviders);
 
@@ -96,17 +95,17 @@ public static class DashBoardMiddleware
             return Results.Json(events, JsonOptions);
         });
 
-        var capturedSessionService = sessionService;
+        var capturedDeleteThread = deleteThread;
         endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", async (string sessionKey) =>
         {
             var deleted = traceStore.ClearSession(sessionKey);
 
-            // Permanently remove the underlying Thread from disk when a session service is available.
-            if (capturedSessionService != null)
+            // Permanently remove the underlying Thread from disk when a delete callback is available.
+            if (capturedDeleteThread != null)
             {
                 try
                 {
-                    await capturedSessionService.DeleteThreadPermanentlyAsync(sessionKey);
+                    await capturedDeleteThread(sessionKey);
                 }
                 catch (KeyNotFoundException)
                 {

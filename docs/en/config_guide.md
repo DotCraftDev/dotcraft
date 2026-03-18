@@ -1300,7 +1300,6 @@ When `Gateway.Enabled = false` (the default), behavior is identical to before â€
         }
     },
     "CLI": {
-        "InProcess": false,
         "AppServerBin": "",
         "AppServerUrl": "",
         "AppServerToken": ""

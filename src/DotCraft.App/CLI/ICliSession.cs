@@ -3,13 +3,9 @@ using DotCraft.Protocol;
 namespace DotCraft.CLI;
 
 /// <summary>
-/// Abstraction over the session backend consumed by <see cref="ReplHost"/>.
-/// Two implementations exist:
-/// <list type="bullet">
-/// <item><see cref="InProcessCliSession"/> — wraps <see cref="ISessionService"/> for the in-process path.</item>
-/// <item><see cref="WireCliSession"/> — wraps <see cref="DotCraft.Protocol.AppServer.AppServerWireClient"/>
-///   for the subprocess AppServer path.</item>
-/// </list>
+/// Abstraction over the AppServer session backend consumed by <see cref="ReplHost"/>.
+/// Implemented by <see cref="WireCliSession"/>, which communicates with a
+/// <c>dotcraft app-server</c> subprocess (or remote WebSocket) over JSON-RPC 2.0.
 /// </summary>
 public interface ICliSession : IAsyncDisposable
 {

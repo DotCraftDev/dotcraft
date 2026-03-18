@@ -9,7 +9,7 @@
 
 **Craft around your project.**
 
-围绕项目目录运行的工作区级 AI Agent，把当前目录变成持久、可观察的智能工作空间——可从 CLI、编辑器、聊天机器人、API 和 GitHub 工程工作流接入。
+围绕项目目录运行的工作区级 Agent Harness，把当前目录变成持久、可观察的智能工作空间——可从 CLI、编辑器、聊天机器人、API 和 GitHub 工程工作流接入。
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
 
@@ -17,7 +17,7 @@ https://github.com/user-attachments/assets/8c5828b4-1682-4410-9df0-ca7d60fa2683
 
 </div>
 
-> **状态**：活跃开发中，1.0 之前可能存在不兼容变更。
+> **注意**：目前项目处于早期开发阶段，可能存在 Breaking Changes。
 
 ## ✨ 亮点
 

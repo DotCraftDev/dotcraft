@@ -103,13 +103,12 @@ public sealed class WireCliSession(
     /// <para>
     /// Creates a local <see cref="TokenTracker"/> to accumulate incremental <c>item/usage/delta</c>
     /// and <c>subagent/progress</c> token data, then passes it to <see cref="AgentRenderer"/> so
-    /// Thinking/Tool spinners display real-time token consumption — matching InProcess mode behavior.
+    /// thinking/tool spinners display real-time token consumption.
     /// </para>
     /// </summary>
     public async Task RunTurnAsync(string threadId, string input, CancellationToken ct = default)
     {
         // Create a local TokenTracker to accumulate incremental usage deltas from wire notifications.
-        // This mirrors the server-side TokenTracker that InProcessCliSession reads directly.
         var tokenTracker = new TokenTracker();
 
         using var renderer = new AgentRenderer(tokenTracker);

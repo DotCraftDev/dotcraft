@@ -1,9 +1,7 @@
 using DotCraft.Abstractions;
-using DotCraft.CLI.Factories;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
 using DotCraft.Modules;
-using DotCraft.Security;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DotCraft.CLI;
@@ -22,18 +20,6 @@ public sealed partial class CliModule : ModuleBase
     /// <inheritdoc />
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
-        // Register ConsoleApprovalService (depends on ApprovalStore from AddDotCraft)
-        services.AddSingleton(sp =>
-        {
-            var approvalStore = sp.GetRequiredService<ApprovalStore>();
-            var factory = new ConsoleApprovalServiceFactory();
-            return (ConsoleApprovalService)factory.Create(new ApprovalServiceContext
-            {
-                Config = context.Config,
-                WorkspacePath = context.Paths.WorkspacePath,
-                ApprovalStore = approvalStore
-            });
-        });
     }
 
     /// <inheritdoc />
