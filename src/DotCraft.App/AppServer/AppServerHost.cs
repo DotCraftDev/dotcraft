@@ -5,6 +5,8 @@ using DotCraft.Agents;
 using Microsoft.Extensions.Logging;
 using DotCraft.Common;
 using DotCraft.Configuration;
+using DotCraft.Cron;
+using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Memory;
 using DotCraft.Mcp;
@@ -44,15 +46,27 @@ public sealed class AppServerHost(
     private AgentFactory? _agentFactory;
 
     /// <summary>
+    /// Cron service instance owned by this AppServer process. Set during RunAsync and passed to
+    /// request handlers so wire clients can manage cron jobs via the cron/* wire methods (spec §16).
+    /// </summary>
+    private CronService? _cronService;
+
+    /// <summary>
+    /// Heartbeat service instance owned by this AppServer process. Set during RunAsync and passed
+    /// to request handlers so wire clients can trigger heartbeats via heartbeat/trigger (spec §17).
+    /// </summary>
+    private HeartbeatService? _heartbeatService;
+
+    /// <summary>
     /// Thread-safe set of currently connected transports. Used to broadcast
     /// out-of-band notifications (e.g. <c>plan/updated</c>) to all clients.
     /// </summary>
-    private readonly ConcurrentDictionary<IAppServerTransport, byte> _activeTransports = new();
+    private readonly ConcurrentDictionary<IAppServerTransport, AppServerConnection> _activeTransports = new();
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         var traceCollector = sp.GetService<TraceCollector>();
-        var cronTools = sp.GetService<Cron.CronTools>();
+        var cronTools = sp.GetService<CronTools>();
 
         ToolProviderCollector.ScanToolIcons(moduleRegistry, config);
         var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
@@ -90,10 +104,80 @@ public sealed class AppServerHost(
             },
             traceCollector: traceCollector,
             planStore: planStore,
-            onPlanUpdated: plan => BroadcastPlanUpdated(plan));
+            onPlanUpdated: BroadcastPlanUpdated);
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+
+        // Cron and Heartbeat — owned and executed entirely within the AppServer process.
+        // The agent stack (sessionService, agentFactory) lives here, so execution is
+        // correct and concurrency-safe. Results are delivered via system/jobResult wire
+        // notifications to connected CLI clients.
+        var cronService = sp.GetRequiredService<CronService>();
+        _cronService = cronService;
+        // quiet=true suppresses verbose progress lines; results are delivered via
+        // system/jobResult wire notifications instead of console output.
+        var runner = new AgentRunner(paths.WorkspacePath, sessionService, quiet: true);
+
+        cronService.OnJob = async job =>
+        {
+            var sessionKey = $"cron:{job.Id}";
+            string? result;
+            try
+            {
+                result = await runner.RunAsync(job.Payload.Message, sessionKey, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                result = null;
+                AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Cron job {job.Id} failed: {Markup.Escape(ex.Message)}[/]");
+            }
+
+            // Deliver result: non-CLI channels (QQ, WeCom) require Gateway mode and
+            // MessageRouter. For CLI-originated or unattributed jobs, broadcast via wire.
+            var channel = job.Payload.Channel;
+            if (job.Payload.Deliver && result != null
+                && (channel == null || string.Equals(channel, "cli", StringComparison.OrdinalIgnoreCase)))
+            {
+                BroadcastJobResult("cron", job.Id, job.Name, result, error: null);
+            }
+        };
+
+        using var heartbeatService = new HeartbeatService(
+            paths.CraftPath,
+            onHeartbeat: async (prompt, sessionKey, ct) =>
+            {
+                string? result;
+                try
+                {
+                    result = await runner.RunAsync(prompt, sessionKey, ct);
+                }
+                catch (Exception ex)
+                {
+                    result = null;
+                    AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Heartbeat run failed: {Markup.Escape(ex.Message)}[/]");
+                }
+
+                if (result != null)
+                    BroadcastJobResult("heartbeat", jobId: null, jobName: null, result, error: null);
+
+                return result;
+            },
+            intervalSeconds: config.Heartbeat.IntervalSeconds,
+            enabled: config.Heartbeat.Enabled);
+        _heartbeatService = heartbeatService;
+
+        if (config.Cron.Enabled)
+        {
+            cronService.Start();
+            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Cron service started ({cronService.ListJobs().Count} jobs)");
+        }
+
+        if (config.Heartbeat.Enabled)
+        {
+            heartbeatService.Start();
+            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Heartbeat started (interval: {config.Heartbeat.IntervalSeconds}s)");
+        }
 
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
 
@@ -122,6 +206,7 @@ public sealed class AppServerHost(
                 break;
         }
 
+        cronService.Stop();
         AnsiConsole.MarkupLine("[grey][[AppServer]][/] AppServer stopped");
     }
 
@@ -136,11 +221,12 @@ public sealed class AppServerHost(
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
 
-        _activeTransports.TryAdd(transport, 0);
-
         var connection = new AppServerConnection();
+        _activeTransports.TryAdd(transport, connection);
+
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational);
+            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            cronService: _cronService, heartbeatService: _heartbeatService);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -185,11 +271,12 @@ public sealed class AppServerHost(
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
 
-        _activeTransports.TryAdd(transport, 0);
-
         var connection = new AppServerConnection();
+        _activeTransports.TryAdd(transport, connection);
+
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational);
+            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            cronService: _cronService, heartbeatService: _heartbeatService);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -256,95 +343,94 @@ public sealed class AppServerHost(
             await using var wsTransport = new WebSocketTransport(ws);
             wsTransport.Start();
 
-            _activeTransports.TryAdd(wsTransport, 0);
+            var wsConnection = new AppServerConnection();
+            _activeTransports.TryAdd(wsTransport, wsConnection);
             try
             {
+                var wsHandler = new AppServerRequestHandler(
+                    sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
+                    cronService: _cronService, heartbeatService: _heartbeatService);
 
-            var wsConnection = new AppServerConnection();
-            var wsHandler = new AppServerRequestHandler(
-                sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational);
-
-            // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
-            //
-            // Process the first message (must be 'initialize') manually. After the
-            // handshake, if the client declared channelAdapter capability, route the
-            // connection to the matching ExternalChannelHost and exit this handler.
-            if (channelRegistry != null)
-            {
-                var firstMsg = await wsTransport.ReadMessageAsync(hostCt);
-                if (firstMsg == null)
-                    return; // Client disconnected before sending anything
-
-                if (firstMsg.IsRequest && firstMsg.Method == AppServerMethods.Initialize)
+                // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
+                //
+                // Process the first message (must be 'initialize') manually. After the
+                // handshake, if the client declared channelAdapter capability, route the
+                // connection to the matching ExternalChannelHost and exit this handler.
+                if (channelRegistry != null)
                 {
-                    // Process the initialize request normally
-                    await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
+                    var firstMsg = await wsTransport.ReadMessageAsync(hostCt);
+                    if (firstMsg == null)
+                        return; // Client disconnected before sending anything
 
-                    // Check if this is a channel adapter connection
-                    if (wsConnection.IsChannelAdapter)
+                    if (firstMsg.IsRequest && firstMsg.Method == AppServerMethods.Initialize)
                     {
-                        var channelName = wsConnection.ChannelAdapterName!;
+                        // Process the initialize request normally
+                        await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
 
-                        if (channelRegistry.TryGet(channelName, out var host) && host != null)
+                        // Check if this is a channel adapter connection
+                        if (wsConnection.IsChannelAdapter)
                         {
-                            // Wait for the 'initialized' notification before handover
-                            var initdMsg = await wsTransport.ReadMessageAsync(hostCt);
-                            if (initdMsg is { IsNotification: true, Method: AppServerMethods.Initialized })
+                            var channelName = wsConnection.ChannelAdapterName!;
+
+                            if (channelRegistry.TryGet(channelName, out var host) && host != null)
                             {
-                                wsHandler.HandleInitializedNotification();
+                                // Wait for the 'initialized' notification before handover
+                                var initdMsg = await wsTransport.ReadMessageAsync(hostCt);
+                                if (initdMsg is { IsNotification: true, Method: AppServerMethods.Initialized })
+                                {
+                                    wsHandler.HandleInitializedNotification();
+                                }
+
+                                // Hand over transport and connection to the ExternalChannelHost.
+                                // The host takes over the message loop; this handler returns.
+                                host.AttachTransport(wsTransport, wsConnection);
+
+                                // Block this handler until the transport's reader loop finishes
+                                // (i.e. the WebSocket closes). This keeps the WebSocket and
+                                // transport alive (they are 'using' scoped) without performing
+                                // any additional ReceiveAsync calls on the raw WebSocket.
+                                await wsTransport.Completed;
+                                return;
                             }
 
-                            // Hand over transport and connection to the ExternalChannelHost.
-                            // The host takes over the message loop; this handler returns.
-                            host.AttachTransport(wsTransport, wsConnection);
+                            // Channel name not registered — reject with system/event
+                            AnsiConsole.MarkupLine(
+                                $"[yellow][[AppServer]][/] Rejected channel adapter '{channelName}': " +
+                                "not registered in ExternalChannels configuration.");
 
-                            // Block this handler until the transport's reader loop finishes
-                            // (i.e. the WebSocket closes). This keeps the WebSocket and
-                            // transport alive (they are 'using' scoped) without performing
-                            // any additional ReceiveAsync calls on the raw WebSocket.
-                            await wsTransport.Completed;
-                            return;
+                            await wsTransport.WriteMessageAsync(new
+                            {
+                                jsonrpc = "2.0",
+                                method = AppServerMethods.SystemEvent,
+                                @params = new
+                                {
+                                    kind = "channelRejected",
+                                    channelName,
+                                    message = $"Channel '{channelName}' is not registered in server configuration."
+                                }
+                            }, hostCt);
+
+                            return; // Close connection
                         }
 
-                        // Channel name not registered — reject with system/event
-                        AnsiConsole.MarkupLine(
-                            $"[yellow][[AppServer]][/] Rejected channel adapter '{channelName}': " +
-                            "not registered in ExternalChannels configuration.");
-
-                        await wsTransport.WriteMessageAsync(new
-                        {
-                            jsonrpc = "2.0",
-                            method = AppServerMethods.SystemEvent,
-                            @params = new
-                            {
-                                kind = "channelRejected",
-                                channelName,
-                                message = $"Channel '{channelName}' is not registered in server configuration."
-                            }
-                        }, hostCt);
-
-                        return; // Close connection
+                        // Not a channel adapter — fall through to normal RunLoopAsync
+                        // (initialize already processed, loop will handle subsequent messages)
+                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
+                        return;
                     }
 
-                    // Not a channel adapter — fall through to normal RunLoopAsync
-                    // (initialize already processed, loop will handle subsequent messages)
-                    await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
-                    return;
+                    // First message was not initialize — process normally and enter loop
+                    if (firstMsg.IsNotification)
+                    {
+                        HandleNotification(firstMsg, wsHandler);
+                    }
+                    else if (firstMsg.IsRequest)
+                    {
+                        await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
+                    }
                 }
 
-                // First message was not initialize — process normally and enter loop
-                if (firstMsg.IsNotification)
-                {
-                    HandleNotification(firstMsg, wsHandler);
-                }
-                else if (firstMsg.IsRequest)
-                {
-                    await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
-                }
-            }
-
-            await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
-
+                await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
             } // end try
             finally
             {
@@ -480,6 +566,46 @@ public sealed class AppServerHost(
     }
 
     /// <summary>
+    /// Broadcasts a <c>system/jobResult</c> JSON-RPC notification to all connected transports.
+    /// Called when a server-managed cron or heartbeat job completes and the job was created from
+    /// a CLI (non-social-channel) context. See spec Section 6.9.
+    /// </summary>
+    private void BroadcastJobResult(string source, string? jobId, string? jobName, string? result, string? error)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.SystemJobResult,
+            @params = new
+            {
+                source,
+                jobId,
+                jobName,
+                result,
+                error
+            }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.SystemJobResult))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
     /// Broadcasts a <c>plan/updated</c> JSON-RPC notification to all connected transports.
     /// Called from the <c>onPlanUpdated</c> callback injected into <see cref="AgentFactory"/>.
     /// The callback fires synchronously on the tool execution thread; transport writes are
@@ -507,8 +633,11 @@ public sealed class AppServerHost(
 
         // Fire-and-forget broadcast to all connected clients.
         // Errors on individual transports (e.g. disconnected) are silently ignored.
-        foreach (var transport in _activeTransports.Keys)
+        foreach (var (transport, connection) in _activeTransports)
         {
+            if (!connection.ShouldSendNotification(AppServerMethods.PlanUpdated))
+                continue;
+
             _ = Task.Run(async () =>
             {
                 try

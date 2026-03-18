@@ -26,6 +26,7 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
 
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonDocument>> _pending = new();
     private readonly Channel<JsonDocument> _notifications = Channel.CreateUnbounded<JsonDocument>();
+    private readonly Channel<JsonDocument> _jobResultNotifications = Channel.CreateUnbounded<JsonDocument>();
 
     private Task? _readerTask;
     private readonly CancellationTokenSource _disposeCts = new();
@@ -104,6 +105,101 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                 if (method is AppServerMethods.TurnCompleted or AppServerMethods.TurnFailed or AppServerMethods.TurnCancelled)
                     yield break;
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Cron management (spec Section 16)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Lists cron jobs from the AppServer's in-memory CronService.
+    /// Requires the server to advertise <c>cronManagement</c> capability.
+    /// Throws <see cref="Exception"/> on wire errors or if the server returns a JSON-RPC error.
+    /// </summary>
+    public async Task<List<CronJobWireInfo>> CronListAsync(
+        bool includeDisabled = false,
+        CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.CronList,
+            new { includeDisabled },
+            ct: ct);
+
+        ThrowIfError(doc, "cron/list");
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<CronListResult>(result.GetRawText(), SessionWireJsonOptions.Default)?.Jobs
+               ?? [];
+    }
+
+    /// <summary>
+    /// Removes a cron job from the AppServer's in-memory CronService.
+    /// Throws <see cref="Exception"/> if the job is not found or a wire error occurs.
+    /// </summary>
+    public async Task CronRemoveAsync(string jobId, CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.CronRemove,
+            new { jobId },
+            ct: ct);
+
+        ThrowIfError(doc, jobId);
+    }
+
+    /// <summary>
+    /// Enables or disables a cron job on the AppServer.
+    /// Throws <see cref="Exception"/> if the job is not found or a wire error occurs.
+    /// </summary>
+    public async Task<CronJobWireInfo> CronEnableAsync(
+        string jobId,
+        bool enabled,
+        CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.CronEnable,
+            new { jobId, enabled },
+            ct: ct);
+
+        ThrowIfError(doc, jobId);
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<CronEnableResult>(result.GetRawText(), SessionWireJsonOptions.Default)?.Job
+               ?? throw new InvalidOperationException($"Server returned empty job for '{jobId}'.");
+    }
+
+    /// <summary>
+    /// Triggers an immediate heartbeat run on the server (spec Section 17.2).
+    /// Uses a 120-second timeout because the heartbeat runs the full agent pipeline.
+    /// </summary>
+    public async Task<HeartbeatTriggerResult> HeartbeatTriggerAsync(CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.HeartbeatTrigger,
+            new { },
+            timeout: TimeSpan.FromSeconds(120),
+            ct: ct);
+
+        ThrowIfError(doc, "heartbeat/trigger");
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<HeartbeatTriggerResult>(
+            result.GetRawText(), SessionWireJsonOptions.Default)
+               ?? new HeartbeatTriggerResult();
+    }
+
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> if the JSON-RPC document contains an
+    /// error field, using the error message from the server response.
+    /// </summary>
+    private static void ThrowIfError(JsonDocument doc, string context)
+    {
+        if (doc.RootElement.TryGetProperty("error", out var error))
+        {
+            var message = error.TryGetProperty("message", out var msg)
+                ? msg.GetString() ?? "Unknown error"
+                : "Unknown error";
+            throw new InvalidOperationException(message);
         }
     }
 
@@ -187,6 +283,32 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
     }
 
     /// <summary>
+    /// Waits for the next <c>system/jobResult</c> notification from the dedicated channel.
+    /// Returns null on timeout or cancellation.
+    /// </summary>
+    public async Task<JsonDocument?> WaitForJobResultAsync(
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+
+        while (!ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero) break;
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
+            cts.CancelAfter(remaining);
+
+            try { return await _jobResultNotifications.Reader.ReadAsync(cts.Token); }
+            catch (OperationCanceledException) { break; }
+            catch (ChannelClosedException) { break; }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Sends a JSON-RPC response to a server-initiated request.
     /// Used by the background reader loop when <see cref="ServerRequestHandler"/> is set.
     /// </summary>
@@ -221,7 +343,7 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                 catch (JsonException) { continue; }
 
                 var root = doc.RootElement;
-                var hasMethod = root.TryGetProperty("method", out _);
+                var hasMethod = root.TryGetProperty("method", out var methodEl);
                 var hasId = root.TryGetProperty("id", out var idEl) &&
                             idEl.ValueKind != JsonValueKind.Null &&
                             idEl.ValueKind != JsonValueKind.Undefined;
@@ -257,6 +379,13 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                     }
                 }
 
+                // system/jobResult → dedicated channel to avoid being consumed during a turn
+                if (hasMethod && methodEl.GetString() == AppServerMethods.SystemJobResult)
+                {
+                    _jobResultNotifications.Writer.TryWrite(doc);
+                    continue;
+                }
+
                 // Notification or unhandled server request → notification queue
                 _notifications.Writer.TryWrite(doc);
             }
@@ -265,6 +394,7 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
         finally
         {
             _notifications.Writer.TryComplete();
+            _jobResultNotifications.Writer.TryComplete();
             foreach (var tcs in _pending.Values)
                 tcs.TrySetCanceled();
         }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-AppServer is DotCraft's wire protocol server that exposes Agent capabilities (session management, tool invocation, approval flows) to external clients via JSON-RPC. Built-in entry points like CLI and ACP communicate with the Agent through AppServer, and you can also start AppServer directly to build custom integrations.
+AppServer is DotCraft's wire protocol server that exposes Agent capabilities (session management, tool invocation, approval flows) to external clients via JSON-RPC. The CLI communicates with the Agent through AppServer by default, and you can also start AppServer directly to build custom integrations.
 
 **Use cases**:
 
@@ -54,7 +54,6 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 |------------------|-------------|
 | `dotcraft` | Interactive CLI (default mode) |
 | `dotcraft app-server` | Start AppServer (defaults to stdio mode) |
-| `dotcraft -acp` / `dotcraft acp` | ACP mode (editor / IDE integration) |
 | `--listen <URL>` | AppServer transport, used with `app-server` |
 | `--remote <URL>` | CLI connects to remote AppServer, used with default mode |
 | `--token <VALUE>` | WebSocket auth token, used with `--listen` or `--remote` |
@@ -155,7 +154,6 @@ You can also configure AppServer via `config.json`, suitable for deployments tha
 |-------------|-------------|---------|
 | `CLI.AppServerUrl` | Remote AppServer WebSocket URL | empty |
 | `CLI.AppServerToken` | Remote connection auth token | empty |
-| `CLI.InProcess` | Use in-process mode (for debugging) | `false` |
 | `CLI.AppServerBin` | Custom AppServer executable path | empty (uses current process) |
 
 **Configuration Examples**:
@@ -217,7 +215,6 @@ By default, the CLI automatically starts `dotcraft app-server` as a subprocess a
 | Remote development | Start `dotcraft app-server --listen ws://...` remotely, connect locally with `dotcraft --remote ws://...` |
 | Multiple clients sharing workspace | Start WebSocket mode, each client connects independently |
 | Custom client integration | Start AppServer, communicate via JSON-RPC in any language |
-| Debug Agent behavior | Use `CLI.InProcess = true` to skip subprocess |
 
 ## Further Reading
 

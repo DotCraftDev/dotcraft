@@ -1,6 +1,5 @@
 using DotCraft.Configuration;
 using DotCraft.Hosting;
-using DotCraft.Protocol;
 using DotCraft.Tracing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -23,7 +22,7 @@ public sealed class DashBoardServer : IAsyncDisposable
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
         IEnumerable<Type>? configTypes = null,
-        ISessionService? sessionService = null)
+        IDashBoardSessionHandler? sessionHandler = null)
     {
         var dashBoardConfig = config.DashBoard;
         var builder = WebApplication.CreateBuilder();
@@ -48,7 +47,7 @@ public sealed class DashBoardServer : IAsyncDisposable
 
         app.MapDashBoardAuth(config);
         app.UseDashBoardAuth(config);
-        app.MapDashBoard(traceStore, paths, tokenUsageStore, setupMode, orchestratorProviders, configTypes, sessionService);
+        app.MapDashBoard(traceStore, paths, tokenUsageStore, setupMode, orchestratorProviders, configTypes, sessionHandler);
 
         var url = $"http://{dashBoardConfig.Host}:{dashBoardConfig.Port}";
         _app = app;

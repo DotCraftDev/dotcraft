@@ -2,10 +2,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.1.0-draft |
+| **Version** | 0.1.0 |
 | **Status** | Draft |
 | **Date** | 2026-03-17 |
-| **Parent Spec** | [AppServer Protocol](appserver-protocol.md) (v0.1.0, Section 15) |
+| **Parent Spec** | [AppServer Protocol](appserver-protocol.md) (Section 15) |
 
 Purpose: Define the architecture, protocol extensions, configuration model, and behavioral contract that allow social channel adapters written in any language to integrate with DotCraft as first-class channels, preserving per-platform capabilities such as the Approval flow.
 

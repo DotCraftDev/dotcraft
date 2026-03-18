@@ -5,8 +5,8 @@ namespace DotCraft.Agents;
 /// <summary>
 /// Periodically snapshots <see cref="SubAgentProgressBridge"/> entries and writes
 /// <see cref="SessionEventType.SubAgentProgress"/> events into the Turn event stream.
-/// This bridges the in-process SubAgent progress data to the Wire Protocol layer,
-/// enabling out-of-process clients (e.g., Wire CLI) to display real-time SubAgent progress.
+/// This bridges server-side SubAgent progress data to the Wire Protocol layer,
+/// enabling connected clients to display real-time SubAgent progress.
 ///
 /// The aggregator is started when the first <c>SpawnSubagent</c> tool call begins within a Turn,
 /// and stops when the Turn ends or all tracked SubAgents have completed.

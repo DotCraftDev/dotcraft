@@ -56,6 +56,7 @@ public static class AppServerErrors
     public const int TurnNotRunningCode = -32014;
     public const int ApprovalTimeoutCode = -32020;
     public const int ChannelRejectedCode = -32030;
+    public const int CronJobNotFoundCode = -32031;
 
     // ── Factory methods ──
 
@@ -103,4 +104,7 @@ public static class AppServerErrors
 
     public static AppServerException ChannelRejected(string channelName) =>
         new(ChannelRejectedCode, $"Channel adapter rejected: '{channelName}' is not registered in server configuration");
+
+    public static AppServerException CronJobNotFound(string jobId) =>
+        new(CronJobNotFoundCode, $"Cron job not found: {jobId}");
 }

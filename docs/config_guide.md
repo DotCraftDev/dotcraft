@@ -1300,7 +1300,6 @@ Heartbeat 结果会通过 MessageRouter 广播到所有有管理员配置的 Cha
         }
     },
     "CLI": {
-        "InProcess": false,
         "AppServerBin": "",
         "AppServerUrl": "",
         "AppServerToken": ""

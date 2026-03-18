@@ -2,12 +2,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.1.0 |
+| **Version** | 0.2.0 |
 | **Status** | Living Spec |
-| **Date** | 2026-03-16 |
-| **Parent Spec** | [Session Core](session-core.md) (v0.2.0, Section 19) |
+| **Date** | 2026-03-18 |
+| **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 
-Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) to out-of-process clients, enabling non-C# adapters to create and resume threads, submit turns, stream events, and participate in approval flows.
+Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) to out-of-process clients, enabling non-C# adapters to create and resume threads, submit turns, stream events, and participate in approval flows. The protocol also covers server management operations — specifically cron job lifecycle — that are owned by the AppServer process but need to be accessible to wire clients.
 
 ## Table of Contents
 
@@ -31,6 +31,8 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [13. Full Turn Example](#13-full-turn-example)
 - [14. Relationship to Codex App Server](#14-relationship-to-codex-app-server)
 - [15. WebSocket Transport](#15-websocket-transport)
+- [16. Cron Management Methods](#16-cron-management-methods)
+- [17. Heartbeat Management Methods](#17-heartbeat-management-methods)
 
 ---
 
@@ -38,7 +40,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 
 ### 1.1 What This Spec Defines
 
-This specification defines the wire protocol — message formats, methods, notifications, and transport rules — that a DotCraft server exposes to external clients over stdio or WebSocket. It is the network-facing projection of the Session Core `ISessionService` API.
+This specification defines the wire protocol — message formats, methods, notifications, and transport rules — that a DotCraft server exposes to external clients over stdio or WebSocket. It is primarily the network-facing projection of the Session Core `ISessionService` API, and additionally covers server management operations (cron job lifecycle) that the AppServer process owns and executes independently of any session.
 
 ### 1.2 What This Spec Does Not Define
 
@@ -57,7 +59,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -173,7 +175,9 @@ Client                              Server
     "threadSubscriptions": true,
     "approvalFlow": true,
     "modeSwitch": true,
-    "configOverride": true
+    "configOverride": true,
+    "cronManagement": true,
+    "heartbeatManagement": true
   }
 }
 ```
@@ -189,6 +193,8 @@ Client                              Server
 | `capabilities.approvalFlow` | boolean | Server may send approval requests. |
 | `capabilities.modeSwitch` | boolean | Server supports `thread/mode/set`. |
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
+| `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
+| `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 
 ### 3.3 `initialized`
 
@@ -1185,6 +1191,8 @@ Errors follow the standard JSON-RPC 2.0 error response format:
 | `-32013` | Turn not found | The specified `turnId` does not exist on the thread. |
 | `-32014` | Turn not running | `turn/interrupt` called on a turn that is not in progress. |
 | `-32020` | Approval timeout | The client took too long to respond to an approval request. |
+| `-32030` | Channel rejected | The channel adapter name is not registered in server configuration. |
+| `-32031` | Cron job not found | The specified cron job ID does not exist. |
 
 ### 8.4 Turn-Level Errors
 
@@ -1221,6 +1229,63 @@ The server uses bounded internal queues between transport ingress, request proce
 - Clients should not send a `turn/start` while a turn is already in progress on the same thread. The server rejects this with error code `-32012`.
 - Clients should consume notifications promptly. If a client falls behind on reading stdout (stdio transport) or WebSocket frames, the server may buffer up to a limit and then drop the connection.
 
+### 6.9 Job Result Notifications
+
+#### `system/jobResult`
+
+Emitted by the AppServer after a server-managed cron or heartbeat job completes. This allows connected wire clients (e.g. the CLI) to receive the agent's response as an out-of-band notification, without the client initiating a turn.
+
+This notification is **only emitted in standalone AppServer mode** (the CLI subprocess/WebSocket scenario). In Gateway mode the result is delivered through the social channel that originally created the job (e.g. `MessageRouter.DeliverAsync` → `IChannelService.DeliverMessageAsync` → `ext/channel/deliver` for external channel adapters). The delivery channel is determined by `CronPayload.Channel` captured at job creation time from `ChannelSessionScope`.
+
+Clients can opt out via `optOutNotificationMethods: ["system/jobResult"]` during `initialize`.
+
+**Params**:
+
+```json
+{
+  "source": "cron",
+  "jobId": "9c933b01",
+  "jobName": "喝水提醒",
+  "threadId": "thread_abc123",
+  "result": "提醒：该喝水了！保持水分对健康很重要。",
+  "error": null,
+  "tokenUsage": { "inputTokens": 420, "outputTokens": 38 }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | `"cron"` or `"heartbeat"`. |
+| `jobId` | string? | Cron job ID. Present when `source` is `"cron"`; absent for heartbeat. |
+| `jobName` | string? | Human-readable job name. |
+| `threadId` | string? | The thread ID used for execution. |
+| `result` | string? | Agent's text response. Null if the turn failed or produced no text output. |
+| `error` | string? | Error message if the turn failed. |
+| `tokenUsage` | object? | `{ inputTokens, outputTokens }`. |
+
+**Targeting rules**:
+
+- Emitted via the broadcast mechanism (`_activeTransports`) used by `plan/updated`. In stdio mode there is exactly one connected client; in WebSocket mode all initialized clients receive it.
+- Only emitted when the job's `CronPayload.Channel` is `"cli"` or null (i.e. no social channel delivery target). Jobs created from QQ, WeCom, or ExternalChannel adapters deliver their result through the respective channel's delivery mechanism and do **not** emit `system/jobResult`.
+- Clients that do not wish to display cron/heartbeat results can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
+
+**Example sequence**:
+
+```
+Server                                         Client
+  |                                               |
+  | (60 s after job was scheduled)                |
+  |                                               |
+  | [CronService timer fires, AgentRunner runs]   |
+  |                                               |
+  | system/jobResult (notification)               |
+  |  source: "cron",                              |
+  |  jobId: "9c933b01",                           |
+  |  jobName: "喝水提醒",                         |
+  |  result: "该喝水了！"                          |
+  |<----------------------------------------------|
+```
+
 ---
 
 ## 10. Notification Opt-Out
@@ -1244,6 +1309,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `item/usage/delta` | Client does not need real-time token consumption display; will use `turn/completed.tokenUsage` for final totals. |
 | `system/event` | Client does not need system maintenance status (compaction, consolidation). |
 | `plan/updated` | Client does not need real-time plan/todo progress display. |
+| `system/jobResult` | Client does not need cron/heartbeat result notifications (e.g. batch or headless client). |
 
 **Example**:
 
@@ -1586,3 +1652,261 @@ The server sends native WebSocket ping frames every 30 seconds to detect stale c
 | Event replay on reconnect | N/A | Via `thread/subscribe replayRecent: true` |
 | Approval request on disconnect | Turn cancelled (process exit) | Turn fails with `-32020` approval timeout |
 | Diagnostic output | stderr | Not available on wire; use server logs |
+
+---
+
+## 16. Cron Management Methods
+
+### 16.1 Scope
+
+These methods extend the protocol beyond `ISessionService` to cover server-managed cron job lifecycle. The AppServer process owns a `CronService` that fires jobs on a timer — independently of any session or wire client. Cron management methods allow wire clients (e.g. the CLI) to inspect and mutate that service's in-memory state directly, so changes take effect immediately without relying on the client writing to disk and the server eventually reloading.
+
+Unlike thread/turn methods, cron methods are not scoped to a session, thread, or channel identity. They operate on the server's shared `CronService` singleton. All connections on the same server process observe the same cron state.
+
+Clients must check `capabilities.cronManagement` in the `initialize` response before calling any `cron/*` method. If the flag is absent or `false`, the server returns `-32601` (method not found).
+
+### 16.2 `CronJobInfo` Wire DTO
+
+All cron methods that return job data use the following `CronJobInfo` wire object. It is a transport-safe projection of the internal `CronJob` domain model.
+
+```json
+{
+  "id": "9c933b01",
+  "name": "drink water reminder",
+  "schedule": {
+    "kind": "every",
+    "everyMs": 3600000,
+    "atMs": null
+  },
+  "enabled": true,
+  "createdAtMs": 1710590400000,
+  "deleteAfterRun": false,
+  "state": {
+    "nextRunAtMs": 1710594000000,
+    "lastRunAtMs": 1710590400000,
+    "lastStatus": "ok",
+    "lastError": null
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Short opaque job identifier (8 hex chars). |
+| `name` | string | Human-readable job name. |
+| `schedule.kind` | string | `"every"` for recurring or `"at"` for one-time. |
+| `schedule.everyMs` | integer? | Interval in milliseconds. Present when `kind` is `"every"`. |
+| `schedule.atMs` | integer? | Unix timestamp (ms) for one-time execution. Present when `kind` is `"at"`. |
+| `enabled` | boolean | Whether the job is active and will fire when due. |
+| `createdAtMs` | integer | Unix timestamp (ms) when the job was created. |
+| `deleteAfterRun` | boolean | If `true`, the job is removed after its first successful execution. |
+| `state.nextRunAtMs` | integer? | Unix timestamp (ms) of the next scheduled run. `null` if the job has no valid schedule or is disabled. |
+| `state.lastRunAtMs` | integer? | Unix timestamp (ms) of the last execution. `null` if never run. |
+| `state.lastStatus` | string? | `"ok"` or `"error"`. `null` if never run. |
+| `state.lastError` | string? | Error message from the last failed run. `null` when `lastStatus` is `"ok"` or never run. |
+
+### 16.3 `cron/list`
+
+List cron jobs managed by the server.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `includeDisabled` | boolean | no | Default `false`. When `true`, disabled jobs are included in the result. |
+
+**Result**:
+
+```json
+{
+  "jobs": [
+    {
+      "id": "9c933b01",
+      "name": "drink water reminder",
+      "schedule": { "kind": "every", "everyMs": 3600000, "atMs": null },
+      "enabled": true,
+      "createdAtMs": 1710590400000,
+      "deleteAfterRun": false,
+      "state": {
+        "nextRunAtMs": 1710594000000,
+        "lastRunAtMs": 1710590400000,
+        "lastStatus": "ok",
+        "lastError": null
+      }
+    }
+  ]
+}
+```
+
+**Behavior**: Returns the server's current in-memory job list. When `includeDisabled` is `false` (default), only jobs with `enabled: true` are returned.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "cron/list", "id": 50, "params": {
+    "includeDisabled": true
+} }
+
+{ "jsonrpc": "2.0", "id": 50, "result": {
+    "jobs": [
+      {
+        "id": "9c933b01",
+        "name": "drink water reminder",
+        "schedule": { "kind": "every", "everyMs": 3600000, "atMs": null },
+        "enabled": true,
+        "createdAtMs": 1710590400000,
+        "deleteAfterRun": false,
+        "state": { "nextRunAtMs": 1710594000000, "lastRunAtMs": null, "lastStatus": null, "lastError": null }
+      }
+    ]
+} }
+```
+
+### 16.4 `cron/remove`
+
+Permanently remove a cron job from the server.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `jobId` | string | yes | ID of the cron job to remove. |
+
+**Result**:
+
+```json
+{ "removed": true }
+```
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32031` | The specified `jobId` does not exist. |
+
+**Behavior**: Removes the job from the server's in-memory `CronService` and persists the change to disk (`cron/jobs.json`) immediately. If the job's timer fires concurrently, the removal is applied after the current execution completes.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "cron/remove", "id": 51, "params": {
+    "jobId": "9c933b01"
+} }
+
+{ "jsonrpc": "2.0", "id": 51, "result": { "removed": true } }
+```
+
+### 16.5 `cron/enable`
+
+Enable or disable a cron job.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `jobId` | string | yes | ID of the cron job to update. |
+| `enabled` | boolean | yes | `true` to enable the job; `false` to disable it. |
+
+**Result**:
+
+```json
+{
+  "job": { ... }
+}
+```
+
+The `job` field contains the updated `CronJobInfo` object reflecting the new `enabled` state. When enabling a job, `state.nextRunAtMs` is recomputed from the current time.
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32031` | The specified `jobId` does not exist. |
+
+**Behavior**: Updates the job's `enabled` field in the server's in-memory `CronService`. If enabling, `nextRunAtMs` is recomputed. Persists the change to disk immediately.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "cron/enable", "id": 52, "params": {
+    "jobId": "9c933b01",
+    "enabled": false
+} }
+
+{ "jsonrpc": "2.0", "id": 52, "result": {
+    "job": {
+      "id": "9c933b01",
+      "name": "drink water reminder",
+      "schedule": { "kind": "every", "everyMs": 3600000, "atMs": null },
+      "enabled": false,
+      "createdAtMs": 1710590400000,
+      "deleteAfterRun": false,
+      "state": { "nextRunAtMs": null, "lastRunAtMs": null, "lastStatus": null, "lastError": null }
+    }
+} }
+```
+
+### 16.6 Notification Opt-Out
+
+Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) are request/response pairs — they do not produce notifications. The existing `system/jobResult` notification (Section 6.9) is the cron result delivery mechanism and remains independent. Clients that do not need cron result notifications can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
+
+---
+
+## 17. Heartbeat Management Methods
+
+### 17.1 Scope
+
+Like cron management (Section 16), these methods cover a server-managed background service. The AppServer owns a `HeartbeatService` that periodically reads `HEARTBEAT.md` and runs the agent. The `heartbeat/trigger` method lets wire clients trigger a heartbeat run on demand.
+
+Clients must check `capabilities.heartbeatManagement` before calling any method in this section. If the capability is absent or `false`, the server does not have a heartbeat service configured and will return a `-32601` (Method not found) error.
+
+### 17.2 `heartbeat/trigger`
+
+Trigger an immediate heartbeat run on the server.
+
+**Direction**: client → server (request)
+
+**Params**: `{}` (empty object, no parameters required)
+
+**Result**:
+
+```json
+{
+  "result": "HEARTBEAT_OK",
+  "error": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `result` | string? | Agent response text. `null` if no `HEARTBEAT.md` was found or its content was empty. |
+| `error` | string? | Error message if the heartbeat run failed. `null` on success. |
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32601` | The heartbeat service is not configured on this server. |
+
+**Timeout note**: This is a **long-running request** — the agent may take tens of seconds to complete. Clients should use a generous timeout (e.g. 120 s). The result is also separately broadcast via `system/jobResult` with `source: "heartbeat"` to all subscribed clients.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "heartbeat/trigger", "id": 60, "params": {} }
+
+{ "jsonrpc": "2.0", "id": 60, "result": {
+    "result": "Reviewed open issues and updated tracking.",
+    "error": null
+} }
+```
+
+### 17.3 Capability Advertisement
+
+Clients must check `capabilities.heartbeatManagement` before calling `heartbeat/trigger`. The capability is present and `true` only when the AppServer has a `HeartbeatService` configured.

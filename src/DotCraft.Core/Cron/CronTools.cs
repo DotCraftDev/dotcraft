@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using DotCraft.Abstractions;
+using DotCraft.Tools;
 
 namespace DotCraft.Cron;
 
@@ -16,6 +17,7 @@ public sealed class CronTools(CronService cronService)
         "Cron(action: \"add\", message: \"Remind meeting\", delaySeconds: 120) — one-time task after 2 minutes; " +
         "Cron(action: \"list\") — show all jobs; " +
         "Cron(action: \"remove\", jobId: \"abc123\") — delete a job.")]
+    [Tool(Icon = "⏰", DisplayType = typeof(CronToolDisplays), DisplayMethod = nameof(CronToolDisplays.Cron))]
     public string Cron(
         [Description("Must be one of: 'add' (create a job), 'list' (show all jobs), 'remove' (delete a job by id). This parameter is required.")] string action,
         [Description("The prompt/message for the agent to execute when the job triggers. Required when action is 'add'.")] string? message = null,

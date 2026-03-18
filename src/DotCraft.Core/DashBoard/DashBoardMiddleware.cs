@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
-using DotCraft.Protocol;
 using DotCraft.Tracing;
 using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
@@ -37,7 +36,7 @@ public static class DashBoardMiddleware
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
         IEnumerable<Type>? configTypes = null,
-        ISessionService? sessionService = null)
+        IDashBoardSessionHandler? sessionHandler = null)
     {
         MapOrchestratorEndpoints(endpoints, orchestratorProviders);
 
@@ -96,17 +95,16 @@ public static class DashBoardMiddleware
             return Results.Json(events, JsonOptions);
         });
 
-        var capturedSessionService = sessionService;
+        var capturedHandler = sessionHandler;
         endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", async (string sessionKey) =>
         {
             var deleted = traceStore.ClearSession(sessionKey);
 
-            // Permanently remove the underlying Thread from disk when a session service is available.
-            if (capturedSessionService != null)
+            if (capturedHandler != null)
             {
                 try
                 {
-                    await capturedSessionService.DeleteThreadPermanentlyAsync(sessionKey);
+                    await capturedHandler.DeleteThreadAsync(sessionKey);
                 }
                 catch (KeyNotFoundException)
                 {
@@ -119,9 +117,15 @@ public static class DashBoardMiddleware
                 : Results.Json(new { deleted = false, sessionKey }, JsonOptions, statusCode: 404);
         });
 
-        endpoints.MapDelete("/dashboard/api/sessions", () =>
+        endpoints.MapDelete("/dashboard/api/sessions", async () =>
         {
+            // Capture keys before clearing so we can delete the underlying threads.
+            var sessionKeys = traceStore.GetSessions().Select(s => s.SessionKey).ToList();
             traceStore.ClearAll();
+
+            if (capturedHandler != null)
+                await capturedHandler.DeleteAllThreadsAsync(sessionKeys);
+
             return Results.Json(new { cleared = true }, JsonOptions);
         });
 

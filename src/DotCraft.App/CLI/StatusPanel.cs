@@ -395,30 +395,16 @@ public static class StatusPanel
     {
         if (backendInfo == null) return;
 
-        if (backendInfo.IsWire)
-        {
-            var shortVer = backendInfo.ServerVersion?.Split('+')[0];
-            var ver = shortVer != null ? $"server v{shortVer}" : null;
+        var shortVer = backendInfo.ServerVersion?.Split('+')[0];
+        var ver = shortVer != null ? $"server v{shortVer}" : null;
 
-            string? location;
-            if (backendInfo.ServerUrl is not null)
-            {
-                // WebSocket mode: show the remote URL instead of a process ID
-                location = backendInfo.ServerUrl.Escape();
-            }
-            else
-            {
-                location = backendInfo.ProcessId.HasValue ? $"PID {backendInfo.ProcessId}" : null;
-            }
+        string? location = backendInfo.ServerUrl is not null
+            ? backendInfo.ServerUrl.Escape()
+            : backendInfo.ProcessId.HasValue ? $"PID {backendInfo.ProcessId}" : null;
 
-            var detail = string.Join(" · ", new[] { location, ver }.Where(s => s != null));
-            var detailPart = detail.Length > 0 ? $"  [grey]{detail.Escape()}[/]" : string.Empty;
-            AnsiConsole.MarkupLine($"[green]●[/] [bold]AppServer[/]{detailPart}");
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("[blue]●[/] [bold]In-process[/]  [grey]agent running in-process[/]");
-        }
+        var detail = string.Join(" · ", new[] { location, ver }.Where(s => s != null));
+        var detailPart = detail.Length > 0 ? $"  [grey]{detail.Escape()}[/]" : string.Empty;
+        AnsiConsole.MarkupLine($"[green]●[/] [bold]AppServer[/]{detailPart}");
     }
 
     private static string Escape(this string text)

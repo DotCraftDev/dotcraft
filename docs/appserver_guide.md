@@ -2,7 +2,7 @@
 
 ## 概述
 
-AppServer 是 DotCraft 的 wire protocol 服务器，它将 Agent 能力（会话管理、工具调用、审批流）以 JSON-RPC 协议暴露给外部客户端。CLI、ACP 等内置入口都通过 AppServer 与 Agent 通信，你也可以直接启动 AppServer 来构建自定义集成。
+AppServer 是 DotCraft 的 wire protocol 服务器，它将 Agent 能力（会话管理、工具调用、审批流）以 JSON-RPC 协议暴露给外部客户端。CLI 默认通过 AppServer 与 Agent 通信，你也可以直接启动 AppServer 来构建自定义集成。
 
 **适用场景**：
 
@@ -54,7 +54,6 @@ dotcraft --remote ws://server:9100/ws --token my-secret
 |-------------|------|
 | `dotcraft` | 交互式 CLI（默认模式） |
 | `dotcraft app-server` | 启动 AppServer（默认 stdio 模式） |
-| `dotcraft -acp` / `dotcraft acp` | ACP 模式（编辑器 / IDE 集成） |
 | `--listen <URL>` | AppServer 传输方式，搭配 `app-server` 使用 |
 | `--remote <URL>` | CLI 连接远程 AppServer，搭配默认模式使用 |
 | `--token <VALUE>` | WebSocket 认证 Token，可搭配 `--listen` 或 `--remote` |
@@ -155,7 +154,6 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 |--------|------|--------|
 | `CLI.AppServerUrl` | 远程 AppServer WebSocket 地址 | 空 |
 | `CLI.AppServerToken` | 远程连接认证 Token | 空 |
-| `CLI.InProcess` | 是否使用进程内模式（调试用） | `false` |
 | `CLI.AppServerBin` | 自定义 AppServer 可执行文件路径 | 空（使用当前进程） |
 
 **配置示例**：
@@ -216,7 +214,6 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 | 远程开发 | 远端启动 `dotcraft app-server --listen ws://...`，本地 `dotcraft --remote ws://...` |
 | 多客户端共享工作区 | 启动 WebSocket 模式，多个客户端各自连接 |
 | 自定义客户端集成 | 启动 AppServer，用任意语言通过 JSON-RPC 通信 |
-| 调试 Agent 行为 | 使用 `CLI.InProcess = true` 跳过子进程 |
 
 ## 延伸阅读
 

@@ -1,4 +1,7 @@
 using System.Text.Json;
+using DotCraft.Abstractions;
+using DotCraft.Cron;
+using DotCraft.Heartbeat;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol.AppServer;
@@ -16,6 +19,8 @@ public sealed class AppServerRequestHandler
     private readonly AppServerConnection _connection;
     private readonly IAppServerTransport _transport;
     private readonly string _serverVersion;
+    private readonly CronService? _cronService;
+    private readonly HeartbeatService? _heartbeatService;
 
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -28,13 +33,17 @@ public sealed class AppServerRequestHandler
         AppServerConnection connection,
         IAppServerTransport transport,
         string serverVersion = "0.1.0",
-        SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce)
+        SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
+        CronService? cronService = null,
+        HeartbeatService? heartbeatService = null)
     {
         _sessionService = sessionService;
         _connection = connection;
         _transport = transport;
         _serverVersion = serverVersion;
         _defaultApprovalDecision = defaultApprovalDecision;
+        _cronService = cronService;
+        _heartbeatService = heartbeatService;
     }
 
     // -------------------------------------------------------------------------
@@ -81,6 +90,10 @@ public sealed class AppServerRequestHandler
                 AppServerMethods.ThreadConfigUpdate => HandleThreadConfigUpdateAsync(msg, ct),
                 AppServerMethods.TurnStart => HandleTurnStartAsync(msg, ct),
                 AppServerMethods.TurnInterrupt => HandleTurnInterruptAsync(msg, ct),
+                AppServerMethods.CronList => HandleCronListAsync(msg, ct),
+                AppServerMethods.CronRemove => HandleCronRemoveAsync(msg, ct),
+                AppServerMethods.CronEnable => HandleCronEnableAsync(msg, ct),
+                AppServerMethods.HeartbeatTrigger => HandleHeartbeatTriggerAsync(msg, ct),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -131,7 +144,9 @@ public sealed class AppServerRequestHandler
                 ThreadSubscriptions = true,
                 ApprovalFlow = true,
                 ModeSwitch = true,
-                ConfigOverride = true
+                ConfigOverride = true,
+                CronManagement = _cronService != null,
+                HeartbeatManagement = _heartbeatService != null
             }
         };
 
@@ -343,6 +358,19 @@ public sealed class AppServerRequestHandler
 
         var content = await ResolveInputPartsAsync(p.Input, ct);
 
+        // Set ChannelSessionScope for non-adapter clients (e.g. CLI) so that tools like
+        // CronTools can capture the delivery context (channel="cli") at job creation time.
+        // External channel adapters manage their own scope via SenderContext.
+        ChannelSessionInfo? channelScopeInfo = null;
+        if (!_connection.IsChannelAdapter)
+        {
+            channelScopeInfo = new ChannelSessionInfo
+            {
+                Channel = "cli",
+                UserId = _connection.ClientInfo?.Name ?? "anonymous"
+            };
+        }
+
         // Fix 5: Deserialize client-provided history for historyMode=client threads.
         ChatMessage[]? messages = null;
         if (p.Messages.HasValue && p.Messages.Value.ValueKind != JsonValueKind.Null)
@@ -373,6 +401,8 @@ public sealed class AppServerRequestHandler
             // Signal that the response was sent successfully
             initialTurnTcs.TrySetResult(initialTurn);
         }
+
+        using var channelScope = channelScopeInfo != null ? ChannelSessionScope.Set(channelScopeInfo) : null;
 
         var events = _sessionService.SubmitInputAsync(p.ThreadId, content, p.Sender, messages, ct);
         var dispatcher = new AppServerEventDispatcher(
@@ -418,6 +448,84 @@ public sealed class AppServerRequestHandler
 
         await _sessionService.CancelTurnAsync(p.ThreadId, p.TurnId, ct);
         return new { };
+    }
+
+    // -------------------------------------------------------------------------
+    // cron/* methods (spec Section 16)
+    // -------------------------------------------------------------------------
+
+    private Task<object?> HandleCronListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (_cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronList);
+        var p = GetParams<CronListParams>(msg);
+        var jobs = _cronService.ListJobs(includeDisabled: p.IncludeDisabled);
+        return Task.FromResult<object?>(new CronListResult
+        {
+            Jobs = jobs.Select(MapCronJob).ToList()
+        });
+    }
+
+    private Task<object?> HandleCronRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (_cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronRemove);
+        var p = GetParams<CronRemoveParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.JobId))
+            throw AppServerErrors.InvalidParams("'jobId' is required.");
+        var removed = _cronService.RemoveJob(p.JobId);
+        if (!removed) throw AppServerErrors.CronJobNotFound(p.JobId);
+        return Task.FromResult<object?>(new CronRemoveResult { Removed = true });
+    }
+
+    private Task<object?> HandleCronEnableAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (_cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronEnable);
+        var p = GetParams<CronEnableParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.JobId))
+            throw AppServerErrors.InvalidParams("'jobId' is required.");
+        var job = _cronService.EnableJob(p.JobId, p.Enabled);
+        if (job == null) throw AppServerErrors.CronJobNotFound(p.JobId);
+        return Task.FromResult<object?>(new CronEnableResult { Job = MapCronJob(job) });
+    }
+
+    private static CronJobWireInfo MapCronJob(CronJob job) => new()
+    {
+        Id = job.Id,
+        Name = job.Name,
+        Schedule = new CronScheduleWireInfo
+        {
+            Kind = job.Schedule.Kind,
+            EveryMs = job.Schedule.EveryMs,
+            AtMs = job.Schedule.AtMs
+        },
+        Enabled = job.Enabled,
+        CreatedAtMs = job.CreatedAtMs,
+        DeleteAfterRun = job.DeleteAfterRun,
+        State = new CronJobStateWireInfo
+        {
+            NextRunAtMs = job.State.NextRunAtMs,
+            LastRunAtMs = job.State.LastRunAtMs,
+            LastStatus = job.State.LastStatus,
+            LastError = job.State.LastError
+        }
+    };
+
+    // ── heartbeat/trigger (spec Section 17.2) ────────────────────────────────
+
+    private async Task<object?> HandleHeartbeatTriggerAsync(
+        AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (_heartbeatService == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.HeartbeatTrigger);
+
+        try
+        {
+            var result = await _heartbeatService.TriggerNowAsync();
+            return new HeartbeatTriggerResult { Result = result };
+        }
+        catch (Exception ex)
+        {
+            return new HeartbeatTriggerResult { Error = ex.Message };
+        }
     }
 
     // -------------------------------------------------------------------------

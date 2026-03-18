@@ -187,10 +187,13 @@ public sealed class GatewayHost : IDotCraftHost
             var dashApp = pool.GetApp("http", _config.DashBoard.Host, _config.DashBoard.Port);
             dashApp.MapDashBoardAuth(_config);
             dashApp.UseDashBoardAuth(_config);
+            var capturedSvc = _sharedSessionService;
             dashApp.MapDashBoard(traceStore!, _paths, tokenUsageStore,
                 orchestratorProviders: capturedOrchestrators,
                 configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
-                sessionService: _sharedSessionService);
+                sessionHandler: capturedSvc != null
+                    ? new DelegateDashBoardSessionHandler(id => capturedSvc.DeleteThreadPermanentlyAsync(id))
+                    : null);
 
             var dashboardUrl = $"http://{_config.DashBoard.Host}:{_config.DashBoard.Port}";
             AnsiConsole.MarkupLine(

@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading.Channels;
 using DotCraft.Abstractions;
-using DotCraft.Agents;
 using DotCraft.Diagnostics;
 using DotCraft.Memory;
 using DotCraft.Tools;
@@ -72,15 +71,12 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
         public bool Completed { get; set; }
         public bool Failed { get; set; }
 
-        // Event-driven progress fields (populated by SubAgentProgress RenderEvents in Wire mode)
+        // Progress fields populated by SubAgentProgress wire notifications.
         public string? CurrentTool { get; set; }
         public string? CurrentToolDisplay { get; set; }
         public long InputTokens { get; set; }
         public long OutputTokens { get; set; }
-        /// <summary>True when at least one SubAgentProgress event has been received for this entry.</summary>
-        public bool HasProgressData { get; set; }
-        /// <summary>True when a SubAgentProgress event with IsCompleted=true has been received for this entry.
-        /// This signals that the final snapshot (with complete token stats) has arrived.</summary>
+        /// <summary>True when a SubAgentProgress event with IsCompleted=true has been received for this entry.</summary>
         public bool ProgressCompleted { get; set; }
     }
 
@@ -503,9 +499,6 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
                                         break;
 
                                     case RenderEventType.SubAgentProgress when evt.SubAgentEntries is { } progressEntries:
-                                        // Event-driven update path: apply snapshot data to tracked entries.
-                                        // This is the primary data source in Wire mode where SubAgentProgressBridge
-                                        // is unavailable (cross-process). In InProcess mode this is a no-op redundancy.
                                         foreach (var pe in progressEntries)
                                         {
                                             var target = entries.Find(e =>
@@ -515,7 +508,6 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
                                             target.CurrentToolDisplay = pe.CurrentToolDisplay;
                                             target.InputTokens = pe.InputTokens;
                                             target.OutputTokens = pe.OutputTokens;
-                                            target.HasProgressData = true;
                                             if (pe.IsCompleted)
                                             {
                                                 target.Completed = true;
@@ -531,18 +523,6 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
                                     default:
                                         buffered.Add(evt);
                                         break;
-                                }
-                            }
-
-                            // Check bridge for early completion signals (before FIC yields ToolCallCompleted).
-                            // Skip bridge polling for entries that have event-driven data (Wire mode).
-                            foreach (var entry in entries)
-                            {
-                                if (!entry.Completed && !entry.Failed && !entry.HasProgressData)
-                                {
-                                    var progress = SubAgentProgressBridge.TryGet(entry.Label);
-                                    if (progress is { IsCompleted: true })
-                                        entry.Completed = true;
                                 }
                             }
 
@@ -604,14 +584,6 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
             _currentState = RenderState.ToolExecuting;
         }
 
-        // Clean up bridge entries now that the live table session is done.
-        // Only needed for InProcess mode where entries were polled from SubAgentProgressBridge.
-        foreach (var entry in entries)
-        {
-            if (!entry.HasProgressData)
-                SubAgentProgressBridge.Remove(entry.Label);
-        }
-
         // Reset state
         _currentState = RenderState.Idle;
         _currentToolIcon = null;
@@ -642,15 +614,10 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
         List<RenderEvent> buffered,
         CancellationToken ct)
     {
-        // Determine whether we need to wait: only if at least one entry has received
-        // event-driven progress data (Wire mode). In InProcess mode entries use
-        // SubAgentProgressBridge directly and HasProgressData is false.
-        bool anyProgressTracked = entries.Exists(e => e.HasProgressData);
-
         // Phase 1: non-blocking sweep of anything already in the channel.
         DrainAvailableProgress(reader, entries, buffered);
 
-        if (!anyProgressTracked || AllProgressComplete(entries))
+        if (AllProgressComplete(entries))
             return;
 
         // Phase 2: bounded wait. The server guarantees the final SubAgentProgress
@@ -700,7 +667,6 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
                     target.CurrentToolDisplay = pe.CurrentToolDisplay;
                     target.InputTokens = pe.InputTokens;
                     target.OutputTokens = pe.OutputTokens;
-                    target.HasProgressData = true;
                     if (pe.IsCompleted)
                         target.ProgressCompleted = true;
                 }
@@ -713,16 +679,13 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
     }
 
     /// <summary>
-    /// Returns true when every entry that has received event-driven progress data
-    /// also received a SubAgentProgress event with IsCompleted=true (the final snapshot).
-    /// Entries without progress data (InProcess mode) are excluded from the check.
+    /// Returns true when all entries have received a SubAgentProgress event with
+    /// <c>IsCompleted=true</c>, signalling the final snapshot has arrived.
     /// </summary>
     private static bool AllProgressComplete(List<SubAgentEntry> entries)
     {
         foreach (var entry in entries)
         {
-            if (!entry.HasProgressData)
-                continue;
             if (!entry.ProgressCompleted)
                 return false;
         }
@@ -773,47 +736,21 @@ public sealed class AgentRenderer(Context.TokenTracker? tokenTracker = null) : I
             var activity = string.Empty;
             const int maxActivityLen = 48;
 
-            // Dual data source: prefer event-driven data (HasProgressData = Wire mode),
-            // fall back to SubAgentProgressBridge polling (InProcess mode).
-            if (entry.HasProgressData)
+            // Event-driven progress from SubAgentProgress wire notifications.
+            if (entry.Completed)
             {
-                // Wire mode: use event-driven progress fields from SubAgentProgress RenderEvents
-                if (entry.Completed)
-                {
-                    if (entry.InputTokens > 0 || entry.OutputTokens > 0)
-                        activity = $"[blue]↑ {entry.InputTokens}[/] [green]↓ {entry.OutputTokens}[/]";
-                }
-                else
-                {
-                    var display = entry.CurrentToolDisplay ?? entry.CurrentTool;
-                    activity = !string.IsNullOrEmpty(display)
-                        ? $"[dim]{Markup.Escape(ToolDisplayHelpers.Truncate(display, maxActivityLen))}[/]"
-                        : "[dim]Thinking...[/]";
-
-                    if (entry.InputTokens > 0 || entry.OutputTokens > 0)
-                        activity = $"{activity} [dim grey]· ↑{entry.InputTokens} ↓{entry.OutputTokens}[/]";
-                }
+                if (entry.InputTokens > 0 || entry.OutputTokens > 0)
+                    activity = $"[blue]↑ {entry.InputTokens}[/] [green]↓ {entry.OutputTokens}[/]";
             }
             else
             {
-                // InProcess mode: poll SubAgentProgressBridge directly
-                var progress = SubAgentProgressBridge.TryGet(entry.Label);
-                if (entry.Completed)
-                {
-                    if (progress != null && (progress.InputTokens > 0 || progress.OutputTokens > 0))
-                        activity = $"[blue]↑ {progress.InputTokens}[/] [green]↓ {progress.OutputTokens}[/]";
-                }
-                else if (progress != null)
-                {
-                    var display = progress.CurrentToolDisplay ?? progress.LastToolDisplay
-                                  ?? progress.CurrentTool ?? progress.LastTool;
-                    activity = !string.IsNullOrEmpty(display)
-                        ? $"[dim]{Markup.Escape(ToolDisplayHelpers.Truncate(display, maxActivityLen))}[/]"
-                        : "[dim]Thinking...[/]";
+                var display = entry.CurrentToolDisplay ?? entry.CurrentTool;
+                activity = !string.IsNullOrEmpty(display)
+                    ? $"[dim]{Markup.Escape(ToolDisplayHelpers.Truncate(display, maxActivityLen))}[/]"
+                    : "[dim]Thinking...[/]";
 
-                    if (progress.InputTokens > 0 || progress.OutputTokens > 0)
-                        activity = $"{activity} [dim grey]· ↑{progress.InputTokens} ↓{progress.OutputTokens}[/]";
-                }
+                if (entry.InputTokens > 0 || entry.OutputTokens > 0)
+                    activity = $"{activity} [dim grey]· ↑{entry.InputTokens} ↓{entry.OutputTokens}[/]";
             }
 
             table.AddRow(

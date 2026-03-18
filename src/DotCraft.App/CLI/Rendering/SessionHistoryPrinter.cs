@@ -18,8 +18,6 @@ public static class SessionHistoryPrinter
     /// <summary>
     /// Prints a compact history of the last <paramref name="maxTurns"/> turns from a
     /// <see cref="SessionWireThread"/> received over the wire protocol.
-    /// Payload fields are read from <see cref="JsonElement"/> (wire deserialization) or
-    /// from typed C# objects (in-process deserialization via <see cref="SessionWireMapper"/>).
     /// </summary>
     public static void Print(SessionWireThread thread, int maxTurns = 10)
     {
@@ -94,8 +92,8 @@ public static class SessionHistoryPrinter
     }
 
     /// <summary>
-    /// Reads a string field from a wire item payload, which may be a typed C# object
-    /// (from in-process mapping) or a <see cref="JsonElement"/> (from JSON deserialization).
+    /// Reads a string field from a wire item payload.
+    /// The payload may be a typed C# object or a <see cref="JsonElement"/>.
     /// </summary>
     private static string? GetWirePayloadString(object? payload, string field) =>
         payload switch

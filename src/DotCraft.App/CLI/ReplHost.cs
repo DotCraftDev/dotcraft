@@ -10,6 +10,7 @@ using DotCraft.Hooks;
 using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Protocol;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Skills;
 using Spectre.Console;
 
@@ -20,14 +21,14 @@ public sealed class ReplHost(
     ICliSession session,
     string workspacePath = "", string dotCraftPath = "",
     HeartbeatService? heartbeatService = null, CronService? cronService = null,
-    AgentFactory? agentFactory = null, McpClientManager? mcpClientManager = null,
+    McpClientManager? mcpClientManager = null,
     string? dashBoardUrl = null,
     CustomCommandLoader? customCommandLoader = null,
-    AgentModeManager? modeManager = null,
     HookRunner? hookRunner = null,
-    CliBackendInfo? backendInfo = null)
+    CliBackendInfo? backendInfo = null,
+    AppServerWireClient? wireClient = null)
 {
-    private readonly AgentModeManager _modeManager = modeManager ?? new AgentModeManager();
+    private readonly AgentModeManager _modeManager = new();
 
     private string _currentSessionId = string.Empty;
 
@@ -50,6 +51,14 @@ public sealed class ReplHost(
     /// so it can be restored on the next prompt.
     /// </summary>
     private List<string>? _pendingBuffer;
+
+    /// <summary>
+    /// The <see cref="LineEditor"/> currently blocking on user input, or null when no prompt is active.
+    /// Used by <see cref="WriteExternalOutput"/> to suspend and restore the prompt around out-of-band output.
+    /// </summary>
+    private LineEditor? _activeEditor;
+
+    private readonly Lock _outputLock = new();
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -120,6 +129,7 @@ public sealed class ReplHost(
         var promptWidth = PrintPrompt();
 
         var editor = new LineEditor(_inputHistory, promptWidth, GetCommandHints);
+        lock (_outputLock) _activeEditor = editor;
 
         // Restore buffer that was saved during a previous Shift+Tab mode-switch
         if (_pendingBuffer is { Count: > 0 })
@@ -129,6 +139,7 @@ public sealed class ReplHost(
         }
 
         var (result, text) = await editor.ReadLineAsync(cancellationToken);
+        lock (_outputLock) _activeEditor = null;
 
         if (result == LineEditResult.ModeSwitch)
         {
@@ -210,6 +221,35 @@ public sealed class ReplHost(
         return sessionId.Length > 8 ? sessionId[^8..] : sessionId;
     }
 
+    /// <summary>
+    /// Suspends the active prompt and input area, executes <paramref name="writeAction"/>
+    /// to print out-of-band output (e.g. a server notification), then re-prints the prompt
+    /// and restores the user's in-progress input buffer.
+    ///
+    /// Safe to call from any thread while the REPL is waiting for user input.
+    /// When no prompt is currently active, the output is printed directly.
+    /// </summary>
+    public void WriteExternalOutput(Action writeAction)
+    {
+        lock (_outputLock)
+        {
+            var editor = _activeEditor;
+            if (editor != null)
+            {
+                editor.SuspendDisplay();
+                writeAction();
+                AnsiConsole.WriteLine();
+                PrintPrompt();
+                editor.ResumeDisplay();
+            }
+            else
+            {
+                writeAction();
+                AnsiConsole.WriteLine();
+            }
+        }
+    }
+
     public void ReprintPrompt()
     {
         AnsiConsole.WriteLine();
@@ -267,24 +307,10 @@ public sealed class ReplHost(
             // ModeManager, so no local rebuild is needed when a thread exists.
             await session.SetThreadModeAsync(_currentThreadId, mode.ToString().ToLowerInvariant());
         }
-        else
-        {
-            // No thread yet — rebuild local default agent so it's ready when thread is created
-            RebuildAgentForCurrentMode();
-        }
-
         var (emoji, color) = mode == AgentMode.Plan ? ("📋", "yellow") : ("⚡", "green");
         var rule = new Rule($"[{color}]{emoji} {mode.ToString().ToLower()}[/]");
         rule.RuleStyle($"{color} dim");
         AnsiConsole.Write(rule);
-    }
-
-    private void RebuildAgentForCurrentMode()
-    {
-        if (agentFactory == null)
-            return;
-
-        agentFactory.CreateAgentForMode(_modeManager.CurrentMode, _modeManager);
     }
 
     private async Task LoadSessionAsync(string newSessionId, CancellationToken cancellationToken)
@@ -478,7 +504,7 @@ public sealed class ReplHost(
 
         if (input.StartsWith("/cron", StringComparison.OrdinalIgnoreCase))
         {
-            HandleCronCommand(input);
+            await HandleCronCommandAsync(input);
             return (true, false, null);
         }
 
@@ -652,7 +678,7 @@ public sealed class ReplHost(
 
     private async Task HandleHeartbeatCommandAsync(string input)
     {
-        if (heartbeatService == null)
+        if (heartbeatService == null && wireClient == null)
         {
             AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUnavailable}[/]\n");
             return;
@@ -664,12 +690,7 @@ public sealed class ReplHost(
         switch (subCmd)
         {
             case "trigger":
-                AnsiConsole.MarkupLine($"[blue]{Strings.TriggeringHeartbeat}[/]");
-                var result = await heartbeatService.TriggerNowAsync();
-                if (result != null)
-                    AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult}：[/] {Markup.Escape(result)}");
-                else
-                    AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse}[/]");
+                await HandleHeartbeatTriggerAsync();
                 break;
             default:
                 AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUsage}[/]");
@@ -678,9 +699,40 @@ public sealed class ReplHost(
         AnsiConsole.WriteLine();
     }
 
-    private void HandleCronCommand(string input)
+    private async Task HandleHeartbeatTriggerAsync()
     {
-        if (cronService == null)
+        AnsiConsole.MarkupLine($"[blue]{Strings.TriggeringHeartbeat}[/]");
+
+        if (wireClient != null)
+        {
+            try
+            {
+                var response = await wireClient.HeartbeatTriggerAsync();
+                if (response.Error != null)
+                    AnsiConsole.MarkupLine($"[red]{Markup.Escape(response.Error)}[/]");
+                else if (response.Result != null)
+                    AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult}:[/] {Markup.Escape(response.Result)}");
+                else
+                    AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse}[/]");
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+            }
+            return;
+        }
+
+        // Fallback: local HeartbeatService (standalone mode without AppServer)
+        var result = await heartbeatService!.TriggerNowAsync();
+        if (result != null)
+            AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult}:[/] {Markup.Escape(result)}");
+        else
+            AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse}[/]");
+    }
+
+    private async Task HandleCronCommandAsync(string input)
+    {
+        if (cronService == null && wireClient == null)
         {
             AnsiConsole.MarkupLine($"[yellow]{Strings.CronUnavailable}[/]\n");
             return;
@@ -692,47 +744,9 @@ public sealed class ReplHost(
         switch (subCmd)
         {
             case "list":
-            {
-                var jobs = cronService.ListJobs(includeDisabled: true);
-                if (jobs.Count == 0)
-                {
-                    AnsiConsole.MarkupLine($"[grey]{Strings.NoCronJobs}[/]");
-                }
-                else
-                {
-                    var table = new Table();
-                    table.Border(TableBorder.Rounded);
-                    table.AddColumn(Strings.CronColId);
-                    table.AddColumn(Strings.CronColName);
-                    table.AddColumn(Strings.CronColSchedule);
-                    table.AddColumn(Strings.CronColStatus);
-                    table.AddColumn(Strings.CronColNextRun);
-
-                    foreach (var job in jobs)
-                    {
-                        var schedDesc = job.Schedule.Kind switch
-                        {
-                            "at" when job.Schedule.AtMs.HasValue =>
-                                $"{Strings.CronExecuteOnce} {DateTimeOffset.FromUnixTimeMilliseconds(job.Schedule.AtMs.Value):u} {Strings.CronExecuteOnceSuffix}",
-                            "every" when job.Schedule.EveryMs.HasValue =>
-                                $"{Strings.CronEvery} {TimeSpan.FromMilliseconds(job.Schedule.EveryMs.Value)}",
-                            _ => job.Schedule.Kind
-                        };
-                        var next = job.State.NextRunAtMs.HasValue
-                            ? DateTimeOffset.FromUnixTimeMilliseconds(job.State.NextRunAtMs.Value).ToString("u")
-                            : "-";
-                        var status = job.Enabled ? $"[green]{Strings.CronEnabled}[/]" : $"[grey]{Strings.CronDisabled}[/]";
-                        table.AddRow(
-                            Markup.Escape(job.Id),
-                            Markup.Escape(job.Name),
-                            Markup.Escape(schedDesc),
-                            status,
-                            Markup.Escape(next));
-                    }
-                    AnsiConsole.Write(table);
-                }
+                await HandleCronListAsync();
                 break;
-            }
+
             case "remove":
             {
                 if (parts.Length < 3)
@@ -740,13 +754,10 @@ public sealed class ReplHost(
                     AnsiConsole.MarkupLine($"[yellow]{Strings.CronRemoveUsage}[/]");
                     break;
                 }
-                var jobId = parts[2];
-                if (cronService.RemoveJob(jobId))
-                    AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {Strings.CronJobDeletedSuffix}[/]");
-                else
-                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound} '{Markup.Escape(jobId)}'。[/]");
+                await HandleCronRemoveAsync(parts[2]);
                 break;
             }
+
             case "enable":
             case "disable":
             {
@@ -755,20 +766,147 @@ public sealed class ReplHost(
                     AnsiConsole.MarkupLine($"[yellow]{Strings.CronToggleUsage}：/cron {subCmd} <jobId>[/]");
                     break;
                 }
-                var jobId = parts[2];
-                var enabled = subCmd == "enable";
-                var job = cronService.EnableJob(jobId, enabled);
-                if (job != null)
-                    AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {(enabled ? Strings.CronJobEnabled : Strings.CronJobDisabled)}[/]");
-                else
-                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound} '{Markup.Escape(jobId)}'。[/]");
+                await HandleCronEnableAsync(parts[2], enabled: subCmd == "enable");
                 break;
             }
+
             default:
                 AnsiConsole.MarkupLine($"[yellow]{Strings.CronUsage}[/]");
                 break;
         }
         AnsiConsole.WriteLine();
+    }
+
+    private async Task HandleCronListAsync()
+    {
+        List<CronJobWireInfo>? wireJobs = null;
+
+        // Prefer wire path so the CLI reads authoritative in-memory state from the AppServer.
+        if (wireClient != null)
+        {
+            try
+            {
+                wireJobs = await wireClient.CronListAsync(includeDisabled: true);
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+                return;
+            }
+        }
+
+        if (wireJobs != null)
+        {
+            RenderCronTable(wireJobs);
+            return;
+        }
+
+        // Fallback: use local CronService (e.g. standalone mode without a subprocess).
+        cronService!.ReloadStore();
+        var localJobs = cronService.ListJobs(includeDisabled: true);
+        RenderCronTable(localJobs.Select(j => new CronJobWireInfo
+        {
+            Id = j.Id,
+            Name = j.Name,
+            Schedule = new CronScheduleWireInfo { Kind = j.Schedule.Kind, EveryMs = j.Schedule.EveryMs, AtMs = j.Schedule.AtMs },
+            Enabled = j.Enabled,
+            CreatedAtMs = j.CreatedAtMs,
+            DeleteAfterRun = j.DeleteAfterRun,
+            State = new CronJobStateWireInfo
+            {
+                NextRunAtMs = j.State.NextRunAtMs,
+                LastRunAtMs = j.State.LastRunAtMs,
+                LastStatus = j.State.LastStatus,
+                LastError = j.State.LastError
+            }
+        }).ToList());
+    }
+
+    private static void RenderCronTable(IReadOnlyList<CronJobWireInfo> jobs)
+    {
+        if (jobs.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[grey]{Strings.NoCronJobs}[/]");
+            return;
+        }
+
+        var table = new Table();
+        table.Border(TableBorder.Rounded);
+        table.AddColumn(Strings.CronColId);
+        table.AddColumn(Strings.CronColName);
+        table.AddColumn(Strings.CronColSchedule);
+        table.AddColumn(Strings.CronColStatus);
+        table.AddColumn(Strings.CronColNextRun);
+
+        foreach (var job in jobs)
+        {
+            var schedDesc = job.Schedule.Kind switch
+            {
+                "at" when job.Schedule.AtMs.HasValue =>
+                    $"{Strings.CronExecuteOnce} {DateTimeOffset.FromUnixTimeMilliseconds(job.Schedule.AtMs.Value):u} {Strings.CronExecuteOnceSuffix}",
+                "every" when job.Schedule.EveryMs.HasValue =>
+                    $"{Strings.CronEvery} {TimeSpan.FromMilliseconds(job.Schedule.EveryMs.Value)}",
+                _ => job.Schedule.Kind
+            };
+            var next = job.State.NextRunAtMs.HasValue
+                ? DateTimeOffset.FromUnixTimeMilliseconds(job.State.NextRunAtMs.Value).ToString("u")
+                : "-";
+            var status = job.Enabled ? $"[green]{Strings.CronEnabled}[/]" : $"[grey]{Strings.CronDisabled}[/]";
+            table.AddRow(
+                Markup.Escape(job.Id),
+                Markup.Escape(job.Name),
+                Markup.Escape(schedDesc),
+                status,
+                Markup.Escape(next));
+        }
+        AnsiConsole.Write(table);
+    }
+
+    private async Task HandleCronRemoveAsync(string jobId)
+    {
+        if (wireClient != null)
+        {
+            try
+            {
+                await wireClient.CronRemoveAsync(jobId);
+                AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {Strings.CronJobDeletedSuffix}[/]");
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(ex.Message)}[/]");
+            }
+            return;
+        }
+
+        // Fallback: direct local CronService mutation.
+        if (cronService!.RemoveJob(jobId))
+            AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {Strings.CronJobDeletedSuffix}[/]");
+        else
+            AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound} '{Markup.Escape(jobId)}'。[/]");
+    }
+
+    private async Task HandleCronEnableAsync(string jobId, bool enabled)
+    {
+        if (wireClient != null)
+        {
+            try
+            {
+                await wireClient.CronEnableAsync(jobId, enabled);
+                AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {(enabled ? Strings.CronJobEnabled : Strings.CronJobDisabled)}[/]");
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(ex.Message)}[/]");
+            }
+            return;
+        }
+
+        // Fallback: direct local CronService mutation.
+        var job = cronService!.EnableJob(jobId, enabled);
+        if (job != null)
+            AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {(enabled ? Strings.CronJobEnabled : Strings.CronJobDisabled)}[/]");
+        else
+            AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound} '{Markup.Escape(jobId)}'。[/]");
     }
 
     /// <summary>
