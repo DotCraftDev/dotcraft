@@ -265,7 +265,7 @@ public sealed class WeComChannelAdapter : IAsyncDisposable
             UserId = from.UserId,
             UserRole = roleString,
             GroupId = 0,
-            Source = ApprovalSource.WeCom
+            Source = "wecom"
         };
 
         try

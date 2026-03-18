@@ -1,13 +1,5 @@
 namespace DotCraft.Security;
 
-public enum ApprovalSource
-{
-    Console,
-    QQ,
-    WeCom,
-    Api
-}
-
 public sealed class ApprovalContext
 {
     public string UserId { get; init; } = "";
@@ -16,7 +8,12 @@ public sealed class ApprovalContext
 
     public long GroupId { get; init; }
 
-    public ApprovalSource Source { get; init; }
+    /// <summary>
+    /// The channel name that originated this approval context.
+    /// Used by <see cref="ChannelRoutingApprovalService"/> to route approval requests
+    /// to the correct channel-specific approval service.
+    /// </summary>
+    public string Source { get; init; } = "";
 
     public bool IsGroupContext => GroupId > 0;
 }

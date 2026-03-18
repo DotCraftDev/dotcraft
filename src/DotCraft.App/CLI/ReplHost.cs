@@ -22,13 +22,11 @@ public sealed class ReplHost(
     HeartbeatService? heartbeatService = null, CronService? cronService = null,
     AgentFactory? agentFactory = null, McpClientManager? mcpClientManager = null,
     string? dashBoardUrl = null,
-    LanguageService? languageService = null,
     CustomCommandLoader? customCommandLoader = null,
     AgentModeManager? modeManager = null,
     HookRunner? hookRunner = null,
     CliBackendInfo? backendInfo = null)
 {
-    private readonly LanguageService _lang = languageService ?? new LanguageService();
     private readonly AgentModeManager _modeManager = modeManager ?? new AgentModeManager();
 
     private string _currentSessionId = string.Empty;
@@ -99,7 +97,7 @@ public sealed class ReplHost(
             await RunSessionInputAsync(agentInput, cancellationToken);
         }
 
-        AnsiConsole.MarkupLine($"\n[blue]👋 {Strings.Goodbye(_lang)}[/]");
+        AnsiConsole.MarkupLine($"\n[blue]👋 {Strings.Goodbye}[/]");
     }
 
     /// <summary>
@@ -250,7 +248,7 @@ public sealed class ReplHost(
 
     private void ShowWelcomeScreen(string currentSessionId)
     {
-        StatusPanel.ShowWelcome(currentSessionId, dashBoardUrl, _lang, backendInfo);
+        StatusPanel.ShowWelcome(currentSessionId, dashBoardUrl, backendInfo);
     }
 
     private async Task SwitchToModeAsync(AgentMode mode)
@@ -304,7 +302,7 @@ public sealed class ReplHost(
             AnsiConsole.Clear();
             ShowWelcomeScreen(_currentSessionId);
 
-            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionLoaded(_lang)}：[cyan]{newSessionId.EscapeMarkup()}[/]");
+            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionLoaded}：[cyan]{newSessionId.EscapeMarkup()}[/]");
             AnsiConsole.WriteLine();
 
             // Print conversation history
@@ -313,7 +311,7 @@ public sealed class ReplHost(
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.SessionLoadFailed(_lang)}：{ex.Message.EscapeMarkup()}");
+            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.SessionLoadFailed}：{ex.Message.EscapeMarkup()}");
             AnsiConsole.WriteLine();
         }
     }
@@ -333,12 +331,12 @@ public sealed class ReplHost(
 
             AnsiConsole.Clear();
             ShowWelcomeScreen(_currentSessionId);
-            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionCreated(_lang)}");
+            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionCreated}");
             AnsiConsole.WriteLine();
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.SessionCreateFailed(_lang)}：{ex.Message.EscapeMarkup()}");
+            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.SessionCreateFailed}：{ex.Message.EscapeMarkup()}");
             AnsiConsole.WriteLine();
         }
     }
@@ -350,26 +348,26 @@ public sealed class ReplHost(
             var wasCurrent = sessionId == _currentSessionId;
 
             await session.ArchiveThreadAsync(sessionId);
-            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionDeleted(_lang)}：[cyan]{sessionId.EscapeMarkup()}[/]");
+            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionDeleted}：[cyan]{sessionId.EscapeMarkup()}[/]");
 
             if (wasCurrent)
             {
                 // Lazy: reset to pending state; thread is created on next input.
                 _currentThreadId = null;
                 _currentSessionId = string.Empty;
-                AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionNewCreated(_lang)}[/]");
+                AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionCreated}[/]");
             }
 
             AnsiConsole.WriteLine();
         }
         catch (KeyNotFoundException)
         {
-            AnsiConsole.MarkupLine($"[yellow]{Strings.SessionNotFound(_lang)}：{sessionId.EscapeMarkup()}[/]");
+            AnsiConsole.MarkupLine($"[yellow]{Strings.SessionNotFound}：{sessionId.EscapeMarkup()}[/]");
             AnsiConsole.WriteLine();
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.SessionDeleteFailed(_lang)}：{ex.Message.EscapeMarkup()}");
+            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.SessionDeleteFailed}：{ex.Message.EscapeMarkup()}");
             AnsiConsole.WriteLine();
         }
     }
@@ -390,7 +388,7 @@ public sealed class ReplHost(
                 return (true, true, null);
 
             case "/help":
-                StatusPanel.ShowHelp(_lang);
+                StatusPanel.ShowHelp();
                 return (true, false, null);
 
             case "/clear":
@@ -405,7 +403,7 @@ public sealed class ReplHost(
             case "/load":
             {
                 var threads = await session.FindThreadsAsync(_cliIdentity);
-                var selectedThread = SessionPrompt.SelectThreadToLoad(threads, _currentThreadId, _lang);
+                var selectedThread = SessionPrompt.SelectThreadToLoad(threads, _currentThreadId);
                 if (selectedThread != null)
                     await LoadSessionAsync(selectedThread, CancellationToken.None);
                 return (true, false, null);
@@ -414,10 +412,10 @@ public sealed class ReplHost(
             case "/delete":
             {
                 var threadsToDelete = await session.FindThreadsAsync(_cliIdentity);
-                var threadToDelete = SessionPrompt.SelectThreadToDelete(threadsToDelete, _currentThreadId, _lang);
+                var threadToDelete = SessionPrompt.SelectThreadToDelete(threadsToDelete, _currentThreadId);
                 if (threadToDelete != null)
                 {
-                    if (SessionPrompt.ConfirmDelete(threadToDelete, threadToDelete == _currentThreadId, _lang))
+                    if (SessionPrompt.ConfirmDelete(threadToDelete, threadToDelete == _currentThreadId))
                     {
                         await DeleteSession(threadToDelete);
                         AnsiConsole.Clear();
@@ -433,17 +431,17 @@ public sealed class ReplHost(
 
             case "/skills":
                 var allSkills = skillsLoader.ListSkills(filterUnavailable: false);
-                StatusPanel.ShowSkillsTable(allSkills, skillsLoader.WorkspaceSkillsPath, skillsLoader.UserSkillsPath, _lang);
+                StatusPanel.ShowSkillsTable(allSkills, skillsLoader.WorkspaceSkillsPath, skillsLoader.UserSkillsPath);
                 return (true, false, null);
 
             case "/mcp":
-                StatusPanel.ShowMcpServersTable(mcpClientManager, _lang);
+                StatusPanel.ShowMcpServersTable(mcpClientManager);
                 return (true, false, null);
 
             case "/sessions":
             {
                 var threadList = await session.FindThreadsAsync(_cliIdentity);
-                StatusPanel.ShowThreadsTable(threadList, _lang);
+                StatusPanel.ShowThreadsTable(threadList);
                 return (true, false, null);
             }
 
@@ -494,7 +492,7 @@ public sealed class ReplHost(
 
         if (input.StartsWith('/'))
         {
-            var msg = CommandHelper.FormatUnknownCommandMessage(input, KnownCommands, _lang);
+            var msg = CommandHelper.FormatUnknownCommandMessage(input, KnownCommands);
             AnsiConsole.MarkupLine($"[red]{msg.EscapeMarkup()}[/]");
             AnsiConsole.WriteLine();
             return (true, false, null);
@@ -505,20 +503,20 @@ public sealed class ReplHost(
 
     private void HandleInitCommand()
     {
-        AnsiConsole.MarkupLine($"\n[blue]🚀 {Strings.InitWorkspace(_lang)}[/]");
-        AnsiConsole.MarkupLine($"[grey]{Strings.CurrentWorkspace(_lang)}: {workspacePath.EscapeMarkup()}[/]");
+        AnsiConsole.MarkupLine($"\n[blue]🚀 {Strings.InitWorkspace}[/]");
+        AnsiConsole.MarkupLine($"[grey]{Strings.CurrentWorkspace}: {workspacePath.EscapeMarkup()}[/]");
 
         if (Directory.Exists(workspacePath))
         {
             var confirm = AnsiConsole.Prompt(
-                new ConfirmationPrompt(Strings.WorkspaceExists(_lang))
+                new ConfirmationPrompt(Strings.WorkspaceExists)
                 {
                     DefaultValue = false
                 });
 
             if (!confirm)
             {
-                AnsiConsole.MarkupLine($"[grey]{Strings.InitCancelled(_lang)}[/]\n");
+                AnsiConsole.MarkupLine($"[grey]{Strings.InitCancelled}[/]\n");
                 return;
             }
         }
@@ -527,24 +525,24 @@ public sealed class ReplHost(
 
         if (result == 0)
         {
-            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.InitComplete(_lang)}\n");
+            AnsiConsole.MarkupLine($"[green]✓[/] {Strings.InitComplete}\n");
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.InitFailed(_lang)}: {result}\n");
+            AnsiConsole.MarkupLine($"[red]✗[/] {Strings.InitFailed}: {result}\n");
         }
     }
 
     private void HandleMemoryCommand()
     {
-        AnsiConsole.MarkupLine($"\n[purple]🧠 {Strings.LongTermMemory(_lang)}[/]");
+        AnsiConsole.MarkupLine($"\n[purple]🧠 {Strings.LongTermMemory}[/]");
         var memoryDir = Path.Combine(dotCraftPath, "memory");
         var memoryPath = Path.Combine(memoryDir, "MEMORY.md");
 
         if (!File.Exists(memoryPath))
         {
-            AnsiConsole.MarkupLine($"[grey]{Strings.MemoryNotExists(_lang)}[/]");
-            AnsiConsole.MarkupLine($"[grey]{Strings.ExpectedPath(_lang)}: {memoryPath.EscapeMarkup()}[/]");
+            AnsiConsole.MarkupLine($"[grey]{Strings.MemoryNotExists}[/]");
+            AnsiConsole.MarkupLine($"[grey]{Strings.ExpectedPath}: {memoryPath.EscapeMarkup()}[/]");
         }
         else
         {
@@ -552,7 +550,7 @@ public sealed class ReplHost(
 
             if (string.IsNullOrWhiteSpace(content))
             {
-                AnsiConsole.MarkupLine($"[grey]{Strings.MemoryEmpty(_lang)}[/]");
+                AnsiConsole.MarkupLine($"[grey]{Strings.MemoryEmpty}[/]");
             }
             else
             {
@@ -634,26 +632,29 @@ public sealed class ReplHost(
     {
         var newState = DebugModeService.Toggle();
         var statusMsg = newState
-            ? $"[green]✓[/] {Strings.DebugEnabled(_lang)}"
-            : $"[green]✓[/] {Strings.DebugDisabled(_lang)}";
+            ? $"[green]✓[/] {Strings.DebugEnabled}"
+            : $"[green]✓[/] {Strings.DebugDisabled}";
 
         AnsiConsole.MarkupLine($"\n{statusMsg}\n");
     }
 
     private void HandleLanguageCommand()
     {
-        var newLang = _lang.ToggleLanguage();
+        var lang = LanguageService.Current;
+        var newLang = lang.CurrentLanguage == Language.Chinese ? Language.English : Language.Chinese;
+        var configPath = Path.Combine(dotCraftPath, "config.json");
+        lang.SetLanguageAndPersist(newLang, configPath);
         var langName = newLang == Language.Chinese
-            ? Strings.LanguageChinese(_lang)
-            : Strings.LanguageEnglish(_lang);
-        AnsiConsole.MarkupLine($"\n[green]✓[/] {Strings.LanguageSwitched(_lang)}: [cyan]{langName}[/]\n");
+            ? Strings.LanguageChinese
+            : Strings.LanguageEnglish;
+        AnsiConsole.MarkupLine($"\n[green]✓[/] {Strings.LanguageSwitched}: [cyan]{langName}[/]\n");
     }
 
     private async Task HandleHeartbeatCommandAsync(string input)
     {
         if (heartbeatService == null)
         {
-            AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUnavailable(_lang)}[/]\n");
+            AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUnavailable}[/]\n");
             return;
         }
 
@@ -663,15 +664,15 @@ public sealed class ReplHost(
         switch (subCmd)
         {
             case "trigger":
-                AnsiConsole.MarkupLine($"[blue]{Strings.TriggeringHeartbeat(_lang)}[/]");
+                AnsiConsole.MarkupLine($"[blue]{Strings.TriggeringHeartbeat}[/]");
                 var result = await heartbeatService.TriggerNowAsync();
                 if (result != null)
-                    AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult(_lang)}：[/] {Markup.Escape(result)}");
+                    AnsiConsole.MarkupLine($"[green]{Strings.HeartbeatResult}：[/] {Markup.Escape(result)}");
                 else
-                    AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse(_lang)}[/]");
+                    AnsiConsole.MarkupLine($"[grey]{Strings.HeartbeatNoResponse}[/]");
                 break;
             default:
-                AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUsage(_lang)}[/]");
+                AnsiConsole.MarkupLine($"[yellow]{Strings.HeartbeatUsage}[/]");
                 break;
         }
         AnsiConsole.WriteLine();
@@ -681,7 +682,7 @@ public sealed class ReplHost(
     {
         if (cronService == null)
         {
-            AnsiConsole.MarkupLine($"[yellow]{Strings.CronUnavailable(_lang)}[/]\n");
+            AnsiConsole.MarkupLine($"[yellow]{Strings.CronUnavailable}[/]\n");
             return;
         }
 
@@ -695,32 +696,32 @@ public sealed class ReplHost(
                 var jobs = cronService.ListJobs(includeDisabled: true);
                 if (jobs.Count == 0)
                 {
-                    AnsiConsole.MarkupLine($"[grey]{Strings.NoCronJobs(_lang)}[/]");
+                    AnsiConsole.MarkupLine($"[grey]{Strings.NoCronJobs}[/]");
                 }
                 else
                 {
                     var table = new Table();
                     table.Border(TableBorder.Rounded);
-                    table.AddColumn(Strings.CronColId(_lang));
-                    table.AddColumn(Strings.CronColName(_lang));
-                    table.AddColumn(Strings.CronColSchedule(_lang));
-                    table.AddColumn(Strings.CronColStatus(_lang));
-                    table.AddColumn(Strings.CronColNextRun(_lang));
+                    table.AddColumn(Strings.CronColId);
+                    table.AddColumn(Strings.CronColName);
+                    table.AddColumn(Strings.CronColSchedule);
+                    table.AddColumn(Strings.CronColStatus);
+                    table.AddColumn(Strings.CronColNextRun);
 
                     foreach (var job in jobs)
                     {
                         var schedDesc = job.Schedule.Kind switch
                         {
                             "at" when job.Schedule.AtMs.HasValue =>
-                                $"{Strings.CronExecuteOnce(_lang)} {DateTimeOffset.FromUnixTimeMilliseconds(job.Schedule.AtMs.Value):u} {Strings.CronExecuteOnceSuffix(_lang)}",
+                                $"{Strings.CronExecuteOnce} {DateTimeOffset.FromUnixTimeMilliseconds(job.Schedule.AtMs.Value):u} {Strings.CronExecuteOnceSuffix}",
                             "every" when job.Schedule.EveryMs.HasValue =>
-                                $"{Strings.CronEvery(_lang)} {TimeSpan.FromMilliseconds(job.Schedule.EveryMs.Value)}",
+                                $"{Strings.CronEvery} {TimeSpan.FromMilliseconds(job.Schedule.EveryMs.Value)}",
                             _ => job.Schedule.Kind
                         };
                         var next = job.State.NextRunAtMs.HasValue
                             ? DateTimeOffset.FromUnixTimeMilliseconds(job.State.NextRunAtMs.Value).ToString("u")
                             : "-";
-                        var status = job.Enabled ? $"[green]{Strings.CronEnabled(_lang)}[/]" : $"[grey]{Strings.CronDisabled(_lang)}[/]";
+                        var status = job.Enabled ? $"[green]{Strings.CronEnabled}[/]" : $"[grey]{Strings.CronDisabled}[/]";
                         table.AddRow(
                             Markup.Escape(job.Id),
                             Markup.Escape(job.Name),
@@ -736,14 +737,14 @@ public sealed class ReplHost(
             {
                 if (parts.Length < 3)
                 {
-                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronRemoveUsage(_lang)}[/]");
+                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronRemoveUsage}[/]");
                     break;
                 }
                 var jobId = parts[2];
                 if (cronService.RemoveJob(jobId))
-                    AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted(_lang)} '{Markup.Escape(jobId)}' {Strings.CronJobDeletedSuffix(_lang)}[/]");
+                    AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {Strings.CronJobDeletedSuffix}[/]");
                 else
-                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound(_lang)} '{Markup.Escape(jobId)}'。[/]");
+                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound} '{Markup.Escape(jobId)}'。[/]");
                 break;
             }
             case "enable":
@@ -751,20 +752,20 @@ public sealed class ReplHost(
             {
                 if (parts.Length < 3)
                 {
-                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronToggleUsage(_lang)}：/cron {subCmd} <jobId>[/]");
+                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronToggleUsage}：/cron {subCmd} <jobId>[/]");
                     break;
                 }
                 var jobId = parts[2];
                 var enabled = subCmd == "enable";
                 var job = cronService.EnableJob(jobId, enabled);
                 if (job != null)
-                    AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted(_lang)} '{Markup.Escape(jobId)}' {(enabled ? Strings.CronJobEnabled(_lang) : Strings.CronJobDisabled(_lang))}[/]");
+                    AnsiConsole.MarkupLine($"[green]{Strings.CronJobDeleted} '{Markup.Escape(jobId)}' {(enabled ? Strings.CronJobEnabled : Strings.CronJobDisabled)}[/]");
                 else
-                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound(_lang)} '{Markup.Escape(jobId)}'。[/]");
+                    AnsiConsole.MarkupLine($"[yellow]{Strings.CronJobNotFound} '{Markup.Escape(jobId)}'。[/]");
                 break;
             }
             default:
-                AnsiConsole.MarkupLine($"[yellow]{Strings.CronUsage(_lang)}[/]");
+                AnsiConsole.MarkupLine($"[yellow]{Strings.CronUsage}[/]");
                 break;
         }
         AnsiConsole.WriteLine();
@@ -807,7 +808,7 @@ public sealed class ReplHost(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            AnsiConsole.MarkupLine($"\n[yellow]{Strings.AgentInterrupted(_lang)}[/]");
+            AnsiConsole.MarkupLine($"\n[yellow]{Strings.AgentInterrupted}[/]");
             return false;
         }
         catch (Exception ex)

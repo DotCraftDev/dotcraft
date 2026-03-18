@@ -39,6 +39,27 @@ public sealed class AppServerConnection
     /// <summary>Client-declared capabilities from the <c>initialize</c> params.</summary>
     public AppServerClientCapabilities? ClientCapabilities => _clientCapabilities;
 
+    // -------------------------------------------------------------------------
+    // Channel adapter state (external-channel-adapter.md §5.1)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// The canonical channel name if this connection is an external channel adapter.
+    /// Null for regular AppServer clients (CLI, VS Code extension, etc.).
+    /// </summary>
+    public string? ChannelAdapterName { get; private set; }
+
+    /// <summary>
+    /// True if this connection represents an external channel adapter.
+    /// </summary>
+    public bool IsChannelAdapter => ChannelAdapterName != null;
+
+    /// <summary>
+    /// Whether the adapter supports receiving <c>ext/channel/deliver</c> requests.
+    /// Default true; only meaningful when <see cref="IsChannelAdapter"/> is true.
+    /// </summary>
+    public bool SupportsDelivery { get; private set; } = true;
+
     /// <summary>
     /// Marks the connection as initialized and stores the client's identity and capabilities.
     /// Returns <c>false</c> if already initialized (caller should reject with AlreadyInitialized).
@@ -53,6 +74,14 @@ public sealed class AppServerConnection
         _optOutMethods = caps?.OptOutNotificationMethods is { Count: > 0 }
             ? new HashSet<string>(caps.OptOutNotificationMethods, StringComparer.Ordinal)
             : null;
+
+        // Extract channel adapter capability (external-channel-adapter.md §5.1)
+        if (caps?.ChannelAdapter is { } ca)
+        {
+            ChannelAdapterName = ca.ChannelName;
+            SupportsDelivery = ca.DeliverySupport != false;
+        }
+
         _isInitialized = true;
         return true;
     }

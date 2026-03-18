@@ -841,14 +841,8 @@ public sealed class SessionService(
             });
     }
 
-    private static ApprovalSource ResolveApprovalSource(string? channelName) =>
-        channelName?.ToLowerInvariant() switch
-        {
-            "qq" => ApprovalSource.QQ,
-            "wecom" => ApprovalSource.WeCom,
-            "api" => ApprovalSource.Api,
-            _ => ApprovalSource.Console
-        };
+    private static string ResolveApprovalSource(string? channelName) =>
+        channelName?.ToLowerInvariant() ?? "console";
 
     private static void FailTurn(SessionTurn turn, SessionEventChannel channel, string errorMsg)
     {

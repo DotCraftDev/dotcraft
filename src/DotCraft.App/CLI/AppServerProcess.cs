@@ -67,8 +67,8 @@ public sealed class AppServerProcess : IAsyncDisposable
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Spawns <c>&lt;dotcraftBin&gt; app-server</c> as a child process, starts the wire client,
-    /// and performs the initialization handshake.
+    /// Spawns <c>&lt;dotcraftBin&gt; app-server [--listen URL]</c> as a child process, starts
+    /// the wire client, and performs the initialization handshake.
     /// </summary>
     /// <param name="dotcraftBin">
     /// Path to the <c>dotcraft</c> executable.
@@ -78,16 +78,30 @@ public sealed class AppServerProcess : IAsyncDisposable
     /// <param name="workspacePath">
     /// Working directory for the subprocess. Null means the current directory.
     /// </param>
+    /// <param name="listenUrl">
+    /// Optional <c>--listen</c> URL to forward to the subprocess. When set, the
+    /// subprocess starts the corresponding transport in addition to (or instead of) stdio.
+    /// Only the <c>ws+stdio://</c> scheme is meaningful here since the CLI always
+    /// connects via the subprocess's stdio streams.
+    /// </param>
     /// <param name="ct">Cancellation token for the startup sequence.</param>
     public static async Task<AppServerProcess> StartAsync(
         string? dotcraftBin = null,
         string? workspacePath = null,
+        string? listenUrl = null,
         CancellationToken ct = default)
     {
         dotcraftBin ??= Environment.ProcessPath
             ?? throw new InvalidOperationException("Cannot determine dotcraft executable path.");
 
-        var psi = new ProcessStartInfo(dotcraftBin, "app-server")
+        // Build the argument string: "app-server [--listen <url>]"
+        var arguments = "app-server";
+        if (!string.IsNullOrWhiteSpace(listenUrl))
+        {
+            arguments += $" --listen {listenUrl}";
+        }
+
+        var psi = new ProcessStartInfo(dotcraftBin, arguments)
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -104,7 +118,7 @@ public sealed class AppServerProcess : IAsyncDisposable
             psi.WorkingDirectory = workspacePath;
 
         var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {dotcraftBin} app-server");
+            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {dotcraftBin} {arguments}");
 
         // Forward subprocess stderr to the CLI process's stderr so server-side diagnostics
         // remain visible without corrupting the stdout JSON-RPC stream.

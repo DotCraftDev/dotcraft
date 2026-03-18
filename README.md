@@ -77,6 +77,19 @@ I've reviewed the recent git history. Here is a summary of the
 changes in the last week: ...
 ```
 
+**Command-line reference**:
+
+| Command | Description |
+|---------|-------------|
+| `dotcraft` | Interactive CLI (default) |
+| `dotcraft app-server` | Start AppServer in stdio mode |
+| `dotcraft app-server --listen ws://host:port` | Start AppServer in WebSocket mode |
+| `dotcraft app-server --listen ws+stdio://host:port` | Start AppServer in dual mode (stdio + WebSocket) |
+| `dotcraft --remote ws://host:port/ws` | CLI connecting to a remote AppServer |
+| `dotcraft -acp` | ACP mode for editor/IDE integration |
+
+Use `--token <secret>` with `--listen` or `--remote` for WebSocket authentication. See the [AppServer Guide](./docs/en/appserver_guide.md) for details.
+
 For manual editing or the full configuration reference, see the [Configuration Guide](./docs/en/config_guide.md).
 
 ## ⚙️ Configuration
@@ -92,6 +105,7 @@ The same workspace can be reached from multiple surfaces. Sessions stay separate
 | If you want to... | Start here |
 |---|---|
 | Work in a local terminal | [CLI](#local-cli) |
+| Run DotCraft as a headless server | [AppServer](#appserver) |
 | Use DotCraft in an editor or IDE | [Editors and ACP](#editors-and-acp) |
 | Expose DotCraft as a service | [API / AG-UI](#api--ag-ui) |
 | Connect a chat bot | [QQ / WeCom](#qq--wecom) |
@@ -102,6 +116,10 @@ The same workspace can be reached from multiple surfaces. Sessions stay separate
 CLI mode is the default starting point for working directly in a project directory.
 
 ![repl](https://github.com/DotCraftDev/resources/raw/master/dotcraft/repl.gif)
+
+### AppServer
+
+AppServer exposes DotCraft's Agent capabilities as a wire protocol (JSON-RPC) server over stdio or WebSocket, enabling remote CLI connections, multi-client access, and custom integrations in any language. See the [AppServer Guide](./docs/en/appserver_guide.md).
 
 ### Editors And ACP
 
@@ -134,6 +152,7 @@ DotCraft treats the project directory as the unit of operation. When you start i
 ```mermaid
 flowchart LR
     Cli["CLI"]
+    AppSrv["AppServer"]
     Ide["ACP / IDE"]
     Bots["QQ / WeCom"]
     Workflow["GitHub Workflow"]
@@ -147,7 +166,8 @@ flowchart LR
 
     Dashboard["Dashboard"]
 
-    Cli --> Workspace
+    Cli --> AppSrv
+    AppSrv --> Workspace
     Ide --> Workspace
     Bots --> Workspace
     Workflow --> Workspace
@@ -208,6 +228,7 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 
 **Entry points**
 
+- [AppServer Guide](./docs/en/appserver_guide.md): wire protocol server, WebSocket transport, remote CLI
 - [API Mode Guide](./docs/en/api_guide.md): OpenAI-compatible API, tool filtering, SDK examples
 - [AG-UI Mode Guide](./docs/en/agui_guide.md): AG-UI SSE server and CopilotKit integration
 - [QQ Bot Guide](./docs/en/qq_bot_guide.md): NapCat, permissions, and approvals

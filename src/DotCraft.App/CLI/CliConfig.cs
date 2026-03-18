@@ -20,4 +20,17 @@ public sealed class CliConfig
     /// When null, defaults to the current process's executable path (<c>Environment.ProcessPath</c>).
     /// </summary>
     public string? AppServerBin { get; set; }
+
+    /// <summary>
+    /// When set, the CLI connects to an already-running AppServer via WebSocket instead of
+    /// spawning a subprocess. Format: <c>ws://127.0.0.1:9100/ws</c>.
+    /// Takes precedence over the subprocess mode.
+    /// </summary>
+    public string? AppServerUrl { get; set; }
+
+    /// <summary>
+    /// Optional bearer token used when connecting to a WebSocket AppServer that requires
+    /// authentication (appserver-protocol.md §15.4). Only relevant when <see cref="AppServerUrl"/> is set.
+    /// </summary>
+    public string? AppServerToken { get; set; }
 }

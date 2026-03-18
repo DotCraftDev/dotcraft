@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
 namespace DotCraft.Localization;
 
 /// <summary>
@@ -10,32 +13,124 @@ public enum Language
 }
 
 /// <summary>
-/// Service for managing language settings and localization
+/// Service for managing language settings and localization.
+/// Loads translations from embedded JSON language packs and provides key-based lookup.
 /// </summary>
-public sealed class LanguageService(Language language = Language.Chinese)
+public sealed class LanguageService
 {
-    private Language _currentLanguage = language;
+    private static readonly Dictionary<Language, string> LanguageFileMap = new()
+    {
+        [Language.Chinese] = "zh",
+        [Language.English] = "en"
+    };
+
+    /// <summary>
+    /// Ambient context – set once during DI registration, then accessible everywhere.
+    /// Falls back to a default (Chinese) instance if not explicitly configured.
+    /// </summary>
+    public static LanguageService Current { get; set; } = new();
+
+    private volatile Language _currentLanguage;
+    private IReadOnlyDictionary<string, string> _translations;
+
+    public LanguageService(Language language = Language.Chinese)
+    {
+        _currentLanguage = language;
+        _translations = LoadTranslations(language);
+    }
 
     public Language CurrentLanguage
     {
         get => _currentLanguage;
-        set => _currentLanguage = value;
+        set
+        {
+            if (_currentLanguage != value)
+            {
+                _currentLanguage = value;
+                _translations = LoadTranslations(value);
+            }
+        }
     }
 
     /// <summary>
-    /// Toggle between Chinese and English
+    /// Look up a translated string by key. Returns the key itself when not found,
+    /// making missing translations easy to spot during development.
+    /// </summary>
+    public string T(string key)
+    {
+        return _translations.TryGetValue(key, out var value) ? value : key;
+    }
+
+    /// <summary>
+    /// Look up a translated string by key and format it with the supplied arguments.
+    /// </summary>
+    public string T(string key, params object[] args)
+    {
+        var template = _translations.TryGetValue(key, out var value) ? value : key;
+        return args.Length > 0 ? string.Format(template, args) : template;
+    }
+
+    /// <summary>
+    /// Toggle between Chinese and English, reload translations.
     /// </summary>
     public Language ToggleLanguage()
     {
-        _currentLanguage = _currentLanguage == Language.Chinese ? Language.English : Language.Chinese;
-        return _currentLanguage;
+        var newLang = _currentLanguage == Language.Chinese ? Language.English : Language.Chinese;
+        CurrentLanguage = newLang; // triggers reload via setter
+        return newLang;
     }
 
     /// <summary>
-    /// Get localized string based on current language
+    /// Switch language and persist the choice to the specified config.json file.
     /// </summary>
-    public string GetString(string zh, string en)
+    public void SetLanguageAndPersist(Language language, string configPath)
     {
-        return _currentLanguage == Language.Chinese ? zh : en;
+        CurrentLanguage = language;
+
+        try
+        {
+            JsonObject configNode;
+            if (File.Exists(configPath))
+            {
+                var existingJson = File.ReadAllText(configPath);
+                configNode = JsonNode.Parse(existingJson) as JsonObject ?? new JsonObject();
+            }
+            else
+            {
+                configNode = new JsonObject();
+            }
+
+            configNode["Language"] = language.ToString();
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(configPath, configNode.ToJsonString(options));
+        }
+        catch
+        {
+            // Best-effort persist — don't crash the CLI if config write fails.
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Private helpers
+    // -----------------------------------------------------------------
+
+    private static IReadOnlyDictionary<string, string> LoadTranslations(Language language)
+    {
+        if (!LanguageFileMap.TryGetValue(language, out var fileSuffix))
+            fileSuffix = "zh";
+
+        var resourceName = $"DotCraft.Localization.Languages.{fileSuffix}.json";
+        var assembly = typeof(LanguageService).Assembly;
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null)
+            return new Dictionary<string, string>();
+
+        using var reader = new StreamReader(stream);
+        var json = reader.ReadToEnd();
+
+        var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+        return dict ?? new Dictionary<string, string>();
     }
 }

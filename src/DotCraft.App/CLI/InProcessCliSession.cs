@@ -1,6 +1,7 @@
 using DotCraft.Agents;
 using DotCraft.CLI.Rendering;
 using DotCraft.Hooks;
+using DotCraft.Localization;
 using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Tracing;
@@ -60,8 +61,7 @@ public sealed class InProcessCliSession(
         await renderer.StartAsync(ct);
         await renderer.SendEventAsync(RenderEvent.StreamStart(), ct);
         ConsoleApprovalService.SetRenderControl(renderer);
-        if (hookRunner != null)
-            hookRunner.DebugLogger = renderer.TryEnqueueDebug;
+        hookRunner?.DebugLogger = renderer.TryEnqueueDebug;
 
         try
         {
@@ -135,25 +135,25 @@ public sealed class InProcessCliSession(
                     {
                         case "compacting":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Compacting context..."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextLimitReached), ct);
                             break;
                         case "compacted":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compacted successfully."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompacted), ct);
                             break;
                         case "compactSkipped":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Context compaction skipped."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompactSkipped), ct);
                             break;
                         case "consolidating":
                             await renderer.SendEventAsync(
                                 RenderEvent.SystemStatusEvent(
-                                    sysEvt.Message ?? "Consolidating memory...",
-                                    "Memory consolidation complete."), ct);
+                                    sysEvt.Message ?? Strings.MemoryConsolidating,
+                                    Strings.MemoryConsolidated), ct);
                             break;
                         case "consolidated":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? "Memory consolidation complete."), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated), ct);
                             break;
                     }
                 }

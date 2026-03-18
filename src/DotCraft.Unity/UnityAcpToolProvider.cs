@@ -1,4 +1,9 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using DotCraft.Abstractions;
 using Microsoft.Extensions.AI;
 
@@ -15,7 +20,7 @@ public sealed class UnityAcpToolProvider : IAgentToolProvider
     /// Extension prefix that the client must advertise in <c>ClientCapabilities.Extensions</c>
     /// for these tools to be registered.
     /// </summary>
-    internal const string ExtensionPrefix = "_unity";
+    private const string ExtensionPrefix = "_unity";
 
     public int Priority => 150; // After IAgentToolProvider default (100)
 

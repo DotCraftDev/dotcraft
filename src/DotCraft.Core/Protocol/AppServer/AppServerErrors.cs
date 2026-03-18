@@ -55,6 +55,7 @@ public static class AppServerErrors
     public const int TurnNotFoundCode = -32013;
     public const int TurnNotRunningCode = -32014;
     public const int ApprovalTimeoutCode = -32020;
+    public const int ChannelRejectedCode = -32030;
 
     // ── Factory methods ──
 
@@ -99,4 +100,7 @@ public static class AppServerErrors
 
     public static AppServerException ApprovalTimeout() =>
         new(ApprovalTimeoutCode, "Approval request timed out");
+
+    public static AppServerException ChannelRejected(string channelName) =>
+        new(ChannelRejectedCode, $"Channel adapter rejected: '{channelName}' is not registered in server configuration");
 }

@@ -64,7 +64,9 @@ public static class ServiceRegistration
         customCommandLoader.DeployBuiltInCommands();
         services.AddSingleton(customCommandLoader);
 
-        services.AddSingleton(new LanguageService(config.Language));
+        var languageService = new LanguageService(config.Language);
+        LanguageService.Current = languageService;
+        services.AddSingleton(languageService);
 
         var cronStorePath = Path.Combine(botPath, config.Cron.StorePath);
         services.AddSingleton(new CronService(cronStorePath));

@@ -1,3 +1,4 @@
+using DotCraft.Localization;
 using Spectre.Console;
 
 namespace DotCraft.Security;
@@ -26,10 +27,11 @@ public static class ApprovalPrompt
     /// <returns>审批选项</returns>
     public static ApprovalOption RequestFileApproval(string operation, string path)
     {
+        var t = LanguageService.Current;
         AnsiConsole.WriteLine();
-        var panel = new Panel($"[yellow]操作：[/] {EscapeMarkup(operation)}\n[yellow]路径：[/] {EscapeMarkup(path)}")
+        var panel = new Panel($"[yellow]{t.T("approval.file.operation")}[/] {EscapeMarkup(operation)}\n[yellow]{t.T("approval.file.path")}[/] {EscapeMarkup(path)}")
         {
-            Header = new PanelHeader("[yellow]⚠️  需要审批：工作区外的文件操作[/]"),
+            Header = new PanelHeader($"[yellow]{t.T("approval.file.title")}[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Yellow)
         };
@@ -37,7 +39,7 @@ public static class ApprovalPrompt
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<ApprovalOption>()
-                .Title("[green]是否批准此操作？[/]")
+                .Title($"[green]{t.T("approval.file.approve_question")}[/]")
                 .AddChoices(
                     ApprovalOption.Once,
                     ApprovalOption.Session,
@@ -45,10 +47,10 @@ public static class ApprovalPrompt
                     ApprovalOption.Reject)
                 .UseConverter(option => option switch
                 {
-                    ApprovalOption.Once => "✅  批准（仅此一次）",
-                    ApprovalOption.Session => "✅  批准（本次会话有效）",
-                    ApprovalOption.Always => "✅  批准（永久）",
-                    ApprovalOption.Reject => "❌  拒绝",
+                    ApprovalOption.Once => t.T("approval.option.once"),
+                    ApprovalOption.Session => t.T("approval.option.session"),
+                    ApprovalOption.Always => t.T("approval.option.always"),
+                    ApprovalOption.Reject => t.T("approval.option.reject"),
                     _ => option.ToString()
                 })
                 .PageSize(4));
@@ -65,16 +67,17 @@ public static class ApprovalPrompt
     /// <returns>审批选项</returns>
     public static ApprovalOption RequestShellApproval(string command, string? workingDir)
     {
+        var t = LanguageService.Current;
         AnsiConsole.WriteLine();
-        var message = $"[yellow]命令：[/] {EscapeMarkup(command)}";
+        var message = $"[yellow]{t.T("approval.shell.command")}[/] {EscapeMarkup(command)}";
         if (!string.IsNullOrWhiteSpace(workingDir))
         {
-            message += $"\n[yellow]工作目录：[/] {EscapeMarkup(workingDir)}";
+            message += $"\n[yellow]{t.T("approval.shell.working_dir")}[/] {EscapeMarkup(workingDir)}";
         }
 
         var panel = new Panel(message)
         {
-            Header = new PanelHeader("[yellow]⚠️  需要审批：工作区外的 Shell 命令[/]"),
+            Header = new PanelHeader($"[yellow]{t.T("approval.shell.title")}[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Yellow)
         };
@@ -82,19 +85,18 @@ public static class ApprovalPrompt
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<ApprovalOption>()
-                .Title("[green]是否批准此命令？[/]")
-                .AddChoices(new[] {
+                .Title($"[green]{t.T("approval.shell.approve_question")}[/]")
+                .AddChoices(
                     ApprovalOption.Once,
                     ApprovalOption.Session,
                     ApprovalOption.Always,
-                    ApprovalOption.Reject
-                })
+                    ApprovalOption.Reject)
                 .UseConverter(option => option switch
                 {
-                    ApprovalOption.Once => "✅ 批准（仅此一次）",
-                    ApprovalOption.Session => "✅ 批准（本次会话有效）",
-                    ApprovalOption.Always => "✅ 批准（永久）",
-                    ApprovalOption.Reject => "❌ 拒绝",
+                    ApprovalOption.Once => t.T("approval.option.once"),
+                    ApprovalOption.Session => t.T("approval.option.session"),
+                    ApprovalOption.Always => t.T("approval.option.always"),
+                    ApprovalOption.Reject => t.T("approval.option.reject"),
                     _ => option.ToString()
                 })
                 .PageSize(4));
@@ -108,19 +110,20 @@ public static class ApprovalPrompt
     /// </summary>
     private static void DisplayResult(ApprovalOption option)
     {
+        var t = LanguageService.Current;
         switch (option)
         {
             case ApprovalOption.Once:
-                AnsiConsole.MarkupLine("[green]✓ 已批准（仅此一次）[/]");
+                AnsiConsole.MarkupLine($"[green]{t.T("approval.result.once")}[/]");
                 break;
             case ApprovalOption.Session:
-                AnsiConsole.MarkupLine("[green]✓ 已批准（本次会话有效）[/]");
+                AnsiConsole.MarkupLine($"[green]{t.T("approval.result.session")}[/]");
                 break;
             case ApprovalOption.Always:
-                AnsiConsole.MarkupLine("[green]✓ 已批准并永久保存[/]");
+                AnsiConsole.MarkupLine($"[green]{t.T("approval.result.always")}[/]");
                 break;
             case ApprovalOption.Reject:
-                AnsiConsole.MarkupLine("[red]✗ 已拒绝[/]");
+                AnsiConsole.MarkupLine($"[red]{t.T("approval.result.reject")}[/]");
                 break;
         }
         AnsiConsole.WriteLine();

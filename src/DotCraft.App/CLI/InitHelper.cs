@@ -75,11 +75,10 @@ public static class InitHelper
     /// <summary>
     /// 询问用户是否确认，使用 Spectre.Console 选项（多语言支持）
     /// </summary>
-    public static bool AskYesNo(string title, LanguageService? lang = null)
+    public static bool AskYesNo(string title)
     {
-        lang ??= new LanguageService();
-        var yesOption = lang.GetString("是 (Yes)", "Yes");
-        var noOption = lang.GetString("否 (No)", "No");
+        var yesOption = Strings.InitAskYes;
+        var noOption = Strings.InitAskNo;
         
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -94,9 +93,13 @@ public static class InitHelper
     /// </summary>
     public static int InitializeWorkspace(string workspacePath, Language language = Language.Chinese)
     {
-        var lang = new LanguageService(language);
-        
-        AnsiConsole.MarkupLine($"[blue]🚀 {lang.GetString("开始初始化 DotCraft 工作区...", "Initializing DotCraft workspace...")}[/]");
+        // Ensure LanguageService.Current is set for the init flow
+        if (LanguageService.Current.CurrentLanguage != language)
+        {
+            LanguageService.Current = new LanguageService(language);
+        }
+
+        AnsiConsole.MarkupLine($"[blue]🚀 {Strings.InitInitializing}[/]");
 
         // 收集创建的文件用于表格显示
         var createdItems = new List<(string Status, string Path)>();
@@ -168,8 +171,8 @@ public static class InitHelper
             var table = new Table()
                 .Border(TableBorder.Rounded)
                 .BorderColor(Color.Grey)
-                .AddColumn(new TableColumn(lang.GetString("状态", "Status")).Centered())
-                .AddColumn(new TableColumn(lang.GetString("路径", "Path")).LeftAligned());
+                .AddColumn(new TableColumn(Strings.InitStatus).Centered())
+                .AddColumn(new TableColumn(Strings.InitPath).LeftAligned());
 
             foreach (var item in createdItems)
             {
@@ -183,7 +186,7 @@ public static class InitHelper
         catch (Exception ex)
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[red]✗ {lang.GetString("初始化失败", "Initialization failed")}: {ex.Message.EscapeMarkup()}[/]");
+            AnsiConsole.MarkupLine($"[red]✗ {Strings.InitFailedShort}: {ex.Message.EscapeMarkup()}[/]");
             return 1;
         }
     }
@@ -201,10 +204,10 @@ public static class InitHelper
     /// <summary>
     /// 提示用户输入 API Key
     /// </summary>
-    public static string? PromptApiKey(LanguageService lang)
+    public static string? PromptApiKey()
     {
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[cyan]{lang.GetString("请输入 API Key（留空跳过）：", "Enter API Key (leave empty to skip):")}[/]");
+        AnsiConsole.MarkupLine($"[cyan]{Strings.InitEnterApiKey}[/]");
         var apiKey = Console.ReadLine();
         return string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
     }

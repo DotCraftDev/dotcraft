@@ -90,7 +90,14 @@ public enum RenderEventType
     /// The <see cref="RenderEvent.Content"/> carries the spinner text,
     /// and <see cref="RenderEvent.AdditionalInfo"/> carries the completion text (if known).
     /// </summary>
-    SystemStatus
+    SystemStatus,
+
+    /// <summary>
+    /// Plan/todo progress update — emitted when the agent creates or updates a structured plan.
+    /// The <see cref="RenderEvent.PlanData"/> carries the complete plan snapshot for rendering
+    /// as a Todolist progress panel via <see cref="StatusPanel.ShowPlanStatus"/>.
+    /// </summary>
+    PlanUpdate
 }
 
 /// <summary>
@@ -157,6 +164,12 @@ public class RenderEvent
     /// Incremental output tokens for <see cref="RenderEventType.UsageDelta"/> events.
     /// </summary>
     public long OutputTokensDelta { get; init; }
+
+    /// <summary>
+    /// Plan/todo data for <see cref="RenderEventType.PlanUpdate"/> events.
+    /// Contains the complete plan snapshot including title, overview, and todos.
+    /// </summary>
+    public PlanUpdateData? PlanData { get; init; }
 
     /// <summary>
     /// Create a ToolCallStarted event
@@ -352,5 +365,35 @@ public class RenderEvent
         AdditionalInfo = completedMessage,
         Color = "cyan"
     };
+
+    /// <summary>
+    /// Create a PlanUpdate event carrying a complete plan snapshot for Todolist rendering.
+    /// </summary>
+    public static RenderEvent PlanUpdateEvent(PlanUpdateData planData) => new()
+    {
+        Type = RenderEventType.PlanUpdate,
+        PlanData = planData
+    };
+}
+
+/// <summary>
+/// Wire-friendly plan data carried by <see cref="RenderEventType.PlanUpdate"/> events.
+/// </summary>
+public sealed class PlanUpdateData
+{
+    public string Title { get; init; } = "";
+    public string Overview { get; init; } = "";
+    public IReadOnlyList<PlanTodoData> Todos { get; init; } = [];
+}
+
+/// <summary>
+/// Wire-friendly plan todo entry.
+/// </summary>
+public sealed class PlanTodoData
+{
+    public string Id { get; init; } = "";
+    public string Content { get; init; } = "";
+    public string Priority { get; init; } = "medium";
+    public string Status { get; init; } = "pending";
 }
 

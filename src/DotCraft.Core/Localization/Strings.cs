@@ -1,170 +1,196 @@
 namespace DotCraft.Localization;
 
 /// <summary>
-/// Localized strings for CLI
+/// Type-safe access layer for localized strings.
+/// Each property / method maps to a key in the JSON language pack,
+/// providing compile-time safety while keeping translations in external files.
 /// </summary>
 public static class Strings
 {
-    // Command descriptions
-    public static string CmdExit(LanguageService lang) => lang.GetString("退出程序", "Exit the program");
-    public static string CmdHelp(LanguageService lang) => lang.GetString("显示帮助信息", "Show help information");
-    public static string CmdClear(LanguageService lang) => lang.GetString("清屏", "Clear screen");
-    public static string CmdNew(LanguageService lang) => lang.GetString("创建新会话", "Create a new session");
-    public static string CmdLoad(LanguageService lang) => lang.GetString("选择并切换到另一个会话", "Select and switch to another session");
-    public static string CmdDelete(LanguageService lang) => lang.GetString("选择并删除一个会话", "Select and delete a session");
-    public static string CmdInit(LanguageService lang) => lang.GetString("初始化工作区", "Initialize workspace");
-    public static string CmdDebug(LanguageService lang) => lang.GetString("切换调试模式", "Toggle debug mode");
-    public static string CmdSkills(LanguageService lang) => lang.GetString("显示可用技能列表", "Show available skills");
-    public static string CmdMcp(LanguageService lang) => lang.GetString("显示 MCP 服务状态", "Show MCP service status");
-    public static string CmdSessions(LanguageService lang) => lang.GetString("显示保存的会话列表", "Show saved sessions");
-    public static string CmdMemory(LanguageService lang) => lang.GetString("显示长期记忆", "Show long-term memory");
-    public static string CmdHeartbeat(LanguageService lang) => lang.GetString("立即触发心跳检查", "Trigger heartbeat check immediately");
-    public static string CmdCronList(LanguageService lang) => lang.GetString("查看定时任务列表", "List cron jobs");
-    public static string CmdCronRemove(LanguageService lang) => lang.GetString("删除定时任务", "Remove a cron job");
-    public static string CmdCronToggle(LanguageService lang) => lang.GetString("启用/禁用定时任务", "Enable/disable a cron job");
-    public static string CmdLang(LanguageService lang) => lang.GetString("切换语言 (中/英)", "Switch language (Chinese/English)");
-    public static string CmdCommands(LanguageService lang) => lang.GetString("显示自定义命令列表", "Show custom commands");
-    public static string CmdAgent(LanguageService lang) => lang.GetString("切换到 Agent 模式", "Switch to Agent mode");
-    public static string CmdPlan(LanguageService lang) => lang.GetString("切换到 Plan 模式", "Switch to Plan mode");
+    // ── Command descriptions ─────────────────────────────────────────
+    public static string CmdExit => LanguageService.Current.T("cmd.exit");
+    public static string CmdHelp => LanguageService.Current.T("cmd.help");
+    public static string CmdClear => LanguageService.Current.T("cmd.clear");
+    public static string CmdNew => LanguageService.Current.T("cmd.new");
+    public static string CmdLoad => LanguageService.Current.T("cmd.load");
+    public static string CmdDelete => LanguageService.Current.T("cmd.delete");
+    public static string CmdInit => LanguageService.Current.T("cmd.init");
+    public static string CmdDebug => LanguageService.Current.T("cmd.debug");
+    public static string CmdSkills => LanguageService.Current.T("cmd.skills");
+    public static string CmdMcp => LanguageService.Current.T("cmd.mcp");
+    public static string CmdSessions => LanguageService.Current.T("cmd.sessions");
+    public static string CmdMemory => LanguageService.Current.T("cmd.memory");
+    public static string CmdHeartbeat => LanguageService.Current.T("cmd.heartbeat");
+    public static string CmdCronList => LanguageService.Current.T("cmd.cron_list");
+    public static string CmdCronRemove => LanguageService.Current.T("cmd.cron_remove");
+    public static string CmdCronToggle => LanguageService.Current.T("cmd.cron_toggle");
+    public static string CmdLang => LanguageService.Current.T("cmd.lang");
+    public static string CmdCommands => LanguageService.Current.T("cmd.commands");
+    public static string CmdAgent => LanguageService.Current.T("cmd.agent");
+    public static string CmdPlan => LanguageService.Current.T("cmd.plan");
 
-    // Welcome screen
-    public static string CurrentSession(LanguageService lang) => lang.GetString("当前会话", "Current session");
-    public static string QuickCommands(LanguageService lang) => lang.GetString("快捷命令", "Quick commands");
+    // ── Welcome screen ───────────────────────────────────────────────
+    public static string CurrentSession => LanguageService.Current.T("welcome.current_session");
+    public static string QuickCommands => LanguageService.Current.T("welcome.quick_commands");
 
-    // Session management
-    public static string SessionLoaded(LanguageService lang) => lang.GetString("已加载会话", "Session loaded");
-    public static string SessionLoadFailed(LanguageService lang) => lang.GetString("加载会话失败", "Failed to load session");
-    public static string SessionCreated(LanguageService lang) => lang.GetString("已创建新会话", "New session created");
-    public static string SessionCreateFailed(LanguageService lang) => lang.GetString("创建新会话失败", "Failed to create new session");
-    public static string SessionDeleted(LanguageService lang) => lang.GetString("已删除会话", "Session deleted");
-    public static string SessionNotFound(LanguageService lang) => lang.GetString("未找到会话", "Session not found");
-    public static string SessionNewCreated(LanguageService lang) => lang.GetString("已创建新会话", "New session created");
-    public static string SessionDeleteFailed(LanguageService lang) => lang.GetString("删除会话失败", "Failed to delete session");
+    // ── Session management ───────────────────────────────────────────
+    public static string SessionLoaded => LanguageService.Current.T("session.loaded");
+    public static string SessionLoadFailed => LanguageService.Current.T("session.load_failed");
+    public static string SessionCreated => LanguageService.Current.T("session.created");
+    public static string SessionCreateFailed => LanguageService.Current.T("session.create_failed");
+    public static string SessionDeleted => LanguageService.Current.T("session.deleted");
+    public static string SessionNotFound => LanguageService.Current.T("session.not_found");
+    public static string SessionDeleteFailed => LanguageService.Current.T("session.delete_failed");
 
-    // Init command
-    public static string InitWorkspace(LanguageService lang) => lang.GetString("重新初始化工作区", "Re-initialize workspace");
-    public static string CurrentWorkspace(LanguageService lang) => lang.GetString("当前工作区", "Current workspace");
-    public static string WorkspaceExists(LanguageService lang) => lang.GetString("工作区已存在，是否重新初始化？这将覆盖现有配置", "Workspace already exists. Re-initialize? This will overwrite existing configuration");
-    public static string InitCancelled(LanguageService lang) => lang.GetString("初始化已取消", "Initialization cancelled");
-    public static string InitComplete(LanguageService lang) => lang.GetString("初始化完成！", "Initialization complete!");
-    public static string InitFailed(LanguageService lang) => lang.GetString("初始化失败，错误码", "Initialization failed, error code");
+    // ── Init command ─────────────────────────────────────────────────
+    public static string InitWorkspace => LanguageService.Current.T("init.workspace");
+    public static string CurrentWorkspace => LanguageService.Current.T("init.current_workspace");
+    public static string WorkspaceExists => LanguageService.Current.T("init.workspace_exists");
+    public static string InitCancelled => LanguageService.Current.T("init.cancelled");
+    public static string InitComplete => LanguageService.Current.T("init.complete");
+    public static string InitFailed => LanguageService.Current.T("init.failed");
+    public static string InitInitializing => LanguageService.Current.T("init.initializing");
+    public static string InitFailedShort => LanguageService.Current.T("init.failed_short");
+    public static string InitStatus => LanguageService.Current.T("init.status");
+    public static string InitPath => LanguageService.Current.T("init.path");
+    public static string InitWorkspaceInitialized => LanguageService.Current.T("init.workspace_initialized");
+    public static string InitApiKeyNotConfigured => LanguageService.Current.T("init.api_key_not_configured");
+    public static string InitPressAnyKey => LanguageService.Current.T("init.press_any_key");
+    public static string InitTrustFolderTitle => LanguageService.Current.T("init.trust_folder_title");
+    public static string InitTrustFolderWorkspacePath => LanguageService.Current.T("init.trust_folder_workspace_path");
+    public static string InitTrustFolderDescription => LanguageService.Current.T("init.trust_folder_description");
+    public static string InitTrustFolderQuestion => LanguageService.Current.T("init.trust_folder_question");
+    public static string InitTrustFolderCancelled => LanguageService.Current.T("init.trust_folder_cancelled");
+    public static string InitAskYes => LanguageService.Current.T("init.ask_yes");
+    public static string InitAskNo => LanguageService.Current.T("init.ask_no");
+    public static string InitEnterApiKey => LanguageService.Current.T("init.enter_api_key");
 
-    // Memory command
-    public static string LongTermMemory(LanguageService lang) => lang.GetString("长期记忆 (MEMORY.md)", "Long-term Memory (MEMORY.md)");
-    public static string MemoryNotExists(LanguageService lang) => lang.GetString("长期记忆文件不存在", "Long-term memory file does not exist");
-    public static string ExpectedPath(LanguageService lang) => lang.GetString("预期路径", "Expected path");
-    public static string MemoryEmpty(LanguageService lang) => lang.GetString("长期记忆为空", "Long-term memory is empty");
+    // ── Memory command ───────────────────────────────────────────────
+    public static string LongTermMemory => LanguageService.Current.T("memory.long_term");
+    public static string MemoryNotExists => LanguageService.Current.T("memory.not_exists");
+    public static string ExpectedPath => LanguageService.Current.T("memory.expected_path");
+    public static string MemoryEmpty => LanguageService.Current.T("memory.empty");
 
-    // Debug command
-    public static string DebugEnabled(LanguageService lang) => lang.GetString("调试模式已开启", "Debug mode enabled");
-    public static string DebugDisabled(LanguageService lang) => lang.GetString("调试模式已关闭", "Debug mode disabled");
+    // ── Debug command ────────────────────────────────────────────────
+    public static string DebugEnabled => LanguageService.Current.T("debug.enabled");
+    public static string DebugDisabled => LanguageService.Current.T("debug.disabled");
 
-    // Heartbeat command
-    public static string HeartbeatUnavailable(LanguageService lang) => lang.GetString("心跳服务不可用。", "Heartbeat service unavailable.");
-    public static string TriggeringHeartbeat(LanguageService lang) => lang.GetString("正在触发心跳...", "Triggering heartbeat...");
-    public static string HeartbeatResult(LanguageService lang) => lang.GetString("心跳结果", "Heartbeat result");
-    public static string HeartbeatNoResponse(LanguageService lang) => lang.GetString("无心跳响应（HEARTBEAT.md 可能为空或不存在）。", "No heartbeat response (HEARTBEAT.md may be empty or missing).");
-    public static string HeartbeatUsage(LanguageService lang) => lang.GetString("用法：/heartbeat trigger", "Usage: /heartbeat trigger");
+    // ── Heartbeat command ────────────────────────────────────────────
+    public static string HeartbeatUnavailable => LanguageService.Current.T("heartbeat.unavailable");
+    public static string TriggeringHeartbeat => LanguageService.Current.T("heartbeat.triggering");
+    public static string HeartbeatResult => LanguageService.Current.T("heartbeat.result");
+    public static string HeartbeatNoResponse => LanguageService.Current.T("heartbeat.no_response");
+    public static string HeartbeatUsage => LanguageService.Current.T("heartbeat.usage");
 
-    // Cron command
-    public static string CronUnavailable(LanguageService lang) => lang.GetString("定时任务服务不可用。", "Cron service unavailable.");
-    public static string NoCronJobs(LanguageService lang) => lang.GetString("没有定时任务。", "No cron jobs.");
-    public static string CronColId(LanguageService lang) => lang.GetString("ID", "ID");
-    public static string CronColName(LanguageService lang) => lang.GetString("名称", "Name");
-    public static string CronColSchedule(LanguageService lang) => lang.GetString("调度", "Schedule");
-    public static string CronColStatus(LanguageService lang) => lang.GetString("状态", "Status");
-    public static string CronColNextRun(LanguageService lang) => lang.GetString("下次运行", "Next Run");
-    public static string CronExecuteOnce(LanguageService lang) => lang.GetString("在", "At");
-    public static string CronExecuteOnceSuffix(LanguageService lang) => lang.GetString("执行一次", "execute once");
-    public static string CronEvery(LanguageService lang) => lang.GetString("每", "Every");
-    public static string CronEnabled(LanguageService lang) => lang.GetString("已启用", "Enabled");
-    public static string CronDisabled(LanguageService lang) => lang.GetString("已禁用", "Disabled");
-    public static string CronRemoveUsage(LanguageService lang) => lang.GetString("用法：/cron remove <jobId>", "Usage: /cron remove <jobId>");
-    public static string CronJobDeleted(LanguageService lang) => lang.GetString("任务", "Job");
-    public static string CronJobDeletedSuffix(LanguageService lang) => lang.GetString("已删除。", "deleted.");
-    public static string CronJobNotFound(LanguageService lang) => lang.GetString("未找到任务", "Job not found");
-    public static string CronToggleUsage(LanguageService lang) => lang.GetString("用法", "Usage");
-    public static string CronJobEnabled(LanguageService lang) => lang.GetString("已启用。", "enabled.");
-    public static string CronJobDisabled(LanguageService lang) => lang.GetString("已禁用。", "disabled.");
-    public static string CronUsage(LanguageService lang) => lang.GetString("用法：/cron list | /cron remove <id> | /cron enable <id> | /cron disable <id>", "Usage: /cron list | /cron remove <id> | /cron enable <id> | /cron disable <id>");
+    // ── Cron command ─────────────────────────────────────────────────
+    public static string CronUnavailable => LanguageService.Current.T("cron.unavailable");
+    public static string NoCronJobs => LanguageService.Current.T("cron.no_jobs");
+    public static string CronColId => LanguageService.Current.T("cron.col_id");
+    public static string CronColName => LanguageService.Current.T("cron.col_name");
+    public static string CronColSchedule => LanguageService.Current.T("cron.col_schedule");
+    public static string CronColStatus => LanguageService.Current.T("cron.col_status");
+    public static string CronColNextRun => LanguageService.Current.T("cron.col_next_run");
+    public static string CronExecuteOnce => LanguageService.Current.T("cron.execute_once");
+    public static string CronExecuteOnceSuffix => LanguageService.Current.T("cron.execute_once_suffix");
+    public static string CronEvery => LanguageService.Current.T("cron.every");
+    public static string CronEnabled => LanguageService.Current.T("cron.enabled");
+    public static string CronDisabled => LanguageService.Current.T("cron.disabled");
+    public static string CronRemoveUsage => LanguageService.Current.T("cron.remove_usage");
+    public static string CronJobDeleted => LanguageService.Current.T("cron.job_deleted");
+    public static string CronJobDeletedSuffix => LanguageService.Current.T("cron.job_deleted_suffix");
+    public static string CronJobNotFound => LanguageService.Current.T("cron.job_not_found");
+    public static string CronToggleUsage => LanguageService.Current.T("cron.toggle_usage");
+    public static string CronJobEnabled => LanguageService.Current.T("cron.job_enabled");
+    public static string CronJobDisabled => LanguageService.Current.T("cron.job_disabled");
+    public static string CronUsage => LanguageService.Current.T("cron.usage");
 
-    // Context compaction
-    public static string ContextLimitReached(LanguageService lang) => lang.GetString("上下文 token 限制已达到，正在压缩对话...", "Context token limit reached, compacting conversation...");
-    public static string ContextCompacted(LanguageService lang) => lang.GetString("上下文压缩成功。", "Context compacted successfully.");
-    public static string ContextCompactSkipped(LanguageService lang) => lang.GetString("跳过上下文压缩（历史记录不足）。", "Context compaction skipped (insufficient history).");
+    // ── Context compaction ───────────────────────────────────────────
+    public static string ContextLimitReached => LanguageService.Current.T("context.limit_reached");
+    public static string ContextCompacted => LanguageService.Current.T("context.compacted");
+    public static string ContextCompactSkipped => LanguageService.Current.T("context.compact_skipped");
 
-    // Memory consolidation
-    public static string MemoryConsolidating(LanguageService lang) => lang.GetString("正在整理记忆...", "Consolidating memory...");
+    // ── Memory consolidation ─────────────────────────────────────────
+    public static string MemoryConsolidating => LanguageService.Current.T("memory.consolidating");
+    public static string MemoryConsolidated => LanguageService.Current.T("memory.consolidated");
 
-    // Agent interrupt
-    public static string AgentInterrupted(LanguageService lang) => lang.GetString("Agent 已中断", "Agent interrupted");
+    // ── Agent interrupt ──────────────────────────────────────────────
+    public static string AgentInterrupted => LanguageService.Current.T("agent.interrupted");
 
-    // Goodbye
-    public static string Goodbye(LanguageService lang) => lang.GetString("再见！", "Goodbye!");
+    // ── Goodbye ──────────────────────────────────────────────────────
+    public static string Goodbye => LanguageService.Current.T("common.goodbye");
 
-    // Help panel
-    public static string Commands(LanguageService lang) => lang.GetString("命令", "Commands");
-    public static string UsageTips(LanguageService lang) => lang.GetString("使用提示", "Usage Tips");
-    public static string TipDirectInput(LanguageService lang) => lang.GetString("直接输入问题与 DotCraft 对话", "Directly input questions to chat with DotCraft");
-    public static string TipArrowKeys(LanguageService lang) => lang.GetString("使用方向键 ↑↓ 浏览历史", "Use arrow keys ↑↓ to browse history");
-    public static string TipAutoSave(LanguageService lang) => lang.GetString("会话结束会自动保存", "Sessions are saved automatically");
-    public static string TipTabComplete(LanguageService lang) => lang.GetString("按 Tab 自动补全命令", "Press Tab to auto-complete commands");
-    public static string TipShiftTabMode(LanguageService lang) => lang.GetString("按 Shift+Tab 切换 Plan/Agent 模式", "Press Shift+Tab to switch Plan/Agent mode");
+    // ── Help panel ───────────────────────────────────────────────────
+    public static string Commands => LanguageService.Current.T("help.commands");
+    public static string UsageTips => LanguageService.Current.T("help.usage_tips");
+    public static string TipDirectInput => LanguageService.Current.T("help.tip_direct_input");
+    public static string TipArrowKeys => LanguageService.Current.T("help.tip_arrow_keys");
+    public static string TipAutoSave => LanguageService.Current.T("help.tip_auto_save");
+    public static string TipTabComplete => LanguageService.Current.T("help.tip_tab_complete");
+    public static string TipShiftTabMode => LanguageService.Current.T("help.tip_shift_tab_mode");
 
-    // Skills panel
-    public static string AvailableSkills(LanguageService lang) => lang.GetString("可用技能", "Available skills");
-    public static string Skill(LanguageService lang) => lang.GetString("技能", "Skill");
-    public static string Status(LanguageService lang) => lang.GetString("状态", "Status");
-    public static string Source(LanguageService lang) => lang.GetString("来源", "Source");
-    public static string Description(LanguageService lang) => lang.GetString("描述", "Description");
-    public static string Available(LanguageService lang) => lang.GetString("可用", "Available");
-    public static string Unavailable(LanguageService lang) => lang.GetString("不可用", "Unavailable");
-    public static string NoSkills(LanguageService lang) => lang.GetString("没有可用的技能。", "No available skills.");
-    public static string SkillsPath(LanguageService lang) => lang.GetString("技能路径", "Skills path");
-    public static string NoDescription(LanguageService lang) => lang.GetString("无描述", "No description");
+    // ── Skills panel ─────────────────────────────────────────────────
+    public static string AvailableSkills => LanguageService.Current.T("skills.available");
+    public static string Skill => LanguageService.Current.T("skills.skill");
+    public static string Status => LanguageService.Current.T("skills.status");
+    public static string Source => LanguageService.Current.T("skills.source");
+    public static string Description => LanguageService.Current.T("skills.description");
+    public static string Available => LanguageService.Current.T("skills.available_status");
+    public static string Unavailable => LanguageService.Current.T("skills.unavailable_status");
+    public static string NoSkills => LanguageService.Current.T("skills.no_skills");
+    public static string SkillsPath => LanguageService.Current.T("skills.path");
+    public static string NoDescription => LanguageService.Current.T("skills.no_description");
 
-    // Sessions panel
-    public static string SavedSessions(LanguageService lang) => lang.GetString("已保存的会话", "Saved sessions");
-    public static string Session(LanguageService lang) => lang.GetString("会话", "Session");
-    public static string CreatedAt(LanguageService lang) => lang.GetString("创建时间", "Created");
-    public static string UpdatedAt(LanguageService lang) => lang.GetString("更新时间", "Updated");
-    public static string Summary(LanguageService lang) => lang.GetString("摘要", "Summary");
-    public static string NoSessions(LanguageService lang) => lang.GetString("没有找到会话。", "No sessions found.");
+    // ── Sessions panel ───────────────────────────────────────────────
+    public static string SavedSessions => LanguageService.Current.T("sessions.saved");
+    public static string Session => LanguageService.Current.T("sessions.session");
+    public static string CreatedAt => LanguageService.Current.T("sessions.created_at");
+    public static string UpdatedAt => LanguageService.Current.T("sessions.updated_at");
+    public static string Summary => LanguageService.Current.T("sessions.summary");
+    public static string NoSessions => LanguageService.Current.T("sessions.no_sessions");
 
-    // MCP panel
-    public static string McpServices(LanguageService lang) => lang.GetString("MCP 服务", "MCP Services");
-    public static string Server(LanguageService lang) => lang.GetString("服务器", "Server");
-    public static string Tools(LanguageService lang) => lang.GetString("工具", "Tools");
-    public static string ToolNames(LanguageService lang) => lang.GetString("工具名称", "Tool Names");
-    public static string NoMcpServers(LanguageService lang) => lang.GetString("未连接 MCP 服务器。", "No MCP servers connected.");
-    public static string McpConfigTip(LanguageService lang) => lang.GetString("在 config.json 的 \"McpServers\" 中配置 MCP 服务器。", "Configure MCP servers in \"McpServers\" section of config.json.");
-    public static string Unknown(LanguageService lang) => lang.GetString("未知", "Unknown");
+    // ── MCP panel ────────────────────────────────────────────────────
+    public static string McpServices => LanguageService.Current.T("mcp.services");
+    public static string Server => LanguageService.Current.T("mcp.server");
+    public static string Tools => LanguageService.Current.T("mcp.tools");
+    public static string ToolNames => LanguageService.Current.T("mcp.tool_names");
+    public static string NoMcpServers => LanguageService.Current.T("mcp.no_servers");
+    public static string McpConfigTip => LanguageService.Current.T("mcp.config_tip");
+    public static string Unknown => LanguageService.Current.T("mcp.unknown");
 
-    // Language command
-    public static string LanguageSwitched(LanguageService lang) => lang.GetString("语言已切换为", "Language switched to");
-    public static string LanguageChinese(LanguageService lang) => lang.GetString("中文", "Chinese");
-    public static string LanguageEnglish(LanguageService lang) => lang.GetString("英文", "English");
+    // ── Language command ─────────────────────────────────────────────
+    public static string LanguageSwitched => LanguageService.Current.T("lang.switched");
+    public static string LanguageChinese => LanguageService.Current.T("lang.chinese");
+    public static string LanguageEnglish => LanguageService.Current.T("lang.english");
 
-    // Unknown command
-    public static string UnknownCommand(LanguageService lang) => lang.GetString("未知命令", "Unknown command");
-    public static string DidYouMean(LanguageService lang) => lang.GetString("你是否想输入", "Did you mean");
-    public static string ViewAllCommands(LanguageService lang) => lang.GetString("输入 /help 查看所有可用命令。", "Type /help to see all available commands.");
+    // ── Unknown command ──────────────────────────────────────────────
+    public static string UnknownCommand => LanguageService.Current.T("command.unknown");
+    public static string DidYouMean => LanguageService.Current.T("command.did_you_mean");
+    public static string ViewAllCommands => LanguageService.Current.T("command.view_all");
 
-    // Session prompt
-    public static string NoSessionsAvailable(LanguageService lang) => lang.GetString("没有可用的会话。", "No sessions available.");
-    public static string NoSessionsToDelete(LanguageService lang) => lang.GetString("没有可删除的会话。", "No sessions to delete.");
-    public static string SelectSessionToLoadTitle(LanguageService lang) => lang.GetString("选择要加载的会话：", "Select a session to load:");
-    public static string SelectSessionToDeleteTitle(LanguageService lang) => lang.GetString("选择要删除的会话：", "Select a session to delete:");
-    public static string SessionSelected(LanguageService lang) => lang.GetString("已选择会话", "Session selected");
-    public static string Cancelled(LanguageService lang) => lang.GetString("已取消。", "Cancelled.");
-    public static string Cancel(LanguageService lang) => lang.GetString("取消", "Cancel");
-    public static string ConfirmDeleteCurrentWarning(LanguageService lang, string sessionId) => lang.GetString($"⚠️  您即将删除[cyan]当前[/]会话 '[cyan]{sessionId}[/]'。", $"⚠️  You are about to delete the [cyan]current[/] session '[cyan]{sessionId}[/]'.");
-    public static string ConfirmDeleteCurrentSuffix(LanguageService lang) => lang.GetString("删除后将创建新会话。", "A new session will be created after deletion.");
-    public static string ConfirmDeleteOther(LanguageService lang, string sessionId) => lang.GetString($"确定要删除会话 [cyan]{sessionId}[/]吗？", $"Are you sure you want to delete session [cyan]{sessionId}[/]?");
-    public static string ConfirmDeleteQuestion(LanguageService lang) => lang.GetString("删除此会话？", "Delete this session?");
-    public static string TimeUnknown(LanguageService lang) => lang.GetString("未知", "unknown");
-    public static string TimeJustNow(LanguageService lang) => lang.GetString("刚刚", "just now");
-    public static string TimeMinutesAgo(LanguageService lang, int n) => lang.GetString($"{n}分钟前", $"{n} min ago");
-    public static string TimeHoursAgo(LanguageService lang, int n) => lang.GetString($"{n}小时前", $"{n}h ago");
-    public static string TimeDaysAgo(LanguageService lang, int n) => lang.GetString($"{n}天前", $"{n}d ago");
+    // ── Session prompt ───────────────────────────────────────────────
+    public static string NoSessionsAvailable => LanguageService.Current.T("session_prompt.no_available");
+    public static string NoSessionsToDelete => LanguageService.Current.T("session_prompt.no_deletable");
+    public static string SelectSessionToLoadTitle => LanguageService.Current.T("session_prompt.select_load");
+    public static string SelectSessionToDeleteTitle => LanguageService.Current.T("session_prompt.select_delete");
+    public static string SessionSelected => LanguageService.Current.T("session_prompt.selected");
+    public static string Cancelled => LanguageService.Current.T("session_prompt.cancelled");
+    public static string Cancel => LanguageService.Current.T("session_prompt.cancel");
+    public static string ConfirmDeleteCurrentWarning(string sessionId)
+        => LanguageService.Current.T("session_prompt.confirm_delete_current", sessionId);
+    public static string ConfirmDeleteCurrentSuffix => LanguageService.Current.T("session_prompt.confirm_delete_current_suffix");
+    public static string ConfirmDeleteOther(string sessionId)
+        => LanguageService.Current.T("session_prompt.confirm_delete_other", sessionId);
+    public static string ConfirmDeleteQuestion => LanguageService.Current.T("session_prompt.confirm_delete_question");
+
+    // ── Time formatting ──────────────────────────────────────────────
+    public static string TimeUnknown => LanguageService.Current.T("time.unknown");
+    public static string TimeJustNow => LanguageService.Current.T("time.just_now");
+    public static string TimeMinutesAgo(int n) => LanguageService.Current.T("time.minutes_ago", n);
+    public static string TimeHoursAgo(int n) => LanguageService.Current.T("time.hours_ago", n);
+    public static string TimeDaysAgo(int n) => LanguageService.Current.T("time.days_ago", n);
+
+    // ── Setup mode ──────────────────────────────────────────────────
+    public static string SetupMode => LanguageService.Current.T("setup.mode");
+    public static string SetupOpenBrowser(string url) => LanguageService.Current.T("setup.open_browser", url);
+    public static string SetupAfterSave => LanguageService.Current.T("setup.after_save");
 }
