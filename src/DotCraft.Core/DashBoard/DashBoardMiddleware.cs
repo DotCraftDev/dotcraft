@@ -36,7 +36,7 @@ public static class DashBoardMiddleware
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
         IEnumerable<Type>? configTypes = null,
-        Func<string, Task>? deleteThread = null)
+        IDashBoardSessionHandler? sessionHandler = null)
     {
         MapOrchestratorEndpoints(endpoints, orchestratorProviders);
 
@@ -95,17 +95,16 @@ public static class DashBoardMiddleware
             return Results.Json(events, JsonOptions);
         });
 
-        var capturedDeleteThread = deleteThread;
+        var capturedHandler = sessionHandler;
         endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", async (string sessionKey) =>
         {
             var deleted = traceStore.ClearSession(sessionKey);
 
-            // Permanently remove the underlying Thread from disk when a delete callback is available.
-            if (capturedDeleteThread != null)
+            if (capturedHandler != null)
             {
                 try
                 {
-                    await capturedDeleteThread(sessionKey);
+                    await capturedHandler.DeleteThreadAsync(sessionKey);
                 }
                 catch (KeyNotFoundException)
                 {
@@ -118,9 +117,15 @@ public static class DashBoardMiddleware
                 : Results.Json(new { deleted = false, sessionKey }, JsonOptions, statusCode: 404);
         });
 
-        endpoints.MapDelete("/dashboard/api/sessions", () =>
+        endpoints.MapDelete("/dashboard/api/sessions", async () =>
         {
+            // Capture keys before clearing so we can delete the underlying threads.
+            var sessionKeys = traceStore.GetSessions().Select(s => s.SessionKey).ToList();
             traceStore.ClearAll();
+
+            if (capturedHandler != null)
+                await capturedHandler.DeleteAllThreadsAsync(sessionKeys);
+
             return Results.Json(new { cleared = true }, JsonOptions);
         });
 

@@ -191,8 +191,8 @@ public sealed class GatewayHost : IDotCraftHost
             dashApp.MapDashBoard(traceStore!, _paths, tokenUsageStore,
                 orchestratorProviders: capturedOrchestrators,
                 configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
-                deleteThread: capturedSvc != null
-                    ? id => capturedSvc.DeleteThreadPermanentlyAsync(id)
+                sessionHandler: capturedSvc != null
+                    ? new DelegateDashBoardSessionHandler(id => capturedSvc.DeleteThreadPermanentlyAsync(id))
                     : null);
 
             var dashboardUrl = $"http://{_config.DashBoard.Host}:{_config.DashBoard.Port}";

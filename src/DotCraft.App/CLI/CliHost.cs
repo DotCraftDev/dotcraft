@@ -101,7 +101,7 @@ public sealed class CliHost(
             dashBoardServer = new DashBoardServer();
             dashBoardServer.Start(traceStore, config, paths, tokenUsageStore,
                 configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
-                deleteThread: id => cliSession.DeleteThreadAsync(id));
+                sessionHandler: new DelegateDashBoardSessionHandler(id => cliSession.DeleteThreadAsync(id)));
             dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
         }
 
