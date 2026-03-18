@@ -42,7 +42,7 @@ public sealed class AppServerConfig
     /// </summary>
     public AppServerMode Mode { get; set; } = AppServerMode.Disabled;
 
-    /// <summary>WebSocket listener settings. Only active when <see cref="Mode"/> is <see cref="AppServerMode.StdioAndWebSocket"/>.</summary>
+    /// <summary>WebSocket listener settings. Active when <see cref="Mode"/> is <see cref="AppServerMode.WebSocket"/> or <see cref="AppServerMode.StdioAndWebSocket"/>.</summary>
     [ConfigField(Ignore = true)]
     public WebSocketServerConfig WebSocket { get; set; } = new();
 }
