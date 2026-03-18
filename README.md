@@ -15,7 +15,7 @@ From CLI, editors, chatbots, APIs — everywhere you work.
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
 
-https://github.com/user-attachments/assets/8c5828b4-1682-4410-9df0-ca7d60fa2683
+https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 
 </div>
 
