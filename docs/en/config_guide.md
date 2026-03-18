@@ -1291,6 +1291,20 @@ When `Gateway.Enabled = false` (the default), behavior is identical to before â€
     "Acp": {
         "Enabled": false
     },
+    "AppServer": {
+        "Mode": "Disabled",
+        "WebSocket": {
+            "Host": "127.0.0.1",
+            "Port": 9100,
+            "Token": ""
+        }
+    },
+    "CLI": {
+        "InProcess": false,
+        "AppServerBin": "",
+        "AppServerUrl": "",
+        "AppServerToken": ""
+    },
     "DashBoard": {
         "Enabled": false,
         "Host": "127.0.0.1",

@@ -4,6 +4,8 @@
 
 [配置与安全指南](./config_guide.md) - 模型、工具、黑名单、工作区边界、审批、Gateway 多 Channel 并发模式
 
+[AppServer 模式指南](./appserver_guide.md) - Wire Protocol 服务器、WebSocket 传输、远程 CLI 连接
+
 [API 模式指南](./api_guide.md) - OpenAI 兼容 API 服务、工具过滤、SDK 调用示例
 
 [AG-UI 模式指南](./agui_guide.md) - AG-UI 协议 SSE 服务端、CopilotKit 集成

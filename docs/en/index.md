@@ -4,6 +4,8 @@ Read the DotCraft documentation to get started quickly
 
 [Configuration & Security Guide](./config_guide.md) - Model, tools, blacklists, workspace boundaries, approval, Gateway multi-channel concurrent mode
 
+[AppServer Mode Guide](./appserver_guide.md) - Wire protocol server, WebSocket transport, remote CLI connection
+
 [API Mode Guide](./api_guide.md) - OpenAI-compatible API service, tool filtering, SDK examples
 
 [AG-UI Mode Guide](./agui_guide.md) - AG-UI Protocol SSE server, CopilotKit integration
