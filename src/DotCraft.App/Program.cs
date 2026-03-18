@@ -16,7 +16,8 @@ Console.OutputEncoding = Encoding.UTF8;
 // 1. Parse command-line arguments
 // -------------------------------------------------------------------------
 var cliArgs = CommandLineArgs.Parse(args);
-var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer;
+var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer
+              || (cliArgs.Mode == CommandLineArgs.RunMode.Cli && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl));
 
 // -------------------------------------------------------------------------
 // 2. Prepare subprocess environment (stdout → stderr, ignore Ctrl+C)
