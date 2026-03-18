@@ -270,10 +270,22 @@ public sealed class CronService : IDisposable
 
     private void SaveStore()
     {
+        // Snapshot under _storeLock so the serialized JSON is consistent with in-memory state.
+        // File I/O is done outside the lock to avoid blocking other operations during a slow write.
+        CronStore snapshot;
+        lock (_storeLock)
+        {
+            snapshot = new CronStore
+            {
+                Version = _store.Version,
+                Jobs = _store.Jobs.ToList()
+            };
+        }
+
         var dir = Path.GetDirectoryName(_storePath);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
-        File.WriteAllText(_storePath, JsonSerializer.Serialize(_store, JsonOptions));
+        File.WriteAllText(_storePath, JsonSerializer.Serialize(snapshot, JsonOptions));
     }
 
     public void Dispose()
