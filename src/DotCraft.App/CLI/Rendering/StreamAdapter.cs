@@ -25,10 +25,8 @@ public static class StreamAdapter
     /// </summary>
     public static async IAsyncEnumerable<RenderEvent> AdaptWireNotificationsAsync(
         IAsyncEnumerable<JsonDocument> notifications,
-        LanguageService? lang = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        lang ??= new LanguageService();
         var callIdMap = new Dictionary<string, (string? Icon, string? Name, string? ArgsJson, string? FormattedDisplay)>();
 
         await foreach (var doc in notifications.WithCancellation(ct))
@@ -222,7 +220,7 @@ public static class StreamAdapter
                     var message = @params.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String
                         ? m.GetString() : null;
                     var payload = new SystemEventPayload { Kind = kind!, Message = message };
-                    foreach (var re in MapSystemEvent(payload, lang))
+                    foreach (var re in MapSystemEvent(payload))
                         yield return re;
                     break;
                 }
@@ -266,32 +264,28 @@ public static class StreamAdapter
     /// <summary>
     /// Maps a <see cref="SystemEventPayload"/> to zero or more <see cref="RenderEvent"/>s.
     /// </summary>
-    private static IEnumerable<RenderEvent> MapSystemEvent(SystemEventPayload sysEvt, LanguageService? lang = null)
+    private static IEnumerable<RenderEvent> MapSystemEvent(SystemEventPayload sysEvt)
     {
-        lang ??= new LanguageService();
-
         switch (sysEvt.Kind)
         {
             case "compacting":
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextLimitReached(lang));
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextLimitReached);
                 break;
             case "compacted":
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompacted(lang));
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompacted);
                 break;
             case "compactSkipped":
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompactSkipped(lang));
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompactSkipped);
                 break;
             case "consolidating":
                 yield return RenderEvent.SystemStatusEvent(
-                    sysEvt.Message ?? Strings.MemoryConsolidating(lang),
-                    Strings.MemoryConsolidated(lang));
+                    sysEvt.Message ?? Strings.MemoryConsolidating,
+                    Strings.MemoryConsolidated);
                 break;
             case "consolidated":
                 // The completion event dismisses the SystemStatus spinner in the renderer.
-                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated(lang));
+                yield return RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated);
                 break;
         }
     }
 }
-
-

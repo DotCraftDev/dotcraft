@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.WebSockets;
-using System.Text;
 
 namespace DotCraft.Protocol.AppServer;
 

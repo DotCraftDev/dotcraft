@@ -1,8 +1,5 @@
-using System.Net.WebSockets;
-using System.Text.Json;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
-using DotCraft.Tests.Sessions.Protocol.AppServer;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer.Integration;
 

@@ -13,6 +13,7 @@
     <EmbeddedResource Include="Resources\DashBoardLogin.html" />
     <EmbeddedResource Include="Skills\BuiltIn\**\*" />
     <EmbeddedResource Include="Commands\Custom\BuiltIn\**\*" />
+    <EmbeddedResource Include="Localization\Languages\*.json" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">

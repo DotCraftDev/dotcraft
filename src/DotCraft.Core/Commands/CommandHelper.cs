@@ -20,14 +20,13 @@ public static class CommandHelper
         return best;
     }
 
-    public static string FormatUnknownCommandMessage(string rawInput, string[] knownCommands, LanguageService? lang = null)
+    public static string FormatUnknownCommandMessage(string rawInput, string[] knownCommands)
     {
-        lang ??= new LanguageService();
         var inputCmd = rawInput.Split(' ', 2)[0].ToLowerInvariant();
         var suggestion = FindSimilarCommand(inputCmd, knownCommands);
         return suggestion != null
-            ? $"{Strings.UnknownCommand(lang)}：{rawInput.Split(' ', 2)[0]}，{Strings.DidYouMean(lang)} {suggestion}？{Strings.ViewAllCommands(lang)}"
-            : $"{Strings.UnknownCommand(lang)}：{rawInput.Split(' ', 2)[0]}，{Strings.ViewAllCommands(lang)}";
+            ? $"{Strings.UnknownCommand}：{rawInput.Split(' ', 2)[0]}，{Strings.DidYouMean} {suggestion}？{Strings.ViewAllCommands}"
+            : $"{Strings.UnknownCommand}：{rawInput.Split(' ', 2)[0]}，{Strings.ViewAllCommands}";
     }
 
     private static int LevenshteinDistance(string a, string b)

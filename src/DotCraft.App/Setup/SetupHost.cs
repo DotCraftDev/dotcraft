@@ -11,7 +11,7 @@ namespace DotCraft.Setup;
 /// Lightweight setup-only host that exposes the Dashboard config UI before the
 /// normal agent runtime can start.
 /// </summary>
-public sealed class SetupHost(AppConfig config, DotCraftPaths paths, LanguageService languageService)
+public sealed class SetupHost(AppConfig config, DotCraftPaths paths)
 {
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -24,13 +24,9 @@ public sealed class SetupHost(AppConfig config, DotCraftPaths paths, LanguageSer
 
         var url = $"http://{setupConfig.DashBoard.Host}:{setupConfig.DashBoard.Port}/dashboard";
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[yellow]{languageService.GetString("当前处于初始化配置模式。", "DotCraft is running in setup mode.")}[/]");
-        AnsiConsole.MarkupLine(languageService.GetString(
-            $"请在浏览器中打开 {url} 完成全局和工作区配置。",
-            $"Open {url} in your browser to finish global and workspace configuration."));
-        AnsiConsole.MarkupLine(languageService.GetString(
-            "保存完成后，请按 Ctrl+C 停止当前进程，然后重新运行 `dotcraft`。",
-            "After saving, press Ctrl+C to stop this process, then run `dotcraft` again."));
+        AnsiConsole.MarkupLine($"[yellow]{Strings.SetupMode}[/]");
+        AnsiConsole.MarkupLine(Strings.SetupOpenBrowser(url));
+        AnsiConsole.MarkupLine(Strings.SetupAfterSave);
 
         await WaitForShutdownSignalAsync(cancellationToken);
     }

@@ -47,18 +47,17 @@ if (!Directory.Exists(botPath))
     // First, select language
     var selectedLanguage = InitHelper.SelectLanguage();
     var lang = new LanguageService(selectedLanguage);
+    LanguageService.Current = lang;
 
     // Trust folder confirmation
     Console.WriteLine();
     var trustPanel = new Panel(
         new Markup(
-            $"[cyan]{lang.GetString("当前工作区路径 / Current workspace path:", "Current workspace path:")}[/]\n" +
+            $"[cyan]{Strings.InitTrustFolderWorkspacePath}[/]\n" +
             $"  [white]{Markup.Escape(workspacePath)}[/]\n\n" +
-            lang.GetString(
-                "DotCraft 将在此目录创建工作区（.craft 文件夹），用于存储会话、记忆和配置。",
-                "DotCraft will create a workspace (.craft folder) in this directory to store sessions, memory, and configuration.")))
+            Strings.InitTrustFolderDescription))
     {
-        Header = new PanelHeader($"[cyan]🔐 {lang.GetString("信任文件夹确认", "Trust Folder Confirmation")}[/]"),
+        Header = new PanelHeader($"[cyan]🔐 {Strings.InitTrustFolderTitle}[/]"),
         Border = BoxBorder.Rounded,
         BorderStyle = new Style(Color.Cyan),
         Padding = new Padding(1, 0, 1, 0)
@@ -66,13 +65,11 @@ if (!Directory.Exists(botPath))
     AnsiConsole.Write(trustPanel);
     Console.WriteLine();
 
-    if (!InitHelper.AskYesNo(
-        lang.GetString("你是否信任此文件夹？",
-                      "Do you trust this folder?"), lang))
+    if (!InitHelper.AskYesNo(Strings.InitTrustFolderQuestion))
     {
-        AnsiConsole.MarkupLine($"\n[grey]{lang.GetString("已取消。请切换到受信任的目录后重试。", "Cancelled. Please switch to a trusted directory and try again.")}[/]");
+        AnsiConsole.MarkupLine($"\n[grey]{Strings.InitTrustFolderCancelled}[/]");
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[grey]{lang.GetString("按任意键退出...", "Press any key to exit...")}[/]");
+        AnsiConsole.MarkupLine($"[grey]{Strings.InitPressAnyKey}[/]");
         Console.ReadKey(true);
         Environment.Exit(0);
         return;
@@ -83,9 +80,9 @@ if (!Directory.Exists(botPath))
     var initResult = InitHelper.InitializeWorkspace(botPath, selectedLanguage);
     if (initResult != 0)
     {
-        AnsiConsole.MarkupLine($"\n[red]{lang.GetString("初始化失败。", "Initialization failed.")}[/]");
+        AnsiConsole.MarkupLine($"\n[red]{Strings.InitFailedShort}[/]");
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[grey]{lang.GetString("按任意键退出...", "Press any key to exit...")}[/]");
+        AnsiConsole.MarkupLine($"[grey]{Strings.InitPressAnyKey}[/]");
         Console.ReadKey(true);
         Environment.Exit(1);
         return;
@@ -105,7 +102,12 @@ cliArgs.ApplyTo(config);
 // -------------------------------------------------------------------------
 // 5. Language & debug mode
 // -------------------------------------------------------------------------
-var languageService = new LanguageService(config.Language);
+// Ensure LanguageService.Current is set for the main flow
+// (may already be set during first-run setup above)
+if (LanguageService.Current.CurrentLanguage != config.Language)
+{
+    LanguageService.Current = new LanguageService(config.Language);
+}
 
 DebugModeService.Initialize(config.DebugMode);
 if (config.DebugMode)
@@ -128,15 +130,15 @@ if (string.IsNullOrWhiteSpace(config.ApiKey))
     AnsiConsole.WriteLine();
     if (workspaceJustInitialized)
     {
-        AnsiConsole.MarkupLine($"[green]✓ {languageService.GetString("工作区初始化完成。", "Workspace initialized.")}[/]");
+        AnsiConsole.MarkupLine($"[green]✓ {Strings.InitWorkspaceInitialized}[/]");
     }
-    AnsiConsole.MarkupLine($"[yellow]⚠️  {languageService.GetString("API Key 未配置，正在进入初始化配置模式。", "API Key not configured. Entering setup mode.")}[/]");
+    AnsiConsole.MarkupLine($"[yellow]⚠️  {Strings.InitApiKeyNotConfigured}[/]");
     AnsiConsole.WriteLine();
     var setupHost = new SetupHost(config, new DotCraftPaths
     {
         WorkspacePath = workspacePath,
         CraftPath = botPath
-    }, languageService);
+    });
     await setupHost.RunAsync();
     return;
 }

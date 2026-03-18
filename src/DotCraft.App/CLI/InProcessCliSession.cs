@@ -18,10 +18,8 @@ public sealed class InProcessCliSession(
     ISessionService sessionService,
     AgentFactory? agentFactory = null,
     TokenUsageStore? tokenUsageStore = null,
-    HookRunner? hookRunner = null,
-    LanguageService? languageService = null) : ICliSession
+    HookRunner? hookRunner = null) : ICliSession
 {
-    private readonly LanguageService _lang = languageService ?? new LanguageService();
     // -------------------------------------------------------------------------
     // ICliSession implementation
     // -------------------------------------------------------------------------
@@ -138,25 +136,25 @@ public sealed class InProcessCliSession(
                     {
                         case "compacting":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextLimitReached(_lang)), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextLimitReached), ct);
                             break;
                         case "compacted":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompacted(_lang)), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompacted), ct);
                             break;
                         case "compactSkipped":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompactSkipped(_lang)), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.ContextCompactSkipped), ct);
                             break;
                         case "consolidating":
                             await renderer.SendEventAsync(
                                 RenderEvent.SystemStatusEvent(
-                                    sysEvt.Message ?? Strings.MemoryConsolidating(_lang),
-                                    Strings.MemoryConsolidated(_lang)), ct);
+                                    sysEvt.Message ?? Strings.MemoryConsolidating,
+                                    Strings.MemoryConsolidated), ct);
                             break;
                         case "consolidated":
                             await renderer.SendEventAsync(
-                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated(_lang)), ct);
+                                RenderEvent.SystemInfoEvent(sysEvt.Message ?? Strings.MemoryConsolidated), ct);
                             break;
                     }
                 }

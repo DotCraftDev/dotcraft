@@ -12,11 +12,11 @@ public static class SessionPrompt
     /// <summary>
     /// Shows a selection prompt for loading a Session Protocol thread.
     /// </summary>
-    public static string? SelectThreadToLoad(IReadOnlyList<ThreadSummary> threads, string? currentThreadId, LanguageService lang)
+    public static string? SelectThreadToLoad(IReadOnlyList<ThreadSummary> threads, string? currentThreadId)
     {
         if (threads.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsAvailable(lang)}[/]");
+            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsAvailable}[/]");
             return null;
         }
 
@@ -29,23 +29,23 @@ public static class SessionPrompt
             UpdatedAt = t.LastActiveAt.ToString("O"),
             IsCurrent = t.Id == currentThreadId,
             FirstUserMessage = t.DisplayName
-        }).Prepend(BuildCancelOption(lang)).ToList();
+        }).Prepend(BuildCancelOption()).ToList();
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<SessionOption>()
-                .Title($"[green]{Strings.SelectSessionToLoadTitle(lang)}[/]")
+                .Title($"[green]{Strings.SelectSessionToLoadTitle}[/]")
                 .AddChoices(options)
-                .UseConverter(o => FormatSessionOption(o, lang))
+                .UseConverter(FormatSessionOption)
                 .PageSize(10));
 
         if (choice.IsCancel)
         {
-            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled(lang)}[/]");
+            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled}[/]");
             AnsiConsole.WriteLine();
             return null;
         }
 
-        AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
+        AnsiConsole.MarkupLine($"[green]✓[/] {Strings.SessionSelected}：[cyan]{EscapeMarkup(choice.Key)}[/]");
         AnsiConsole.WriteLine();
         return choice.Key;
     }
@@ -53,11 +53,11 @@ public static class SessionPrompt
     /// <summary>
     /// Shows a selection prompt for deleting a Session Protocol thread.
     /// </summary>
-    public static string? SelectThreadToDelete(IReadOnlyList<ThreadSummary> threads, string? currentThreadId, LanguageService lang)
+    public static string? SelectThreadToDelete(IReadOnlyList<ThreadSummary> threads, string? currentThreadId)
     {
         if (threads.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsToDelete(lang)}[/]");
+            AnsiConsole.MarkupLine($"[yellow]{Strings.NoSessionsToDelete}[/]");
             return null;
         }
 
@@ -70,23 +70,23 @@ public static class SessionPrompt
             UpdatedAt = t.LastActiveAt.ToString("O"),
             IsCurrent = t.Id == currentThreadId,
             FirstUserMessage = t.DisplayName
-        }).Prepend(BuildCancelOption(lang)).ToList();
+        }).Prepend(BuildCancelOption()).ToList();
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<SessionOption>()
-                .Title($"[red]{Strings.SelectSessionToDeleteTitle(lang)}[/]")
+                .Title($"[red]{Strings.SelectSessionToDeleteTitle}[/]")
                 .AddChoices(options)
-                .UseConverter(o => FormatSessionOption(o, lang))
+                .UseConverter(FormatSessionOption)
                 .PageSize(10));
 
         if (choice.IsCancel)
         {
-            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled(lang)}[/]");
+            AnsiConsole.MarkupLine($"[grey]{Strings.Cancelled}[/]");
             AnsiConsole.WriteLine();
             return null;
         }
 
-        AnsiConsole.MarkupLine($"[red]→[/] {Strings.SessionSelected(lang)}：[cyan]{EscapeMarkup(choice.Key)}[/]");
+        AnsiConsole.MarkupLine($"[red]→[/] {Strings.SessionSelected}：[cyan]{EscapeMarkup(choice.Key)}[/]");
         AnsiConsole.WriteLine();
         return choice.Key;
     }
@@ -96,14 +96,13 @@ public static class SessionPrompt
     /// </summary>
     /// <param name="sessionId">The session ID to delete.</param>
     /// <param name="isCurrent">Whether the session is the currently active one.</param>
-    /// <param name="lang">Language service for localization.</param>
     /// <returns>True if the user confirmed deletion.</returns>
-    public static bool ConfirmDelete(string sessionId, bool isCurrent, LanguageService lang)
+    public static bool ConfirmDelete(string sessionId, bool isCurrent)
     {
         var escapedId = EscapeMarkup(sessionId);
         var message = isCurrent
-            ? $"[yellow]{Strings.ConfirmDeleteCurrentWarning(lang, escapedId)}[/]\n[yellow]{Strings.ConfirmDeleteCurrentSuffix(lang)}[/]"
-            : $"[yellow]{Strings.ConfirmDeleteOther(lang, escapedId)}[/]";
+            ? $"[yellow]{Strings.ConfirmDeleteCurrentWarning(escapedId)}[/]\n[yellow]{Strings.ConfirmDeleteCurrentSuffix}[/]"
+            : $"[yellow]{Strings.ConfirmDeleteOther(escapedId)}[/]";
 
         var panel = new Panel(message)
         {
@@ -114,7 +113,7 @@ public static class SessionPrompt
         AnsiConsole.Write(panel);
         AnsiConsole.WriteLine();
 
-        return AnsiConsole.Confirm($"[red]{Strings.ConfirmDeleteQuestion(lang)}[/]");
+        return AnsiConsole.Confirm($"[red]{Strings.ConfirmDeleteQuestion}[/]");
     }
 
     private const int PreviewMaxLength = 50;
@@ -122,15 +121,15 @@ public static class SessionPrompt
     /// <summary>
     /// Formats a session option for display in the selection prompt.
     /// </summary>
-    private static string FormatSessionOption(SessionOption option, LanguageService lang)
+    private static string FormatSessionOption(SessionOption option)
     {
         if (option.IsCancel)
-            return $"[grey]  {EscapeMarkup(Strings.Cancel(lang))}[/]";
+            return $"[grey]  {EscapeMarkup(Strings.Cancel)}[/]";
 
         var prefix = option.IsCurrent ? "📍 " : "  ";
         var key = EscapeMarkup(option.Key);
         var updatedAt = ParseTimestamp(option.UpdatedAt);
-        var timeAgo = GetTimeAgo(updatedAt, lang);
+        var timeAgo = GetTimeAgo(updatedAt);
 
         var preview = "";
         if (!string.IsNullOrWhiteSpace(option.FirstUserMessage))
@@ -161,21 +160,21 @@ public static class SessionPrompt
     /// <summary>
     /// Returns a human-readable relative time description for the given datetime.
     /// </summary>
-    private static string GetTimeAgo(DateTime dateTime, LanguageService lang)
+    private static string GetTimeAgo(DateTime dateTime)
     {
         if (dateTime == DateTime.MinValue)
-            return Strings.TimeUnknown(lang);
+            return Strings.TimeUnknown;
 
         var diff = DateTime.UtcNow - dateTime;
 
         if (diff.TotalMinutes < 1)
-            return Strings.TimeJustNow(lang);
+            return Strings.TimeJustNow;
         if (diff.TotalMinutes < 60)
-            return Strings.TimeMinutesAgo(lang, (int)diff.TotalMinutes);
+            return Strings.TimeMinutesAgo((int)diff.TotalMinutes);
         if (diff.TotalHours < 24)
-            return Strings.TimeHoursAgo(lang, (int)diff.TotalHours);
+            return Strings.TimeHoursAgo((int)diff.TotalHours);
         if (diff.TotalDays < 7)
-            return Strings.TimeDaysAgo(lang, (int)diff.TotalDays);
+            return Strings.TimeDaysAgo((int)diff.TotalDays);
 
         return $"{dateTime:yyyy-MM-dd}";
     }
@@ -183,7 +182,7 @@ public static class SessionPrompt
     /// <summary>
     /// Builds a cancel sentinel option using the current language.
     /// </summary>
-    private static SessionOption BuildCancelOption(LanguageService lang) => new() { IsCancel = true };
+    private static SessionOption BuildCancelOption() => new() { IsCancel = true };
 
     /// <summary>
     /// Session option data model used by the selection prompt.

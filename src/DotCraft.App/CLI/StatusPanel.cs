@@ -13,11 +13,8 @@ public static class StatusPanel
     public static void ShowWelcome(
         string? currentSessionId = null,
         string? dashBoardUrl = null,
-        LanguageService? lang = null,
         CliBackendInfo? backendInfo = null)
     {
-        lang ??= new LanguageService();
-        
         AnsiConsole.Clear();
 
         AnsiConsole.Write(
@@ -32,7 +29,7 @@ public static class StatusPanel
 
         if (!string.IsNullOrEmpty(currentSessionId))
         {
-            AnsiConsole.MarkupLine($"[grey]{Strings.CurrentSession(lang)}：[cyan]{currentSessionId.Escape()}[/][/]");
+            AnsiConsole.MarkupLine($"[grey]{Strings.CurrentSession}：[cyan]{currentSessionId.Escape()}[/][/]");
         }
         if (!string.IsNullOrEmpty(dashBoardUrl))
         {
@@ -52,22 +49,22 @@ public static class StatusPanel
 
         grid.AddRow(
             new Markup("[blue]/exit[/]"),
-            new Markup($"[grey]{Strings.CmdExit(lang)}[/]"),
+            new Markup($"[grey]{Strings.CmdExit}[/]"),
             new Markup("[blue]/help[/]"),
-            new Markup($"[grey]{Strings.CmdHelp(lang)}[/]"),
+            new Markup($"[grey]{Strings.CmdHelp}[/]"),
             new Markup("[blue]/new[/]"),
-            new Markup($"[grey]{Strings.CmdNew(lang)}[/]"));
+            new Markup($"[grey]{Strings.CmdNew}[/]"));
         grid.AddRow(
             new Markup("[blue]/load[/]"),
-            new Markup($"[grey]{Strings.CmdLoad(lang)}[/]"),
+            new Markup($"[grey]{Strings.CmdLoad}[/]"),
             new Markup("[blue]/agent[/]"),
-            new Markup($"[grey]{Strings.CmdAgent(lang)}[/]"),
+            new Markup($"[grey]{Strings.CmdAgent}[/]"),
             new Markup("[blue]/plan[/]"),
-            new Markup($"[grey]{Strings.CmdPlan(lang)}[/]"));
+            new Markup($"[grey]{Strings.CmdPlan}[/]"));
 
         var panel = new Panel(grid)
         {
-            Header = new PanelHeader($"[yellow]💡 {Strings.QuickCommands(lang)}[/]"),
+            Header = new PanelHeader($"[yellow]💡 {Strings.QuickCommands}[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Grey)
         };
@@ -76,13 +73,11 @@ public static class StatusPanel
         AnsiConsole.WriteLine();
     }
     
-    public static void ShowSkillsTable(List<SkillInfo> skills, string? workspaceSkillsPath = null, string? userSkillsPath = null, LanguageService? lang = null)
+    public static void ShowSkillsTable(List<SkillInfo> skills, string? workspaceSkillsPath = null, string? userSkillsPath = null)
     {
-        lang ??= new LanguageService();
-        
         if (skills.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[grey]📝 {Strings.NoSkills(lang)}[/]");
+            AnsiConsole.MarkupLine($"[grey]📝 {Strings.NoSkills}[/]");
             return;
         }
 
@@ -90,16 +85,16 @@ public static class StatusPanel
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey);
 
-        table.AddColumn(new TableColumn($"[u]{Strings.Skill(lang)}[/]").Width(20));
-        table.AddColumn(new TableColumn($"[u]{Strings.Status(lang)}[/]").Width(12));
-        table.AddColumn(new TableColumn($"[u]{Strings.Source(lang)}[/]").Width(12));
-        table.AddColumn(new TableColumn($"[u]{Strings.Description(lang)}[/]"));
+        table.AddColumn(new TableColumn($"[u]{Strings.Skill}[/]").Width(20));
+        table.AddColumn(new TableColumn($"[u]{Strings.Status}[/]").Width(12));
+        table.AddColumn(new TableColumn($"[u]{Strings.Source}[/]").Width(12));
+        table.AddColumn(new TableColumn($"[u]{Strings.Description}[/]"));
 
         foreach (var skill in skills)
         {
             var status = skill.Available
-                ? $"[green]✓ {Strings.Available(lang)}[/]"
-                : $"[red]✗ {skill.UnavailableReason?.Escape() ?? Strings.Unavailable(lang)}[/]";
+                ? $"[green]✓ {Strings.Available}[/]"
+                : $"[red]✗ {skill.UnavailableReason?.Escape() ?? Strings.Unavailable}[/]";
 
             var (sourceColor, sourceLabel) = skill.Source switch
             {
@@ -109,7 +104,7 @@ public static class StatusPanel
             };
             var source = $"[{sourceColor}]{sourceLabel}[/]";
 
-            var description = GetSkillDescription(skill, lang).Escape();
+            var description = GetSkillDescription(skill).Escape();
 
             table.AddRow(
                 $"[white]{skill.Name.Escape()}[/]",
@@ -120,7 +115,7 @@ public static class StatusPanel
 
         var panel = new Panel(table)
         {
-            Header = new PanelHeader($"[blue]📚 {Strings.AvailableSkills(lang)}[/]"),
+            Header = new PanelHeader($"[blue]📚 {Strings.AvailableSkills}[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Blue)
         };
@@ -155,7 +150,7 @@ public static class StatusPanel
 
             var pathPanel = new Panel(pathTable)
             {
-                Header = new PanelHeader($"[yellow]📁 {Strings.SkillsPath(lang)}[/]"),
+                Header = new PanelHeader($"[yellow]📁 {Strings.SkillsPath}[/]"),
                 Border = BoxBorder.Rounded,
                 BorderStyle = new Style(Color.Yellow)
             };
@@ -167,13 +162,11 @@ public static class StatusPanel
     /// <summary>
     /// Displays a table of Session Protocol threads.
     /// </summary>
-    public static void ShowThreadsTable(IReadOnlyList<ThreadSummary> threads, LanguageService? lang = null)
+    public static void ShowThreadsTable(IReadOnlyList<ThreadSummary> threads)
     {
-        lang ??= new LanguageService();
-
         if (threads.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[grey]💬 {Strings.NoSessions(lang)}[/]");
+            AnsiConsole.MarkupLine($"[grey]💬 {Strings.NoSessions}[/]");
             return;
         }
 
@@ -183,10 +176,10 @@ public static class StatusPanel
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey);
 
-        table.AddColumn(new TableColumn($"[u]{Strings.Session(lang)}[/]").Width(30));
-        table.AddColumn(new TableColumn($"[u]{Strings.CreatedAt(lang)}[/]").Width(20));
-        table.AddColumn(new TableColumn($"[u]{Strings.UpdatedAt(lang)}[/]").Width(20));
-        table.AddColumn(new TableColumn($"[u]{Strings.Summary(lang)}[/]").Width(50));
+        table.AddColumn(new TableColumn($"[u]{Strings.Session}[/]").Width(30));
+        table.AddColumn(new TableColumn($"[u]{Strings.CreatedAt}[/]").Width(20));
+        table.AddColumn(new TableColumn($"[u]{Strings.UpdatedAt}[/]").Width(20));
+        table.AddColumn(new TableColumn($"[u]{Strings.Summary}[/]").Width(50));
 
         foreach (var thread in threads)
         {
@@ -215,7 +208,7 @@ public static class StatusPanel
 
         var panel = new Panel(table)
         {
-            Header = new PanelHeader($"[green]💬 {Strings.SavedSessions(lang)}[/]"),
+            Header = new PanelHeader($"[green]💬 {Strings.SavedSessions}[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Green)
         };
@@ -223,46 +216,44 @@ public static class StatusPanel
         AnsiConsole.Write(panel);
     }
 
-    public static void ShowHelp(LanguageService? lang = null)
+    public static void ShowHelp()
     {
-        lang ??= new LanguageService();
-        
         var grid = new Grid();
         grid.AddColumn();
         grid.AddColumn();
 
-        grid.AddRow(new Markup($"[yellow]{Strings.Commands(lang)}:[/]"), new Markup(""));
-        grid.AddRow("  /exit", Strings.CmdExit(lang));
-        grid.AddRow("  /help", Strings.CmdHelp(lang));
-        grid.AddRow("  /clear", Strings.CmdClear(lang));
-        grid.AddRow("  /new", Strings.CmdNew(lang));
-        grid.AddRow("  /load", Strings.CmdLoad(lang));
-        grid.AddRow("  /delete", Strings.CmdDelete(lang));
-        grid.AddRow("  /init", Strings.CmdInit(lang));
-        grid.AddRow("  /debug", Strings.CmdDebug(lang));
-        grid.AddRow("  /skills", Strings.CmdSkills(lang));
-        grid.AddRow("  /mcp", Strings.CmdMcp(lang));
-        grid.AddRow("  /sessions", Strings.CmdSessions(lang));
-        grid.AddRow("  /memory", Strings.CmdMemory(lang));
-        grid.AddRow("  /lang", Strings.CmdLang(lang));
-        grid.AddRow("  /agent", Strings.CmdAgent(lang));
-        grid.AddRow("  /plan", Strings.CmdPlan(lang));
-        grid.AddRow("  /heartbeat trigger", Strings.CmdHeartbeat(lang));
-        grid.AddRow("  /cron list", Strings.CmdCronList(lang));
-        grid.AddRow("  /cron remove <id>", Strings.CmdCronRemove(lang));
-        grid.AddRow("  /cron enable|disable <id>", Strings.CmdCronToggle(lang));
-        grid.AddRow("  /commands", Strings.CmdCommands(lang));
+        grid.AddRow(new Markup($"[yellow]{Strings.Commands}:[/]"), new Markup(""));
+        grid.AddRow("  /exit", Strings.CmdExit);
+        grid.AddRow("  /help", Strings.CmdHelp);
+        grid.AddRow("  /clear", Strings.CmdClear);
+        grid.AddRow("  /new", Strings.CmdNew);
+        grid.AddRow("  /load", Strings.CmdLoad);
+        grid.AddRow("  /delete", Strings.CmdDelete);
+        grid.AddRow("  /init", Strings.CmdInit);
+        grid.AddRow("  /debug", Strings.CmdDebug);
+        grid.AddRow("  /skills", Strings.CmdSkills);
+        grid.AddRow("  /mcp", Strings.CmdMcp);
+        grid.AddRow("  /sessions", Strings.CmdSessions);
+        grid.AddRow("  /memory", Strings.CmdMemory);
+        grid.AddRow("  /lang", Strings.CmdLang);
+        grid.AddRow("  /agent", Strings.CmdAgent);
+        grid.AddRow("  /plan", Strings.CmdPlan);
+        grid.AddRow("  /heartbeat trigger", Strings.CmdHeartbeat);
+        grid.AddRow("  /cron list", Strings.CmdCronList);
+        grid.AddRow("  /cron remove <id>", Strings.CmdCronRemove);
+        grid.AddRow("  /cron enable|disable <id>", Strings.CmdCronToggle);
+        grid.AddRow("  /commands", Strings.CmdCommands);
         grid.AddRow("", "");
-        grid.AddRow(new Markup($"[yellow]{Strings.UsageTips(lang)}:[/]"), new Markup(""));
-        grid.AddRow($"  • {Strings.TipDirectInput(lang)}", "");
-        grid.AddRow($"  • {Strings.TipArrowKeys(lang)}", "");
-        grid.AddRow($"  • {Strings.TipTabComplete(lang)}", "");
-        grid.AddRow($"  • {Strings.TipShiftTabMode(lang)}", "");
-        grid.AddRow($"  • {Strings.TipAutoSave(lang)}", "");
+        grid.AddRow(new Markup($"[yellow]{Strings.UsageTips}:[/]"), new Markup(""));
+        grid.AddRow($"  • {Strings.TipDirectInput}", "");
+        grid.AddRow($"  • {Strings.TipArrowKeys}", "");
+        grid.AddRow($"  • {Strings.TipTabComplete}", "");
+        grid.AddRow($"  • {Strings.TipShiftTabMode}", "");
+        grid.AddRow($"  • {Strings.TipAutoSave}", "");
 
         var panel = new Panel(grid)
         {
-            Header = new PanelHeader($"[blue]❓ {Strings.CmdHelp(lang)}[/]"),
+            Header = new PanelHeader($"[blue]❓ {Strings.CmdHelp}[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Blue)
         };
@@ -270,14 +261,12 @@ public static class StatusPanel
         AnsiConsole.Write(panel);
     }
 
-    public static void ShowMcpServersTable(McpClientManager? mcpManager, LanguageService? lang = null)
+    public static void ShowMcpServersTable(McpClientManager? mcpManager)
     {
-        lang ??= new LanguageService();
-        
         if (mcpManager == null || mcpManager.Tools.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[grey]{Strings.NoMcpServers(lang)}[/]");
-            AnsiConsole.MarkupLine($"[grey]{Strings.McpConfigTip(lang)}[/]");
+            AnsiConsole.MarkupLine($"[grey]{Strings.NoMcpServers}[/]");
+            AnsiConsole.MarkupLine($"[grey]{Strings.McpConfigTip}[/]");
             AnsiConsole.WriteLine();
             return;
         }
@@ -285,7 +274,7 @@ public static class StatusPanel
         var serverTools = new Dictionary<string, List<string>>();
         foreach (var tool in mcpManager.Tools)
         {
-            var serverName = mcpManager.ToolServerMap.GetValueOrDefault(tool.Name, Strings.Unknown(lang));
+            var serverName = mcpManager.ToolServerMap.GetValueOrDefault(tool.Name, Strings.Unknown);
             if (!serverTools.TryGetValue(serverName, out var list))
             {
                 list = [];
@@ -298,9 +287,9 @@ public static class StatusPanel
             .Border(TableBorder.Rounded)
             .BorderColor(Color.Grey);
 
-        table.AddColumn(new TableColumn($"[u]{Strings.Server(lang)}[/]").Width(20));
-        table.AddColumn(new TableColumn($"[u]{Strings.Tools(lang)}[/]").Width(10));
-        table.AddColumn(new TableColumn($"[u]{Strings.ToolNames(lang)}[/]"));
+        table.AddColumn(new TableColumn($"[u]{Strings.Server}[/]").Width(20));
+        table.AddColumn(new TableColumn($"[u]{Strings.Tools}[/]").Width(10));
+        table.AddColumn(new TableColumn($"[u]{Strings.ToolNames}[/]"));
 
         foreach (var (server, tools) in serverTools)
         {
@@ -312,7 +301,7 @@ public static class StatusPanel
 
         var panel = new Panel(table)
         {
-            Header = new PanelHeader($"[blue]{Strings.McpServices(lang)}[/]"),
+            Header = new PanelHeader($"[blue]{Strings.McpServices}[/]"),
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Blue)
         };
@@ -321,10 +310,8 @@ public static class StatusPanel
         AnsiConsole.WriteLine();
     }
 
-    private static string GetSkillDescription(SkillInfo skill, LanguageService? lang = null)
+    private static string GetSkillDescription(SkillInfo skill)
     {
-        lang ??= new LanguageService();
-        
         try
         {
             if (File.Exists(skill.Path))
@@ -345,7 +332,7 @@ public static class StatusPanel
             // ignored
         }
 
-        return Strings.NoDescription(lang);
+        return Strings.NoDescription;
     }
 
     public static void ShowPlanStatus(StructuredPlan plan)

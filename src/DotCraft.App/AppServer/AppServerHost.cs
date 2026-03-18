@@ -1,7 +1,6 @@
 using System.ClientModel;
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
-using System.Text.Json;
 using DotCraft.Agents;
 using Microsoft.Extensions.Logging;
 using DotCraft.Common;

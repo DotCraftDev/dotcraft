@@ -10,7 +10,6 @@ using DotCraft.DashBoard;
 using DotCraft.Tracing;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
-using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
@@ -35,7 +34,6 @@ public sealed class CliHost(
     PathBlacklist blacklist,
     CronService cronService,
     McpClientManager mcpClientManager,
-    LanguageService languageService,
     ConsoleApprovalService cliApprovalService,
     ModuleRegistry moduleRegistry) : IDotCraftHost
 {
@@ -104,7 +102,7 @@ public sealed class CliHost(
             sessionServiceForDashboard = sessionService;
 
             runner = new AgentRunner(paths.WorkspacePath, sessionService);
-            cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner, languageService);
+            cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner);
             backendInfo = new CliBackendInfo { IsWire = false };
         }
         else if (!string.IsNullOrWhiteSpace(cliConfig.AppServerUrl))
@@ -189,7 +187,6 @@ public sealed class CliHost(
             heartbeatService: heartbeatService, cronService: cronService,
             agentFactory: _agentFactory, mcpClientManager: mcpClientManager,
             dashBoardUrl: dashBoardUrl,
-            languageService: languageService,
             customCommandLoader: customCommandLoader,
             modeManager: modeManager,
             hookRunner: hookRunner,
