@@ -14,8 +14,16 @@ public enum AppServerMode
     Stdio,
 
     /// <summary>
+    /// AppServer listens on a WebSocket endpoint only — no stdio transport.
+    /// Stdout remains available for normal console output.
+    /// Activated via <c>dotcraft app-server --listen ws://host:port</c>.
+    /// </summary>
+    WebSocket,
+
+    /// <summary>
     /// AppServer listens on stdio AND a WebSocket endpoint defined in
     /// <see cref="AppServerConfig.WebSocket"/>.
+    /// Activated via <c>dotcraft app-server --listen ws+stdio://host:port</c>.
     /// </summary>
     StdioAndWebSocket
 }
@@ -28,6 +36,7 @@ public sealed class AppServerConfig
     /// <list type="bullet">
     /// <item><c>Disabled</c> — AppServer is inactive (default).</item>
     /// <item><c>Stdio</c> — standard subprocess mode; stdout is reserved for JSON-RPC.</item>
+    /// <item><c>WebSocket</c> — pure WebSocket mode; no stdio transport, stdout remains available.</item>
     /// <item><c>StdioAndWebSocket</c> — stdio plus WebSocket on <c>AppServer.WebSocket.Port</c>.</item>
     /// </list>
     /// </summary>

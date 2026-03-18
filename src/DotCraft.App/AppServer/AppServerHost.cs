@@ -87,21 +87,43 @@ public sealed class AppServerHost(
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
 
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
-        var wsConfig = appServerConfig.Mode == AppServerMode.StdioAndWebSocket
-            ? appServerConfig.WebSocket
-            : null;
 
-        // Start the optional WebSocket listener before entering the stdio loop (same pattern as DashBoardServer)
-        WebApplication? wsApp = null;
-        Task? wsRunTask = null;
-        if (wsConfig != null)
+        switch (appServerConfig.Mode)
         {
-            (wsApp, var wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken);
-            wsRunTask = wsApp.RunAsync(wsUrl);
-            AnsiConsole.MarkupLine(
-                $"[green][[AppServer]][/] WebSocket listener started at ws://{wsConfig.Host}:{wsConfig.Port}/ws");
+            case AppServerMode.WebSocket:
+                // -------------------------------------------------------------------
+                // Pure WebSocket mode: no stdio transport; the WebSocket server is
+                // the main loop. Stdout remains available for normal console output.
+                // -------------------------------------------------------------------
+                await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                break;
+
+            case AppServerMode.StdioAndWebSocket:
+                // -------------------------------------------------------------------
+                // Dual mode: stdio main loop + WebSocket listener running in parallel.
+                // -------------------------------------------------------------------
+                await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                break;
+
+            default:
+                // -------------------------------------------------------------------
+                // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
+                // -------------------------------------------------------------------
+                await RunStdioOnlyAsync(sessionService, cancellationToken);
+                break;
         }
 
+        AnsiConsole.MarkupLine("[grey][[AppServer]][/] AppServer stopped");
+    }
+
+    // -------------------------------------------------------------------------
+    // Run modes
+    // -------------------------------------------------------------------------
+
+    private static async Task RunStdioOnlyAsync(
+        ISessionService sessionService,
+        CancellationToken cancellationToken)
+    {
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
 
@@ -111,6 +133,44 @@ public sealed class AppServerHost(
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
+        await RunLoopAsync(transport, connection, handler, cancellationToken);
+    }
+
+    private static async Task RunWebSocketOnlyAsync(
+        WebSocketServerConfig wsConfig,
+        ISessionService sessionService,
+        CancellationToken cancellationToken)
+    {
+        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken);
+
+        AnsiConsole.MarkupLine(
+            $"[green][[AppServer]][/] DotCraft AppServer started (WebSocket at ws://{wsConfig.Host}:{wsConfig.Port}/ws)");
+
+        // The WebSocket server IS the main loop — RunAsync blocks until shutdown.
+        await wsApp.RunAsync(wsUrl);
+    }
+
+    private static async Task RunStdioWithWebSocketAsync(
+        WebSocketServerConfig wsConfig,
+        ISessionService sessionService,
+        CancellationToken cancellationToken)
+    {
+        // Start the WebSocket listener first, then enter the stdio loop.
+        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken);
+        var wsRunTask = wsApp.RunAsync(wsUrl);
+
+        AnsiConsole.MarkupLine(
+            $"[green][[AppServer]][/] WebSocket listener started at ws://{wsConfig.Host}:{wsConfig.Port}/ws");
+
+        await using var transport = StdioTransport.CreateStdio();
+        transport.Start();
+
+        var connection = new AppServerConnection();
+        var handler = new AppServerRequestHandler(
+            sessionService, connection, transport, serverVersion: AppVersion.Informational);
+
+        AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
+
         try
         {
             await RunLoopAsync(transport, connection, handler, cancellationToken);
@@ -118,14 +178,9 @@ public sealed class AppServerHost(
         finally
         {
             // Stop the WebSocket server when stdio exits
-            if (wsApp != null)
-            {
-                await wsApp.StopAsync(CancellationToken.None);
-                try { await wsRunTask!; } catch { }
-            }
+            await wsApp.StopAsync(CancellationToken.None);
+            try { await wsRunTask; } catch { /* ignored */ }
         }
-
-        AnsiConsole.MarkupLine("[grey][[AppServer]][/] AppServer stopped");
     }
 
     // -------------------------------------------------------------------------

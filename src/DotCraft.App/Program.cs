@@ -1,6 +1,4 @@
 using System.Text;
-using DotCraft.Acp;
-using DotCraft.AppServer;
 using DotCraft.CLI;
 using DotCraft.Diagnostics;
 using DotCraft.Configuration;
@@ -14,44 +12,31 @@ using Spectre.Console;
 
 Console.OutputEncoding = Encoding.UTF8;
 
-var isAcpMode = args.Any(a => a.Equals("-acp", StringComparison.OrdinalIgnoreCase)
-                            || a.Equals("acp", StringComparison.OrdinalIgnoreCase));
+// -------------------------------------------------------------------------
+// 1. Parse command-line arguments
+// -------------------------------------------------------------------------
+var cliArgs = CommandLineArgs.Parse(args);
+var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer;
 
-var isAppServerMode = args.Any(a => a.Equals("app-server", StringComparison.OrdinalIgnoreCase));
-
-// Both ACP and AppServer reserve stdout for JSON-RPC; redirect all diagnostics to stderr
-if (isAcpMode || isAppServerMode)
+// -------------------------------------------------------------------------
+// 2. Prepare subprocess environment (stdout → stderr, ignore Ctrl+C)
+//    Only needed when the process reserves stdout for a wire protocol.
+// -------------------------------------------------------------------------
+if (cliArgs.ReservesStdout)
 {
-    // stdout is reserved for JSON-RPC; redirect all console diagnostics to stderr immediately
-    // so nothing pollutes the transport before the host starts.
-    AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
-    {
-        Out = new AnsiConsoleOutput(Console.Error)
-    });
-    Console.SetOut(new StreamWriter(Console.OpenStandardError(), Encoding.UTF8) { AutoFlush = true });
-
-    // Ignore Ctrl+C / SIGINT in the subprocess.
-    //
-    // On Windows, pressing Ctrl+C sends CTRL_C_EVENT to every process attached to the same
-    // console.  The CLI process handles this via Console.CancelKeyPress (setting e.Cancel = true),
-    // which prevents the CLI from terminating — but that does NOT protect child processes in
-    // the same console process group.  Since .NET's Process.Start lacks a way to specify
-    // CREATE_NEW_PROCESS_GROUP, we instead disable the CTRL_C_EVENT handler on the subprocess
-    // side.  The AppServer's lifecycle is controlled by stdin EOF / explicit shutdown, so it
-    // never needs to respond to Ctrl+C directly.
-    //
-    // On Unix, Process.Start does not propagate SIGINT to children (the shell does), and this
-    // handler provides consistent ignore semantics across platforms.
-    ConsoleSignalGuard.IgnoreInterruptSignal();
+    SubprocessEnvironment.Prepare();
 }
 
+// -------------------------------------------------------------------------
+// 3. Workspace discovery & initialization
+// -------------------------------------------------------------------------
 var workspacePath = Directory.GetCurrentDirectory();
 var botPath = Path.GetFullPath(".craft");
 var workspaceJustInitialized = false;
 
 if (!Directory.Exists(botPath))
 {
-    if (isAcpMode || isAppServerMode)
+    if (isHeadless)
     {
         await Console.Error.WriteLineAsync($"DotCraft workspace not found: {botPath}");
         Environment.Exit(1);
@@ -105,27 +90,20 @@ if (!Directory.Exists(botPath))
         return;
     }
     workspaceJustInitialized = true;
-
 }
 
+// -------------------------------------------------------------------------
+// 4. Load configuration & apply CLI overrides
+// -------------------------------------------------------------------------
 var configPath = Path.Combine(botPath, "config.json");
 var config = AppConfig.LoadWithGlobalFallback(configPath);
 
-if (isAcpMode)
-{
-    config.SetSection("Acp", new AcpConfig { Enabled = true });
-    // Dashboard is not useful when the process is managed by an external client.
-    config.DashBoard.Enabled = false;
-}
+// CLI arguments take precedence over config.json values.
+cliArgs.ApplyTo(config);
 
-if (isAppServerMode)
-{
-    config.SetSection("AppServer", new AppServerConfig { Mode = AppServerMode.Stdio });
-    // Dashboard is not useful when the process is managed by an external client.
-    config.DashBoard.Enabled = false;
-}
-
-// Create language service from config
+// -------------------------------------------------------------------------
+// 5. Language & debug mode
+// -------------------------------------------------------------------------
 var languageService = new LanguageService(config.Language);
 
 DebugModeService.Initialize(config.DebugMode);
@@ -134,9 +112,12 @@ if (config.DebugMode)
     AnsiConsole.MarkupLine("[yellow]Debug mode is enabled - tool arguments and results will be shown in full[/]");
 }
 
+// -------------------------------------------------------------------------
+// 6. API Key validation
+// -------------------------------------------------------------------------
 if (string.IsNullOrWhiteSpace(config.ApiKey))
 {
-    if (isAcpMode || isAppServerMode)
+    if (isHeadless)
     {
         await Console.Error.WriteLineAsync("API Key not configured. Please set ApiKey in config.json.");
         Environment.Exit(1);
@@ -159,7 +140,9 @@ if (string.IsNullOrWhiteSpace(config.ApiKey))
     return;
 }
 
-// Create module registry and startup orchestrator
+// -------------------------------------------------------------------------
+// 7. Module registry, DI, and host startup
+// -------------------------------------------------------------------------
 var paths = new DotCraftPaths
 {
     WorkspacePath = workspacePath,
@@ -170,12 +153,10 @@ var moduleRegistry = new ModuleRegistry();
 ModuleRegistrations.RegisterAll(moduleRegistry);
 var hostBuilder = new HostBuilder(moduleRegistry, config, paths);
 
-// Create service collection with core services
 var services = new ServiceCollection()
     .AddSingleton(moduleRegistry)
     .AddDotCraft(config, workspacePath, botPath);
 
-// Create host
 var (provider, host) = hostBuilder.Build(services);
 
 await provider.InitializeServicesAsync();
