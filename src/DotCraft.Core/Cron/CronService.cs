@@ -12,13 +12,17 @@ public sealed class CronService : IDisposable
     private CancellationTokenSource? _cts;
 
     // Guards _store.Jobs list mutations and reads (fast, sync-only).
-    private readonly Lock _storeLock = new();
+    private readonly object _storeLock = new();
 
     // Prevents concurrent job execution — at most one job runs at a time.
     private readonly SemaphoreSlim _execLock = new(1, 1);
 
     // FileSystemWatcher for detecting external store mutations (e.g. manual edits).
     private FileSystemWatcher? _watcher;
+
+    // Set to true while this process is writing the store file so the FSW handler
+    // ignores the change event and does not trigger a self-reload.
+    private volatile bool _selfWriting;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -142,18 +146,19 @@ public sealed class CronService : IDisposable
 
     private async Task CheckAndRunDueJobsAsync()
     {
-        // Snapshot due jobs under _storeLock so a concurrent ReloadStore() or
-        // wire-based mutation doesn't corrupt the iteration.
-        List<CronJob> dueJobs;
+        // Snapshot due job IDs (not references) under _storeLock so a concurrent
+        // ReloadStore() or wire mutation doesn't corrupt the iteration.
+        List<string> dueJobIds;
         lock (_storeLock)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            dueJobs = _store.Jobs
+            dueJobIds = _store.Jobs
                 .Where(j => j.Enabled && j.State.NextRunAtMs.HasValue && j.State.NextRunAtMs.Value <= now)
+                .Select(j => j.Id)
                 .ToList();
         }
 
-        foreach (var job in dueJobs)
+        foreach (var jobId in dueJobIds)
         {
             // _execLock ensures jobs run sequentially, not concurrently.
             await _execLock.WaitAsync();
@@ -164,10 +169,10 @@ public sealed class CronService : IDisposable
                 bool stillValid;
                 lock (_storeLock)
                 {
-                    stillValid = _store.Jobs.Any(j => j.Id == job.Id && j.Enabled);
+                    stillValid = _store.Jobs.Any(j => j.Id == jobId && j.Enabled);
                 }
                 if (stillValid)
-                    await ExecuteJobAsync(job);
+                    await ExecuteJobAsync(jobId);
             }
             finally
             {
@@ -176,33 +181,51 @@ public sealed class CronService : IDisposable
         }
     }
 
-    private async Task ExecuteJobAsync(CronJob job)
+    private async Task ExecuteJobAsync(string jobId)
     {
+        // Capture a copy of the immutable fields needed to run the job.
+        CronJob? jobSnapshot;
+        lock (_storeLock)
+        {
+            jobSnapshot = _store.Jobs.Find(j => j.Id == jobId);
+        }
+        if (jobSnapshot == null) return;
+
         try
         {
             if (OnJob != null)
-                await OnJob(job);
+                await OnJob(jobSnapshot);
 
-            job.State.LastRunAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            job.State.LastStatus = "ok";
-            job.State.LastError = null;
-
+            // Re-lookup by ID so mutations are applied to the current in-list object,
+            // even if ReloadStore() replaced the reference while OnJob was running.
             lock (_storeLock)
             {
-                if (job.DeleteAfterRun || job.Schedule.Kind == "at")
-                    _store.Jobs.Remove(job);
-                else
-                    ComputeNextRun(job);
+                var current = _store.Jobs.Find(j => j.Id == jobId);
+                if (current != null)
+                {
+                    current.State.LastRunAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    current.State.LastStatus = "ok";
+                    current.State.LastError = null;
+
+                    if (current.DeleteAfterRun || current.Schedule.Kind == "at")
+                        _store.Jobs.Remove(current);
+                    else
+                        ComputeNextRun(current);
+                }
             }
         }
         catch (Exception ex)
         {
-            job.State.LastRunAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            job.State.LastStatus = "error";
-            job.State.LastError = ex.Message;
             lock (_storeLock)
             {
-                ComputeNextRun(job);
+                var current = _store.Jobs.Find(j => j.Id == jobId);
+                if (current != null)
+                {
+                    current.State.LastRunAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    current.State.LastStatus = "error";
+                    current.State.LastError = ex.Message;
+                    ComputeNextRun(current);
+                }
             }
         }
         SaveStore();
@@ -226,9 +249,9 @@ public sealed class CronService : IDisposable
     }
 
     /// <summary>
-    /// Starts watching the store file for external changes (e.g. CLI writing via its own
-    /// CronService instance). When a change is detected, ReloadStore() is called after a
-    /// short debounce to let the write complete.
+    /// Starts watching the store file for external changes (e.g. manual edits).
+    /// Own writes are suppressed via <see cref="_selfWriting"/> so SaveStore() does
+    /// not trigger a reload loop.
     /// </summary>
     private void StartWatching()
     {
@@ -246,10 +269,14 @@ public sealed class CronService : IDisposable
         };
 
         // Debounce: wait 200ms after the last write event before reloading, to avoid
-        // reading a partially-written file.
+        // reading a partially-written file. Skip events caused by our own SaveStore().
         _watcher.Changed += (_, _) =>
         {
-            Task.Delay(200).ContinueWith(_ => ReloadStore());
+            if (_selfWriting) return;
+            Task.Delay(200).ContinueWith(_ =>
+            {
+                if (!_selfWriting) ReloadStore();
+            });
         };
     }
 
@@ -270,7 +297,9 @@ public sealed class CronService : IDisposable
 
     private void SaveStore()
     {
-        // Snapshot under _storeLock so the serialized JSON is consistent with in-memory state.
+        // Deep-copy each CronJob (including its mutable CronJobState) under _storeLock so
+        // the serialized snapshot is consistent and doesn't race with ExecuteJobAsync which
+        // mutates State fields outside the lock during OnJob execution.
         // File I/O is done outside the lock to avoid blocking other operations during a slow write.
         CronStore snapshot;
         lock (_storeLock)
@@ -278,14 +307,40 @@ public sealed class CronService : IDisposable
             snapshot = new CronStore
             {
                 Version = _store.Version,
-                Jobs = _store.Jobs.ToList()
+                Jobs = _store.Jobs.Select(j => new CronJob
+                {
+                    Id = j.Id,
+                    Name = j.Name,
+                    Enabled = j.Enabled,
+                    Schedule = j.Schedule,       // immutable after creation
+                    Payload = j.Payload,         // immutable after creation
+                    CreatedAtMs = j.CreatedAtMs,
+                    DeleteAfterRun = j.DeleteAfterRun,
+                    State = new CronJobState
+                    {
+                        NextRunAtMs = j.State.NextRunAtMs,
+                        LastRunAtMs = j.State.LastRunAtMs,
+                        LastStatus = j.State.LastStatus,
+                        LastError = j.State.LastError
+                    }
+                }).ToList()
             };
         }
 
         var dir = Path.GetDirectoryName(_storePath);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
-        File.WriteAllText(_storePath, JsonSerializer.Serialize(snapshot, JsonOptions));
+
+        // Set the flag before writing so the FSW Changed event is ignored.
+        _selfWriting = true;
+        try
+        {
+            File.WriteAllText(_storePath, JsonSerializer.Serialize(snapshot, JsonOptions));
+        }
+        finally
+        {
+            _selfWriting = false;
+        }
     }
 
     public void Dispose()
