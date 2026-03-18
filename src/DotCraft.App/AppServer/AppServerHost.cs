@@ -193,7 +193,7 @@ public sealed class AppServerHost(
         CancellationToken hostCt)
     {
         // Refuse to start if the binding is non-loopback without a token (spec §15.4)
-        var isLoopback = wsConfig.Host is "127.0.0.1" or "::1" or "localhost";
+        var isLoopback = wsConfig.Host is "127.0.0.1" or "::1" or "[::1]" or "localhost";
         if (!isLoopback && string.IsNullOrEmpty(wsConfig.Token))
             throw new InvalidOperationException(
                 "WebSocket listener bound to a non-loopback address requires a bearer token (AppServer.WebSocket.Token).");
