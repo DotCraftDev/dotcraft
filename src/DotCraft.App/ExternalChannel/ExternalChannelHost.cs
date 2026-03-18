@@ -380,8 +380,10 @@ public sealed class ExternalChannelHost : IChannelService
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +
             $"(client: {connection.ClientInfo?.Name ?? "unknown"})");
 
-        // The initialize handshake was already completed by AppServerHost before routing here.
-        // We still need to handle the 'initialized' notification and run the message loop.
+        // The initialize handshake was already completed by AppServerHost before routing here,
+        // and the 'initialized' notification has also been consumed. Start heartbeat probing
+        // explicitly since it won't be triggered via HandleNotification in WebSocket mode.
+        StartHeartbeatTimer();
         await RunMessageLoopAsync(transport, connection, _handler, ct);
 
         // Connection closed — reset for next connection
