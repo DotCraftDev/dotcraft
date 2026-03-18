@@ -133,7 +133,8 @@ public sealed class AppServerHost(
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
-        await RunLoopAsync(transport, connection, handler, cancellationToken);
+        var requestGate = new SemaphoreSlim(MaxConcurrentRequestsPerConnection, MaxConcurrentRequestsPerConnection);
+        await RunLoopAsync(transport, connection, handler, requestGate, cancellationToken);
     }
 
     private static async Task RunWebSocketOnlyAsync(
