@@ -532,8 +532,11 @@ public sealed class ExternalChannelHost : IChannelService
 
             // Heartbeat succeeded — connection is healthy
         }
-        catch (TimeoutException)
+        catch (OperationCanceledException) when (!_stopped && _runCts is { IsCancellationRequested: false })
         {
+            // SendClientRequestAsync uses CancellationTokenSource.CancelAfter() for timeouts,
+            // which throws TaskCanceledException (a subclass of OperationCanceledException).
+            // If neither _stopped nor _runCts is cancelled, this is a heartbeat timeout.
             AnsiConsole.MarkupLine(
                 $"[red][[ExternalChannel]][/] Heartbeat timeout for [yellow]{Name}[/] — " +
                 "connection unhealthy, triggering reconnect");

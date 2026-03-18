@@ -30,6 +30,14 @@ public sealed class WebSocketTransport : IAppServerTransport
     private Task? _readerLoop;
     private readonly CancellationTokenSource _disposeCts = new();
 
+    /// <summary>
+    /// A Task that completes when the background reader loop finishes
+    /// (WebSocket closed, cancelled, or errored). Await this to block
+    /// until the transport disconnects without reading from the raw socket.
+    /// Never faults — expected exceptions are swallowed internally.
+    /// </summary>
+    public Task Completed { get; private set; } = Task.CompletedTask;
+
     // 4 MB max message size per spec §15.6
     private const int MaxMessageBytes = 4 * 1024 * 1024;
 
@@ -49,6 +57,19 @@ public sealed class WebSocketTransport : IAppServerTransport
     public void Start()
     {
         _readerLoop = Task.Run(ReaderLoopAsync);
+        Completed = WrapReaderLoopAsync(_readerLoop);
+    }
+
+    /// <summary>
+    /// Wraps the reader loop task so that awaiting <see cref="Completed"/>
+    /// never throws. Expected exceptions (cancellation, WebSocket errors)
+    /// are swallowed; the Task simply transitions to <see cref="TaskStatus.RanToCompletion"/>.
+    /// </summary>
+    private static async Task WrapReaderLoopAsync(Task readerLoop)
+    {
+        try { await readerLoop; }
+        catch (OperationCanceledException) { }
+        catch (Exception) { }
     }
 
     // -------------------------------------------------------------------------

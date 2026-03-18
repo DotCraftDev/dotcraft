@@ -299,9 +299,11 @@ public sealed class AppServerHost(
                             // The host takes over the message loop; this handler returns.
                             host.AttachTransport(wsTransport, wsConnection);
 
-                            // Block this handler until the WebSocket closes to keep the
-                            // WebSocket and transport alive (they are 'using' scoped).
-                            await WaitForWebSocketCloseAsync(ws, hostCt);
+                            // Block this handler until the transport's reader loop finishes
+                            // (i.e. the WebSocket closes). This keeps the WebSocket and
+                            // transport alive (they are 'using' scoped) without performing
+                            // any additional ReceiveAsync calls on the raw WebSocket.
+                            await wsTransport.Completed;
                             return;
                         }
 
@@ -523,24 +525,4 @@ public sealed class AppServerHost(
         }
     }
 
-    /// <summary>
-    /// Blocks until the WebSocket connection closes or the host is cancelled.
-    /// Used after handing over a channel adapter connection to <see cref="ExternalChannel.ExternalChannelHost"/>
-    /// to keep the ASP.NET request pipeline (and the <c>using</c> scopes for WebSocket/transport) alive.
-    /// </summary>
-    private static async Task WaitForWebSocketCloseAsync(WebSocket ws, CancellationToken ct)
-    {
-        try
-        {
-            var buffer = new byte[1]; // Minimal buffer — we're not reading real data
-            while (ws.State is WebSocketState.Open or WebSocketState.CloseSent)
-            {
-                var result = await ws.ReceiveAsync(buffer, ct);
-                if (result.MessageType == WebSocketMessageType.Close)
-                    break;
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (WebSocketException) { }
-    }
 }
