@@ -126,6 +126,8 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
             new { includeDisabled },
             ct: ct);
 
+        ThrowIfError(doc, "cron/list");
+
         var result = doc.RootElement.GetProperty("result");
         return JsonSerializer.Deserialize<CronListResult>(result.GetRawText(), SessionWireJsonOptions.Default)?.Jobs
                ?? [];
