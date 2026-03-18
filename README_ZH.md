@@ -9,7 +9,9 @@
 
 **Craft around your project.**
 
-围绕项目目录运行的工作区级 Agent Harness，把当前目录变成持久、可观察的智能工作空间——可从 CLI、编辑器、聊天机器人、API 和 GitHub 工程工作流接入。
+一款 Agent Harness，可将您的目录打造为持久、可观察的智能工作区。
+
+无论您使用命令行界面 (CLI)、编辑器、聊天机器人还是 API，它都能满足您的需求。
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
 

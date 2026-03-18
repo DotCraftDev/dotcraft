@@ -9,7 +9,9 @@
 
 **Craft around your project.**
 
-A workspace-centered Agent Harness that turns the current directory into a persistent, inspectable workspace — accessible from CLI, editors, chatbots, APIs, and GitHub-driven engineering workflows.
+An Agent Harness that turns your directory into a persistent, inspectable workspace.
+
+From CLI, editors, chatbots, APIs — everywhere you work.
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
 
