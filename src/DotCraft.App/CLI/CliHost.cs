@@ -107,7 +107,7 @@ public sealed class CliHost(
             cliSession = new InProcessCliSession(sessionService, _agentFactory, tokenUsageStore, hookRunner);
             backendInfo = new CliBackendInfo { IsWire = false };
         }
-        else if (cliConfig.AppServerUrl is not null)
+        else if (!string.IsNullOrWhiteSpace(cliConfig.AppServerUrl))
         {
             // -------------------------------------------------------------------
             // WebSocket mode: connect to an already-running AppServer via WebSocket
