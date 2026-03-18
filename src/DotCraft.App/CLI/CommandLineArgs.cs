@@ -258,12 +258,10 @@ public sealed record CommandLineArgs
             return (AppServerMode.WebSocket, host, port);
         }
 
-        // wss://host:port → also pure WebSocket (TLS variant)
+        // wss://host:port is not supported by the embedded listener yet.
+        // Reject explicitly instead of silently downgrading to plain ws/http.
         if (url.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
-        {
-            var (host, port) = ParseHostPort(url["wss://".Length..]);
-            return (AppServerMode.WebSocket, host, port);
-        }
+            throw new ArgumentException("The wss:// scheme is not currently supported. Use ws:// or terminate TLS in front of AppServer.");
 
         // Unrecognized scheme — treat as stdio with a warning
         Console.Error.WriteLine($"[CLI] Warning: unrecognized --listen URL scheme '{url}', defaulting to stdio.");
