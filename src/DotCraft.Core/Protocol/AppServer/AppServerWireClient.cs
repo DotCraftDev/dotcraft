@@ -26,6 +26,7 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
 
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonDocument>> _pending = new();
     private readonly Channel<JsonDocument> _notifications = Channel.CreateUnbounded<JsonDocument>();
+    private readonly Channel<JsonDocument> _jobResultNotifications = Channel.CreateUnbounded<JsonDocument>();
 
     private Task? _readerTask;
     private readonly CancellationTokenSource _disposeCts = new();
@@ -187,6 +188,32 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
     }
 
     /// <summary>
+    /// Waits for the next <c>system/jobResult</c> notification from the dedicated channel.
+    /// Returns null on timeout or cancellation.
+    /// </summary>
+    public async Task<JsonDocument?> WaitForJobResultAsync(
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+
+        while (!ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero) break;
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
+            cts.CancelAfter(remaining);
+
+            try { return await _jobResultNotifications.Reader.ReadAsync(cts.Token); }
+            catch (OperationCanceledException) { break; }
+            catch (ChannelClosedException) { break; }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Sends a JSON-RPC response to a server-initiated request.
     /// Used by the background reader loop when <see cref="ServerRequestHandler"/> is set.
     /// </summary>
@@ -221,7 +248,7 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                 catch (JsonException) { continue; }
 
                 var root = doc.RootElement;
-                var hasMethod = root.TryGetProperty("method", out _);
+                var hasMethod = root.TryGetProperty("method", out var methodEl);
                 var hasId = root.TryGetProperty("id", out var idEl) &&
                             idEl.ValueKind != JsonValueKind.Null &&
                             idEl.ValueKind != JsonValueKind.Undefined;
@@ -257,6 +284,13 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                     }
                 }
 
+                // system/jobResult → dedicated channel to avoid being consumed during a turn
+                if (hasMethod && methodEl.GetString() == AppServerMethods.SystemJobResult)
+                {
+                    _jobResultNotifications.Writer.TryWrite(doc);
+                    continue;
+                }
+
                 // Notification or unhandled server request → notification queue
                 _notifications.Writer.TryWrite(doc);
             }
@@ -265,6 +299,7 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
         finally
         {
             _notifications.Writer.TryComplete();
+            _jobResultNotifications.Writer.TryComplete();
             foreach (var tcs in _pending.Values)
                 tcs.TrySetCanceled();
         }

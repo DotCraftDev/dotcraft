@@ -49,7 +49,7 @@ public sealed class AppServerHost(
     /// Thread-safe set of currently connected transports. Used to broadcast
     /// out-of-band notifications (e.g. <c>plan/updated</c>) to all clients.
     /// </summary>
-    private readonly ConcurrentDictionary<IAppServerTransport, byte> _activeTransports = new();
+    private readonly ConcurrentDictionary<IAppServerTransport, AppServerConnection> _activeTransports = new();
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -207,9 +207,9 @@ public sealed class AppServerHost(
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
 
-        _activeTransports.TryAdd(transport, 0);
-
         var connection = new AppServerConnection();
+        _activeTransports.TryAdd(transport, connection);
+
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational);
 
@@ -256,9 +256,9 @@ public sealed class AppServerHost(
         await using var transport = StdioTransport.CreateStdio();
         transport.Start();
 
-        _activeTransports.TryAdd(transport, 0);
-
         var connection = new AppServerConnection();
+        _activeTransports.TryAdd(transport, connection);
+
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational);
 
@@ -327,10 +327,10 @@ public sealed class AppServerHost(
             await using var wsTransport = new WebSocketTransport(ws);
             wsTransport.Start();
 
-            _activeTransports.TryAdd(wsTransport, 0);
+            var wsConnection = new AppServerConnection();
+            _activeTransports.TryAdd(wsTransport, wsConnection);
             try
             {
-                var wsConnection = new AppServerConnection();
                 var wsHandler = new AppServerRequestHandler(
                     sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational);
 
@@ -569,8 +569,11 @@ public sealed class AppServerHost(
             }
         };
 
-        foreach (var transport in _activeTransports.Keys)
+        foreach (var (transport, connection) in _activeTransports)
         {
+            if (!connection.ShouldSendNotification(AppServerMethods.SystemJobResult))
+                continue;
+
             _ = Task.Run(async () =>
             {
                 try
@@ -613,8 +616,11 @@ public sealed class AppServerHost(
 
         // Fire-and-forget broadcast to all connected clients.
         // Errors on individual transports (e.g. disconnected) are silently ignored.
-        foreach (var transport in _activeTransports.Keys)
+        foreach (var (transport, connection) in _activeTransports)
         {
+            if (!connection.ShouldSendNotification(AppServerMethods.PlanUpdated))
+                continue;
+
             _ = Task.Run(async () =>
             {
                 try

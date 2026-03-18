@@ -152,8 +152,7 @@ public sealed class CliHost(
     {
         while (!ct.IsCancellationRequested)
         {
-            var notif = await wire.WaitForNotificationAsync(
-                AppServerMethods.SystemJobResult,
+            var notif = await wire.WaitForJobResultAsync(
                 timeout: TimeSpan.FromSeconds(5),
                 ct: ct);
 
