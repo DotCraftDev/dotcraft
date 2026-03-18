@@ -109,6 +109,79 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
     }
 
     // -------------------------------------------------------------------------
+    // Cron management (spec Section 16)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Lists cron jobs from the AppServer's in-memory CronService.
+    /// Requires the server to advertise <c>cronManagement</c> capability.
+    /// Throws <see cref="Exception"/> on wire errors or if the server returns a JSON-RPC error.
+    /// </summary>
+    public async Task<List<CronJobWireInfo>> CronListAsync(
+        bool includeDisabled = false,
+        CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.CronList,
+            new { includeDisabled },
+            ct: ct);
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<CronListResult>(result.GetRawText(), SessionWireJsonOptions.Default)?.Jobs
+               ?? [];
+    }
+
+    /// <summary>
+    /// Removes a cron job from the AppServer's in-memory CronService.
+    /// Throws <see cref="Exception"/> if the job is not found or a wire error occurs.
+    /// </summary>
+    public async Task CronRemoveAsync(string jobId, CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.CronRemove,
+            new { jobId },
+            ct: ct);
+
+        ThrowIfError(doc, jobId);
+    }
+
+    /// <summary>
+    /// Enables or disables a cron job on the AppServer.
+    /// Throws <see cref="Exception"/> if the job is not found or a wire error occurs.
+    /// </summary>
+    public async Task<CronJobWireInfo> CronEnableAsync(
+        string jobId,
+        bool enabled,
+        CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.CronEnable,
+            new { jobId, enabled },
+            ct: ct);
+
+        ThrowIfError(doc, jobId);
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<CronEnableResult>(result.GetRawText(), SessionWireJsonOptions.Default)?.Job
+               ?? throw new InvalidOperationException($"Server returned empty job for '{jobId}'.");
+    }
+
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> if the JSON-RPC document contains an
+    /// error field, using the error message from the server response.
+    /// </summary>
+    private static void ThrowIfError(JsonDocument doc, string context)
+    {
+        if (doc.RootElement.TryGetProperty("error", out var error))
+        {
+            var message = error.TryGetProperty("message", out var msg)
+                ? msg.GetString() ?? "Unknown error"
+                : "Unknown error";
+            throw new InvalidOperationException(message);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Core JSON-RPC primitives
     // -------------------------------------------------------------------------
 

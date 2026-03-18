@@ -115,7 +115,8 @@ public sealed class CliHost(
             dashBoardUrl: dashBoardUrl,
             customCommandLoader: customCommandLoader,
             hookRunner: hookRunner,
-            backendInfo: backendInfo);
+            backendInfo: backendInfo,
+            wireClient: wire);
 
         // Background listener for out-of-band server notifications (e.g. system/jobResult).
         // Cron and heartbeat now run server-side; results arrive as wire notifications

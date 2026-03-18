@@ -46,6 +46,12 @@ public sealed class AppServerHost(
     private AgentFactory? _agentFactory;
 
     /// <summary>
+    /// Cron service instance owned by this AppServer process. Set during RunAsync and passed to
+    /// request handlers so wire clients can manage cron jobs via the cron/* wire methods (spec §16).
+    /// </summary>
+    private CronService? _cronService;
+
+    /// <summary>
     /// Thread-safe set of currently connected transports. Used to broadcast
     /// out-of-band notifications (e.g. <c>plan/updated</c>) to all clients.
     /// </summary>
@@ -102,6 +108,7 @@ public sealed class AppServerHost(
         // correct and concurrency-safe. Results are delivered via system/jobResult wire
         // notifications to connected CLI clients.
         var cronService = sp.GetRequiredService<CronService>();
+        _cronService = cronService;
         // quiet=true suppresses verbose progress lines; results are delivered via
         // system/jobResult wire notifications instead of console output.
         var runner = new AgentRunner(paths.WorkspacePath, sessionService, quiet: true);
@@ -211,7 +218,8 @@ public sealed class AppServerHost(
         _activeTransports.TryAdd(transport, connection);
 
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational);
+            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            cronService: _cronService);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -260,7 +268,8 @@ public sealed class AppServerHost(
         _activeTransports.TryAdd(transport, connection);
 
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational);
+            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            cronService: _cronService);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -332,7 +341,8 @@ public sealed class AppServerHost(
             try
             {
                 var wsHandler = new AppServerRequestHandler(
-                    sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational);
+                    sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
+                    cronService: _cronService);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //

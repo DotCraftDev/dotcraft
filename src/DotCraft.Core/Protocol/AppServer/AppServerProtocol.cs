@@ -129,6 +129,13 @@ public sealed class AppServerServerCapabilities
     public bool ModeSwitch { get; set; } = true;
 
     public bool ConfigOverride { get; set; } = true;
+
+    /// <summary>
+    /// Server supports cron management methods (cron/list, cron/remove, cron/enable).
+    /// False when the cron service is not configured. See spec Section 16.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CronManagement { get; set; }
 }
 
 // ───── thread/start ─────
@@ -289,6 +296,95 @@ public sealed class AppServerApprovalResponseResult
     public string Decision { get; set; } = string.Empty;
 }
 
+// ───── cron/list ─────
+
+public sealed class CronListParams
+{
+    /// <summary>When true, disabled jobs are included. Default false.</summary>
+    public bool IncludeDisabled { get; set; }
+}
+
+public sealed class CronListResult
+{
+    public List<CronJobWireInfo> Jobs { get; set; } = [];
+}
+
+// ───── cron/remove ─────
+
+public sealed class CronRemoveParams
+{
+    public string JobId { get; set; } = string.Empty;
+}
+
+public sealed class CronRemoveResult
+{
+    public bool Removed { get; set; }
+}
+
+// ───── cron/enable ─────
+
+public sealed class CronEnableParams
+{
+    public string JobId { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+}
+
+public sealed class CronEnableResult
+{
+    public CronJobWireInfo Job { get; set; } = new();
+}
+
+// ───── CronJobInfo wire DTO (spec Section 16.2) ─────
+
+/// <summary>
+/// Transport-safe projection of the internal CronJob domain model.
+/// Used in cron/list and cron/enable results.
+/// </summary>
+public sealed class CronJobWireInfo
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public CronScheduleWireInfo Schedule { get; set; } = new();
+
+    public bool Enabled { get; set; }
+
+    public long CreatedAtMs { get; set; }
+
+    public bool DeleteAfterRun { get; set; }
+
+    public CronJobStateWireInfo State { get; set; } = new();
+}
+
+public sealed class CronScheduleWireInfo
+{
+    /// <summary>"every" or "at"</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? EveryMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? AtMs { get; set; }
+}
+
+public sealed class CronJobStateWireInfo
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? NextRunAtMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? LastRunAtMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LastStatus { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LastError { get; set; }
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -347,4 +443,9 @@ public static class AppServerMethods
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
     public const string ExtChannelDeliver = "ext/channel/deliver";
     public const string ExtChannelHeartbeat = "ext/channel/heartbeat";
+
+    // Client → Server requests (cron management, spec Section 16)
+    public const string CronList = "cron/list";
+    public const string CronRemove = "cron/remove";
+    public const string CronEnable = "cron/enable";
 }
