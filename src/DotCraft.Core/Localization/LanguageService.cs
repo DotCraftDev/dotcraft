@@ -16,22 +16,28 @@ public enum Language
 /// Service for managing language settings and localization.
 /// Loads translations from embedded JSON language packs and provides key-based lookup.
 /// </summary>
-public sealed class LanguageService(Language language = Language.Chinese)
+public sealed class LanguageService
 {
+    private static readonly Dictionary<Language, string> LanguageFileMap = new()
+    {
+        [Language.Chinese] = "zh",
+        [Language.English] = "en"
+    };
+
     /// <summary>
     /// Ambient context – set once during DI registration, then accessible everywhere.
     /// Falls back to a default (Chinese) instance if not explicitly configured.
     /// </summary>
     public static LanguageService Current { get; set; } = new();
 
-    private volatile Language _currentLanguage = language;
-    private IReadOnlyDictionary<string, string> _translations = LoadTranslations(language);
+    private volatile Language _currentLanguage;
+    private IReadOnlyDictionary<string, string> _translations;
 
-    private static readonly Dictionary<Language, string> LanguageFileMap = new()
+    public LanguageService(Language language = Language.Chinese)
     {
-        [Language.Chinese] = "zh",
-        [Language.English] = "en"
-    };
+        _currentLanguage = language;
+        _translations = LoadTranslations(language);
+    }
 
     public Language CurrentLanguage
     {
@@ -52,7 +58,7 @@ public sealed class LanguageService(Language language = Language.Chinese)
     /// </summary>
     public string T(string key)
     {
-        return _translations.GetValueOrDefault(key, key);
+        return _translations.TryGetValue(key, out var value) ? value : key;
     }
 
     /// <summary>
@@ -60,7 +66,7 @@ public sealed class LanguageService(Language language = Language.Chinese)
     /// </summary>
     public string T(string key, params object[] args)
     {
-        var template = _translations.GetValueOrDefault(key, key);
+        var template = _translations.TryGetValue(key, out var value) ? value : key;
         return args.Length > 0 ? string.Format(template, args) : template;
     }
 
@@ -111,7 +117,8 @@ public sealed class LanguageService(Language language = Language.Chinese)
 
     private static IReadOnlyDictionary<string, string> LoadTranslations(Language language)
     {
-        var fileSuffix = LanguageFileMap.GetValueOrDefault(language, "zh");
+        if (!LanguageFileMap.TryGetValue(language, out var fileSuffix))
+            fileSuffix = "zh";
 
         var resourceName = $"DotCraft.Localization.Languages.{fileSuffix}.json";
         var assembly = typeof(LanguageService).Assembly;

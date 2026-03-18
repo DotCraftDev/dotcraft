@@ -61,8 +61,7 @@ public sealed class InProcessCliSession(
         await renderer.StartAsync(ct);
         await renderer.SendEventAsync(RenderEvent.StreamStart(), ct);
         ConsoleApprovalService.SetRenderControl(renderer);
-        if (hookRunner != null)
-            hookRunner.DebugLogger = renderer.TryEnqueueDebug;
+        hookRunner?.DebugLogger = renderer.TryEnqueueDebug;
 
         try
         {
