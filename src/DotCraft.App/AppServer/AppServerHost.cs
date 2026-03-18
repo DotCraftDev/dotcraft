@@ -159,6 +159,12 @@ public sealed class AppServerHost(
             AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Cron service started ({cronService.ListJobs().Count} jobs)");
         }
 
+        if (config.Heartbeat.Enabled)
+        {
+            heartbeatService.Start();
+            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Heartbeat started (interval: {config.Heartbeat.IntervalSeconds}s)");
+        }
+
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
 
         switch (appServerConfig.Mode)
