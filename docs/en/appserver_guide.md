@@ -223,4 +223,4 @@ By default, the CLI automatically starts `dotcraft app-server` as a subprocess a
 
 - [Configuration Guide](./config_guide.md): Full configuration reference, including AppServer and CLI config items
 - [ACP Mode Guide](./acp_guide.md): Editor / IDE integration (also based on wire protocol)
-- [AppServer Protocol Specification](../specs/appserver-protocol.md): Complete JSON-RPC protocol specification (§15 covers WebSocket transport)
+- [AppServer Protocol Specification](../../specs/appserver-protocol.md): Complete JSON-RPC protocol specification (§15 covers WebSocket transport)
