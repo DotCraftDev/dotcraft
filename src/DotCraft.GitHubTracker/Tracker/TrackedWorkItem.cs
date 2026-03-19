@@ -113,6 +113,14 @@ public sealed class TrackedWorkItem
     /// </summary>
     public bool IsDraft { get; init; }
 
+    /// <summary>
+    /// The HEAD commit SHA of the pull request at fetch time.
+    /// Used by the orchestrator to detect new pushes and re-trigger reviews.
+    /// Null for issues. Should be non-null for pull requests.
+    /// See PR Lifecycle Spec section 4.1.
+    /// </summary>
+    public string? HeadSha { get; init; }
+
     #endregion
 }
 

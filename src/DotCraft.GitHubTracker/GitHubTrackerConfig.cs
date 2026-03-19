@@ -94,12 +94,6 @@ public sealed class GitHubTrackerTrackerConfig
     [ConfigField(Hint = "JSON array of PR states considered terminal (e.g. \"Merged\", \"Closed\", \"Approved\")")]
     public List<string> PullRequestTerminalStates { get; set; } = ["Merged", "Closed", "Approved"];
 
-    /// <summary>
-    /// Optional: only track PRs carrying this label (e.g. "auto-review").
-    /// When null or empty, all non-draft PRs are eligible.
-    /// </summary>
-    [ConfigField(Hint = "Optional: only track PRs with this label (e.g. auto-review). Empty = all non-draft PRs. Orchestrator removes this label after each review when set.")]
-    public string? PullRequestLabelFilter { get; set; }
 }
 
 [ConfigSection("GitHubTracker.Polling", DisplayName = "GitHubTracker > Polling", Order = 320)]

@@ -13,6 +13,14 @@ public sealed class OrchestratorState
     public HashSet<string> Claimed { get; } = [];
     public Dictionary<string, RetryEntry> RetryAttempts { get; } = [];
     public HashSet<string> Completed { get; } = [];
+
+    /// <summary>
+    /// Maps PR work-item ID to the head SHA that was reviewed.
+    /// In-memory only; empty after restart so all open PRs are re-reviewed on the first tick.
+    /// See PR Lifecycle Spec section 4.2; Symphony SPEC section 14.3.
+    /// </summary>
+    public Dictionary<string, string> ReviewedSha { get; } = [];
+
     public AggregateMetrics Totals { get; } = new();
 }
 

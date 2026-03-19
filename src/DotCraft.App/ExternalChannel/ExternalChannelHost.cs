@@ -34,7 +34,6 @@ public sealed class ExternalChannelHost : IChannelService
     // Subprocess management
     private Process? _adapterProcess;
     private CancellationTokenSource? _runCts;
-    private Task? _stderrForwardTask;
 
     // WebSocket mode: signaled when an adapter attaches via AppServerHost
     private TaskCompletionSource<(IAppServerTransport Transport, AppServerConnection Connection)>?
@@ -219,7 +218,7 @@ public sealed class ExternalChannelHost : IChannelService
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Called by <see cref="AppServerHost"/> when a WebSocket client completes the
+    /// Called by <see cref="AppServer.AppServerHost"/> when a WebSocket client completes the
     /// <c>initialize</c> handshake with a matching <c>channelAdapter.channelName</c>.
     /// The transport and connection are handed over to this host, which takes over
     /// the message loop.
@@ -253,7 +252,7 @@ public sealed class ExternalChannelHost : IChannelService
             _sessionService, _connection, transport, _serverVersion);
 
         // Forward stderr to DotCraft's diagnostic log
-        _stderrForwardTask = ForwardStderrAsync(process, ct);
+        _ = ForwardStderrAsync(process, ct);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] Adapter [yellow]{Name}[/] spawned (PID {process.Id})");

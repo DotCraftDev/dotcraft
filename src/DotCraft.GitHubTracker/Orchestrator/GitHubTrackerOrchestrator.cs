@@ -8,8 +8,14 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.GitHubTracker.Orchestrator;
 
 /// <summary>
-/// Core orchestration state machine per SPEC.md Sections 7-8.
-/// Owns the poll tick, in-memory state, and all dispatch/retry/reconciliation decisions.
+/// Core orchestration state machine implementing Symphony SPEC sections 7–8.
+/// Owns the poll tick, in-memory state, and all dispatch/retry/reconciliation decisions
+/// for both GitHub Issues and Pull Requests.
+/// <para>
+/// PR-specific extensions (SHA tracking, COMMENT-only reviews) are defined in the
+/// PR Lifecycle Spec and layered on top of the Symphony base without changing the
+/// shared reconciliation, retry, or workspace lifecycle.
+/// </para>
 /// Implements <see cref="IOrchestratorSnapshotProvider"/> so the dashboard can query state.
 /// </summary>
 public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorSnapshotProvider
@@ -50,6 +56,24 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         _logger = logger;
         _issuesWorkflowPath = ResolveWorkflowPath(config.IssuesWorkflowPath, workspacePath);
         _pullRequestWorkflowPath = ResolveWorkflowPath(config.PullRequestWorkflowPath, workspacePath);
+
+        _state.PollIntervalMs = config.Polling.IntervalMs;
+        _state.MaxConcurrentAgents = config.Agent.MaxConcurrentAgents;
+    }
+
+    /// <summary>
+    /// Minimal constructor for unit tests that only exercise dispatch/reconciliation logic.
+    /// Does not start the poll loop; callers drive state directly via <see cref="State"/>.
+    /// </summary>
+    internal GitHubTrackerOrchestrator(IWorkItemTracker tracker, GitHubTrackerConfig config, ILogger<GitHubTrackerOrchestrator> logger)
+    {
+        _tracker = tracker;
+        _workflowLoader = null!;
+        _prWorkflowLoader = null!;
+        _workspaceManager = null!;
+        _agentRunnerFactory = null!;
+        _config = config;
+        _logger = logger;
 
         _state.PollIntervalMs = config.Polling.IntervalMs;
         _state.MaxConcurrentAgents = config.Agent.MaxConcurrentAgents;
@@ -325,7 +349,13 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                 _logger.LogInformation("{Identifier} reached terminal state {State}, stopping and cleaning",
                     entry.Identifier, currentState);
                 TerminateRunning(entry.WorkItemId, cleanWorkspace: true);
-                lock (_stateLock) { _state.Completed.Remove(entry.WorkItemId); }
+                // Remove ReviewedSha entry to prevent stale SHA accumulation for closed PRs.
+                // See PR Lifecycle Spec section 8.4; Symphony SPEC section 8.5 (reconciliation).
+                lock (_stateLock)
+                {
+                    _state.Completed.Remove(entry.WorkItemId);
+                    _state.ReviewedSha.Remove(entry.WorkItemId);
+                }
             }
             else if (!isActive)
             {
@@ -354,6 +384,7 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                             DiffUrl = entry.WorkItem.DiffUrl,
                             ReviewState = entry.WorkItem.ReviewState,
                             IsDraft = entry.WorkItem.IsDraft,
+                            HeadSha = entry.WorkItem.HeadSha,
                             Url = entry.WorkItem.Url,
                             Labels = entry.WorkItem.Labels,
                             BlockedBy = entry.WorkItem.BlockedBy,
@@ -366,13 +397,34 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         }
     }
 
-    private bool ShouldDispatch(TrackedWorkItem workItem, GitHubTrackerConfig config)
+    /// <summary>
+    /// Determines whether a work item should be dispatched for a new agent run.
+    /// For pull requests, applies SHA-based re-review detection on top of the
+    /// standard claimed/running checks from Symphony SPEC section 8.2.
+    /// See PR Lifecycle Spec section 6.1.
+    /// </summary>
+    internal bool ShouldDispatch(TrackedWorkItem workItem, GitHubTrackerConfig config)
     {
         lock (_stateLock)
         {
+            // Symphony SPEC section 8.2: claimed and running checks are required before dispatch.
             if (_state.Running.ContainsKey(workItem.Id)) return false;
             if (_state.Claimed.Contains(workItem.Id)) return false;
 
+            // PR SHA tracking: skip re-dispatch if already reviewed at this SHA.
+            // When the head SHA changes (new push), remove the stale Completed entry so
+            // the PR re-enters the dispatch pipeline cleanly.
+            // See PR Lifecycle Spec section 6.1.
+            if (workItem.Kind == WorkItemKind.PullRequest)
+            {
+                if (_state.ReviewedSha.TryGetValue(workItem.Id, out var reviewedSha)
+                    && reviewedSha == workItem.HeadSha)
+                    return false;
+
+                _state.Completed.Remove(workItem.Id);
+            }
+
+            // Symphony SPEC section 8.2 blocker rule: Todo issues blocked by non-terminal work are ineligible.
             if (string.Equals(workItem.State.Trim(), "todo", StringComparison.OrdinalIgnoreCase))
             {
                 var terminalStates = config.Tracker.TerminalStates
@@ -388,6 +440,12 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
             return true;
         }
     }
+
+    /// <summary>Exposes in-memory orchestrator state for testing.</summary>
+    internal OrchestratorState State => _state;
+
+    /// <summary>Exposes the state lock for testing.</summary>
+    internal Lock StateLock => _stateLock;
 
     private bool HasAvailableSlots(TrackedWorkItem workItem)
     {
@@ -502,47 +560,25 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                     "Work item {Identifier} run complete (result: {Result}, turns: {Turns}, tokens: {Total}), scheduling continuation check",
                     workItem.Identifier, outcome?.Result, outcome?.TurnsCompleted, outcome?.TotalTokens);
 
-                var runConfig = GetEffectiveConfig(workItem.Kind);
                 var skipContinuation = workItem.Kind == WorkItemKind.PullRequest
                     && outcome?.ReviewSubmitted == true;
 
                 if (skipContinuation)
                 {
-                    // Review was submitted: remove the label, then release Claimed.
-                    if (!string.IsNullOrEmpty(runConfig.Tracker.PullRequestLabelFilter))
+                    // Review submitted: record the reviewed SHA so the PR is not re-dispatched
+                    // until a new commit is pushed. Release Claimed so the slot is freed.
+                    // See PR Lifecycle Spec section 8.1; Symphony SPEC section 7.3 (worker exit normal).
+                    lock (_stateLock)
                     {
-                        var labelRemoved = false;
-                        for (var i = 0; i < 3 && !labelRemoved; i++)
-                        {
-                            try
-                            {
-                                if (i > 0) await Task.Delay(1000 * i);
-                                await _tracker.RemoveLabelAsync(workItemId, runConfig.Tracker.PullRequestLabelFilter);
-                                labelRemoved = true;
-                                _logger.LogInformation(
-                                    "Removed label '{Label}' from PR {Identifier} after review",
-                                    runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex,
-                                    "Attempt {Attempt} to remove label '{Label}' from PR {Identifier} failed",
-                                    i + 1, runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
-                            }
-                        }
-
-                        if (!labelRemoved)
-                            _logger.LogError(
-                                "All attempts to remove label '{Label}' from PR {Identifier} exhausted; PR may be re-dispatched",
-                                runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
+                        if (workItem.HeadSha != null)
+                            _state.ReviewedSha[workItemId] = workItem.HeadSha;
+                        _state.Claimed.Remove(workItemId);
                     }
-
-                    lock (_stateLock) { _state.Claimed.Remove(workItemId); }
                 }
                 else
                 {
                     // Review not yet submitted (turns exhausted, state changed, or transient error):
-                    // keep the label and schedule a continuation retry.
+                    // schedule a continuation retry per Symphony SPEC section 8.4.
                     ScheduleRetry(workItemId, workItem.Identifier, workItem.Kind, 1, null);
                 }
                 break;

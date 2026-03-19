@@ -35,5 +35,8 @@
   <ItemGroup>
     <ProjectReference Include="..\DotCraft.Gen\DotCraft.Gen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotCraft.GitHubTracker.Tests" />
+  </ItemGroup>
 
 </Project>

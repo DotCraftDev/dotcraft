@@ -9,6 +9,9 @@ namespace DotCraft.GitHubTracker.Tools;
 /// <summary>
 /// Per-PR tool provider that exposes <c>SubmitReview</c> to the agent.
 /// Injected into each PR review agent session by WorkItemAgentRunnerFactory.
+/// Reviews are always submitted as COMMENT events; automated bot reviews must not
+/// affect the PR's approval/rejection status on GitHub.
+/// See PR Lifecycle Spec section 7.1.
 /// </summary>
 public sealed class PullRequestReviewToolProvider(
     string pullNumber,
@@ -19,8 +22,9 @@ public sealed class PullRequestReviewToolProvider(
 
     /// <summary>
     /// Set to true after <c>SubmitReview</c> succeeds. The runner loop checks
-    /// this flag after each turn and exits normally when it is true, allowing
-    /// the orchestrator to remove the PullRequestLabelFilter label.
+    /// this flag after each turn and exits normally when it is true, signaling
+    /// the orchestrator to record the reviewed SHA.
+    /// See PR Lifecycle Spec section 7.2.
     /// </summary>
     public bool ReviewCompleted { get; private set; }
 
@@ -28,22 +32,19 @@ public sealed class PullRequestReviewToolProvider(
     {
         yield return AIFunctionFactory.Create(
             async (
-                [Description("Review event: APPROVE, REQUEST_CHANGES, or COMMENT.")] string reviewEvent,
+                [Description("Review event type. Accepted for compatibility but always submitted as COMMENT.")] string reviewEvent,
                 [Description("Review body summarizing your findings.")] string body) =>
             {
-                var normalized = reviewEvent.Trim().ToUpperInvariant() switch
-                {
-                    "APPROVE" => "APPROVE",
-                    "REQUEST_CHANGES" => "REQUEST_CHANGES",
-                    _ => "COMMENT",
-                };
+                // Always submit as COMMENT; automated reviews must not approve or request changes.
+                // See PR Lifecycle Spec section 7.1.
+                var normalized = "COMMENT";
 
                 logger.LogInformation("Agent submitting {Event} review on PR #{Number}", normalized, pullNumber);
                 try
                 {
                     await tracker.SubmitReviewAsync(pullNumber, body, normalized);
                     ReviewCompleted = true;
-                    return $"Review ({normalized}) submitted on PR #{pullNumber}. The review is complete.";
+                    return $"Review (COMMENT) submitted on PR #{pullNumber}. The review is complete.";
                 }
                 catch (Exception ex)
                 {
@@ -52,8 +53,8 @@ public sealed class PullRequestReviewToolProvider(
                 }
             },
             "SubmitReview",
-            "Submit a review on the pull request. Use APPROVE when the code looks correct, " +
-            "REQUEST_CHANGES when issues must be fixed, or COMMENT for general feedback. " +
+            "Submit a COMMENT review on the pull request with your findings. " +
+            "All automated reviews are submitted as COMMENT to avoid interfering with the human approval workflow. " +
             "Call this once you have finished reviewing all changed files.");
     }
 }

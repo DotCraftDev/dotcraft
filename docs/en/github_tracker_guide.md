@@ -137,15 +137,11 @@ with a brief description of what was done.
 SubmitReview(reviewEvent: string, body: string)
 ```
 
-- Submits a review on the PR via the GitHub Reviews API.
-- Signals the orchestrator that the review is complete; the orchestrator then removes the `PullRequestLabelFilter` label (e.g. `auto-review`) so the PR exits the candidate list and re-dispatch stops.
-- `reviewEvent` accepts three values:
+- Submits a `COMMENT` review on the PR via the GitHub Reviews API.
+- Signals the orchestrator that the review is complete; the orchestrator records the current HEAD SHA so the PR is not re-dispatched until new commits are pushed.
+- The `reviewEvent` parameter is accepted for prompt compatibility but is always normalized to `COMMENT`.
 
-| Value | Meaning | Notes |
-|---|---|---|
-| `COMMENT` | Post feedback without changing review state | **Recommended** for pure review bots |
-| `REQUEST_CHANGES` | Block the PR until the author addresses the feedback | May interfere with human review workflows |
-| `APPROVE` | Mark the PR as approved | **Dangerous** — can trigger auto-merge if branch protection requires one approval |
+> Automated bot reviews always use `COMMENT` to avoid affecting the PR's approval status on GitHub and preventing accidental auto-merge triggers.
 
 > Explicitly instruct the agent to use only `COMMENT` in `PR_WORKFLOW.md` unless you have a clear automated approval/rejection requirement.
 
@@ -162,10 +158,7 @@ Add the following to `config.json`:
 ```json
 {
   "GitHubTracker": {
-    "PullRequestWorkflowPath": "PR_WORKFLOW.md",
-    "Tracker": {
-      "PullRequestLabelFilter": "auto-review"
-    }
+    "PullRequestWorkflowPath": "PR_WORKFLOW.md"
   }
 }
 ```
@@ -191,24 +184,22 @@ The orchestrator automatically derives a logical PR state from the GitHub Review
 
 > Active/terminal classification is controlled by `PullRequestActiveStates` and `PullRequestTerminalStates`.
 
-### PullRequestLabelFilter (Label Gating and Automatic State Transition)
+### Automatic Re-Review (HEAD SHA Tracking)
 
-When `PullRequestLabelFilter` is set, only PRs carrying that label enter the candidate list. After each PR agent exits normally, the orchestrator **automatically removes the label**, which takes the PR out of the candidate list. This is symmetric with how `CompleteIssue` removes an issue from the queue in the issue pipeline.
+The orchestrator tracks each PR's HEAD commit SHA to automatically trigger re-reviews when new commits are pushed — no labels or manual triggers required.
 
 **End-to-end flow:**
 
-1. A human adds the configured label (e.g. `auto-review`) to the PR.
-2. The bot picks up the PR on the next poll and runs the review agent.
-3. The agent calls `SubmitReview` and exits.
-4. The orchestrator calls `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{label}` to remove the label.
-5. A continuation retry fires (~1 s later); the PR no longer appears in the candidate list and the claim is released.
-6. To trigger a fresh review (e.g. after the author pushes a fix), simply add the label again.
+1. On each poll, all open, non-draft PRs in active states are fetched.
+2. The orchestrator compares each PR's current `head.sha` to the last reviewed SHA.
+3. If SHA matches (already reviewed at this commit) → skip. If SHA differs or is new → dispatch agent.
+4. The agent calls `SubmitReview`. The orchestrator records the reviewed SHA and releases the claim.
+5. When the author pushes new commits, the SHA changes. On the next poll, the bot automatically re-reviews.
+6. When a PR reaches a terminal state (Merged/Closed/Approved), the SHA record is removed.
 
-**Failure behavior:** The label is only removed on a **normal exit**. If the agent times out, stalls, or fails, the label is left in place so the orchestrator can retry until the review succeeds.
+**Failure behavior:** If the agent exits before calling `SubmitReview` (turns exhausted, timeout), no SHA is recorded and the orchestrator retries — this is intentional.
 
-> This feature requires **Issues: Read and Write** on the GitHub Token (label removal uses the same REST endpoint as issue labels).
-
-If `PullRequestLabelFilter` is empty, the orchestrator picks up all non-draft PRs that match the active states, and no automatic label removal is performed.
+The reviewed SHA is held in memory only. After a service restart, all open PRs are reviewed once on the first poll.
 
 ---
 
@@ -251,7 +242,6 @@ The orchestrator loads the file referenced by `PullRequestWorkflowPath` (default
 |-------|-------------|---------|
 | `tracker.pull_request_active_states` | PR states considered active | `["Pending Review", "Review Requested", "Changes Requested"]` |
 | `tracker.pull_request_terminal_states` | PR states considered terminal | `["Merged", "Closed", "Approved"]` |
-| `tracker.pull_request_label_filter` | Label gate — only process PRs carrying this label | Empty (all PRs) |
 | `agent.max_concurrent_pull_request_agents` | Max concurrent PR agents | `0` (no dedicated limit, shares `max_concurrent_agents`) |
 
 #### PR-specific Liquid Template Variables
@@ -316,8 +306,7 @@ All GitHubTracker options can be set in `.craft/config.json` (or global config):
       "GitHubStateLabelPrefix": "status:",
       "AssigneeFilter": "",
       "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
-      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"],
-      "PullRequestLabelFilter": ""
+      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"]
     },
     "Polling": {
       "IntervalMs": 30000
@@ -408,20 +397,18 @@ with a brief description of what was done.
 
 ### Bot keeps re-running after submitting a PR review
 
-**Normal behavior:** After each PR agent exits normally, the orchestrator automatically removes the label configured in `PullRequestLabelFilter` (e.g. `auto-review`). The PR then exits the candidate list and the bot is no longer dispatched.
+**Normal behavior:** After each PR agent successfully calls `SubmitReview`, the orchestrator records the reviewed HEAD SHA. The PR is skipped on subsequent polls until new commits are pushed.
 
-**If it keeps re-running**, check the DotCraft logs for a warning similar to `"Failed to remove label 'auto-review'"`:
-- Most common cause: the GitHub Token lacks **Issues: Read and Write** permission.
-- Second most common: the label name does not exactly match the `PullRequestLabelFilter` value in config.
+**If it keeps re-running**, confirm that logs show `ReviewSubmitted=true`. If the agent exited before calling `SubmitReview` (turns exhausted, timeout), no SHA is recorded and the orchestrator intentionally retries.
 
-**Note:** The label is only removed when the agent **exits normally**. If the bot times out or fails, the label is intentionally preserved so the orchestrator can retry.
+The reviewed SHA is in memory only — a service restart causes all open PRs to be reviewed once on the first poll.
 
 ### PR is not being picked up by the poller
 
 **Possible causes:**
 
 1. The PR is in **draft** state — the orchestrator skips all draft PRs automatically.
-2. `Tracker.PullRequestLabelFilter` is set but the PR does not carry that label. If the label was already auto-removed after a previous review, add it again to trigger a new review cycle.
+2. The PR's review state is not in `PullRequestActiveStates` (e.g. it is already `Approved`).
 3. The file referenced by `PullRequestWorkflowPath` does not exist in the workspace root (default: `PR_WORKFLOW.md`).
 
 **Fix:** Check each condition above and ensure both the config and the PR state match your expectations.

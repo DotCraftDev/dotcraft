@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Version** | 0.2.0 |
-| **Status** | Living Spec |
+| **Status** | Living |
 | **Date** | 2026-03-18 |
 
 Purpose: Define the current **server-managed** session model (Thread / Turn / Item) used by `DotCraft.Core`, including lifecycle, persistence, event semantics, approval semantics, and adapter boundaries.

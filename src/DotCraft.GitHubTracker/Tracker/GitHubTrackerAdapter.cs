@@ -8,9 +8,14 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.GitHubTracker.Tracker;
 
 /// <summary>
-/// GitHub adapter implementing IWorkItemTracker for both Issues and Pull Requests.
-/// Maps GitHub Open/Closed state to GitHubTracker states via configurable labels (issues)
+/// GitHub adapter implementing <see cref="IWorkItemTracker"/> for both Issues and Pull Requests.
+/// Maps GitHub open/closed state to GitHubTracker states via configurable labels (issues)
 /// or review status (PRs).
+/// <para>
+/// Implements Symphony SPEC section 11.1 (tracker adapter operations).
+/// PR candidate selection follows PR Lifecycle Spec section 3: all open, non-draft PRs in
+/// active review states are candidates — no label gate.
+/// </para>
 /// </summary>
 public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 {
@@ -48,6 +53,45 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         if (!string.IsNullOrEmpty(token))
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
+
+    /// <summary>
+    /// Internal constructor for unit tests. Accepts a custom <see cref="HttpMessageHandler"/>
+    /// so tests can inject preconfigured responses without hitting the real GitHub API.
+    /// PR tracking is always considered enabled in this mode.
+    /// </summary>
+    internal GitHubTrackerAdapter(GitHubTrackerConfig config, HttpMessageHandler handler, ILogger<GitHubTrackerAdapter> logger)
+    {
+        _config = config.Tracker;
+        _logger = logger;
+
+        var repoParts = (_config.Repository ?? "").Split('/', 2);
+        if (repoParts.Length != 2 || string.IsNullOrWhiteSpace(repoParts[0]) || string.IsNullOrWhiteSpace(repoParts[1]))
+            throw new ArgumentException("GitHub repository must be in 'owner/repo' format");
+
+        _owner = repoParts[0];
+        _repo = repoParts[1];
+
+        _httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri(_config.Endpoint ?? "https://api.github.com"),
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DotCraft-GitHubTracker", "1.0"));
+
+        // In test mode, enable PR tracking unconditionally by using a sentinel path
+        // that the test-only IsEnabled override recognizes.
+        _issuesWorkflowPath = null;
+        _pullRequestWorkflowPath = TestModeSentinel;
+    }
+
+    // Used by the test constructor to bypass file-existence checks.
+    private const string TestModeSentinel = "__test__";
+
+    private bool IsIssueTrackingEnabled() => WorkflowFileExists(_issuesWorkflowPath);
+
+    private bool IsPullRequestTrackingEnabled() =>
+        _pullRequestWorkflowPath == TestModeSentinel || WorkflowFileExists(_pullRequestWorkflowPath);
 
     #region IWorkItemTracker – candidate fetching
 
@@ -104,6 +148,11 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         return allIssues;
     }
 
+    /// <summary>
+    /// Fetches all open non-draft pull requests in active review states.
+    /// Populates <see cref="TrackedWorkItem.HeadSha"/> for re-review detection.
+    /// See PR Lifecycle Spec sections 3.1–3.3; Symphony SPEC section 11.1.
+    /// </summary>
     private async Task<List<TrackedWorkItem>> FetchCandidatePullRequestsAsync(CancellationToken ct)
     {
         var result = new List<TrackedWorkItem>();
@@ -122,13 +171,8 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
             {
                 if (pr.Draft == true) continue;
 
-                if (!string.IsNullOrEmpty(_config.PullRequestLabelFilter))
-                {
-                    var hasLabel = pr.Labels?.Any(l =>
-                        string.Equals(l.Name, _config.PullRequestLabelFilter, StringComparison.OrdinalIgnoreCase)) ?? false;
-                    if (!hasLabel) continue;
-                }
-
+                // All open non-draft PRs are candidates; no label gate.
+                // See PR Lifecycle Spec section 3.1; Symphony SPEC section 11.1 (fetch_candidate_issues).
                 var reviewState = await FetchAggregatedReviewStateAsync(pr.Number, ct);
                 var tracked = NormalizePullRequest(pr, reviewState);
                 var normalizedState = tracked.State.Trim().ToLowerInvariant();
@@ -316,25 +360,6 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         return await response.Content.ReadAsStringAsync(ct);
     }
 
-    public async Task RemoveLabelAsync(string issueOrPrNumber, string label, CancellationToken ct = default)
-    {
-        var encodedLabel = Uri.EscapeDataString(label);
-        var url = $"/repos/{_owner}/{_repo}/issues/{issueOrPrNumber}/labels/{encodedLabel}";
-        var response = await _httpClient.DeleteAsync(url, ct);
-
-        // 404 means the label was already absent — treat as success.
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            _logger.LogDebug("Label '{Label}' not present on #{Number}, nothing to remove", label, issueOrPrNumber);
-            return;
-        }
-
-        if (!response.IsSuccessStatusCode)
-            await EnsureGitHubSuccessAsync(response, $"DELETE label '{label}' from #{issueOrPrNumber} for {_owner}/{_repo}", ct);
-
-        _logger.LogInformation("Removed label '{Label}' from #{Number}", label, issueOrPrNumber);
-    }
-
     #endregion
 
     #region Pull-request helpers
@@ -430,6 +455,7 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
             DiffUrl = pr.DiffUrl,
             ReviewState = reviewState,
             IsDraft = pr.Draft == true,
+            HeadSha = pr.Head?.Sha,
             Url = pr.HtmlUrl,
             Labels = labels,
             BlockedBy = [],
@@ -576,10 +602,6 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
-
-    private bool IsIssueTrackingEnabled() => WorkflowFileExists(_issuesWorkflowPath);
-
-    private bool IsPullRequestTrackingEnabled() => WorkflowFileExists(_pullRequestWorkflowPath);
 
     private static string? ResolveWorkflowPath(string? configuredPath, string workspacePath) =>
         string.IsNullOrWhiteSpace(configuredPath)

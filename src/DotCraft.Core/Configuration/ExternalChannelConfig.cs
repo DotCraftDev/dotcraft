@@ -35,7 +35,7 @@ public sealed class ExternalChannelsConfig
     /// Channel entries keyed by canonical channel name.
     /// </summary>
     [JsonExtensionData]
-    public Dictionary<string, System.Text.Json.JsonElement>? Entries { get; set; }
+    public Dictionary<string, JsonElement>? Entries { get; set; }
 
     /// <summary>
     /// Deserializes and returns all channel entries.

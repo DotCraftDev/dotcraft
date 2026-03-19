@@ -164,7 +164,6 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 AssigneeFilter = baseConfig.Tracker.AssigneeFilter,
                 PullRequestActiveStates = [.. baseConfig.Tracker.PullRequestActiveStates],
                 PullRequestTerminalStates = [.. baseConfig.Tracker.PullRequestTerminalStates],
-                PullRequestLabelFilter = baseConfig.Tracker.PullRequestLabelFilter,
             },
             Polling = new GitHubTrackerPollingConfig
             {
@@ -208,8 +207,6 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
                 config.Tracker.PullRequestActiveStates = ParseStringList(prActive);
             if (tracker.TryGetValue("pull_request_terminal_states", out var prTerminal))
                 config.Tracker.PullRequestTerminalStates = ParseStringList(prTerminal);
-            if (tracker.TryGetValue("pull_request_label_filter", out var prLabel))
-                config.Tracker.PullRequestLabelFilter = prLabel?.ToString();
         }
 
         if (raw.TryGetValue("polling", out var pollingObj) && pollingObj is Dictionary<object, object> polling)
