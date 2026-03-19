@@ -110,12 +110,12 @@ pub async fn run(
     let _guard = TerminalGuard;
 
     // ── 6. AppState ───────────────────────────────────────────────────────
-    let mut state = AppState::new();
+    let ws_path = workspace.clone().unwrap_or_default();
+    let mut state = AppState::new(ws_path);
     state.connected = true;
 
     // ── 7. Auto-create the first thread ──────────────────────────────────
-    let ws_path = workspace.clone().unwrap_or_default();
-    create_thread(&mut wire, &mut state, &ws_path).await?;
+    create_thread(&mut wire, &mut state).await?;
 
     // ── 8. Event loop ─────────────────────────────────────────────────────
     run_event_loop(
@@ -342,18 +342,21 @@ async fn handle_terminal_event(
 
 // ── Wire action helpers ───────────────────────────────────────────────────
 
+fn build_identity(workspace_path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "channelName": "cli",
+        "userId": "local",
+        "workspacePath": workspace_path
+    })
+}
+
 async fn create_thread(
     wire: &mut WireClient,
     state: &mut AppState,
-    workspace_path: &str,
 ) -> Result<()> {
+    let ws = &state.workspace_path;
     let params = serde_json::json!({
-        "identity": {
-            "channelName": "cli",
-            "userId": "local",
-            "channelContext": format!("workspace:{workspace_path}"),
-            "workspacePath": workspace_path
-        }
+        "identity": build_identity(ws)
     });
 
     let result: serde_json::Value = wire.request("thread/start", params).await?;
@@ -500,8 +503,20 @@ async fn handle_thread_picker_action(
                 state.history.clear();
                 state.plan = None;
                 state.subagent_entries.clear();
+                state.streaming.clear();
+                state.token_tracker.reset();
                 wire.send_request("thread/resume", serde_json::json!({ "threadId": id }))
                     .await?;
+                // Replay persisted history so the user sees past conversation.
+                if let Ok(data) = wire
+                    .request::<serde_json::Value>(
+                        "thread/read",
+                        serde_json::json!({ "threadId": id, "includeTurns": true }),
+                    )
+                    .await
+                {
+                    replay_thread_history(state, &data);
+                }
             }
         }
         InputAction::ThreadPickerAction(ThreadPickerOp::Archive) => {
@@ -584,6 +599,104 @@ fn parse_thread_list(result: &serde_json::Value) -> Vec<ThreadEntry> {
         .unwrap_or_default()
 }
 
+/// Parse a `thread/read` response (with `includeTurns: true`) and rebuild
+/// `state.history` from the persisted items.
+fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
+    let turns = match data
+        .get("thread")
+        .and_then(|t| t.get("turns"))
+        .and_then(|v| v.as_array())
+    {
+        Some(t) => t,
+        None => return,
+    };
+
+    for turn in turns {
+        let items = match turn.get("items").and_then(|v| v.as_array()) {
+            Some(i) => i,
+            None => continue,
+        };
+        for item in items {
+            let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let payload = item.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+
+            match item_type {
+                "userMessage" => {
+                    if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
+                        state.history.push(HistoryEntry::UserMessage {
+                            text: text.to_string(),
+                        });
+                    }
+                }
+                "agentMessage" => {
+                    if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
+                        state.history.push(HistoryEntry::AgentMessage {
+                            text: text.to_string(),
+                        });
+                    }
+                }
+                "toolCall" => {
+                    let name = payload
+                        .get("toolName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let args = payload
+                        .get("arguments")
+                        .map(|v| {
+                            if let Some(s) = v.as_str() {
+                                s.to_string()
+                            } else {
+                                serde_json::to_string_pretty(v).unwrap_or_default()
+                            }
+                        })
+                        .unwrap_or_default();
+                    let success = payload
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    state.history.push(HistoryEntry::ToolCall {
+                        name,
+                        args,
+                        result: None,
+                        success,
+                    });
+                }
+                "toolResult" => {
+                    let result_text = payload
+                        .get("result")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let success = payload
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    // Attach result to the most recent ToolCall if possible.
+                    if let Some(HistoryEntry::ToolCall {
+                        result: ref mut r,
+                        success: ref mut s,
+                        ..
+                    }) = state.history.last_mut()
+                    {
+                        *r = result_text;
+                        *s = success;
+                    }
+                }
+                "error" => {
+                    let msg = payload
+                        .get("message")
+                        .or_else(|| payload.get("text"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error")
+                        .to_string();
+                    state.history.push(HistoryEntry::Error { message: msg });
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Format a cron/list response as a human-readable text block.
 fn format_cron_list(result: &serde_json::Value, strings: &Strings) -> String {
     let jobs = match result.get("jobs").and_then(|v| v.as_array()) {
@@ -624,7 +737,12 @@ async fn handle_slash_command(
             state.subagent_entries.clear();
         }
         SlashCommand::New => {
-            create_thread(wire, state, "").await?;
+            state.history.clear();
+            state.plan = None;
+            state.subagent_entries.clear();
+            state.streaming.clear();
+            state.token_tracker.reset();
+            create_thread(wire, state).await?;
         }
         SlashCommand::Plan => {
             if let Some(thread_id) = state.current_thread_id.clone() {
@@ -678,12 +796,7 @@ async fn handle_slash_command(
             state.active_overlay = Some(OverlayKind::ThreadPicker);
 
             // Fetch thread list synchronously (user-initiated, fast).
-            let identity = serde_json::json!({
-                "channelName": "cli",
-                "userId": "local",
-                "channelContext": "",
-                "workspacePath": ""
-            });
+            let identity = build_identity(&state.workspace_path);
             match wire
                 .request::<serde_json::Value>("thread/list", serde_json::json!({ "identity": identity }))
                 .await
@@ -714,11 +827,23 @@ async fn handle_slash_command(
             state.history.clear();
             state.plan = None;
             state.subagent_entries.clear();
+            state.streaming.clear();
+            state.token_tracker.reset();
             wire.send_request(
                 "thread/resume",
                 serde_json::json!({ "threadId": id }),
             )
             .await?;
+            // Replay persisted history so the user sees past conversation.
+            if let Ok(data) = wire
+                .request::<serde_json::Value>(
+                    "thread/read",
+                    serde_json::json!({ "threadId": id, "includeTurns": true }),
+                )
+                .await
+            {
+                replay_thread_history(state, &data);
+            }
         }
         SlashCommand::Cron => {
             if !wire.capabilities.cron_management.unwrap_or(false) {

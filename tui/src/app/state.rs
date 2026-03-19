@@ -162,6 +162,9 @@ pub struct AppState {
     // Connection
     pub connected: bool,
 
+    // Identity
+    pub workspace_path: String,
+
     // Thread
     pub current_thread_id: Option<String>,
     pub current_thread_name: Option<String>,
@@ -222,9 +225,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(workspace_path: String) -> Self {
         Self {
             connected: false,
+            workspace_path,
             current_thread_id: None,
             current_thread_name: None,
             turn_status: TurnStatus::Idle,

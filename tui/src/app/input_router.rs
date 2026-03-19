@@ -256,14 +256,8 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
         _ => InputAction::None,
     };
 
-    // After text changes, update the popup filter if input starts with '/'.
-    if state.input_text.starts_with('/') && state.command_popup.is_none() {
-        // Only auto-show if the user just typed the first character after '/'
-    } else if !state.input_text.starts_with('/') {
-        state.command_popup = None;
-    }
-    // Re-filter if popup is open and text changed.
-    if state.command_popup.is_some() {
+    // Auto-show or update command popup whenever input starts with '/'.
+    if state.input_text.starts_with('/') {
         let filtered = crate::ui::overlays::command_popup::filter_commands(&state.input_text);
         if filtered.is_empty() {
             state.command_popup = None;
@@ -278,6 +272,8 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
                 selected: sel,
             });
         }
+    } else {
+        state.command_popup = None;
     }
 
     action
