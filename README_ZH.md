@@ -15,6 +15,8 @@
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
 
+https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
+
 </div>
 
 > **注意**：目前项目处于早期开发阶段，可能存在 Breaking Changes。
