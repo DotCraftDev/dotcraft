@@ -82,3 +82,19 @@ pub const SHORTCUTS_HINT: &str = "? for shortcuts";
 pub const WELCOME_MESSAGE: &str = "✦ DotCraft v{}\n  Workspace: {}\n  Type a message to start · /help for commands · /sessions for history";
 pub const NEW_SESSION_HINT: &str = "New conversation. Type a message to begin.";
 pub const SESSION_LOADED_PREFIX: &str = "Session loaded:";
+
+// New design (v0.2.0): StatusIndicator, FooterLine, WelcomeScreen
+pub const WORKING: &str = "Working";
+pub const ESC_TO_INTERRUPT: &str = "esc to interrupt";
+pub const TAB_TO_QUEUE: &str = "tab to queue message";
+pub const ENTER_TO_SEND_HINT: &str = "enter to send · shift+enter newline";
+pub const QUIT_CONFIRM_HINT: &str = "press ctrl+c again to quit";
+pub const WELCOME_HINT_START: &str = "Type a message to start";
+pub const WELCOME_HINT_COMMANDS: &str = "/help for commands · /sessions for history";
+pub const WELCOME_CONNECTING: &str = "Connecting...";
+pub const WELCOME_READY: &str = "Connected — press any key to start";
+pub const CALLING: &str = "Calling";
+pub const CALLED: &str = "Called";
+pub const SUBAGENTS_ACTIVE_HEADER: &str = "SubAgents ({} active, {} done)";
+pub const SUBAGENTS_COMPLETE: &str = "SubAgents completed";
+pub const PENDING_QUEUED_PREFIX: &str = "Queued:";

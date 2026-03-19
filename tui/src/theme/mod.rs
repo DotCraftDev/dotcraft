@@ -47,13 +47,15 @@ pub struct Theme {
     pub dim: Style,
     pub system_info: Style,
 
-    // Status bar
-    pub status_bar_bg: Style,
-    pub status_bar_brand: Style,
-    pub status_bar_mode_agent: Style,
-    pub status_bar_mode_plan: Style,
-    pub status_bar_tokens: Style,
-    pub status_bar_conn: Style,
+    // Footer line (replaces old status bar)
+    pub footer_fg: Style,
+    pub footer_context: Style,
+
+    // Status indicator ("Working" label)
+    pub status_indicator: Style,
+
+    // Welcome screen brand color
+    pub welcome_brand: Style,
 
     // Input editor
     pub input_border_agent: Style,
@@ -124,16 +126,14 @@ impl Theme {
             dim: Style::default().fg(Color::DarkGray),
             system_info: Style::default().fg(Color::DarkGray),
 
-            status_bar_bg: Style::default()
-                .bg(Color::Rgb(30, 30, 40))
-                .fg(Color::White),
-            status_bar_brand: Style::default()
+            footer_fg: Style::default().fg(Color::DarkGray),
+            footer_context: Style::default().fg(Color::DarkGray),
+
+            status_indicator: Style::default().fg(Color::Yellow),
+
+            welcome_brand: Style::default()
                 .fg(Color::Rgb(124, 58, 237))
                 .add_modifier(Modifier::BOLD),
-            status_bar_mode_agent: Style::default().fg(Color::Green),
-            status_bar_mode_plan: Style::default().fg(Color::Blue),
-            status_bar_tokens: Style::default().fg(Color::DarkGray),
-            status_bar_conn: Style::default().fg(Color::Green),
 
             input_border_agent: Style::default().fg(Color::Green),
             input_border_plan: Style::default().fg(Color::Blue),
@@ -226,12 +226,23 @@ impl Theme {
                 theme.inline_code = theme.inline_code.bg(bg);
             }
             if let Some(color) = c.mode_agent.as_deref().and_then(parse_color) {
-                theme.status_bar_mode_agent = Style::default().fg(color);
                 theme.input_border_agent = Style::default().fg(color);
             }
             if let Some(color) = c.mode_plan.as_deref().and_then(parse_color) {
-                theme.status_bar_mode_plan = Style::default().fg(color);
                 theme.input_border_plan = Style::default().fg(color);
+            }
+            if let Some(color) = c.brand.as_deref().and_then(parse_color) {
+                theme.welcome_brand = theme.welcome_brand.fg(color);
+            }
+            set_fg!(status_indicator, c.status_indicator);
+        }
+
+        if let Some(footer) = cfg.footer.as_ref() {
+            if let Some(color) = footer.foreground.as_deref().and_then(parse_color) {
+                theme.footer_fg = theme.footer_fg.fg(color);
+            }
+            if let Some(color) = footer.context_color.as_deref().and_then(parse_color) {
+                theme.footer_context = theme.footer_context.fg(color);
             }
         }
 

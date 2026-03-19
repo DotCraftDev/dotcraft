@@ -1,9 +1,10 @@
-// ChatView widget — scrollable conversation history (§8.2 of specs/tui-client.md).
-// Phase 2: rich rendering with markdown, tool spinners, reasoning toggle, auto-scroll.
-// Visual redesign: Codex-inspired gutters, turn separators, tree-style tool output.
+// ChatView widget — scrollable conversation history (§8.3 of specs/tui-client.md).
+// Codex-inspired design: Calling/Called tool format, elapsed time, adaptive wrapping,
+// default-visible result summaries, inline SubAgent block, inline Plan block.
 
 use crate::{
     app::state::{AppState, HistoryEntry, TurnStatus},
+    app::token_tracker::format_token_count,
     i18n::Strings,
     theme::Theme,
     ui::markdown,
@@ -14,10 +15,14 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
+use std::time::Duration;
 use unicode_width::UnicodeWidthChar;
 
 /// Braille spinner frames for animated tool calls.
 const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+/// Maximum result/output lines shown below a completed tool call.
+const TOOL_CALL_MAX_LINES: usize = 5;
 
 pub struct ChatView<'a> {
     state: &'a AppState,
@@ -25,22 +30,15 @@ pub struct ChatView<'a> {
     strings: &'a Strings,
     /// Available width (for markdown rendering and scroll tracking).
     width: u16,
-    /// When true, render plan/subagent inline (narrow terminal, no side panel).
-    show_inline_panels: bool,
 }
 
 impl<'a> ChatView<'a> {
     pub fn new(state: &'a AppState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { state, theme, strings, width: 80, show_inline_panels: false }
+        Self { state, theme, strings, width: 80 }
     }
 
     pub fn with_width(mut self, w: u16) -> Self {
         self.width = w;
-        self
-    }
-
-    pub fn with_inline_panels(mut self, show: bool) -> Self {
-        self.show_inline_panels = show;
         self
     }
 }
@@ -74,36 +72,28 @@ impl Widget for ChatView<'_> {
             self.render_streaming(render_width, &mut lines);
         }
 
-        // ── Active tool spinners ───────────────────────────────────────────
+        // ── Active tool calls ──────────────────────────────────────────────
         for tool in &self.state.streaming.active_tools {
             if !tool.completed {
-                let frame = SPINNER[self.state.tick_count as usize % SPINNER.len()];
-                let args_preview = truncate(&tool.arguments, 60);
-                let line = Line::from(vec![
-                    Span::styled("  ", self.theme.dim),
-                    Span::styled(format!("{frame} "), self.theme.tool_active),
-                    Span::styled(tool.tool_name.clone(), self.theme.tool_active),
-                    Span::styled(
-                        if args_preview.is_empty() {
-                            String::new()
-                        } else {
-                            format!("  {args_preview}")
-                        },
-                        self.theme.dim,
-                    ),
-                ]);
-                lines.push(line);
+                self.render_active_tool(tool, render_width, &mut lines);
             }
         }
 
-        // ── Inline panels (narrow terminal fallback) ──────────────────────
-        if self.show_inline_panels {
-            self.render_inline_panels(render_width, &mut lines);
+        // ── Inline SubAgent block ──────────────────────────────────────────
+        if !self.state.subagent_entries.is_empty() {
+            self.render_inline_subagents(render_width, &mut lines);
+        }
+
+        // ── Inline Plan block ─────────────────────────────────────────────
+        if let Some(plan) = &self.state.plan {
+            // Only render inline plan during active streaming or when it's the
+            // last entry — otherwise it shows up as committed history.
+            if self.state.turn_status == TurnStatus::Running {
+                self.render_inline_plan(plan, render_width, &mut lines);
+            }
         }
 
         // ── Compute scroll ────────────────────────────────────────────────
-        // scroll_offset is "lines from bottom" (0 = at bottom).
-        // Paragraph.scroll() expects "lines from top" (0 = at top).
         let total_lines = lines.len();
         let viewport = area.height as usize;
         let max_scroll = total_lines.saturating_sub(viewport);
@@ -116,10 +106,11 @@ impl Widget for ChatView<'_> {
         };
 
         // ── Scroll indicator ──────────────────────────────────────────────
-        let lines_below = total_lines.saturating_sub(scroll as usize + viewport);
+        let visible_bottom = scroll as usize + viewport;
+        let lines_below = total_lines.saturating_sub(visible_bottom);
         if lines_below > 0 {
             let indicator = Line::from(Span::styled(
-                format!(" ↓ {} {} more lines ", self.strings.more_lines, lines_below),
+                format!(" ↓ {lines_below} more lines "),
                 self.theme.dim,
             ));
             lines.push(indicator);
@@ -137,7 +128,6 @@ impl ChatView<'_> {
     // ── Turn separator ──────────────────────────────────────────────────────
 
     fn render_turn_separator(&self, width: u16, out: &mut Vec<Line<'static>>) {
-        // Dim horizontal rule spans the content width (excluding gutter).
         let rule_width = width.saturating_sub(2) as usize;
         out.push(Line::from(Span::styled(
             format!("  {}", "─".repeat(rule_width)),
@@ -156,11 +146,8 @@ impl ChatView<'_> {
     ) {
         match entry {
             HistoryEntry::UserMessage { text } => {
-                // Blank line before user message for breathing room.
                 out.push(Line::default());
-
                 let prefix_str = format!("{} ", self.strings.user_prefix);
-                // Continuation lines are indented by the same display width.
                 let prefix_width = display_width(&prefix_str);
                 let indent = " ".repeat(prefix_width);
 
@@ -182,8 +169,6 @@ impl ChatView<'_> {
 
             HistoryEntry::AgentMessage { text } => {
                 let rendered = markdown::render_owned(text.clone(), width, self.theme);
-
-                // Add "• " gutter prefix to first line, "  " to the rest.
                 for (i, mut line) in rendered.into_iter().enumerate() {
                     let prefix = if i == 0 {
                         Span::styled("• ", self.theme.dim)
@@ -196,49 +181,10 @@ impl ChatView<'_> {
                 out.push(Line::default());
             }
 
-            HistoryEntry::ToolCall { name, args, result, success } => {
-                let (icon, style) = if *success {
-                    ("✓", self.theme.tool_completed)
-                } else {
-                    ("✗", self.theme.tool_error)
-                };
-
-                if self.state.tools_expanded {
-                    // Expanded: icon + name + full args + full result
-                    out.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(format!("{icon} "), style),
-                        Span::styled(name.clone(), style),
-                    ]));
-                    if !args.is_empty() {
-                        let args_preview = truncate(args, width.saturating_sub(6) as usize);
-                        out.push(Line::from(vec![
-                            Span::raw("  "),
-                            Span::styled("│ ", self.theme.dim),
-                            Span::styled(args_preview, self.theme.dim),
-                        ]));
-                    }
-                    if let Some(result_str) = result {
-                        let result_lines: Vec<&str> = result_str.lines().collect();
-                        let last_idx = result_lines.len().saturating_sub(1);
-                        for (i, line) in result_lines.iter().enumerate() {
-                            let prefix = if i == last_idx { "└ " } else { "│ " };
-                            let text = truncate(line, width.saturating_sub(6) as usize);
-                            out.push(Line::from(vec![
-                                Span::raw("  "),
-                                Span::styled(prefix, self.theme.dim),
-                                Span::styled(text, self.theme.dim),
-                            ]));
-                        }
-                    }
-                } else {
-                    // Collapsed: icon + name only
-                    out.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(format!("{icon} "), style),
-                        Span::styled(name.clone(), style),
-                    ]));
-                }
+            HistoryEntry::ToolCall { name, args, result, success, duration } => {
+                self.render_committed_tool(
+                    name, args, result.as_deref(), *success, *duration, width, out,
+                );
             }
 
             HistoryEntry::Error { message } => {
@@ -258,6 +204,140 @@ impl ChatView<'_> {
                     Span::raw("  "),
                     Span::styled(message.clone(), self.theme.system_info),
                 ]));
+            }
+        }
+    }
+
+    // ── Tool call rendering (Codex-style) ─────────────────────────────────
+
+    /// Format tool call arguments as a compact inline invocation.
+    fn format_invocation(name: &str, args: &str) -> String {
+        if args.is_empty() {
+            return format!("{name}()");
+        }
+        // Try to extract a compact single-argument display from JSON.
+        // If args is a JSON object with a single string value, show it quoted.
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            if let Some(obj) = v.as_object() {
+                if obj.len() == 1 {
+                    let val = obj.values().next().unwrap();
+                    if let Some(s) = val.as_str() {
+                        return format!("{name}(\"{s}\")");
+                    }
+                }
+            }
+        }
+        // Fallback: truncated raw args.
+        let compact = truncate(args, 60);
+        format!("{name}({compact})")
+    }
+
+    /// Render an active (in-flight) tool call.
+    fn render_active_tool(
+        &self,
+        tool: &crate::app::state::ActiveToolCall,
+        width: u16,
+        out: &mut Vec<Line<'static>>,
+    ) {
+        let frame = SPINNER[self.state.tick_count as usize % SPINNER.len()];
+        let invocation = Self::format_invocation(&tool.tool_name, &tool.arguments);
+
+        // "⠋ Calling ToolName("arg")"
+        let prefix = format!("  {frame} {} ", self.strings.calling);
+        let prefix_w = display_width(&prefix);
+        let available = (width as usize).saturating_sub(prefix_w);
+
+        if display_width(&invocation) <= available {
+            // Fits on one line.
+            out.push(Line::from(vec![
+                Span::styled(prefix, self.theme.tool_active),
+                Span::styled(invocation, self.theme.tool_active),
+            ]));
+        } else {
+            // Overflow: header on one line, invocation wrapped on next with └.
+            out.push(Line::from(Span::styled(
+                format!("  {frame} {}…", self.strings.calling),
+                self.theme.tool_active,
+            )));
+            out.push(Line::from(vec![
+                Span::styled("    └ ".to_string(), self.theme.dim),
+                Span::styled(truncate(&invocation, width.saturating_sub(6) as usize), self.theme.dim),
+            ]));
+        }
+    }
+
+    /// Render a committed (completed or failed) tool call.
+    fn render_committed_tool(
+        &self,
+        name: &str,
+        args: &str,
+        result: Option<&str>,
+        success: bool,
+        duration: Option<Duration>,
+        width: u16,
+        out: &mut Vec<Line<'static>>,
+    ) {
+        let bullet = if success { "•" } else { "•" };
+        let bullet_style = if success { self.theme.success } else { self.theme.tool_error };
+        let verb = self.strings.called;
+
+        let invocation = Self::format_invocation(name, args);
+        let elapsed = duration.map(|d| format!(" ({:.1}s)", d.as_secs_f64())).unwrap_or_default();
+
+        // "• Called ToolName("arg") (0.3s)"
+        let header = format!("  {bullet} {verb} ");
+        let header_w = display_width(&header);
+        let suffix = elapsed.clone();
+        let available = (width as usize).saturating_sub(header_w + suffix.len());
+
+        let inline = display_width(&invocation) <= available;
+
+        if inline {
+            out.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(format!("{bullet} "), bullet_style),
+                Span::styled(format!("{verb} "), self.theme.dim),
+                Span::styled(invocation.clone(), self.theme.tool_completed),
+                Span::styled(elapsed, self.theme.dim),
+            ]));
+        } else {
+            // Header line
+            out.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(format!("{bullet} "), bullet_style),
+                Span::styled(format!("{verb}"), self.theme.dim),
+                Span::styled(elapsed, self.theme.dim),
+            ]));
+            // Wrapped invocation
+            out.push(Line::from(vec![
+                Span::styled("    └ ".to_string(), self.theme.dim),
+                Span::styled(
+                    truncate(&invocation, width.saturating_sub(6) as usize),
+                    self.theme.tool_completed,
+                ),
+            ]));
+        }
+
+        // Result summary (always visible, dimmed, max TOOL_CALL_MAX_LINES).
+        if let Some(result_text) = result {
+            if !result_text.is_empty() {
+                let result_lines: Vec<&str> = result_text.lines().collect();
+                let show_count = result_lines.len().min(TOOL_CALL_MAX_LINES);
+                let last_shown = show_count.saturating_sub(1);
+                for (i, line) in result_lines.iter().take(show_count).enumerate() {
+                    let is_last = i == last_shown;
+                    let truncated_suffix = if is_last && result_lines.len() > TOOL_CALL_MAX_LINES {
+                        "…"
+                    } else {
+                        ""
+                    };
+                    let text = truncate(line, width.saturating_sub(8) as usize);
+                    let prefix_str = if is_last && inline { "    └ " } else { "    │ " };
+                    out.push(Line::from(vec![
+                        Span::styled(prefix_str.to_string(), self.theme.dim),
+                        Span::styled(format!("{text}{truncated_suffix}"), self.theme.dim),
+                    ]));
+                }
             }
         }
     }
@@ -286,8 +366,6 @@ impl ChatView<'_> {
         }
 
         // ── Agent message (full re-render from message_buffer) ─────────────
-        // Always render the complete buffer through markdown on each frame.
-        // Incremental commit breaks context-sensitive structures (tables, code blocks).
         if !self.state.streaming.message_buffer.is_empty() {
             let rendered = markdown::render_owned(
                 self.state.streaming.message_buffer.clone(),
@@ -308,101 +386,130 @@ impl ChatView<'_> {
                 Span::raw("  "),
                 Span::styled("▍", self.theme.agent_message),
             ]));
-        } else if self.state.streaming.reasoning_buffer.is_empty() {
-            // Nothing has arrived yet — show a working spinner.
+        } else if self.state.streaming.reasoning_buffer.is_empty()
+            && self.state.streaming.active_tools.is_empty()
+        {
+            // Nothing yet — the StatusIndicator above the input shows "Working",
+            // but we also keep a subtle indicator in the chat area.
             let frame = SPINNER[self.state.tick_count as usize % SPINNER.len()];
             out.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(
-                    format!("{frame} {}", self.strings.turn_running),
-                    self.theme.tool_active,
-                ),
+                Span::styled(format!("{frame}"), self.theme.dim),
             ]));
         }
     }
 
-    // ── Inline panels (narrow terminal, no side panel) ──────────────────
+    // ── Inline SubAgent block ───────────────────────────────────────────────
 
-    fn render_inline_panels(&self, width: u16, out: &mut Vec<Line<'static>>) {
-        let rule_w = width.saturating_sub(2) as usize;
-
-        // SubAgents (always shown when active)
-        if !self.state.subagent_entries.is_empty() {
-            out.push(Line::default());
-            let header = format!(
-                "──── {} ────",
-                self.strings.subagents_title
-            );
-            out.push(Line::from(Span::styled(
-                truncate(&header, rule_w),
-                self.theme.dim,
-            )));
-            for entry in &self.state.subagent_entries {
-                let tool_text = if entry.is_completed {
-                    "Done".to_string()
-                } else {
-                    entry
-                        .current_tool
-                        .clone()
-                        .unwrap_or_else(|| "…".to_string())
-                };
-                let tokens = format!(
-                    "↑{} ↓{}",
-                    crate::app::token_tracker::format_token_count(entry.input_tokens),
-                    crate::app::token_tracker::format_token_count(entry.output_tokens),
-                );
-                out.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(
-                        truncate(&entry.label, 20),
-                        if entry.is_completed {
-                            self.theme.success
-                        } else {
-                            self.theme.tool_active
-                        },
-                    ),
-                    Span::raw("  "),
-                    Span::styled(truncate(&tool_text, 20), self.theme.dim),
-                    Span::raw("  "),
-                    Span::styled(tokens, self.theme.dim),
-                ]));
-            }
+    fn render_inline_subagents(&self, width: u16, out: &mut Vec<Line<'static>>) {
+        let entries = &self.state.subagent_entries;
+        if entries.is_empty() {
+            return;
         }
 
-        // Plan
-        if let Some(plan) = &self.state.plan {
-            out.push(Line::default());
-            let header = format!(
-                "──── {}{} ────",
-                self.strings.plan_title_prefix, plan.title
-            );
-            out.push(Line::from(Span::styled(
-                truncate(&header, rule_w),
-                self.theme.dim,
-            )));
-            for todo in &plan.todos {
-                let icon = match todo.status.as_str() {
-                    "completed" => "✅",
-                    "in_progress" => "🔄",
-                    "cancelled" => "🚫",
-                    _ => "⬜",
-                };
-                out.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::raw(format!("{icon} ")),
-                    Span::styled(
-                        truncate(&todo.content, width.saturating_sub(6) as usize),
-                        self.theme.agent_message,
+        let active_count = entries.iter().filter(|e| !e.is_completed).count();
+        let done_count = entries.iter().filter(|e| e.is_completed).count();
+
+        // When all are complete, collapse to a summary line.
+        if active_count == 0 {
+            let total_in: i64 = entries.iter().map(|e| e.input_tokens).sum();
+            let total_out: i64 = entries.iter().map(|e| e.output_tokens).sum();
+            out.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("✓ ", self.theme.success),
+                Span::styled(
+                    format!(
+                        "{done_count} {} (↑{} ↓{})",
+                        self.strings.subagents_complete,
+                        format_token_count(total_in),
+                        format_token_count(total_out),
                     ),
-                ]));
-            }
+                    self.theme.dim,
+                ),
+            ]));
+            return;
         }
+
+        // Header
+        let rule_w = width.saturating_sub(4) as usize;
+        let header = format!("──── SubAgents ({active_count} active, {done_count} done)");
+        let header = truncate(&header, rule_w);
+        out.push(Line::from(Span::styled(header, self.theme.dim)));
+
+        let tick = self.state.tick_count as usize;
+        for entry in entries {
+            let (status_span, name_style) = if entry.is_completed {
+                (Span::styled("•  ".to_string(), self.theme.success), self.theme.dim)
+            } else if entry.current_tool.is_some() {
+                let frame = SPINNER[tick % SPINNER.len()];
+                (Span::styled(format!("{frame}  "), self.theme.tool_active), self.theme.tool_active)
+            } else {
+                let frame = SPINNER[tick % SPINNER.len()];
+                (Span::styled(format!("{frame}  "), self.theme.dim), self.theme.dim)
+            };
+
+            let tool_text = if entry.is_completed {
+                "Done".to_string()
+            } else {
+                entry.current_tool.clone().unwrap_or_else(|| "…".to_string())
+            };
+
+            let tokens = format!(
+                "↑{} ↓{}",
+                format_token_count(entry.input_tokens),
+                format_token_count(entry.output_tokens),
+            );
+
+            // Layout: "  status  label  tool  tokens"
+            let label_w = 16usize;
+            let tool_w = 20usize;
+            let label = truncate_pad(&entry.label, label_w);
+            let tool = truncate_pad(&tool_text, tool_w);
+
+            out.push(Line::from(vec![
+                Span::raw("  "),
+                status_span,
+                Span::styled(label, name_style),
+                Span::raw("  "),
+                Span::styled(tool, self.theme.dim),
+                Span::raw("  "),
+                Span::styled(tokens, self.theme.dim),
+            ]));
+        }
+    }
+
+    // ── Inline Plan block ────────────────────────────────────────────────────
+
+    fn render_inline_plan(&self, plan: &crate::app::state::PlanSnapshot, width: u16, out: &mut Vec<Line<'static>>) {
+        let rule_w = width.saturating_sub(4) as usize;
+        let header = format!("──── Plan: {}", plan.title);
+        out.push(Line::from(Span::styled(truncate(&header, rule_w), self.theme.dim)));
+
+        for todo in &plan.todos {
+            let (icon, style) = match todo.status.as_str() {
+                "completed" => ("✅", self.theme.tool_completed),
+                "in_progress" => ("🔄", self.theme.tool_active),
+                "cancelled" => ("🚫", self.theme.dim),
+                _ => ("⬜", self.theme.agent_message),
+            };
+            out.push(Line::from(vec![
+                Span::raw("  "),
+                Span::raw(format!("{icon}  ")),
+                Span::styled(
+                    truncate(&todo.content, width.saturating_sub(8) as usize),
+                    style,
+                ),
+            ]));
+        }
+        out.push(Line::default());
     }
 }
 
 /// Truncate `s` to at most `max_cols` display columns. Appends '…' if truncated.
-/// Uses `UnicodeWidthChar` so CJK characters (2 cols each) are handled correctly.
 fn truncate(s: &str, max_cols: usize) -> String {
+    if max_cols == 0 {
+        return String::new();
+    }
     let mut width: usize = 0;
     let mut out = String::new();
     for c in s.chars() {
@@ -415,6 +522,13 @@ fn truncate(s: &str, max_cols: usize) -> String {
         width += cw;
     }
     out
+}
+
+/// Truncate to `max_cols` and right-pad with spaces to reach exactly `max_cols`.
+fn truncate_pad(s: &str, max_cols: usize) -> String {
+    let truncated = truncate(s, max_cols);
+    let w = display_width(&truncated);
+    format!("{truncated}{}", " ".repeat(max_cols.saturating_sub(w)))
 }
 
 /// Total display width of a string (sum of per-char widths).

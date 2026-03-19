@@ -75,6 +75,8 @@ pub enum HistoryEntry {
         result: Option<String>,
         /// True when the tool returned successfully (payload.success == true).
         success: bool,
+        /// How long the tool call took (from item/started to item/completed).
+        duration: Option<std::time::Duration>,
     },
     Error { message: String },
     SystemInfo { message: String },
@@ -107,6 +109,10 @@ pub struct ActiveToolCall {
     pub result: Option<String>,
     /// Whether the tool completed successfully (from payload.success).
     pub success: bool,
+    /// When this tool call started (set on item/started).
+    pub started_at: std::time::Instant,
+    /// How long this call took (set on item/completed).
+    pub duration: Option<std::time::Duration>,
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +177,8 @@ pub struct AppState {
 
     // Turn
     pub turn_status: TurnStatus,
+    /// Set when a turn starts; used by StatusIndicator for elapsed time display.
+    pub turn_started_at: Option<std::time::Instant>,
     pub history: Vec<HistoryEntry>,
     pub streaming: StreamingState,
 
@@ -203,6 +211,8 @@ pub struct AppState {
     pub input_cursor: usize,
     pub input_history: Vec<String>,
     pub input_history_pos: Option<usize>,
+    /// Messages queued to be sent after the current turn completes (via Tab key).
+    pub pending_input: Vec<String>,
 
     // Notifications
     pub notifications: std::collections::VecDeque<NotificationEntry>,
@@ -213,9 +223,6 @@ pub struct AppState {
     pub thread_picker: Option<ThreadPickerState>,
     // Which overlay is currently rendering on top of the base UI
     pub active_overlay: Option<OverlayKind>,
-
-    // Tool call expand/collapse in ChatView
-    pub tools_expanded: bool,
 
     // Slash command completion popup
     pub command_popup: Option<CommandPopupState>,
@@ -232,6 +239,7 @@ impl AppState {
             current_thread_id: None,
             current_thread_name: None,
             turn_status: TurnStatus::Idle,
+            turn_started_at: None,
             history: Vec::new(),
             streaming: StreamingState::default(),
             subagent_entries: Vec::new(),
@@ -248,11 +256,11 @@ impl AppState {
             input_cursor: 0,
             input_history: Vec::new(),
             input_history_pos: None,
+            pending_input: Vec::new(),
             notifications: std::collections::VecDeque::new(),
             pending_approval: None,
             thread_picker: None,
             active_overlay: None,
-            tools_expanded: false,
             command_popup: None,
             last_interrupt_at: None,
         }

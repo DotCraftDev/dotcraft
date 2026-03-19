@@ -24,8 +24,9 @@ struct Cli {
     theme: Option<String>,
 
     /// Language preference: "en" for English, "zh" for Chinese.
-    #[arg(long, value_name = "LANG", default_value = "zh")]
-    lang: String,
+    /// If omitted, auto-detected from .craft/config.json, then defaults to "en".
+    #[arg(long, value_name = "LANG")]
+    lang: Option<String>,
 }
 
 #[tokio::main]

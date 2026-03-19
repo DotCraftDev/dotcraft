@@ -5,9 +5,12 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct ThemeConfig {
     pub colors: Option<ColorConfig>,
-    pub status_bar: Option<StatusBarConfig>,
-    pub side_panel: Option<SidePanelConfig>,
+    /// Replaces old [status_bar] and [side_panel] sections.
+    pub footer: Option<FooterConfig>,
     pub code: Option<CodeConfig>,
+    // Keep old fields for backwards-compatible deserialization (silently ignored).
+    pub status_bar: Option<serde_json::Value>,
+    pub side_panel: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -24,6 +27,7 @@ pub struct ColorConfig {
     pub mode_agent: Option<String>,
     pub mode_plan: Option<String>,
     pub approval_border: Option<String>,
+    pub status_indicator: Option<String>,
     pub heading1: Option<String>,
     pub heading2: Option<String>,
     pub heading3: Option<String>,
@@ -36,15 +40,9 @@ pub struct ColorConfig {
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
-pub struct StatusBarConfig {
-    pub background: Option<String>,
+pub struct FooterConfig {
     pub foreground: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default, Clone)]
-pub struct SidePanelConfig {
-    pub border: Option<String>,
-    pub title: Option<String>,
+    pub context_color: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -83,6 +81,7 @@ impl ThemeConfig {
             override_field!(mode_agent);
             override_field!(mode_plan);
             override_field!(approval_border);
+            override_field!(status_indicator);
             override_field!(heading1);
             override_field!(heading2);
             override_field!(heading3);
@@ -93,11 +92,8 @@ impl ThemeConfig {
             override_field!(blockquote);
             override_field!(link_color);
         }
-        if let Some(sb) = other.status_bar {
-            self.status_bar = Some(sb);
-        }
-        if let Some(sp) = other.side_panel {
-            self.side_panel = Some(sp);
+        if let Some(footer) = other.footer {
+            self.footer = Some(footer);
         }
         if let Some(code) = other.code {
             self.code = Some(code);

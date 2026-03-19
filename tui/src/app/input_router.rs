@@ -336,7 +336,8 @@ fn handle_chat_view(state: &mut AppState, key: crossterm::event::KeyEvent) -> In
         }
 
         KeyCode::Char('e') => {
-            state.tools_expanded = !state.tools_expanded;
+            // Tool call results are always visible in the new design;
+            // this key binding is kept as a no-op for backwards compatibility.
             InputAction::None
         }
 

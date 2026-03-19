@@ -31,6 +31,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
         // ── Turn lifecycle ────────────────────────────────────────────────
         "turn/started" => {
             state.turn_status = TurnStatus::Running;
+            state.turn_started_at = Some(std::time::Instant::now());
             state.streaming.clear();
             state.subagent_entries.clear();
             state.token_tracker.reset();
@@ -41,6 +42,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
         "turn/completed" => {
             finalize_streaming(state);
             state.turn_status = TurnStatus::Idle;
+            state.turn_started_at = None;
             if let Some(usage) = params.get("turn").and_then(|t| t.get("tokenUsage")) {
                 if let (Some(inp), Some(out)) = (
                     usage.get("inputTokens").and_then(|v| v.as_i64()),
@@ -60,11 +62,13 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
             finalize_streaming(state);
             state.history.push(HistoryEntry::Error { message: err });
             state.turn_status = TurnStatus::Idle;
+            state.turn_started_at = None;
             true
         }
         "turn/cancelled" => {
             finalize_streaming(state);
             state.turn_status = TurnStatus::Idle;
+            state.turn_started_at = None;
             true
         }
 
@@ -109,6 +113,8 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         completed: false,
                         result: None,
                         success: true,
+                        started_at: std::time::Instant::now(),
+                        duration: None,
                     });
                 }
                 _ => {}
@@ -177,16 +183,11 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         .iter_mut()
                         .find(|t| t.call_id == call_id)
                     {
+                        let now = std::time::Instant::now();
+                        tool.duration = Some(now.duration_since(tool.started_at));
                         tool.completed = true;
                         tool.success = success;
-                        tool.result = result_text.as_ref().map(|r| {
-                            // Truncate long results for display.
-                            if r.len() > 120 {
-                                format!("{}…", &r[..117])
-                            } else {
-                                r.clone()
-                            }
-                        });
+                        tool.result = result_text.as_ref().map(|r| r.clone());
                     }
 
                     // Move completed tools to history.
@@ -202,6 +203,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                             args: tool.arguments,
                             result: tool.result,
                             success: tool.success,
+                            duration: tool.duration,
                         });
                     }
                 }

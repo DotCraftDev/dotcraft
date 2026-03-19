@@ -28,6 +28,7 @@ use crate::{
     theme::Theme,
     ui::{
         chat_view::ChatView,
+        footer_line::FooterLine,
         input_editor::InputEditor,
         layout,
         overlays::{
@@ -37,8 +38,8 @@ use crate::{
             notification::NotificationToast,
             thread_picker::ThreadPicker,
         },
-        side_panel::SidePanel,
-        status_bar::StatusBar,
+        status_indicator::StatusIndicator,
+        welcome_screen::WelcomeScreen,
     },
     wire::{client::WireClient, transport::Transport},
 };
@@ -57,13 +58,53 @@ enum DeferredResult {
     ThreadHistoryLoaded(Result<serde_json::Value>),
 }
 
+/// Signals that the WelcomeScreen has been dismissed and chat UI should show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum UiPhase {
+    Welcome,
+    Chat,
+}
+
+/// Resolve the UI language with the following priority:
+///   1. Explicit `--lang` CLI flag (highest priority).
+///   2. `Language` field in `{workspace}/.craft/config.json`.
+///   3. Default: `"en"`.
+///
+/// config.json values recognised (case-insensitive):
+///   "Chinese" | "中文" | "zh" | "zh-cn" -> "zh"
+///   "English" | "en"                    -> "en"
+fn resolve_language(cli_lang: Option<&str>, workspace_path: Option<&std::path::Path>) -> String {
+    // 1. CLI flag wins unconditionally.
+    if let Some(lang) = cli_lang {
+        return lang.to_string();
+    }
+
+    // 2. Try .craft/config.json in the workspace directory.
+    if let Some(ws) = workspace_path {
+        let config_path = ws.join(".craft").join("config.json");
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(lang_val) = value.get("Language").and_then(|v| v.as_str()) {
+                    return match lang_val.to_lowercase().as_str() {
+                        "chinese" | "中文" | "zh" | "zh-cn" | "zh_cn" => "zh".to_string(),
+                        _ => "en".to_string(),
+                    };
+                }
+            }
+        }
+    }
+
+    // 3. Default.
+    "en".to_string()
+}
+
 /// Entry point called from main.rs.
 pub async fn run(
     remote: Option<String>,
     server_bin: Option<String>,
     workspace: Option<String>,
     theme_path: Option<String>,
-    lang: String,
+    lang: Option<String>,
 ) -> Result<()> {
     // ── 1. Logging ────────────────────────────────────────────────────────
     tracing_subscriber::fmt()
@@ -72,10 +113,19 @@ pub async fn run(
         .init();
 
     // ── 2. Theme and i18n ─────────────────────────────────────────────────
-    let workspace_path = workspace.as_deref().map(std::path::Path::new);
+    // Resolve the effective workspace path early so theme and language loading
+    // can both read .craft/ from it.
+    let resolved_workspace: std::path::PathBuf = workspace
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default();
+    let workspace_path = Some(resolved_workspace.as_path());
+
     let cli_theme_path = theme_path.as_deref().map(std::path::Path::new);
     let theme = Theme::resolve(cli_theme_path, workspace_path)?;
-    let strings = i18n::load(&lang);
+    let resolved_lang = resolve_language(lang.as_deref(), workspace_path);
+    let strings = i18n::load(&resolved_lang);
 
     // ── 3. Transport ──────────────────────────────────────────────────────
     let connection_mode = if remote.is_some() {
@@ -117,25 +167,11 @@ pub async fn run(
     let _guard = TerminalGuard;
 
     // ── 6. AppState ───────────────────────────────────────────────────────
-    let ws_path = workspace.clone().unwrap_or_default();
+    let ws_path = resolved_workspace.to_string_lossy().into_owned();
     let mut state = AppState::new(ws_path.clone());
     state.connected = true;
 
-    // ── 7. Welcome message ───────────────────────────────────────────────
-    let server_version = wire
-        .server_info
-        .as_ref()
-        .map(|i| i.version.as_str())
-        .unwrap_or("?");
-    let ws_display = if ws_path.is_empty() { "(none)" } else { &ws_path };
-    state.history.push(HistoryEntry::SystemInfo {
-        message: strings
-            .welcome_message
-            .replacen("{}", server_version, 1)
-            .replacen("{}", ws_display, 1),
-    });
-
-    // ── 8. Event loop (thread is created lazily on first user input) ────
+    // ── 7. Event loop (WelcomeScreen shown first, then chat UI) ─────────
     run_event_loop(
         &mut terminal,
         &mut wire,
@@ -166,6 +202,9 @@ async fn run_event_loop(
     let mut event_stream = EventStream::new();
 
     let (deferred_tx, mut deferred_rx) = tokio_mpsc::unbounded_channel::<DeferredResult>();
+
+    // Show the WelcomeScreen until a key is pressed or the connection is confirmed ready.
+    let mut ui_phase = UiPhase::Welcome;
 
     loop {
         tokio::select! {
@@ -235,8 +274,18 @@ async fn run_event_loop(
                 match evt_result {
                     Err(e) => tracing::warn!("Terminal event error: {e}"),
                     Ok(evt) => {
-                        if handle_terminal_event(terminal, wire, state, theme, strings, &deferred_tx, evt).await? {
-                            break;
+                        // Any key press dismisses the WelcomeScreen.
+                        if ui_phase == UiPhase::Welcome {
+                            if let crossterm::event::Event::Key(k) = &evt {
+                                if k.kind != crossterm::event::KeyEventKind::Release {
+                                    ui_phase = UiPhase::Chat;
+                                }
+                            }
+                        }
+                        if ui_phase == UiPhase::Chat {
+                            if handle_terminal_event(terminal, wire, state, theme, strings, &deferred_tx, evt).await? {
+                                break;
+                            }
                         }
                     }
                 }
@@ -246,7 +295,13 @@ async fn run_event_loop(
             _ = tick.tick() => {
                 state.tick_count = state.tick_count.wrapping_add(1);
                 expire_notifications(state);
-                draw(terminal, state, theme, strings)?;
+                // WelcomeScreen stays until the user presses any key (see key handler above).
+                // No auto-dismiss — we want the user to see it before they start typing.
+                if ui_phase == UiPhase::Welcome {
+                    draw_welcome(terminal, state, theme, strings, env!("CARGO_PKG_VERSION"))?;
+                } else {
+                    draw(terminal, state, theme, strings)?;
+                }
             }
         }
     }
@@ -738,6 +793,7 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                         args,
                         result: None,
                         success,
+                        duration: None,
                     });
                 }
                 "toolResult" => {
@@ -1036,46 +1092,84 @@ async fn reconnect_ws(
 
 // ── Draw ──────────────────────────────────────────────────────────────────
 
+fn draw_welcome(
+    terminal: &mut Term,
+    state: &AppState,
+    theme: &Theme,
+    strings: &Strings,
+    version: &str,
+) -> Result<()> {
+    terminal.draw(|frame| {
+        let area = frame.area();
+        frame.render_widget(
+            WelcomeScreen::new(
+                version,
+                &state.workspace_path,
+                state.connected,
+                state.tick_count,
+                theme,
+                strings,
+            ),
+            area,
+        );
+    })?;
+    Ok(())
+}
+
 fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings) -> Result<()> {
     terminal.draw(|frame| {
         let area = frame.area();
-        let show_side = SidePanel::should_show(state);
+        let is_running = state.turn_status == TurnStatus::Running;
+        let has_pending = !state.pending_input.is_empty();
         let input_h = InputEditor::preferred_height(state);
-        let zones = layout::compute(area, show_side, input_h);
+        let status_h = StatusIndicator::preferred_height(state);
+        let zones = layout::compute(area, is_running, has_pending, input_h, status_h);
 
         // ChatView: pass actual available width for correct markdown wrap.
         let chat_width = zones.chat_view.width;
 
         // ── Base UI ───────────────────────────────────────────────────────
         frame.render_widget(
-            StatusBar::new(state, theme, strings),
-            zones.status_bar,
-        );
-        let inline_panels = show_side && zones.side_panel.is_none();
-        frame.render_widget(
-            ChatView::new(state, theme, strings)
-                .with_width(chat_width)
-                .with_inline_panels(inline_panels),
+            ChatView::new(state, theme, strings).with_width(chat_width),
             zones.chat_view,
         );
-        if let Some(side_area) = zones.side_panel {
+
+        if let Some(si_area) = zones.status_indicator {
             frame.render_widget(
-                SidePanel::new(state, theme, strings),
-                side_area,
+                StatusIndicator::new(state, theme, strings),
+                si_area,
             );
         }
+
+        // Pending input preview (between StatusIndicator and InputEditor).
+        if let Some(pp_area) = zones.pending_preview {
+            if let Some(queued) = state.pending_input.first() {
+                use ratatui::{text::{Line, Span}, widgets::{Paragraph, Widget}};
+                let preview = format!("  ┄ {}: \"{queued}\"", strings.pending_queued_prefix);
+                Paragraph::new(Line::from(Span::styled(preview, theme.dim))).render(pp_area, frame.buffer_mut());
+            }
+        }
+
         frame.render_widget(
             InputEditor::new(state, theme, strings),
             zones.input_editor,
         );
+
+        if let Some(footer_area) = zones.footer {
+            frame.render_widget(
+                FooterLine::new(state, theme, strings),
+                footer_area,
+            );
+        }
 
         // Only show the terminal cursor when the input editor is focused.
         if state.focus == crate::app::state::FocusTarget::InputEditor
             && state.active_overlay.is_none()
         {
             let (row, col) = ui::input_editor::offset_to_2d(&state.input_text, state.input_cursor);
+            // Gutter is 2 cols wide. No separator offset (removed).
             let cursor_x = zones.input_editor.x + 2 + col.min(zones.input_editor.width.saturating_sub(3));
-            let cursor_y = zones.input_editor.y + 1 + row.min(zones.input_editor.height.saturating_sub(2));
+            let cursor_y = zones.input_editor.y + row.min(zones.input_editor.height.saturating_sub(1));
             frame.set_cursor_position((cursor_x, cursor_y));
         }
 

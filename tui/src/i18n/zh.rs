@@ -82,3 +82,19 @@ pub const SHORTCUTS_HINT: &str = "? 查看快捷键";
 pub const WELCOME_MESSAGE: &str = "✦ DotCraft v{}\n  工作区：{}\n  输入消息开始对话 · /help 查看命令 · /sessions 查看历史";
 pub const NEW_SESSION_HINT: &str = "新对话。输入消息开始。";
 pub const SESSION_LOADED_PREFIX: &str = "已加载会话：";
+
+// New design (v0.2.0): StatusIndicator, FooterLine, WelcomeScreen
+pub const WORKING: &str = "运行中";
+pub const ESC_TO_INTERRUPT: &str = "esc 中断";
+pub const TAB_TO_QUEUE: &str = "tab 排队发送";
+pub const ENTER_TO_SEND_HINT: &str = "enter 发送 · shift+enter 换行";
+pub const QUIT_CONFIRM_HINT: &str = "再按 ctrl+c 退出";
+pub const WELCOME_HINT_START: &str = "输入消息开始对话";
+pub const WELCOME_HINT_COMMANDS: &str = "/help 查看命令 · /sessions 查看历史";
+pub const WELCOME_CONNECTING: &str = "连接中...";
+pub const WELCOME_READY: &str = "已连接 — 按任意键开始";
+pub const CALLING: &str = "调用";
+pub const CALLED: &str = "已调用";
+pub const SUBAGENTS_ACTIVE_HEADER: &str = "子 Agent（{} 运行中，{} 完成）";
+pub const SUBAGENTS_COMPLETE: &str = "子 Agent 已完成";
+pub const PENDING_QUEUED_PREFIX: &str = "已排队：";

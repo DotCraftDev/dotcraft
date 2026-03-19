@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.1.0 |
+| **Version** | 0.2.0 |
 | **Status** | Living |
 | **Date** | 2026-03-19 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) |
@@ -21,6 +21,11 @@ Purpose: Define the architecture, UI structure, event mapping, and behavioral co
 - [6. Wire Protocol Event Mapping](#6-wire-protocol-event-mapping)
 - [7. UI Structure](#7-ui-structure)
 - [8. Widget Specifications](#8-widget-specifications)
+  - [8.1 WelcomeScreen](#81-welcomescreen)
+  - [8.2 FooterLine](#82-footerline)
+  - [8.3 ChatView](#83-chatview)
+  - [8.4 BottomPane](#84-bottompane)
+  - [8.5 Slash Commands](#85-slash-commands)
 - [9. Input Handling](#9-input-handling)
 - [10. Approval Flow UI](#10-approval-flow-ui)
 - [11. Theme System](#11-theme-system)
@@ -167,13 +172,15 @@ Terminal KeyEvent ──► InputRouter ────────┘
 |----------|-----------|-------------|
 | Connection | `server_info`, `connected` | Tracks AppServer connection status and capabilities. |
 | Thread | `current_thread`, `thread_list` | Active thread and available threads list. |
-| Turn | `turn_status`, `history`, `active_streaming` | Turn lifecycle, committed conversation history, and in-flight streaming content (message buffer, reasoning buffer, active tool calls). |
+| Turn | `turn_status`, `turn_started_at`, `history`, `active_streaming` | Turn lifecycle, start timestamp (for elapsed display), committed conversation history, and in-flight streaming content (message buffer, reasoning buffer, active tool calls). |
 | SubAgents | `subagent_entries` | Live progress snapshot from `subagent/progress`. |
 | Plan | `plan` | Todo list snapshot from `plan/updated`. |
 | Tokens | `token_tracker` | Cumulative input/output token counts for the current turn. |
 | Approval | `pending_approval` | Active approval request, if any. |
 | System | `system_status` | Compaction/consolidation status. |
-| UI | `mode`, `input_buffer`, `scroll_offset`, `focus`, `notification_queue` | Agent/Plan mode, text input, scroll position, focus target, transient notifications. |
+| UI | `mode`, `input_buffer`, `pending_input`, `scroll_offset`, `focus`, `notification_queue` | Agent/Plan mode, text input, queued follow-up messages, scroll position, focus target, transient notifications. |
+
+`ActiveToolCall` carries `started_at: Instant` (set on `item/started`) and `duration: Option<Duration>` (set on `item/completed`) so each tool call can display its elapsed time.
 
 ---
 
@@ -256,12 +263,12 @@ This section defines how Wire Protocol notifications and server-initiated reques
 
 | Wire Method | AppState Mutation |
 |-------------|-------------------|
-| `item/started` (type: `toolCall`) | Push new `ActiveToolCall { callId, toolName, arguments, status: Running }` to `active_streaming.tool_calls`. |
+| `item/started` (type: `toolCall`) | Push new `ActiveToolCall { callId, toolName, arguments, started_at: Instant::now(), status: Running }` to `active_streaming.tool_calls`. |
 | `item/started` (type: `approvalRequest`) | Pause rendering; handled separately via approval flow (§10). |
 | `item/agentMessage/delta` | Append `delta` to `active_streaming.message_buffer`. |
 | `item/reasoning/delta` | Append `delta` to `active_streaming.reasoning_buffer`. Set `active_streaming.is_reasoning = true`. |
 | `item/completed` (type: `agentMessage`) | Finalize: move `active_streaming.message_buffer` to a `HistoryEntry::AgentMessage`. |
-| `item/completed` (type: `toolResult`) | Mark matching `ActiveToolCall` as completed. Store result summary. |
+| `item/completed` (type: `toolResult`) | Mark matching `ActiveToolCall` as completed. Set `duration = Instant::now() - started_at`. Store result summary. |
 | `item/approval/resolved` | Clear `pending_approval`. Resume normal rendering. |
 
 ### 6.3 SubAgent Progress
@@ -314,37 +321,45 @@ The SubAgent table widget reads `subagent_entries` directly. Because the protoco
 
 ### 7.1 Layout Zones
 
-The terminal screen is divided into three primary zones arranged vertically:
+The terminal screen is divided into two primary zones arranged vertically. The top zone grows to fill all available space; the bottom zone is self-sizing based on its content.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Status Bar                                [1]   │
-├──────────────────────────┬───────────────────────┤
-│                          │                       │
-│  Chat View               │  Side Panel       [3] │
-│  (history + streaming)   │  (Plan / SubAgents)   │
-│                      [2] │                       │
-│                          │                       │
-├──────────────────────────┴───────────────────────┤
-│  Input Editor                                [4] │
-│  (multi-line, with mode indicator)               │
+│                                                  │
+│  Chat View                                  [1]  │
+│  (history + streaming + inline plan/subagents)   │
+│  (flex = 1, takes all remaining height)          │
+│                                                  │
+├──────────────────────────────────────────────────┤
+│  Bottom Pane                                [2]  │
+│  ┌──────────────────────────────────────────┐   │
+│  │ Status Indicator  (conditional, 1+ rows) │   │
+│  │ Pending Input Preview  (if queued)       │   │
+│  │ Input Editor   (self-sizing, max 10 rows)│   │
+│  │ Footer Line    (1 row, contextual hints) │   │
+│  └──────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────┘
 ```
 
 | Zone | Widget | Content |
 |------|--------|---------|
-| [1] Status Bar | `StatusBar` | Thread name, agent mode, token counter, connection status |
-| [2] Chat View | `ChatView` | Scrollable history of turns: user messages, agent messages (markdown), tool calls, errors |
-| [3] Side Panel | `SidePanel` | Conditionally shown. Contains `PlanPanel` or `SubAgentTable` depending on context. Hidden when no plan and no active SubAgents, giving full width to Chat View. |
-| [4] Input Editor | `InputEditor` | Multi-line text input with history, tab completion, and mode indicator |
+| [1] Chat View | `ChatView` | Scrollable history of turns: user messages, agent messages (markdown), tool calls, errors, inline plan and SubAgent progress blocks |
+| [2] Bottom Pane | `BottomPane` | Vertical stack: optional `StatusIndicator` (when turn is running) + optional `PendingInputPreview` (when messages are queued) + `InputEditor` + `FooterLine` |
 
-### 7.2 Responsive Behavior
+There is no top status bar and no side panel. All status context moves to the `FooterLine` at the bottom. Plan and SubAgent data always render inline in `ChatView`.
 
-- **Narrow terminals** (width < 100 columns): Side Panel is hidden. Plan and SubAgent progress are rendered inline in Chat View as collapsible sections.
-- **Short terminals** (height < 20 rows): Status Bar is minimized to a single line. Input Editor is fixed at 1 row (expand on Enter for multi-line).
+### 7.2 Startup Screen
+
+Before the chat UI is shown, a `WelcomeScreen` fills the entire terminal area. It renders from the moment the terminal is initialized until the Wire Protocol handshake completes and the first user interaction is possible. It auto-dismisses when the connection is ready, or immediately on any key press.
+
+See §8.1 for the full `WelcomeScreen` specification.
+
+### 7.3 Responsive Behavior
+
+- **Compact terminals** (height < 20 rows): `StatusIndicator` is hidden. `FooterLine` is suppressed. `InputEditor` is clamped to 1 row.
 - **Resize**: Crossterm `Event::Resize` triggers an immediate re-layout. No content is lost; scroll positions are preserved.
 
-### 7.3 Overlay System
+### 7.4 Overlay System
 
 Modal overlays render on top of all zones. Active overlays capture all input until dismissed.
 
@@ -359,24 +374,83 @@ Modal overlays render on top of all zones. Active overlays capture all input unt
 
 ## 8. Widget Specifications
 
-### 8.1 StatusBar
+### 8.1 WelcomeScreen
 
-A single-line widget at the top of the screen.
+A full-screen startup widget displayed while the Wire Protocol handshake is in progress.
+
+#### Layout
 
 ```
- DotCraft ─ thread_20260319_a1b2c3 ─ Agent Mode ─ ↑1.2k ↓350 tokens ─ ● Connected
+┌──────────────────────────────────────────────────┐
+│                                                  │
+│   ██████╗  ██████╗ ████████╗ ██████╗██████╗ ██╗ │
+│   ██╔══██╗██╔═══██╗╚══██╔══╝██╔════╝██╔══██╗██║ │
+│   ██║  ██║██║   ██║   ██║   ██║     ██████╔╝██║ │
+│   ██║  ██║██║   ██║   ██║   ██║     ██╔══██╗╚═╝ │
+│   ██████╔╝╚██████╔╝   ██║   ╚██████╗██║  ██║██╗ │
+│   ╚═════╝  ╚═════╝    ╚═╝    ╚═════╝╚═╝  ╚═╝╚═╝ │
+│                                                  │
+│         Welcome to DotCraft v{version}           │
+│         Workspace: {workspace_path}              │
+│                                                  │
+│   Type a message to start                        │
+│   /help for commands · /sessions for history     │
+│                                                  │
+│                    Connecting...                 │
+└──────────────────────────────────────────────────┘
 ```
 
-Segments (left to right):
-1. **Brand**: "DotCraft" (bold).
-2. **Thread**: Current thread display name or ID. Omitted before thread creation.
-3. **Mode**: "Agent Mode" or "Plan Mode". Styled differently per mode.
-4. **Tokens**: Cumulative input/output token count for the current turn. Resets between turns. Format: `↑{input} ↓{output} tokens`.
-5. **Connection**: "Connected" (green dot) or "Disconnected" (red dot).
+#### Behavior
 
-### 8.2 ChatView
+- **Size gating**: The ASCII art logo is shown only when the viewport is at least 60 columns wide and 20 rows tall. On smaller terminals, the logo is omitted and only the text lines are shown.
+- **Connection state**: While connecting, the bottom line shows "Connecting…" with an animated spinner. Once the handshake completes, it changes to "Ready — press any key or start typing".
+- **Auto-dismiss**: The WelcomeScreen is replaced by the chat UI as soon as the handshake completes. Any key press also dismisses it immediately.
+- **Brand styling**: "DotCraft" in the text line uses the brand color. The ASCII logo renders in the brand color when the terminal supports true color, or bright magenta otherwise.
 
-A scrollable viewport displaying the conversation history and the active streaming content.
+### 8.2 FooterLine
+
+A single-row widget rendered below the `InputEditor`. Replaces the old top `StatusBar` with contextual, state-aware information.
+
+#### Layout
+
+```
+  ? for shortcuts · Agent (shift+tab to cycle)        ↑1.2k ↓350 tokens · ● Connected
+```
+
+#### Left side (contextual hints, priority order)
+
+The left side shows one of the following depending on the current state (highest priority first):
+
+| State | Left content |
+|-------|--------------|
+| Quit reminder active | `press ctrl+c again to quit` (styled warning) |
+| Input has draft, turn running | `tab to queue message` |
+| Input has draft, turn idle | `enter to send · shift+enter newline` |
+| Input empty, turn running | `esc to interrupt` |
+| Input empty, turn idle | `? for shortcuts · {Mode} (shift+tab to cycle)` |
+
+#### Right side (context)
+
+```
+↑{input_tokens} ↓{output_tokens} tokens · ● Connected
+```
+
+- Token counts reset between turns and are omitted when zero.
+- Connection: `● Connected` (green) or `○ Disconnected` (red/dim).
+
+#### Width-based progressive collapse
+
+As the terminal narrows, elements are dropped in this order:
+1. Drop `· ● Connected` / `○ Disconnected`.
+2. Drop token counts.
+3. Shorten mode cycle hint from `(shift+tab to cycle)` to nothing.
+4. Drop the shortcut hint entirely.
+
+The footer is fully suppressed on terminals with height < 20 rows.
+
+### 8.3 ChatView
+
+A scrollable viewport displaying the conversation history and the active streaming content. Plan and SubAgent data always render inline here; there is no side panel.
 
 #### History Entries
 
@@ -384,72 +458,145 @@ Each `HistoryEntry` in `AppState.history` is rendered as a block:
 
 | Entry Type | Rendering |
 |------------|-----------|
-| `UserMessage` | Right-aligned or prefixed with `>` in a distinct color. Plain text. |
-| `AgentMessage` | Left-aligned. Markdown rendered to styled terminal text with syntax-highlighted code blocks. |
-| `ToolCall` | Compact single-line: icon + tool name + formatted arguments. Collapsed by default; expandable to show full arguments and result. |
-| `ToolResult` | Shown inline with its parent `ToolCall` when expanded. |
-| `Error` | Red-styled error message. |
-| `SystemInfo` | Dim grey one-liner (e.g., "Context compacted successfully."). |
+| `UserMessage` | Prefixed with `❯` in the user message color. Plain text with continuation indent. |
+| `AgentMessage` | Prefixed with `•` gutter. Markdown rendered to styled terminal text with syntax-highlighted code blocks. |
+| `ToolCall` | See §8.3 Tool Call Rendering below. |
+| `Error` | Red-styled error message with `✗` prefix. |
+| `SystemInfo` | Dim one-liner (e.g., "Context compacted successfully."). |
+
+#### Tool Call Rendering
+
+Tool calls use a Codex-style invocation format with adaptive layout.
+
+**Active (in-flight):**
+```
+  ⠋ Calling ReadFile("src/main.rs")
+```
+
+**Completed (success):**
+```
+  • Called ReadFile("src/main.rs") (0.3s)
+    └ // file content preview, first 1-2 lines, dimmed
+```
+
+**Completed (error):**
+```
+  • Called RunTests() (2.1s)
+    └ Error: 3 tests failed
+```
+
+Rules:
+- The bullet `•` is green on success, red on error. Active tools show an animated Braille spinner.
+- The verb changes: `Calling` (active) → `Called` (completed).
+- Invocation format: `ToolName("arg1", "arg2")` with JSON argument values.
+- **Adaptive layout**: if the full invocation line fits within the available width, it renders inline on the same line as `Calling`/`Called`. If it overflows, the invocation wraps to the next line prefixed with `  └ `.
+- **Elapsed time**: shown in dim parentheses after the completed invocation: `(0.3s)`, `(1.2s)`, `(2m 03s)`.
+- **Result summary**: always shown below the completed invocation, dim, truncated to `TOOL_CALL_MAX_LINES` (default 5 lines). There is no global "expand/collapse" toggle; results are always partially visible.
+- The `tools_expanded` global toggle is removed in favor of always-visible summaries.
 
 #### Active Streaming
 
-While a turn is running, the active cell renders below committed history:
+While a turn is running, the active area renders below committed history:
 
-- **Reasoning**: Dim italic text, preceded by a "Thinking" indicator. Live-updated as `item/reasoning/delta` arrives.
-- **Agent text**: Markdown rendered progressively. Each delta triggers a re-render of the current paragraph.
-- **Tool spinners**: Animated spinner (Braille or dots) next to the active tool name. Multiple tools may spin concurrently. Format: `⠋ ReadFile src/main.rs`.
+- **Reasoning**: Dim italic text, preceded by "💭 Thinking" indicator. Live-updated as `item/reasoning/delta` arrives.
+- **Agent text**: Markdown rendered progressively from `message_buffer`. Prefixed with `•` gutter.
+- **Tool spinners**: Rendered inline as they arrive. Format: `⠋ Calling ToolName("args")`.
+
+#### Inline SubAgent Block
+
+When `subagent_entries` is non-empty, a live-updating block renders below the streaming area (during an active turn) or inline in committed history (after the turn).
+
+**Active (at least one SubAgent running):**
+```
+  ──── SubAgents (3 active, 1 done) ────────────────────
+  ⠋  code-explorer   ReadFile src/main.rs    ↑4.5k ↓1.2k
+  ⠋  test-runner     RunTests               ↑2.0k ↓0.6k
+  ⠙  doc-writer      WriteFile docs.md      ↑1.8k ↓0.3k
+  •  reviewer        Done                   ↑3.2k ↓0.9k
+```
+
+**All complete (collapsed summary):**
+```
+  ✓ 4 SubAgents completed (↑11.5k ↓2.8k tokens)
+```
+
+Rules:
+- Active SubAgents show their `currentTool` or a spinner when `currentTool` is null (thinking).
+- Completed SubAgents show `●  Done` in green.
+- Token counts use compact format: `4.5k`, `1.2M`.
+- When all SubAgents complete, the block collapses to a single summary line.
+- Press `s` to toggle detail visibility when at least one SubAgent is done.
+
+#### Inline Plan Block
+
+When `plan` is non-null, a plan block renders below history entries (always inline, not in a side panel).
+
+```
+  ──── Plan: Implement auth ────────────────────────────
+  ✅  Create User model
+  🔄  Implement login endpoint
+  ⬜  Add JWT middleware
+  ⬜  Write integration tests
+```
+
+Status icons: `✅` completed, `🔄` in_progress, `⬜` pending, `🚫` cancelled.
 
 #### Scrolling
 
 - **Auto-scroll**: When the user is at the bottom, new content auto-scrolls. When the user has scrolled up, auto-scroll is disabled until they return to the bottom.
 - **Key bindings**: `↑`/`↓` scroll by line (when input is not focused), `PageUp`/`PageDown` scroll by page, `Home`/`End` jump to top/bottom.
 
-### 8.3 SidePanel
+### 8.4 BottomPane
 
-A vertical panel to the right of ChatView, visible when there is active content to show.
+The `BottomPane` is the vertically-stacked composite widget at the bottom of the screen. Its height is the sum of its visible children.
 
-#### PlanPanel
+#### 8.4.1 StatusIndicator
 
-Renders the `plan/updated` snapshot as a checkbox list:
-
-```
-┌─ Plan: Implement auth ────────────┐
-│ ✅ Create User model              │
-│ 🔄 Implement login endpoint       │
-│ ⬜ Add JWT middleware              │
-│ ⬜ Write integration tests         │
-└───────────────────────────────────┘
-```
-
-Status icons: `✅` completed, `🔄` in_progress, `⬜` pending, `🚫` cancelled.
-
-#### SubAgentTable
-
-Renders the `subagent/progress` snapshot as a live table:
+Appears above the `InputEditor` only while `turn_status == Running`. Disappears as soon as the turn completes.
 
 ```
-┌─ SubAgents ───────────────────────┐
-│ Label        Tool       ↑In  ↓Out │
-│ code-explorer ReadFile  4.5k 1.2k │
-│ test-runner   ● Done    2.0k 0.6k │
-└───────────────────────────────────┘
+  ⠋ Working  (12s · esc to interrupt)
 ```
 
-- Active SubAgents show their `currentTool`. When `currentTool` is null (thinking), show a spinner.
-- Completed SubAgents show "Done" in green.
-- Token counts are formatted as compact numbers (e.g., `4.5k`).
+- Braille spinner on the left.
+- "Working" label with a shimmer animation: each character's brightness oscillates based on `(char_index + tick_count) % period`, creating a traveling wave effect.
+- Elapsed time in dim parentheses, updated every second.
+- Interrupt hint: `esc to interrupt`.
+- If a system status event is active (`compacting` / `consolidating`), the label changes to the system status description.
+- On terminals with height < 20 rows, the `StatusIndicator` is hidden.
 
-### 8.4 InputEditor
+#### 8.4.2 PendingInputPreview
 
-A multi-line text input at the bottom of the screen.
+Appears between `StatusIndicator` and `InputEditor` when the user has queued follow-up messages (via `Tab` while a turn is running).
+
+```
+  ┄ Queued: "run the tests again"
+```
+
+- Shows the queued message text truncated to one line.
+- Dim styling. Hidden when `pending_input` is empty.
+
+#### 8.4.3 InputEditor
+
+A multi-line text input.
+
+```
+❯ Type a message or /help...
+```
 
 Features:
-- **Single-line default**: Expands to multi-line when the user presses `Shift+Enter` or when content exceeds one line.
+- **Mode gutter**: `❯` (Agent mode, green) or `✎` (Plan mode, blue) on the left of the first text line. Continuation lines have `  ` (two spaces).
+- **Placeholder**: When the input is empty, dim placeholder text "Type a message or /help..." is shown in the gutter area.
+- **No top separator**: The old horizontal separator line above the input is removed. The FooterLine below replaces its hint content.
+- **Self-sizing height**: Grows with content (1 row per input line). Maximum 10 rows. On terminals with height < 20 rows, clamped to 1 row.
 - **History**: `↑`/`↓` (when input is empty) cycles through previous user messages.
-- **Tab completion**: Tab triggers completion for slash commands. No file completion in v1.
-- **Mode indicator**: Left gutter shows current mode: `[Agent]` or `[Plan]` with distinct colors.
-- **Submit**: `Enter` submits the input (calls `turn/start`). `Shift+Enter` inserts a newline.
+- **Tab completion**: `Tab` triggers slash command completion popup when input starts with `/`. When a turn is running, `Tab` queues the current input as a pending message instead of cycling slash commands.
+- **Submit**: `Enter` submits. `Shift+Enter` inserts a newline.
 - **Interrupt**: `Ctrl+C` while a turn is running sends `turn/interrupt`. Double `Ctrl+C` within 1 second exits the TUI.
+
+#### 8.4.4 FooterLine
+
+See §8.2.
 
 ### 8.5 Slash Commands
 
@@ -572,27 +719,27 @@ Themes are defined in TOML files. The TUI loads the theme from (in priority orde
 
 ```toml
 [colors]
-brand = "#7C3AED"         # DotCraft brand color
+brand = "#7C3AED"         # DotCraft brand color (used in FooterLine, WelcomeScreen)
 user_message = "white"
 agent_message = "white"
 reasoning = "cyan"
 tool_active = "yellow"
 tool_completed = "gray"
+tool_error = "red"
 error = "red"
 success = "green"
 dim = "dark_gray"
 mode_agent = "green"
 mode_plan = "blue"
 approval_border = "yellow"
+status_indicator = "yellow"   # "Working" label and spinner color
 
-[status_bar]
-background = "dark_gray"
-foreground = "white"
-
-[side_panel]
-border = "gray"
-title = "bold white"
+[footer]
+foreground = "dark_gray"      # Footer line hint text
+context_color = "dark_gray"   # Token counts and connection status
 ```
+
+The `[status_bar]` and `[side_panel]` sections from v0.1.0 are removed. They are replaced by `[footer]` and `status_indicator`.
 
 Colors accept Ratatui color names (`"red"`, `"cyan"`, `"dark_gray"`) or hex codes (`"#7C3AED"`). Hex colors require a terminal that supports 24-bit true color; the TUI falls back gracefully to the nearest 256-color equivalent.
 
@@ -608,7 +755,7 @@ The TUI crate is organized into five top-level modules:
 |--------|---------------|
 | `wire` | Wire Protocol client layer: JSON-RPC 2.0 client with request/response correlation, transport abstraction (stdio and WebSocket), Wire DTO types, and error handling. |
 | `app` | Application state and event handling: the `AppState` struct and its mutations, Wire notification → state mapping (§6), terminal event → state mapping, slash command parsing/dispatch, and token accounting. |
-| `ui` | Ratatui widget implementations: screen layout computation (§7.1), all widgets (StatusBar, ChatView, SidePanel, PlanPanel, SubAgentTable, InputEditor), modal overlays (approval, thread picker, help, notification), and markdown-to-styled-text rendering. |
+| `ui` | Ratatui widget implementations: screen layout computation (§7.1), all widgets (`WelcomeScreen`, `ChatView`, `InputEditor`, `StatusIndicator`, `FooterLine`), inline panel renderers (`InlineSubAgentBlock`, `InlinePlanBlock`), modal overlays (approval, thread picker, help, notification), and markdown-to-styled-text rendering. The old `StatusBar`, `SidePanel`, `SubAgentTable`, and `PlanPanel` widgets are removed or merged into inline renderers. |
 | `theme` | Theme loading and application: TOML configuration deserialization and the built-in default theme. |
 | `i18n` | Internationalization: bilingual string tables for English and Chinese. |
 

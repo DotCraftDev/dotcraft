@@ -26,13 +26,14 @@ https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 <table>
 <tr>
 <td width="33%" align="center"><b>📁 Project-First</b><br/>Sessions, memory, skills, and config live under <code>.craft/</code> and follow the project</td>
-<td width="33%" align="center"><b>🔌 Multi-Entry</b><br/>CLI, editors, bots, APIs, and GitHub workflows connect to the same workspace</td>
+<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>CLI, editors, bots, and workflows share one session model — cross-entry resume, native platform interaction preserved</td>
 <td width="33%" align="center"><b>🛡️ Observable</b><br/>Built-in approvals, traces, Dashboard, and optional sandbox isolation</td>
 </tr>
 </table>
 
 ![intro](https://github.com/DotCraftDev/resources/raw/master/dotcraft/intro.png)
 
+- ⚡ **Unified Session Core**: a shared execution model across all server-managed channels — enables cross-entry resume and per-platform native interaction, the architectural backbone of the "crafting around your project" vision
 - 🛠️ File, Shell, Web, and SubAgent tools for real workflows
 - 🔗 MCP, ACP, AG-UI, and OpenAI-compatible API support
 - 🌐 External Channel Adapter support for custom integrations in Python or any JSON-RPC capable language
@@ -45,10 +46,31 @@ https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 
 **Prerequisites**:
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) (preview; only required for building)
 - A supported LLM API key (OpenAI-compatible format)
 
-**Build and install**:
+**Option 1 — Download from Releases** (no build required):
+
+Download the latest pre-built binary from [GitHub Releases](https://github.com/DotCraftDev/DotCraft/releases):
+
+| Platform | Archive |
+|----------|---------|
+| Windows  | `DotCraft-win-x64.zip` |
+| Linux    | `DotCraft-linux-x64.tar.gz` |
+| macOS    | `DotCraft-macos-x64.tar.gz` |
+
+Extract the archive and optionally add the directory to your PATH:
+
+```bash
+# Windows — extract DotCraft-win-x64.zip, then (optional) add to PATH
+powershell -File install_to_path.ps1
+
+# Linux / macOS — extract and (optional) move to a directory on $PATH
+tar -xzf DotCraft-linux-x64.tar.gz   # or DotCraft-macos-x64.tar.gz
+```
+
+**Option 2 — Build from Source**:
+
+Requires [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```bash
 # Windows
@@ -105,9 +127,16 @@ For the full configuration reference, config layering details, or manual editing
 
 ## 🔌 Entry Points
 
-DotCraft is not just a shared workspace behind multiple surfaces. It keeps CLI, IDEs, native bots, and external adapters connected to the same session core while allowing each surface to preserve its own interaction model.
+All entry points share one execution engine — the **Unified Session Core**. Here is how that differs from a traditional gateway-style architecture:
 
-Traditional gateway-style channel architectures often flatten platform events into a common message bus for easier routing, but that also weakens platform-native interaction patterns. DotCraft keeps external channels as full bidirectional Wire Protocol clients, so approvals, confirmations, callbacks, and other HITL interactions can remain native to Telegram, QQ, WeCom, and other platforms.
+| Dimension | Gateway-style (nanobot / OpenClaw) | DotCraft |
+|-----------|-----------------------------------|----------|
+| Session model | Flattened `MessageBus` (`InboundMessage` / `OutboundMessage`) | Unified Session Core |
+| Channel integration | Gateway routes events to a generic message bus | Each adapter is a full bidirectional Wire Protocol client |
+| Platform-native UX | Lost after flattening into bus messages | Preserved — each adapter owns its own platform rendering |
+| Approval / HITL | Cannot express platform-native approval flows | Bidirectional: server issues approval requests, adapter renders native UX (Telegram inline keyboard, QQ reply, etc.) |
+| Cross-channel resume | Not supported | Server-managed threads resumable across channels |
+| Workspace persistence | Not defined at framework level | `.craft/` — sessions, memory, skills, and config scoped to the project |
 
 ```mermaid
 flowchart LR
@@ -119,10 +148,8 @@ flowchart LR
     Workflow["GitHub Workflow"]
     Api["API / AG-UI"]
 
-    subgraph Workspace ["Workspace (.craft/)"]
-        Sessions["Sessions"]
-        Tools["Tools & Skills"]
-        Memory["Memory & Config"]
+    subgraph Workspace [".craft/"]
+        Core["**Unified Session Core**"]
     end
 
     Dashboard["Dashboard"]
@@ -135,6 +162,17 @@ flowchart LR
     Workflow --> Workspace
     Api --> Workspace
     Workspace --> Dashboard
+
+    style Core fill:#0969da,color:#ffffff,stroke:#0550ae
+    style Workspace fill:#ddf4ff,stroke:#54aeff,color:#0550ae
+    style Dashboard fill:#e5a50a,color:#ffffff,stroke:#bf8700
+    style Cli fill:#57606a,color:#ffffff,stroke:#424a53
+    style AppSrv fill:#57606a,color:#ffffff,stroke:#424a53
+    style Ide fill:#57606a,color:#ffffff,stroke:#424a53
+    style Bots fill:#57606a,color:#ffffff,stroke:#424a53
+    style ExtCh fill:#57606a,color:#ffffff,stroke:#424a53
+    style Workflow fill:#57606a,color:#ffffff,stroke:#424a53
+    style Api fill:#57606a,color:#ffffff,stroke:#424a53
 ```
 
 | If you want to... | Start here |
@@ -181,7 +219,7 @@ DotCraft can also integrate with external channels over the AppServer wire proto
 
 Adapters can run as subprocesses over stdio or connect independently over WebSocket, and they can be implemented in any language that speaks JSON-RPC. The Python SDK includes both a low-level `DotCraftClient` and a high-level `ChannelAdapter` base class to simplify thread management, streaming events, delivery requests, and approval flows. In this model, the adapter is a full Wire Protocol client: DotCraft can issue approval requests back to the adapter, and the adapter can render native approval UX for its platform instead of collapsing everything into a generic gateway surface.
 
-The repository now includes a reference Telegram adapter that demonstrates long polling, inline-keyboard approvals, and full end-to-end integration with DotCraft sessions. See the [Python SDK](./sdk/python/README.md) and the [External Channel Adapter Spec](./specs/external-channel-adapter.md).
+The repository now includes a reference Telegram adapter that demonstrates long polling, inline-keyboard approvals, and full end-to-end integration with DotCraft sessions. See the [Python SDK](./sdk/python/README.md).
 
 ### GitHub Workflow Automation
 
@@ -245,6 +283,10 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 - [Unity Integration Guide](./docs/en/unity_guide.md): Unity Editor extension and AI-powered scene and asset tools
 - [Hooks Guide](./docs/en/hooks_guide.md): lifecycle hooks, shell extensions, and security guards
 - [Documentation Index](./docs/en/index.md): full documentation navigation
+
+**TUI**
+
+- [Rust TUI Guide](./tui/README.md): build, launch modes, key bindings, slash commands, and theme configuration
 
 ## 🤝 Contributing
 
