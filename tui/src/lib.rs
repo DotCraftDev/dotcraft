@@ -10,6 +10,7 @@ use anyhow::Result;
 use crossterm::event::{Event as CrosstermEvent, EventStream, KeyEventKind};
 use futures::StreamExt;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc as tokio_mpsc;
 use tokio::time;
 
 use crate::{
@@ -48,6 +49,12 @@ use crate::{
 enum ConnectionMode {
     Stdio,
     WebSocket(String),
+}
+
+/// Async result forwarded from spawned tasks back into the event loop.
+enum DeferredResult {
+    ThreadListLoaded(Result<serde_json::Value>),
+    ThreadHistoryLoaded(Result<serde_json::Value>),
 }
 
 /// Entry point called from main.rs.
@@ -114,10 +121,7 @@ pub async fn run(
     let mut state = AppState::new(ws_path);
     state.connected = true;
 
-    // ── 7. Auto-create the first thread ──────────────────────────────────
-    create_thread(&mut wire, &mut state).await?;
-
-    // ── 8. Event loop ─────────────────────────────────────────────────────
+    // ── 7. Event loop (thread is created lazily on first user input) ────
     run_event_loop(
         &mut terminal,
         &mut wire,
@@ -146,6 +150,8 @@ async fn run_event_loop(
     tick.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
     let mut event_stream = EventStream::new();
+
+    let (deferred_tx, mut deferred_rx) = tokio_mpsc::unbounded_channel::<DeferredResult>();
 
     loop {
         tokio::select! {
@@ -205,12 +211,17 @@ async fn run_event_loop(
                 }
             }
 
+            // ── Deferred async results ───────────────────────────────────
+            Some(deferred) = deferred_rx.recv() => {
+                handle_deferred_result(state, deferred);
+            }
+
             // ── Terminal events ───────────────────────────────────────────
             Some(evt_result) = event_stream.next() => {
                 match evt_result {
                     Err(e) => tracing::warn!("Terminal event error: {e}"),
                     Ok(evt) => {
-                        if handle_terminal_event(terminal, wire, state, theme, strings, evt).await? {
+                        if handle_terminal_event(terminal, wire, state, theme, strings, &deferred_tx, evt).await? {
                             break;
                         }
                     }
@@ -237,6 +248,7 @@ async fn handle_terminal_event(
     state: &mut AppState,
     _theme: &Theme,
     strings: &Strings,
+    deferred_tx: &tokio_mpsc::UnboundedSender<DeferredResult>,
     evt: CrosstermEvent,
 ) -> Result<bool> {
     match evt {
@@ -263,7 +275,7 @@ async fn handle_terminal_event(
                     }
                     OverlayKind::ThreadPicker => {
                         let action = input_router::handle_thread_picker(state, key);
-                        handle_thread_picker_action(wire, state, action).await?;
+                        handle_thread_picker_action(wire, state, deferred_tx, action).await?;
                     }
                     OverlayKind::Help => {
                         let action = input_router::handle_help_overlay(key);
@@ -284,7 +296,7 @@ async fn handle_terminal_event(
                     state.streaming.clear();
 
                     if let Some(cmd) = commands::parse(&text) {
-                        let quit = handle_slash_command(wire, state, strings, cmd).await?;
+                        let quit = handle_slash_command(wire, state, strings, deferred_tx, cmd).await?;
                         if quit {
                             return Ok(true);
                         }
@@ -378,11 +390,16 @@ async fn submit_turn(
     state: &mut AppState,
     text: String,
 ) -> Result<()> {
+    // Lazy thread creation: materialize on first user input.
+    if state.current_thread_id.is_none() {
+        create_thread(wire, state).await?;
+    }
+
     let thread_id = match &state.current_thread_id {
         Some(id) => id.clone(),
         None => {
             state.history.push(HistoryEntry::Error {
-                message: "No active thread. Use /new to create one.".to_string(),
+                message: "Failed to create thread.".to_string(),
             });
             return Ok(());
         }
@@ -480,10 +497,38 @@ fn is_server_request(msg: &wire::types::JsonRpcMessage) -> bool {
     msg.id.is_some() && msg.method.is_some()
 }
 
+/// Process a deferred async result that arrived from a spawned task.
+fn handle_deferred_result(state: &mut AppState, result: DeferredResult) {
+    match result {
+        DeferredResult::ThreadListLoaded(Ok(value)) => {
+            let threads = parse_thread_list(&value);
+            if let Some(picker) = state.thread_picker.as_mut() {
+                picker.threads = threads;
+                picker.loading = false;
+            }
+        }
+        DeferredResult::ThreadListLoaded(Err(e)) => {
+            if let Some(picker) = state.thread_picker.as_mut() {
+                picker.loading = false;
+                picker.error = Some(format!("Failed to load sessions: {e}"));
+            }
+        }
+        DeferredResult::ThreadHistoryLoaded(Ok(data)) => {
+            replay_thread_history(state, &data);
+        }
+        DeferredResult::ThreadHistoryLoaded(Err(e)) => {
+            state.history.push(HistoryEntry::Error {
+                message: format!("Failed to load thread history: {e}"),
+            });
+        }
+    }
+}
+
 /// Dispatch a ThreadPickerAction returned from the input router.
 async fn handle_thread_picker_action(
     wire: &mut WireClient,
     state: &mut AppState,
+    deferred_tx: &tokio_mpsc::UnboundedSender<DeferredResult>,
     action: InputAction,
 ) -> Result<()> {
     match action {
@@ -507,16 +552,17 @@ async fn handle_thread_picker_action(
                 state.token_tracker.reset();
                 wire.send_request("thread/resume", serde_json::json!({ "threadId": id }))
                     .await?;
-                // Replay persisted history so the user sees past conversation.
-                if let Ok(data) = wire
-                    .request::<serde_json::Value>(
-                        "thread/read",
-                        serde_json::json!({ "threadId": id, "includeTurns": true }),
-                    )
-                    .await
-                {
-                    replay_thread_history(state, &data);
-                }
+                state.current_thread_id = Some(id.clone());
+                // Fire async thread/read; result handled via deferred channel.
+                let (_, rx) = wire.send_request(
+                    "thread/read",
+                    serde_json::json!({ "threadId": id, "includeTurns": true }),
+                ).await?;
+                let tx = deferred_tx.clone();
+                tokio::spawn(async move {
+                    let result = rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
+                    let _ = tx.send(DeferredResult::ThreadHistoryLoaded(result));
+                });
             }
         }
         InputAction::ThreadPickerAction(ThreadPickerOp::Archive) => {
@@ -727,6 +773,7 @@ async fn handle_slash_command(
     wire: &mut WireClient,
     state: &mut AppState,
     strings: &Strings,
+    deferred_tx: &tokio_mpsc::UnboundedSender<DeferredResult>,
     cmd: SlashCommand,
 ) -> Result<bool> {
     match cmd {
@@ -742,7 +789,8 @@ async fn handle_slash_command(
             state.subagent_entries.clear();
             state.streaming.clear();
             state.token_tracker.reset();
-            create_thread(wire, state).await?;
+            state.current_thread_id = None;
+            state.current_thread_name = None;
         }
         SlashCommand::Plan => {
             if let Some(thread_id) = state.current_thread_id.clone() {
@@ -795,26 +843,17 @@ async fn handle_slash_command(
             });
             state.active_overlay = Some(OverlayKind::ThreadPicker);
 
-            // Fetch thread list synchronously (user-initiated, fast).
+            // Fire async thread/list; result handled via deferred channel.
             let identity = build_identity(&state.workspace_path);
-            match wire
-                .request::<serde_json::Value>("thread/list", serde_json::json!({ "identity": identity }))
-                .await
-            {
-                Ok(result) => {
-                    let threads = parse_thread_list(&result);
-                    if let Some(picker) = state.thread_picker.as_mut() {
-                        picker.threads = threads;
-                        picker.loading = false;
-                    }
-                }
-                Err(e) => {
-                    if let Some(picker) = state.thread_picker.as_mut() {
-                        picker.loading = false;
-                        picker.error = Some(format!("Failed to load sessions: {e}"));
-                    }
-                }
-            }
+            let (_, rx) = wire.send_request(
+                "thread/list",
+                serde_json::json!({ "identity": identity }),
+            ).await?;
+            let tx = deferred_tx.clone();
+            tokio::spawn(async move {
+                let result = rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
+                let _ = tx.send(DeferredResult::ThreadListLoaded(result));
+            });
         }
         SlashCommand::Load { thread_id } => {
             if thread_id.is_empty() {
@@ -834,16 +873,17 @@ async fn handle_slash_command(
                 serde_json::json!({ "threadId": id }),
             )
             .await?;
-            // Replay persisted history so the user sees past conversation.
-            if let Ok(data) = wire
-                .request::<serde_json::Value>(
-                    "thread/read",
-                    serde_json::json!({ "threadId": id, "includeTurns": true }),
-                )
-                .await
-            {
-                replay_thread_history(state, &data);
-            }
+            state.current_thread_id = Some(id.clone());
+            // Fire async thread/read; result handled via deferred channel.
+            let (_, rx) = wire.send_request(
+                "thread/read",
+                serde_json::json!({ "threadId": id, "includeTurns": true }),
+            ).await?;
+            let tx = deferred_tx.clone();
+            tokio::spawn(async move {
+                let result = rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
+                let _ = tx.send(DeferredResult::ThreadHistoryLoaded(result));
+            });
         }
         SlashCommand::Cron => {
             if !wire.capabilities.cron_management.unwrap_or(false) {
