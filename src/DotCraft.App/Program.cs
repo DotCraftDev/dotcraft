@@ -16,8 +16,10 @@ Console.OutputEncoding = Encoding.UTF8;
 // 1. Parse command-line arguments
 // -------------------------------------------------------------------------
 var cliArgs = CommandLineArgs.Parse(args);
+var isRemoteCli = cliArgs.Mode == CommandLineArgs.RunMode.Cli
+               && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl);
 var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer
-              || (cliArgs.Mode == CommandLineArgs.RunMode.Cli && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl));
+              || isRemoteCli;
 
 // -------------------------------------------------------------------------
 // 2. Prepare subprocess environment (stdout → stderr, ignore Ctrl+C)
@@ -118,7 +120,7 @@ if (config.DebugMode)
 // -------------------------------------------------------------------------
 // 6. API Key validation
 // -------------------------------------------------------------------------
-if (string.IsNullOrWhiteSpace(config.ApiKey))
+if (!isRemoteCli && string.IsNullOrWhiteSpace(config.ApiKey))
 {
     if (isHeadless)
     {
