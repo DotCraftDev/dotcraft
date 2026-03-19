@@ -21,3 +21,8 @@ out
 .cursor
 .ai
 /references
+__pycache__
+*.egg-info
+*.egg
+.venv
+venv

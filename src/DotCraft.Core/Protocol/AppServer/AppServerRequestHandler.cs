@@ -358,18 +358,20 @@ public sealed class AppServerRequestHandler
 
         var content = await ResolveInputPartsAsync(p.Input, ct);
 
-        // Set ChannelSessionScope for non-adapter clients (e.g. CLI) so that tools like
-        // CronTools can capture the delivery context (channel="cli") at job creation time.
-        // External channel adapters manage their own scope via SenderContext.
-        ChannelSessionInfo? channelScopeInfo = null;
-        if (!_connection.IsChannelAdapter)
-        {
-            channelScopeInfo = new ChannelSessionInfo
+        // Set ChannelSessionScope so that SessionService.ResolveApprovalSource returns the correct
+        // channel name for approval routing. For CLI clients this is "cli"; for external channel
+        // adapters this is the adapter's declared channel name (e.g. "telegram").
+        var channelScopeInfo = _connection.IsChannelAdapter
+            ? new ChannelSessionInfo
+            {
+                Channel = _connection.ChannelAdapterName ?? "external",
+                UserId = _connection.ClientInfo?.Name ?? "anonymous"
+            }
+            : new ChannelSessionInfo
             {
                 Channel = "cli",
                 UserId = _connection.ClientInfo?.Name ?? "anonymous"
             };
-        }
 
         // Fix 5: Deserialize client-provided history for historyMode=client threads.
         ChatMessage[]? messages = null;

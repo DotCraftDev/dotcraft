@@ -26,6 +26,7 @@ public sealed class StdioTransport : IAppServerTransport
 
     private Task? _readerLoop;
     private readonly CancellationTokenSource _disposeCts = new();
+    private int _disposed;
 
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -204,6 +205,9 @@ public sealed class StdioTransport : IAppServerTransport
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         await _disposeCts.CancelAsync();
         _reader.Dispose();
 
