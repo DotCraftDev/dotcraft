@@ -25,11 +25,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.Core.Tests", "test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.AppServerTestClient", "src\DotCraft.AppServerTestClient\DotCraft.AppServerTestClient.csproj", "{235BC437-5769-45DE-B963-150B47AA0725}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DotCraft.GitHubTracker.Tests", "tests\DotCraft.GitHubTracker.Tests\DotCraft.GitHubTracker.Tests.csproj", "{CDA221F4-A60C-43F4-8A7A-52EFBE0EDC00}"
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

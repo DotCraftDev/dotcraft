@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using DotCraft.Localization;
 using DotCraft.Mcp;
 using Microsoft.Extensions.AI;
@@ -197,8 +198,9 @@ public sealed class AppConfig
             return new AppConfig();
         }
 
-        var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions) ?? new AppConfig();
+        var node = JsonNode.Parse(File.ReadAllText(path)) ?? new JsonObject();
+        ExpandEnvironmentVariables(node);
+        return node.Deserialize<AppConfig>(SerializerOptions) ?? new AppConfig();
     }
 
     public static AppConfig LoadWithGlobalFallback(string workspacePath)
@@ -220,8 +222,79 @@ public sealed class AppConfig
         // Merge workspace config into global config (workspace values take precedence)
         var mergedNode = MergeNodes(globalNode ?? new JsonObject(), workspaceNode ?? new JsonObject());
 
-        // Deserialize merged result
+        // Expand environment variable references before deserializing
+        ExpandEnvironmentVariables(mergedNode);
+
         return mergedNode.Deserialize<AppConfig>(SerializerOptions) ?? new AppConfig();
+    }
+
+    /// <summary>
+    /// Recursively expands environment variable references in all string values of a JSON node tree.
+    /// Supports two syntaxes:
+    /// <list type="bullet">
+    ///   <item><c>$VAR_NAME</c> — the entire string is replaced by the env var value.</item>
+    ///   <item><c>${VAR_NAME}</c> — inline substitution; multiple references may appear in one string.</item>
+    /// </list>
+    /// If the referenced variable is not set, the original placeholder is preserved unchanged.
+    /// </summary>
+    internal static void ExpandEnvironmentVariables(JsonNode node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var key in obj.Select(p => p.Key).ToList())
+                {
+                    var child = obj[key];
+                    if (child is JsonValue val && val.TryGetValue<string>(out var str))
+                    {
+                        var expanded = ExpandEnvString(str);
+                        if (expanded != str)
+                            obj[key] = JsonValue.Create(expanded);
+                    }
+                    else if (child is JsonObject or JsonArray)
+                    {
+                        ExpandEnvironmentVariables(child);
+                    }
+                }
+                break;
+
+            case JsonArray arr:
+                for (var i = 0; i < arr.Count; i++)
+                {
+                    var child = arr[i];
+                    if (child is JsonValue val && val.TryGetValue<string>(out var str))
+                    {
+                        var expanded = ExpandEnvString(str);
+                        if (expanded != str)
+                            arr[i] = JsonValue.Create(expanded);
+                    }
+                    else if (child is JsonObject or JsonArray)
+                    {
+                        ExpandEnvironmentVariables(child);
+                    }
+                }
+                break;
+        }
+    }
+
+    // Matches ${VAR_NAME} inline placeholders.
+    private static readonly Regex InlineEnvVarRegex =
+        new(@"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", RegexOptions.Compiled);
+
+    // Matches a whole-string $VAR_NAME reference.
+    private static readonly Regex WholeEnvVarRegex =
+        new(@"^\$([A-Za-z_][A-Za-z0-9_]*)$", RegexOptions.Compiled);
+
+    private static string ExpandEnvString(string value)
+    {
+        // Whole-value reference: $VAR — replace entire string with env var value.
+        var wholeMatch = WholeEnvVarRegex.Match(value);
+        if (wholeMatch.Success)
+            return Environment.GetEnvironmentVariable(wholeMatch.Groups[1].Value) ?? value;
+
+        // Inline reference: ${VAR} — substitute each occurrence, keep placeholder if not set.
+        return InlineEnvVarRegex.Replace(value, m =>
+            Environment.GetEnvironmentVariable(m.Groups[1].Value) ?? m.Value);
     }
 
     private static JsonNode MergeNodes(JsonNode baseNode, JsonNode overrideNode)

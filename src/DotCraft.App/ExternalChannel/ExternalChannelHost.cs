@@ -17,14 +17,17 @@ namespace DotCraft.ExternalChannel;
 /// <para>
 /// For subprocess mode, manages the adapter process lifecycle (spawn, monitor, restart with backoff).
 /// For WebSocket mode, waits for the adapter to connect and attach its transport via
-/// <see cref="AttachTransportAsync"/>.
+/// <see cref="AttachTransport"/>.
 /// </para>
 /// </summary>
-public sealed class ExternalChannelHost : IChannelService
+public sealed class ExternalChannelHost(
+    ExternalChannelEntry config,
+    ISessionService sessionService,
+    string serverVersion)
+    : IChannelService
 {
-    private readonly ExternalChannelEntry _config;
-    private readonly ISessionService _sessionService;
-    private readonly string _serverVersion;
+    private readonly ExternalChannelEntry _config = config ?? throw new ArgumentNullException(nameof(config));
+    private readonly ISessionService _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -53,16 +56,6 @@ public sealed class ExternalChannelHost : IChannelService
     // State
     private volatile bool _stopped;
     private volatile bool _permanentlyFailed;
-
-    public ExternalChannelHost(
-        ExternalChannelEntry config,
-        ISessionService sessionService,
-        string serverVersion)
-    {
-        _config = config ?? throw new ArgumentNullException(nameof(config));
-        _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
-        _serverVersion = serverVersion;
-    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // IChannelService implementation
@@ -249,7 +242,7 @@ public sealed class ExternalChannelHost : IChannelService
         _transport = transport;
         _connection = new AppServerConnection();
         _handler = new AppServerRequestHandler(
-            _sessionService, _connection, transport, _serverVersion);
+            _sessionService, _connection, transport, serverVersion);
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -372,8 +365,7 @@ public sealed class ExternalChannelHost : IChannelService
 
         _transport = transport;
         _connection = connection;
-        _handler = new AppServerRequestHandler(
-            _sessionService, connection, transport, _serverVersion);
+        _handler = new AppServerRequestHandler(_sessionService, connection, transport, serverVersion);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +

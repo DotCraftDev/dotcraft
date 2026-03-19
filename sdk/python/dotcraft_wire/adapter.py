@@ -1,0 +1,402 @@
+"""
+ChannelAdapter: high-level base class for building external channel adapters.
+
+Implements the behavioral contract from specs/external-channel-adapter.md §10:
+- initialize handshake with channelAdapter capability
+- Thread-per-identity mapping via SessionIdentity
+- Per-thread message serialization (queue while a turn is running)
+- Approval flow: server request → platform UI → JSON-RPC response
+- Delivery: ext/channel/deliver → platform send
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from abc import ABC, abstractmethod
+from typing import AsyncIterator
+
+from .client import DotCraftClient, DotCraftError
+from .models import ERR_TURN_IN_PROGRESS, Thread
+from .transport import Transport
+
+logger = logging.getLogger(__name__)
+
+
+class ChannelAdapter(ABC):
+    """
+    Base class for DotCraft external channel adapters.
+
+    Subclasses implement on_deliver() and on_approval_request() for
+    platform-specific behavior. Call handle_message() from platform event
+    handlers to route user messages through DotCraft.
+    """
+
+    # Default workspace path. Override per instance or in handle_message().
+    DEFAULT_WORKSPACE_PATH: str = ""
+
+    def __init__(
+        self,
+        transport: Transport,
+        channel_name: str,
+        client_name: str,
+        client_version: str,
+        opt_out_notifications: list[str] | None = None,
+    ) -> None:
+        self._channel_name = channel_name
+        self._client = DotCraftClient(transport)
+
+        # Thread identity cache: identity_key -> thread_id
+        self._thread_map: dict[str, str] = {}
+        # Per-thread message queues to serialize concurrent messages
+        self._thread_queues: dict[str, asyncio.Queue] = {}
+        # Per-thread worker tasks
+        self._thread_workers: dict[str, asyncio.Task] = {}
+
+        self._client_name = client_name
+        self._client_version = client_version
+        self._opt_out = opt_out_notifications or []
+        self._running = False
+
+    # ------------------------------------------------------------------
+    # Abstract methods — implement in subclass
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def on_deliver(self, target: str, content: str, metadata: dict) -> bool:
+        """
+        Called when DotCraft asks the adapter to send a message to the platform.
+
+        Args:
+            target: Platform-specific delivery target (e.g. "group:12345").
+            content: Message content (plain text or markdown).
+            metadata: Optional channel-specific delivery hints.
+
+        Returns:
+            True if delivered successfully, False otherwise.
+        """
+
+    @abstractmethod
+    async def on_approval_request(self, request: dict) -> str:
+        """
+        Called when the agent needs user approval for a sensitive operation.
+
+        Present a platform-native approval UI and return the user's decision.
+
+        Args:
+            request: Full approval request params from the wire protocol.
+
+        Returns:
+            One of: "accept", "acceptForSession", "acceptAlways", "decline", "cancel".
+        """
+
+    # ------------------------------------------------------------------
+    # Optional hooks — override for custom behavior
+    # ------------------------------------------------------------------
+
+    async def on_turn_completed(
+        self,
+        thread_id: str,
+        turn_id: str,
+        reply_text: str,
+        channel_context: str,
+    ) -> None:
+        """
+        Called when a turn completes and a reply is ready to send.
+
+        Default behavior: call on_deliver() with the target derived from
+        channel_context. Override for custom routing or formatting.
+        """
+        if reply_text:
+            await self.on_deliver(channel_context, reply_text, {})
+
+    async def on_turn_failed(self, thread_id: str, turn_id: str, error: str) -> None:
+        """Called when a turn fails. Override to notify the user."""
+        logger.error("Turn %s failed on thread %s: %s", turn_id, thread_id, error)
+
+    async def on_turn_cancelled(self, thread_id: str, turn_id: str) -> None:
+        """Called when a turn is cancelled."""
+        logger.info("Turn %s cancelled on thread %s", turn_id, thread_id)
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Connect, initialize, register handlers, and start the message loop."""
+        await self._client.connect()
+        await self._client.start()
+
+        await self._client.initialize(
+            client_name=self._client_name,
+            client_version=self._client_version,
+            approval_support=True,
+            streaming_support=True,
+            opt_out_notifications=self._opt_out,
+            channel_name=self._channel_name,
+            delivery_support=True,
+        )
+        self._running = True
+
+        # Register server-request handlers
+        self._client._approval_handler = self._handle_approval_request
+        self._client.register_handler(
+            "ext/channel/deliver",
+            self._handle_deliver_notification,
+        )
+        self._client._request_handlers["ext/channel/deliver"] = self._handle_deliver_request
+        self._client._request_handlers["ext/channel/heartbeat"] = self._handle_heartbeat
+
+        logger.info(
+            "ChannelAdapter '%s' started (client: %s %s)",
+            self._channel_name, self._client_name, self._client_version,
+        )
+
+    async def stop(self) -> None:
+        """Stop the adapter and all worker tasks."""
+        self._running = False
+        for task in list(self._thread_workers.values()):
+            task.cancel()
+        await self._client.stop()
+        logger.info("ChannelAdapter '%s' stopped", self._channel_name)
+
+    # ------------------------------------------------------------------
+    # Message handling
+    # ------------------------------------------------------------------
+
+    async def handle_message(
+        self,
+        user_id: str,
+        user_name: str,
+        text: str,
+        channel_context: str = "",
+        workspace_path: str = "",
+        sender_extra: dict | None = None,
+    ) -> None:
+        """
+        Route an incoming platform message to DotCraft.
+
+        Finds or creates the thread for this identity, then enqueues the
+        message for serial processing (one turn at a time per thread).
+
+        Args:
+            user_id: Platform user identifier.
+            user_name: Human-readable user name (for SenderContext).
+            text: Message text.
+            channel_context: Group/chat identifier for group scenarios.
+            workspace_path: Override the workspace path for thread/start.
+            sender_extra: Additional fields for SenderContext.
+        """
+        identity_key = self._identity_key(user_id, channel_context)
+
+        # Ensure a queue and worker exist for this identity
+        if identity_key not in self._thread_queues:
+            self._thread_queues[identity_key] = asyncio.Queue()
+            self._thread_workers[identity_key] = asyncio.create_task(
+                self._thread_worker(identity_key),
+                name=f"dotcraft-worker-{identity_key}",
+            )
+
+        await self._thread_queues[identity_key].put({
+            "user_id": user_id,
+            "user_name": user_name,
+            "text": text,
+            "channel_context": channel_context,
+            "workspace_path": workspace_path or self.DEFAULT_WORKSPACE_PATH,
+            "sender_extra": sender_extra or {},
+        })
+
+    def _identity_key(self, user_id: str, channel_context: str) -> str:
+        return f"{user_id}:{channel_context}"
+
+    async def _thread_worker(self, identity_key: str) -> None:
+        """Worker that processes messages for one identity serially."""
+        queue = self._thread_queues[identity_key]
+        while self._running:
+            try:
+                msg = await queue.get()
+            except asyncio.CancelledError:
+                break
+            try:
+                await self._process_message(identity_key, msg)
+            except Exception as e:
+                logger.error("Error processing message for %s: %s", identity_key, e)
+            finally:
+                queue.task_done()
+
+    async def _process_message(self, identity_key: str, msg: dict) -> None:
+        """Process a single message: find/create thread, start turn, stream events."""
+        user_id = msg["user_id"]
+        user_name = msg["user_name"]
+        text = msg["text"]
+        channel_context = msg["channel_context"]
+        workspace_path = msg["workspace_path"]
+        sender_extra = msg["sender_extra"]
+
+        thread = await self._get_or_create_thread(
+            identity_key, user_id, channel_context, workspace_path
+        )
+
+        sender: dict = {
+            "senderId": user_id,
+            "senderName": user_name,
+        }
+        sender.update(sender_extra)
+        if channel_context:
+            sender["groupId"] = channel_context
+
+        try:
+            turn = await self._client.turn_start(
+                thread.id,
+                input=[{"type": "text", "text": text}],
+                sender=sender,
+            )
+        except DotCraftError as e:
+            from .models import ERR_TURN_IN_PROGRESS, ERR_THREAD_NOT_ACTIVE
+            if e.code == ERR_TURN_IN_PROGRESS:
+                logger.warning("Turn already in progress on thread %s; message queued", thread.id)
+                # Re-enqueue and wait a moment (shouldn't happen with serial worker)
+                await asyncio.sleep(1)
+                await self.handle_message(
+                    user_id=user_id,
+                    user_name=user_name,
+                    text=text,
+                    channel_context=channel_context,
+                    workspace_path=workspace_path,
+                )
+                return
+            if e.code == ERR_THREAD_NOT_ACTIVE:
+                # Thread was paused or archived; resume it
+                logger.info("Thread %s not active, resuming", thread.id)
+                await self._client.thread_resume(thread.id)
+                turn = await self._client.turn_start(
+                    thread.id,
+                    input=[{"type": "text", "text": text}],
+                    sender=sender,
+                )
+            else:
+                raise
+
+        # Stream events and accumulate the reply
+        reply_parts: list[str] = []
+
+        async for event in self._client.stream_events(thread.id):
+            if event.method == "item/agentMessage/delta":
+                delta = event.params.get("delta", "")
+                reply_parts.append(delta)
+
+            elif event.method == "turn/completed":
+                full_reply = "".join(reply_parts)
+                await self.on_turn_completed(thread.id, turn.id, full_reply, channel_context)
+                break
+
+            elif event.method == "turn/failed":
+                error = event.params.get("turn", {}).get("error", "Unknown error")
+                await self.on_turn_failed(thread.id, turn.id, error)
+                break
+
+            elif event.method == "turn/cancelled":
+                await self.on_turn_cancelled(thread.id, turn.id)
+                break
+
+    # ------------------------------------------------------------------
+    # Thread management
+    # ------------------------------------------------------------------
+
+    async def _get_or_create_thread(
+        self,
+        identity_key: str,
+        user_id: str,
+        channel_context: str,
+        workspace_path: str,
+    ) -> Thread:
+        """Find an existing active thread or create a new one."""
+        # Check local cache first
+        thread_id = self._thread_map.get(identity_key)
+        if thread_id:
+            try:
+                thread = await self._client.thread_read(thread_id)
+                if thread.status == "active":
+                    return thread
+                elif thread.status == "paused":
+                    return await self._client.thread_resume(thread_id)
+                # Archived or deleted — fall through to create new
+            except DotCraftError:
+                pass
+            del self._thread_map[identity_key]
+
+        # Query the server for existing threads
+        threads = await self._client.thread_list(
+            channel_name=self._channel_name,
+            user_id=user_id,
+            channel_context=channel_context,
+            workspace_path=workspace_path,
+        )
+        active = [t for t in threads if t.status in ("active", "paused")]
+        if active:
+            thread = active[0]
+            if thread.status == "paused":
+                thread = await self._client.thread_resume(thread.id)
+            self._thread_map[identity_key] = thread.id
+            return thread
+
+        # Create a new thread
+        thread = await self._client.thread_start(
+            channel_name=self._channel_name,
+            user_id=user_id,
+            channel_context=channel_context,
+            workspace_path=workspace_path,
+        )
+        self._thread_map[identity_key] = thread.id
+        logger.info("Created thread %s for identity %s", thread.id, identity_key)
+        return thread
+
+    async def new_thread(self, user_id: str, channel_context: str = "") -> Thread:
+        """
+        Archive the existing thread (if any) and start a fresh one.
+
+        Call this when the user issues a /new command.
+        """
+        identity_key = self._identity_key(user_id, channel_context)
+        old_thread_id = self._thread_map.pop(identity_key, None)
+        if old_thread_id:
+            try:
+                await self._client.thread_archive(old_thread_id)
+                logger.info("Archived thread %s for %s", old_thread_id, identity_key)
+            except DotCraftError as e:
+                logger.warning("Could not archive thread %s: %s", old_thread_id, e)
+
+        # Return the placeholder — next handle_message() call will create it
+        return None  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------
+    # Server-request handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_approval_request(self, request_id, params: dict) -> str:
+        """Route approval request to the subclass."""
+        try:
+            return await self.on_approval_request(params)
+        except Exception as e:
+            logger.error("on_approval_request raised: %s", e)
+            return "cancel"
+
+    async def _handle_deliver_request(self, request_id, params: dict) -> dict:
+        """Route ext/channel/deliver to the subclass."""
+        target = params.get("target", "")
+        content = params.get("content", "")
+        metadata = params.get("metadata") or {}
+        try:
+            ok = await self.on_deliver(target, content, metadata)
+            return {"delivered": ok}
+        except Exception as e:
+            logger.error("on_deliver raised: %s", e)
+            return {"delivered": False, "error": str(e)}
+
+    async def _handle_deliver_notification(self, params: dict) -> None:
+        """Handle ext/channel/deliver if sent as a notification (shouldn't happen per spec)."""
+        await self._handle_deliver_request(None, params)
+
+    async def _handle_heartbeat(self, request_id, params: dict) -> dict:
+        """Respond to ext/channel/heartbeat immediately."""
+        return {}

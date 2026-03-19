@@ -110,11 +110,10 @@ public sealed class GatewayHost : IDotCraftHost
         var sharedAgentRunner = BuildSharedAgentRunner();
 
         // --- Phase 3.5: Create external channel hosts (requires SessionService from Phase 3) ---
-        ExternalChannel.ExternalChannelManager? externalChannelManager = null;
         if (ExternalChannel.ExternalChannelManager.HasEnabledChannels(_config) && _sharedSessionService != null)
         {
             var nativeChannelNames = _channels.Select(ch => ch.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            externalChannelManager = new ExternalChannel.ExternalChannelManager(
+            var externalChannelManager = new ExternalChannel.ExternalChannelManager(
                 _config, _sharedSessionService, nativeChannelNames, _externalChannelRegistry);
 
             foreach (var extCh in externalChannelManager.Channels)
@@ -257,9 +256,14 @@ public sealed class GatewayHost : IDotCraftHost
         var channelServiceMap = _channels
             .Where(ch => ch.ApprovalService != null)
             .ToDictionary(ch => ch.Name, ch => ch.ApprovalService!);
-        var approvalService = new ChannelRoutingApprovalService(
+        var channelRouting = new ChannelRoutingApprovalService(
             channelServiceMap,
             fallback: new ConsoleApprovalService());
+        // Wrap with SessionScopedApprovalService so that per-turn wire protocol approvals
+        // (from ExternalChannelHost / AppServerEventDispatcher) can install a SessionApprovalService
+        // override via SessionService. Without this wrapper the override has no effect and all
+        // approvals fall through to ConsoleApprovalService.
+        var approvalService = new SessionScopedApprovalService(channelRouting);
 
         // Collect tool providers from modules
         var toolProviders = ToolProviderCollector.Collect(_moduleRegistry, _config);

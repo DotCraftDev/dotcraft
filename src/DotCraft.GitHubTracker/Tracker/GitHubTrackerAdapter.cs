@@ -49,9 +49,9 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DotCraft-GitHubTracker", "1.0"));
 
-        var token = ResolveToken(_config.ApiKey);
-        if (!string.IsNullOrEmpty(token))
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var apiKey = ResolveConfigToken(_config.ApiKey);
+        if (apiKey != null)
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
     }
 
     /// <summary>
@@ -586,17 +586,6 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         throw new HttpRequestException(message, null, response.StatusCode);
     }
 
-    private static string? ResolveToken(string? configured)
-    {
-        if (string.IsNullOrWhiteSpace(configured)) return null;
-        if (configured.StartsWith('$'))
-        {
-            var envName = configured[1..];
-            return Environment.GetEnvironmentVariable(envName);
-        }
-        return configured;
-    }
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -610,6 +599,18 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 
     private static bool WorkflowFileExists(string? path) =>
         !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+
+    /// <summary>
+    /// Returns the token value only if it is a resolved, non-empty string.
+    /// Values that still look like unexpanded env var placeholders (starting with '$')
+    /// are treated as absent so that no auth header is sent.
+    /// </summary>
+    private static string? ResolveConfigToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.StartsWith('$')) return null;
+        return value;
+    }
 
     public void Dispose() => _httpClient.Dispose();
 

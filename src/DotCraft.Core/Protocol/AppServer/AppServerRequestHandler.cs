@@ -13,38 +13,20 @@ namespace DotCraft.Protocol.AppServer;
 /// Each public Handle* method maps directly to one of the wire protocol methods
 /// defined in the Session Wire Protocol Specification.
 /// </summary>
-public sealed class AppServerRequestHandler
+public sealed class AppServerRequestHandler(
+    ISessionService sessionService,
+    AppServerConnection connection,
+    IAppServerTransport transport,
+    string serverVersion = "0.1.0",
+    SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
+    CronService? cronService = null,
+    HeartbeatService? heartbeatService = null)
 {
-    private readonly ISessionService _sessionService;
-    private readonly AppServerConnection _connection;
-    private readonly IAppServerTransport _transport;
-    private readonly string _serverVersion;
-    private readonly CronService? _cronService;
-    private readonly HeartbeatService? _heartbeatService;
-
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
     /// <c>approvalSupport = false</c>. Sourced from the workspace's default approval policy.
     /// </summary>
-    private readonly SessionApprovalDecision _defaultApprovalDecision;
-
-    public AppServerRequestHandler(
-        ISessionService sessionService,
-        AppServerConnection connection,
-        IAppServerTransport transport,
-        string serverVersion = "0.1.0",
-        SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
-        CronService? cronService = null,
-        HeartbeatService? heartbeatService = null)
-    {
-        _sessionService = sessionService;
-        _connection = connection;
-        _transport = transport;
-        _serverVersion = serverVersion;
-        _defaultApprovalDecision = defaultApprovalDecision;
-        _cronService = cronService;
-        _heartbeatService = heartbeatService;
-    }
+    private readonly SessionApprovalDecision _defaultApprovalDecision = defaultApprovalDecision;
 
     // -------------------------------------------------------------------------
     // Main dispatch
@@ -62,13 +44,13 @@ public sealed class AppServerRequestHandler
         var method = msg.Method ?? string.Empty;
 
         // initialize is the only method allowed before the handshake
-        if (method != AppServerMethods.Initialize && !_connection.IsInitialized)
+        if (method != AppServerMethods.Initialize && !connection.IsInitialized)
             throw AppServerErrors.NotInitialized();
 
         // After initialize response, block all requests until the client sends the
         // `initialized` notification (IsClientReady). This prevents premature operations
         // before the client has finished processing server capabilities.
-        if (method != AppServerMethods.Initialize && _connection.IsInitialized && !_connection.IsClientReady)
+        if (method != AppServerMethods.Initialize && connection.IsInitialized && !connection.IsClientReady)
             throw AppServerErrors.InvalidRequest("Server is awaiting the 'initialized' notification before handling requests.");
 
         try
@@ -97,10 +79,6 @@ public sealed class AppServerRequestHandler
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
-        catch (AppServerException)
-        {
-            throw;
-        }
         catch (KeyNotFoundException ex)
         {
             // Thread or turn not found in persistence or in-memory state
@@ -117,7 +95,7 @@ public sealed class AppServerRequestHandler
     /// </summary>
     public void HandleInitializedNotification()
     {
-        _connection.MarkClientReady();
+        connection.MarkClientReady();
     }
 
     // -------------------------------------------------------------------------
@@ -127,7 +105,7 @@ public sealed class AppServerRequestHandler
     private Task<object?> HandleInitializeAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<AppServerInitializeParams>(msg);
-        if (!_connection.TryMarkInitialized(p.ClientInfo, p.Capabilities))
+        if (!connection.TryMarkInitialized(p.ClientInfo, p.Capabilities))
             throw AppServerErrors.AlreadyInitialized();
 
         var result = new AppServerInitializeResult
@@ -135,7 +113,7 @@ public sealed class AppServerRequestHandler
             ServerInfo = new AppServerServerInfo
             {
                 Name = "dotcraft",
-                Version = _serverVersion,
+                Version = serverVersion,
                 ProtocolVersion = "1"
             },
             Capabilities = new AppServerServerCapabilities
@@ -145,8 +123,8 @@ public sealed class AppServerRequestHandler
                 ApprovalFlow = true,
                 ModeSwitch = true,
                 ConfigOverride = true,
-                CronManagement = _cronService != null,
-                HeartbeatManagement = _heartbeatService != null
+                CronManagement = cronService != null,
+                HeartbeatManagement = heartbeatService != null
             }
         };
 
@@ -165,7 +143,7 @@ public sealed class AppServerRequestHandler
             ? HistoryMode.Client
             : HistoryMode.Server;
 
-        var thread = await _sessionService.CreateThreadAsync(
+        var thread = await sessionService.CreateThreadAsync(
             p.Identity,
             p.Config,
             historyMode,
@@ -188,18 +166,18 @@ public sealed class AppServerRequestHandler
     private async Task<object?> HandleThreadResumeAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadResumeParams>(msg);
-        var thread = await _sessionService.ResumeThreadAsync(p.ThreadId, ct);
+        var thread = await sessionService.ResumeThreadAsync(p.ThreadId, ct);
 
         // Gap D: use the client's declared name from initialize instead of hardcoded "appserver".
-        var resumedBy = _connection.ClientInfo?.Name ?? "appserver";
+        var resumedBy = connection.ClientInfo?.Name ?? "appserver";
         var responseResult = new { thread = thread.ToWire() };
         var notifParams = new { thread = thread.ToWire(), resumedBy };
 
-        if (_connection.HasSubscription(p.ThreadId))
+        if (connection.HasSubscription(p.ThreadId))
         {
             // Gap C: connection has a passive subscription — the broker/dispatcher path will
             // emit thread/resumed. Send only the response to avoid duplicating the notification.
-            await _transport.WriteMessageAsync(BuildResponse(msg.Id, responseResult), ct);
+            await transport.WriteMessageAsync(BuildResponse(msg.Id, responseResult), ct);
             return null;
         }
 
@@ -211,7 +189,7 @@ public sealed class AppServerRequestHandler
     private async Task<object?> HandleThreadListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadListParams>(msg);
-        var threads = await _sessionService.FindThreadsAsync(
+        var threads = await sessionService.FindThreadsAsync(
             p.Identity,
             p.IncludeArchived ?? false,
             ct);
@@ -222,7 +200,7 @@ public sealed class AppServerRequestHandler
     private async Task<object?> HandleThreadReadAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadReadParams>(msg);
-        var thread = await _sessionService.GetThreadAsync(p.ThreadId, ct);
+        var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
         var includeTurns = p.IncludeTurns ?? false;
         return new { thread = thread.ToWire(includeTurns) };
     }
@@ -233,24 +211,24 @@ public sealed class AppServerRequestHandler
 
         // Start a background subscription that fans out thread events to this connection
         var subCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        if (!_connection.TryAddSubscription(p.ThreadId, subCts))
+        if (!connection.TryAddSubscription(p.ThreadId, subCts))
         {
             // Already subscribed — idempotent, just return success
             return Task.FromResult<object?>(new { });
         }
 
-        var events = _sessionService.SubscribeThreadAsync(
+        var events = sessionService.SubscribeThreadAsync(
             p.ThreadId,
             p.ReplayRecent ?? false,
             subCts.Token);
 
         var dispatcher = new AppServerEventDispatcher(
-            events, _connection, _transport, _sessionService,
+            events, connection, transport, sessionService,
             defaultApprovalDecision: _defaultApprovalDecision);
         _ = dispatcher.RunAsync(subCts.Token)
             .ContinueWith(t =>
             {
-                _connection.TryCancelSubscription(p.ThreadId);
+                connection.TryCancelSubscription(p.ThreadId);
                 if (t.IsFaulted)
                     _ = Console.Error.WriteLineAsync(
                         $"[AppServer] Subscription error for thread {p.ThreadId}: {t.Exception?.GetBaseException().Message}");
@@ -262,7 +240,7 @@ public sealed class AppServerRequestHandler
     private Task<object?> HandleThreadUnsubscribeAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadUnsubscribeParams>(msg);
-        _connection.TryCancelSubscription(p.ThreadId);
+        connection.TryCancelSubscription(p.ThreadId);
         return Task.FromResult<object?>(new { });
     }
 
@@ -271,19 +249,19 @@ public sealed class AppServerRequestHandler
         var p = GetParams<ThreadPauseParams>(msg);
 
         // Gap B: capture previousStatus before the operation so the notification is accurate.
-        var thread = await _sessionService.GetThreadAsync(p.ThreadId, ct);
+        var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
         var previousStatus = thread.Status;
 
-        await _sessionService.PauseThreadAsync(p.ThreadId, ct);
+        await sessionService.PauseThreadAsync(p.ThreadId, ct);
 
         // Idempotent: if the thread was already paused, no status change occurred.
         if (previousStatus == ThreadStatus.Paused)
             return new { };
 
-        if (_connection.HasSubscription(p.ThreadId))
+        if (connection.HasSubscription(p.ThreadId))
         {
             // Gap C: subscription exists — broker/dispatcher will emit thread/statusChanged.
-            await _transport.WriteMessageAsync(BuildResponse(msg.Id, new { }), ct);
+            await transport.WriteMessageAsync(BuildResponse(msg.Id, new { }), ct);
             return null;
         }
 
@@ -300,19 +278,19 @@ public sealed class AppServerRequestHandler
         var p = GetParams<ThreadArchiveParams>(msg);
 
         // Gap B: capture previousStatus before the operation so the notification is accurate.
-        var thread = await _sessionService.GetThreadAsync(p.ThreadId, ct);
+        var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
         var previousStatus = thread.Status;
 
-        await _sessionService.ArchiveThreadAsync(p.ThreadId, ct);
+        await sessionService.ArchiveThreadAsync(p.ThreadId, ct);
 
         // Idempotent: if the thread was already archived, no status change occurred.
         if (previousStatus == ThreadStatus.Archived)
             return new { };
 
-        if (_connection.HasSubscription(p.ThreadId))
+        if (connection.HasSubscription(p.ThreadId))
         {
             // Gap C: subscription exists — broker/dispatcher will emit thread/statusChanged.
-            await _transport.WriteMessageAsync(BuildResponse(msg.Id, new { }), ct);
+            await transport.WriteMessageAsync(BuildResponse(msg.Id, new { }), ct);
             return null;
         }
 
@@ -327,21 +305,21 @@ public sealed class AppServerRequestHandler
     private async Task<object?> HandleThreadDeleteAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadDeleteParams>(msg);
-        await _sessionService.DeleteThreadPermanentlyAsync(p.ThreadId, ct);
+        await sessionService.DeleteThreadPermanentlyAsync(p.ThreadId, ct);
         return new { };
     }
 
     private async Task<object?> HandleThreadModeSetAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadModeSetParams>(msg);
-        await _sessionService.SetThreadModeAsync(p.ThreadId, p.Mode, ct);
+        await sessionService.SetThreadModeAsync(p.ThreadId, p.Mode, ct);
         return new { };
     }
 
     private async Task<object?> HandleThreadConfigUpdateAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadConfigUpdateParams>(msg);
-        await _sessionService.UpdateThreadConfigurationAsync(p.ThreadId, p.Config, ct);
+        await sessionService.UpdateThreadConfigurationAsync(p.ThreadId, p.Config, ct);
         return new { };
     }
 
@@ -358,18 +336,25 @@ public sealed class AppServerRequestHandler
 
         var content = await ResolveInputPartsAsync(p.Input, ct);
 
-        // Set ChannelSessionScope for non-adapter clients (e.g. CLI) so that tools like
-        // CronTools can capture the delivery context (channel="cli") at job creation time.
-        // External channel adapters manage their own scope via SenderContext.
-        ChannelSessionInfo? channelScopeInfo = null;
-        if (!_connection.IsChannelAdapter)
-        {
-            channelScopeInfo = new ChannelSessionInfo
+        // Set ChannelSessionScope so that SessionService.ResolveApprovalSource returns the correct
+        // channel name for approval routing, and CronTools captures the right delivery target.
+        // For CLI clients: "cli" channel, adapter client name as userId.
+        // For external adapters: use the real platform user/chat IDs from SenderContext so that
+        // cron payloads store a usable delivery target (e.g. the Telegram chat_id) rather than
+        // the adapter's process-level client name.
+        var channelScopeInfo = connection.IsChannelAdapter
+            ? new ChannelSessionInfo
+            {
+                Channel = connection.ChannelAdapterName ?? "external",
+                UserId = p.Sender?.SenderId ?? connection.ClientInfo?.Name ?? "anonymous",
+                GroupId = p.Sender?.GroupId,
+                DefaultDeliveryTarget = p.Sender?.GroupId,
+            }
+            : new ChannelSessionInfo
             {
                 Channel = "cli",
-                UserId = _connection.ClientInfo?.Name ?? "anonymous"
+                UserId = connection.ClientInfo?.Name ?? "anonymous"
             };
-        }
 
         // Fix 5: Deserialize client-provided history for historyMode=client threads.
         ChatMessage[]? messages = null;
@@ -397,16 +382,16 @@ public sealed class AppServerRequestHandler
         {
             // Build and send the turn/start JSON-RPC response before the notification
             var responsePayload = new { turn = initialTurn };
-            await _transport.WriteMessageAsync(BuildResponse(msg.Id, responsePayload), ct);
+            await transport.WriteMessageAsync(BuildResponse(msg.Id, responsePayload), ct);
             // Signal that the response was sent successfully
             initialTurnTcs.TrySetResult(initialTurn);
         }
 
         using var channelScope = channelScopeInfo != null ? ChannelSessionScope.Set(channelScopeInfo) : null;
 
-        var events = _sessionService.SubmitInputAsync(p.ThreadId, content, p.Sender, messages, ct);
+        var events = sessionService.SubmitInputAsync(p.ThreadId, content, p.Sender, messages, ct);
         var dispatcher = new AppServerEventDispatcher(
-            events, _connection, _transport, _sessionService, OnTurnStarted,
+            events, connection, transport, sessionService, OnTurnStarted,
             defaultApprovalDecision: _defaultApprovalDecision);
 
         var dispatchTask = dispatcher.RunAsync(ct);
@@ -437,7 +422,7 @@ public sealed class AppServerRequestHandler
 
         // Issue E: validate thread and turn existence/status before cancelling.
         // GetThreadAsync throws KeyNotFoundException → mapped to -32010 by the outer catch.
-        var thread = await _sessionService.GetThreadAsync(p.ThreadId, ct);
+        var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
 
         var turn = thread.Turns.FirstOrDefault(t => t.Id == p.TurnId);
         if (turn == null)
@@ -446,7 +431,7 @@ public sealed class AppServerRequestHandler
         if (turn.Status != TurnStatus.Running && turn.Status != TurnStatus.WaitingApproval)
             throw AppServerErrors.TurnNotRunning(p.TurnId);
 
-        await _sessionService.CancelTurnAsync(p.ThreadId, p.TurnId, ct);
+        await sessionService.CancelTurnAsync(p.ThreadId, p.TurnId, ct);
         return new { };
     }
 
@@ -456,9 +441,9 @@ public sealed class AppServerRequestHandler
 
     private Task<object?> HandleCronListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        if (_cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronList);
+        if (cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronList);
         var p = GetParams<CronListParams>(msg);
-        var jobs = _cronService.ListJobs(includeDisabled: p.IncludeDisabled);
+        var jobs = cronService.ListJobs(includeDisabled: p.IncludeDisabled);
         return Task.FromResult<object?>(new CronListResult
         {
             Jobs = jobs.Select(MapCronJob).ToList()
@@ -467,22 +452,22 @@ public sealed class AppServerRequestHandler
 
     private Task<object?> HandleCronRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        if (_cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronRemove);
+        if (cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronRemove);
         var p = GetParams<CronRemoveParams>(msg);
         if (string.IsNullOrWhiteSpace(p.JobId))
             throw AppServerErrors.InvalidParams("'jobId' is required.");
-        var removed = _cronService.RemoveJob(p.JobId);
+        var removed = cronService.RemoveJob(p.JobId);
         if (!removed) throw AppServerErrors.CronJobNotFound(p.JobId);
         return Task.FromResult<object?>(new CronRemoveResult { Removed = true });
     }
 
     private Task<object?> HandleCronEnableAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        if (_cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronEnable);
+        if (cronService == null) throw AppServerErrors.MethodNotFound(AppServerMethods.CronEnable);
         var p = GetParams<CronEnableParams>(msg);
         if (string.IsNullOrWhiteSpace(p.JobId))
             throw AppServerErrors.InvalidParams("'jobId' is required.");
-        var job = _cronService.EnableJob(p.JobId, p.Enabled);
+        var job = cronService.EnableJob(p.JobId, p.Enabled);
         if (job == null) throw AppServerErrors.CronJobNotFound(p.JobId);
         return Task.FromResult<object?>(new CronEnableResult { Job = MapCronJob(job) });
     }
@@ -514,12 +499,12 @@ public sealed class AppServerRequestHandler
     private async Task<object?> HandleHeartbeatTriggerAsync(
         AppServerIncomingMessage msg, CancellationToken ct)
     {
-        if (_heartbeatService == null)
+        if (heartbeatService == null)
             throw AppServerErrors.MethodNotFound(AppServerMethods.HeartbeatTrigger);
 
         try
         {
-            var result = await _heartbeatService.TriggerNowAsync();
+            var result = await heartbeatService.TriggerNowAsync();
             return new HeartbeatTriggerResult { Result = result };
         }
         catch (Exception ex)
@@ -681,8 +666,8 @@ public sealed class AppServerRequestHandler
         object notificationParams,
         CancellationToken ct)
     {
-        await _transport.WriteMessageAsync(BuildResponse(requestId, responseResult), ct);
-        await _transport.WriteMessageAsync(new
+        await transport.WriteMessageAsync(BuildResponse(requestId, responseResult), ct);
+        await transport.WriteMessageAsync(new
         {
             jsonrpc = "2.0",
             method = notificationMethod,
