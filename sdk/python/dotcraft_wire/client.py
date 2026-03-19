@@ -483,10 +483,12 @@ class DotCraftClient:
         handlers = self._handlers.get(msg.method or "", [])
         params = msg.params or {}
         for handler in list(handlers):
-            try:
-                asyncio.create_task(handler(params))
-            except Exception as e:
-                logger.error("Error in notification handler for %s: %s", msg.method, e)
+            async def _safe_call(h=handler, p=params):
+                try:
+                    await h(p)
+                except Exception as e:
+                    logger.error("Error in notification handler for %s: %s", msg.method, e)
+            asyncio.create_task(_safe_call())
 
     async def _dispatch_server_request(self, msg: JsonRpcMessage) -> None:
         """Handle a server-initiated JSON-RPC request and send the response."""
