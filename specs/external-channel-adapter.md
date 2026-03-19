@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.1.0 |
-| **Status** | Draft |
-| **Date** | 2026-03-17 |
+| **Version** | 0.2.0 |
+| **Status** | Living |
+| **Date** | 2026-03-19 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) (Section 15) |
 
 Purpose: Define the architecture, protocol extensions, configuration model, and behavioral contract that allow social channel adapters written in any language to integrate with DotCraft as first-class channels, preserving per-platform capabilities such as the Approval flow.
@@ -417,8 +417,9 @@ This section defines the protocol-level obligations that any conforming external
 
 ### 10.3 Sender Context
 
-- For group chat scenarios, the adapter **must** populate `SenderContext` in `turn/start` with at minimum `senderId` and `senderName`. This enables correct attribution in the turn's `initiator` record and cross-channel audit logging.
+- The adapter **must** populate `SenderContext` in `turn/start` with at minimum `senderId` and `senderName`. This enables correct attribution in the turn's `initiator` record and cross-channel audit logging.
 - The adapter is responsible for permission checks before forwarding a message to DotCraft. DotCraft trusts the `SenderContext` presented by the adapter.
+- The `groupId` field **must** be set to the platform-specific delivery target for the current chat or group (e.g. the Telegram `chat_id`). The server uses this value as the default delivery target when a cron job is created during the turn: if the cron payload does not specify a `to` field, the server falls back to `SenderContext.groupId`. Adapters that support delivery (`deliverySupport: true`) must therefore ensure `groupId` contains a value that their own `ext/channel/deliver` handler can accept as `target`. If no meaningful group context exists, omit `groupId`; the server will fall back to `senderId` instead.
 
 ### 10.4 Server-to-Client Requests
 
@@ -517,6 +518,6 @@ This section describes the design intent of the reference Telegram adapter (`sdk
 The Telegram adapter demonstrates the following protocol obligations defined in §10:
 
 - **Thread management**: On each incoming message, `thread/list` is called to find the active thread for the chat's `SessionIdentity`. If none exists, `thread/start` creates one.
-- **SenderContext**: The Telegram user ID and display name are forwarded as `SenderContext` on every `turn/start`.
+- **SenderContext**: The Telegram user ID and display name are forwarded as `SenderContext` on every `turn/start`. The Telegram `chat_id` is also forwarded as `groupId`, which the server uses as the default delivery target for any cron jobs created during the session.
 - **Approval**: The adapter intercepts `item/approval/request` mid-stream, presents a platform-native prompt, and sends the JSON-RPC response before resuming event consumption.
 - **Delivery**: `ext/channel/deliver` is mapped to `bot.send_message()` targeting the stored chat ID for the given `target`.

@@ -337,13 +337,18 @@ public sealed class AppServerRequestHandler(
         var content = await ResolveInputPartsAsync(p.Input, ct);
 
         // Set ChannelSessionScope so that SessionService.ResolveApprovalSource returns the correct
-        // channel name for approval routing. For CLI clients this is "cli"; for external channel
-        // adapters this is the adapter's declared channel name (e.g. "telegram").
+        // channel name for approval routing, and CronTools captures the right delivery target.
+        // For CLI clients: "cli" channel, adapter client name as userId.
+        // For external adapters: use the real platform user/chat IDs from SenderContext so that
+        // cron payloads store a usable delivery target (e.g. the Telegram chat_id) rather than
+        // the adapter's process-level client name.
         var channelScopeInfo = connection.IsChannelAdapter
             ? new ChannelSessionInfo
             {
                 Channel = connection.ChannelAdapterName ?? "external",
-                UserId = connection.ClientInfo?.Name ?? "anonymous"
+                UserId = p.Sender?.SenderId ?? connection.ClientInfo?.Name ?? "anonymous",
+                GroupId = p.Sender?.GroupId,
+                DefaultDeliveryTarget = p.Sender?.GroupId,
             }
             : new ChannelSessionInfo
             {
