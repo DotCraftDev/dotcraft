@@ -9,8 +9,7 @@
       "TerminalStates": ["Done", "Closed", "Cancelled"],
       "GitHubStateLabelPrefix": "status:",
       "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
-      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"],
-      "PullRequestLabelFilter": "auto-review"
+      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"]
     },
     "Polling": {
       "IntervalMs": 60000

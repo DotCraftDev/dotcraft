@@ -45,12 +45,4 @@ public interface IWorkItemTracker
     /// Fetch the diff content for a pull request.
     /// </summary>
     Task<string> FetchPullRequestDiffAsync(string pullNumber, CancellationToken ct = default);
-
-    /// <summary>
-    /// Remove a label from an issue or pull request.
-    /// Silently succeeds if the label does not exist (404).
-    /// </summary>
-    /// <param name="issueOrPrNumber">Issue or PR number (numeric string).</param>
-    /// <param name="label">Label name to remove.</param>
-    Task RemoveLabelAsync(string issueOrPrNumber, string label, CancellationToken ct = default);
 }

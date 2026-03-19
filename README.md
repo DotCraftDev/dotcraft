@@ -106,6 +106,32 @@ For the full configuration reference, config layering details, or manual editing
 
 The same workspace can be reached from multiple surfaces. Sessions stay separate so conversations do not overwrite each other, but they share the same project context, tools, memory, and skills.
 
+```mermaid
+flowchart LR
+    Cli["CLI"]
+    AppSrv["AppServer"]
+    Ide["ACP / IDE"]
+    Bots["QQ / WeCom"]
+    Workflow["GitHub Workflow"]
+    Api["API / AG-UI"]
+
+    subgraph Workspace ["Workspace (.craft/)"]
+        Sessions["Sessions"]
+        Tools["Tools & Skills"]
+        Memory["Memory & Config"]
+    end
+
+    Dashboard["Dashboard"]
+
+    Cli --> AppSrv
+    AppSrv --> Workspace
+    Ide --> Workspace
+    Bots --> Workspace
+    Workflow --> Workspace
+    Api --> Workspace
+    Workspace --> Dashboard
+```
+
 | If you want to... | Start here |
 |---|---|
 | Work in a local terminal | [CLI](#local-cli) |
@@ -148,47 +174,6 @@ Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./do
 DotCraft can poll GitHub issues and pull requests, create isolated workspaces, dispatch coding or review agents, and coordinate handoff across runs. See the [GitHubTracker Guide](./docs/en/github_tracker_guide.md).
 
 ![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
-
-## 🧬 Design
-
-DotCraft treats the project directory as the unit of operation. When you start it, the current directory becomes the workspace, and its state lives under `.craft/`. Each workspace has its own sessions, memory, skills, commands, and configuration, while `~/.craft/` holds reusable global defaults.
-
-```mermaid
-flowchart LR
-    Cli["CLI"]
-    AppSrv["AppServer"]
-    Ide["ACP / IDE"]
-    Bots["QQ / WeCom"]
-    Workflow["GitHub Workflow"]
-    Api["API / AG-UI"]
-
-    subgraph Workspace ["Workspace (.craft/)"]
-        Sessions["Sessions"]
-        Tools["Tools & Skills"]
-        Memory["Memory & Config"]
-    end
-
-    Dashboard["Dashboard"]
-
-    Cli --> AppSrv
-    AppSrv --> Workspace
-    Ide --> Workspace
-    Bots --> Workspace
-    Workflow --> Workspace
-    Api --> Workspace
-    Workspace --> Dashboard
-```
-
-Multiple entry points connect to the same workspace. You can build context in one entry point and continue from another without maintaining separate islands of state. Under the hood, two interaction models coexist:
-
-| Experience | Model |
-|---|---|
-| CLI, ACP, QQ, WeCom, GitHub workflow automation | Server-managed persistent sessions |
-| API, AG-UI | Client-managed by design |
-
-This split is deliberate — some experiences benefit from durable sessions and structured events, while others are better kept lightweight.
-
-DotCraft includes a built-in Dashboard for viewing sessions, traces, and configuration state, so agent behavior stays inspectable when you need to debug or review what happened.
 
 ## 🛡️ Operations And Governance
 

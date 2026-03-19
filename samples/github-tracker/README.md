@@ -4,7 +4,7 @@
 
 This sample provides two ready-to-use workflow templates for the DotCraft `GitHubTracker` module:
 
-- [review-bot](./review-bot): A **native PR review bot** that automatically picks up open pull requests carrying the `auto-review` label, checks out the PR branch, analyzes the diff, and submits a structured `COMMENT` review — providing feedback only, without approving or blocking.
+- [review-bot](./review-bot): A **native PR review bot** that automatically picks up all open, non-draft pull requests, checks out the PR branch, analyzes the diff, and submits a structured `COMMENT` review — providing feedback only, without approving or blocking. Reviews are automatically repeated when new commits are pushed.
 - [collab-dev-bot](./collab-dev-bot): A **multi-stage collaborative development bot** that plans, implements, and opens a PR for a given issue, using labels to coordinate state across runs.
 
 ## How to Use a Sample
@@ -58,22 +58,21 @@ Replace these values in the copied `config.json`:
 |---|---|---|
 | `Tracker.Repository` | `"your-org/your-repo"` | Format: `owner/repo` |
 | `Tracker.ApiKey` | `"$GITHUB_TOKEN"` | Leave as-is to use the env var |
-| `Tracker.PullRequestLabelFilter` | `"auto-review"` | Only review PRs carrying this label. The orchestrator removes it automatically after each review; re-add to trigger another review. |
 | `Hooks.BeforeRun` | see file | Update the email/name to your bot identity |
 
 ### 4. Open a Pull Request
 
 #### review-bot
 
-The bot picks up any **open, non-draft** pull request that carries the `auto-review` label. After submitting its review, the orchestrator **automatically removes the `auto-review` label**, so the PR is not re-dispatched on the next poll.
+The bot picks up **all open, non-draft** pull requests in active review states. After submitting a review, the orchestrator records the HEAD SHA so the PR is not re-dispatched until new commits are pushed.
 
 **Trigger / exit mechanism**:
 
-1. A human adds the `auto-review` label to a PR.
+1. Open a non-draft pull request (no label needed).
 2. The bot is dispatched on the next poll, reviews the diff, and calls `submit_review` with `COMMENT`.
-3. The orchestrator removes the `auto-review` label automatically after the run completes.
-4. On the next poll, the PR no longer matches the label filter — claim is released, bot stops.
-5. To trigger a re-review (e.g. after pushing fixes), re-add the `auto-review` label.
+3. The orchestrator records the reviewed HEAD SHA and releases the claim.
+4. On the next poll, the PR is skipped because its SHA is unchanged.
+5. When the author pushes new commits, the SHA changes — the bot automatically runs again on the next poll.
 
 > The bot only submits `COMMENT` reviews — it never approves, requests changes, or merges. This avoids accidentally triggering auto-merge rules on the repository.
 
@@ -103,7 +102,7 @@ dotcraft
 **Purpose**: Automated native PR code review (feedback only, no approval or merge).
 
 **Workflow**:
-1. DotCraft polls the GitHub `/pulls` API for open, non-draft PRs carrying the `auto-review` label.
+1. DotCraft polls the GitHub `/pulls` API for all open, non-draft PRs in active review states.
 2. The PR's head branch is checked out in an isolated workspace.
 3. The PR diff is fetched and injected directly into the agent prompt.
 4. The agent reads the diff (and optionally inspects files in the workspace), then calls `submit_review` with `COMMENT`.
@@ -111,15 +110,15 @@ dotcraft
 
 **Lifecycle**:
 ```
-Human adds `auto-review` label to PR
-  → Bot dispatched on next poll
+PR opened (or new commits pushed)
+  → Bot dispatched on next poll (SHA differs from last reviewed)
   → Bot reviews diff, calls submit_review COMMENT
   → Review posted on PR
-  → Orchestrator auto-removes `auto-review` label
-  → Continuation retry fires (1s): PR no longer in candidates → claim released
+  → Orchestrator records reviewed SHA → claim released
+  → Next poll: SHA unchanged → PR skipped
 
 To trigger a re-review (e.g. after pushing fixes):
-  → Re-add `auto-review` label → bot runs again
+  → Push new commits → SHA changes → bot runs again automatically
 ```
 
 > **Why COMMENT only?** If the bot were to submit `APPROVE` and the repository has auto-merge enabled with branch protection requiring one approval, the bot's approval could inadvertently trigger a merge. Using `COMMENT` eliminates this risk.
@@ -176,7 +175,7 @@ Use a [Fine-grained Personal Access Token](https://docs.github.com/en/authentica
 | Metadata | Read-only | Required by GitHub, auto-granted |
 | Contents | Read-only | Clone the repository and check out the PR branch |
 | Pull requests | Read and Write | Read PR diff, list reviews, submit review |
-| Issues | Read and Write | Remove the `auto-review` label after each review |
+| Issues | Read-only | Read issue metadata (optional, if issue tracking is enabled) |
 
 ### collab-dev-bot
 
@@ -199,14 +198,14 @@ For the review-bot, `gh` CLI is optional — `submit_review` uses DotCraft's bui
 
 ### Bot keeps re-running after submitting a review
 
-The orchestrator automatically removes the `auto-review` label after a successful review run. If the bot is re-running unexpectedly, check the DotCraft logs for a warning like `"Failed to remove label 'auto-review'"`. This usually means the GitHub token is missing `Issues: Read and Write` permission (label removal uses the same API endpoint as issue label mutations).
+The orchestrator records the reviewed HEAD SHA after each successful run. If the bot re-runs on the same commit, check DotCraft logs to confirm `ReviewSubmitted=true` was set. If the run exited before calling `SubmitReview` (turns exhausted, timeout), no SHA is recorded and the bot will retry — this is intentional.
 
-The label is **not** removed on failure or timeout, so the bot will retry — this is intentional.
+Note: The reviewed SHA is held in memory only. A service restart causes all open PRs to be reviewed once on the first poll.
 
 ### PR is not being picked up
 
 - Confirm the PR is **open and not a draft**.
-- If `Tracker.PullRequestLabelFilter` is set, confirm the PR has that label.
+- Confirm the PR's review state is in `PullRequestActiveStates` (e.g. `"Pending Review"`).
 - Check that `PR_WORKFLOW.md` exists in the workspace root.
 
 ### `submit_review` reports a permission error

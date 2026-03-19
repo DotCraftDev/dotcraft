@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Version** | 0.2.0 |
-| **Status** | Living Spec |
+| **Status** | Living |
 | **Date** | 2026-03-18 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 

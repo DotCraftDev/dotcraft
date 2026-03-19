@@ -8,8 +8,14 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.GitHubTracker.Orchestrator;
 
 /// <summary>
-/// Core orchestration state machine per SPEC.md Sections 7-8.
-/// Owns the poll tick, in-memory state, and all dispatch/retry/reconciliation decisions.
+/// Core orchestration state machine implementing Symphony SPEC sections 7–8.
+/// Owns the poll tick, in-memory state, and all dispatch/retry/reconciliation decisions
+/// for both GitHub Issues and Pull Requests.
+/// <para>
+/// PR-specific extensions (SHA tracking, COMMENT-only reviews) are defined in the
+/// PR Lifecycle Spec and layered on top of the Symphony base without changing the
+/// shared reconciliation, retry, or workspace lifecycle.
+/// </para>
 /// Implements <see cref="IOrchestratorSnapshotProvider"/> so the dashboard can query state.
 /// </summary>
 public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorSnapshotProvider
@@ -50,6 +56,24 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
         _logger = logger;
         _issuesWorkflowPath = ResolveWorkflowPath(config.IssuesWorkflowPath, workspacePath);
         _pullRequestWorkflowPath = ResolveWorkflowPath(config.PullRequestWorkflowPath, workspacePath);
+
+        _state.PollIntervalMs = config.Polling.IntervalMs;
+        _state.MaxConcurrentAgents = config.Agent.MaxConcurrentAgents;
+    }
+
+    /// <summary>
+    /// Minimal constructor for unit tests that only exercise dispatch/reconciliation logic.
+    /// Does not start the poll loop; callers drive state directly via <see cref="State"/>.
+    /// </summary>
+    internal GitHubTrackerOrchestrator(IWorkItemTracker tracker, GitHubTrackerConfig config, ILogger<GitHubTrackerOrchestrator> logger)
+    {
+        _tracker = tracker;
+        _workflowLoader = null!;
+        _prWorkflowLoader = null!;
+        _workspaceManager = null!;
+        _agentRunnerFactory = null!;
+        _config = config;
+        _logger = logger;
 
         _state.PollIntervalMs = config.Polling.IntervalMs;
         _state.MaxConcurrentAgents = config.Agent.MaxConcurrentAgents;
@@ -267,112 +291,207 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
             running = [.. _state.Running.Values];
         }
 
-        if (running.Count == 0) return;
-
-        // Stall detection
-        foreach (var entry in running)
+        if (running.Count > 0)
         {
-            var stallTimeoutMs = GetEffectiveConfig(entry.WorkItem.Kind).Agent.StallTimeoutMs;
-            if (stallTimeoutMs <= 0)
-                continue;
-
-            var lastActivity = entry.LastEventTimestamp ?? entry.StartedAt;
-            var elapsed = (DateTimeOffset.UtcNow - lastActivity).TotalMilliseconds;
-
-            if (elapsed > stallTimeoutMs)
+            // Stall detection
+            foreach (var entry in running)
             {
-                _logger.LogWarning("Issue {Identifier} stalled (no activity for {Elapsed}ms), terminating",
-                    entry.Identifier, (int)elapsed);
-                TerminateRunning(entry.WorkItemId, cleanWorkspace: false);
-                ScheduleRetry(entry.WorkItemId, entry.Identifier, entry.WorkItem.Kind,
-                    (entry.RetryAttempt ?? 0) + 1, "stall timeout");
+                var stallTimeoutMs = GetEffectiveConfig(entry.WorkItem.Kind).Agent.StallTimeoutMs;
+                if (stallTimeoutMs <= 0)
+                    continue;
+
+                var lastActivity = entry.LastEventTimestamp ?? entry.StartedAt;
+                var elapsed = (DateTimeOffset.UtcNow - lastActivity).TotalMilliseconds;
+
+                if (elapsed > stallTimeoutMs)
+                {
+                    _logger.LogWarning("Issue {Identifier} stalled (no activity for {Elapsed}ms), terminating",
+                        entry.Identifier, (int)elapsed);
+                    TerminateRunning(entry.WorkItemId, cleanWorkspace: false);
+                    ScheduleRetry(entry.WorkItemId, entry.Identifier, entry.WorkItem.Kind,
+                        (entry.RetryAttempt ?? 0) + 1, "stall timeout");
+                }
+            }
+
+            // Tracker state refresh for running entries
+            lock (_stateLock) { running = [.. _state.Running.Values]; }
+
+            if (running.Count > 0)
+            {
+                var ids = running.Select(r => r.WorkItemId).ToList();
+
+                IReadOnlyList<WorkItemStateSnapshot> refreshed;
+                try
+                {
+                    refreshed = await _tracker.FetchWorkItemStatesByIdsAsync(ids, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "State refresh failed, keeping workers running");
+                    // Still fall through to ReviewedSha cleanup below.
+                    refreshed = [];
+                }
+
+                var stateMap = refreshed.ToDictionary(s => s.Id, s => s.State);
+                foreach (var entry in running)
+                {
+                    if (!stateMap.TryGetValue(entry.WorkItemId, out var currentState)) continue;
+
+                    var cfg = GetEffectiveConfig(entry.WorkItem.Kind);
+                    var terminalStates = GetTerminalStatesForKind(entry.WorkItem.Kind, cfg);
+                    var activeStates = GetActiveStatesForKind(entry.WorkItem.Kind, cfg);
+
+                    var isTerminal = terminalStates.Any(t =>
+                        string.Equals(t.Trim(), currentState.Trim(), StringComparison.OrdinalIgnoreCase));
+                    var isActive = activeStates.Any(a =>
+                        string.Equals(a.Trim(), currentState.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                    if (isTerminal)
+                    {
+                        _logger.LogInformation("{Identifier} reached terminal state {State}, stopping and cleaning",
+                            entry.Identifier, currentState);
+                        TerminateRunning(entry.WorkItemId, cleanWorkspace: true);
+                        // Remove ReviewedSha entry to prevent stale SHA accumulation for closed PRs.
+                        // See PR Lifecycle Spec section 8.4; Symphony SPEC section 8.5 (reconciliation).
+                        lock (_stateLock)
+                        {
+                            _state.Completed.Remove(entry.WorkItemId);
+                            _state.ReviewedSha.Remove(entry.WorkItemId);
+                        }
+                    }
+                    else if (!isActive)
+                    {
+                        _logger.LogInformation("{Identifier} is no longer active (state: {State}), stopping",
+                            entry.Identifier, currentState);
+                        TerminateRunning(entry.WorkItemId, cleanWorkspace: false);
+                    }
+                    else
+                    {
+                        lock (_stateLock)
+                        {
+                            if (_state.Running.TryGetValue(entry.WorkItemId, out var re))
+                            {
+                                re.WorkItem = new TrackedWorkItem
+                                {
+                                    Id = entry.WorkItem.Id,
+                                    Identifier = entry.WorkItem.Identifier,
+                                    Title = entry.WorkItem.Title,
+                                    Description = entry.WorkItem.Description,
+                                    Priority = entry.WorkItem.Priority,
+                                    State = currentState,
+                                    Kind = entry.WorkItem.Kind,
+                                    BranchName = entry.WorkItem.BranchName,
+                                    HeadBranch = entry.WorkItem.HeadBranch,
+                                    BaseBranch = entry.WorkItem.BaseBranch,
+                                    DiffUrl = entry.WorkItem.DiffUrl,
+                                    ReviewState = entry.WorkItem.ReviewState,
+                                    IsDraft = entry.WorkItem.IsDraft,
+                                    HeadSha = entry.WorkItem.HeadSha,
+                                    Url = entry.WorkItem.Url,
+                                    Labels = entry.WorkItem.Labels,
+                                    BlockedBy = entry.WorkItem.BlockedBy,
+                                    CreatedAt = entry.WorkItem.CreatedAt,
+                                    UpdatedAt = entry.WorkItem.UpdatedAt,
+                                };
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // Tracker state refresh
-        lock (_stateLock) { running = [.. _state.Running.Values]; }
-        if (running.Count == 0) return;
+        // Always clean up ReviewedSha entries for PRs that completed review and later
+        // reached a terminal state, regardless of whether any agents are currently running.
+        // See PR Lifecycle Spec section 3.2 and 7.4.
+        await CleanupTerminalReviewedShaAsync(ct);
+    }
 
-        var ids = running.Select(r => r.WorkItemId).ToList();
+    /// <summary>
+    /// Scans <see cref="OrchestratorState.ReviewedSha"/> for PRs that are no longer
+    /// running or claimed and have reached a terminal state on the tracker.
+    /// Removes stale entries so future polls treat re-opened PRs as new candidates.
+    /// Skips IDs currently in <c>Running</c> or <c>Claimed</c> to avoid races with
+    /// active agent sessions.
+    /// See PR Lifecycle Spec sections 3.2 and 7.4; Symphony SPEC section 8.5.
+    /// </summary>
+    internal async Task CleanupTerminalReviewedShaAsync(CancellationToken ct)
+    {
+        List<string> candidateIds;
+        lock (_stateLock)
+        {
+            candidateIds = _state.ReviewedSha.Keys
+                .Where(id => !_state.Running.ContainsKey(id) && !_state.Claimed.Contains(id))
+                .ToList();
+        }
 
-        IReadOnlyList<WorkItemStateSnapshot> refreshed;
+        if (candidateIds.Count == 0) return;
+
+        IReadOnlyList<WorkItemStateSnapshot> snapshots;
         try
         {
-            refreshed = await _tracker.FetchWorkItemStatesByIdsAsync(ids, ct);
+            snapshots = await _tracker.FetchWorkItemStatesByIdsAsync(candidateIds, ct);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "State refresh failed, keeping workers running");
+            _logger.LogDebug(ex, "ReviewedSha cleanup: state fetch failed, skipping this tick");
             return;
         }
 
-        var stateMap = refreshed.ToDictionary(s => s.Id, s => s.State);
-        foreach (var entry in running)
+        var cfg = GetEffectiveConfig(WorkItemKind.PullRequest);
+        var terminalStates = GetTerminalStatesForKind(WorkItemKind.PullRequest, cfg);
+
+        foreach (var snapshot in snapshots)
         {
-            if (!stateMap.TryGetValue(entry.WorkItemId, out var currentState)) continue;
-
-            var cfg = GetEffectiveConfig(entry.WorkItem.Kind);
-            var terminalStates = GetTerminalStatesForKind(entry.WorkItem.Kind, cfg);
-            var activeStates = GetActiveStatesForKind(entry.WorkItem.Kind, cfg);
-
             var isTerminal = terminalStates.Any(t =>
-                string.Equals(t.Trim(), currentState.Trim(), StringComparison.OrdinalIgnoreCase));
-            var isActive = activeStates.Any(a =>
-                string.Equals(a.Trim(), currentState.Trim(), StringComparison.OrdinalIgnoreCase));
+                string.Equals(t.Trim(), snapshot.State.Trim(), StringComparison.OrdinalIgnoreCase));
 
-            if (isTerminal)
+            if (!isTerminal) continue;
+
+            lock (_stateLock)
             {
-                _logger.LogInformation("{Identifier} reached terminal state {State}, stopping and cleaning",
-                    entry.Identifier, currentState);
-                TerminateRunning(entry.WorkItemId, cleanWorkspace: true);
-                lock (_stateLock) { _state.Completed.Remove(entry.WorkItemId); }
-            }
-            else if (!isActive)
-            {
-                _logger.LogInformation("{Identifier} is no longer active (state: {State}), stopping",
-                    entry.Identifier, currentState);
-                TerminateRunning(entry.WorkItemId, cleanWorkspace: false);
-            }
-            else
-            {
-                lock (_stateLock)
+                // Guard against a race where the ID was claimed/dispatched between the snapshot and now.
+                if (_state.Running.ContainsKey(snapshot.Id) || _state.Claimed.Contains(snapshot.Id))
+                    continue;
+
+                if (_state.ReviewedSha.Remove(snapshot.Id))
                 {
-                    if (_state.Running.TryGetValue(entry.WorkItemId, out var re))
-                    {
-                        re.WorkItem = new TrackedWorkItem
-                        {
-                            Id = entry.WorkItem.Id,
-                            Identifier = entry.WorkItem.Identifier,
-                            Title = entry.WorkItem.Title,
-                            Description = entry.WorkItem.Description,
-                            Priority = entry.WorkItem.Priority,
-                            State = currentState,
-                            Kind = entry.WorkItem.Kind,
-                            BranchName = entry.WorkItem.BranchName,
-                            HeadBranch = entry.WorkItem.HeadBranch,
-                            BaseBranch = entry.WorkItem.BaseBranch,
-                            DiffUrl = entry.WorkItem.DiffUrl,
-                            ReviewState = entry.WorkItem.ReviewState,
-                            IsDraft = entry.WorkItem.IsDraft,
-                            Url = entry.WorkItem.Url,
-                            Labels = entry.WorkItem.Labels,
-                            BlockedBy = entry.WorkItem.BlockedBy,
-                            CreatedAt = entry.WorkItem.CreatedAt,
-                            UpdatedAt = entry.WorkItem.UpdatedAt,
-                        };
-                    }
+                    _state.Completed.Remove(snapshot.Id);
+                    _logger.LogInformation(
+                        "PR {Id} reached terminal state {State} after review, removed ReviewedSha entry",
+                        snapshot.Id, snapshot.State);
                 }
             }
         }
     }
 
-    private bool ShouldDispatch(TrackedWorkItem workItem, GitHubTrackerConfig config)
+    /// <summary>
+    /// Determines whether a work item should be dispatched for a new agent run.
+    /// For pull requests, applies SHA-based re-review detection on top of the
+    /// standard claimed/running checks from Symphony SPEC section 8.2.
+    /// See PR Lifecycle Spec section 6.1.
+    /// </summary>
+    internal bool ShouldDispatch(TrackedWorkItem workItem, GitHubTrackerConfig config)
     {
         lock (_stateLock)
         {
+            // Symphony SPEC section 8.2: claimed and running checks are required before dispatch.
             if (_state.Running.ContainsKey(workItem.Id)) return false;
             if (_state.Claimed.Contains(workItem.Id)) return false;
 
+            // PR SHA tracking: skip re-dispatch if already reviewed at this SHA.
+            // When the head SHA changes (new push), remove the stale Completed entry so
+            // the PR re-enters the dispatch pipeline cleanly.
+            // See PR Lifecycle Spec section 6.1.
+            if (workItem.Kind == WorkItemKind.PullRequest)
+            {
+                if (_state.ReviewedSha.TryGetValue(workItem.Id, out var reviewedSha)
+                    && reviewedSha == workItem.HeadSha)
+                    return false;
+
+                _state.Completed.Remove(workItem.Id);
+            }
+
+            // Symphony SPEC section 8.2 blocker rule: Todo issues blocked by non-terminal work are ineligible.
             if (string.Equals(workItem.State.Trim(), "todo", StringComparison.OrdinalIgnoreCase))
             {
                 var terminalStates = config.Tracker.TerminalStates
@@ -388,6 +507,12 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
             return true;
         }
     }
+
+    /// <summary>Exposes in-memory orchestrator state for testing.</summary>
+    internal OrchestratorState State => _state;
+
+    /// <summary>Exposes the state lock for testing.</summary>
+    internal Lock StateLock => _stateLock;
 
     private bool HasAvailableSlots(TrackedWorkItem workItem)
     {
@@ -502,47 +627,29 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                     "Work item {Identifier} run complete (result: {Result}, turns: {Turns}, tokens: {Total}), scheduling continuation check",
                     workItem.Identifier, outcome?.Result, outcome?.TurnsCompleted, outcome?.TotalTokens);
 
-                var runConfig = GetEffectiveConfig(workItem.Kind);
                 var skipContinuation = workItem.Kind == WorkItemKind.PullRequest
                     && outcome?.ReviewSubmitted == true;
 
                 if (skipContinuation)
                 {
-                    // Review was submitted: remove the label, then release Claimed.
-                    if (!string.IsNullOrEmpty(runConfig.Tracker.PullRequestLabelFilter))
+                    // Review submitted: record the reviewed SHA so the PR is not re-dispatched
+                    // until a new commit is pushed. Release Claimed so the slot is freed.
+                    // See PR Lifecycle Spec section 8.1; Symphony SPEC section 7.3 (worker exit normal).
+                    lock (_stateLock)
                     {
-                        var labelRemoved = false;
-                        for (var i = 0; i < 3 && !labelRemoved; i++)
-                        {
-                            try
-                            {
-                                if (i > 0) await Task.Delay(1000 * i);
-                                await _tracker.RemoveLabelAsync(workItemId, runConfig.Tracker.PullRequestLabelFilter);
-                                labelRemoved = true;
-                                _logger.LogInformation(
-                                    "Removed label '{Label}' from PR {Identifier} after review",
-                                    runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex,
-                                    "Attempt {Attempt} to remove label '{Label}' from PR {Identifier} failed",
-                                    i + 1, runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
-                            }
-                        }
-
-                        if (!labelRemoved)
-                            _logger.LogError(
-                                "All attempts to remove label '{Label}' from PR {Identifier} exhausted; PR may be re-dispatched",
-                                runConfig.Tracker.PullRequestLabelFilter, workItem.Identifier);
+                        if (workItem.HeadSha != null)
+                            _state.ReviewedSha[workItemId] = workItem.HeadSha;
+                        else
+                            _logger.LogWarning(
+                                "PR {Identifier} has null HeadSha after review; cannot record reviewed SHA, PR may be re-dispatched on the next poll",
+                                workItem.Identifier);
+                        _state.Claimed.Remove(workItemId);
                     }
-
-                    lock (_stateLock) { _state.Claimed.Remove(workItemId); }
                 }
                 else
                 {
                     // Review not yet submitted (turns exhausted, state changed, or transient error):
-                    // keep the label and schedule a continuation retry.
+                    // schedule a continuation retry per Symphony SPEC section 8.4.
                     ScheduleRetry(workItemId, workItem.Identifier, workItem.Kind, 1, null);
                 }
                 break;

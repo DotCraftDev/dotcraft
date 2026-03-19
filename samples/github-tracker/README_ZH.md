@@ -4,7 +4,7 @@
 
 本示例为 DotCraft `GitHubTracker` 模块提供两个可直接使用的工作流模板：
 
-- [review-bot](./review-bot)：**原生 PR Review Bot**，自动拉取带有 `auto-review` 标签的 Open PR，检出 PR 分支，分析 diff，并通过 GitHub Reviews API 提交 `COMMENT` 评审意见——仅提供反馈，不会 approve 或 block。
+- [review-bot](./review-bot)：**原生 PR Review Bot**，自动拉取所有 open 非 draft PR，检出 PR 分支，分析 diff，并通过 GitHub Reviews API 提交 `COMMENT` 评审意见——仅提供反馈，不会 approve 或 block。推送新提交后自动触发重新审查。
 - [collab-dev-bot](./collab-dev-bot)：**多阶段协作开发 Bot**，对指定 Issue 进行规划、实现并提交 PR，通过 Label 在多次运行间协调状态。
 
 ## 使用方式
@@ -58,22 +58,21 @@ $env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxxxxxx"
 |---|---|---|
 | `Tracker.Repository` | `"your-org/your-repo"` | 格式：`owner/repo` |
 | `Tracker.ApiKey` | `"$GITHUB_TOKEN"` | 保持此值以从环境变量读取 |
-| `Tracker.PullRequestLabelFilter` | `"auto-review"` | 仅 Review 带此标签的 PR。Review 完成后编排器会自动摘掉标签；重新添加即可触发再次审查。 |
 | `Hooks.BeforeRun` | 见文件 | 修改邮箱/用户名为你的 Bot 身份 |
 
 ### 第四步：开一个 PR
 
 #### review-bot
 
-Bot 会拉取配置仓库中所有 **open、非 draft** 且带有 `auto-review` 标签的 PR。提交评审后，编排器会**自动摘掉 `auto-review` 标签**，下次轮询时 PR 不再进入候选列表。
+Bot 会拉取配置仓库中所有 **open、非 draft** 且处于活跃状态的 PR。提交评审后，编排器记录当前 HEAD SHA，下次轮询时若 SHA 未变，PR 不再被重复派发。
 
 **触发 / 退出机制**：
 
-1. 人工为 PR 添加 `auto-review` 标签。
-2. 下次轮询时 Bot 被派发，审查 diff，调用 `submit_review` 提交 `COMMENT`。
-3. 编排器在运行结束后自动摘掉 `auto-review` 标签。
-4. 续派（1s 后）触发，PR 已不在候选列表中，Claim 释放，Bot 停止。
-5. 如需重新审查（如开发者推送修复后），重新添加 `auto-review` 标签即可。
+1. 开一个非 draft 的 PR（无需任何标签）。
+2. 下次轮询时 Bot 被派发，审查 diff，调用 `SubmitReview` 提交 `COMMENT`。
+3. 编排器记录已审查的 HEAD SHA，释放 Claim。
+4. 下次轮询：SHA 未变 → 跳过。
+5. 开发者推送新提交 → SHA 变化 → Bot 在下次轮询时自动再次运行。
 
 > Bot 只提交 `COMMENT` 类型的评审——不会 approve、request changes 或 merge。这避免了意外触发仓库的自动合并规则。
 
@@ -103,7 +102,7 @@ dotcraft
 **用途**：原生自动化 PR 代码审查（仅提供反馈，不会 approve 或 merge）。
 
 **工作流程**：
-1. DotCraft 轮询 GitHub `/pulls` API，获取所有 open、非 draft 且带有 `auto-review` 标签的 PR。
+1. DotCraft 轮询 GitHub `/pulls` API，获取所有 open、非 draft 且处于活跃状态的 PR。
 2. PR 的 head 分支在隔离工作区中被检出。
 3. PR diff 被自动拉取并注入到 Agent Prompt 中。
 4. Agent 读取 diff（并可通过文件工具检查工作区中的完整文件），然后调用 `submit_review`，传入 `COMMENT`。
@@ -111,15 +110,15 @@ dotcraft
 
 **生命周期**：
 ```
-人工为 PR 添加 `auto-review` 标签
-  → 下次轮询时 Bot 被派发
-  → Bot 审查 diff，调用 submit_review COMMENT
+PR 创建（或推送新提交）
+  → 下次轮询：SHA 与上次记录不同 → Bot 被派发
+  → Bot 审查 diff，调用 SubmitReview COMMENT
   → 评审意见发布到 PR
-  → 编排器自动摘掉 `auto-review` 标签
-  → 续派触发（1s）：PR 已不在候选列表 → Claim 释放
+  → 编排器记录已审查的 HEAD SHA → Claim 释放
+  → 下次轮询：SHA 未变 → 跳过
 
-如需重新审查（如开发者推送修复后）：
-  → 重新添加 `auto-review` 标签 → Bot 再次运行
+如需重新审查：
+  → 推送新提交 → SHA 变化 → Bot 自动再次运行
 ```
 
 > **为什么只用 COMMENT？** 如果 Bot 提交 `APPROVE`，而仓库开启了"需要一个 Approval 后自动合并"的分支保护规则，Bot 的 approve 可能意外触发合并。使用 `COMMENT` 从根本上消除了这一风险。
@@ -176,7 +175,7 @@ status:in-progress  →  status:blocked  ← 非活跃，Bot 停止重试
 | Metadata | Read-only | GitHub 必选权限，自动授予 |
 | Contents | Read-only | 克隆仓库并检出 PR 分支 |
 | Pull requests | Read and Write | 读取 PR diff、查询评审、提交评审 |
-| Issues | Read and Write | Review 完成后自动摘掉 `auto-review` 标签 |
+| Issues | Read-only | 读取 Issue 元数据（可选，如启用了 Issue 跟踪）|
 
 ### collab-dev-bot
 
@@ -199,14 +198,14 @@ status:in-progress  →  status:blocked  ← 非活跃，Bot 停止重试
 
 ### Bot 提交 Review 后仍在反复运行
 
-编排器在每次 Review 成功完成后会自动摘掉 `auto-review` 标签。如果 Bot 仍在反复运行，请检查 DotCraft 日志中是否有类似 `"Failed to remove label 'auto-review'"` 的警告。通常原因是 GitHub Token 缺少 `Issues: Read and Write` 权限（标签摘除使用与 Issue 标签相同的 API 端点）。
+编排器在每次 Review 成功完成后会记录已审查的 HEAD SHA。如果 Bot 在同一提交上反复运行，请确认日志中 `ReviewSubmitted=true`。若 Bot 在调用 `SubmitReview` 之前因 turns 耗尽或超时退出，则不会记录 SHA，下次轮询会重试——这是预期行为。
 
-注意：Bot 在失败或超时时**不会**摘除标签，这是有意为之——保留标签使 Bot 在下次轮询时重试。
+注意：SHA 记录仅在内存中保存，服务重启后所有 open PR 会在首次轮询时重新审查一次。
 
 ### PR 没有被轮询到
 
 - 确认 PR 是 **open 且非 draft** 状态。
-- 如果设置了 `Tracker.PullRequestLabelFilter`，确认 PR 上有对应 Label。
+- 确认 PR 的评审状态处于 `PullRequestActiveStates` 中（如 `"Pending Review"`）。
 - 确认工作区根目录下存在 `PR_WORKFLOW.md` 文件。
 
 ### `submit_review` 调用报权限错误

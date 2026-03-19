@@ -112,7 +112,7 @@ public sealed class ExternalChannelManager
 
     /// <summary>
     /// Returns true if any external channels are configured and enabled.
-    /// Used by <see cref="GatewayModule"/> to include external channels in the enabled check.
+    /// Used by <see cref="Gateway.GatewayModule"/> to include external channels in the enabled check.
     /// </summary>
     public static bool HasEnabledChannels(AppConfig config)
     {
