@@ -1162,9 +1162,13 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
             );
         }
 
-        // Only show the terminal cursor when the input editor is focused.
+        // Only show the terminal cursor when the input editor is focused and idle.
+        // During a running turn the 60fps redraws cause the cursor to visibly sweep
+        // left-to-right across the screen before being repositioned; hiding it
+        // eliminates that artifact without any loss of usability (user isn't typing).
         if state.focus == crate::app::state::FocusTarget::InputEditor
             && state.active_overlay.is_none()
+            && state.turn_status == TurnStatus::Idle
         {
             let (row, col) = ui::input_editor::offset_to_2d(&state.input_text, state.input_cursor);
             // Gutter is 2 cols wide. No separator offset (removed).
