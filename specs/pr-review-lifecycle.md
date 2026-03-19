@@ -74,8 +74,11 @@ The orchestrator's in-memory state maintains a `ReviewedSha` dictionary that map
 | Event | Action on ReviewedSha |
 |-------|-----------------------|
 | Review submitted successfully (`ReviewSubmitted == true`) | Record `ReviewedSha[prId] = headSha` |
-| PR reaches a terminal state (Merged, Closed, Approved) | Remove `ReviewedSha[prId]` |
+| Running PR reaches a terminal state (detected via `ReconcileAsync` running-entry loop) | Remove `ReviewedSha[prId]` |
+| Completed PR later reaches a terminal state (detected via `CleanupTerminalReviewedShaAsync` on each reconcile tick) | Remove `ReviewedSha[prId]` |
 | Orchestrator restart | Dictionary is empty (in-memory only); all open PRs are reviewed once on the first poll tick |
+
+Terminal-state cleanup runs on every reconcile tick regardless of whether any agents are currently running. IDs in `Running` or `Claimed` are excluded from the cleanup pass to avoid races with active agent sessions. Missing snapshots (PR not found by the tracker) are treated conservatively: the entry is kept.
 
 The in-memory approach is intentional. The cost of an occasional redundant review after restart is acceptable, and it avoids persistent state management complexity. This is consistent with the existing `Claimed`, `Running`, and `Completed` sets, which are also in-memory only.
 
@@ -195,7 +198,13 @@ Unchanged per Symphony SPEC §7.3: failed runs schedule a retry; cancelled runs 
 
 ### 7.4 Terminal State Cleanup
 
-When `ReconcileAsync` detects that a PR has reached a terminal state (Merged, Closed, Approved), the existing cleanup (terminate running agent, clean workspace) is extended to also remove the PR's entry from `ReviewedSha`. This prevents stale SHA entries from accumulating for closed PRs.
+On every reconcile tick two cleanup paths run:
+
+1. **Running-entry path** — when `ReconcileAsync` detects that a currently running PR has reached a terminal state, it terminates the agent, cleans the workspace, and removes the `ReviewedSha` entry.
+
+2. **Completed-PR path** — a dedicated pass (`CleanupTerminalReviewedShaAsync`) scans all `ReviewedSha` entries whose IDs are not in `Running` or `Claimed`, batch-fetches their current states, and removes entries for any that are terminal. This handles PRs that completed review earlier and merged or were closed while no agent was running.
+
+Both paths prevent stale SHA entries from accumulating for PRs that are no longer active.
 
 ---
 

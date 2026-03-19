@@ -15,12 +15,16 @@ public class FakeWorkItemTracker : IWorkItemTracker
 
     public List<(string PullNumber, string Body, string Event)> SubmittedReviews { get; } = [];
 
+    /// <summary>Optional callback invoked at the start of FetchWorkItemStatesByIdsAsync for observation in tests.</summary>
+    public Action<IReadOnlyList<string>>? OnFetchWorkItemStatesByIds { get; set; }
+
     public Task<IReadOnlyList<TrackedWorkItem>> FetchCandidateWorkItemsAsync(CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<TrackedWorkItem>>(Candidates);
 
-    public Task<IReadOnlyList<WorkItemStateSnapshot>> FetchWorkItemStatesByIdsAsync(
+    public virtual Task<IReadOnlyList<WorkItemStateSnapshot>> FetchWorkItemStatesByIdsAsync(
         IReadOnlyList<string> workItemIds, CancellationToken ct = default)
     {
+        OnFetchWorkItemStatesByIds?.Invoke(workItemIds);
         var result = workItemIds
             .Where(id => StateSnapshots.ContainsKey(id))
             .Select(id => new WorkItemStateSnapshot { Id = id, State = StateSnapshots[id] })
