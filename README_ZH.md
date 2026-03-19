@@ -9,13 +9,11 @@
 
 **Craft around your project.**
 
-一款 Agent Harness，可将您的目录打造为持久、可观察的智能工作区。
+一款 Agent Harness，围绕你的项目，打造一个持久的 AI 工作空间。
 
-无论您使用命令行界面 (CLI)、编辑器、聊天机器人还是 API，它都能满足您的需求。
+无论您使用命令行界面 (CLI)、编辑器（IDE）、聊天机器人还是 API，它都能满足您的需求。
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
-
-https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 
 </div>
 

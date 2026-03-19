@@ -9,13 +9,11 @@
 
 **Craft around your project.**
 
-An Agent Harness that turns your directory into a persistent, inspectable workspace.
+An Agent Harness crafting a persistent AI workspace around your project.
 
 From CLI, editors, chatbots, APIs — everywhere you work.
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
-
-https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 
 </div>
 
