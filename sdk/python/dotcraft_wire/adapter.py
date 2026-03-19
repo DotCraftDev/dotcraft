@@ -265,7 +265,7 @@ class ChannelAdapter(ABC):
                     workspace_path=workspace_path,
                 )
                 return
-            if e.code == -32011:  # ERR_THREAD_NOT_ACTIVE
+            if e.code == ERR_THREAD_NOT_ACTIVE:
                 # Thread was paused or archived; resume it
                 logger.info("Thread %s not active, resuming", thread.id)
                 await self._client.thread_resume(thread.id)
