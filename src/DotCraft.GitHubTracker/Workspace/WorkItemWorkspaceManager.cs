@@ -211,7 +211,7 @@ public sealed partial class WorkItemWorkspaceManager(GitHubTrackerConfig config,
     private static async Task CheckoutPullRequestBranchAsync(
         string workspacePath, string headBranch, GitHubTrackerTrackerConfig trackerConfig, CancellationToken ct)
     {
-        var token = ResolveToken(trackerConfig.ApiKey);
+        var token = trackerConfig.ApiKey;
         await RunGitAsync(workspacePath, ["fetch", "origin", headBranch], token, ct);
         await RunGitAsync(workspacePath, ["checkout", "-B", headBranch, $"origin/{headBranch}"], token, ct);
     }
@@ -219,7 +219,7 @@ public sealed partial class WorkItemWorkspaceManager(GitHubTrackerConfig config,
     private static async Task CloneRepositoryAsync(string workspacePath, GitHubTrackerTrackerConfig trackerConfig, CancellationToken ct)
     {
         var repository = trackerConfig.Repository!;
-        var token = ResolveToken(trackerConfig.ApiKey);
+        var token = trackerConfig.ApiKey;
 
         // Build authenticated clone URL using the standard GitHub PAT format:
         // https://x-access-token:{token}@github.com/{owner}/{repo}
@@ -302,17 +302,6 @@ public sealed partial class WorkItemWorkspaceManager(GitHubTrackerConfig config,
             throw new InvalidOperationException(
                 $"git {args[0]} exited with code {process.ExitCode}: {safeError[..Math.Min(safeError.Length, 500)]}");
         }
-    }
-
-    private static string? ResolveToken(string? configured)
-    {
-        if (string.IsNullOrWhiteSpace(configured)) return null;
-        if (configured.StartsWith('$'))
-        {
-            var envName = configured[1..];
-            return Environment.GetEnvironmentVariable(envName);
-        }
-        return configured;
     }
 
     private static string ResolveWorkspaceRoot(string? configured)

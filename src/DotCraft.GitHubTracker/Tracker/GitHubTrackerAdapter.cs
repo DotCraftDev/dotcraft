@@ -49,9 +49,8 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DotCraft-GitHubTracker", "1.0"));
 
-        var token = ResolveToken(_config.ApiKey);
-        if (!string.IsNullOrEmpty(token))
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (!string.IsNullOrEmpty(_config.ApiKey))
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
     }
 
     /// <summary>
@@ -584,17 +583,6 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 
         _logger.LogError("{Message}", message);
         throw new HttpRequestException(message, null, response.StatusCode);
-    }
-
-    private static string? ResolveToken(string? configured)
-    {
-        if (string.IsNullOrWhiteSpace(configured)) return null;
-        if (configured.StartsWith('$'))
-        {
-            var envName = configured[1..];
-            return Environment.GetEnvironmentVariable(envName);
-        }
-        return configured;
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
