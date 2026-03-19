@@ -35,6 +35,7 @@ https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 
 - 🛠️ File, Shell, Web, and SubAgent tools for real workflows
 - 🔗 MCP, ACP, AG-UI, and OpenAI-compatible API support
+- 🌐 External Channel Adapter support for custom integrations in Python or any JSON-RPC capable language
 - 🖥️ Native editor integration for Unity, JetBrains IDEs, and Obsidian
 - 👥 GitHub-driven issue and PR orchestration via GitHubTracker
 - 🧩 Skills, Hooks, slash commands, and workspace customization
@@ -104,14 +105,17 @@ For the full configuration reference, config layering details, or manual editing
 
 ## 🔌 Entry Points
 
-The same workspace can be reached from multiple surfaces. Sessions stay separate so conversations do not overwrite each other, but they share the same project context, tools, memory, and skills.
+DotCraft is not just a shared workspace behind multiple surfaces. It keeps CLI, IDEs, native bots, and external adapters connected to the same session core while allowing each surface to preserve its own interaction model.
+
+Traditional gateway-style channel architectures often flatten platform events into a common message bus for easier routing, but that also weakens platform-native interaction patterns. DotCraft keeps external channels as full bidirectional Wire Protocol clients, so approvals, confirmations, callbacks, and other HITL interactions can remain native to Telegram, QQ, WeCom, and other platforms.
 
 ```mermaid
 flowchart LR
     Cli["CLI"]
     AppSrv["AppServer"]
     Ide["ACP / IDE"]
-    Bots["QQ / WeCom"]
+    Bots["QQ / WeCom / ..."]
+    ExtCh["External Channels (Telegram, ...)"]
     Workflow["GitHub Workflow"]
     Api["API / AG-UI"]
 
@@ -127,6 +131,7 @@ flowchart LR
     AppSrv --> Workspace
     Ide --> Workspace
     Bots --> Workspace
+    ExtCh -->|"SDK / JSON-RPC"| AppSrv
     Workflow --> Workspace
     Api --> Workspace
     Workspace --> Dashboard
@@ -139,6 +144,7 @@ flowchart LR
 | Use DotCraft in an editor or IDE | [Editors and ACP](#editors-and-acp) |
 | Expose DotCraft as a service | [API / AG-UI](#api--ag-ui) |
 | Connect a chat bot | [QQ / WeCom](#qq--wecom) |
+| Build a custom channel adapter | [External Channels](#external-channels) |
 | Automate GitHub issues and PRs | [GitHub Workflow](#github-workflow-automation) |
 
 ### Local CLI
@@ -168,6 +174,14 @@ Expose DotCraft as a service or connect it to frontend experiences. See the [API
 Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
 
 ![qqbot](https://github.com/DotCraftDev/resources/raw/master/dotcraft/qqbot.gif)
+
+### External Channels
+
+DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
+
+Adapters can run as subprocesses over stdio or connect independently over WebSocket, and they can be implemented in any language that speaks JSON-RPC. The Python SDK includes both a low-level `DotCraftClient` and a high-level `ChannelAdapter` base class to simplify thread management, streaming events, delivery requests, and approval flows. In this model, the adapter is a full Wire Protocol client: DotCraft can issue approval requests back to the adapter, and the adapter can render native approval UX for its platform instead of collapsing everything into a generic gateway surface.
+
+The repository now includes a reference Telegram adapter that demonstrates long polling, inline-keyboard approvals, and full end-to-end integration with DotCraft sessions. See the [Python SDK](./sdk/python/README.md) and the [External Channel Adapter Spec](./specs/external-channel-adapter.md).
 
 ### GitHub Workflow Automation
 
@@ -223,6 +237,8 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 - [QQ Bot Guide](./docs/en/qq_bot_guide.md): NapCat, permissions, and approvals
 - [WeCom Guide](./docs/en/wecom_guide.md): WeCom push notifications and bot mode
 - [ACP Mode Guide](./docs/en/acp_guide.md): editor/IDE integration (JetBrains, Obsidian, and more)
+- [External Channel Adapter Spec](./specs/external-channel-adapter.md): wire protocol contract for out-of-process channel adapters
+- [Python SDK](./sdk/python/README.md): build external adapters with `dotcraft-wire` and the Telegram reference example
 
 **Editor integrations and extension points**
 
