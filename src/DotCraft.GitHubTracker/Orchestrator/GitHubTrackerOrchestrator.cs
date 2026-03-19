@@ -639,6 +639,10 @@ public sealed class GitHubTrackerOrchestrator : IAsyncDisposable, IOrchestratorS
                     {
                         if (workItem.HeadSha != null)
                             _state.ReviewedSha[workItemId] = workItem.HeadSha;
+                        else
+                            _logger.LogWarning(
+                                "PR {Identifier} has null HeadSha after review; cannot record reviewed SHA, PR may be re-dispatched on the next poll",
+                                workItem.Identifier);
                         _state.Claimed.Remove(workItemId);
                     }
                 }
