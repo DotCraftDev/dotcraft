@@ -68,12 +68,39 @@ cd ../..
 
 echo.
 echo =====================================
+echo  Building TUI (dotcraft-tui)...
+echo =====================================
+echo.
+
+cd tui
+call cargo build --release
+if %ERRORLEVEL% neq 0 (
+    echo TUI build failed with exit code %ERRORLEVEL%.
+    cd ..
+    goto :failure
+)
+REM On Windows host the binary is dotcraft-tui.exe; copy to build\linux for packaging
+if exist "target\release\dotcraft-tui.exe" (
+    copy /Y "target\release\dotcraft-tui.exe" "..\build\linux\dotcraft-tui.exe"
+) else (
+    copy /Y "target\release\dotcraft-tui" "..\build\linux\dotcraft-tui"
+)
+cd ..
+
+echo.
+echo =====================================
 echo  Packaging...
 echo =====================================
 echo.
 
 echo Creating dotcraft-linux-x64_v%VERSION%.tar.gz...
-tar -czf "build\dotcraft-linux-x64_v%VERSION%.tar.gz" -C "build\linux" dotcraft
+if exist "build\linux\dotcraft-tui.exe" (
+    tar -czf "build\dotcraft-linux-x64_v%VERSION%.tar.gz" -C "build\linux" dotcraft dotcraft-tui.exe
+) else if exist "build\linux\dotcraft-tui" (
+    tar -czf "build\dotcraft-linux-x64_v%VERSION%.tar.gz" -C "build\linux" dotcraft dotcraft-tui
+) else (
+    tar -czf "build\dotcraft-linux-x64_v%VERSION%.tar.gz" -C "build\linux" dotcraft
+)
 
 if %ERRORLEVEL% neq 0 (
     echo Packaging failed with exit code %ERRORLEVEL%.
