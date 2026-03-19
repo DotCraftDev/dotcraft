@@ -49,8 +49,9 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("DotCraft-GitHubTracker", "1.0"));
 
-        if (!string.IsNullOrEmpty(_config.ApiKey))
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
+        var apiKey = ResolveConfigToken(_config.ApiKey);
+        if (apiKey != null)
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
     }
 
     /// <summary>
@@ -598,6 +599,18 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 
     private static bool WorkflowFileExists(string? path) =>
         !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+
+    /// <summary>
+    /// Returns the token value only if it is a resolved, non-empty string.
+    /// Values that still look like unexpanded env var placeholders (starting with '$')
+    /// are treated as absent so that no auth header is sent.
+    /// </summary>
+    private static string? ResolveConfigToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.StartsWith('$')) return null;
+        return value;
+    }
 
     public void Dispose() => _httpClient.Dispose();
 
