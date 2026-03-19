@@ -80,6 +80,11 @@ pub struct Strings {
     // UX polish: footer hints
     pub mode_cycle_hint: &'static str,
     pub shortcuts_hint: &'static str,
+
+    // UX polish round 2: welcome, action feedback
+    pub welcome_message: &'static str,
+    pub new_session_hint: &'static str,
+    pub session_loaded_prefix: &'static str,
 }
 
 impl Strings {
@@ -154,6 +159,9 @@ pub fn load(lang: &str) -> Strings {
             feature_unavailable: zh::FEATURE_UNAVAILABLE,
             mode_cycle_hint: zh::MODE_CYCLE_HINT,
             shortcuts_hint: zh::SHORTCUTS_HINT,
+            welcome_message: zh::WELCOME_MESSAGE,
+            new_session_hint: zh::NEW_SESSION_HINT,
+            session_loaded_prefix: zh::SESSION_LOADED_PREFIX,
         },
         _ => Strings {
             thinking: en::THINKING,
@@ -217,6 +225,9 @@ pub fn load(lang: &str) -> Strings {
             feature_unavailable: en::FEATURE_UNAVAILABLE,
             mode_cycle_hint: en::MODE_CYCLE_HINT,
             shortcuts_hint: en::SHORTCUTS_HINT,
+            welcome_message: en::WELCOME_MESSAGE,
+            new_session_hint: en::NEW_SESSION_HINT,
+            session_loaded_prefix: en::SESSION_LOADED_PREFIX,
         },
     }
 }

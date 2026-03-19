@@ -77,3 +77,8 @@ pub const FEATURE_UNAVAILABLE: &str = "This feature is not available on this ser
 // UX polish: footer hints
 pub const MODE_CYCLE_HINT: &str = "shift+tab to cycle";
 pub const SHORTCUTS_HINT: &str = "? for shortcuts";
+
+// UX polish round 2: welcome, action feedback
+pub const WELCOME_MESSAGE: &str = "✦ DotCraft v{}\n  Workspace: {}\n  Type a message to start · /help for commands · /sessions for history";
+pub const NEW_SESSION_HINT: &str = "New conversation. Type a message to begin.";
+pub const SESSION_LOADED_PREFIX: &str = "Session loaded:";

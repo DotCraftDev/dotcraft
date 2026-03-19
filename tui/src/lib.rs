@@ -118,10 +118,24 @@ pub async fn run(
 
     // ── 6. AppState ───────────────────────────────────────────────────────
     let ws_path = workspace.clone().unwrap_or_default();
-    let mut state = AppState::new(ws_path);
+    let mut state = AppState::new(ws_path.clone());
     state.connected = true;
 
-    // ── 7. Event loop (thread is created lazily on first user input) ────
+    // ── 7. Welcome message ───────────────────────────────────────────────
+    let server_version = wire
+        .server_info
+        .as_ref()
+        .map(|i| i.version.as_str())
+        .unwrap_or("?");
+    let ws_display = if ws_path.is_empty() { "(none)" } else { &ws_path };
+    state.history.push(HistoryEntry::SystemInfo {
+        message: strings
+            .welcome_message
+            .replacen("{}", server_version, 1)
+            .replacen("{}", ws_display, 1),
+    });
+
+    // ── 8. Event loop (thread is created lazily on first user input) ────
     run_event_loop(
         &mut terminal,
         &mut wire,
@@ -213,7 +227,7 @@ async fn run_event_loop(
 
             // ── Deferred async results ───────────────────────────────────
             Some(deferred) = deferred_rx.recv() => {
-                handle_deferred_result(state, deferred);
+                handle_deferred_result(state, strings, deferred);
             }
 
             // ── Terminal events ───────────────────────────────────────────
@@ -498,7 +512,7 @@ fn is_server_request(msg: &wire::types::JsonRpcMessage) -> bool {
 }
 
 /// Process a deferred async result that arrived from a spawned task.
-fn handle_deferred_result(state: &mut AppState, result: DeferredResult) {
+fn handle_deferred_result(state: &mut AppState, strings: &Strings, result: DeferredResult) {
     match result {
         DeferredResult::ThreadListLoaded(Ok(value)) => {
             let threads = parse_thread_list(&value);
@@ -515,6 +529,14 @@ fn handle_deferred_result(state: &mut AppState, result: DeferredResult) {
         }
         DeferredResult::ThreadHistoryLoaded(Ok(data)) => {
             replay_thread_history(state, &data);
+            let label = state
+                .current_thread_name
+                .as_deref()
+                .or(state.current_thread_id.as_deref())
+                .unwrap_or("?");
+            state.history.push(HistoryEntry::SystemInfo {
+                message: format!("{} {label}", strings.session_loaded_prefix),
+            });
         }
         DeferredResult::ThreadHistoryLoaded(Err(e)) => {
             state.history.push(HistoryEntry::Error {
@@ -537,12 +559,12 @@ async fn handle_thread_picker_action(
             state.thread_picker = None;
         }
         InputAction::ThreadPickerAction(ThreadPickerOp::Resume) => {
-            let thread_id = state
+            let selected = state
                 .thread_picker
                 .as_ref()
                 .and_then(|p| p.threads.get(p.selected))
-                .map(|t| t.id.clone());
-            if let Some(id) = thread_id {
+                .map(|t| (t.id.clone(), t.display_name.clone()));
+            if let Some((id, display_name)) = selected {
                 state.active_overlay = None;
                 state.thread_picker = None;
                 state.history.clear();
@@ -553,6 +575,7 @@ async fn handle_thread_picker_action(
                 wire.send_request("thread/resume", serde_json::json!({ "threadId": id }))
                     .await?;
                 state.current_thread_id = Some(id.clone());
+                state.current_thread_name = display_name;
                 // Fire async thread/read; result handled via deferred channel.
                 let (_, rx) = wire.send_request(
                     "thread/read",
@@ -648,6 +671,15 @@ fn parse_thread_list(result: &serde_json::Value) -> Vec<ThreadEntry> {
 /// Parse a `thread/read` response (with `includeTurns: true`) and rebuild
 /// `state.history` from the persisted items.
 fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
+    // Sync thread displayName into state so the status bar is accurate.
+    if let Some(name) = data
+        .get("thread")
+        .and_then(|t| t.get("displayName"))
+        .and_then(|v| v.as_str())
+    {
+        state.current_thread_name = Some(name.to_string());
+    }
+
     let turns = match data
         .get("thread")
         .and_then(|t| t.get("turns"))
@@ -791,6 +823,9 @@ async fn handle_slash_command(
             state.token_tracker.reset();
             state.current_thread_id = None;
             state.current_thread_name = None;
+            state.history.push(HistoryEntry::SystemInfo {
+                message: strings.new_session_hint.to_string(),
+            });
         }
         SlashCommand::Plan => {
             if let Some(thread_id) = state.current_thread_id.clone() {
