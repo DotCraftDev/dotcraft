@@ -208,6 +208,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         {
                             let tool = state.streaming.active_tools.remove(pos);
                             state.history.push(HistoryEntry::ToolCall {
+                                call_id: tool.call_id.clone(),
                                 name: tool.tool_name,
                                 args: tool.arguments,
                                 result: tool.result,
@@ -218,8 +219,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     }
 
                     // toolResult completion: the result arrives after the toolCall event has
-                    // already moved the entry to history. Patch the most recent ToolCall
-                    // history entry that has no result yet.
+                    // already moved the entry to history. Patch the ToolCall with matching call_id.
                     if item_type == "toolResult" {
                         let still_active = state
                             .streaming
@@ -229,12 +229,13 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         if !still_active {
                             for entry in state.history.iter_mut().rev() {
                                 if let HistoryEntry::ToolCall {
+                                    call_id: ref id,
                                     result: ref mut r,
                                     success: ref mut s,
                                     ..
                                 } = entry
                                 {
-                                    if r.is_none() {
+                                    if id == &call_id && r.is_none() {
                                         *r = result_text;
                                         *s = success;
                                         break;

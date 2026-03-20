@@ -769,6 +769,11 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                     }
                 }
                 "toolCall" => {
+                    let call_id = payload
+                        .get("callId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let name = payload
                         .get("toolName")
                         .and_then(|v| v.as_str())
@@ -789,6 +794,7 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                         .and_then(|v| v.as_bool())
                         .unwrap_or(true);
                     state.history.push(HistoryEntry::ToolCall {
+                        call_id,
                         name,
                         args,
                         result: None,
@@ -797,6 +803,11 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                     });
                 }
                 "toolResult" => {
+                    let call_id = payload
+                        .get("callId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let result_text = payload
                         .get("result")
                         .and_then(|v| v.as_str())
@@ -805,15 +816,20 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
                         .get("success")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(true);
-                    // Attach result to the most recent ToolCall if possible.
-                    if let Some(HistoryEntry::ToolCall {
-                        result: ref mut r,
-                        success: ref mut s,
-                        ..
-                    }) = state.history.last_mut()
-                    {
-                        *r = result_text;
-                        *s = success;
+                    for entry in state.history.iter_mut().rev() {
+                        if let HistoryEntry::ToolCall {
+                            call_id: ref id,
+                            result: ref mut r,
+                            success: ref mut s,
+                            ..
+                        } = entry
+                        {
+                            if id == &call_id && r.is_none() {
+                                *r = result_text;
+                                *s = success;
+                                break;
+                            }
+                        }
                     }
                 }
                 "error" => {

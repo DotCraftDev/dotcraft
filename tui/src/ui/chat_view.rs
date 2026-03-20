@@ -199,7 +199,9 @@ impl ChatView<'_> {
                 out.push(Line::default());
             }
 
-            HistoryEntry::ToolCall { name, args, result, success, duration } => {
+            HistoryEntry::ToolCall {
+                name, args, result, success, duration, ..
+            } => {
                 self.render_committed_tool(
                     name, args, result.as_deref(), *success, *duration, width, out,
                 );

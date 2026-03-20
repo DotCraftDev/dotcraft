@@ -72,6 +72,8 @@ pub enum HistoryEntry {
     UserMessage { text: String },
     AgentMessage { text: String },
     ToolCall {
+        /// Id from wire payload `callId`; matches `toolResult` to the correct tool call.
+        call_id: String,
         name: String,
         args: String,
         result: Option<String>,
