@@ -410,8 +410,9 @@ async fn handle_terminal_event(
             }
         }
         CrosstermEvent::Paste(text) => {
-            state.input_text.push_str(&text);
-            state.input_cursor = state.input_text.len();
+            state.input_text.insert_str(state.input_cursor, &text);
+            state.input_cursor += text.len();
+        }
         }
         CrosstermEvent::Resize(_w, _h) => {
             // Ratatui redraws at new size automatically on next tick.
