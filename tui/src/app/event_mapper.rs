@@ -48,7 +48,13 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     usage.get("inputTokens").and_then(|v| v.as_i64()),
                     usage.get("outputTokens").and_then(|v| v.as_i64()),
                 ) {
-                    state.token_tracker.add(inp, out);
+                    // Only use turn/completed tokenUsage if no item/usage/delta events
+                    // were received (fallback for servers that don't send deltas).
+                    // When deltas are received, the tracker already holds the correct total
+                    // (per appserver-protocol.md §6.6: sum of deltas == tokenUsage).
+                    if state.token_tracker.input_tokens == 0 && state.token_tracker.output_tokens == 0 {
+                        state.token_tracker.add(inp, out);
+                    }
                 }
             }
             true
