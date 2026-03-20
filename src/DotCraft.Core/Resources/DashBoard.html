@@ -776,6 +776,65 @@ body {
   border-radius: 10px;
 }
 
+/* Object list editor (e.g. MCP Servers) */
+.ol-wrap { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
+.ol-add { align-self: flex-start; }
+.ol-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.ol-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.ol-card-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+}
+.ol-card-body { padding: 14px 16px; }
+.ol-group-stdio, .ol-group-http {
+  margin-bottom: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.ol-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.ol-remove { margin-left: auto; flex-shrink: 0; }
+.ol-kv-editor { display: flex; flex-direction: column; gap: 6px; }
+.ol-kv-row { display: flex; gap: 8px; align-items: center; }
+.ol-kv-row .settings-input { flex: 1; }
+.ol-kv-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+}
+.ol-kv-remove:hover { color: var(--error); }
+.ol-kv-add { align-self: flex-start; margin-top: 4px; }
+.ol-raw-toggle { margin-top: 12px; font-size: 12px; color: var(--accent-light); background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; }
+.ol-raw-block { margin-top: 8px; display: none; }
+.ol-raw-block.open { display: block; }
+
 /* Height-accurate expand/collapse (grid 0fr/1fr avoids max-height jank) */
 .sf-accordion-body {
   display: grid;
@@ -2172,8 +2231,23 @@ function sfId(scope, sectionIdx, fieldKey) {
   return `sf-${scope}-${sectionIdx}-${fieldKey.toLowerCase()}`;
 }
 
+// Homogeneous array at section.rootKey (MCP servers, etc.)
+function getObjectListArray(data, section) {
+  if (!data || !section.rootKey) return [];
+  const v = ciGet(data, section.rootKey);
+  return Array.isArray(v) ? v : [];
+}
+
+function isObjectListSection(section) {
+  return !!(section.rootKey && section.itemFields && section.itemFields.length);
+}
+
 // Count fields that have a value in the workspace data for a section
 function countSectionWorkspaceValues(section, workspaceData) {
+  if (isObjectListSection(section)) {
+    const arr = getObjectListArray(workspaceData, section);
+    return arr.filter(item => item && String(ciGet(item, 'Name') || '').trim()).length;
+  }
   let count = 0;
   for (const f of section.fields) {
     const v = schemaGetValue(workspaceData, section, f.key);
@@ -2181,6 +2255,13 @@ function countSectionWorkspaceValues(section, workspaceData) {
   }
   return count;
 }
+
+function oliId(scope, sectionIdx, itemIdx, fieldKey) {
+  return `sf-${scope}-${sectionIdx}-oli-${itemIdx}-${fieldKey.toLowerCase()}`;
+}
+
+const _olStdioKeys = new Set(['Command', 'Arguments', 'EnvironmentVariables']);
+const _olHttpKeys = new Set(['Url', 'Headers']);
 
 // ─── UNIFIED SETTINGS FORM RENDERING ─────────────────────────────────────────
 
@@ -2219,17 +2300,337 @@ function renderSectionAccordion(section, sectionIdx, fieldsHtml, valueCount, isO
 // Render the global panel (read-only) using new accordion style
 function renderGlobalPanel(globalData) {
   let html = '';
-  for (const section of CONFIG_SCHEMA) {
+  CONFIG_SCHEMA.forEach((section, sectionIdx) => {
     const setCount = countSectionWorkspaceValues(section, globalData);
     let sectionHtml = '';
-    for (const field of section.fields) {
-      const rawVal = schemaGetValue(globalData, section, field.key);
-      sectionHtml += renderReadonlyFieldDirect(field, rawVal);
+    if (isObjectListSection(section)) {
+      sectionHtml = renderReadonlyObjectListSection(section, globalData);
+      sectionHtml += renderObjectListRawToggle(sectionIdx, 'global', getObjectListArray(globalData, section));
+    } else {
+      for (const field of section.fields) {
+        const rawVal = schemaGetValue(globalData, section, field.key);
+        sectionHtml += renderReadonlyFieldDirect(field, rawVal);
+      }
     }
-    html += renderSectionAccordion(section, 0, sectionHtml, setCount, setCount > 0);
-  }
+    html += renderSectionAccordion(section, sectionIdx, sectionHtml, setCount, setCount > 0);
+  });
   document.getElementById('settingsGlobalBody').innerHTML =
     html || '<div class="settings-hint" style="padding:16px">No global config found.</div>';
+}
+
+function renderReadonlyObjectListSection(section, data) {
+  const arr = getObjectListArray(data, section);
+  if (!arr.length) {
+    return '<div class="settings-hint">No entries configured.</div>';
+  }
+  let html = '<div class="ol-wrap">';
+  arr.forEach((item, i) => {
+    const name = String(ciGet(item, 'Name') || `Server ${i + 1}`);
+    const transport = String(ciGet(item, 'Transport') || 'stdio');
+    const en = ciGet(item, 'Enabled');
+    const enabled = en !== false && en !== 'false';
+    html += `<div class="ol-card"><div class="ol-card-header">
+      <span class="ol-card-title">${escapeHtml(name)}</span>
+      <span class="badge badge-info">${escapeHtml(transport)}</span>
+      <span class="badge ${enabled ? 'badge-success' : 'badge-warning'}">${enabled ? 'enabled' : 'disabled'}</span>
+    </div><div class="ol-card-body">`;
+    for (const field of section.itemFields) {
+      const rawVal = ciGet(item, field.key);
+      html += renderReadonlyFieldDirect(field, rawVal);
+    }
+    html += '</div></div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderObjectListRawToggle(sectionIdx, scope, arr) {
+  const json = JSON.stringify(arr.length ? arr : [], null, 2);
+  const tid = `ol-raw-${scope}-${sectionIdx}`;
+  return `<div class="ol-raw-section">
+    <button type="button" class="ol-raw-toggle" onclick="document.getElementById('${tid}').classList.toggle('open')">Raw JSON (advanced)</button>
+    <div id="${tid}" class="ol-raw-block"><pre class="settings-preview-body" style="white-space:pre-wrap;margin:0;max-height:200px;overflow:auto">${escapeHtml(json)}</pre></div>
+  </div>`;
+}
+
+function renderObjectListSection(section, sectionIdx, formData, scope, isWorkspace) {
+  const arr = getObjectListArray(formData, section);
+  let html = `<div class="ol-wrap" data-section-idx="${sectionIdx}" data-scope="${scope}">`;
+  html += `<button type="button" class="btn btn-accent ol-add" onclick="olAddObjectListCard(this)">Add server</button>`;
+  (arr.length ? arr : []).forEach((item, itemIdx) => {
+    html += renderObjectListCard(section, sectionIdx, itemIdx, item, scope, isWorkspace);
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderObjectListCard(section, sectionIdx, itemIdx, item, scope, isWorkspace) {
+  const title = String(ciGet(item, 'Name') || 'New server');
+  const transport = String(ciGet(item, 'Transport') || 'stdio');
+  const showStd = transport === 'stdio' || transport === '';
+  const showHttp = transport === 'http';
+
+  let body = '';
+  let stdioOpen = false;
+  let httpOpen = false;
+
+  for (const field of section.itemFields) {
+    const k = field.key;
+    if (_olStdioKeys.has(k)) {
+      if (!stdioOpen) {
+        body += '<div class="ol-group-stdio ol-group-transport" style="display:' + (showStd ? '' : 'none') + '"><div class="ol-group-label">stdio</div>';
+        stdioOpen = true;
+      }
+      body += renderObjectListField(section, sectionIdx, itemIdx, field, item, scope, isWorkspace);
+      continue;
+    }
+    if (_olHttpKeys.has(k)) {
+      if (stdioOpen) { body += '</div>'; stdioOpen = false; }
+      if (!httpOpen) {
+        body += '<div class="ol-group-http ol-group-transport" style="display:' + (showHttp ? '' : 'none') + '"><div class="ol-group-label">http</div>';
+        httpOpen = true;
+      }
+      body += renderObjectListField(section, sectionIdx, itemIdx, field, item, scope, isWorkspace);
+      continue;
+    }
+    if (stdioOpen) { body += '</div>'; stdioOpen = false; }
+    if (httpOpen) { body += '</div>'; httpOpen = false; }
+    body += renderObjectListField(section, sectionIdx, itemIdx, field, item, scope, isWorkspace);
+  }
+  if (stdioOpen) body += '</div>';
+  if (httpOpen) body += '</div>';
+
+  return `<div class="ol-card" data-oli-idx="${itemIdx}">
+    <div class="ol-card-header">
+      <span class="ol-card-title">${escapeHtml(title)}</span>
+      <button type="button" class="btn btn-danger ol-remove" onclick="olRemoveObjectListCard(this)">Remove</button>
+    </div>
+    <div class="ol-card-body">${body}</div>
+  </div>`;
+}
+
+function renderObjectListField(section, sectionIdx, itemIdx, field, item, scope, isWorkspace) {
+  const id = oliId(scope, sectionIdx, itemIdx, field.key);
+  const rawVal = ciGet(item, field.key);
+  const hint = field.hint ? `<div class="settings-hint">${escapeHtml(field.hint)}</div>` : '';
+  const headerHtml = `<div class="sf-field-header">
+    <label class="settings-label" for="${id}">
+      <span class="sf-display-name">${escapeHtml(fieldDisplayName(field))}</span>
+      <span class="sf-key">${escapeHtml(field.key)}</span>
+    </label>
+  </div>`;
+
+  if (field.key === 'Transport') {
+    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : 'stdio';
+    const opt = (field.options || ['stdio', 'http']).map(o =>
+      `<option value="${escapeHtml(o)}"${o === val ? ' selected' : ''}>${escapeHtml(o)}</option>`
+    ).join('');
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+      <select class="settings-select ol-transport-select" id="${id}" onchange="olOnTransportChange(this)">${opt}</select>${hint}</div>`;
+  }
+
+  if (field.type === 'bool') {
+    let st = rawVal === true || rawVal === 'true' ? 'true' : (rawVal === false || rawVal === 'false' ? 'false' : 'true');
+    if (rawVal === undefined && field.defaultValue !== undefined) {
+             st = field.defaultValue ? 'true' : 'false';
+    }
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+      <div class="sf-tristate sf-tristate-dual" id="${id}" data-value="${st}">
+        <button type="button" class="sf-tristate-opt${st === 'false' ? ' active' : ''}" data-val="false" onclick="tristateSetDual('${id}','false')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Off</button>
+        <button type="button" class="sf-tristate-opt${st === 'true' ? ' active' : ''}" data-val="true" onclick="tristateSetDual('${id}','true')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>On</button>
+      </div>${hint}</div>`;
+  }
+
+  if (field.type === 'stringList') {
+    const lines = Array.isArray(rawVal) ? rawVal.join('\n') : (rawVal ? String(rawVal) : '');
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+      <textarea class="settings-input" id="${id}" rows="3" placeholder="One value per line">${escapeHtml(lines)}</textarea>${hint}</div>`;
+  }
+
+  if (field.type === 'keyValueMap') {
+    const entries = rawVal && typeof rawVal === 'object' && !Array.isArray(rawVal)
+      ? Object.entries(rawVal)
+      : [];
+    let rows = '';
+    if (!entries.length) {
+      rows = olKeyValueRowHtml(id, 0, '', '');
+    } else {
+      entries.forEach((pair, ri) => {
+        rows += olKeyValueRowHtml(id, ri, pair[0], pair[1]);
+      });
+    }
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+      <div class="ol-kv-editor" id="${id}" data-kv-base="${id}">${rows}
+      <button type="button" class="btn ol-kv-add" onclick="olKvAddRow('${id}')">Add row</button></div>${hint}</div>`;
+  }
+
+  if (field.type === 'password') {
+    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : '';
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+      <div class="settings-input-wrap">
+        <input class="settings-input" type="password" id="${id}" value="${escapeHtml(val)}" autocomplete="off">
+        <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('${id}',this)" title="Show/hide">&#128065;</button>
+      </div>${hint}</div>`;
+  }
+
+  if (field.type === 'select') {
+    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : '';
+    const opts = ['', ...(field.options || [])].map(o => {
+      const lab = o === '' ? '(default)' : o;
+      return `<option value="${escapeHtml(o)}"${o === val ? ' selected' : ''}>${escapeHtml(lab)}</option>`;
+    }).join('');
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+      <select class="settings-select" id="${id}">${opts}</select>${hint}</div>`;
+  }
+
+  if (field.type === 'textarea') {
+    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : '';
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+      <textarea class="settings-input" id="${id}" rows="3">${escapeHtml(val)}</textarea>${hint}</div>`;
+  }
+
+  const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : '';
+  const minAttr = field.min !== undefined ? ` min="${field.min}"` : '';
+  const maxAttr = field.max !== undefined ? ` max="${field.max}"` : '';
+  return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
+    <input class="settings-input" type="${field.type === 'number' ? 'number' : 'text'}" id="${id}" value="${escapeHtml(val)}"${minAttr}${maxAttr}>${hint}</div>`;
+}
+
+function olKeyValueRowHtml(baseId, rowIdx, k, v) {
+  const rk = `${baseId}-kv-${rowIdx}`;
+  return `<div class="ol-kv-row" data-kv-row="${rowIdx}">
+    <input class="settings-input ol-kv-key" type="text" placeholder="Key" value="${escapeHtml(k)}" id="${rk}-k">
+    <input class="settings-input ol-kv-val" type="text" placeholder="Value" value="${escapeHtml(v)}" id="${rk}-v">
+    <button type="button" class="ol-kv-remove" onclick="this.closest('.ol-kv-row').remove(); onSettingsFieldChange();" title="Remove">×</button>
+  </div>`;
+}
+
+function olKvAddRow(editorId) {
+  const ed = document.getElementById(editorId);
+  if (!ed) return;
+  const base = ed.dataset.kvBase || editorId;
+  const idx = ed.querySelectorAll('.ol-kv-row').length;
+  ed.querySelector('.ol-kv-add').insertAdjacentHTML('beforebegin', olKeyValueRowHtml(base, idx, '', ''));
+  onSettingsFieldChange();
+}
+
+function olOnTransportChange(selectEl) {
+  const card = selectEl.closest('.ol-card');
+  if (!card) return;
+  const v = selectEl.value;
+  card.querySelectorAll('.ol-group-stdio').forEach(g => { g.style.display = v === 'stdio' ? '' : 'none'; });
+  card.querySelectorAll('.ol-group-http').forEach(g => { g.style.display = v === 'http' ? '' : 'none'; });
+}
+
+function olApplyTransportToCard(card) {
+  const sel = card.querySelector('.ol-transport-select');
+  if (sel) olOnTransportChange(sel);
+}
+
+function olAddObjectListCard(btn) {
+  const wrap = btn.closest('.ol-wrap');
+  if (!wrap) return;
+  const sectionIdx = Number(wrap.dataset.sectionIdx);
+  const scope = wrap.dataset.scope;
+  const section = CONFIG_SCHEMA[sectionIdx];
+  let maxIdx = -1;
+  wrap.querySelectorAll('.ol-card').forEach(c => {
+    maxIdx = Math.max(maxIdx, Number(c.dataset.oliIdx));
+  });
+  const newIdx = maxIdx + 1;
+  const empty = { Name: '', Enabled: true, Transport: 'stdio', Command: '', Arguments: [], EnvironmentVariables: {}, Url: '', Headers: {} };
+  const html = renderObjectListCard(section, sectionIdx, newIdx, empty, scope, scope === 'workspace');
+  btn.insertAdjacentHTML('afterend', html);
+  const cards = wrap.querySelectorAll('.ol-card');
+  const card = cards[cards.length - 1];
+  olApplyTransportToCard(card);
+  card.querySelectorAll('input, select, textarea').forEach(el => {
+    el.addEventListener('input', onSettingsFieldChange);
+    el.addEventListener('change', onSettingsFieldChange);
+  });
+  onSettingsFieldChange();
+}
+
+function olRemoveObjectListCard(btn) {
+  btn.closest('.ol-card')?.remove();
+  onSettingsFieldChange();
+}
+
+function tristateSetDual(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.dataset.value = val;
+  el.querySelectorAll('.sf-tristate-opt').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.val === val);
+  });
+  onSettingsFieldChange();
+}
+
+function readKeyValueMap(el) {
+  const out = {};
+  if (!el) return out;
+  el.querySelectorAll('.ol-kv-row').forEach(row => {
+    const k = row.querySelector('.ol-kv-key')?.value?.trim();
+    const v = row.querySelector('.ol-kv-val')?.value ?? '';
+    if (k) out[k] = v;
+  });
+  return out;
+}
+
+function collectObjectListForSection(section, sectionIdx, scope) {
+  const wrap = document.querySelector(`.ol-wrap[data-section-idx="${sectionIdx}"][data-scope="${scope}"]`);
+  if (!wrap) return [];
+  const cards = wrap.querySelectorAll(':scope > .ol-card');
+  const out = [];
+  cards.forEach(card => {
+    const itemIdx = card.dataset.oliIdx;
+    const obj = {};
+    for (const field of section.itemFields) {
+      const id = oliId(scope, sectionIdx, itemIdx, field.key);
+      if (field.type === 'bool' && field.key !== 'Transport') {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (el.classList.contains('sf-tristate-dual')) {
+          obj[field.key] = el.dataset.value === 'true';
+        } else {
+          const state = el.dataset.value;
+          if (state === '') continue;
+          obj[field.key] = state === 'true';
+        }
+        continue;
+      }
+      if (field.type === 'stringList') {
+        const el = document.getElementById(id);
+        obj[field.key] = el
+          ? el.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+          : [];
+        continue;
+      }
+      if (field.type === 'keyValueMap') {
+        const el = document.getElementById(id);
+        obj[field.key] = readKeyValueMap(el);
+        continue;
+      }
+      const el = document.getElementById(id);
+      if (!el) continue;
+      if (field.type === 'number') {
+        const raw = el.value.trim();
+        if (raw === '') continue;
+        obj[field.key] = Number(raw);
+      } else if (field.type === 'select' || field.type === 'text' || field.type === 'password' || field.type === 'textarea') {
+        const raw = el.value;
+        if (field.type === 'select' && raw === '') continue;
+        if ((field.type === 'text' || field.type === 'password' || field.type === 'textarea') && raw === '') continue;
+        obj[field.key] = raw;
+      }
+    }
+    const name = String(obj.Name || '').trim();
+    if (!name) return;
+    out.push(obj);
+  });
+  return out;
 }
 
 function renderReadonlyFieldDirect(field, rawVal) {
@@ -2268,26 +2669,39 @@ function renderEditableForm(containerId, formData, scope) {
     const shouldOpen = valueCount > 0 || (settingsSetupMode && sectionIdx === 0);
 
     let fieldsHtml = '';
-    for (const field of section.fields) {
-      const id = sfId(scope, sectionIdx, field.key);
-      const rawVal = schemaGetValue(formData, section, field.key);
-
-      // Determine source badge for workspace scope
+    if (isObjectListSection(section)) {
       let sourceBadge = '';
       if (isWorkspace) {
-        const globalVal = schemaGetValue(settingsGlobalConfig, section, field.key);
-        if (rawVal !== undefined && rawVal !== null) {
-          sourceBadge = `<span class="sf-source sf-source-workspace">workspace</span>`;
-        } else if (globalVal !== undefined && globalVal !== null) {
-          sourceBadge = `<span class="sf-source sf-source-global">from global</span>`;
-        } else if (field.defaultValue !== undefined && field.defaultValue !== null) {
-          sourceBadge = `<span class="sf-source sf-source-default">default</span>`;
-        } else {
-          sourceBadge = `<span class="sf-source sf-source-default">not set</span>`;
-        }
+        const wa = getObjectListArray(formData, section);
+        const ga = getObjectListArray(settingsGlobalConfig, section);
+        if (wa.length) sourceBadge = `<span class="sf-source sf-source-workspace">workspace</span>`;
+        else if (ga.length) sourceBadge = `<span class="sf-source sf-source-global">from global</span>`;
+        else sourceBadge = `<span class="sf-source sf-source-default">not set</span>`;
       }
+      fieldsHtml = `<div class="settings-field" style="margin-bottom:12px">${sourceBadge ? `<div class="sf-field-header"><span></span>${sourceBadge}</div>` : ''}</div>`;
+      fieldsHtml += renderObjectListSection(section, sectionIdx, formData, scope, isWorkspace);
+      fieldsHtml += renderObjectListRawToggle(sectionIdx, scope, getObjectListArray(formData, section));
+    } else {
+      for (const field of section.fields) {
+        const id = sfId(scope, sectionIdx, field.key);
+        const rawVal = schemaGetValue(formData, section, field.key);
 
-      fieldsHtml += renderFormField(id, field, rawVal, scope, section, sourceBadge);
+        let sourceBadge = '';
+        if (isWorkspace) {
+          const globalVal = schemaGetValue(settingsGlobalConfig, section, field.key);
+          if (rawVal !== undefined && rawVal !== null) {
+            sourceBadge = `<span class="sf-source sf-source-workspace">workspace</span>`;
+          } else if (globalVal !== undefined && globalVal !== null) {
+            sourceBadge = `<span class="sf-source sf-source-global">from global</span>`;
+          } else if (field.defaultValue !== undefined && field.defaultValue !== null) {
+            sourceBadge = `<span class="sf-source sf-source-default">default</span>`;
+          } else {
+            sourceBadge = `<span class="sf-source sf-source-default">not set</span>`;
+          }
+        }
+
+        fieldsHtml += renderFormField(id, field, rawVal, scope, section, sourceBadge);
+      }
     }
 
     html += renderSectionAccordion(section, sectionIdx, fieldsHtml, valueCount, shouldOpen);
@@ -2295,6 +2709,8 @@ function renderEditableForm(containerId, formData, scope) {
 
   const container = document.getElementById(containerId);
   container.innerHTML = html;
+
+  container.querySelectorAll('.ol-card').forEach(olApplyTransportToCard);
 
   // Attach live-preview and dirty-tracking listeners
   container.querySelectorAll('input, select, textarea').forEach(el => {
@@ -2497,10 +2913,12 @@ function filterSettings(query) {
   if (!container) return;
 
   container.querySelectorAll('.sf-accordion').forEach(accordion => {
+    const sectionTitle = accordion.querySelector('.sf-section-name')?.textContent.toLowerCase() ?? '';
+    const titleMatches = !q || sectionTitle.includes(q);
     let sectionMatches = false;
     accordion.querySelectorAll('.settings-field').forEach(field => {
       const text = field.textContent.toLowerCase();
-      const matches = !q || text.includes(q);
+      const matches = titleMatches || text.includes(q);
       field.style.display = matches ? '' : 'none';
       if (matches) sectionMatches = true;
     });
@@ -2540,6 +2958,21 @@ function collectForm(scope) {
   let hasJsonError = false;
 
   CONFIG_SCHEMA.forEach((section, sectionIdx) => {
+    if (isObjectListSection(section) && section.rootKey) {
+      const arr = collectObjectListForSection(section, sectionIdx, scope);
+      if (scope === 'global') {
+        result[section.rootKey] = arr;
+      } else {
+        // Workspace file replaces its JSON entirely; omit rootKey when empty and the workspace
+        // never defined it so global servers are not accidentally cleared on save.
+        const hadWorkspaceKey = ciGet(settingsWorkspaceConfig, section.rootKey) !== undefined;
+        if (arr.length > 0 || hadWorkspaceKey) {
+          result[section.rootKey] = arr;
+        }
+      }
+      return;
+    }
+
     for (const field of section.fields) {
       const id = sfId(scope, sectionIdx, field.key);
       const el = document.getElementById(id);
@@ -2618,6 +3051,34 @@ function updateSettingsPreview() {
   let rows = [];
 
   CONFIG_SCHEMA.forEach(section => {
+    if (isObjectListSection(section) && section.rootKey) {
+      const rk = section.rootKey;
+      const globalArr = getObjectListArray(effectiveGlobal, section);
+      const workspaceArr = getObjectListArray(workspacePartial, section);
+      const effectiveArr = getObjectListArray(effectiveMerged, section);
+      if (!globalArr.length && !workspaceArr.length && !effectiveArr.length) return;
+
+      const summarize = arr => arr.length
+        ? arr.map(it => {
+            const n = String(ciGet(it, 'Name') || '(unnamed)');
+            const t = String(ciGet(it, 'Transport') || '?');
+            return `${n} (${t})`;
+          }).join(', ')
+        : '(none)';
+
+      const display = `${effectiveArr.length} server(s): ${summarize(effectiveArr)}`;
+      const workspaceOverridesRoot = ciGet(workspacePartial, rk) !== undefined;
+      let source = '<span class="preview-source">\u2190 global</span>';
+      if (workspaceOverridesRoot) source = '<span class="preview-source">\u2190 workspace</span>';
+      else if (settingsSetupMode && globalArr.length) source = '<span class="preview-source">\u2190 global (edited)</span>';
+
+      rows.push(`<div class="settings-preview-row">
+        <span class="preview-key">${escapeHtml(rk)}:</span>
+        <span class="preview-val">${escapeHtml(display)}</span>${source}
+      </div>`);
+      return;
+    }
+
     for (const field of section.fields) {
       const globalVal = schemaGetValue(effectiveGlobal, section, field.key);
       const workspaceVal = schemaGetValue(workspacePartial, section, field.key);

@@ -12,6 +12,7 @@ public sealed class McpServerConfig
     /// <summary>
     /// Transport type: "stdio" (default) or "http".
     /// </summary>
+    [ConfigField(FieldType = "select", Options = new[] { "stdio", "http" })]
     public string Transport { get; set; } = "stdio";
 
     /// <summary>
