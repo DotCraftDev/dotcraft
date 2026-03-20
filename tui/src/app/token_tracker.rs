@@ -23,7 +23,12 @@ impl TokenTracker {
     }
 
     /// Format as a compact status string, e.g. "↑1.2k ↓350".
+    /// Format as a compact status string, e.g. "↑1.2k ↓350".
+    /// Returns empty string when both counts are zero (omitted per spec).
     pub fn format_compact(&self) -> String {
+        if self.input_tokens == 0 && self.output_tokens == 0 {
+            return String::new();
+        }
         format!(
             "↑{} ↓{}",
             format_token_count(self.input_tokens),
