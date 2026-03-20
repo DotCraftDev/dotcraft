@@ -25,6 +25,7 @@ clipboard = ["dep:arboard"]
 ratatui = { version = "0.29", features = [
     "scrolling-regions",
     "unstable-widget-ref",
+    "unstable-rendered-line-info",
 ] }
 crossterm = { version = "0.28", features = ["bracketed-paste", "event-stream"] }
 

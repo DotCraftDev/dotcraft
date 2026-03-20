@@ -94,20 +94,34 @@ impl Widget for ChatView<'_> {
         }
 
         // ── Compute scroll ────────────────────────────────────────────────
-        let total_lines = lines.len();
+        // Use Paragraph::line_count() instead of lines.len() so that visual
+        // rows produced by word-wrap are counted correctly. lines.len() only
+        // counts Line objects; each Line that overflows the viewport width
+        // wraps into additional visual rows that lines.len() misses, causing
+        // max_scroll to be too small and content to be unreachable.
+        let para = Paragraph::new(lines.clone())
+            .block(Block::default().borders(Borders::NONE))
+            .wrap(Wrap { trim: false });
+        let total_visual_lines = para.line_count(area.width);
+
+        // Record the viewport height so the input router can use it for
+        // viewport-relative PageUp/PageDown scrolling. Cell allows mutation
+        // through the shared &AppState reference.
+        self.state.last_viewport_height.set(area.height as usize);
+
         let viewport = area.height as usize;
-        let max_scroll = total_lines.saturating_sub(viewport);
+        let max_scroll = total_visual_lines.saturating_sub(viewport);
         let clamped_offset = self.state.scroll_offset.min(max_scroll);
 
         let scroll = if self.state.at_bottom {
-            max_scroll as u16
+            max_scroll
         } else {
-            max_scroll.saturating_sub(clamped_offset) as u16
+            max_scroll.saturating_sub(clamped_offset)
         };
 
         // ── Scroll indicator ──────────────────────────────────────────────
-        let visible_bottom = scroll as usize + viewport;
-        let lines_below = total_lines.saturating_sub(visible_bottom);
+        let visible_bottom = scroll + viewport;
+        let lines_below = total_visual_lines.saturating_sub(visible_bottom);
         if lines_below > 0 {
             let indicator = Line::from(Span::styled(
                 format!(" ↓ {lines_below} more lines "),
@@ -116,10 +130,14 @@ impl Widget for ChatView<'_> {
             lines.push(indicator);
         }
 
+        // Clamp scroll to u16::MAX — Paragraph::scroll() takes (u16, u16) and
+        // very long sessions could theoretically exceed that range.
+        let scroll_u16 = scroll.min(u16::MAX as usize) as u16;
+
         Paragraph::new(lines)
             .block(Block::default().borders(Borders::NONE))
             .wrap(Wrap { trim: false })
-            .scroll((scroll, 0))
+            .scroll((scroll_u16, 0))
             .render(area, buf);
     }
 }

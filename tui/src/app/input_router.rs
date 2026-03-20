@@ -300,14 +300,16 @@ fn handle_chat_view(state: &mut AppState, key: crossterm::event::KeyEvent) -> In
         }
 
         KeyCode::PageUp => {
-            state.scroll_offset = state.scroll_offset.saturating_add(20);
+            let page = state.last_viewport_height.get().max(1);
+            state.scroll_offset = state.scroll_offset.saturating_add(page);
             state.at_bottom = false;
             InputAction::None
         }
 
         KeyCode::PageDown => {
-            if state.scroll_offset >= 20 {
-                state.scroll_offset -= 20;
+            let page = state.last_viewport_height.get().max(1);
+            if state.scroll_offset >= page {
+                state.scroll_offset -= page;
             } else {
                 state.scroll_offset = 0;
                 state.at_bottom = true;

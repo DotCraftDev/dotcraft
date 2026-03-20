@@ -1,6 +1,8 @@
 // AppState — single source of truth for all UI state.
 // All mutations happen synchronously in the event loop between frames.
 
+use std::cell::Cell;
+
 use super::token_tracker::TokenTracker;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +201,10 @@ pub struct AppState {
     pub focus: FocusTarget,
     pub scroll_offset: usize,
     pub at_bottom: bool,
+    /// Height of the chat viewport in terminal rows, written each frame by ChatView.
+    /// Cell<usize> allows mutation through &AppState so ChatView (which holds &AppState)
+    /// can update it during rendering for use by the input router.
+    pub last_viewport_height: Cell<usize>,
 
     // Phase 2: reasoning visibility toggle
     pub show_reasoning: bool,
@@ -250,6 +256,7 @@ impl AppState {
             focus: FocusTarget::InputEditor,
             scroll_offset: 0,
             at_bottom: true,
+            last_viewport_height: Cell::new(0),
             show_reasoning: true,
             tick_count: 0,
             input_text: String::new(),
