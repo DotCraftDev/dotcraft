@@ -163,6 +163,10 @@ fn truncate_display_width(s: &str, max_cols: usize) -> String {
     if max_cols == 0 {
         return String::new();
     }
+    let total_width: usize = s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+    if total_width <= max_cols {
+        return s.to_string();
+    }
     let mut width: usize = 0;
     let mut out = String::new();
     for c in s.chars() {
