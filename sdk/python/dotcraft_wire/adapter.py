@@ -337,6 +337,9 @@ class ChannelAdapter(ABC):
             thread = active[0]
             if thread.status == "paused":
                 thread = await self._client.thread_resume(thread.id)
+            else:
+                # Load into server memory; thread/list only scans disk and does not populate cache.
+                thread = await self._client.thread_read(thread.id)
             self._thread_map[identity_key] = thread.id
             return thread
 
