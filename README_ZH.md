@@ -137,6 +137,8 @@ DotCraft is thinking...
 | 跨渠道恢复 | 不支持 | 服务端管理的 Thread 可跨渠道恢复 |
 | 工作区持久化 | 框架层不定义 | `.craft/` 统一管理会话、记忆、技能与配置，随项目走 |
 
+![entry](https://github.com/DotCraftDev/resources/raw/master/dotcraft/entry.png)
+
 ```mermaid
 flowchart LR
     Cli["CLI"]

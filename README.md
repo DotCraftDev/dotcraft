@@ -138,6 +138,8 @@ All entry points share one execution engine — the **Unified Session Core**. He
 | Cross-channel resume | Not supported | Server-managed threads resumable across channels |
 | Workspace persistence | Not defined at framework level | `.craft/` — sessions, memory, skills, and config scoped to the project |
 
+![entry](https://github.com/DotCraftDev/resources/raw/master/dotcraft/entry.png)
+
 ```mermaid
 flowchart LR
     Cli["CLI"]
