@@ -413,7 +413,6 @@ async fn handle_terminal_event(
             state.input_text.insert_str(state.input_cursor, &text);
             state.input_cursor += text.len();
         }
-        }
         CrosstermEvent::Resize(_w, _h) => {
             // Ratatui redraws at new size automatically on next tick.
         }
@@ -514,7 +513,6 @@ async fn handle_interrupt(wire: &mut WireClient, state: &mut AppState) -> Result
         }
         state.last_interrupt_at = Some(now);
         return Ok(false);
-    }
     }
 
     if let Some(last) = state.last_interrupt_at {
