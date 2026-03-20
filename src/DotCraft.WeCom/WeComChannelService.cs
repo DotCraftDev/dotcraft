@@ -79,7 +79,7 @@ public sealed class WeComChannelService(
     public void ConfigureBuilder(WebApplicationBuilder builder)
     {
         // WeCom Bot server has no additional DI registrations needed on the builder.
-        // Agent factory and adapter are initialised in ConfigureApp where the full
+        // Agent factory and adapter are initialized in ConfigureApp where the full
         // service provider is available.
     }
 
@@ -91,12 +91,10 @@ public sealed class WeComChannelService(
         var scopedApproval = new SessionScopedApprovalService(wecomApprovalService);
         _agentFactory = BuildAgentFactory(scopedApproval);
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var traceCollector = sp.GetService<TraceCollector>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var hookRunner = sp.GetService<HookRunner>();
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         _httpClient = new HttpClient(new SocketsHttpHandler
         {
