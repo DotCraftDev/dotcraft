@@ -522,7 +522,6 @@ async fn submit_turn(
         }
     }
     Ok(())
-    Ok(())
 }
 
 async fn handle_interrupt(wire: &mut WireClient, state: &mut AppState) -> Result<bool> {
