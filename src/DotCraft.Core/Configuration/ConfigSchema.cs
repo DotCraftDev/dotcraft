@@ -47,6 +47,12 @@ public sealed class ConfigSchemaField
     public required string Key { get; init; }
 
     /// <summary>
+    /// Human-friendly display name shown as the field label in the Dashboard UI.
+    /// Falls back to a PascalCase-split version of <see cref="Key"/> when null.
+    /// </summary>
+    public string? DisplayName { get; init; }
+
+    /// <summary>
     /// The field type for the Dashboard UI renderer.
     /// Valid values: "text", "number", "bool", "password", "select", "textarea", "json".
     /// </summary>

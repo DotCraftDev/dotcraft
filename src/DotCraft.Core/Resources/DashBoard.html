@@ -33,10 +33,16 @@
   --thinking-dim: rgba(192,132,252,0.12);
   --radius: 8px;
   --radius-lg: 12px;
+  --radius-xl: 16px;
   --shadow: 0 2px 12px rgba(0,0,0,0.25);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+  --surface-2: #252840;
   --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
   --transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+  --transition-slow: 0.35s cubic-bezier(0.4,0,0.2,1);
+  /* Accordion panel: matches chevron timing for consistent feel */
+  --accordion-transition: 0.22s cubic-bezier(0.4,0,0.2,1);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -528,6 +534,34 @@ body {
 .badge-warning { background: var(--warning-dim); color: var(--warning); }
 .badge-info { background: var(--info-dim); color: var(--info); }
 
+/* Utility color helpers */
+.text-accent { color: var(--accent-light); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-error { color: var(--error); }
+.text-info { color: var(--info); }
+.text-muted { color: var(--text-muted); }
+
+/* Info/status banners */
+.message {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.message-info {
+  background: var(--info-dim);
+  border-color: rgba(96,165,250,0.3);
+  color: var(--info);
+}
+.message-warning {
+  background: var(--warning-dim);
+  border-color: rgba(251,191,36,0.3);
+  color: var(--warning);
+}
+
 /* Empty state */
 .empty-state {
   display: flex;
@@ -614,83 +648,204 @@ body {
 
 .back-btn:hover { color: var(--text-primary); }
 
-/* Settings panel */
-.settings-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  height: 100%;
-  overflow: hidden;
-}
+/* ─── Settings Panel ─────────────────────────────────────────────────────── */
 
-.settings-top {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.settings-col {
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.settings-col-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.settings-col-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.settings-col-path {
+/* Config path display */
+.settings-config-path {
   font-size: 11px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.settings-col-body {
-  padding: 16px;
-  overflow-y: auto;
-  flex: 1;
+/* Settings search bar */
+.settings-search-wrap {
+  position: relative;
+  margin-bottom: 16px;
+}
+.settings-search {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  transition: border-color var(--transition);
+}
+.settings-search:focus { outline: none; border-color: var(--accent); }
+.settings-search::placeholder { color: var(--text-muted); }
+.settings-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
+/* Setup mode tab switcher */
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+.settings-tab {
+  flex: 1;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 5px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: var(--font-sans);
+}
+.settings-tab.active {
+  background: var(--bg-card);
+  color: var(--accent-light);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.settings-tab:hover:not(.active) { color: var(--text-primary); }
+
+/* Custom accordion */
+.sf-accordion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 8px;
+  overflow: hidden;
+  background: var(--bg-card);
+  transition: border-color var(--transition);
+}
+.sf-accordion:hover { border-color: var(--border-active); }
+.sf-accordion[data-open="true"] { border-color: rgba(124,92,252,0.3); }
+
+.sf-accordion-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition);
+  font-family: var(--font-sans);
+  user-select: none;
+}
+.sf-accordion-trigger:hover { background: var(--bg-hover); }
+.sf-accordion[data-open="true"] .sf-accordion-trigger { background: rgba(124,92,252,0.05); }
+
+.sf-chevron {
+  color: var(--text-muted);
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+.sf-accordion[data-open="true"] .sf-chevron { transform: rotate(90deg); color: var(--accent-light); }
+
+.sf-section-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+  transition: color var(--transition);
+}
+.sf-accordion[data-open="true"] .sf-section-name { color: var(--accent-light); }
+
+.sf-section-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--accent-dim);
+  color: var(--accent-light);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* Height-accurate expand/collapse (grid 0fr/1fr avoids max-height jank) */
+.sf-accordion-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--accordion-transition);
+}
+.sf-accordion[data-open="true"] .sf-accordion-body {
+  grid-template-rows: 1fr;
+}
+.sf-accordion-body-inner {
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 16px;
+  transition: padding var(--accordion-transition);
+}
+.sf-accordion[data-open="true"] .sf-accordion-body-inner {
+  padding: 4px 16px 16px;
+}
+
+/* Settings field */
 .settings-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   margin-bottom: 14px;
 }
-
+.sf-field-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
 .settings-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
 }
-
-.settings-label-readonly {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.settings-value-readonly {
+.sf-display-name {
   font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.sf-key {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.sf-source {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.sf-source-workspace { background: var(--accent-dim); color: var(--accent-light); }
+.sf-source-global { background: var(--info-dim); color: var(--info); }
+.sf-source-default { background: var(--bg-hover); color: var(--text-muted); }
+
+/* Read-only display values */
+.settings-label-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.settings-label-readonly .sf-display-name { color: var(--text-secondary); }
+.settings-value-readonly {
+  font-size: 12px;
   color: var(--text-muted);
   padding: 6px 10px;
   background: var(--bg-tertiary);
@@ -700,9 +855,8 @@ body {
   word-break: break-all;
   opacity: 0.7;
 }
-
 .settings-value-default {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   padding: 6px 10px;
   background: var(--bg-tertiary);
@@ -714,27 +868,24 @@ body {
   font-style: italic;
 }
 
+/* Inputs */
 .settings-input {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
-  padding: 6px 10px;
-  width: 100%;
-  transition: border-color var(--transition);
   font-family: var(--font-sans);
+  padding: 7px 10px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  width: 100%;
 }
-
 .settings-input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
-
-.settings-input::placeholder {
-  color: var(--text-muted);
-  font-style: italic;
-}
+.settings-input::placeholder { color: var(--text-muted); font-style: italic; }
 
 .settings-select {
   background: var(--bg-tertiary);
@@ -742,12 +893,17 @@ body {
   border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
-  padding: 6px 10px;
-  width: 100%;
-  cursor: pointer;
+  font-family: var(--font-sans);
+  padding: 7px 10px;
   transition: border-color var(--transition);
+  width: 100%;
+  appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6f8a' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 32px;
 }
-
 .settings-select:focus { outline: none; border-color: var(--accent); }
 
 .settings-input-wrap {
@@ -755,10 +911,7 @@ body {
   display: flex;
   align-items: center;
 }
-
-.settings-input-wrap .settings-input {
-  padding-right: 36px;
-}
+.settings-input-wrap .settings-input { padding-right: 36px; }
 
 .password-toggle-btn {
   position: absolute;
@@ -772,240 +925,230 @@ body {
   line-height: 1;
   transition: color var(--transition);
 }
-
 .password-toggle-btn:hover { color: var(--text-primary); }
 
-.toggle-switch-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.toggle-switch {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  inset: 0;
+/* Tristate segmented control */
+.sf-tristate {
+  display: inline-flex;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background var(--transition), border-color var(--transition);
+  border-radius: var(--radius);
+  overflow: hidden;
+  padding: 2px;
+  gap: 2px;
 }
-
-.toggle-slider::before {
-  content: '';
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  left: 2px;
-  top: 2px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  transition: transform var(--transition), background var(--transition);
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-}
-
-.toggle-switch input:checked + .toggle-slider::before {
-  transform: translateX(16px);
-  background: var(--accent-light);
-}
-
-.toggle-label-text {
+.sf-tristate-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
   font-size: 12px;
-  color: var(--text-secondary);
+  font-weight: 500;
+  border-radius: 5px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: var(--font-sans);
 }
+.sf-tristate-opt:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sf-tristate-opt.active { background: var(--bg-card); color: var(--accent-light); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+.sf-tristate-opt[data-val="true"].active { color: var(--success); }
+.sf-tristate-opt[data-val="false"].active { color: var(--error); }
 
+/* Settings hints */
 .settings-hint {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 2px;
+  line-height: 1.5;
 }
 
-.settings-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 12px 0;
-}
-
-/* Preview and actions area */
-.settings-bottom {
-  flex-shrink: 0;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-  margin-top: 12px;
-}
-
-.settings-preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.settings-preview-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
+/* Preview and actions */
 .settings-preview-body {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px;
+  padding: 10px 12px;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--text-secondary);
-  max-height: 120px;
+  max-height: 160px;
   overflow-y: auto;
-  line-height: 1.6;
 }
-
 .settings-preview-row {
   display: flex;
   gap: 8px;
-}
-
-.preview-key { color: var(--accent-light); }
-.preview-val { color: var(--text-primary); }
-.preview-source { color: var(--text-muted); font-size: 11px; }
-
-.settings-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 12px;
-}
-
-.btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-
-.btn-primary:hover {
-  background: var(--accent-light);
-  border-color: var(--accent-light);
-  color: #fff;
-}
-
-.settings-status {
-  font-size: 12px;
+  align-items: baseline;
   padding: 2px 0;
 }
+.preview-key { color: var(--accent-light); }
+.preview-val { color: var(--text-primary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-source { color: var(--text-muted); font-size: 11px; }
 
-.settings-status.success { color: var(--success); }
-.settings-status.error { color: var(--error); }
-
-/* Accordion sections */
-.settings-accordion {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 8px;
-  overflow: hidden;
+/* Save bar — always pinned at panel bottom as a flex sibling of panel-body */
+.settings-save-bar {
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 5;
 }
-
-.settings-accordion > summary {
-  list-style: none;
-  cursor: pointer;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
+.settings-save-actions { display: flex; align-items: center; gap: 8px; }
+.settings-unsaved-msg {
   display: flex;
   align-items: center;
   gap: 6px;
-  user-select: none;
-  transition: background var(--transition);
+  font-size: 12px;
+  color: var(--warning);
 }
-
-.settings-accordion > summary::-webkit-details-marker { display: none; }
-.settings-accordion > summary::before {
-  content: '▶';
-  font-size: 9px;
-  transition: transform var(--transition);
+.settings-unsaved-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  animation: pulse 1.5s ease-in-out infinite;
   flex-shrink: 0;
 }
-.settings-accordion[open] > summary::before { transform: rotate(90deg); }
-.settings-accordion > summary:hover { background: var(--bg-hover); color: var(--text-primary); }
-.settings-accordion[open] > summary { color: var(--accent-light); }
 
-.settings-accordion-badge {
+/* Unsaved indicator dot on nav tab */
+.nav-tab .unsaved-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
   margin-left: auto;
-  font-size: 10px;
-  font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--accent-dim);
-  color: var(--accent-light);
-}
-
-.settings-accordion-body {
-  padding: 12px;
-  background: var(--bg-card);
+  flex-shrink: 0;
 }
 
 /* JSON textarea */
 .settings-json-input {
   font-family: var(--font-mono);
   font-size: 12px;
-  resize: vertical;
-  min-height: 60px;
+  min-height: 80px;
 }
-
 .settings-json-error {
   font-size: 11px;
   color: var(--error);
-  margin-top: 3px;
+  margin-top: 2px;
 }
 
-/* Tristate bool */
-.tristate-toggle {
-  display: inline-flex;
+/* No-match state for search */
+.sf-no-match { display: none !important; }
+
+/* ─── Toast Notifications ────────────────────────────────────────────────── */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1000;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-card);
   border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  min-width: 260px;
+  max-width: 400px;
+  pointer-events: all;
+  animation: toastIn 0.25s ease-out;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.toast.removing { opacity: 0; transform: translateX(20px); }
+.toast-success { border-left: 3px solid var(--success); }
+.toast-error { border-left: 3px solid var(--error); }
+.toast-info { border-left: 3px solid var(--info); }
+.toast-warning { border-left: 3px solid var(--warning); }
+.toast-icon { font-size: 16px; flex-shrink: 0; }
+.toast-msg { flex: 1; color: var(--text-primary); }
+.toast-close {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 16px; padding: 0; line-height: 1;
+  transition: color var(--transition);
+}
+.toast-close:hover { color: var(--text-primary); }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ─── Confirm Modal ──────────────────────────────────────────────────────── */
+#confirm-modal {
+  position: fixed; inset: 0; z-index: 999;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--transition);
+}
+#confirm-modal.visible { opacity: 1; pointer-events: all; }
+.modal-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 28px 28px 24px;
+  width: 400px;
+  max-width: 90vw;
+  box-shadow: var(--shadow-lg);
+  transform: scale(0.95);
+  transition: transform var(--transition);
+}
+#confirm-modal.visible .modal-card { transform: scale(1); }
+.modal-title {
+  font-size: 15px; font-weight: 600; color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.modal-body {
+  font-size: 13px; color: var(--text-secondary);
+  line-height: 1.6; margin-bottom: 20px;
+}
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ─── Skeleton Loading ───────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
   border-radius: var(--radius);
-  overflow: hidden;
+  color: transparent !important;
 }
+.skeleton-text { height: 14px; border-radius: 4px; margin-bottom: 8px; }
+.skeleton-stat-card .stat-value { height: 36px; width: 70%; border-radius: 4px; }
 
-.tristate-btn {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  transition: background var(--transition), color var(--transition);
+/* ─── Panel fade-in ──────────────────────────────────────────────────────── */
+@keyframes panelFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
-
-.tristate-btn + .tristate-btn { border-left: 1px solid var(--border); }
-.tristate-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
-.tristate-btn.active { background: var(--accent-dim); color: var(--accent-light); font-weight: 600; }
-.tristate-btn[data-val="true"].active { background: var(--success-dim); color: var(--success); }
-.tristate-btn[data-val="false"].active { background: var(--error-dim); color: var(--error); }
+.panel.active { animation: panelFadeIn 0.15s ease-out; }
 </style>
 </head>
 <body>
+
+<div id="toast-container"></div>
+
+<div id="confirm-modal">
+  <div class="modal-card">
+    <div class="modal-title" id="modalTitle">Confirm</div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeConfirmModal()">Cancel</button>
+      <button class="btn btn-danger" id="modalConfirmBtn" onclick="confirmModalAction()">Confirm</button>
+    </div>
+  </div>
+</div>
 
 <div class="app" id="app">
   <header class="header">
@@ -1072,7 +1215,7 @@ body {
             <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value info" id="statRequests">-</div></div>
             <div class="stat-card"><div class="stat-label">Total Responses</div><div class="stat-value info" id="statResponses">-</div></div>
             <div class="stat-card"><div class="stat-label">Tool Calls</div><div class="stat-value warning" id="statToolCalls">-</div></div>
-            <div class="stat-card"><div class="stat-label">Errors</div><div class="stat-value" style="color:var(--error)" id="statErrors">-</div></div>
+            <div class="stat-card"><div class="stat-label">Errors</div><div class="stat-value text-error" id="statErrors">-</div></div>
             <div class="stat-card"><div class="stat-label">Avg Tool Latency</div><div class="stat-value" id="statAvgToolMs">-</div></div>
             <div class="stat-card"><div class="stat-label">Input Tokens</div><div class="stat-value" id="statInputTokens">-</div></div>
             <div class="stat-card"><div class="stat-label">Output Tokens</div><div class="stat-value" id="statOutputTokens">-</div></div>
@@ -1179,60 +1322,75 @@ body {
       <div class="panel" id="panel-settings">
         <div class="panel-header">
           <div class="panel-title">Settings</div>
-          <button class="btn btn-accent" onclick="refreshSettings()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            Refresh
-          </button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-accent" onclick="refreshSettings()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Refresh
+            </button>
+          </div>
         </div>
         <div class="panel-body">
+          <!-- Setup mode banner -->
           <div id="setupBanner" class="message message-info" style="display:none;margin-bottom:16px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <div>
               <div style="font-weight:600">Setup Mode</div>
-              <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">
-                Configure the API key and basic settings here, then restart DotCraft to continue normal startup.
+              <div style="font-size:13px;color:var(--text-secondary);margin-top:2px">Configure your API key and basic settings below, then restart DotCraft to continue.</div>
+            </div>
+          </div>
+
+          <!-- Setup mode tab switcher -->
+          <div id="settingsTabSwitcher" class="settings-tabs" style="display:none">
+            <button class="settings-tab active" id="tabWorkspace" onclick="switchSettingsTab('workspace')">Workspace Config</button>
+            <button class="settings-tab" id="tabGlobal" onclick="switchSettingsTab('global')">Global Config</button>
+          </div>
+
+          <!-- Config file path -->
+          <div id="settingsActivePath" class="settings-config-path" style="display:none"></div>
+
+          <!-- Search bar -->
+          <div class="settings-search-wrap">
+            <svg class="settings-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="settings-search" type="text" id="settingsSearch" placeholder="Search settings..." oninput="filterSettings(this.value)">
+          </div>
+
+          <!-- Form containers -->
+          <div id="settingsFormContainer">
+            <div class="empty-state"><p>Loading...</p></div>
+          </div>
+          <div id="settingsGlobalBody" style="display:none">
+            <div class="empty-state"><p>Loading...</p></div>
+          </div>
+
+          <!-- Merged preview (collapsible accordion) -->
+          <div class="sf-accordion" data-open="false" id="settingsPreviewAccordion" style="margin-top:16px">
+            <button class="sf-accordion-trigger" onclick="sfToggle(this.closest('.sf-accordion'))">
+              <svg class="sf-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="sf-section-name" style="font-size:12px;text-transform:uppercase;letter-spacing:0.05em">Effective Config Preview</span>
+            </button>
+            <div class="sf-accordion-body">
+              <div class="sf-accordion-body-inner">
+                <div class="settings-preview-body" id="settingsPreview">
+                  <span class="text-muted">Load settings to see preview...</span>
+                </div>
               </div>
             </div>
           </div>
-          <div class="settings-layout">
-            <div class="settings-top">
-              <!-- Global config (read-only) -->
-              <div class="settings-col">
-                <div class="settings-col-header">
-                  <div class="settings-col-title" id="settingsGlobalTitle">Global Config <span style="font-weight:400;color:var(--text-muted)">(read-only)</span></div>
-                  <div class="settings-col-path" id="settingsGlobalPath">~/.craft/config.json</div>
-                </div>
-                <div class="settings-col-body" id="settingsGlobalBody">
-                  <div class="empty-state"><p>Loading...</p></div>
-                </div>
-              </div>
-              <!-- Workspace config (editable) -->
-              <div class="settings-col">
-                <div class="settings-col-header">
-                  <div class="settings-col-title" id="settingsWorkspaceTitle">Workspace Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span></div>
-                  <div class="settings-col-path" id="settingsWorkspacePath">.craft/config.json</div>
-                </div>
-                <div class="settings-col-body" id="settingsFormContainer">
-                  <div class="empty-state"><p>Loading...</p></div>
-                </div>
-              </div>
-            </div>
+        </div>
 
-            <div class="settings-bottom">
-              <div class="settings-preview-header">
-                <div class="settings-preview-title">Effective Config (merged preview)</div>
-              </div>
-              <div class="settings-preview-body" id="settingsPreview">
-                <span style="color:var(--text-muted)">Load settings to see preview...</span>
-              </div>
-              <div class="settings-actions">
-                <button class="btn btn-primary" id="settingsSaveBtn" onclick="saveSettings()">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                  Save Workspace
-                </button>
-                <button class="btn" onclick="cancelSettings()">Cancel</button>
-                <span class="settings-status" id="settingsStatus"></span>
-              </div>
-            </div>
+        <!-- Save bar — outside panel-body so it always sits at the panel bottom -->
+        <div class="settings-save-bar">
+          <div class="settings-unsaved-msg" id="settingsUnsavedMsg" style="display:none">
+            <span class="settings-unsaved-dot"></span>
+            Unsaved changes
+          </div>
+          <div style="flex:1"></div>
+          <div class="settings-save-actions">
+            <button class="btn btn-primary" id="settingsSaveBtn" onclick="saveSettings()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Save Workspace
+            </button>
+            <button class="btn" onclick="cancelSettings()">Cancel</button>
           </div>
         </div>
       </div>
@@ -1305,6 +1463,72 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// Converts PascalCase/camelCase keys to human-friendly labels
+function pascalToHuman(key) {
+  return key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replace(/\bApi\b/g, 'API')
+    .replace(/\bUrl\b/g, 'URL')
+    .replace(/\bId\b/g, 'ID')
+    .replace(/\bMs\b/g, 'ms')
+    .replace(/\bMax\b/g, 'Max')
+    .trim();
+}
+
+// ─── Toast notifications ──────────────────────────────────────────────────────
+const TOAST_ICONS = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+function showToast(message, type = 'info', duration = 4000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `<span class="toast-icon">${TOAST_ICONS[type] || 'ℹ'}</span>
+    <span class="toast-msg">${escapeHtml(message)}</span>
+    <button class="toast-close" onclick="this.closest('.toast').remove()">×</button>`;
+  container.appendChild(toast);
+  if (duration > 0) {
+    setTimeout(() => {
+      toast.classList.add('removing');
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+  return toast;
+}
+
+// ─── Confirm modal ────────────────────────────────────────────────────────────
+let _modalAction = null;
+function showConfirmModal(title, body, onConfirm, btnClass = 'btn-danger', btnLabel = 'Confirm') {
+  _modalAction = onConfirm;
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').textContent = body;
+  const btn = document.getElementById('modalConfirmBtn');
+  btn.className = `btn ${btnClass}`;
+  btn.textContent = btnLabel;
+  document.getElementById('confirm-modal').classList.add('visible');
+}
+function closeConfirmModal() {
+  document.getElementById('confirm-modal').classList.remove('visible');
+  _modalAction = null;
+}
+function confirmModalAction() {
+  closeConfirmModal();
+  if (_modalAction) _modalAction();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeConfirmModal();
+});
+document.getElementById('confirm-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeConfirmModal();
+});
+
+// ─── Accordion toggle ─────────────────────────────────────────────────────────
+function sfToggle(accordion) {
+  const isOpen = accordion.dataset.open === 'true';
+  accordion.dataset.open = isOpen ? 'false' : 'true';
+}
+function sfOpen(accordion) { accordion.dataset.open = 'true'; }
+function sfClose(accordion) { accordion.dataset.open = 'false'; }
 
 function truncate(text, max) {
   if (!text) return '';
@@ -1423,7 +1647,7 @@ async function refreshSessions() {
   }
 
   container.innerHTML = sessions.map(s => `
-    <div class="session-card" onclick="viewSessionTraces('${escapeHtml(s.sessionKey)}')">
+    <div class="session-card" data-session-key="${escapeHtml(s.sessionKey)}" onclick="viewSessionTraces('${escapeHtml(s.sessionKey)}')">
       <div class="session-main">
         <div class="session-info">
           <div class="session-key" style="display:flex;align-items:center;gap:8px">${escapeHtml(s.sessionKey)} ${renderFinishReasonBadge(s.lastFinishReason)}</div>
@@ -1433,12 +1657,12 @@ async function refreshSessions() {
           </div>
         </div>
         <div class="session-stats">
-          <div class="session-stat"><div class="session-stat-value" style="color:var(--info)">${s.requestCount}</div><div class="session-stat-label">requests</div></div>
-          <div class="session-stat"><div class="session-stat-value" style="color:var(--info)">${s.responseCount || 0}</div><div class="session-stat-label">responses</div></div>
-          <div class="session-stat"><div class="session-stat-value" style="color:var(--warning)">${s.toolCallCount}</div><div class="session-stat-label">tools</div></div>
-          <div class="session-stat"><div class="session-stat-value" style="color:var(--error)">${s.errorCount || 0}</div><div class="session-stat-label">errors</div></div>
+          <div class="session-stat"><div class="session-stat-value text-info">${s.requestCount}</div><div class="session-stat-label">requests</div></div>
+          <div class="session-stat"><div class="session-stat-value text-info">${s.responseCount || 0}</div><div class="session-stat-label">responses</div></div>
+          <div class="session-stat"><div class="session-stat-value text-warning">${s.toolCallCount}</div><div class="session-stat-label">tools</div></div>
+          <div class="session-stat"><div class="session-stat-value text-error">${s.errorCount || 0}</div><div class="session-stat-label">errors</div></div>
           <div class="session-stat"><div class="session-stat-value">${formatDurationMs(s.avgToolDurationMs || 0)}</div><div class="session-stat-label">avg tool</div></div>
-          <div class="session-stat"><div class="session-stat-value" style="color:var(--success)">${formatNumber(s.totalTokens)}</div><div class="session-stat-label">tokens</div></div>
+          <div class="session-stat"><div class="session-stat-value text-success">${formatNumber(s.totalTokens)}</div><div class="session-stat-label">tokens</div></div>
           <button class="btn btn-danger" onclick="event.stopPropagation();deleteSession('${escapeHtml(s.sessionKey)}')" title="Delete traces">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
@@ -1653,16 +1877,28 @@ function toggleAutoScroll() {
 }
 
 async function deleteSession(sessionKey) {
-  if (!confirm('Delete trace data for session "' + sessionKey + '"?')) return;
-  await fetch(API + '/sessions/' + encodeURIComponent(sessionKey), { method: 'DELETE' });
-  refreshSessions();
+  showConfirmModal(
+    'Delete Session Traces',
+    `Delete trace data for session "${sessionKey}"? This cannot be undone.`,
+    async () => {
+      await fetch(API + '/sessions/' + encodeURIComponent(sessionKey), { method: 'DELETE' });
+      refreshSessions();
+    }
+  );
 }
 
 async function clearAllSessions() {
-  if (!confirm('Clear ALL trace data?')) return;
-  await fetch(API + '/sessions', { method: 'DELETE' });
-  refreshSessions();
-  refreshDashboard();
+  showConfirmModal(
+    'Clear All Trace Data',
+    'This will permanently delete all session traces. This cannot be undone.',
+    async () => {
+      await fetch(API + '/sessions', { method: 'DELETE' });
+      refreshSessions();
+      refreshDashboard();
+    },
+    'btn-danger',
+    'Clear All'
+  );
 }
 
 function refreshAll() {
@@ -1901,6 +2137,8 @@ let settingsGlobalConfig = null;
 let settingsWorkspaceConfig = null;
 let settingsSetupMode = false;
 let settingsHasApiKey = true;
+let settingsDirty = false;
+let settingsActiveTab = 'workspace'; // 'workspace' | 'global' (setup mode only)
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -1944,126 +2182,214 @@ function countSectionWorkspaceValues(section, workspaceData) {
   return count;
 }
 
-// ─── RENDER GLOBAL PANEL (read-only) ─────────────────────────────────────────
+// ─── UNIFIED SETTINGS FORM RENDERING ─────────────────────────────────────────
+
+// Human-friendly label for a field
+function fieldDisplayName(field) {
+  if (field.displayName) return field.displayName;
+  return pascalToHuman(field.key);
+}
+
+// Render a field header with display name, JSON key, and source badge
+function renderFieldHeader(field, sourceBadge) {
+  return `<div class="sf-field-header">
+    <label class="settings-label">
+      <span class="sf-display-name">${escapeHtml(fieldDisplayName(field))}</span>
+      <span class="sf-key">${escapeHtml(field.key)}</span>
+    </label>
+    ${sourceBadge}
+  </div>`;
+}
+
+
+// Render a section as a new-style accordion
+function renderSectionAccordion(section, sectionIdx, fieldsHtml, valueCount, isOpen) {
+  const badge = valueCount > 0
+    ? `<span class="sf-section-badge">${valueCount} set</span>` : '';
+  return `<div class="sf-accordion" data-open="${isOpen ? 'true' : 'false'}" data-section-idx="${sectionIdx}">
+    <button class="sf-accordion-trigger" onclick="sfToggle(this.closest('.sf-accordion'))">
+      <svg class="sf-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      <span class="sf-section-name">${escapeHtml(section.section)}</span>
+      ${badge}
+    </button>
+    <div class="sf-accordion-body"><div class="sf-accordion-body-inner">${fieldsHtml}</div></div>
+  </div>`;
+}
+
+// Render the global panel (read-only) using new accordion style
 function renderGlobalPanel(globalData) {
   let html = '';
   for (const section of CONFIG_SCHEMA) {
     const setCount = countSectionWorkspaceValues(section, globalData);
-    const badgeHtml = setCount > 0
-      ? `<span class="settings-accordion-badge">${setCount} set</span>` : '';
-
     let sectionHtml = '';
     for (const field of section.fields) {
       const rawVal = schemaGetValue(globalData, section, field.key);
-      const isExplicit = rawVal !== undefined;
-
-      let display;
-      let valueClass;
-      if (isExplicit) {
-        if (rawVal === null) {
-          display = '(null)';
-        } else if (field.sensitive) {
-          display = '***';
-        } else if (typeof rawVal === 'object') {
-          display = JSON.stringify(rawVal);
-        } else if (field.type === 'select' && typeof rawVal === 'number') {
-          display = (field.options && field.options[rawVal] !== undefined)
-            ? field.options[rawVal]
-            : String(rawVal);
-        } else {
-          display = String(rawVal);
-        }
-        valueClass = 'settings-value-readonly';
-      } else {
-        // Not in global config — show schema default or "(not set)"
-        const defVal = field.defaultValue;
-        if (defVal !== undefined && defVal !== null && defVal !== '') {
-          display = `${formatDefaultValue(defVal)} (default)`;
-        } else {
-          display = '(not set)';
-        }
-        valueClass = 'settings-value-default';
-      }
-
-      sectionHtml += `<div class="settings-field">
-        <div class="settings-label-readonly">${escapeHtml(field.key)}</div>
-        <div class="${valueClass}">${escapeHtml(display)}</div>
-      </div>`;
+      sectionHtml += renderReadonlyFieldDirect(field, rawVal);
     }
-
-    html += `<details class="settings-accordion"${setCount > 0 ? ' open' : ''}>
-      <summary>${escapeHtml(section.section)}${badgeHtml}</summary>
-      <div class="settings-accordion-body">${sectionHtml}</div>
-    </details>`;
+    html += renderSectionAccordion(section, 0, sectionHtml, setCount, setCount > 0);
   }
-
   document.getElementById('settingsGlobalBody').innerHTML =
-    html || '<div class="settings-hint" style="padding:8px">No global config found.</div>';
+    html || '<div class="settings-hint" style="padding:16px">No global config found.</div>';
 }
 
-// ─── RENDER EDITABLE FORM ─────────────────────────────────────────────────────
+function renderReadonlyFieldDirect(field, rawVal) {
+  const isExplicit = rawVal !== undefined;
+  let display, valueClass;
+  if (isExplicit) {
+    if (rawVal === null) display = '(null)';
+    else if (field.sensitive) display = '***';
+    else if (typeof rawVal === 'object') display = JSON.stringify(rawVal);
+    else if (field.type === 'select' && typeof rawVal === 'number')
+      display = (field.options && field.options[rawVal] !== undefined) ? field.options[rawVal] : String(rawVal);
+    else display = String(rawVal);
+    valueClass = 'settings-value-readonly';
+  } else {
+    const defVal = field.defaultValue;
+    display = (defVal !== undefined && defVal !== null && defVal !== '') ? `${formatDefaultValue(defVal)} (default)` : '(not set)';
+    valueClass = 'settings-value-default';
+  }
+  return `<div class="settings-field">
+    <div class="settings-label-readonly">
+      <span class="sf-display-name">${escapeHtml(fieldDisplayName(field))}</span>
+      <span class="sf-key">${escapeHtml(field.key)}</span>
+    </div>
+    <div class="${valueClass}">${escapeHtml(display)}</div>
+  </div>`;
+}
+
+// Render the unified editable form (workspace or global in setup mode)
+// In workspace scope, shows source badges for inherited/default values
 function renderEditableForm(containerId, formData, scope) {
+  const isWorkspace = scope === 'workspace';
   let html = '';
+
   CONFIG_SCHEMA.forEach((section, sectionIdx) => {
     const valueCount = countSectionWorkspaceValues(section, formData);
     const shouldOpen = valueCount > 0 || (settingsSetupMode && sectionIdx === 0);
-    const badgeHtml = valueCount > 0
-      ? `<span class="settings-accordion-badge">${valueCount} set</span>` : '';
 
     let fieldsHtml = '';
     for (const field of section.fields) {
       const id = sfId(scope, sectionIdx, field.key);
       const rawVal = schemaGetValue(formData, section, field.key);
-      fieldsHtml += renderFormField(id, field, rawVal, scope);
+
+      // Determine source badge for workspace scope
+      let sourceBadge = '';
+      if (isWorkspace) {
+        const globalVal = schemaGetValue(settingsGlobalConfig, section, field.key);
+        if (rawVal !== undefined && rawVal !== null) {
+          sourceBadge = `<span class="sf-source sf-source-workspace">workspace</span>`;
+        } else if (globalVal !== undefined && globalVal !== null) {
+          sourceBadge = `<span class="sf-source sf-source-global">from global</span>`;
+        } else if (field.defaultValue !== undefined && field.defaultValue !== null) {
+          sourceBadge = `<span class="sf-source sf-source-default">default</span>`;
+        } else {
+          sourceBadge = `<span class="sf-source sf-source-default">not set</span>`;
+        }
+      }
+
+      fieldsHtml += renderFormField(id, field, rawVal, scope, section, sourceBadge);
     }
 
-    html += `<details class="settings-accordion"${shouldOpen ? ' open' : ''} data-section-idx="${sectionIdx}">
-      <summary>${escapeHtml(section.section)}${badgeHtml}</summary>
-      <div class="settings-accordion-body">${fieldsHtml}</div>
-    </details>`;
+    html += renderSectionAccordion(section, sectionIdx, fieldsHtml, valueCount, shouldOpen);
   });
 
   const container = document.getElementById(containerId);
   container.innerHTML = html;
 
-  // Attach live-preview listeners to all inputs / selects / textareas
+  // Attach live-preview and dirty-tracking listeners
   container.querySelectorAll('input, select, textarea').forEach(el => {
-    el.addEventListener('input', updateSettingsPreview);
-    el.addEventListener('change', updateSettingsPreview);
+    el.addEventListener('input', onSettingsFieldChange);
+    el.addEventListener('change', onSettingsFieldChange);
   });
 }
 
-function renderFormField(id, field, rawVal, scope) {
+function onSettingsFieldChange() {
+  markSettingsDirty();
+  updateSettingsPreview();
+}
+
+function markSettingsDirty() {
+  if (!settingsDirty) {
+    settingsDirty = true;
+    document.getElementById('settingsUnsavedMsg').style.display = 'flex';
+    // Add dot to nav tab
+    const tab = document.querySelector('[data-panel="settings"]');
+    if (tab && !tab.querySelector('.unsaved-dot')) {
+      const dot = document.createElement('span');
+      dot.className = 'unsaved-dot';
+      tab.appendChild(dot);
+    }
+  }
+}
+
+function clearSettingsDirty() {
+  settingsDirty = false;
+  document.getElementById('settingsUnsavedMsg').style.display = 'none';
+  const dot = document.querySelector('[data-panel="settings"] .unsaved-dot');
+  if (dot) dot.remove();
+}
+
+function renderFormField(id, field, rawVal, scope, section, sourceBadge = '') {
   const hintText = formatFieldHint(field, scope);
   const hint = hintText ? `<div class="settings-hint">${escapeHtml(hintText)}</div>` : '';
   const defaultLabel = formatDefaultValue(field.defaultValue);
   const isGlobalScope = scope === 'global';
-  const emptyText = isGlobalScope
-    ? (defaultLabel ? `default: ${defaultLabel}` : '(not set)')
-    : '(inherit from global)';
+
+  // Placeholder: in workspace scope show the inherited/default value if known
+  let emptyText;
+  if (isGlobalScope) {
+    emptyText = defaultLabel ? `default: ${defaultLabel}` : '(not set)';
+  } else {
+    const globalVal = (settingsGlobalConfig && section) ? schemaGetValue(settingsGlobalConfig, section, field.key) : undefined;
+    if (globalVal !== undefined && globalVal !== null) {
+      const display = field.sensitive ? '(set in global)' : (typeof globalVal === 'object' ? JSON.stringify(globalVal) : String(globalVal));
+      emptyText = `inherit: ${display}`;
+    } else if (defaultLabel) {
+      emptyText = `default: ${defaultLabel}`;
+    } else {
+      emptyText = '(not set)';
+    }
+  }
+
+  const headerHtml = `<div class="sf-field-header">
+    <label class="settings-label" for="${id}">
+      <span class="sf-display-name">${escapeHtml(fieldDisplayName(field))}</span>
+      <span class="sf-key">${escapeHtml(field.key)}</span>
+    </label>
+    ${sourceBadge}
+  </div>`;
 
   if (field.type === 'bool') {
-    // Tristate: unset (inherit), true, false
-    let state = ''; // default = inherit
+    let state = '';
     if (rawVal === true || rawVal === 'true') state = 'true';
     else if (rawVal === false || rawVal === 'false') state = 'false';
-    return `<div class="settings-field">
-      <div class="settings-label">${escapeHtml(field.key)}</div>
-      <div class="tristate-toggle" id="${id}" data-value="${state}">
-        <button type="button" class="tristate-btn${state === '' ? ' active' : ''}" data-val=""
-          onclick="tristateSet('${id}','')">${isGlobalScope ? 'default' : 'inherit'}</button>
-        <button type="button" class="tristate-btn${state === 'true' ? ' active' : ''}" data-val="true"
-          onclick="tristateSet('${id}','true')">on</button>
-        <button type="button" class="tristate-btn${state === 'false' ? ' active' : ''}" data-val="false"
-          onclick="tristateSet('${id}','false')">off</button>
+    const inheritLabel = isGlobalScope ? 'Default' : 'Inherit';
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+      ${headerHtml}
+      <div class="sf-tristate" id="${id}" data-value="${state}">
+        <button type="button" class="sf-tristate-opt${state === '' ? ' active' : ''}" data-val=""
+          onclick="tristateSet('${id}','')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="8 17 3 12 8 7"/><polyline points="16 17 21 12 16 7"/></svg>
+          ${inheritLabel}
+        </button>
+        <button type="button" class="sf-tristate-opt${state === 'true' ? ' active' : ''}" data-val="true"
+          onclick="tristateSet('${id}','true')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          On
+        </button>
+        <button type="button" class="sf-tristate-opt${state === 'false' ? ' active' : ''}" data-val="false"
+          onclick="tristateSet('${id}','false')">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Off
+        </button>
       </div>${hint}
     </div>`;
   }
 
   if (field.type === 'password') {
     const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
-    return `<div class="settings-field">
-      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+      ${headerHtml}
       <div class="settings-input-wrap">
         <input class="settings-input" type="password" id="${id}" value="${escapeHtml(val)}"
           placeholder="${escapeHtml(emptyText)}" autocomplete="off">
@@ -2080,16 +2406,16 @@ function renderFormField(id, field, rawVal, scope) {
       const selected = o === val ? ' selected' : '';
       return `<option value="${escapeHtml(o)}"${selected}>${escapeHtml(label)}</option>`;
     }).join('');
-    return `<div class="settings-field">
-      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+      ${headerHtml}
       <select class="settings-select" id="${id}">${options}</select>${hint}
     </div>`;
   }
 
   if (field.type === 'textarea') {
     const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
-    return `<div class="settings-field">
-      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+      ${headerHtml}
       <textarea class="settings-input" id="${id}" rows="3"
         placeholder="${escapeHtml(emptyText)}">${escapeHtml(val)}</textarea>${hint}
     </div>`;
@@ -2100,8 +2426,8 @@ function renderFormField(id, field, rawVal, scope) {
     if (rawVal !== undefined && rawVal !== null) {
       val = typeof rawVal === 'string' ? rawVal : JSON.stringify(rawVal, null, 2);
     }
-    return `<div class="settings-field">
-      <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+      ${headerHtml}
       <textarea class="settings-input settings-json-input" id="${id}" rows="3"
         placeholder="${escapeHtml(isGlobalScope ? (defaultLabel ? `default: ${defaultLabel} (enter valid JSON)` : '(not set, enter valid JSON)') : '(inherit from global, enter valid JSON)')}"
         spellcheck="false">${escapeHtml(val)}</textarea>
@@ -2113,8 +2439,8 @@ function renderFormField(id, field, rawVal, scope) {
   const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
   const minAttr = field.min !== undefined ? ` min="${field.min}"` : '';
   const maxAttr = field.max !== undefined ? ` max="${field.max}"` : '';
-  return `<div class="settings-field">
-    <label class="settings-label" for="${id}">${escapeHtml(field.key)}</label>
+  return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+    ${headerHtml}
     <input class="settings-input" type="${field.type === 'number' ? 'number' : 'text'}"
       id="${id}" value="${escapeHtml(val)}"
       placeholder="${escapeHtml(emptyText)}"${minAttr}${maxAttr}>
@@ -2156,10 +2482,56 @@ function tristateSet(id, val) {
   const el = document.getElementById(id);
   if (!el) return;
   el.dataset.value = val;
-  el.querySelectorAll('.tristate-btn').forEach(btn => {
+  el.querySelectorAll('.sf-tristate-opt').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.val === val);
   });
-  updateSettingsPreview();
+  onSettingsFieldChange();
+}
+
+// ─── SETTINGS SEARCH FILTER ───────────────────────────────────────────────────
+function filterSettings(query) {
+  const q = query.trim().toLowerCase();
+  const container = document.getElementById(
+    settingsActiveTab === 'global' ? 'settingsGlobalBody' : 'settingsFormContainer'
+  );
+  if (!container) return;
+
+  container.querySelectorAll('.sf-accordion').forEach(accordion => {
+    let sectionMatches = false;
+    accordion.querySelectorAll('.settings-field').forEach(field => {
+      const text = field.textContent.toLowerCase();
+      const matches = !q || text.includes(q);
+      field.style.display = matches ? '' : 'none';
+      if (matches) sectionMatches = true;
+    });
+    accordion.style.display = (!q || sectionMatches) ? '' : 'none';
+    if (q && sectionMatches) sfOpen(accordion);
+  });
+}
+
+// ─── SETTINGS TAB SWITCHER (setup mode) ──────────────────────────────────────
+function switchSettingsTab(tab) {
+  settingsActiveTab = tab;
+  document.getElementById('tabWorkspace').classList.toggle('active', tab === 'workspace');
+  document.getElementById('tabGlobal').classList.toggle('active', tab === 'global');
+  document.getElementById('settingsFormContainer').style.display = tab === 'workspace' ? '' : 'none';
+  document.getElementById('settingsGlobalBody').style.display = tab === 'global' ? '' : 'none';
+
+  const pathEl = document.getElementById('settingsActivePath');
+  if (tab === 'workspace') {
+    pathEl.textContent = settingsWorkspacePath || '';
+  } else {
+    pathEl.textContent = settingsGlobalPath || '';
+  }
+
+  // Update save button
+  document.getElementById('settingsSaveBtn').innerHTML =
+    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>` +
+    (settingsSetupMode ? 'Save Global + Workspace' : 'Save Workspace');
+
+  // Clear search
+  const search = document.getElementById('settingsSearch');
+  if (search) { search.value = ''; filterSettings(''); }
 }
 
 // ─── COLLECT EDITABLE FORM ────────────────────────────────────────────────────
@@ -2301,6 +2673,10 @@ function deepClone(value) {
   return value;
 }
 
+// Stored paths for the tab switcher display
+let settingsGlobalPath = '';
+let settingsWorkspacePath = '';
+
 // ─── REFRESH SETTINGS ─────────────────────────────────────────────────────────
 async function refreshSettings() {
   const data = await fetchJson('/config/edit');
@@ -2316,51 +2692,58 @@ async function refreshSettings() {
   settingsWorkspaceConfig = data.workspace || {};
   settingsSetupMode = !!data.setupMode;
   settingsHasApiKey = data.hasApiKey !== false;
+  settingsGlobalPath = data.globalPath || '~/.craft/config.json';
+  settingsWorkspacePath = data.workspacePath || '.craft/config.json';
 
-  if (data.globalPath) {
-    document.getElementById('settingsGlobalPath').textContent = data.globalPath;
-    document.getElementById('settingsGlobalPath').title = data.globalPath;
-  }
-  if (data.workspacePath) {
-    document.getElementById('settingsWorkspacePath').textContent = data.workspacePath;
-    document.getElementById('settingsWorkspacePath').title = data.workspacePath;
+  // Update path display
+  const pathEl = document.getElementById('settingsActivePath');
+  if (pathEl) {
+    pathEl.textContent = settingsActiveTab === 'global' ? settingsGlobalPath : settingsWorkspacePath;
+    pathEl.style.display = '';
   }
 
-  document.getElementById('settingsGlobalTitle').innerHTML = settingsSetupMode
-    ? 'Global Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span>'
-    : 'Global Config <span style="font-weight:400;color:var(--text-muted)">(read-only)</span>';
-  document.getElementById('settingsWorkspaceTitle').innerHTML =
-    'Workspace Config <span style="font-weight:400;color:var(--text-muted)">(editable)</span>';
-  document.getElementById('settingsSaveBtn').innerHTML = settingsSetupMode
-    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Global + Workspace'
-    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Workspace';
+  // Setup mode: show tab switcher and make global editable
+  const tabSwitcher = document.getElementById('settingsTabSwitcher');
+  if (tabSwitcher) tabSwitcher.style.display = settingsSetupMode ? 'flex' : 'none';
+
+  // Update save button label
+  const saveBtn = document.getElementById('settingsSaveBtn');
+  const saveSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
+  saveBtn.innerHTML = saveSvg + (settingsSetupMode ? 'Save Global + Workspace' : 'Save Workspace');
+
   document.getElementById('setupBanner').style.display = settingsSetupMode ? '' : 'none';
 
+  // Render forms
   if (settingsSetupMode) {
     renderEditableForm('settingsGlobalBody', settingsGlobalConfig, 'global');
+    // Default to workspace tab in setup mode
+    settingsActiveTab = 'workspace';
+    document.getElementById('settingsGlobalBody').style.display = 'none';
+    document.getElementById('settingsFormContainer').style.display = '';
   } else {
     renderGlobalPanel(settingsGlobalConfig);
+    document.getElementById('settingsGlobalBody').style.display = 'none';
+    document.getElementById('settingsFormContainer').style.display = '';
   }
   renderEditableForm('settingsFormContainer', settingsWorkspaceConfig, 'workspace');
   updateSettingsPreview();
+  clearSettingsDirty();
   applySetupModeUi();
   return data;
 }
 
-// ─── SAVE / RESTART ───────────────────────────────────────────────────────────
+// ─── SAVE ─────────────────────────────────────────────────────────────────────
 async function saveSettings() {
-  const statusEl = document.getElementById('settingsStatus');
   const workspaceData = collectForm('workspace');
   const globalData = settingsSetupMode ? collectForm('global') : null;
 
   if (workspaceData === null || (settingsSetupMode && globalData === null)) {
-    statusEl.textContent = 'Fix JSON errors before saving.';
-    statusEl.className = 'settings-status error';
+    showToast('Fix JSON errors before saving.', 'error');
     return;
   }
 
-  statusEl.textContent = 'Saving...';
-  statusEl.className = 'settings-status';
+  const saveBtn = document.getElementById('settingsSaveBtn');
+  saveBtn.disabled = true;
 
   try {
     if (settingsSetupMode) {
@@ -2371,8 +2754,7 @@ async function saveSettings() {
       });
       if (!globalRes.ok) {
         const err = await globalRes.json().catch(() => ({}));
-        statusEl.textContent = 'Global save failed: ' + (err.error || globalRes.status);
-        statusEl.className = 'settings-status error';
+        showToast('Global save failed: ' + (err.error || globalRes.status), 'error');
         return;
       }
     }
@@ -2384,24 +2766,22 @@ async function saveSettings() {
     });
 
     if (workspaceRes.ok) {
-      statusEl.textContent = settingsSetupMode
-        ? 'Global and workspace config saved. Please restart DotCraft manually.'
-        : 'Workspace config saved. Please restart DotCraft manually to apply changes.';
-      statusEl.className = 'settings-status success';
+      const msg = settingsSetupMode
+        ? 'Saved. Please restart DotCraft to apply changes.'
+        : 'Workspace config saved. Please restart DotCraft to apply.';
+      showToast(msg, 'success');
       settingsGlobalConfig = globalData ?? settingsGlobalConfig;
       settingsWorkspaceConfig = workspaceData;
       await refreshSettings();
     } else {
       const err = await workspaceRes.json().catch(() => ({}));
-      statusEl.textContent = 'Workspace save failed: ' + (err.error || workspaceRes.status);
-      statusEl.className = 'settings-status error';
+      showToast('Workspace save failed: ' + (err.error || workspaceRes.status), 'error');
     }
   } catch (e) {
-    statusEl.textContent = 'Save failed: ' + e.message;
-    statusEl.className = 'settings-status error';
+    showToast('Save failed: ' + e.message, 'error');
+  } finally {
+    saveBtn.disabled = false;
   }
-
-  setTimeout(() => { statusEl.textContent = ''; }, 8000);
 }
 
 function cancelSettings() {
@@ -2412,7 +2792,7 @@ function cancelSettings() {
     renderEditableForm('settingsFormContainer', settingsWorkspaceConfig, 'workspace');
     updateSettingsPreview();
   }
-  document.getElementById('settingsStatus').textContent = '';
+  clearSettingsDirty();
 }
 
 function applySetupModeUi() {
@@ -2521,26 +2901,22 @@ async function refreshGithubTracker() {
     if (!data.running || data.running.length === 0) {
       runningEl.innerHTML = '<div class="empty-state">No agents currently running.</div>';
     } else {
-      let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
-      html += '<thead><tr style="color:var(--text-secondary)">';
-      html += '<th style="padding:6px 8px;text-align:left">Issue</th>';
-      html += '<th style="padding:6px 8px;text-align:left">State</th>';
-      html += '<th style="padding:6px 8px;text-align:left">Session</th>';
-      html += '<th style="padding:6px 8px;text-align:right">Turns</th>';
-      html += '<th style="padding:6px 8px;text-align:right">Tokens</th>';
-      html += '<th style="padding:6px 8px;text-align:left">Last Event</th>';
+      let html = '<table class="config-table">';
+      html += '<thead><tr>';
+      html += '<th>Issue</th><th>State</th><th>Session</th>';
+      html += '<th style="text-align:right">Turns</th><th style="text-align:right">Tokens</th><th>Last Event</th>';
       html += '</tr></thead><tbody>';
       for (const r of data.running) {
         const sessionLink = r.sessionId
-          ? `<a href="#" onclick="openSession('${r.sessionId}');return false;" style="color:var(--accent)">${r.sessionId}</a>`
+          ? `<a href="#" onclick="openSession('${r.sessionId}');return false;" class="text-accent">${r.sessionId}</a>`
           : '-';
-        html += `<tr style="border-top:1px solid var(--border)">`;
-        html += `<td style="padding:6px 8px;font-weight:500">${r.identifier}</td>`;
-        html += `<td style="padding:6px 8px"><span style="font-size:11px;padding:2px 6px;border-radius:3px;background:var(--surface-2)">${r.state || '-'}</span></td>`;
-        html += `<td style="padding:6px 8px;font-size:12px">${sessionLink}</td>`;
-        html += `<td style="padding:6px 8px;text-align:right">${r.turnCount ?? 0}</td>`;
-        html += `<td style="padding:6px 8px;text-align:right">${fmtTokens(r.totalTokens)}</td>`;
-        html += `<td style="padding:6px 8px;font-size:12px;color:var(--text-secondary)">${r.lastEvent || '-'}</td>`;
+        html += `<tr>`;
+        html += `<td style="font-weight:500">${r.identifier}</td>`;
+        html += `<td><span class="badge badge-info">${r.state || '-'}</span></td>`;
+        html += `<td style="font-size:12px">${sessionLink}</td>`;
+        html += `<td style="text-align:right">${r.turnCount ?? 0}</td>`;
+        html += `<td style="text-align:right">${fmtTokens(r.totalTokens)}</td>`;
+        html += `<td style="font-size:12px;color:var(--text-secondary)">${r.lastEvent || '-'}</td>`;
         html += '</tr>';
       }
       html += '</tbody></table>';
@@ -2551,19 +2927,16 @@ async function refreshGithubTracker() {
     if (!data.retrying || data.retrying.length === 0) {
       retryEl.innerHTML = '<div class="empty-state">No issues queued for retry.</div>';
     } else {
-      let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
-      html += '<thead><tr style="color:var(--text-secondary)">';
-      html += '<th style="padding:6px 8px;text-align:left">Issue</th>';
-      html += '<th style="padding:6px 8px;text-align:right">Attempt</th>';
-      html += '<th style="padding:6px 8px;text-align:left">Due In</th>';
-      html += '<th style="padding:6px 8px;text-align:left">Reason</th>';
+      let html = '<table class="config-table">';
+      html += '<thead><tr>';
+      html += '<th>Issue</th><th style="text-align:right">Attempt</th><th>Due In</th><th>Reason</th>';
       html += '</tr></thead><tbody>';
       for (const r of data.retrying) {
-        html += `<tr style="border-top:1px solid var(--border)">`;
-        html += `<td style="padding:6px 8px;font-weight:500">${r.identifier}</td>`;
-        html += `<td style="padding:6px 8px;text-align:right">${r.attempt}</td>`;
-        html += `<td style="padding:6px 8px">${fmtRelative(r.dueAtMs)}</td>`;
-        html += `<td style="padding:6px 8px;color:var(--text-secondary);font-size:12px">${r.error || '-'}</td>`;
+        html += `<tr>`;
+        html += `<td style="font-weight:500">${r.identifier}</td>`;
+        html += `<td style="text-align:right">${r.attempt}</td>`;
+        html += `<td>${fmtRelative(r.dueAtMs)}</td>`;
+        html += `<td style="color:var(--text-secondary);font-size:12px">${r.error || '-'}</td>`;
         html += '</tr>';
       }
       html += '</tbody></table>';

@@ -120,6 +120,7 @@ public static class ConfigSchemaBuilder
         return new ConfigSchemaField
         {
             Key = prop.Name,
+            DisplayName = attr?.DisplayName,
             Type = inferredType,
             Sensitive = attr?.Sensitive ?? false,
             Options = options,
