@@ -3,7 +3,7 @@
 // Phase 3: Approval overlay key handling, ApprovalDecision action.
 // Phase 4: ThreadPicker overlay, HelpOverlay, F1/? global binding.
 
-use crate::app::state::{AppState, FocusTarget};
+use crate::app::state::{AppState, FocusTarget, TurnStatus};
 
 /// Actions available in the ThreadPicker overlay.
 #[derive(Debug)]
@@ -51,6 +51,14 @@ pub fn handle_key(state: &mut AppState, key: crossterm::event::KeyEvent) -> Inpu
             KeyCode::Char('l') => return InputAction::ForceRedraw,
             _ => {}
         }
+    }
+
+    // Global: Esc interrupts a running or approval-waiting turn.
+    if key.code == KeyCode::Esc
+        && (state.turn_status == TurnStatus::Running
+            || state.turn_status == TurnStatus::WaitingApproval)
+    {
+        return InputAction::Interrupt;
     }
 
     // Shift+Tab (BackTab) toggles Agent/Plan mode from any focus.

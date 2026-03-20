@@ -153,14 +153,20 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     }
                 }
                 "toolCall" | "toolResult" => {
-                    // Fields are nested inside item.payload per the wire protocol spec.
+                    // The wire protocol sends two separate item/completed events per tool:
+                    //   1. type="toolCall"   — the call completed; payload has no result
+                    //   2. type="toolResult" — the result arrived; payload has the result text
+                    //
+                    // We handle them in order:
+                    //   - toolCall:   update the ActiveToolCall and move it to history
+                    //   - toolResult: if the tool is still in active_tools, update it there;
+                    //                 if it was already moved to history, patch the history entry
                     let payload = item.get("payload").unwrap_or(item);
                     let call_id = payload
                         .get("callId")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    // ToolResultPayload uses `result` (string) and `success` (bool).
                     let success = payload
                         .get("success")
                         .and_then(|v| v.as_bool())
@@ -170,13 +176,13 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         .and_then(|v| v.as_str())
                         .map(str::to_string)
                         .or_else(|| {
-                            // Fallback: try "output" or stringify any non-null value.
                             payload
                                 .get("output")
                                 .and_then(|v| v.as_str())
                                 .map(str::to_string)
                         });
 
+                    // Update the ActiveToolCall if it is still in the streaming list.
                     if let Some(tool) = state
                         .streaming
                         .active_tools
@@ -187,24 +193,55 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         tool.duration = Some(now.duration_since(tool.started_at));
                         tool.completed = true;
                         tool.success = success;
-                        tool.result = result_text.as_ref().map(|r| r.clone());
+                        if result_text.is_some() {
+                            tool.result = result_text.clone();
+                        }
                     }
 
-                    // Move completed tools to history.
-                    if let Some(pos) = state
-                        .streaming
-                        .active_tools
-                        .iter()
-                        .position(|t| t.call_id == call_id && t.completed)
-                    {
-                        let tool = state.streaming.active_tools.remove(pos);
-                        state.history.push(HistoryEntry::ToolCall {
-                            name: tool.tool_name,
-                            args: tool.arguments,
-                            result: tool.result,
-                            success: tool.success,
-                            duration: tool.duration,
-                        });
+                    // toolCall completion: move the entry to committed history.
+                    if item_type == "toolCall" {
+                        if let Some(pos) = state
+                            .streaming
+                            .active_tools
+                            .iter()
+                            .position(|t| t.call_id == call_id && t.completed)
+                        {
+                            let tool = state.streaming.active_tools.remove(pos);
+                            state.history.push(HistoryEntry::ToolCall {
+                                name: tool.tool_name,
+                                args: tool.arguments,
+                                result: tool.result,
+                                success: tool.success,
+                                duration: tool.duration,
+                            });
+                        }
+                    }
+
+                    // toolResult completion: the result arrives after the toolCall event has
+                    // already moved the entry to history. Patch the most recent ToolCall
+                    // history entry that has no result yet.
+                    if item_type == "toolResult" {
+                        let still_active = state
+                            .streaming
+                            .active_tools
+                            .iter()
+                            .any(|t| t.call_id == call_id);
+                        if !still_active {
+                            for entry in state.history.iter_mut().rev() {
+                                if let HistoryEntry::ToolCall {
+                                    result: ref mut r,
+                                    success: ref mut s,
+                                    ..
+                                } = entry
+                                {
+                                    if r.is_none() {
+                                        *r = result_text;
+                                        *s = success;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 _ => {}
