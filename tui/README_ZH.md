@@ -4,6 +4,8 @@
 
 DotCraft 的 Rust 原生终端界面，基于 [Ratatui](https://ratatui.rs/) 构建，通过 Wire Protocol（JSON-RPC）连接 DotCraft AppServer，在终端中提供完整的 AI Agent 交互体验。
 
+> **设计灵感**：本 TUI 界面设计参考了 [OpenAI Codex CLI](https://github.com/openai/codex)，这是一款优秀的开源终端 AI Agent。
+
 ## 功能特性
 
 | 功能 | 说明 |

@@ -12,6 +12,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
+use unicode_width::UnicodeWidthChar;
 
 pub struct ThreadPicker<'a> {
     pub picker: &'a ThreadPickerState,
@@ -129,20 +130,13 @@ impl Widget for ThreadPicker<'_> {
                 other => Span::styled(format!(" [{other}] "), self.theme.dim),
             };
 
-            // Truncate name to fit: width - badge(~12) - prefix(2)
-            let max_name = list_width.saturating_sub(20);
-            let display_name = if name.len() > max_name {
-                format!("{}…", &name[..max_name.saturating_sub(1)])
-            } else {
-                name.to_string()
-            };
+            // Truncate name to fit: width - badge(~12) - prefix(~2) - date(~10)
+            let max_name = list_width.saturating_sub(24);
+            let display_name = truncate_display_width(name, max_name);
 
-            // Time — truncated ISO timestamp or just the date portion.
-            let time_str = if thread.last_active_at.len() >= 10 {
-                &thread.last_active_at[..10]
-            } else {
-                thread.last_active_at.as_str()
-            };
+            // Time — first 10 chars of ISO timestamp (the date portion).
+            // Use char-boundary-safe truncation to avoid panics on non-ASCII timestamps.
+            let time_str: String = thread.last_active_at.chars().take(10).collect();
 
             let prefix = if is_selected { "► " } else { "  " };
             let name_style = if is_selected {
@@ -161,4 +155,24 @@ impl Widget for ThreadPicker<'_> {
 
         Paragraph::new(lines).render(list_area, buf);
     }
+}
+
+/// Truncate `s` to at most `max_cols` display columns, appending '…' if truncated.
+/// Uses per-character display width so CJK and other wide characters are handled safely.
+fn truncate_display_width(s: &str, max_cols: usize) -> String {
+    if max_cols == 0 {
+        return String::new();
+    }
+    let mut width: usize = 0;
+    let mut out = String::new();
+    for c in s.chars() {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        if width + cw > max_cols.saturating_sub(1) {
+            out.push('…');
+            return out;
+        }
+        out.push(c);
+        width += cw;
+    }
+    out
 }

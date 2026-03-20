@@ -1,5 +1,5 @@
 // ChatView widget — scrollable conversation history (§8.3 of specs/tui-client.md).
-// Codex-inspired design: Calling/Called tool format, elapsed time, adaptive wrapping,
+// Design: Calling/Called tool format, elapsed time, adaptive wrapping,
 // default-visible result summaries, inline SubAgent block, inline Plan block.
 
 use crate::{
@@ -226,7 +226,7 @@ impl ChatView<'_> {
         }
     }
 
-    // ── Tool call rendering (Codex-style) ─────────────────────────────────
+    // ── Tool call rendering ────────────────────────────────────────────────
 
     /// Format tool call arguments as a compact inline invocation.
     fn format_invocation(name: &str, args: &str) -> String {

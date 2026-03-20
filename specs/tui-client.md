@@ -9,6 +9,12 @@
 
 Purpose: Define the architecture, UI structure, event mapping, and behavioral contract for `dotcraft-tui`, a Rust-based terminal user interface built on [Ratatui](https://ratatui.rs/) that connects to the DotCraft AppServer via the Wire Protocol. This TUI is a standalone alternative to the built-in C# CLI, offering richer interaction, higher rendering performance, and cross-platform single-binary distribution.
 
+## Credits
+
+The DotCraft TUI interface design is inspired by [OpenAI Codex CLI](https://github.com/openai/codex), an excellent open-source terminal AI agent by OpenAI. 
+
+We thank the Codex team for their pioneering work in terminal AI agent UX.
+
 ---
 
 ## Table of Contents

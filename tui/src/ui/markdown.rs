@@ -1,6 +1,6 @@
 // Markdown-to-styled-terminal-text renderer.
 // Uses pulldown-cmark for parsing and syntect (via ui::highlight) for code blocks.
-// Key improvement over Codex: full table rendering with Unicode box-drawing.
+// Supports full table rendering with Unicode box-drawing characters.
 
 use crate::{theme::Theme, ui::highlight};
 use pulldown_cmark::{Alignment, Event, HeadingLevel, Options, Parser, Tag, TagEnd};

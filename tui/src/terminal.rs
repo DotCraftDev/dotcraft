@@ -1,5 +1,4 @@
 // Terminal lifecycle helpers: init, restore, and panic hook.
-// Modeled after Codex TUI's tui.rs (lines 62-83, 127-144).
 
 use anyhow::Result;
 use crossterm::{

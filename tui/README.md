@@ -4,6 +4,8 @@
 
 Rust-native terminal interface for DotCraft, built on [Ratatui](https://ratatui.rs/). Connects to the DotCraft AppServer over the Wire Protocol (JSON-RPC) and provides a full-featured AI Agent interaction experience in the terminal.
 
+> **Design Inspiration**: The TUI interface design is inspired by [OpenAI Codex CLI](https://github.com/openai/codex), an excellent open-source terminal AI agent.
+
 ## Features
 
 | Feature | Description |

@@ -13,6 +13,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Widget, Wrap},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Width of the mode gutter prefix ("❯ " or "✎ ").
 const GUTTER_COLS: u16 = 2;
@@ -28,10 +29,20 @@ impl<'a> InputEditor<'a> {
         Self { state, theme, strings }
     }
 
-    /// Preferred height: content lines only (no separator row).
-    /// Min 1, max 10.
-    pub fn preferred_height(state: &AppState) -> u16 {
-        (state.input_line_count().max(1) as u16).clamp(1, 10)
+    /// Preferred height accounting for visual line wrapping and CJK wide characters.
+    /// `area_width` is the full terminal width; GUTTER_COLS are subtracted internally.
+    /// Min 1 row, max 10 rows.
+    pub fn preferred_height(state: &AppState, area_width: u16) -> u16 {
+        let inner_w = area_width.saturating_sub(GUTTER_COLS).max(1) as usize;
+        let text = &state.input_text;
+        let mut visual_rows: usize = 0;
+        // split('\n') correctly yields a trailing empty segment for a trailing newline,
+        // unlike str::lines() which strips it.
+        for logical_line in text.split('\n') {
+            let w = logical_line.width();
+            visual_rows += if w == 0 { 1 } else { (w + inner_w - 1) / inner_w };
+        }
+        (visual_rows.max(1) as u16).clamp(1, 10)
     }
 }
 
@@ -87,20 +98,35 @@ impl Widget for InputEditor<'_> {
     }
 }
 
-/// Compute 2D cursor position (row, col) from a flat byte offset in a multi-line string.
-/// `col` is the display-column offset (CJK characters count as 2 columns).
-pub fn offset_to_2d(text: &str, byte_offset: usize) -> (u16, u16) {
+/// Compute 2D cursor position (row, col) from a flat byte offset in a multi-line string,
+/// accounting for visual line wrapping at `inner_width` display columns.
+///
+/// `inner_width` is the text area width after subtracting the gutter (GUTTER_COLS).
+/// CJK and other wide characters count as 2 display columns each.
+pub fn offset_to_2d(text: &str, byte_offset: usize, inner_width: u16) -> (u16, u16) {
+    let iw = inner_width.max(1) as usize;
     let safe_offset = byte_offset.min(text.len());
-    let prefix = &text[..safe_offset];
-    let row = prefix.matches('\n').count() as u16;
+    let mut row: usize = 0;
+    let mut col_width: usize = 0;
 
-    let line_text = match prefix.rfind('\n') {
-        Some(pos) => &prefix[pos + 1..],
-        None => prefix,
-    };
+    for (i, c) in text.char_indices() {
+        if i >= safe_offset {
+            break;
+        }
+        if c == '\n' {
+            row += 1;
+            col_width = 0;
+        } else {
+            let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+            if col_width + cw > iw {
+                // Character would overflow this visual row; wrap to next.
+                row += 1;
+                col_width = cw;
+            } else {
+                col_width += cw;
+            }
+        }
+    }
 
-    use unicode_width::UnicodeWidthStr;
-    let col = line_text.width() as u16;
-
-    (row, col)
+    (row as u16, col_width as u16)
 }

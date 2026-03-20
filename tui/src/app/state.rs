@@ -273,8 +273,14 @@ impl AppState {
         }
     }
 
-    /// Returns the number of input text lines (for dynamic editor height).
+    /// Returns the number of logical lines in the input text.
+    /// str::lines() ignores a trailing newline, so we count '\n' directly:
+    /// N newlines always means N+1 lines.
     pub fn input_line_count(&self) -> usize {
-        self.input_text.lines().count().max(1)
+        if self.input_text.is_empty() {
+            1
+        } else {
+            self.input_text.chars().filter(|&c| c == '\n').count() + 1
+        }
     }
 }

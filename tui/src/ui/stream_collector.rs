@@ -1,8 +1,8 @@
 // Streaming markdown collector.
 // Implements incremental rendering of agent message deltas:
-//   - Lines are committed only when a newline completes them (same logic as Codex).
-//   - Improvement over Codex: the partial (incomplete) last line is rendered dimmed
-//     as a "typing" indicator so the user sees characters as they arrive.
+//   - Lines are committed only when a newline completes them.
+//   - The partial (incomplete) last line is rendered dimmed as a "typing"
+//     indicator so the user sees characters as they arrive.
 
 use crate::{theme::Theme, ui::markdown};
 use ratatui::{

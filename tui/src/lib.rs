@@ -1121,7 +1121,7 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
         let area = frame.area();
         let is_running = state.turn_status == TurnStatus::Running;
         let has_pending = !state.pending_input.is_empty();
-        let input_h = InputEditor::preferred_height(state);
+        let input_h = InputEditor::preferred_height(state, area.width);
         let status_h = StatusIndicator::preferred_height(state);
         let zones = layout::compute(area, is_running, has_pending, input_h, status_h);
 
@@ -1170,9 +1170,10 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
             && state.active_overlay.is_none()
             && state.turn_status == TurnStatus::Idle
         {
-            let (row, col) = ui::input_editor::offset_to_2d(&state.input_text, state.input_cursor);
-            // Gutter is 2 cols wide. No separator offset (removed).
-            let cursor_x = zones.input_editor.x + 2 + col.min(zones.input_editor.width.saturating_sub(3));
+            // 2 = gutter width ("❯ " / "✎ ")
+            let inner_w = zones.input_editor.width.saturating_sub(2);
+            let (row, col) = ui::input_editor::offset_to_2d(&state.input_text, state.input_cursor, inner_w);
+            let cursor_x = zones.input_editor.x + 2 + col.min(inner_w.saturating_sub(1));
             let cursor_y = zones.input_editor.y + row.min(zones.input_editor.height.saturating_sub(1));
             frame.set_cursor_position((cursor_x, cursor_y));
         }
