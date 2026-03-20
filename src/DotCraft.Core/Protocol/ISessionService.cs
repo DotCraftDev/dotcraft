@@ -126,6 +126,14 @@ public interface ISessionService
     Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default);
 
     /// <summary>
+    /// Loads the Thread into the in-memory cache (same as <see cref="GetThreadAsync"/>)
+    /// and ensures the per-thread agent is built when <see cref="SessionThread.Configuration"/> is non-null.
+    /// Does not change thread status, persist, or emit <c>thread/resumed</c>.
+    /// Use before turn execution when the thread may have been loaded from disk only (e.g. after host restart).
+    /// </summary>
+    Task<SessionThread> EnsureThreadLoadedAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
     /// Permanently deletes a Thread and all its associated files from disk.
     /// Unlike <see cref="ArchiveThreadAsync"/>, this operation is irreversible.
     /// </summary>

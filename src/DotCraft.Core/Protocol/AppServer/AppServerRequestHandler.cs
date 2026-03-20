@@ -389,6 +389,10 @@ public sealed class AppServerRequestHandler(
 
         using var channelScope = channelScopeInfo != null ? ChannelSessionScope.Set(channelScopeInfo) : null;
 
+        // Ensure thread is loaded into memory (may only exist on disk after server restart)
+        // and per-thread Configuration agent/MCP is hydrated (GetThreadAsync alone does not rebuild agents).
+        await sessionService.EnsureThreadLoadedAsync(p.ThreadId, ct);
+
         var events = sessionService.SubmitInputAsync(p.ThreadId, content, p.Sender, messages, ct);
         var dispatcher = new AppServerEventDispatcher(
             events, connection, transport, sessionService, OnTurnStarted,

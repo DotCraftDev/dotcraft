@@ -443,6 +443,9 @@ internal sealed class FakeSessionService : ISessionService
     public async Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default) =>
         await GetOrLoadAsync(threadId, ct);
 
+    public Task<SessionThread> EnsureThreadLoadedAsync(string threadId, CancellationToken ct = default) =>
+        GetThreadAsync(threadId, ct);
+
     public IAsyncEnumerable<SessionEvent> SubmitInputAsync(
         string threadId, IList<AIContent> content, SenderContext? sender = null,
         ChatMessage[]? messages = null, CancellationToken ct = default) =>

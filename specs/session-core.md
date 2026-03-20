@@ -750,7 +750,9 @@ The adapter is not a new public framework interface. It is an internal part of a
 The normative contract is intentionally small:
 
 - `CreateThread` / `ResumeThread` / `FindThreads` define thread lifecycle at the transport boundary.
-- `SubmitInput` starts a turn and returns the authoritative event stream for that turn.
+- `GetThread` returns persisted thread state and may load the thread into the in-process cache **without** rebuilding execution resources (e.g. per-thread MCP connections).
+- `EnsureThreadLoaded` (or an equivalent internal step before turn execution) loads the thread like `GetThread` and, when `Thread.Configuration` is non-null, ensures the effective agent for that thread matches the persisted configuration. It does **not** change thread status or emit `thread/resumed`. Session Core uses this on turn execution paths when the thread may exist only on disk or was cached without agent hydration (e.g. after host restart).
+- `SubmitInput` starts a turn and returns the authoritative event stream for that turn. Before running the agent, Session Core must ensure per-thread configuration (mode, MCP, etc.) has been applied when `Configuration` is present—same outcome as loading via `ResumeThread` from disk.
 - `ResolveApproval` and `CancelTurn` let the adapter participate in interactive control flow.
 - `SetThreadMode` and `UpdateThreadConfiguration` support per-thread behavior where a channel exposes it.
 
@@ -1096,6 +1098,7 @@ For each migrated channel:
 - Thread archive disconnects per-thread MCP servers
 - Thread without configuration uses workspace defaults
 - ACP extensions recorded in `Thread.Configuration.Extensions`
+- Simulated host restart (new Session Core instance, same persistence): a thread with non-null `Thread.Configuration` is loaded from disk; `EnsureThreadLoaded` (or turn start) hydrates the per-thread agent so turns do not fall back to workspace-default agent-only behavior
 
 ### 13.6 Social Channel Conformance Tests (Section 17)
 
@@ -1212,7 +1215,7 @@ Each agent mode defines a **mode-specific tool set** that is injected (or remove
 
 MCP server connections are thread-scoped, not turn-scoped:
 
-- **Connect**: When a thread is created with `McpServers`, Session Core connects those servers and adds their tools.
+- **Connect**: When a thread is created with `McpServers`, Session Core connects those servers and adds their tools. The same applies when a thread with persisted `McpServers` is prepared for turn execution after a cold load (e.g. via `ResumeThread` from disk or `EnsureThreadLoaded` before `SubmitInput`). Purely read-only operations (`GetThread`, thread discovery) must not connect MCP servers solely because thread metadata was loaded.
 - **Disconnect**: When a thread is archived or its MCP configuration changes, Session Core disconnects the previous servers.
 - **Lifecycle**: MCP connections live as long as the thread remains active.
 

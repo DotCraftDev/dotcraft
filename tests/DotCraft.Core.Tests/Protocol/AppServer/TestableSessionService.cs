@@ -122,6 +122,9 @@ internal sealed class TestableSessionService : ISessionService
     public async Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default) =>
         await GetOrLoadAsync(threadId, ct);
 
+    public Task<SessionThread> EnsureThreadLoadedAsync(string threadId, CancellationToken ct = default) =>
+        GetThreadAsync(threadId, ct);
+
     public Task SetThreadModeAsync(string threadId, string mode, CancellationToken ct = default) =>
         Task.CompletedTask;
 

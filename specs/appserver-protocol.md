@@ -361,6 +361,8 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 
 **Result**: `{ "thread": Thread }` — the thread object, with `turns` populated if requested.
 
+**Semantics**: `thread/read` may load the thread into the server’s in-memory cache for discovery UX, but it is a **read-only** operation: it does not connect MCP servers or rebuild the execution-time agent from `thread.configuration`. Per [Session Core](session-core.md), that hydration happens when a turn is executed — the server runs an ensure-loaded step inside `turn/start` before agent work begins.
+
 ### 4.5 `thread/subscribe`
 
 Subscribe the current connection to future lifecycle events for a thread. Multiple passive subscribers may observe the same thread concurrently.
@@ -481,6 +483,8 @@ Turn methods correspond to `ISessionService` turn lifecycle operations defined i
 ### 5.1 `turn/start`
 
 Submit user input to a thread and begin agent execution. The server creates a new Turn, records the user input as a `UserMessage` Item, and starts the agent.
+
+Before starting the agent, the server **must** ensure the in-memory thread is loaded from persistence if needed and that any persisted `thread.configuration` (mode, MCP servers, etc.) is applied to the execution-time agent, so turns do not silently use workspace-default tooling after a cold load or when only `thread/read` was used earlier ([Session Core](session-core.md) `EnsureThreadLoaded`).
 
 The response is returned **immediately** with the initial Turn object (status `"running"`, empty `items`). The agent's output then streams as notifications: `turn/started`, followed by `item/*` events, and finally `turn/completed` (or `turn/failed` / `turn/cancelled`).
 
