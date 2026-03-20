@@ -3,7 +3,7 @@ name = "dotcraft-tui"
 version = "0.1.0"
 edition = "2021"
 description = "DotCraft terminal user interface built on Ratatui"
-license = "MIT"
+license = "Apache-2.0"
 
 [[bin]]
 name = "dotcraft-tui"

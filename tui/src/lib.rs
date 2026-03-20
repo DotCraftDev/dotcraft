@@ -410,8 +410,9 @@ async fn handle_terminal_event(
             }
         }
         CrosstermEvent::Paste(text) => {
-            state.input_text.push_str(&text);
-            state.input_cursor = state.input_text.len();
+            state.input_text.insert_str(state.input_cursor, &text);
+            state.input_cursor += text.len();
+        }
         }
         CrosstermEvent::Resize(_w, _h) => {
             // Ratatui redraws at new size automatically on next tick.
@@ -498,6 +499,12 @@ async fn handle_interrupt(wire: &mut WireClient, state: &mut AppState) -> Result
     let now = Instant::now();
 
     if state.turn_status == TurnStatus::Running || state.turn_status == TurnStatus::WaitingApproval {
+        // Double Ctrl+C within 1 second exits even while a turn is running.
+        if let Some(last) = state.last_interrupt_at {
+            if now.duration_since(last) < Duration::from_secs(1) {
+                return Ok(true);
+            }
+        }
         if let Some(thread_id) = &state.current_thread_id.clone() {
             let params = serde_json::json!({
                 "threadId": thread_id,
@@ -507,6 +514,7 @@ async fn handle_interrupt(wire: &mut WireClient, state: &mut AppState) -> Result
         }
         state.last_interrupt_at = Some(now);
         return Ok(false);
+    }
     }
 
     if let Some(last) = state.last_interrupt_at {
