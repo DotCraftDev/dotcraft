@@ -74,7 +74,7 @@ This boundary is intentional. DotCraft does **not** attempt to force client-owne
 
 ### 3.1 Main Components
 
-1. **Session Core** (`DotCraft.Core.Sessions`)
+1. **Session Core** (`DotCraft.Protocol`)
    - Owns Thread/Turn/Item lifecycle and state machines.
    - Wraps the agent execution pipeline (`AgentFactory` + `RunStreamingAsync`).
    - Emits a structured event stream consumed by adapters.
@@ -87,12 +87,12 @@ This boundary is intentional. DotCraft does **not** attempt to force client-owne
    - Handle channel-specific concerns: authentication, message formatting, rate limiting.
    - Implement approval routing by translating `ApprovalRequest` Items into channel UX.
 
-3. **Persistence Layer** (`DotCraft.Core.Sessions`)
+3. **Persistence Layer** (`DotCraft.Protocol`)
    - Serializes thread state to `.craft/threads/{threadId}.json`.
    - Serializes agent history to `.craft/threads/{threadId}.session.json`.
    - Provides thread discovery and session reconstruction on resume.
 
-4. **Event stream** (in-process, `DotCraft.Core.Sessions`)
+4. **Event stream** (in-process, `DotCraft.Protocol`)
    - Delivers Session Core events to the active channel adapter.
    - Per-thread event stream: each Thread has one active consumer.
    - Delivery is decoupled from channel rendering.

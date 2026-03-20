@@ -113,12 +113,10 @@ public sealed class QQChannelService(
         var scopedApproval = new SessionScopedApprovalService(qqApprovalService);
         var agentFactory = BuildAgentFactory(scopedApproval);
         var agent = agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var traceCollector = sp.GetService<TraceCollector>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
 
         var activeRunRegistry = sp.GetRequiredService<ActiveRunRegistry>();
         var customCommandLoader = sp.GetService<CustomCommandLoader>();
-        var hookRunner = sp.GetService<HookRunner>();
         var sessionService = SessionServiceFactory.Create(agentFactory, agent, sp);
         _adapter = new QQChannelAdapter(
             qqClient,
@@ -152,7 +150,11 @@ public sealed class QQChannelService(
 
     /// <inheritdoc />
     public IReadOnlyList<string> GetAdminTargets()
-        => config.GetSection<QQBotConfig>("QQBot").AdminUsers.Select(id => id.ToString()).ToList();
+    {
+        return config.GetSection<QQBotConfig>("QQBot").AdminUsers
+            .Select(id => id.ToString())
+            .ToList();
+    }
 
     public async Task DeliverMessageAsync(string target, string content)
     {
