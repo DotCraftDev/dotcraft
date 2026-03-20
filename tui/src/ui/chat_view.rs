@@ -524,10 +524,17 @@ impl ChatView<'_> {
 }
 
 /// Truncate `s` to at most `max_cols` display columns. Appends '…' if truncated.
+/// Truncate `s` to at most `max_cols` display columns. Appends '…' if truncated.
 fn truncate(s: &str, max_cols: usize) -> String {
     if max_cols == 0 {
         return String::new();
     }
+    // First check if the string fits without truncation.
+    let total_width: usize = s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+    if total_width <= max_cols {
+        return s.to_string();
+    }
+    // Doesn't fit — truncate and append '…'.
     let mut width: usize = 0;
     let mut out = String::new();
     for c in s.chars() {
