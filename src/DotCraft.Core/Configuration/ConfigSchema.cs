@@ -31,7 +31,13 @@ public sealed class ConfigSchemaSection
     public string? RootKey { get; init; }
 
     /// <summary>
-    /// Fields in this section.
+    /// When non-null, this section is a homogeneous JSON array at <see cref="RootKey"/>;
+    /// each element's shape is described by these fields (structured list editor in the Dashboard).
+    /// </summary>
+    public List<ConfigSchemaField>? ItemFields { get; init; }
+
+    /// <summary>
+    /// Fields in this section (empty when <see cref="ItemFields"/> is used).
     /// </summary>
     public required List<ConfigSchemaField> Fields { get; init; }
 }
@@ -47,8 +53,15 @@ public sealed class ConfigSchemaField
     public required string Key { get; init; }
 
     /// <summary>
+    /// Human-friendly display name shown as the field label in the Dashboard UI.
+    /// Falls back to a PascalCase-split version of <see cref="Key"/> when null.
+    /// </summary>
+    public string? DisplayName { get; init; }
+
+    /// <summary>
     /// The field type for the Dashboard UI renderer.
-    /// Valid values: "text", "number", "bool", "password", "select", "textarea", "json".
+    /// Valid values: "text", "number", "bool", "password", "select", "textarea", "json",
+    /// "stringList" (List&lt;string&gt;, one line per value), "keyValueMap" (Dictionary&lt;string,string&gt;).
     /// </summary>
     public required string Type { get; init; }
 

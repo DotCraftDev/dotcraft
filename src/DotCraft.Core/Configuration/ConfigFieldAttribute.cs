@@ -15,6 +15,12 @@ public sealed class ConfigFieldAttribute : Attribute
     public bool Ignore { get; set; }
 
     /// <summary>
+    /// Human-friendly display name for the field label in the Dashboard UI.
+    /// When not set, the Dashboard auto-generates a label by splitting the PascalCase property name.
+    /// </summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>
     /// When true, the field value is masked as "***" in the Dashboard API response.
     /// The field is rendered as a password input in the UI.
     /// </summary>

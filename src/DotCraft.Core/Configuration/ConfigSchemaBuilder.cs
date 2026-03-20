@@ -32,6 +32,27 @@ public static class ConfigSchemaBuilder
         var paths = new List<string[]>();
         foreach (var section in schema)
         {
+            var itemFields = section.ItemFields;
+            if (itemFields is { Count: > 0 })
+            {
+                foreach (var field in itemFields.Where(f => f.Sensitive))
+                {
+                    if (section.RootKey != null)
+                        paths.Add([section.RootKey, field.Key]);
+                    else if (section.Path is { Length: > 0 })
+                    {
+                        var path = new string[section.Path.Length + 1];
+                        section.Path.CopyTo(path, 0);
+                        path[^1] = field.Key;
+                        paths.Add(path);
+                    }
+                    else
+                        paths.Add([field.Key]);
+                }
+
+                continue;
+            }
+
             foreach (var field in section.Fields.Where(f => f.Sensitive))
             {
                 if (section.RootKey != null)
@@ -59,23 +80,27 @@ public static class ConfigSchemaBuilder
         var sectionAttr = type.GetCustomAttribute<ConfigSectionAttribute>();
         if (sectionAttr == null) return null;
 
-        // RootKey sections (e.g. McpServers) are rendered as a single JSON textarea
+        // RootKey sections (e.g. McpServers): homogeneous JSON array with structured item fields
         if (sectionAttr.RootKey != null)
         {
+            var itemInstance = TryCreateInstance(type);
+            var itemFields = new List<ConfigSchemaField>();
+            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                var fieldAttr = prop.GetCustomAttribute<ConfigFieldAttribute>();
+                if (fieldAttr?.Ignore == true) continue;
+                if (prop.PropertyType.GetCustomAttribute<ConfigSectionAttribute>() != null) continue;
+                if (prop.Name == "ExtensionData") continue;
+                itemFields.Add(BuildField(prop, fieldAttr, itemInstance));
+            }
+
             return new ConfigSchemaSection
             {
                 Section = sectionAttr.DisplayName ?? sectionAttr.RootKey,
                 Order = sectionAttr.Order,
                 RootKey = sectionAttr.RootKey,
-                Fields =
-                [
-                    new ConfigSchemaField
-                    {
-                        Key = sectionAttr.RootKey,
-                        Type = "json",
-                        Hint = $"JSON array of {sectionAttr.RootKey} configs"
-                    }
-                ]
+                ItemFields = itemFields,
+                Fields = []
             };
         }
 
@@ -120,6 +145,7 @@ public static class ConfigSchemaBuilder
         return new ConfigSchemaField
         {
             Key = prop.Name,
+            DisplayName = attr?.DisplayName,
             Type = inferredType,
             Sensitive = attr?.Sensitive ?? false,
             Options = options,
@@ -138,8 +164,29 @@ public static class ConfigSchemaBuilder
         if (type == typeof(int) || type == typeof(long) || type == typeof(double) || type == typeof(float)) return "number";
         if (type == typeof(string)) return "text";
         if (type.IsEnum) return "select";
+        if (IsStringDictionary(type)) return "keyValueMap";
+        if (IsStringList(type)) return "stringList";
         if (IsCollectionOrDictionary(type)) return "json";
         return "text";
+    }
+
+    private static bool IsStringDictionary(Type type)
+    {
+        if (type == typeof(Dictionary<string, string>)) return true;
+        if (!type.IsGenericType) return false;
+        if (type.GetGenericTypeDefinition() != typeof(Dictionary<,>)) return false;
+        var args = type.GetGenericArguments();
+        return args.Length == 2 && args[0] == typeof(string) && args[1] == typeof(string);
+    }
+
+    private static bool IsStringList(Type type)
+    {
+        if (type == typeof(string[])) return true;
+        if (!type.IsGenericType) return false;
+        var def = type.GetGenericTypeDefinition();
+        if (def != typeof(List<>) && def != typeof(IList<>) && def != typeof(IReadOnlyList<>))
+            return false;
+        return type.GetGenericArguments()[0] == typeof(string);
     }
 
     private static string[]? InferOptions(Type type)
