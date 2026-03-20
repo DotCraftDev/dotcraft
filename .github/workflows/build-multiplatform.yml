@@ -41,14 +41,17 @@ jobs:
             os_name: linux
             runtime_id: linux-x64
             output_name: DotCraft-linux-x64
+            cargo_target: x86_64-unknown-linux-gnu
           - os: windows-latest
             os_name: windows
             runtime_id: win-x64
             output_name: DotCraft-win-x64
+            cargo_target: x86_64-pc-windows-msvc
           - os: macos-latest
             os_name: macos
             runtime_id: osx-x64
             output_name: DotCraft-macos-x64
+            cargo_target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.os }}
 
@@ -76,16 +79,18 @@ jobs:
       run: dotnet publish src/DotCraft.App/DotCraft.App.csproj -c Release -r ${{ matrix.runtime_id }} -p:PublishProfile=ReleaseProfile -o ./publish/${{ matrix.output_name }}
 
     - name: Build TUI (dotcraft-tui)
-      run: cargo build --release
+      run: |
+        rustup target add ${{ matrix.cargo_target }}
+        cargo build --release --target ${{ matrix.cargo_target }}
       working-directory: tui
 
     - name: Copy TUI binary to publish - Windows
       if: runner.os == 'Windows'
-      run: Copy-Item -Path tui\target\release\dotcraft-tui.exe -Destination publish\${{ matrix.output_name }}\
+      run: Copy-Item -Path tui\target\${{ matrix.cargo_target }}\release\dotcraft-tui.exe -Destination publish\${{ matrix.output_name }}\
 
     - name: Copy TUI binary to publish - Linux/macOS
       if: runner.os != 'Windows'
-      run: cp tui/target/release/dotcraft-tui publish/${{ matrix.output_name }}/
+      run: cp tui/target/${{ matrix.cargo_target }}/release/dotcraft-tui publish/${{ matrix.output_name }}/
 
     - name: Create archive for Linux/macOS
       if: runner.os != 'Windows'
