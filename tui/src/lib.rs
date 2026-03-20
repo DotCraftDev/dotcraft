@@ -503,7 +503,6 @@ async fn submit_turn(
     }
 
     state.history.push(HistoryEntry::UserMessage { text: text.clone() });
-    state.turn_status = TurnStatus::Running;
     state.at_bottom = true;
 
     let params = serde_json::json!({
@@ -511,7 +510,18 @@ async fn submit_turn(
         "input": [{ "type": "text", "text": text }]
     });
 
-    wire.send_request("turn/start", params).await?;
+    match wire.send_request("turn/start", params).await {
+        Ok(_) => {
+            state.turn_status = TurnStatus::Running;
+        }
+        Err(e) => {
+            state.history.push(HistoryEntry::Error {
+                message: format!("Failed to start turn: {e}"),
+            });
+            return Err(e);
+        }
+    }
+    Ok(())
     Ok(())
 }
 
