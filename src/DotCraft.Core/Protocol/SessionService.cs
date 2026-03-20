@@ -111,6 +111,8 @@ public sealed class SessionService(
                 GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, cached.Status);
             }
 
+            await EnsurePerThreadAgentIfMissingAsync(threadId, cached, ct);
+
             var resumedByChannel = ChannelSessionScope.Current?.Channel ?? cached.OriginChannel;
             GetOrCreateBroker(threadId).PublishThreadEvent(SessionEventType.ThreadResumed,
                 new ThreadResumedPayload { Thread = cached, ResumedBy = resumedByChannel });
@@ -129,8 +131,7 @@ public sealed class SessionService(
         _threads[thread.Id] = thread;
         var broker = GetOrCreateBroker(thread.Id);
 
-        if (thread.Configuration != null)
-            _threadAgents[thread.Id] = await BuildAgentForConfigAsync(thread.Id, thread.Configuration, ct);
+        await EnsurePerThreadAgentIfMissingAsync(thread.Id, thread, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
         var resumedBy = ChannelSessionScope.Current?.Channel ?? thread.OriginChannel;
@@ -225,6 +226,14 @@ public sealed class SessionService(
     /// <inheritdoc/>
     public async Task<SessionThread> GetThreadAsync(string threadId, CancellationToken ct = default) =>
         await GetOrLoadThreadAsync(threadId, ct);
+
+    /// <inheritdoc/>
+    public async Task<SessionThread> EnsureThreadLoadedAsync(string threadId, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        await EnsurePerThreadAgentIfMissingAsync(threadId, thread, ct);
+        return thread;
+    }
 
     // =========================================================================
     // Turn orchestration
@@ -810,6 +819,13 @@ public sealed class SessionService(
         _threads[thread.Id] = thread;
         _ = GetOrCreateBroker(thread.Id);
         return thread;
+    }
+
+    private async Task EnsurePerThreadAgentIfMissingAsync(
+        string threadId, SessionThread thread, CancellationToken ct)
+    {
+        if (thread.Configuration != null && !_threadAgents.ContainsKey(threadId))
+            _threadAgents[threadId] = await BuildAgentForConfigAsync(threadId, thread.Configuration, ct);
     }
 
     private async Task PersistThreadStatusAsync(SessionThread thread, CancellationToken ct)
