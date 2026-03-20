@@ -259,6 +259,13 @@ async fn run_event_loop(
                             handle_server_request(wire, state, msg).await?;
                         } else {
                             event_mapper::apply(state, &msg);
+                            // Auto-submit first queued message after a turn completes.
+                            if state.turn_status == TurnStatus::Idle {
+                                if let Some(queued) = state.pending_input.first().cloned() {
+                                    state.pending_input.remove(0);
+                                    submit_turn(wire, state, queued).await?;
+                                }
+                            }
                         }
                     }
                 }
@@ -376,6 +383,20 @@ async fn handle_terminal_event(
                 InputAction::Interrupt => {
                     if handle_interrupt(wire, state).await? {
                         return Ok(true);
+                    }
+                }
+                InputAction::SoftInterrupt => {
+                    if state.turn_status == TurnStatus::Running
+                        || state.turn_status == TurnStatus::WaitingApproval
+                    {
+                        if let Some(thread_id) = &state.current_thread_id.clone() {
+                            let turn_id = state.current_turn_id.clone().unwrap_or_default();
+                            let params = serde_json::json!({
+                                "threadId": thread_id,
+                                "turnId": turn_id
+                            });
+                            let _ = wire.send_request("turn/interrupt", params).await;
+                        }
                     }
                 }
                 InputAction::Quit => return Ok(true),
@@ -505,9 +526,10 @@ async fn handle_interrupt(wire: &mut WireClient, state: &mut AppState) -> Result
             }
         }
         if let Some(thread_id) = &state.current_thread_id.clone() {
+            let turn_id = state.current_turn_id.clone().unwrap_or_default();
             let params = serde_json::json!({
                 "threadId": thread_id,
-                "turnId": ""
+                "turnId": turn_id
             });
             let _ = wire.send_request("turn/interrupt", params).await;
         }

@@ -181,6 +181,8 @@ pub struct AppState {
 
     // Turn
     pub turn_status: TurnStatus,
+    /// Server turn id from `turn/started` (required for `turn/interrupt`).
+    pub current_turn_id: Option<String>,
     /// Set when a turn starts; used by StatusIndicator for elapsed time display.
     pub turn_started_at: Option<std::time::Instant>,
     pub history: Vec<HistoryEntry>,
@@ -247,6 +249,7 @@ impl AppState {
             current_thread_id: None,
             current_thread_name: None,
             turn_status: TurnStatus::Idle,
+            current_turn_id: None,
             turn_started_at: None,
             history: Vec::new(),
             streaming: StreamingState::default(),

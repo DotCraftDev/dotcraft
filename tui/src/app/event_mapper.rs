@@ -30,6 +30,11 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
     match method {
         // ── Turn lifecycle ────────────────────────────────────────────────
         "turn/started" => {
+            state.current_turn_id = params
+                .get("turn")
+                .and_then(|t| t.get("id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             state.turn_status = TurnStatus::Running;
             state.turn_started_at = Some(std::time::Instant::now());
             state.streaming.clear();
@@ -42,6 +47,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
         "turn/completed" => {
             finalize_streaming(state);
             state.turn_status = TurnStatus::Idle;
+            state.current_turn_id = None;
             state.turn_started_at = None;
             if let Some(usage) = params.get("turn").and_then(|t| t.get("tokenUsage")) {
                 if let (Some(inp), Some(out)) = (
@@ -68,12 +74,14 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
             finalize_streaming(state);
             state.history.push(HistoryEntry::Error { message: err });
             state.turn_status = TurnStatus::Idle;
+            state.current_turn_id = None;
             state.turn_started_at = None;
             true
         }
         "turn/cancelled" => {
             finalize_streaming(state);
             state.turn_status = TurnStatus::Idle;
+            state.current_turn_id = None;
             state.turn_started_at = None;
             true
         }

@@ -19,8 +19,10 @@ pub enum ThreadPickerOp {
 pub enum InputAction {
     /// Submit the current input text as a new turn.
     SubmitTurn(String),
-    /// Send a turn interrupt request.
+    /// Send a turn interrupt request (Ctrl+C). Contributes to double-press quit within 1s.
     Interrupt,
+    /// Send a turn interrupt request (Esc). Does not contribute to double-press quit.
+    SoftInterrupt,
     /// Quit the TUI.
     Quit,
     /// User chose a decision for an approval overlay.
@@ -58,7 +60,7 @@ pub fn handle_key(state: &mut AppState, key: crossterm::event::KeyEvent) -> Inpu
         && (state.turn_status == TurnStatus::Running
             || state.turn_status == TurnStatus::WaitingApproval)
     {
-        return InputAction::Interrupt;
+        return InputAction::SoftInterrupt;
     }
 
     // Shift+Tab (BackTab) toggles Agent/Plan mode from any focus.
@@ -246,6 +248,14 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
                         selected: 0,
                     });
                 }
+            } else if !state.input_text.is_empty()
+                && state.turn_status != TurnStatus::Idle
+            {
+                // Queue follow-up text while a turn is running; drained on turn completion.
+                let text = std::mem::take(&mut state.input_text);
+                state.input_cursor = 0;
+                state.command_popup = None;
+                state.pending_input.push(text);
             }
             InputAction::None
         }
