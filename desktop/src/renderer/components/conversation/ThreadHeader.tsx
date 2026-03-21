@@ -1,0 +1,178 @@
+import { useState, useRef, useEffect } from 'react'
+import { useConversationStore } from '../../stores/conversationStore'
+import { useThreadStore } from '../../stores/threadStore'
+import { CommitDialog } from '../detail/CommitDialog'
+
+interface ThreadHeaderProps {
+  threadName: string
+  threadId: string
+  workspacePath: string
+}
+
+/**
+ * Fixed header bar at top of the conversation panel.
+ * Shows thread name (double-click to rename inline), "Open" and "Commit" buttons.
+ * Spec §10.2, M7-10
+ */
+export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHeaderProps): JSX.Element {
+  const [commitOpen, setCommitOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState(threadName)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+  const changedFiles = useConversationStore((s) => s.changedFiles)
+
+  const writtenFiles = Array.from(changedFiles.values()).filter((f) => f.status === 'written')
+  const hasWrittenFiles = writtenFiles.length > 0
+
+  // Keep rename input value in sync when threadName changes externally
+  useEffect(() => {
+    if (!renaming) setRenameValue(threadName)
+  }, [threadName, renaming])
+
+  // Focus the input when entering rename mode
+  useEffect(() => {
+    if (renaming) {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }
+  }, [renaming])
+
+  function handleOpen(): void {
+    void window.api.shell.openPath(workspacePath)
+  }
+
+  function startRename(): void {
+    setRenameValue(threadName)
+    setRenaming(true)
+  }
+
+  async function commitRename(): Promise<void> {
+    const newName = renameValue.trim()
+    setRenaming(false)
+    if (!newName || newName === threadName) return
+    useThreadStore.getState().renameThread(threadId, newName)
+    try {
+      await window.api.appServer.sendRequest('thread/rename', {
+        threadId,
+        displayName: newName
+      })
+    } catch {
+      // Roll back on failure
+      useThreadStore.getState().renameThread(threadId, threadName)
+    }
+  }
+
+  function cancelRename(): void {
+    setRenaming(false)
+    setRenameValue(threadName)
+  }
+
+  function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (e.key === 'Enter') { e.preventDefault(); void commitRename() }
+    if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+  }
+
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--border-default)',
+          flexShrink: 0,
+          minHeight: '44px'
+        }}
+      >
+        {/* Thread name — double-click to rename */}
+        {renaming ? (
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={handleRenameKeyDown}
+            onBlur={() => { void commitRename() }}
+            aria-label="Rename thread"
+            style={{
+              flex: 1,
+              fontSize: '14px',
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-active)',
+              borderRadius: '4px',
+              padding: '2px 6px',
+              outline: 'none',
+              fontFamily: 'inherit'
+            }}
+          />
+        ) : (
+          <h1
+            onDoubleClick={startRename}
+            title="Double-click to rename"
+            style={{
+              flex: 1,
+              margin: 0,
+              fontSize: '14px',
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              cursor: 'default',
+              userSelect: 'none'
+            }}
+          >
+            {threadName}
+          </h1>
+        )}
+
+        {/* Open button */}
+        <button
+          onClick={handleOpen}
+          title={`Open workspace: ${workspacePath}`}
+          style={headerButtonStyle}
+          aria-label="Open workspace in explorer"
+        >
+          Open
+        </button>
+
+        {/* Commit button */}
+        <button
+          onClick={() => setCommitOpen(true)}
+          disabled={!hasWrittenFiles}
+          title={hasWrittenFiles ? 'Commit file changes to git' : 'No changes to commit'}
+          style={{
+            ...headerButtonStyle,
+            opacity: hasWrittenFiles ? 1 : 0.4,
+            cursor: hasWrittenFiles ? 'pointer' : 'default'
+          }}
+          aria-label="Commit changes to git"
+        >
+          Commit
+        </button>
+      </div>
+
+      {commitOpen && (
+        <CommitDialog
+          workspacePath={workspacePath}
+          onClose={() => setCommitOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
+const headerButtonStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  fontSize: '12px',
+  fontWeight: 500,
+  color: 'var(--text-secondary)',
+  backgroundColor: 'transparent',
+  border: '1px solid var(--border-default)',
+  borderRadius: '5px',
+  cursor: 'pointer',
+  flexShrink: 0,
+  transition: 'background-color 100ms ease, color 100ms ease'
+}

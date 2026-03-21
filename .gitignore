@@ -30,4 +30,6 @@ venv
 # Ignore Rust dependencies
 
 target/
-Cargo.lock
+
+# E2E test artifacts
+desktop/e2e/screenshots/

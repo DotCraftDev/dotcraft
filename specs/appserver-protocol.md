@@ -22,6 +22,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
   - [6.6 Usage Notifications](#66-usage-notifications)
   - [6.7 System Notifications](#67-system-notifications)
 - [6.8 Plan Notifications](#68-plan-notifications)
+- [6.10 Notification Delivery Guarantees](#610-notification-delivery-guarantees)
 - [7. Approval Flow](#7-approval-flow)
 - [8. Error Handling](#8-error-handling)
 - [9. Backpressure](#9-backpressure)
@@ -459,6 +460,21 @@ Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
 **Behavior**: The server recreates the agent for the specified thread with the new mode's tool set. The resulting agent must have the same mode-specific tools as an equivalent in-process agent (see Session Core spec §16.3.1). In particular, the AppServer process must supply `PlanStore` to `AgentFactory` so that plan-mode tools (`CreatePlan`) and agent-mode plan tools (`UpdateTodos`, `TodoWrite`) are correctly injected.
 
+### 4.11 `thread/rename`
+
+Update the display name of a thread.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID. |
+| `displayName` | string | yes | New display name for the thread. |
+
+**Result**: `{}`
+
 ### 4.9 `thread/config/update`
 
 Update per-thread agent configuration (MCP servers, extensions, etc.).
@@ -487,6 +503,8 @@ Submit user input to a thread and begin agent execution. The server creates a ne
 Before starting the agent, the server **must** ensure the in-memory thread is loaded from persistence if needed and that any persisted `thread.configuration` (mode, MCP servers, etc.) is applied to the execution-time agent, so turns do not silently use workspace-default tooling after a cold load or when only `thread/read` was used earlier ([Session Core](session-core.md) `EnsureThreadLoaded`).
 
 The response is returned **immediately** with the initial Turn object (status `"running"`, empty `items`). The agent's output then streams as notifications: `turn/started`, followed by `item/*` events, and finally `turn/completed` (or `turn/failed` / `turn/cancelled`).
+
+**Interaction with `thread/subscribe`**: If the calling connection already holds an active subscription for the target thread (via `thread/subscribe`), the server MUST use the subscription path to deliver all turn-scoped notifications instead of creating a separate inline dispatch path. The `turn/start` JSON-RPC response is still sent before the first `turn/started` notification. See [Section 6.10](#610-notification-delivery-guarantees) for the at-most-once delivery guarantee.
 
 **Direction**: client → server (request)
 
@@ -1289,6 +1307,32 @@ Server                                         Client
   |  result: "该喝水了！"                          |
   |<----------------------------------------------|
 ```
+
+### 6.10 Notification Delivery Guarantees
+
+The server MUST deliver each event notification **at most once per connection**, regardless of how many delivery paths are active for that thread.
+
+**At-most-once rule**: When a connection holds an active `thread/subscribe` subscription for a thread and calls `turn/start` on the same thread, the server MUST NOT create a separate inline notification dispatch path for the turn. The existing subscription dispatcher is the sole delivery path for all turn-scoped notifications. The `turn/start` JSON-RPC response is still returned inline before any notifications are emitted.
+
+This rule applies to all turn-scoped notifications:
+
+| Notification | Covered |
+|---|---|
+| `turn/started` | yes |
+| `turn/completed` | yes |
+| `turn/failed` | yes |
+| `turn/cancelled` | yes |
+| `item/started` | yes |
+| `item/agentMessage/delta` | yes |
+| `item/reasoning/delta` | yes |
+| `item/completed` | yes |
+| `item/usage/delta` | yes |
+| `subagent/progress` | yes |
+| `system/event` | yes |
+
+**Rationale**: The turn channel (`SubmitInputAsync`) and the broker (`SubscribeThreadAsync`) both receive every session event from `SessionEventChannel.Write()`. Without this rule, a client that both subscribes and originates a turn would receive every notification twice, producing duplicate streaming output.
+
+**Ordering guarantee**: The at-most-once rule does not relax the ordering guarantee. The `turn/start` response still arrives at the client before the first `turn/started` notification, because the server synchronously emits `TurnStarted` into the turn channel (and by extension the broker), reads it, sends the `turn/start` response, and only then does the background subscription dispatcher forward the broker event.
 
 ---
 

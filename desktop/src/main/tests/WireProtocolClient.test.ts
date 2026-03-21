@@ -1,0 +1,326 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { Readable, Writable, PassThrough } from 'stream'
+import { WireProtocolClient } from '../WireProtocolClient'
+
+function makeStreams(): { toServer: PassThrough; fromServer: PassThrough } {
+  return {
+    toServer: new PassThrough(),   // client writes here (stdin)
+    fromServer: new PassThrough()  // server writes here (stdout)
+  }
+}
+
+describe('WireProtocolClient', () => {
+  let client: WireProtocolClient
+  let toServer: PassThrough
+  let fromServer: PassThrough
+
+  beforeEach(() => {
+    ;({ toServer, fromServer } = makeStreams())
+    client = new WireProtocolClient(fromServer as unknown as Readable, toServer as unknown as Writable)
+  })
+
+  afterEach(() => {
+    client.dispose()
+    fromServer.destroy()
+    toServer.destroy()
+  })
+
+  // ─── JSONL serialization ────────────────────────────────────────────────────
+
+  it('serializes a request as valid JSONL (one JSON object per line)', async () => {
+    const written: string[] = []
+    toServer.on('data', (chunk: Buffer) => {
+      written.push(...chunk.toString('utf8').split('\n').filter(Boolean))
+    })
+
+    // Don't await — server never replies in this test
+    client.sendRequest('thread/start', { workspaceId: 'ws-1' }, 100).catch(() => {})
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(written).toHaveLength(1)
+    const parsed = JSON.parse(written[0])
+    expect(parsed).toMatchObject({
+      jsonrpc: '2.0',
+      method: 'thread/start',
+      params: { workspaceId: 'ws-1' }
+    })
+    expect(typeof parsed.id).toBe('number')
+  })
+
+  it('serializes a notification as JSONL without an id field', async () => {
+    const written: string[] = []
+    toServer.on('data', (chunk: Buffer) => {
+      written.push(...chunk.toString('utf8').split('\n').filter(Boolean))
+    })
+
+    await client.sendNotification('initialized', {})
+
+    expect(written).toHaveLength(1)
+    const parsed = JSON.parse(written[0])
+    expect(parsed.method).toBe('initialized')
+    expect(parsed.id).toBeUndefined()
+  })
+
+  // ─── Response correlation ────────────────────────────────────────────────────
+
+  it('correlates a response to the correct pending request by id', async () => {
+    let capturedId: number | null = null
+    toServer.on('data', (chunk: Buffer) => {
+      const line = chunk.toString('utf8').trim()
+      if (!line) return
+      capturedId = JSON.parse(line).id
+    })
+
+    const responsePromise = client.sendRequest<{ threadId: string }>('thread/start')
+
+    // Wait a tick for the request to be written
+    await new Promise((r) => setTimeout(r, 10))
+
+    // Simulate server response with matching id
+    fromServer.push(
+      JSON.stringify({ jsonrpc: '2.0', id: capturedId, result: { threadId: 'tid-42' } }) + '\n'
+    )
+
+    const result = await responsePromise
+    expect(result.threadId).toBe('tid-42')
+  })
+
+  it('rejects the promise when server returns an error response', async () => {
+    let capturedId: number | null = null
+    toServer.on('data', (chunk: Buffer) => {
+      const line = chunk.toString('utf8').trim()
+      if (!line) return
+      capturedId = JSON.parse(line).id
+    })
+
+    const responsePromise = client.sendRequest('thread/start')
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    fromServer.push(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: capturedId,
+        error: { code: -32600, message: 'Invalid request' }
+      }) + '\n'
+    )
+
+    await expect(responsePromise).rejects.toThrow('Invalid request')
+  })
+
+  it('handles multiple concurrent requests with distinct ids', async () => {
+    const ids: number[] = []
+    toServer.on('data', (chunk: Buffer) => {
+      chunk
+        .toString('utf8')
+        .split('\n')
+        .filter(Boolean)
+        .forEach((line) => ids.push(JSON.parse(line).id))
+    })
+
+    const p1 = client.sendRequest<{ n: number }>('method/a')
+    const p2 = client.sendRequest<{ n: number }>('method/b')
+    const p3 = client.sendRequest<{ n: number }>('method/c')
+
+    await new Promise((r) => setTimeout(r, 10))
+    expect(new Set(ids).size).toBe(3)
+
+    // Resolve out of order
+    fromServer.push(JSON.stringify({ jsonrpc: '2.0', id: ids[1], result: { n: 2 } }) + '\n')
+    fromServer.push(JSON.stringify({ jsonrpc: '2.0', id: ids[0], result: { n: 1 } }) + '\n')
+    fromServer.push(JSON.stringify({ jsonrpc: '2.0', id: ids[2], result: { n: 3 } }) + '\n')
+
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3])
+    expect(r1.n).toBe(1)
+    expect(r2.n).toBe(2)
+    expect(r3.n).toBe(3)
+  })
+
+  // ─── Notification dispatch ───────────────────────────────────────────────────
+
+  it('dispatches a notification to registered callbacks', async () => {
+    const received: { method: string; params: unknown }[] = []
+    client.onNotification((method, params) => {
+      received.push({ method, params })
+    })
+
+    fromServer.push(
+      JSON.stringify({ jsonrpc: '2.0', method: 'turn/started', params: { turnId: 't-1' } }) + '\n'
+    )
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(received).toHaveLength(1)
+    expect(received[0].method).toBe('turn/started')
+    expect((received[0].params as { turnId: string }).turnId).toBe('t-1')
+  })
+
+  /**
+   * One JSONL notification line must invoke each registered callback exactly once.
+   * Guards against accidental double-dispatch regressions (would duplicate streaming deltas in the UI).
+   */
+  it('dispatches exactly once per JSONL line for a single subscriber', async () => {
+    let callCount = 0
+    client.onNotification((method, params) => {
+      if (method === 'item/agentMessage/delta') {
+        callCount += 1
+        expect((params as { delta?: string }).delta).toBe('x')
+      }
+    })
+
+    fromServer.push(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'item/agentMessage/delta',
+        params: { delta: 'x', turnId: 'turn_1' }
+      }) + '\n'
+    )
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(callCount).toBe(1)
+  })
+
+  it('calls all registered notification callbacks', async () => {
+    const calls1: string[] = []
+    const calls2: string[] = []
+    client.onNotification((method) => calls1.push(method))
+    client.onNotification((method) => calls2.push(method))
+
+    fromServer.push(JSON.stringify({ jsonrpc: '2.0', method: 'item/started', params: {} }) + '\n')
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(calls1).toEqual(['item/started'])
+    expect(calls2).toEqual(['item/started'])
+  })
+
+  it('unsubscribes a notification callback when the returned function is called', async () => {
+    const received: string[] = []
+    const unsub = client.onNotification((method) => received.push(method))
+
+    fromServer.push(JSON.stringify({ jsonrpc: '2.0', method: 'event/a', params: {} }) + '\n')
+    await new Promise((r) => setTimeout(r, 10))
+
+    unsub()
+
+    fromServer.push(JSON.stringify({ jsonrpc: '2.0', method: 'event/b', params: {} }) + '\n')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(received).toEqual(['event/a'])
+  })
+
+  // ─── Server-initiated requests ───────────────────────────────────────────────
+
+  it('dispatches server-initiated requests to the registered handler and sends a response', async () => {
+    const responseLines: string[] = []
+    toServer.on('data', (chunk: Buffer) => {
+      chunk
+        .toString('utf8')
+        .split('\n')
+        .filter(Boolean)
+        .forEach((line) => responseLines.push(line))
+    })
+
+    client.onServerRequest(async (method, _params) => {
+      expect(method).toBe('item/approval/request')
+      return { decision: 'accept' }
+    })
+
+    fromServer.push(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 99,
+        method: 'item/approval/request',
+        params: { operation: 'npm test' }
+      }) + '\n'
+    )
+
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(responseLines).toHaveLength(1)
+    const response = JSON.parse(responseLines[0])
+    expect(response).toMatchObject({
+      jsonrpc: '2.0',
+      id: 99,
+      result: { decision: 'accept' }
+    })
+  })
+
+  // ─── Timeout ─────────────────────────────────────────────────────────────────
+
+  it('rejects with a timeout error when no response is received in time', async () => {
+    await expect(
+      client.sendRequest('slow/method', undefined, 50)
+    ).rejects.toThrow(/timed out/)
+  })
+
+  // ─── Initialize handshake ────────────────────────────────────────────────────
+
+  it('sends initialize request then initialized notification in sequence', async () => {
+    const lines: string[] = []
+    toServer.on('data', (chunk: Buffer) => {
+      chunk
+        .toString('utf8')
+        .split('\n')
+        .filter(Boolean)
+        .forEach((line) => lines.push(line))
+    })
+
+    let capturedId: number | null = null
+    toServer.once('data', (chunk: Buffer) => {
+      const line = chunk.toString('utf8').trim()
+      if (line) capturedId = JSON.parse(line).id
+    })
+
+    const initPromise = client.initialize()
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    // First message should be the initialize request
+    const initReq = JSON.parse(lines[0])
+    expect(initReq.method).toBe('initialize')
+    expect(initReq.params.clientInfo.name).toBe('dotcraft-desktop')
+    expect(initReq.params.capabilities.approvalSupport).toBe(true)
+
+    capturedId = initReq.id
+
+    // Send the initialize response
+    fromServer.push(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: capturedId,
+        result: {
+          serverInfo: { name: 'dotcraft', version: '0.2.0' },
+          capabilities: { threadManagement: true }
+        }
+      }) + '\n'
+    )
+
+    const result = await initPromise
+
+    // After response, the initialized notification should have been sent
+    await new Promise((r) => setTimeout(r, 10))
+    const initializedNotif = JSON.parse(lines[lines.length - 1])
+    expect(initializedNotif.method).toBe('initialized')
+    expect(initializedNotif.id).toBeUndefined()
+
+    expect(result.serverInfo.name).toBe('dotcraft')
+  })
+
+  // ─── Ignored / malformed lines ───────────────────────────────────────────────
+
+  it('ignores malformed JSON lines without throwing', async () => {
+    const received: string[] = []
+    client.onNotification((method) => received.push(method))
+
+    fromServer.push('not-json\n')
+    fromServer.push('\n')
+    fromServer.push('{"jsonrpc":"2.0","method":"valid/event","params":{}}\n')
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(received).toEqual(['valid/event'])
+  })
+})

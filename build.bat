@@ -94,6 +94,36 @@ cd ..
 
 echo.
 echo =====================================
+echo  Building Desktop (dotcraft-desktop)...
+echo =====================================
+echo.
+
+cd desktop
+if exist dist (
+    rmdir /s /q dist
+)
+call npm ci --prefer-offline
+if %ERRORLEVEL% neq 0 (
+    echo Desktop npm ci failed with exit code %ERRORLEVEL%.
+    cd ..
+    goto :failure
+)
+call npm run dist
+if %ERRORLEVEL% neq 0 (
+    echo Desktop build failed with exit code %ERRORLEVEL%.
+    cd ..
+    goto :failure
+)
+cd ..
+
+REM Copy desktop dist outputs (NSIS installer, portable exe, zip) to build/release/
+echo Copying desktop artifacts to build\release\...
+for %%f in (desktop\dist\*.exe desktop\dist\*.zip) do (
+    copy /Y "%%f" "build\release\" >nul 2>&1
+)
+
+echo.
+echo =====================================
 echo  Packaging...
 echo =====================================
 echo.

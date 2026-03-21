@@ -804,6 +804,14 @@ public sealed class SessionService(
         await threadStore.SaveThreadAsync(thread, ct);
     }
 
+    /// <inheritdoc/>
+    public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        thread.DisplayName = displayName;
+        await threadStore.SaveThreadAsync(thread, ct);
+    }
+
     // =========================================================================
     // Private helpers
     // =========================================================================

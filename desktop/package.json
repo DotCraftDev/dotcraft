@@ -1,0 +1,88 @@
+{
+  "name": "dotcraft-desktop",
+  "version": "0.1.0",
+  "description": "DotCraft Desktop - Electron client for DotCraft Agent Harness",
+  "author": {
+    "name": "DotCraft"
+  },
+  "private": true,
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "npx tsx e2e/smoke.ts",
+    "pack": "electron-builder --dir",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@types/ws": "^8.18.1",
+    "diff": "^8.0.3",
+    "highlight.js": "^11.11.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "ws": "^8.19.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
+    "@electron-toolkit/eslint-config-ts": "^2.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/diff": "^7.0.2",
+    "@types/node": "^22.10.10",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^35.1.2",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.0.0",
+    "jsdom": "^29.0.1",
+    "playwright": "^1.58.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "build": {
+    "appId": "com.dotcraft.desktop",
+    "productName": "DotCraft Desktop",
+    "directories": {
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "win": {
+      "asar": true,
+      "executableName": "DotCraftDesktop",
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis",
+        "portable",
+        "zip"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}

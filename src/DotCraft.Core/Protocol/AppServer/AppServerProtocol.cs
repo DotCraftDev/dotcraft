@@ -224,6 +224,15 @@ public sealed class ThreadDeleteParams
     public string ThreadId { get; set; } = string.Empty;
 }
 
+// ───── thread/rename ─────
+
+public sealed class ThreadRenameParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+}
+
 // ───── thread/mode/set ─────
 
 public sealed class ThreadModeSetParams
@@ -418,6 +427,7 @@ public static class AppServerMethods
     public const string ThreadPause = "thread/pause";
     public const string ThreadArchive = "thread/archive";
     public const string ThreadDelete = "thread/delete";
+    public const string ThreadRename = "thread/rename";
     public const string ThreadModeSet = "thread/mode/set";
     public const string ThreadConfigUpdate = "thread/config/update";
     public const string TurnStart = "turn/start";

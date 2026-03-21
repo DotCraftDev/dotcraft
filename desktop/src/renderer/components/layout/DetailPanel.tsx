@@ -1,0 +1,148 @@
+import { useUIStore, type DetailPanelTab } from '../../stores/uiStore'
+import { useConversationStore } from '../../stores/conversationStore'
+import { ChangesTab } from '../detail/ChangesTab'
+import { PlanTab } from '../detail/PlanTab'
+import { TerminalTab } from '../detail/TerminalTab'
+
+interface DetailPanelProps {
+  workspacePath?: string
+}
+
+/** Tool names treated as shell execution tools (must mirror TerminalTab) */
+const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
+
+/**
+ * Detail Panel — three tabs: Changes, Plan, Terminal.
+ * Tab bar shows a badge with file count on the Changes tab when changes exist.
+ * Spec §11
+ */
+export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Element {
+  const { activeDetailTab, setActiveDetailTab, toggleDetailPanel } = useUIStore()
+  const changedFiles = useConversationStore((s) => s.changedFiles)
+  const turns = useConversationStore((s) => s.turns)
+
+  const changedFileCount = changedFiles.size
+
+  // Count terminal commands for badge
+  const terminalCount = turns.reduce((acc, turn) => {
+    return acc + turn.items.filter(
+      (i) => i.type === 'toolCall' && SHELL_TOOLS.has(i.toolName ?? '') && i.status === 'completed'
+    ).length
+  }, 0)
+
+  const tabs: { id: DetailPanelTab; label: string; badge?: number }[] = [
+    { id: 'changes', label: 'Changes', badge: changedFileCount > 0 ? changedFileCount : undefined },
+    { id: 'plan', label: 'Plan' },
+    { id: 'terminal', label: 'Terminal', badge: terminalCount > 0 ? terminalCount : undefined }
+  ]
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        backgroundColor: 'var(--bg-secondary)'
+      }}
+    >
+      {/* Tab bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          borderBottom: '1px solid var(--border-default)',
+          flexShrink: 0,
+          paddingLeft: '4px'
+        }}
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveDetailTab(tab.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '8px 14px',
+              fontSize: '13px',
+              fontWeight: activeDetailTab === tab.id ? 500 : 400,
+              color:
+                activeDetailTab === tab.id
+                  ? 'var(--text-primary)'
+                  : 'var(--text-secondary)',
+              backgroundColor: 'transparent',
+              border: 'none',
+              borderBottom:
+                activeDetailTab === tab.id
+                  ? '2px solid var(--accent)'
+                  : '2px solid transparent',
+              cursor: 'pointer',
+              transition: 'color 100ms ease, border-color 100ms ease',
+              marginBottom: '-1px'
+            }}
+          >
+            {tab.label}
+            {tab.badge !== undefined && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: '16px',
+                  height: '16px',
+                  padding: '0 4px',
+                  borderRadius: '8px',
+                  background: activeDetailTab === tab.id ? 'var(--accent)' : 'var(--bg-tertiary)',
+                  color: activeDetailTab === tab.id ? '#ffffff' : 'var(--text-secondary)',
+                  fontSize: '10px',
+                  fontWeight: 500
+                }}
+              >
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Close button */}
+        <button
+          onClick={toggleDetailPanel}
+          title="Close detail panel (Ctrl+Shift+B)"
+          style={{
+            width: '28px',
+            height: '28px',
+            borderRadius: '4px',
+            backgroundColor: 'transparent',
+            border: 'none',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '16px',
+            marginRight: '4px'
+          }}
+          aria-label="Close detail panel"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Tab content */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {activeDetailTab === 'changes' && (
+          <ChangesTab workspacePath={workspacePath} />
+        )}
+        {activeDetailTab === 'plan' && (
+          <PlanTab />
+        )}
+        {activeDetailTab === 'terminal' && (
+          <TerminalTab />
+        )}
+      </div>
+    </div>
+  )
+}
