@@ -4,6 +4,9 @@
 cache
 dist
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
 # Ignore Js dependencies
 
 node_modules
