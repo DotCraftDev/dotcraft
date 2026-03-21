@@ -134,6 +134,15 @@ public sealed class FileTools(
                 Directory.CreateDirectory(directory);
 
             var encoding = File.Exists(fullPath) ? DetectFileEncoding(fullPath) : Utf8NoBom;
+            if (File.Exists(fullPath))
+            {
+                var existing = await File.ReadAllTextAsync(fullPath, encoding);
+                content = RestoreLineEndings(NormalizeToLf(content), UsesCrLf(existing));
+            }
+            else
+            {
+                content = NormalizeToLf(content);
+            }
             await File.WriteAllTextAsync(fullPath, content, encoding);
             var lineCount = content.Split('\n').Length;
             return $"Successfully wrote {content.Length} bytes ({lineCount} lines) to {path}";
@@ -531,9 +540,8 @@ public sealed class FileTools(
         string fullPath, string displayPath, string content, string newText, int startLine, int endLine,
         Encoding encoding)
     {
-        var useCrLf = content.Contains("\r\n");
-        var normalized = content.Replace("\r\n", "\n");
-        var lines = normalized.Split('\n').ToList();
+        var useCrLf = UsesCrLf(content);
+        var lines = NormalizeToLf(content).Split('\n').ToList();
 
         var startIdx = startLine - 1;
         if (startIdx >= lines.Count)
@@ -547,15 +555,13 @@ public sealed class FileTools(
 
         if (!string.IsNullOrEmpty(newText))
         {
-            var newLines = newText.Replace("\r\n", "\n").Split('\n');
+            var newLines = NormalizeToLf(newText).Split('\n');
             lines.InsertRange(startIdx, newLines);
         }
 
-        var result = string.Join("\n", lines);
-        if (useCrLf)
-            result = result.Replace("\n", "\r\n");
+        var result = RestoreLineEndings(string.Join("\n", lines), useCrLf);
 
-        var insertedCount = string.IsNullOrEmpty(newText) ? 0 : newText.Replace("\r\n", "\n").Split('\n').Length;
+        var insertedCount = string.IsNullOrEmpty(newText) ? 0 : NormalizeToLf(newText).Split('\n').Length;
         await File.WriteAllTextAsync(fullPath, result, encoding);
         return $"Successfully replaced lines {startLine}-{endLine} in {displayPath} ({removedCount} -> {insertedCount} lines)";
     }
@@ -564,11 +570,17 @@ public sealed class FileTools(
         string fullPath, string displayPath, string content, string oldText, string newText,
         Encoding encoding)
     {
+        // Normalize all inputs to LF for consistent matching, restore on write
+        var useCrLf = UsesCrLf(content);
+        content = NormalizeToLf(content);
+        oldText = NormalizeToLf(oldText);
+        newText = NormalizeToLf(newText);
+
         var count = CountOccurrences(content, oldText);
         if (count == 1)
         {
             var idx = content.IndexOf(oldText, StringComparison.Ordinal);
-            var newContent = content[..idx] + newText + content[(idx + oldText.Length)..];
+            var newContent = RestoreLineEndings(content[..idx] + newText + content[(idx + oldText.Length)..], useCrLf);
             await File.WriteAllTextAsync(fullPath, newContent, encoding);
             var lineNum = content[..idx].Count(c => c == '\n') + 1;
             var oldLineCount = oldText.Count(c => c == '\n') + 1;
@@ -584,7 +596,7 @@ public sealed class FileTools(
             var idx = content.IndexOf(found, StringComparison.Ordinal);
             if (idx != -1)
             {
-                var newContent = content[..idx] + newText + content[(idx + found.Length)..];
+                var newContent = RestoreLineEndings(content[..idx] + newText + content[(idx + found.Length)..], useCrLf);
                 await File.WriteAllTextAsync(fullPath, newContent, encoding);
                 var lineNum = content[..idx].Count(c => c == '\n') + 1;
                 var oldLineCount = found.Count(c => c == '\n') + 1;
@@ -599,7 +611,7 @@ public sealed class FileTools(
             var idx = content.IndexOf(found, StringComparison.Ordinal);
             if (idx != -1)
             {
-                var newContent = content[..idx] + newText + content[(idx + found.Length)..];
+                var newContent = RestoreLineEndings(content[..idx] + newText + content[(idx + found.Length)..], useCrLf);
                 await File.WriteAllTextAsync(fullPath, newContent, encoding);
                 var lineNum = content[..idx].Count(c => c == '\n') + 1;
                 var oldLineCount = found.Count(c => c == '\n') + 1;
@@ -636,7 +648,7 @@ public sealed class FileTools(
             var allMatch = true;
             for (var j = 0; j < searchLines.Length; j++)
             {
-                if (contentLines[i + j].TrimEnd('\r').Trim() != searchLines[j].TrimEnd('\r').Trim())
+                if (contentLines[i + j].Trim() != searchLines[j].Trim())
                 {
                     allMatch = false;
                     break;
@@ -695,6 +707,15 @@ public sealed class FileTools(
         var minIndent = nonEmpty.Min(l => l.Length - l.TrimStart().Length);
         return trimmed.Select(l => l.Length > minIndent ? l[minIndent..] : l.TrimStart()).ToArray();
     }
+
+    private static bool UsesCrLf(string content)
+        => content.Contains("\r\n");
+
+    private static string NormalizeToLf(string content)
+        => content.Replace("\r\n", "\n");
+
+    private static string RestoreLineEndings(string content, bool useCrLf)
+        => useCrLf ? content.Replace("\n", "\r\n") : content;
 
     #endregion
 }
