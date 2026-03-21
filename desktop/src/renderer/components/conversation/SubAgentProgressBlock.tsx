@@ -69,7 +69,7 @@ export function SubAgentProgressBlock(): JSX.Element | null {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '16px 1fr 120px 80px',
+          gridTemplateColumns: '16px minmax(100px, 1fr) minmax(120px, 2fr) 80px',
           gap: '8px',
           padding: '4px 8px',
           background: 'var(--bg-tertiary)',
@@ -91,7 +91,7 @@ export function SubAgentProgressBlock(): JSX.Element | null {
           key={idx}
           style={{
             display: 'grid',
-            gridTemplateColumns: '16px 1fr 120px 80px',
+            gridTemplateColumns: '16px minmax(100px, 1fr) minmax(120px, 2fr) 80px',
             gap: '8px',
             padding: '4px 8px',
             alignItems: 'center',
@@ -139,7 +139,7 @@ export function SubAgentProgressBlock(): JSX.Element | null {
               fontSize: '11px'
             }}
           >
-            {entry.currentTool ?? '—'}
+            {entry.currentToolDisplay ?? entry.currentTool ?? '—'}
           </span>
           {/* Token counts */}
           <span style={{ textAlign: 'right', color: 'var(--text-dimmed)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>

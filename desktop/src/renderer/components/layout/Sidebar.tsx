@@ -8,7 +8,7 @@ import { NewThreadButton } from '../sidebar/NewThreadButton'
 import { ThreadSearch } from '../sidebar/ThreadSearch'
 import { ThreadList } from '../sidebar/ThreadList'
 import { SidebarFooter } from '../sidebar/SidebarFooter'
-import { DotBotLogo } from '../ui/DotBotLogo'
+import { DotCraftLogo } from '../ui/DotCraftLogo'
 
 interface SidebarProps {
   workspaceName: string
@@ -172,7 +172,7 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
           color: logoHovered ? 'var(--text-primary)' : 'var(--text-secondary)'
         }}
       >
-        {logoHovered ? <PanelLeftOpenIcon /> : <DotBotLogo size={24} />}
+        {logoHovered ? <PanelLeftOpenIcon /> : <DotCraftLogo size={24} />}
       </button>
 
       {/* New thread icon */}
@@ -325,7 +325,7 @@ function LogoHeader({ onCollapse }: LogoHeaderProps): JSX.Element {
     >
       {/* On hover, swap logo for panel-close icon; logo stays otherwise */}
       <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', width: 24, height: 24, justifyContent: 'center' }}>
-        {hovered ? <PanelLeftCloseIcon /> : <DotBotLogo size={24} />}
+        {hovered ? <PanelLeftCloseIcon /> : <DotCraftLogo size={24} />}
       </span>
       <span
         style={{

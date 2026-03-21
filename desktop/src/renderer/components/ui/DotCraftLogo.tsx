@@ -9,13 +9,13 @@ import React from 'react'
  * - Prompt perfectly centered in the revised body.
  */
 
-interface DotBotLogoProps {
+interface DotCraftLogoProps {
   size?: number
   className?: string
   style?: React.CSSProperties
 }
 
-export function DotBotLogo({ size = 32, className, style }: DotBotLogoProps): JSX.Element {
+export function DotCraftLogo({ size = 32, className, style }: DotCraftLogoProps): JSX.Element {
   return (
     <svg
       width={size}
@@ -45,18 +45,18 @@ export function DotBotLogo({ size = 32, className, style }: DotBotLogoProps): JS
         strokeLinejoin="round"
       />
 
-      {/* 3. Terminal Prompt - Bold and vertically centered */}
+      {/* 3. Terminal Prompt - Balanced "Middle Ground" scale and stroke */}
       <path
-        d="M17 23L22 27L17 31"
+        d="M15.5 22L22 27L15.5 32"
         stroke="currentColor"
-        strokeWidth="3.5"
+        strokeWidth="3.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d="M25 31H32"
+        d="M26 32H34"
         stroke="currentColor"
-        strokeWidth="3.5"
+        strokeWidth="3.8"
         strokeLinecap="round"
       />
     </svg>

@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { DotBotLogo } from '../ui/DotBotLogo'
+import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
 
 interface ConversationWelcomeProps {
   workspacePath: string
@@ -60,11 +61,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         historyMode: 'server'
       }) as { thread: { id: string; displayName?: string | null; status?: string; createdAt?: string } }
 
+      // Write prefill before activating the thread so InputComposer reads it on mount
+      useUIStore.getState().setComposerPrefill(prompt)
       addThread(res.thread)
       setActiveThreadId(res.thread.id)
-
-      // Pre-fill the input composer with the suggestion text instead of sending
-      ;(window as Window & { __inputComposerSetText?: (v: string) => void }).__inputComposerSetText?.(prompt)
     } catch (err) {
       console.error('Failed to create quick-start thread:', err)
     } finally {
@@ -89,7 +89,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     >
       {/* Logo + headline */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '36px' }}>
-        <DotBotLogo size={56} style={{ marginBottom: '16px' }} />
+        <DotCraftLogo size={56} style={{ marginBottom: '16px' }} />
         <h1
           style={{
             fontSize: '22px',

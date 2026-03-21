@@ -22,6 +22,8 @@ export interface UIState {
    * Prevents re-triggering after the user manually hides the panel.
    */
   autoShowTriggeredForTurn: string | null
+  /** Text to pre-fill into the InputComposer when it next mounts. */
+  composerPrefill: string | null
 }
 
 interface UIStore extends UIState {
@@ -37,6 +39,10 @@ interface UIStore extends UIState {
   showChangesForFile(filePath: string): void
   /** Mark auto-show as triggered for a given turn (prevents re-trigger) */
   markAutoShowForTurn(turnId: string): void
+  /** Set text to be picked up by InputComposer on its next mount. */
+  setComposerPrefill(text: string): void
+  /** Read and clear the prefill text atomically. */
+  consumeComposerPrefill(): string | null
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
@@ -47,6 +53,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   activeDetailTab: 'changes',
   selectedChangedFile: null,
   autoShowTriggeredForTurn: null,
+  composerPrefill: null,
 
   toggleSidebar() {
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }))
@@ -92,6 +99,16 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   markAutoShowForTurn(turnId) {
     set({ autoShowTriggeredForTurn: turnId })
+  },
+
+  setComposerPrefill(text) {
+    set({ composerPrefill: text })
+  },
+
+  consumeComposerPrefill() {
+    const text = get().composerPrefill
+    set({ composerPrefill: null })
+    return text
   }
 }))
 

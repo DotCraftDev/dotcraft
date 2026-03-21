@@ -28,6 +28,7 @@ export interface FileDiff {
 export interface SubAgentEntry {
   label: string
   currentTool: string | null
+  currentToolDisplay: string | null
   inputTokens: number
   outputTokens: number
   isCompleted: boolean

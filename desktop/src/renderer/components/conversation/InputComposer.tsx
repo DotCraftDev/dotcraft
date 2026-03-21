@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { addToast } from '../../stores/toastStore'
+import { useUIStore } from '../../stores/uiStore'
 import type { ConversationItem, ConversationTurn } from '../../types/conversation'
 import { PendingMessageIndicator } from './PendingMessageIndicator'
 
@@ -39,9 +40,19 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
   const threadMode = useConversationStore((s) => s.threadMode)
   const setPendingMessage = useConversationStore((s) => s.setPendingMessage)
   const setThreadMode = useConversationStore((s) => s.setThreadMode)
+  const composerPrefill = useUIStore((s) => s.composerPrefill)
 
   const isRunning = turnStatus === 'running'
   const isWaitingApproval = turnStatus === 'waitingApproval'
+
+  // Consume any pending prefill text written by ConversationWelcome before this mounted
+  useEffect(() => {
+    if (composerPrefill) {
+      setText(composerPrefill)
+      useUIStore.getState().consumeComposerPrefill()
+      setTimeout(() => textareaRef.current?.focus(), 0)
+    }
+  }, [composerPrefill])
 
   // Expose focus and pre-fill functions globally so other components can drive the composer
   useEffect(() => {
