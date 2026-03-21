@@ -43,12 +43,19 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
   const isRunning = turnStatus === 'running'
   const isWaitingApproval = turnStatus === 'waitingApproval'
 
-  // Expose focus function globally so ApprovalCard and App.tsx can return focus here
+  // Expose focus and pre-fill functions globally so other components can drive the composer
   useEffect(() => {
     const focus = (): void => { textareaRef.current?.focus() }
+    const setTextAndFocus = (value: string): void => {
+      setText(value)
+      // Focus after a tick so the textarea has re-rendered with the new value
+      setTimeout(() => textareaRef.current?.focus(), 0)
+    }
     ;(window as Window & { __inputComposerFocus?: () => void }).__inputComposerFocus = focus
+    ;(window as Window & { __inputComposerSetText?: (v: string) => void }).__inputComposerSetText = setTextAndFocus
     return () => {
       delete (window as Window & { __inputComposerFocus?: () => void }).__inputComposerFocus
+      delete (window as Window & { __inputComposerSetText?: (v: string) => void }).__inputComposerSetText
     }
   }, [])
 

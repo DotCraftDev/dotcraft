@@ -1,7 +1,6 @@
-import { useCallback, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { useUIStore, SIDEBAR_COLLAPSED_WIDTH, DETAIL_MIN_WIDTH } from '../../stores/uiStore'
 import { useResponsiveLayout } from '../../hooks/useResponsiveLayout'
-import { DragHandle } from './DragHandle'
 
 interface ThreePanelProps {
   sidebar: ReactNode
@@ -28,29 +27,10 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
     sidebarCollapsed,
     sidebarWidth,
     detailPanelVisible,
-    detailPanelWidth,
-    setSidebarWidth,
-    setDetailPanelWidth
+    detailPanelWidth
   } = useUIStore()
 
   const effectiveSidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
-
-  const handleSidebarDrag = useCallback(
-    (delta: number) => {
-      if (sidebarCollapsed) return
-      setSidebarWidth(sidebarWidth + delta)
-    },
-    [sidebarCollapsed, sidebarWidth, setSidebarWidth]
-  )
-
-  const handleDetailDrag = useCallback(
-    (delta: number) => {
-      if (!detailPanelVisible) return
-      // Dragging left increases detail width; delta is negative when dragging left
-      setDetailPanelWidth(detailPanelWidth - delta)
-    },
-    [detailPanelVisible, detailPanelWidth, setDetailPanelWidth]
-  )
 
   return (
     <div
@@ -69,7 +49,9 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
           width: `${effectiveSidebarWidth}px`,
           minWidth: `${effectiveSidebarWidth}px`,
           flexShrink: 0,
-          overflow: 'hidden',
+          overflow: 'visible',
+          position: 'relative',
+          zIndex: 2,
           transition: 'width 200ms ease-out, min-width 200ms ease-out',
           backgroundColor: 'var(--bg-secondary)',
           borderRight: '1px solid var(--border-default)',
@@ -79,13 +61,6 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
       >
         {sidebar}
       </div>
-
-      {/* Sidebar drag handle */}
-      {!sidebarCollapsed && (
-        <DragHandle
-          onDrag={handleSidebarDrag}
-        />
-      )}
 
       {/* Conversation panel (always visible, fills remaining space) */}
       <div
@@ -100,13 +75,6 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
       >
         {conversation}
       </div>
-
-      {/* Detail panel drag handle */}
-      {detailPanelVisible && (
-        <DragHandle
-          onDrag={handleDetailDrag}
-        />
-      )}
 
       {/* Detail panel */}
       <div

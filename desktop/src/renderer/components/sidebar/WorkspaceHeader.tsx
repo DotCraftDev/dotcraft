@@ -12,8 +12,9 @@ interface WorkspaceHeaderProps {
 }
 
 /**
- * Workspace identity header at the top of the sidebar.
- * Shows workspace name and path; click opens a dropdown menu.
+ * Compact workspace identity row shown below the LogoHeader.
+ * Displays the workspace name with a subtle "···" overflow button that opens
+ * the workspace menu (Open in Explorer, Switch Workspace, Recent Workspaces).
  * Spec §9.2, M7-2, M7-3, M7-5
  */
 export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeaderProps): JSX.Element {
@@ -24,9 +25,7 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
 
   useEffect(() => {
     if (!open) return
-    // Fetch recents when dropdown opens
     window.api.workspace.getRecent().then((list) => {
-      // Exclude the current workspace from the recents submenu
       setRecents(list.filter((r) => r.path !== workspacePath))
     }).catch(() => {})
 
@@ -48,9 +47,7 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
   async function switchWorkspace(): Promise<void> {
     setOpen(false)
     const picked = await window.api.workspace.pickFolder()
-    if (picked) {
-      await window.api.workspace.switch(picked)
-    }
+    if (picked) await window.api.workspace.switch(picked)
   }
 
   async function switchToRecent(path: string): Promise<void> {
@@ -62,56 +59,65 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
   return (
     <div
       ref={ref}
-      style={{ position: 'relative', padding: '12px 16px', borderBottom: '1px solid var(--border-default)', flexShrink: 0, cursor: 'pointer' }}
-      onClick={() => { setOpen((v) => !v); if (open) setShowRecents(false) }}
-      title="Workspace options"
+      style={{
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '5px 8px 5px 14px',
+        borderBottom: '1px solid var(--border-default)',
+        flexShrink: 0,
+        gap: '4px',
+        minHeight: '32px'
+      }}
     >
       {/* Workspace name */}
-      <div
+      <span
         style={{
-          fontWeight: 600,
-          fontSize: '14px',
-          color: 'var(--text-primary)',
+          flex: 1,
+          fontSize: '12px',
+          fontWeight: 500,
+          color: 'var(--text-secondary)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          paddingRight: '16px'
-        }}
-      >
-        {workspaceName || 'DotCraft'}
-      </div>
-
-      {/* Workspace path */}
-      <div
-        style={{
-          fontSize: '11px',
-          color: 'var(--text-dimmed)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          marginTop: '2px'
+          whiteSpace: 'nowrap'
         }}
         title={workspacePath}
       >
-        {workspacePath}
-      </div>
-
-      {/* Chevron indicator */}
-      <span
-        style={{
-          position: 'absolute',
-          right: '12px',
-          top: '50%',
-          transform: `translateY(-50%) rotate(${open ? '180deg' : '0deg'})`,
-          transition: 'transform 150ms ease',
-          color: 'var(--text-dimmed)',
-          fontSize: '10px',
-          pointerEvents: 'none'
-        }}
-        aria-hidden="true"
-      >
-        ▾
+        {workspaceName || 'DotCraft'}
       </span>
+
+      {/* Overflow menu trigger */}
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); if (open) setShowRecents(false) }}
+        title="Workspace options"
+        aria-label="Workspace options"
+        style={{
+          flexShrink: 0,
+          background: 'transparent',
+          border: 'none',
+          color: open ? 'var(--text-primary)' : 'var(--text-dimmed)',
+          cursor: 'pointer',
+          padding: '2px 4px',
+          borderRadius: '4px',
+          fontSize: '14px',
+          lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+        onMouseEnter={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+        }}
+        onMouseLeave={(e) => {
+          if (!open) {
+            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-dimmed)'
+          }
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+        }}
+      >
+        ···
+      </button>
 
       {/* Dropdown */}
       {open && (
@@ -130,6 +136,21 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Workspace path shown in menu header */}
+          <div
+            style={{
+              padding: '6px 14px',
+              fontSize: '11px',
+              color: 'var(--text-dimmed)',
+              borderBottom: '1px solid var(--border-default)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+            title={workspacePath}
+          >
+            {workspacePath}
+          </div>
           <DropdownItem label="Open in Explorer" onClick={openInExplorer} />
           <DropdownItem label="Switch Workspace" onClick={() => { void switchWorkspace() }} />
           {/* Recent workspaces submenu */}

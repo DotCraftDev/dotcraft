@@ -5,6 +5,7 @@ import { ThreadHeader } from '../conversation/ThreadHeader'
 import { MessageStream } from '../conversation/MessageStream'
 import { TurnStatusIndicator } from '../conversation/TurnStatusIndicator'
 import { InputComposer } from '../conversation/InputComposer'
+import { ConversationWelcome } from '../conversation/ConversationWelcome'
 
 interface ConversationPanelProps {
   workspacePath?: string
@@ -33,35 +34,9 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
     )
   }
 
-  // No thread selected
+  // No thread selected — show Codex-style welcome card
   if (!activeThread) {
-    return (
-      <div style={centeredStyle}>
-        <div style={{ textAlign: 'center', maxWidth: '360px', padding: '0 24px' }}>
-          <h2
-            style={{
-              fontSize: '18px',
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-              marginBottom: '8px',
-              margin: '0 0 8px 0'
-            }}
-          >
-            What can I help you with?
-          </h2>
-          <p
-            style={{
-              fontSize: '14px',
-              color: 'var(--text-secondary)',
-              lineHeight: 1.6,
-              margin: 0
-            }}
-          >
-            Select a conversation from the sidebar or click &ldquo;+ New Thread&rdquo; to start.
-          </p>
-        </div>
-      </div>
-    )
+    return <ConversationWelcome workspacePath={workspacePath} />
   }
 
   const threadName = activeThread.displayName ?? 'New conversation'
@@ -108,16 +83,8 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
         <MessageStream />
       ) : (
         <div style={centeredStyle}>
-          <p
-            style={{
-              fontSize: '14px',
-              color: 'var(--text-secondary)',
-              lineHeight: 1.6,
-              margin: 0,
-              textAlign: 'center'
-            }}
-          >
-            No messages yet. Ask DotCraft anything to get started.
+          <p style={{ fontSize: '14px', color: 'var(--text-dimmed)', margin: 0, textAlign: 'center' }}>
+            Type a message below to get started.
           </p>
         </div>
       )}

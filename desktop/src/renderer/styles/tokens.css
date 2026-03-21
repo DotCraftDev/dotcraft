@@ -21,15 +21,15 @@
   --color-border-active: #555555;
 
   /* Brand / semantic */
-  --color-accent: #7c3aed;
-  --color-accent-hover: #9333ea;
+  --color-accent: #4A7FA5;
+  --color-accent-hover: #5A9BC0;
   --color-success: #22c55e;
   --color-warning: #eab308;
   --color-error: #ef4444;
   --color-info: #3b82f6;
 
   /* Message backgrounds */
-  --color-user-message-bg: #2a2a3a;
+  --color-user-message-bg: #1E2A35;
 
   /* Diff colors */
   --color-diff-add-bg: rgba(34, 197, 94, 0.15);
@@ -76,15 +76,15 @@
   --border-active: #555555;
 
   /* Brand / semantic */
-  --accent: #7c3aed;
-  --accent-hover: #9333ea;
+  --accent: #4A7FA5;
+  --accent-hover: #5A9BC0;
   --success: #22c55e;
   --warning: #eab308;
   --error: #ef4444;
   --info: #3b82f6;
 
   /* Message backgrounds */
-  --user-message-bg: #2a2a3a;
+  --user-message-bg: #1E2A35;
 
   /* Diff */
   --diff-add-bg: rgba(34, 197, 94, 0.15);

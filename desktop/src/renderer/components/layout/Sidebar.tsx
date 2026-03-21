@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
@@ -8,6 +8,7 @@ import { NewThreadButton } from '../sidebar/NewThreadButton'
 import { ThreadSearch } from '../sidebar/ThreadSearch'
 import { ThreadList } from '../sidebar/ThreadList'
 import { SidebarFooter } from '../sidebar/SidebarFooter'
+import { DotBotLogo } from '../ui/DotBotLogo'
 
 interface SidebarProps {
   workspaceName: string
@@ -50,10 +51,11 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        overflow: 'hidden',
+        overflow: 'visible',
         position: 'relative'
       }}
     >
+      <LogoHeader onCollapse={toggleSidebar} />
       <WorkspaceHeader workspaceName={workspaceName} workspacePath={workspacePath} />
 
       <NewThreadButton workspacePath={workspacePath} />
@@ -110,6 +112,7 @@ interface CollapsedSidebarProps {
 }
 
 function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: CollapsedSidebarProps): JSX.Element {
+  const [logoHovered, setLogoHovered] = useState(false)
   const { status } = useConnectionStore()
   const { threadList, addThread, setActiveThreadId } = useThreadStore()
 
@@ -153,14 +156,23 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
         gap: '6px'
       }}
     >
-      {/* Expand button */}
+      {/* Logo doubles as expand button — swaps to panel-open icon on hover */}
       <button
         onClick={onExpand}
         title="Expand sidebar (Ctrl+B)"
-        style={iconButtonStyle}
         aria-label="Expand sidebar"
+        onMouseEnter={() => setLogoHovered(true)}
+        onMouseLeave={() => setLogoHovered(false)}
+        style={{
+          ...iconButtonStyle,
+          width: '36px',
+          height: '36px',
+          borderRadius: '8px',
+          marginBottom: '2px',
+          color: logoHovered ? 'var(--text-primary)' : 'var(--text-secondary)'
+        }}
       >
-        ›
+        {logoHovered ? <PanelLeftOpenIcon /> : <DotBotLogo size={24} />}
       </button>
 
       {/* New thread icon */}
@@ -233,6 +245,105 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Panel toggle icons (Lucide-style, inline SVG)
+// ---------------------------------------------------------------------------
+
+function PanelLeftCloseIcon(): JSX.Element {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m16 15-3-3 3-3" />
+    </svg>
+  )
+}
+
+function PanelLeftOpenIcon(): JSX.Element {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m14 9 3 3-3 3" />
+    </svg>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Logo header (expanded sidebar top-left)
+// ---------------------------------------------------------------------------
+
+interface LogoHeaderProps {
+  onCollapse: () => void
+}
+
+function LogoHeader({ onCollapse }: LogoHeaderProps): JSX.Element {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <button
+      onClick={onCollapse}
+      title="Collapse sidebar (Ctrl+B)"
+      aria-label="Collapse sidebar"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '10px 14px',
+        background: 'transparent',
+        border: 'none',
+        borderBottom: '1px solid var(--border-default)',
+        width: '100%',
+        cursor: 'pointer',
+        flexShrink: 0,
+        color: hovered ? 'var(--text-primary)' : 'var(--text-secondary)',
+        transition: 'color 120ms ease'
+      }}
+    >
+      {/* On hover, swap logo for panel-close icon; logo stays otherwise */}
+      <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', width: 24, height: 24, justifyContent: 'center' }}>
+        {hovered ? <PanelLeftCloseIcon /> : <DotBotLogo size={24} />}
+      </span>
+      <span
+        style={{
+          fontSize: '14px',
+          fontWeight: 700,
+          color: 'var(--text-primary)',
+          letterSpacing: '-0.3px',
+          flex: 1,
+          textAlign: 'left'
+        }}
+      >
+        DotCraft
+      </span>
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 
 const iconButtonStyle: React.CSSProperties = {
   width: '32px',

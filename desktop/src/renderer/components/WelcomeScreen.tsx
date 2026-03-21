@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { DotBotLogo } from './ui/DotBotLogo'
 
 interface RecentWorkspace {
   path: string
@@ -58,7 +59,8 @@ export function WelcomeScreen(): JSX.Element {
       }}
     >
       {/* Logo / title */}
-      <div style={{ marginBottom: '12px', fontSize: '32px', fontWeight: 700, letterSpacing: '-0.5px' }}>
+      <DotBotLogo size={72} style={{ marginBottom: '20px' }} />
+      <div style={{ marginBottom: '10px', fontSize: '28px', fontWeight: 700, letterSpacing: '-0.5px' }}>
         DotCraft Desktop
       </div>
       <div style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '40px' }}>
