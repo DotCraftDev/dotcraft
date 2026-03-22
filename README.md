@@ -214,9 +214,11 @@ Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./do
 
 DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
 
-Adapters can run as subprocesses over stdio or connect independently over WebSocket, and they can be implemented in any language that speaks JSON-RPC. The Python SDK includes both a low-level `DotCraftClient` and a high-level `ChannelAdapter` base class to simplify thread management, streaming events, delivery requests, and approval flows. In this model, the adapter is a full Wire Protocol client: DotCraft can issue approval requests back to the adapter, and the adapter can render native approval UX for its platform instead of collapsing everything into a generic gateway surface.
+The Python SDK (`DotCraftClient`, `ChannelAdapter`) makes it easier to wire up external channels. Adapters can show approval flows with each platform’s native UI, so integration stays flexible.
 
 The repository now includes a reference Telegram adapter that demonstrates long polling, inline-keyboard approvals, and full end-to-end integration with DotCraft sessions. See the [Python SDK](./sdk/python/README.md).
+
+![telegram](https://github.com/DotCraftDev/resources/raw/master/dotcraft/telegram.jpg)
 
 ### GitHub Workflow Automation
 
