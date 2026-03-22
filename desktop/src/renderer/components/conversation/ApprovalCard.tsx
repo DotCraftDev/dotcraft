@@ -124,7 +124,7 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
     if (e.key === 'Enter' || (e.key === 'a' && !e.shiftKey)) {
       e.preventDefault()
       sendDecision('accept')
-    } else if (e.key === 's' || e.key === 'S' && !e.shiftKey) {
+    } else if (e.key === 's' || (e.key === 'S' && !e.shiftKey)) {
       e.preventDefault()
       sendDecision('acceptForSession')
     } else if (e.key === 'A' && e.shiftKey) {
