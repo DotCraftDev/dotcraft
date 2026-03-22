@@ -354,7 +354,7 @@ export class WireProtocolClient extends EventEmitter {
 
     const hasMethod = typeof msg.method === 'string'
     const hasId =
-      msg.id !== undefined && msg.id !== null && typeof msg.id === 'number'
+      msg.id !== undefined && msg.id !== null && (typeof msg.id === 'number' || typeof msg.id === 'string')
 
     if (!hasMethod && hasId) {
       const pending = this.pending.get(msg.id as number)
