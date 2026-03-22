@@ -308,8 +308,10 @@ function openNewWindow(workspacePath: string | null): void {
   // Register IPC before loadURL so the renderer can invoke (e.g. window:get-workspace-path)
   // as soon as JS runs — Vite dev can execute the module before did-finish-load on main.
   if (workspacePath) {
+    unregisterIpcHandlers()
     registerIpcHandlers(null, () => ctx.wireClient, workspacePath, buildCallbacks(ctx))
   } else {
+    unregisterIpcHandlers()
     registerIpcHandlers(null, () => null, '', buildCallbacks(ctx))
   }
 
