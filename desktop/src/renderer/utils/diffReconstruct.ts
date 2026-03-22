@@ -12,6 +12,7 @@ import type { FileDiff } from '../types/toolCall'
  * hunks produced by diffExtractor.ts.
  */
 export function reconstructOriginalContent(diff: FileDiff): string {
+  if (diff.originalContent !== undefined) return diff.originalContent
   if (diff.isNewFile) return ''
 
   const lines: string[] = []
@@ -33,6 +34,8 @@ export function reconstructOriginalContent(diff: FileDiff): string {
  * skipping removed lines. This produces the content the agent wrote.
  */
 export function reconstructNewContent(diff: FileDiff): string {
+  if (diff.currentContent !== undefined) return diff.currentContent
+
   const lines: string[] = []
   for (const hunk of diff.diffHunks) {
     for (const line of hunk.lines) {

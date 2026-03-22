@@ -3,7 +3,11 @@ import {
   extractDiffFromWriteFile,
   extractDiffFromEditFile,
   computeDiffHunks,
-  parseResultPath
+  parseResultPath,
+  mergeFileDiffIncrement,
+  computeCumulativeFileDiff,
+  computeIncrementalPerItemDiff,
+  reverseEditReplace
 } from '../utils/diffExtractor'
 
 describe('parseResultPath', () => {
@@ -28,6 +32,7 @@ describe('extractDiffFromWriteFile', () => {
     expect(diff).not.toBeNull()
     expect(diff!.filePath).toBe('src/new.ts')
     expect(diff!.turnId).toBe('turn-1')
+    expect(diff!.turnIds).toEqual(['turn-1'])
     expect(diff!.isNewFile).toBe(true)
     expect(diff!.status).toBe('written')
     expect(diff!.additions).toBe(3)
@@ -66,6 +71,7 @@ describe('extractDiffFromEditFile', () => {
 
     expect(diff).not.toBeNull()
     expect(diff!.filePath).toBe('src/edit.ts')
+    expect(diff!.turnIds).toEqual(['turn-2'])
     expect(diff!.isNewFile).toBe(false)
     expect(diff!.additions).toBe(1)
     expect(diff!.deletions).toBe(1)
@@ -101,6 +107,70 @@ describe('extractDiffFromEditFile', () => {
   })
 })
 
+describe('computeIncrementalPerItemDiff', () => {
+  it('delegates EditFile to extractDiffFromEditFile even when cumulative exists', () => {
+    const cumulative: import('../types/toolCall').FileDiff = {
+      filePath: 'src/a.ts',
+      turnId: 't0',
+      turnIds: ['t0'],
+      additions: 5,
+      deletions: 5,
+      diffHunks: [],
+      status: 'written',
+      isNewFile: false,
+      originalContent: 'alpha',
+      currentContent: 'gamma'
+    }
+    const inc = computeIncrementalPerItemDiff(
+      'EditFile',
+      { path: 'src/a.ts', oldText: 'beta', newText: 'gamma' },
+      '',
+      't1',
+      cumulative
+    )
+    expect(inc?.additions).toBe(1)
+    expect(inc?.deletions).toBe(1)
+  })
+
+  it('first WriteFile matches extractDiffFromWriteFile', () => {
+    const inc = computeIncrementalPerItemDiff(
+      'WriteFile',
+      { path: 'n.ts', content: 'line\n' },
+      '',
+      't1',
+      undefined
+    )
+    expect(inc).not.toBeNull()
+    expect(inc!.isNewFile).toBe(true)
+    expect(inc!.filePath).toBe('n.ts')
+  })
+
+  it('second WriteFile diffs old cumulative content against new content', () => {
+    const existing = {
+      filePath: 'f.ts',
+      turnId: 't0',
+      turnIds: ['t0'],
+      additions: 1,
+      deletions: 0,
+      diffHunks: [],
+      status: 'written' as const,
+      isNewFile: true,
+      originalContent: '',
+      currentContent: 'first'
+    }
+    const inc = computeIncrementalPerItemDiff(
+      'WriteFile',
+      { path: 'f.ts', content: 'second' },
+      '',
+      't1',
+      existing
+    )
+    expect(inc?.currentContent).toBe('second')
+    expect(inc?.originalContent).toBe('first')
+    expect(inc!.additions + inc!.deletions).toBeGreaterThan(0)
+  })
+})
+
 describe('computeDiffHunks', () => {
   it('returns empty hunks for identical text', () => {
     const { hunks, additions, deletions } = computeDiffHunks('same\n', 'same\n')
@@ -113,6 +183,48 @@ describe('computeDiffHunks', () => {
     const { additions, deletions } = computeDiffHunks('old\n', 'new\n')
     expect(additions).toBe(1)
     expect(deletions).toBe(1)
+  })
+
+  it('mergeFileDiffIncrement accumulates WriteFile then EditFile on same path', () => {
+    const first = mergeFileDiffIncrement(
+      undefined,
+      'WriteFile',
+      { path: 'src/x.ts', content: 'a\nb\n' },
+      '',
+      'turn-1'
+    )
+    expect(first?.currentContent).toBe('a\nb\n')
+    const merged = mergeFileDiffIncrement(
+      first!,
+      'EditFile',
+      { path: 'src/x.ts', oldText: 'b', newText: 'c' },
+      '',
+      'turn-1'
+    )
+    expect(merged?.currentContent).toBe('a\nc\n')
+    expect(merged?.turnIds).toEqual(['turn-1'])
+    expect(merged?.additions).toBeGreaterThan(0)
+  })
+
+  it('reverseEditReplace restores one occurrence', () => {
+    expect(reverseEditReplace('hello world', 'world', 'there')).toBe('hello there')
+  })
+
+  it('computeCumulativeFileDiff uses injected readFile for EditFile first edit', async () => {
+    const diff = await computeCumulativeFileDiff({
+      filePath: 'src/e.ts',
+      toolName: 'EditFile',
+      args: { path: 'src/e.ts', oldText: 'old', newText: 'new' },
+      resultText: 'Successfully edited src/e.ts',
+      turnId: 't1',
+      existing: undefined,
+      workspacePath: 'C:/proj',
+      readFile: async () => 'prefix new suffix'
+    })
+    expect(diff).not.toBeNull()
+    expect(diff!.originalContent).toBe('prefix old suffix')
+    expect(diff!.currentContent).toBe('prefix new suffix')
+    expect(diff!.turnIds).toEqual(['t1'])
   })
 
   it('groups nearby changes into a single hunk', () => {

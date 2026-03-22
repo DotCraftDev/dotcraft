@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import type { ConversationTurn } from '../types/conversation'
 import { useConversationStore } from '../stores/conversationStore'
 
 // Helper to get latest state without subscribing
@@ -51,7 +52,17 @@ describe('turn lifecycle', () => {
     expect(s().streamingMessage).toBe('Hello, world')
   })
 
-  it('onItemCompleted (agentMessage) commits streaming text to turn items and clears buffer', () => {
+  it('onItemStarted (agentMessage) adds a streaming placeholder to turn.items', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({ turnId: 'turn-1', item: { id: 'item-1', type: 'agentMessage' } })
+    const items = s().turns[0].items
+    expect(items).toHaveLength(1)
+    expect(items[0].type).toBe('agentMessage')
+    expect(items[0].id).toBe('item-1')
+    expect(items[0].status).toBe('streaming')
+  })
+
+  it('onItemCompleted (agentMessage) updates placeholder in place and clears buffer', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({ turnId: 'turn-1', item: { id: 'item-1', type: 'agentMessage' } })
     s().onAgentMessageDelta('Final text')
@@ -110,7 +121,16 @@ describe('reasoning flow', () => {
     expect(s().streamingReasoning).toBe('Step 1. Step 2.')
   })
 
-  it('onItemCompleted (reasoningContent) commits reasoning and clears buffer', () => {
+  it('onItemStarted (reasoningContent) adds a streaming placeholder to turn.items', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({ turnId: 'turn-1', item: { id: 'r-1', type: 'reasoningContent' } })
+    const items = s().turns[0].items.filter((i) => i.type === 'reasoningContent')
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe('r-1')
+    expect(items[0].status).toBe('streaming')
+  })
+
+  it('onItemCompleted (reasoningContent) updates placeholder in place and clears buffer', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({ turnId: 'turn-1', item: { id: 'r-1', type: 'reasoningContent' } })
     s().onReasoningDelta('Thinking deeply...')
@@ -121,9 +141,10 @@ describe('reasoning flow', () => {
 
     const state = s()
     expect(state.streamingReasoning).toBe('')
-    const item = state.turns[0].items.find((i) => i.type === 'reasoningContent')
-    expect(item).toBeDefined()
-    expect(item?.reasoning).toBe('Thinking deeply...')
+    const reasoningItems = state.turns[0].items.filter((i) => i.type === 'reasoningContent')
+    expect(reasoningItems).toHaveLength(1)
+    expect(reasoningItems[0].reasoning).toBe('Thinking deeply...')
+    expect(reasoningItems[0].status).toBe('completed')
   })
 })
 
@@ -445,6 +466,7 @@ describe('revertFile / reapplyFile', () => {
     s().upsertChangedFile({
       filePath: 'src/a.ts',
       turnId: 'turn-1',
+      turnIds: ['turn-1'],
       additions: 5,
       deletions: 0,
       diffHunks: [],
@@ -454,6 +476,7 @@ describe('revertFile / reapplyFile', () => {
     s().upsertChangedFile({
       filePath: 'src/b.ts',
       turnId: 'turn-1',
+      turnIds: ['turn-1'],
       additions: 2,
       deletions: 0,
       diffHunks: [],
@@ -472,6 +495,7 @@ describe('revertFile / reapplyFile', () => {
     s().upsertChangedFile({
       filePath: 'src/a.ts',
       turnId: 'turn-1',
+      turnIds: ['turn-1'],
       additions: 5,
       deletions: 0,
       diffHunks: [],
@@ -533,6 +557,7 @@ describe('revertFilesForTurn', () => {
     s().upsertChangedFile({
       filePath: 'src/a.ts',
       turnId: 'turn-1',
+      turnIds: ['turn-1'],
       additions: 5,
       deletions: 0,
       diffHunks: [],
@@ -542,6 +567,7 @@ describe('revertFilesForTurn', () => {
     s().upsertChangedFile({
       filePath: 'src/b.ts',
       turnId: 'turn-1',
+      turnIds: ['turn-1'],
       additions: 3,
       deletions: 1,
       diffHunks: [],
@@ -552,6 +578,7 @@ describe('revertFilesForTurn', () => {
     s().upsertChangedFile({
       filePath: 'src/c.ts',
       turnId: 'turn-2',
+      turnIds: ['turn-2'],
       additions: 1,
       deletions: 0,
       diffHunks: [],
@@ -571,6 +598,7 @@ describe('revertFilesForTurn', () => {
     s().upsertChangedFile({
       filePath: 'src/x.ts',
       turnId: 'turn-99',
+      turnIds: ['turn-99'],
       additions: 1,
       deletions: 0,
       diffHunks: [],
@@ -580,5 +608,237 @@ describe('revertFilesForTurn', () => {
 
     s().revertFilesForTurn('turn-1') // different turn
     expect(s().changedFiles.get('src/x.ts')?.status).toBe('written')
+  })
+
+  it('matches revertFilesForTurn when turnIds includes an earlier turn', () => {
+    s().upsertChangedFile({
+      filePath: 'src/multi.ts',
+      turnId: 'turn-2',
+      turnIds: ['turn-1', 'turn-2'],
+      additions: 1,
+      deletions: 0,
+      diffHunks: [],
+      status: 'written',
+      isNewFile: false
+    })
+    s().revertFilesForTurn('turn-1')
+    expect(s().changedFiles.get('src/multi.ts')?.status).toBe('reverted')
+  })
+})
+
+describe('changedFiles persistence across turns', () => {
+  it('does not clear changedFiles on onTurnStarted', () => {
+    s().upsertChangedFile({
+      filePath: 'keep.ts',
+      turnId: 'turn-1',
+      turnIds: ['turn-1'],
+      additions: 1,
+      deletions: 0,
+      diffHunks: [],
+      status: 'written',
+      isNewFile: true
+    })
+    s().onTurnStarted(makeTurn({ id: 'turn-2' }))
+    expect(s().changedFiles.get('keep.ts')).toBeDefined()
+  })
+})
+
+describe('tool item ordering by createdAt', () => {
+  it('keeps toolCall items sorted after onItemStarted', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'late',
+        type: 'toolCall',
+        createdAt: '2025-01-02T00:00:00.000Z',
+        payload: { callId: 'c-late', toolName: 'ReadFile', arguments: { path: 'a.ts' } }
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'early',
+        type: 'toolCall',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        payload: { callId: 'c-early', toolName: 'ReadFile', arguments: { path: 'b.ts' } }
+      }
+    })
+    const tools = s().turns[0].items.filter((i) => i.type === 'toolCall')
+    expect(tools.map((t) => t.id)).toEqual(['early', 'late'])
+  })
+
+  it('keeps agentMessage placeholder before toolCall when tool starts after message streaming', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'msg-1',
+        type: 'agentMessage',
+        createdAt: '2025-01-01T00:00:00.000Z'
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-1',
+        type: 'toolCall',
+        createdAt: '2025-01-02T00:00:00.000Z',
+        payload: { callId: 'c-1', toolName: 'ReadFile', arguments: { path: 'a.ts' } }
+      }
+    })
+    expect(s().turns[0].items.map((i) => i.id)).toEqual(['msg-1', 'tool-1'])
+    expect(s().turns[0].items[0].type).toBe('agentMessage')
+    expect(s().turns[0].items[0].status).toBe('streaming')
+  })
+})
+
+describe('itemDiffs per tool call', () => {
+  it('setTurns stores per-item incremental diffs and cumulative changedFiles', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-h',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: new Date().toISOString(),
+      items: [
+        {
+          id: 'tc-a',
+          type: 'toolCall',
+          status: 'completed',
+          toolName: 'EditFile',
+          toolCallId: 'call-a',
+          arguments: { path: 'src/a.ts', oldText: 'alpha', newText: 'beta' },
+          createdAt: '2025-01-01T00:00:01.000Z'
+        },
+        {
+          id: 'tr-a',
+          type: 'toolResult',
+          status: 'completed',
+          toolCallId: 'call-a',
+          result: 'Successfully edited src/a.ts',
+          success: true,
+          createdAt: '2025-01-01T00:00:02.000Z',
+          completedAt: '2025-01-01T00:00:02.000Z'
+        },
+        {
+          id: 'tc-b',
+          type: 'toolCall',
+          status: 'completed',
+          toolName: 'EditFile',
+          toolCallId: 'call-b',
+          arguments: { path: 'src/a.ts', oldText: 'beta', newText: 'gamma' },
+          createdAt: '2025-01-01T00:00:03.000Z'
+        },
+        {
+          id: 'tr-b',
+          type: 'toolResult',
+          status: 'completed',
+          toolCallId: 'call-b',
+          result: 'Successfully edited src/a.ts',
+          success: true,
+          createdAt: '2025-01-01T00:00:04.000Z',
+          completedAt: '2025-01-01T00:00:04.000Z'
+        }
+      ]
+    }
+    s().setTurns([turn])
+    const itemDiffs = s().itemDiffs
+    expect(itemDiffs.size).toBe(2)
+    expect(itemDiffs.get('tc-a')?.additions).toBe(1)
+    expect(itemDiffs.get('tc-a')?.deletions).toBe(1)
+    expect(itemDiffs.get('tc-b')?.additions).toBe(1)
+    expect(itemDiffs.get('tc-b')?.deletions).toBe(1)
+    expect(itemDiffs.get('tc-a')?.diffHunks).not.toEqual(itemDiffs.get('tc-b')?.diffHunks)
+
+    const cum = s().changedFiles.get('src/a.ts')
+    expect(cum).toBeDefined()
+    expect(cum?.currentContent).toBe('gamma')
+    expect(cum?.originalContent).toBe('alpha')
+  })
+
+  it('onItemCompleted toolResult stores distinct per-item diffs for two EditFile calls', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'edit-1',
+        type: 'toolCall',
+        createdAt: '2025-01-01T00:00:01.000Z',
+        payload: {
+          callId: 'c1',
+          toolName: 'EditFile',
+          arguments: { path: 'x.ts', oldText: 'A', newText: 'B' }
+        }
+      }
+    })
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        type: 'toolResult',
+        callId: 'c1',
+        result: 'Successfully edited x.ts',
+        success: true
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'edit-2',
+        type: 'toolCall',
+        createdAt: '2025-01-01T00:00:02.000Z',
+        payload: {
+          callId: 'c2',
+          toolName: 'EditFile',
+          arguments: { path: 'x.ts', oldText: 'B', newText: 'C' }
+        }
+      }
+    })
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        type: 'toolResult',
+        callId: 'c2',
+        result: 'Successfully edited x.ts',
+        success: true
+      }
+    })
+    const ids = s().itemDiffs
+    expect(ids.size).toBe(2)
+    expect(ids.get('edit-1')?.diffHunks).not.toEqual(ids.get('edit-2')?.diffHunks)
+  })
+
+  it('reset clears itemDiffs', () => {
+    s().setTurns([
+      {
+        id: 'turn-h',
+        threadId: 'thread-1',
+        status: 'completed',
+        startedAt: new Date().toISOString(),
+        items: [
+          {
+            id: 'tc-a',
+            type: 'toolCall',
+            status: 'completed',
+            toolName: 'EditFile',
+            toolCallId: 'call-a',
+            arguments: { path: 'src/a.ts', oldText: 'a', newText: 'b' },
+            createdAt: '2025-01-01T00:00:01.000Z'
+          },
+          {
+            id: 'tr-a',
+            type: 'toolResult',
+            status: 'completed',
+            toolCallId: 'call-a',
+            result: 'Successfully edited src/a.ts',
+            success: true,
+            createdAt: '2025-01-01T00:00:02.000Z',
+            completedAt: '2025-01-01T00:00:02.000Z'
+          }
+        ]
+      }
+    ])
+    expect(s().itemDiffs.size).toBeGreaterThan(0)
+    s().reset()
+    expect(s().itemDiffs.size).toBe(0)
   })
 })

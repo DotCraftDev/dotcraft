@@ -10,6 +10,7 @@ function makeDiff(overrides: Partial<FileDiff> = {}): FileDiff {
   return {
     filePath: 'src/test.ts',
     turnId: 'turn-1',
+    turnIds: ['turn-1'],
     additions: 10,
     deletions: 2,
     diffHunks: [],

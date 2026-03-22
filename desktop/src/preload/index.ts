@@ -164,6 +164,14 @@ const api = {
     },
 
     /**
+     * Reads UTF-8 text from the given absolute path (within workspace).
+     * Returns empty string if the file does not exist.
+     */
+    readFile(absPath: string): Promise<string> {
+      return ipcRenderer.invoke('file:read', absPath)
+    },
+
+    /**
      * Deletes the file at the given absolute path (within workspace).
      */
     deleteFile(absPath: string): Promise<void> {

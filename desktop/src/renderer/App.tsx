@@ -59,6 +59,13 @@ export function App(): JSX.Element {
     return unsubscribe
   }, [])
 
+  // Keep conversation store workspace path in sync (cumulative diff IPC reads)
+  useEffect(() => {
+    if (workspacePath) {
+      useConversationStore.getState().setWorkspacePath(workspacePath)
+    }
+  }, [workspacePath])
+
   // -------------------------------------------------------------------------
   // Load thread list when connection becomes "connected"
   // -------------------------------------------------------------------------

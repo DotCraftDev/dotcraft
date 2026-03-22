@@ -1,5 +1,6 @@
 import { diffLines } from 'diff'
 import type { FileDiff, DiffHunk, DiffLine } from '../types/toolCall'
+import { reconstructNewContent, reconstructOriginalContent } from './diffReconstruct'
 
 /**
  * Extract the file path from tool result status strings like:
@@ -150,11 +151,14 @@ export function extractDiffFromWriteFile(
   return {
     filePath,
     turnId,
+    turnIds: [turnId],
     additions: contentLines.length,
     deletions: 0,
     diffHunks: hunkLines.length > 0 ? [hunk] : [],
     status: 'written',
-    isNewFile: true
+    isNewFile: true,
+    originalContent: '',
+    currentContent: content
   }
 }
 
@@ -180,10 +184,217 @@ export function extractDiffFromEditFile(
   return {
     filePath,
     turnId,
+    turnIds: [turnId],
     additions,
     deletions,
     diffHunks: hunks,
     status: 'written',
     isNewFile: false
   }
+}
+
+/**
+ * Single-tool-call diff for inline ToolCallCard (not cumulative).
+ * WriteFile with no prior entry for the path: full-file addition diff.
+ * WriteFile after prior edits: diff from previous cumulative content to new args.content.
+ */
+export function computeIncrementalPerItemDiff(
+  toolName: 'WriteFile' | 'EditFile',
+  args: Record<string, unknown>,
+  resultText: string,
+  turnId: string,
+  existingForFile: FileDiff | undefined
+): FileDiff | null {
+  if (toolName === 'EditFile') {
+    return extractDiffFromEditFile(args, resultText, turnId)
+  }
+  if (!existingForFile) {
+    return extractDiffFromWriteFile(args, resultText, turnId)
+  }
+  const filePath = (args.path as string | undefined) ?? parseResultPath(resultText) ?? ''
+  if (!filePath) return null
+  const oldContent =
+    existingForFile.currentContent !== undefined
+      ? existingForFile.currentContent
+      : reconstructNewContent(existingForFile)
+  const newContent = (args.content as string | undefined) ?? ''
+  const { hunks, additions, deletions } = computeDiffHunks(oldContent, newContent)
+  return {
+    filePath,
+    turnId,
+    turnIds: [turnId],
+    additions,
+    deletions,
+    diffHunks: hunks,
+    status: 'written',
+    isNewFile: oldContent === '',
+    originalContent: oldContent,
+    currentContent: newContent
+  }
+}
+
+/**
+ * Join workspace root with a relative file path for IPC read/write (renderer-side).
+ */
+export function toAbsoluteWorkspacePath(workspacePath: string, filePath: string): string {
+  if (filePath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(filePath)) return filePath
+  const ws = workspacePath.replace(/\\/g, '/').replace(/\/$/, '')
+  const rel = filePath.replace(/\\/g, '/')
+  return `${ws}/${rel}`.replace(/\/+/g, '/')
+}
+
+/**
+ * Reverse one EditFile application on post-edit file content (first occurrence).
+ */
+export function reverseEditReplace(postContent: string, newText: string, oldText: string): string {
+  const idx = postContent.indexOf(newText)
+  if (idx === -1) {
+    return postContent.replace(newText, oldText)
+  }
+  return postContent.slice(0, idx) + oldText + postContent.slice(idx + newText.length)
+}
+
+/**
+ * Merge a new WriteFile/EditFile tool result into an existing FileDiff (sync, no disk read).
+ * Used for thread/history rehydration where multiple edits to the same file must accumulate.
+ */
+export function mergeFileDiffIncrement(
+  existing: FileDiff | undefined,
+  toolName: 'WriteFile' | 'EditFile',
+  args: Record<string, unknown>,
+  resultText: string,
+  turnId: string
+): FileDiff | null {
+  const incremental = toolName === 'WriteFile'
+    ? extractDiffFromWriteFile(args, resultText, turnId)
+    : extractDiffFromEditFile(args, resultText, turnId)
+  if (!incremental) return null
+
+  if (!existing) {
+    return incremental
+  }
+
+  const orig =
+    existing.originalContent !== undefined
+      ? existing.originalContent
+      : existing.isNewFile
+        ? ''
+        : reconstructOriginalContent(existing)
+
+  let curr =
+    existing.currentContent !== undefined
+      ? existing.currentContent
+      : reconstructNewContent(existing)
+
+  if (toolName === 'WriteFile') {
+    curr = (args.content as string | undefined) ?? ''
+  } else {
+    const oldText = (args.oldText as string | undefined) ?? ''
+    const newText = (args.newText as string | undefined) ?? ''
+    if (oldText) {
+      const idx = curr.indexOf(oldText)
+      if (idx !== -1) {
+        curr = curr.slice(0, idx) + newText + curr.slice(idx + oldText.length)
+      } else {
+        curr = curr.replace(oldText, newText)
+      }
+    }
+  }
+
+  const { hunks, additions, deletions } = computeDiffHunks(orig, curr)
+  const baseTurnIds = existing.turnIds?.length ? existing.turnIds : [existing.turnId]
+  const turnIds = baseTurnIds.includes(turnId) ? [...baseTurnIds] : [...baseTurnIds, turnId]
+
+  return {
+    filePath: incremental.filePath,
+    turnId,
+    turnIds,
+    additions,
+    deletions,
+    diffHunks: hunks,
+    status: existing.status,
+    isNewFile: orig === '',
+    originalContent: orig,
+    currentContent: curr
+  }
+}
+
+export interface ComputeCumulativeFileDiffOptions {
+  filePath: string
+  toolName: string
+  args: Record<string, unknown>
+  resultText: string
+  turnId: string
+  existing: FileDiff | undefined
+  workspacePath: string
+  /** Injected for unit tests */
+  readFile?: (absPath: string) => Promise<string>
+}
+
+/**
+ * Computes cumulative file diff after a tool completes (may read disk for EditFile / verification).
+ */
+export async function computeCumulativeFileDiff(
+  options: ComputeCumulativeFileDiffOptions
+): Promise<FileDiff | null> {
+  const { filePath, resultText, turnId, existing, workspacePath } = options
+  const toolName = options.toolName
+  if (toolName !== 'WriteFile' && toolName !== 'EditFile') return null
+
+  const args = options.args
+  const readFile =
+    options.readFile ??
+    (async (abs: string) => {
+      if (typeof window !== 'undefined' && window.api?.file?.readFile) {
+        return window.api.file.readFile(abs)
+      }
+      return ''
+    })
+
+  const absPath = toAbsoluteWorkspacePath(workspacePath, filePath)
+  const postDisk = await readFile(absPath)
+
+  if (!existing && toolName === 'EditFile') {
+    const oldText = (args.oldText as string | undefined) ?? ''
+    const newText = (args.newText as string | undefined) ?? ''
+    if (!oldText && !newText) return null
+    const currentContent = postDisk !== '' ? postDisk : newText
+    const originalContent = reverseEditReplace(currentContent, newText, oldText)
+    const { hunks, additions, deletions } = computeDiffHunks(originalContent, currentContent)
+    return {
+      filePath,
+      turnId,
+      turnIds: [turnId],
+      additions,
+      deletions,
+      diffHunks: hunks,
+      status: 'written',
+      isNewFile: originalContent === '',
+      originalContent,
+      currentContent
+    }
+  }
+
+  const merged = mergeFileDiffIncrement(existing, toolName, args, resultText, turnId)
+  if (!merged) return null
+
+  if (toolName === 'EditFile' && postDisk !== '' && merged.currentContent !== postDisk) {
+    const orig =
+      merged.originalContent !== undefined
+        ? merged.originalContent
+        : merged.isNewFile
+          ? ''
+          : reconstructOriginalContent(merged)
+    const { hunks, additions, deletions } = computeDiffHunks(orig, postDisk)
+    return {
+      ...merged,
+      additions,
+      deletions,
+      diffHunks: hunks,
+      currentContent: postDisk,
+      originalContent: orig
+    }
+  }
+
+  return merged
 }

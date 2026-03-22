@@ -33,9 +33,9 @@ interface AgentResponseBlockProps {
  *   agentMessage → AgentMessage
  *   error → ErrorBlock
  *
- * Live streaming state is appended at the end of the item list while the turn
- * is running. This preserves the correct sequence when an agent produces text,
- * then calls tools, then produces more text.
+ * Streaming agentMessage / reasoningContent items are represented as placeholder
+ * rows in `turn.items` (status `streaming`) and rendered inline using the live
+ * buffers so order matches committed items (e.g. tool calls after streaming text).
  *
  * Spec §10.3.3
  */
@@ -47,16 +47,13 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   isActiveTurn = false
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
+  const activeItemId = useConversationStore((s) => s.activeItemId)
 
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)
   const renderableItems = turn.items.filter(
     (i) => i.type !== 'userMessage' && i.type !== 'toolResult'
   )
-
-  // Determine live streaming state
-  const isReasoning = isRunning && streamingReasoning.length > 0 && streamingMessage.length === 0
-  const isStreaming = isRunning && streamingMessage.length > 0
 
   // Build the ordered render list by walking items in sequence.
   // Consecutive toolCall items are grouped so the aggregation utility can merge
@@ -82,20 +79,24 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         )
       }
     } else if (item.type === 'reasoningContent') {
+      const isLiveStreaming =
+        isRunning && item.status === 'streaming' && item.id === activeItemId
+      const displayReasoning = isLiveStreaming ? streamingReasoning : (item.reasoning ?? '')
       renderNodes.push(
         <ThinkingIndicator
           key={item.id}
           elapsedSeconds={item.elapsedSeconds}
-          reasoning={item.reasoning}
-          streaming={false}
+          reasoning={displayReasoning}
+          streaming={isLiveStreaming}
         />
       )
     } else if (item.type === 'agentMessage') {
-      if (item.text) {
-        renderNodes.push(
-          <AgentMessage key={item.id} text={item.text} streaming={false} />
-        )
-      }
+      const isLiveStreaming =
+        isRunning && item.status === 'streaming' && item.id === activeItemId
+      const displayText = isLiveStreaming ? streamingMessage : (item.text ?? '')
+      renderNodes.push(
+        <AgentMessage key={item.id} text={displayText} streaming={isLiveStreaming} />
+      )
     } else if (item.type === 'error') {
       renderNodes.push(
         <ErrorBlock key={item.id} message={item.text ?? 'Unknown error'} />
@@ -118,19 +119,6 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       {renderNodes}
-
-      {/* Live reasoning appended at the end while streaming */}
-      {isReasoning && (
-        <ThinkingIndicator
-          reasoning={streamingReasoning}
-          streaming={true}
-        />
-      )}
-
-      {/* Live agent message appended at the end while streaming */}
-      {isStreaming && (
-        <AgentMessage text={streamingMessage} streaming={true} />
-      )}
 
       {/* SubAgent progress — always rendered after committed items */}
       <SubAgentProgressBlock />

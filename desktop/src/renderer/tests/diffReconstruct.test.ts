@@ -6,6 +6,7 @@ function makeFileDiff(overrides: Partial<FileDiff> = {}): FileDiff {
   return {
     filePath: 'src/test.ts',
     turnId: 'turn-1',
+    turnIds: ['turn-1'],
     additions: 0,
     deletions: 0,
     diffHunks: [],
@@ -26,6 +27,15 @@ function makeHunk(lines: Array<{ type: 'context' | 'add' | 'remove'; content: st
 }
 
 describe('reconstructOriginalContent', () => {
+  it('returns originalContent when explicitly set', () => {
+    const diff = makeFileDiff({
+      originalContent: 'explicit-original',
+      isNewFile: false,
+      diffHunks: []
+    })
+    expect(reconstructOriginalContent(diff)).toBe('explicit-original')
+  })
+
   it('returns empty string for new files', () => {
     const diff = makeFileDiff({
       isNewFile: true,
@@ -68,6 +78,14 @@ describe('reconstructOriginalContent', () => {
 })
 
 describe('reconstructNewContent', () => {
+  it('returns currentContent when explicitly set', () => {
+    const diff = makeFileDiff({
+      currentContent: 'explicit-new',
+      diffHunks: []
+    })
+    expect(reconstructNewContent(diff)).toBe('explicit-new')
+  })
+
   it('reconstructs new content from a new file diff', () => {
     const diff = makeFileDiff({
       isNewFile: true,

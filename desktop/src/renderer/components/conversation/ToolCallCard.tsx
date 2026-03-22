@@ -61,12 +61,9 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
     return () => clearInterval(interval)
   }, [isRunning, item.createdAt])
 
-  // Retrieve file diff from store (if applicable)
-  const changedFiles = useConversationStore((s) => s.changedFiles)
-  const filePath = (args?.path as string | undefined) ?? ''
-  const fileDiff = FILE_WRITE_TOOLS.has(toolName) && filePath
-    ? changedFiles.get(filePath)
-    : undefined
+  // Per-tool-call incremental diff (cumulative file state lives in changedFiles for the Detail Panel)
+  const itemDiffs = useConversationStore((s) => s.itemDiffs)
+  const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
 
   function toggleExpand(): void {
     if (!isRunning) setExpanded((v) => !v)

@@ -9,7 +9,12 @@ import type {
 } from '../types/conversation'
 import { wireTurnToConversationTurn } from '../types/conversation'
 import type { FileDiff, SubAgentEntry } from '../types/toolCall'
-import { extractDiffFromWriteFile, extractDiffFromEditFile } from '../utils/diffExtractor'
+import {
+  mergeFileDiffIncrement,
+  computeCumulativeFileDiff,
+  computeIncrementalPerItemDiff,
+  parseResultPath
+} from '../utils/diffExtractor'
 
 // ---------------------------------------------------------------------------
 // Plan types
@@ -69,8 +74,12 @@ interface ConversationState {
   pendingMessage: string | null
   /** Current agent operating mode */
   threadMode: ThreadMode
-  /** File diffs accumulated during the current (or last) turn, keyed by filePath */
+  /** Workspace root path (for cumulative diff disk reads) */
+  workspacePath: string
+  /** File diffs accumulated for the active thread (cross-turn), keyed by filePath */
   changedFiles: Map<string, FileDiff>
+  /** Per tool-call item incremental diff (Detail Panel uses cumulative changedFiles) */
+  itemDiffs: Map<string, FileDiff>
   /** Live SubAgent progress entries — replaced wholesale on each notification */
   subAgentEntries: SubAgentEntry[]
   /** Current agent plan from plan/updated events — replaced wholesale */
@@ -119,6 +128,8 @@ interface ConversationActions {
   onSubagentProgress(entries: SubAgentEntry[]): void
   /** Add or update a file diff entry in changedFiles */
   upsertChangedFile(diff: FileDiff): void
+  /** Store incremental diff for one toolCall item (keyed by ConversationItem.id) */
+  upsertItemDiff(itemId: string, diff: FileDiff): void
   /** Mark all files in a turn as reverted (M4: state-only, actual revert in M6) */
   revertFilesForTurn(turnId: string): void
   /** Mark a single file as reverted (state only; caller must write disk via IPC) */
@@ -147,6 +158,8 @@ interface ConversationActions {
    * Updates the approval item to 'timedOut' state.
    */
   onApprovalTimeout(): void
+  /** Set workspace path for file read IPC (call from App when path is known) */
+  setWorkspacePath(path: string): void
   reset(): void
 }
 
@@ -171,7 +184,9 @@ const initialState: ConversationState = {
   systemLabel: null,
   pendingMessage: null,
   threadMode: 'agent',
+  workspacePath: '',
   changedFiles: new Map<string, FileDiff>(),
+  itemDiffs: new Map<string, FileDiff>(),
   subAgentEntries: [],
   plan: null
 }
@@ -185,6 +200,13 @@ function toTurnStatus(raw: string): TurnStatus {
     return raw
   }
   return 'completed'
+}
+
+/** Stable chronological order for turn items (Wire Protocol may interleave events). */
+function sortItemsByCreatedAt(items: ConversationItem[]): ConversationItem[] {
+  return [...items].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  )
 }
 
 const SYSTEM_LABELS: Record<string, string | null> = {
@@ -221,6 +243,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     // merging result/success/duration back into the ToolCall, and extracting diffs
     // for WriteFile/EditFile calls.
     const rehydratedChangedFiles = new Map<string, FileDiff>()
+    const rehydratedItemDiffs = new Map<string, FileDiff>()
     const rehydratedTurns = converted.map((turn) => {
       // Build a callId -> toolResult lookup for this turn
       const resultByCallId = new Map<string, ConversationItem>()
@@ -250,13 +273,32 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           completedAt: resultItem.completedAt
         }
 
-        // Extract diffs for file-writing tools
+        // Accumulate diffs for file-writing tools (same path may appear multiple times)
         if (item.arguments && (item.toolName === 'WriteFile' || item.toolName === 'EditFile')) {
-          const diff = item.toolName === 'WriteFile'
-            ? extractDiffFromWriteFile(item.arguments, resultText, turn.id)
-            : extractDiffFromEditFile(item.arguments, resultText, turn.id)
-          if (diff) {
-            rehydratedChangedFiles.set(diff.filePath, diff)
+          const fp =
+            (item.arguments.path as string | undefined) ?? parseResultPath(resultText) ?? ''
+          if (fp) {
+            const existingBefore = rehydratedChangedFiles.get(fp)
+            const perItem = computeIncrementalPerItemDiff(
+              item.toolName as 'WriteFile' | 'EditFile',
+              item.arguments,
+              resultText,
+              turn.id,
+              existingBefore
+            )
+            if (perItem) {
+              rehydratedItemDiffs.set(item.id, perItem)
+            }
+            const mergedDiff = mergeFileDiffIncrement(
+              rehydratedChangedFiles.get(fp),
+              item.toolName as 'WriteFile' | 'EditFile',
+              item.arguments,
+              resultText,
+              turn.id
+            )
+            if (mergedDiff) {
+              rehydratedChangedFiles.set(mergedDiff.filePath, mergedDiff)
+            }
           }
         }
 
@@ -276,7 +318,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       turnStartedAt: runningTurn
         ? (runningTurn.startedAt ? new Date(runningTurn.startedAt).getTime() : Date.now())
         : null,
-      changedFiles: rehydratedChangedFiles
+      changedFiles: rehydratedChangedFiles,
+      itemDiffs: rehydratedItemDiffs
     })
   },
 
@@ -302,7 +345,6 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           inputTokens: 0,
           outputTokens: 0,
           systemLabel: null,
-          changedFiles: new Map<string, FileDiff>(),
           subAgentEntries: []
         }
       }
@@ -336,7 +378,6 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         inputTokens: 0,
         outputTokens: 0,
         systemLabel: null,
-        changedFiles: new Map<string, FileDiff>(),
         subAgentEntries: []
       }
     })
@@ -424,13 +465,36 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     const turnId = params.turnId as string
 
     if (type === 'agentMessage') {
-      set({ streamingMessage: '', activeItemId: itemId })
+      const newItem: ConversationItem = {
+        id: itemId ?? '',
+        type: 'agentMessage',
+        status: 'streaming',
+        text: '',
+        createdAt: (item?.createdAt as string) ?? new Date().toISOString()
+      }
+      set((state) => ({
+        streamingMessage: '',
+        activeItemId: itemId,
+        turns: state.turns.map((t) =>
+          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
+        )
+      }))
     } else if (type === 'reasoningContent') {
-      set({
+      const newItem: ConversationItem = {
+        id: itemId ?? '',
+        type: 'reasoningContent',
+        status: 'streaming',
+        reasoning: '',
+        createdAt: (item?.createdAt as string) ?? new Date().toISOString()
+      }
+      set((state) => ({
         streamingReasoning: '',
         streamingReasoningStartedAt: Date.now(),
-        activeItemId: itemId
-      })
+        activeItemId: itemId,
+        turns: state.turns.map((t) =>
+          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
+        )
+      }))
     } else if (type === 'toolCall') {
       // Extract nested payload for toolCall items (wire protocol: item.payload.{toolName,callId,arguments})
       const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
@@ -447,7 +511,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       }
       set((state) => ({
         turns: state.turns.map((t) =>
-          t.id === turnId ? { ...t, items: [...t.items, newItem] } : t
+          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
     }
@@ -469,48 +533,58 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 
     if (type === 'agentMessage') {
       const itemId = (item?.id as string) ?? ''
-      // Deduplicate: skip if this item ID was already committed (prevents double-commit
-      // caused by repeated notifications or double subscription)
+      // Deduplicate: skip if this item was already completed (streaming placeholder shares the same id)
       const alreadyCommitted = state.turns
         .find((t) => t.id === turnId)
-        ?.items.some((i) => i.id === itemId && i.type === 'agentMessage')
+        ?.items.some((i) => i.id === itemId && i.type === 'agentMessage' && i.status === 'completed')
       if (alreadyCommitted) {
         // Still clear streaming state even if we skip the item
         set({ streamingMessage: '', activeItemId: null })
         return
       }
       const finalText = state.streamingMessage || ((item?.text as string) ?? (item?.content as string) ?? '')
-      const newItem: ConversationItem = {
-        id: itemId,
-        type: 'agentMessage',
-        status: 'completed',
-        text: finalText,
-        createdAt: (item?.createdAt as string) ?? new Date().toISOString(),
-        completedAt: (item?.completedAt as string) ?? new Date().toISOString()
-      }
-      set((s) => ({
-        turns: s.turns.map((t) =>
-          t.id === turnId
-            ? {
-                ...t,
-                // Sort by createdAt: the server may emit item/started for the next toolCall
-                // before item/completed for the current agentMessage (~20ms overlap), causing
-                // the toolCall to land in turn.items before the agentMessage. Sorting here
-                // restores chronological order after every commit.
-                items: [...t.items, newItem].sort(
-                  (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-                )
+      set((s) => {
+        const turn = s.turns.find((t) => t.id === turnId)
+        if (!turn) {
+          return { streamingMessage: '', activeItemId: null }
+        }
+        const hasPlaceholder = turn.items.some((i) => i.id === itemId && i.type === 'agentMessage')
+        const completedAt = (item?.completedAt as string) ?? new Date().toISOString()
+        const nextItems = hasPlaceholder
+          ? turn.items.map((i) =>
+              i.id === itemId && i.type === 'agentMessage'
+                ? {
+                    ...i,
+                    status: 'completed' as const,
+                    text: finalText,
+                    completedAt
+                  }
+                : i
+            )
+          : sortItemsByCreatedAt([
+              ...turn.items,
+              {
+                id: itemId,
+                type: 'agentMessage' as const,
+                status: 'completed' as const,
+                text: finalText,
+                createdAt: (item?.createdAt as string) ?? new Date().toISOString(),
+                completedAt
               }
-            : t
-        ),
-        streamingMessage: '',
-        activeItemId: null
-      }))
+            ])
+        return {
+          turns: s.turns.map((t) =>
+            t.id === turnId ? { ...t, items: sortItemsByCreatedAt(nextItems) } : t
+          ),
+          streamingMessage: '',
+          activeItemId: null
+        }
+      })
     } else if (type === 'reasoningContent') {
       const itemId = (item?.id as string) ?? ''
       const alreadyCommitted = state.turns
         .find((t) => t.id === turnId)
-        ?.items.some((i) => i.id === itemId && i.type === 'reasoningContent')
+        ?.items.some((i) => i.id === itemId && i.type === 'reasoningContent' && i.status === 'completed')
       if (alreadyCommitted) {
         set({ streamingReasoning: '', streamingReasoningStartedAt: null, activeItemId: null })
         return
@@ -518,30 +592,46 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       const finalText = state.streamingReasoning || ((item?.text as string) ?? (item?.content as string) ?? '')
       const startedAt = state.streamingReasoningStartedAt
       const elapsed = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0
-      const newItem: ConversationItem = {
-        id: itemId,
-        type: 'reasoningContent',
-        status: 'completed',
-        reasoning: finalText,
-        elapsedSeconds: elapsed,
-        createdAt: (item?.createdAt as string) ?? new Date().toISOString(),
-        completedAt: (item?.completedAt as string) ?? new Date().toISOString()
-      }
-      set((s) => ({
-        turns: s.turns.map((t) =>
-          t.id === turnId
-            ? {
-                ...t,
-                items: [...t.items, newItem].sort(
-                  (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-                )
+      const completedAt = (item?.completedAt as string) ?? new Date().toISOString()
+      set((s) => {
+        const turn = s.turns.find((t) => t.id === turnId)
+        if (!turn) {
+          return { streamingReasoning: '', streamingReasoningStartedAt: null, activeItemId: null }
+        }
+        const hasPlaceholder = turn.items.some((i) => i.id === itemId && i.type === 'reasoningContent')
+        const nextItems = hasPlaceholder
+          ? turn.items.map((i) =>
+              i.id === itemId && i.type === 'reasoningContent'
+                ? {
+                    ...i,
+                    status: 'completed' as const,
+                    reasoning: finalText,
+                    elapsedSeconds: elapsed,
+                    completedAt
+                  }
+                : i
+            )
+          : sortItemsByCreatedAt([
+              ...turn.items,
+              {
+                id: itemId,
+                type: 'reasoningContent' as const,
+                status: 'completed' as const,
+                reasoning: finalText,
+                elapsedSeconds: elapsed,
+                createdAt: (item?.createdAt as string) ?? new Date().toISOString(),
+                completedAt
               }
-            : t
-        ),
-        streamingReasoning: '',
-        streamingReasoningStartedAt: null,
-        activeItemId: null
-      }))
+            ])
+        return {
+          turns: s.turns.map((t) =>
+            t.id === turnId ? { ...t, items: sortItemsByCreatedAt(nextItems) } : t
+          ),
+          streamingReasoning: '',
+          streamingReasoningStartedAt: null,
+          activeItemId: null
+        }
+      })
     } else if (type === 'error') {
       const newItem: ConversationItem = {
         id: (item?.id as string) ?? '',
@@ -553,7 +643,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       }
       set((s) => ({
         turns: s.turns.map((t) =>
-          t.id === turnId ? { ...t, items: [...t.items, newItem] } : t
+          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
     } else if (type === 'toolCall') {
@@ -563,10 +653,12 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId
             ? {
                 ...t,
-                items: t.items.map((i) =>
-                  i.id === (item?.id as string)
-                    ? { ...i, status: 'completed' as const, completedAt: (item?.completedAt as string) }
-                    : i
+                items: sortItemsByCreatedAt(
+                  t.items.map((i) =>
+                    i.id === (item?.id as string)
+                      ? { ...i, status: 'completed' as const, completedAt: (item?.completedAt as string) }
+                      : i
+                  )
                 )
               }
             : t
@@ -588,49 +680,73 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         ?? true
 
       set((s) => {
-        let matchedCallItem: ConversationItem | undefined
         const nextTurns = s.turns.map((t) => {
           if (t.id !== turnId) return t
           return {
             ...t,
-            items: t.items.map((i) => {
-              if (i.type === 'toolCall' && i.toolCallId === callId) {
-                const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
-                const endMs = (item?.completedAt as string)
-                  ? new Date(item.completedAt as string).getTime()
-                  : Date.now()
-                matchedCallItem = {
-                  ...i,
-                  status: 'completed' as const,
-                  result: resultText,
-                  success,
-                  duration: endMs - startMs,
-                  completedAt: (item?.completedAt as string) ?? new Date().toISOString()
+            items: sortItemsByCreatedAt(
+              t.items.map((i) => {
+                if (i.type === 'toolCall' && i.toolCallId === callId) {
+                  const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
+                  const endMs = (item?.completedAt as string)
+                    ? new Date(item.completedAt as string).getTime()
+                    : Date.now()
+                  return {
+                    ...i,
+                    status: 'completed' as const,
+                    result: resultText,
+                    success,
+                    duration: endMs - startMs,
+                    completedAt: (item?.completedAt as string) ?? new Date().toISOString()
+                  }
                 }
-                return matchedCallItem
-              }
-              return i
-            })
+                return i
+              })
+            )
           }
         })
 
-        // Extract file diff if applicable
-        const toolName = matchedCallItem?.toolName ?? ''
-        const args = matchedCallItem?.arguments
-        let nextChangedFiles = s.changedFiles
+        return { turns: nextTurns }
+      })
 
-        if (args && (toolName === 'WriteFile' || toolName === 'EditFile')) {
-          const diff = toolName === 'WriteFile'
-            ? extractDiffFromWriteFile(args, resultText, turnId)
-            : extractDiffFromEditFile(args, resultText, turnId)
-          if (diff) {
-            nextChangedFiles = new Map(s.changedFiles)
-            nextChangedFiles.set(diff.filePath, diff)
+      // Cumulative diff (async — may read disk); requires workspace path for IPC
+      const matchedCallItem = get()
+        .turns.find((t) => t.id === turnId)
+        ?.items.find((i) => i.type === 'toolCall' && i.toolCallId === callId)
+      const toolName = matchedCallItem?.toolName ?? ''
+      const args = matchedCallItem?.arguments
+      const wsPath = get().workspacePath
+      if (args && (toolName === 'WriteFile' || toolName === 'EditFile')) {
+        const fp = (args.path as string | undefined) ?? parseResultPath(resultText) ?? ''
+        if (fp && matchedCallItem?.id) {
+          const existingBeforeCumulative = get().changedFiles.get(fp)
+          const incremental = computeIncrementalPerItemDiff(
+            toolName as 'WriteFile' | 'EditFile',
+            args,
+            resultText,
+            turnId,
+            existingBeforeCumulative
+          )
+          if (incremental) {
+            useConversationStore.getState().upsertItemDiff(matchedCallItem.id, incremental)
+          }
+          if (wsPath) {
+            void computeCumulativeFileDiff({
+              filePath: fp,
+              toolName,
+              args,
+              resultText,
+              turnId,
+              existing: existingBeforeCumulative,
+              workspacePath: wsPath
+            }).then((diff) => {
+              if (diff) {
+                useConversationStore.getState().upsertChangedFile(diff)
+              }
+            })
           }
         }
-
-        return { turns: nextTurns, changedFiles: nextChangedFiles }
-      })
+      }
     }
   },
 
@@ -700,16 +816,29 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     })
   },
 
+  upsertItemDiff(itemId, diff) {
+    set((state) => {
+      const next = new Map(state.itemDiffs)
+      next.set(itemId, diff)
+      return { itemDiffs: next }
+    })
+  },
+
   revertFilesForTurn(turnId) {
     set((state) => {
       const next = new Map(state.changedFiles)
       for (const [key, entry] of next.entries()) {
-        if (entry.turnId === turnId) {
+        const ids = entry.turnIds?.length ? entry.turnIds : [entry.turnId]
+        if (ids.includes(turnId)) {
           next.set(key, { ...entry, status: 'reverted' })
         }
       }
       return { changedFiles: next }
     })
+  },
+
+  setWorkspacePath(path) {
+    set({ workspacePath: path })
   },
 
   onApprovalRequest(bridgeId, params) {
@@ -737,7 +866,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 
     set((s) => ({
       turns: s.turns.map((t) =>
-        t.id === turnId ? { ...t, items: [...t.items, approvalItem] } : t
+        t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, approvalItem]) } : t
       ),
       turnStatus: 'waitingApproval',
       pendingApproval: { bridgeId, itemId, approvalType, operation, target, reason }
@@ -818,7 +947,15 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
   },
 
   reset() {
-    set({ ...initialState, changedFiles: new Map<string, FileDiff>(), subAgentEntries: [], pendingApproval: null, plan: null })
+    set((state) => ({
+      ...initialState,
+      workspacePath: state.workspacePath,
+      changedFiles: new Map<string, FileDiff>(),
+      itemDiffs: new Map<string, FileDiff>(),
+      subAgentEntries: [],
+      pendingApproval: null,
+      plan: null
+    }))
   }
 }))
 

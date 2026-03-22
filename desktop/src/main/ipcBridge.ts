@@ -81,6 +81,7 @@ export interface IpcHandlerCallbacks {
  * - `settings:get`                (renderer -> main, invoke) -> returns current settings
  * - `settings:set`                (renderer -> main, invoke) -> merges partial settings
  * - `file:write`                  (renderer -> main, invoke) -> writes file within workspace
+ * - `file:read`                   (renderer -> main, invoke) -> reads UTF-8 file within workspace
  * - `file:delete`                 (renderer -> main, invoke) -> deletes file within workspace
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
  */
@@ -126,6 +127,22 @@ export function registerIpcHandlers(
       throw new Error(`Access denied: path is outside workspace: ${absPath}`)
     }
     await fs.writeFile(resolved, content, 'utf-8')
+  })
+
+  // Renderer -> Main: read a file from disk (used for cumulative diff computation)
+  ipcMain.handle('file:read', async (_event, absPath: string): Promise<string> => {
+    const resolved = path.resolve(absPath)
+    const wsResolved = path.resolve(workspacePath)
+    if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
+      throw new Error(`Access denied: path is outside workspace: ${absPath}`)
+    }
+    try {
+      return await fs.readFile(resolved, 'utf-8')
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException)?.code
+      if (code === 'ENOENT') return ''
+      throw err
+    }
   })
 
   // Renderer -> Main: delete a file (used for reverting new files)
@@ -263,6 +280,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('window:set-title')
   ipcMain.removeHandler('window:get-workspace-path')
   ipcMain.removeHandler('file:write')
+  ipcMain.removeHandler('file:read')
   ipcMain.removeHandler('file:delete')
   ipcMain.removeHandler('git:commit')
   ipcMain.removeHandler('workspace:pick-folder')

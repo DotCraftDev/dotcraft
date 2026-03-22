@@ -118,7 +118,7 @@ cd ..
 
 REM Copy desktop dist outputs (NSIS installer, portable exe, zip) to build/release/
 echo Copying desktop artifacts to build\release\...
-for %%f in (desktop\dist\*.exe desktop\dist\*.zip) do (
+for %%f in (desktop\dist\*.exe) do (
     copy /Y "%%f" "build\release\" >nul 2>&1
 )
 

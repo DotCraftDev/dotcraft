@@ -19,7 +19,10 @@ export const TurnCompletionSummary = memo(function TurnCompletionSummary({ turnI
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const revertFilesForTurn = useConversationStore((s) => s.revertFilesForTurn)
 
-  const turnFiles = Array.from(changedFiles.values()).filter((f) => f.turnId === turnId)
+  const turnFiles = Array.from(changedFiles.values()).filter((f) => {
+    const ids = f.turnIds?.length ? f.turnIds : [f.turnId]
+    return ids.includes(turnId)
+  })
   if (turnFiles.length === 0) return null
 
   const totalAdd = turnFiles.reduce((sum, f) => sum + f.additions, 0)

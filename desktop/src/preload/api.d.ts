@@ -44,6 +44,7 @@ declare global {
       }
       file: {
         writeFile(absPath: string, content: string): Promise<void>
+        readFile(absPath: string): Promise<string>
         deleteFile(absPath: string): Promise<void>
       }
       git: {
