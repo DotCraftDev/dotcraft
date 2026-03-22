@@ -10,6 +10,12 @@ public sealed class AutomationWorkflowDefinition
 
     /// <summary>Maximum full passes over <see cref="Steps"/> before stopping.</summary>
     public int MaxRounds { get; init; } = 10;
+
+    /// <summary>Optional shell command run in the task workspace after approval.</summary>
+    public string? OnApprove { get; init; }
+
+    /// <summary>Optional shell command run in the task workspace after rejection.</summary>
+    public string? OnReject { get; init; }
 }
 
 /// <summary>

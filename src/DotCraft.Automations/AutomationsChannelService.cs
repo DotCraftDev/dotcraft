@@ -56,7 +56,8 @@ public sealed class AutomationsChannelService(
 
     public Task DeliverMessageAsync(string target, string content)
     {
-        logger.LogInformation("[Automations -> {Target}] {Content}", target, content[..Math.Min(content.Length, 200)]);
+        var preview = string.IsNullOrEmpty(content) ? "" : content[..Math.Min(content.Length, 200)];
+        logger.LogInformation("[Automations -> {Target}] {Content}", target, preview);
         return Task.CompletedTask;
     }
 

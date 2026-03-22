@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
+using DotCraft.Automations.Local;
 using DotCraft.Automations.Protocol;
 using DotCraft.Automations.Workspace;
 using DotCraft.Protocol;
@@ -185,6 +186,15 @@ public sealed class AutomationOrchestrator
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Dispatch cancelled for task {TaskId}", task.Id);
+            try
+            {
+                task.Status = AutomationTaskStatus.Failed;
+                await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+            }
+            catch
+            {
+                // Best effort: original ct may be cancelled; source persistence may fail.
+            }
         }
         catch (Exception ex)
         {
@@ -215,7 +225,17 @@ public sealed class AutomationOrchestrator
         task.Status = AutomationTaskStatus.Dispatched;
         await source.OnStatusChangedAsync(task, AutomationTaskStatus.Dispatched, ct);
 
-        var workspacePath = await _workspaceManager.ProvisionAsync(task, ct);
+        string workspacePath;
+        if (task is LocalAutomationTask localTask)
+        {
+            workspacePath = Path.Combine(localTask.TaskDirectory, "workspace");
+            Directory.CreateDirectory(workspacePath);
+            localTask.AgentWorkspacePath = workspacePath;
+        }
+        else
+        {
+            workspacePath = await _workspaceManager.ProvisionAsync(task, ct);
+        }
 
         var threadConfig = new ThreadConfiguration
         {
@@ -243,6 +263,7 @@ public sealed class AutomationOrchestrator
         var round = 0;
         var stopWorkflow = false;
         var turnFailed = false;
+        var turnCancelled = false;
 
         while (round < workflow.MaxRounds && !ct.IsCancellationRequested && !stopWorkflow)
         {
@@ -263,9 +284,16 @@ public sealed class AutomationOrchestrator
 
                     if (evt.EventType == SessionEventType.TurnCancelled)
                     {
+                        turnCancelled = true;
                         stopWorkflow = true;
                         break;
                     }
+                }
+
+                if (await source.ShouldStopWorkflowAfterTurnAsync(task, ct))
+                {
+                    stopWorkflow = true;
+                    break;
                 }
 
                 if (stopWorkflow || ct.IsCancellationRequested)
@@ -273,7 +301,29 @@ public sealed class AutomationOrchestrator
             }
         }
 
+        if (ct.IsCancellationRequested)
+        {
+            task.Status = AutomationTaskStatus.Failed;
+            try
+            {
+                await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+            }
+            catch
+            {
+                // Best effort
+            }
+
+            return;
+        }
+
         if (turnFailed)
+        {
+            task.Status = AutomationTaskStatus.Failed;
+            await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+            return;
+        }
+
+        if (turnCancelled && task.Status != AutomationTaskStatus.AgentCompleted)
         {
             task.Status = AutomationTaskStatus.Failed;
             await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);

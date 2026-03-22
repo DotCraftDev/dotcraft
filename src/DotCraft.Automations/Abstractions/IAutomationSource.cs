@@ -40,4 +40,11 @@ public interface IAutomationSource
     /// The source stores the summary for later display in the review panel.
     /// </summary>
     Task OnAgentCompletedAsync(AutomationTask task, string agentSummary, CancellationToken ct);
+
+    /// <summary>
+    /// Called after each completed turn. Sources may reload external state (e.g. task.md).
+    /// Return true to stop the workflow loop before the next step (e.g. <c>agent_completed</c> sentinel).
+    /// </summary>
+    Task<bool> ShouldStopWorkflowAfterTurnAsync(AutomationTask task, CancellationToken ct) =>
+        Task.FromResult(false);
 }

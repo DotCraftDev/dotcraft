@@ -1,5 +1,6 @@
 using DotCraft.Abstractions;
 using DotCraft.Automations.Abstractions;
+using DotCraft.Automations.Local;
 using DotCraft.Automations.Orchestrator;
 using DotCraft.Automations.Workspace;
 using DotCraft.Configuration;
@@ -31,7 +32,10 @@ public sealed partial class AutomationsModule : ModuleBase
         var cfg = context.Config.GetSection<AutomationsConfig>("Automations");
         services.AddSingleton(cfg);
         services.AddSingleton<AutomationWorkspaceManager>();
-        services.AddSingleton<IEnumerable<IAutomationSource>>(_ => Array.Empty<IAutomationSource>());
+        services.AddSingleton<LocalTaskFileStore>();
+        services.AddSingleton<LocalWorkflowLoader>();
+        services.AddSingleton<LocalAutomationSource>();
+        services.AddSingleton<IAutomationSource>(sp => sp.GetRequiredService<LocalAutomationSource>());
         services.AddSingleton<AutomationOrchestrator>();
     }
 

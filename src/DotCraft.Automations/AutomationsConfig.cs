@@ -24,4 +24,10 @@ public sealed class AutomationsConfig
     /// Additional tasks wait in Pending state.
     /// </summary>
     public int MaxConcurrentTasks { get; set; } = 3;
+
+    /// <summary>
+    /// Root directory for local task files. When empty, uses <c>{workspaceRoot}/.craft/tasks/</c>.
+    /// </summary>
+    [ConfigField(Hint = "Root directory for local task files. Leave blank for {workspaceRoot}/.craft/tasks/.")]
+    public string LocalTasksRoot { get; set; } = "";
 }
