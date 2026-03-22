@@ -76,6 +76,23 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
             PersistEvent(evt);
     }
 
+    /// <summary>
+    /// Replaces in-memory sessions with a full reload from <see cref="storagePath"/>.
+    /// Used when the dashboard runs in a different process than trace producers (e.g. CLI + AppServer subprocess)
+    /// so the UI reflects the shared on-disk trace files.
+    /// </summary>
+    public void RefreshFromDisk()
+    {
+        if (storagePath == null)
+            return;
+
+        lock (_diskMutationLock)
+        {
+            _sessions.Clear();
+            LoadFromDisk();
+        }
+    }
+
     public void UpsertSessionMetadata(
         string sessionKey,
         string? finalSystemPrompt,
@@ -118,17 +135,23 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
 
     public bool ClearSession(string sessionKey)
     {
-        var removed = _sessions.TryRemove(sessionKey, out _);
-        if (removed && storagePath != null)
-            DeleteSessionFile(sessionKey);
-        return removed;
+        lock (_diskMutationLock)
+        {
+            var removed = _sessions.TryRemove(sessionKey, out _);
+            if (removed && storagePath != null)
+                DeleteSessionFile(sessionKey);
+            return removed;
+        }
     }
 
     public void ClearAll()
     {
-        _sessions.Clear();
-        if (storagePath != null)
-            DeleteAllSessionFiles();
+        lock (_diskMutationLock)
+        {
+            _sessions.Clear();
+            if (storagePath != null)
+                DeleteAllSessionFiles();
+        }
     }
 
     public ChannelReader<TraceEvent> SseReader => _sseChannel.Reader;
@@ -243,24 +266,21 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
 
     private void PersistEvent(TraceEvent evt)
     {
-        _ = Task.Run(() =>
+        try
         {
-            try
+            Directory.CreateDirectory(storagePath!);
+            var safeKey = SanitizeFileName(evt.SessionKey);
+            var filePath = Path.Combine(storagePath!, $"{safeKey}.jsonl");
+            var json = JsonSerializer.Serialize(evt, PersistJsonOptions);
+            lock (GetFileLock(filePath))
             {
-                Directory.CreateDirectory(storagePath!);
-                var safeKey = SanitizeFileName(evt.SessionKey);
-                var filePath = Path.Combine(storagePath!, $"{safeKey}.jsonl");
-                var json = JsonSerializer.Serialize(evt, PersistJsonOptions);
-                lock (GetFileLock(filePath))
-                {
-                    File.AppendAllText(filePath, json + "\n");
-                }
+                File.AppendAllText(filePath, json + "\n");
             }
-            catch
-            {
-                // Silently ignore persistence errors
-            }
-        });
+        }
+        catch
+        {
+            // Silently ignore persistence errors
+        }
     }
 
     private void DeleteSessionFile(string sessionKey)
@@ -269,8 +289,11 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
         {
             var safeKey = SanitizeFileName(sessionKey);
             var filePath = Path.Combine(storagePath!, $"{safeKey}.jsonl");
-            if (File.Exists(filePath))
-                File.Delete(filePath);
+            lock (GetFileLock(filePath))
+            {
+                if (File.Exists(filePath))
+                    File.Delete(filePath);
+            }
         }
         catch
         {
@@ -282,11 +305,22 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
     {
         try
         {
-            if (Directory.Exists(storagePath!))
+            if (!Directory.Exists(storagePath!))
+                return;
+
+            foreach (var file in Directory.GetFiles(storagePath!, "*.jsonl"))
             {
-                foreach (var file in Directory.GetFiles(storagePath!, "*.jsonl"))
+                try
                 {
-                    try { File.Delete(file); } catch { /* ignore */ }
+                    lock (GetFileLock(file))
+                    {
+                        if (File.Exists(file))
+                            File.Delete(file);
+                    }
+                }
+                catch
+                {
+                    // ignore per file
                 }
             }
         }
@@ -302,6 +336,9 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
     }
 
     private static readonly ConcurrentDictionary<string, object> FileLocks = new();
+
+    /// <summary>Serializes RefreshFromDisk, ClearSession, and ClearAll against each other.</summary>
+    private readonly object _diskMutationLock = new();
 
     private static object GetFileLock(string filePath)
     {

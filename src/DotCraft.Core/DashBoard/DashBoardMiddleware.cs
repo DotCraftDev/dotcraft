@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace DotCraft.DashBoard;
 
@@ -36,8 +37,15 @@ public static class DashBoardMiddleware
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
         IEnumerable<Type>? configTypes = null,
-        IDashBoardSessionHandler? sessionHandler = null)
+        IDashBoardSessionHandler? sessionHandler = null,
+        bool refreshTraceFromDiskBeforeRead = false)
     {
+        void RefreshTraceFromDiskIfEnabled()
+        {
+            if (refreshTraceFromDiskBeforeRead)
+                traceStore.RefreshFromDisk();
+        }
+
         MapOrchestratorEndpoints(endpoints, orchestratorProviders);
 
         // Build schema and derive sensitive paths from it at startup
@@ -59,12 +67,14 @@ public static class DashBoardMiddleware
 
         endpoints.MapGet("/dashboard/api/summary", () =>
         {
+            RefreshTraceFromDiskIfEnabled();
             var summary = traceStore.GetSummary();
             return Results.Json(summary, JsonOptions);
         });
 
         endpoints.MapGet("/dashboard/api/sessions", () =>
         {
+            RefreshTraceFromDiskIfEnabled();
             var sessions = traceStore.GetSessions();
             var result = sessions.Select(s => new
             {
@@ -91,13 +101,15 @@ public static class DashBoardMiddleware
 
         endpoints.MapGet("/dashboard/api/sessions/{sessionKey}/events", (string sessionKey) =>
         {
+            RefreshTraceFromDiskIfEnabled();
             var events = traceStore.GetEvents(sessionKey);
             return Results.Json(events, JsonOptions);
         });
 
         var capturedHandler = sessionHandler;
-        endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", async (string sessionKey) =>
+        endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", async (HttpContext http, string sessionKey) =>
         {
+            RefreshTraceFromDiskIfEnabled();
             var deleted = traceStore.ClearSession(sessionKey);
 
             if (capturedHandler != null)
@@ -110,6 +122,11 @@ public static class DashBoardMiddleware
                 {
                     // Thread may not exist (e.g. tracing-only session without a persisted thread) — ignore.
                 }
+                catch (Exception ex)
+                {
+                    var log = http.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("DashBoard");
+                    log?.LogWarning(ex, "DeleteThreadAsync failed for session {SessionKey}", sessionKey);
+                }
             }
 
             return deleted
@@ -117,14 +134,26 @@ public static class DashBoardMiddleware
                 : Results.Json(new { deleted = false, sessionKey }, JsonOptions, statusCode: 404);
         });
 
-        endpoints.MapDelete("/dashboard/api/sessions", async () =>
+        endpoints.MapDelete("/dashboard/api/sessions", async (HttpContext http) =>
         {
+            // Align with on-disk state when the dashboard process is not the trace producer (e.g. CLI + AppServer subprocess).
+            RefreshTraceFromDiskIfEnabled();
             // Capture keys before clearing so we can delete the underlying threads.
             var sessionKeys = traceStore.GetSessions().Select(s => s.SessionKey).ToList();
             traceStore.ClearAll();
 
             if (capturedHandler != null)
-                await capturedHandler.DeleteAllThreadsAsync(sessionKeys);
+            {
+                try
+                {
+                    await capturedHandler.DeleteAllThreadsAsync(sessionKeys);
+                }
+                catch (Exception ex)
+                {
+                    var log = http.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("DashBoard");
+                    log?.LogWarning(ex, "DeleteAllThreadsAsync failed after clearing traces");
+                }
+            }
 
             return Results.Json(new { cleared = true }, JsonOptions);
         });

@@ -1482,7 +1482,8 @@ function switchPanel(panel) {
 
 async function fetchJson(url) {
   try {
-    const res = await fetch(API + url);
+    const res = await fetch(API + url, { credentials: 'same-origin' });
+    if (!res.ok) return null;
     return await res.json();
   } catch(e) {
     console.error('Fetch error:', e);
@@ -1571,8 +1572,14 @@ function closeConfirmModal() {
   _modalAction = null;
 }
 function confirmModalAction() {
-  closeConfirmModal();
-  if (_modalAction) _modalAction();
+  const action = _modalAction;
+  document.getElementById('confirm-modal').classList.remove('visible');
+  _modalAction = null;
+  if (action) {
+    const r = action();
+    if (r && typeof r.then === 'function')
+      r.catch(err => { console.error(err); showToast(err.message || 'Action failed', 'error'); });
+  }
 }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeConfirmModal();
@@ -1580,6 +1587,36 @@ document.addEventListener('keydown', e => {
 document.getElementById('confirm-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeConfirmModal();
 });
+
+// Session cards: use data-session-key (encodeURIComponent) + delegation — avoid broken JS from inline onclick with special characters.
+function onSessionCardAreaClick(e) {
+  const del = e.target.closest('.session-delete-btn');
+  if (del && e.currentTarget.contains(del)) {
+    e.stopPropagation();
+    e.preventDefault();
+    const raw = del.getAttribute('data-session-key');
+    if (raw != null) deleteSession(decodeURIComponent(raw));
+    return;
+  }
+  const card = e.target.closest('.session-card[data-session-key]');
+  if (card && e.currentTarget.contains(card)) {
+    const raw = card.getAttribute('data-session-key');
+    if (raw != null) viewSessionTraces(decodeURIComponent(raw));
+  }
+}
+
+function installSessionCardDelegation() {
+  const recent = document.getElementById('recentActivity');
+  if (recent && !recent.dataset.sessionCardBound) {
+    recent.dataset.sessionCardBound = '1';
+    recent.addEventListener('click', onSessionCardAreaClick);
+  }
+  const list = document.getElementById('sessionList');
+  if (list && !list.dataset.sessionCardBound) {
+    list.dataset.sessionCardBound = '1';
+    list.addEventListener('click', onSessionCardAreaClick);
+  }
+}
 
 // ─── Accordion toggle ─────────────────────────────────────────────────────────
 function sfToggle(accordion) {
@@ -1656,11 +1693,11 @@ async function refreshDashboard() {
   document.getElementById('statTotalTokens').textContent = formatNumber(summary.totalTokens);
 
   const sessions = await fetchJson('/sessions');
-  if (sessions && sessions.length > 0) {
+  if (Array.isArray(sessions) && sessions.length > 0) {
     allSessions = sessions;
     const recent = sessions.slice(0, 5);
     document.getElementById('recentActivity').innerHTML = recent.map(s => `
-      <div class="session-card" onclick="viewSessionTraces('${escapeHtml(s.sessionKey)}')">
+      <div class="session-card" data-session-key="${encodeURIComponent(s.sessionKey)}">
         <div class="session-main">
           <div class="session-info">
             <div class="session-key" style="display:flex;align-items:center;gap:8px">${escapeHtml(s.sessionKey)} ${renderFinishReasonBadge(s.lastFinishReason)}</div>
@@ -1680,6 +1717,7 @@ async function refreshDashboard() {
         ${renderSessionMetadata(s, 'recent-' + encodeURIComponent(s.sessionKey))}
       </div>
     `).join('');
+    installSessionCardDelegation();
   } else {
     allSessions = [];
     document.getElementById('recentActivity').innerHTML = `
@@ -1694,9 +1732,9 @@ async function refreshDashboard() {
 async function refreshSessions() {
   const sessions = await fetchJson('/sessions');
   const container = document.getElementById('sessionList');
-  allSessions = sessions || [];
+  allSessions = Array.isArray(sessions) ? sessions : [];
 
-  if (!sessions || sessions.length === 0) {
+  if (!Array.isArray(sessions) || sessions.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -1706,7 +1744,7 @@ async function refreshSessions() {
   }
 
   container.innerHTML = sessions.map(s => `
-    <div class="session-card" data-session-key="${escapeHtml(s.sessionKey)}" onclick="viewSessionTraces('${escapeHtml(s.sessionKey)}')">
+    <div class="session-card" data-session-key="${encodeURIComponent(s.sessionKey)}">
       <div class="session-main">
         <div class="session-info">
           <div class="session-key" style="display:flex;align-items:center;gap:8px">${escapeHtml(s.sessionKey)} ${renderFinishReasonBadge(s.lastFinishReason)}</div>
@@ -1722,7 +1760,7 @@ async function refreshSessions() {
           <div class="session-stat"><div class="session-stat-value text-error">${s.errorCount || 0}</div><div class="session-stat-label">errors</div></div>
           <div class="session-stat"><div class="session-stat-value">${formatDurationMs(s.avgToolDurationMs || 0)}</div><div class="session-stat-label">avg tool</div></div>
           <div class="session-stat"><div class="session-stat-value text-success">${formatNumber(s.totalTokens)}</div><div class="session-stat-label">tokens</div></div>
-          <button class="btn btn-danger" onclick="event.stopPropagation();deleteSession('${escapeHtml(s.sessionKey)}')" title="Delete traces">
+          <button type="button" class="btn btn-danger session-delete-btn" data-session-key="${encodeURIComponent(s.sessionKey)}" title="Delete traces">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
         </div>
@@ -1730,6 +1768,7 @@ async function refreshSessions() {
       ${renderSessionMetadata(s, 'session-' + encodeURIComponent(s.sessionKey))}
     </div>
   `).join('');
+  installSessionCardDelegation();
 }
 
 async function viewSessionTraces(sessionKey) {
@@ -1757,7 +1796,7 @@ async function refreshTraces() {
     events = await fetchJson('/sessions/' + encodeURIComponent(selectedSession) + '/events');
   } else {
     const sessions = await fetchJson('/sessions');
-    if (!sessions || sessions.length === 0) {
+    if (!Array.isArray(sessions) || sessions.length === 0) {
       renderTraceTimeline([]);
       return;
     }
@@ -1940,8 +1979,30 @@ async function deleteSession(sessionKey) {
     'Delete Session Traces',
     `Delete trace data for session "${sessionKey}"? This cannot be undone.`,
     async () => {
-      await fetch(API + '/sessions/' + encodeURIComponent(sessionKey), { method: 'DELETE' });
-      refreshSessions();
+      const res = await fetch(API + '/sessions/' + encodeURIComponent(sessionKey), {
+        method: 'DELETE',
+        credentials: 'same-origin'
+      });
+      let body = null;
+      try {
+        body = await res.json();
+      } catch (_) { /* non-JSON body */ }
+
+      if (res.status === 401) {
+        showToast('Not authorized — sign in to the dashboard first.', 'error');
+        return;
+      }
+      if (!res.ok) {
+        showToast(body && body.error ? String(body.error) : `Delete failed (HTTP ${res.status})`, 'error');
+        return;
+      }
+      if (body && body.deleted === false) {
+        showToast('Session not found in trace store (it may have been removed already).', 'warning');
+        await refreshSessions();
+        return;
+      }
+      showToast('Session traces deleted.', 'success');
+      await refreshSessions();
     }
   );
 }
@@ -1951,9 +2012,26 @@ async function clearAllSessions() {
     'Clear All Trace Data',
     'This will permanently delete all session traces. This cannot be undone.',
     async () => {
-      await fetch(API + '/sessions', { method: 'DELETE' });
-      refreshSessions();
-      refreshDashboard();
+      const res = await fetch(API + '/sessions', {
+        method: 'DELETE',
+        credentials: 'same-origin'
+      });
+      let body = null;
+      try {
+        body = await res.json();
+      } catch (_) { /* non-JSON */ }
+
+      if (res.status === 401) {
+        showToast('Not authorized — sign in to the dashboard first.', 'error');
+        return;
+      }
+      if (!res.ok) {
+        showToast(body && body.error ? String(body.error) : `Clear failed (HTTP ${res.status})`, 'error');
+        return;
+      }
+      showToast('All session traces cleared.', 'success');
+      await refreshSessions();
+      await refreshDashboard();
     },
     'btn-danger',
     'Clear All'
@@ -3411,7 +3489,8 @@ async function refreshGithubTracker() {
 function openSession(sessionKey) {
   switchPanel('sessions');
   setTimeout(() => {
-    const row = document.querySelector(`[data-session-key="${sessionKey}"]`);
+    const row = Array.from(document.querySelectorAll('.session-card[data-session-key]')).find(el =>
+      decodeURIComponent(el.getAttribute('data-session-key') || '') === sessionKey);
     if (row) {
       row.scrollIntoView({ behavior: 'smooth', block: 'center' });
       row.click();
@@ -3421,6 +3500,7 @@ function openSession(sessionKey) {
 
 // Init
 document.addEventListener('DOMContentLoaded', async () => {
+  installSessionCardDelegation();
   await loadConfigSchema();
   const settingsData = await refreshSettings();
   if (!settingsSetupMode) {
