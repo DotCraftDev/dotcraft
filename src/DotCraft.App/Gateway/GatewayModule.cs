@@ -19,6 +19,7 @@ public sealed partial class GatewayModule : ModuleBase
         => config.IsSectionEnabled("QQBot") || config.IsSectionEnabled("WeComBot")
            || config.IsSectionEnabled("Api") || config.IsSectionEnabled("AgUi")
            || config.IsSectionEnabled("GitHubTracker")
+           || config.IsSectionEnabled("Automations")
            || ExternalChannelManager.HasEnabledChannels(config);
 
     /// <inheritdoc />
@@ -38,6 +39,7 @@ public sealed partial class GatewayModule : ModuleBase
         if (!config.IsSectionEnabled("QQBot") && !config.IsSectionEnabled("WeComBot")
             && !config.IsSectionEnabled("Api") && !config.IsSectionEnabled("AgUi")
             && !config.IsSectionEnabled("GitHubTracker")
+            && !config.IsSectionEnabled("Automations")
             && !ExternalChannelManager.HasEnabledChannels(config))
             errors.Add("Gateway mode is enabled but no channel modules are enabled.");
         return errors;

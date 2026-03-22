@@ -109,6 +109,12 @@ public sealed class GatewayHost : IDotCraftHost
         // --- Phase 3: Build shared agent runner (required before HeartbeatService) ---
         var sharedAgentRunner = BuildSharedAgentRunner();
 
+        if (_sharedSessionService != null)
+        {
+            foreach (var ch in _allChannels.OfType<ISessionServiceConsumer>())
+                ch.SetSessionService(_sharedSessionService);
+        }
+
         // --- Phase 3.5: Create external channel hosts (requires SessionService from Phase 3) ---
         if (ExternalChannel.ExternalChannelManager.HasEnabledChannels(_config) && _sharedSessionService != null)
         {
