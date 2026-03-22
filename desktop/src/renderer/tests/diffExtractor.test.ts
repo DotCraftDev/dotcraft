@@ -7,7 +7,8 @@ import {
   mergeFileDiffIncrement,
   computeCumulativeFileDiff,
   computeIncrementalPerItemDiff,
-  reverseEditReplace
+  reverseEditReplace,
+  readWorkspaceAfterTool
 } from '../utils/diffExtractor'
 
 describe('parseResultPath', () => {
@@ -225,6 +226,39 @@ describe('computeDiffHunks', () => {
     expect(diff!.originalContent).toBe('prefix old suffix')
     expect(diff!.currentContent).toBe('prefix new suffix')
     expect(diff!.turnIds).toEqual(['t1'])
+  })
+
+  it('readWorkspaceAfterTool retries until newText appears in file (stale first read)', async () => {
+    let n = 0
+    const readFile = async (): Promise<string> => {
+      n++
+      if (n === 1) return 'prefix old suffix'
+      return 'prefix new suffix'
+    }
+    const content = await readWorkspaceAfterTool(readFile, 'C:/proj/src/e.ts', 'EditFile', {
+      path: 'src/e.ts',
+      oldText: 'old',
+      newText: 'new'
+    })
+    expect(content).toBe('prefix new suffix')
+    expect(n).toBeGreaterThanOrEqual(2)
+  })
+
+  it('computeCumulativeFileDiff falls back to extractDiffFromEditFile when full-file diff is empty', async () => {
+    // Disk has no OLD/NEW snippet, so reverseEditReplace cannot change content → full-file diff empty; fallback uses args.
+    const diff = await computeCumulativeFileDiff({
+      filePath: 'src/e.ts',
+      toolName: 'EditFile',
+      args: { path: 'src/e.ts', oldText: 'OLD', newText: 'NEW' },
+      resultText: 'Successfully edited src/e.ts',
+      turnId: 't1',
+      existing: undefined,
+      workspacePath: 'C:/proj',
+      readFile: async () => 'xxxxxxxx'
+    })
+    expect(diff).not.toBeNull()
+    expect(diff!.diffHunks.length).toBeGreaterThan(0)
+    expect(diff!.additions + diff!.deletions).toBeGreaterThan(0)
   })
 
   it('groups nearby changes into a single hunk', () => {

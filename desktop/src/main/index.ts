@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, Menu, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, session, Menu, ipcMain, shell, nativeImage } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
@@ -38,6 +38,17 @@ const windowContexts = new Map<number, WindowContext>()
 /** Must match `titleBarOverlay.height` (Windows / Linux) and CustomMenuBar height in renderer. */
 const TITLE_BAR_OVERLAY_HEIGHT = 36
 
+/** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
+function resolveWindowIconPath(): string | null {
+  if (process.platform === 'darwin') {
+    return null
+  }
+  const packaged = join(process.resourcesPath, 'icon.png')
+  const dev = join(__dirname, '../../resources/icon.png')
+  const path = app.isPackaged ? packaged : dev
+  return existsSync(path) ? path : null
+}
+
 // ─── Shared (mutable) settings ────────────────────────────────────────────────
 
 let sharedSettings: AppSettings = {}
@@ -65,12 +76,18 @@ function resolveWorkspacePath(settings: AppSettings): string | null {
 function createWindow(workspacePath: string | null): BrowserWindow {
   const isMac = process.platform === 'darwin'
   const isDev = import.meta.env.DEV
+  const iconPath = resolveWindowIconPath()
   const win = new BrowserWindow({
     width: 1400,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#1a1a1a',
+    ...(iconPath
+      ? {
+          icon: nativeImage.createFromPath(iconPath)
+        }
+      : {}),
     // In dev, show immediately so the window is visible even if `ready-to-show` is late
     // or never fires (e.g. Vite not ready yet). Otherwise DevTools can be the only thing
     // the user sees while the main window stays hidden.

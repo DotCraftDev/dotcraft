@@ -55,16 +55,23 @@
   "build": {
     "appId": "com.dotcraft.desktop",
     "productName": "DotCraft Desktop",
+    "icon": "resources/icon.png",
     "directories": {
       "buildResources": "resources"
     },
     "files": [
       "out/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "win": {
       "asar": true,
       "executableName": "DotCraftDesktop",
-      "signAndEditExecutable": false,
+      "icon": "resources/icon.ico",
       "target": [
         "nsis",
         "portable",
@@ -72,6 +79,7 @@
       ]
     },
     "mac": {
+      "icon": "resources/icon.png",
       "target": [
         "dmg",
         "zip"
@@ -79,10 +87,16 @@
       "category": "public.app-category.developer-tools"
     },
     "linux": {
+      "icon": "resources/icon.png",
       "target": [
         "AppImage",
         "deb"
       ]
+    },
+    "nsis": {
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico"
     }
   }
 }
