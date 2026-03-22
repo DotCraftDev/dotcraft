@@ -19,4 +19,4 @@ The agent working directory is:
 
 `{{ task.workspace_path }}`
 
-Use file and shell tools as needed. When finished, summarize what you did for review.
+Use file and shell tools as needed. When finished, call the **`CompleteLocalTask`** tool with a short summary of what you did. That sets `task.md` to `agent_completed` so the orchestrator stops the workflow (instead of running until `max_rounds`).

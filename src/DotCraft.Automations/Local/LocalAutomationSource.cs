@@ -13,6 +13,7 @@ namespace DotCraft.Automations.Local;
 public sealed class LocalAutomationSource(
     LocalTaskFileStore fileStore,
     LocalWorkflowLoader workflowLoader,
+    ILoggerFactory loggerFactory,
     ILogger<LocalAutomationSource> logger)
     : IAutomationSource
 {
@@ -29,7 +30,12 @@ public sealed class LocalAutomationSource(
     /// <inheritdoc />
     public void RegisterToolProfile(IToolProfileRegistry registry)
     {
-        IReadOnlyList<IAgentToolProvider> providers = [new CoreToolProvider()];
+        var completionLogger = loggerFactory.CreateLogger<LocalTaskCompletionToolProvider>();
+        IReadOnlyList<IAgentToolProvider> providers =
+        [
+            new CoreToolProvider(),
+            new LocalTaskCompletionToolProvider(fileStore, completionLogger)
+        ];
         registry.Register(ToolProfileName, providers);
     }
 
@@ -55,7 +61,9 @@ public sealed class LocalAutomationSource(
     public Task OnAgentCompletedAsync(AutomationTask task, string agentSummary, CancellationToken ct)
     {
         var local = (LocalAutomationTask)task;
-        local.AgentSummary = agentSummary;
+        // Preserve summary from task.md (e.g. CompleteLocalTask) when the turn extract is empty.
+        if (!string.IsNullOrWhiteSpace(agentSummary))
+            local.AgentSummary = agentSummary;
         return fileStore.SaveAsync(local, ct);
     }
 

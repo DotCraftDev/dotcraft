@@ -36,6 +36,7 @@ The milestone covers:
 - Review gate: `ApproveTaskAsync` / `RejectTaskAsync` called by the Wire Protocol handler (M6).
 - Task directory watcher: picks up newly added task files without requiring an AppServer restart.
 - Tool profile registration for local tasks.
+- `LocalTaskCompletionToolProvider` — injects **`CompleteLocalTask`** for local automation agent sessions (aligned with GitHub `CompleteIssue`).
 
 ### Out of Scope
 
@@ -233,6 +234,18 @@ Hook execution failures are logged and do not revert the status transition.
 
 `LocalAutomationSource` subscribes to `LocalTaskFileStore.WatchForNewTasks`. When a new task directory is detected, the task is added to the in-memory pending set and will be dispatched on the next orchestrator poll cycle (no restart required).
 
+### R4.12 — Local task completion tool
+
+`LocalTaskCompletionToolProvider` mirrors GitHubTracker's `IssueCompletionToolProvider` / **`CompleteIssue`**: the agent can mark the task complete without editing `task.md` by hand.
+
+| Item | Detail |
+|------|--------|
+| **Tool name** | **`CompleteLocalTask`** |
+| **Parameters** | `summary` (string) — brief description of what was done (same intent as `CompleteIssue`'s `reason`) |
+| **Behavior** | Load task via `LocalTaskFileStore.LoadAsync(taskDir)`; when status allows (e.g. `agent_running`), set `agent_summary` if provided and `status: agent_completed` in `task.md`, then `SaveAsync`. Idempotent messaging when already completed. |
+| **Registration** | Registered alongside `CoreToolProvider` in `LocalAutomationSource.RegisterToolProfile` under profile **`local-task`**. |
+| **Task directory resolution** | From `ToolProviderContext.WorkspacePath`: `taskDirectory = Directory.GetParent(WorkspacePath)` (normalized); must contain `task.md`. If invalid, **no tool is registered** for that session (`CreateTools` yields nothing). |
+
 ## Acceptance Criteria
 
 | # | Criterion |
@@ -249,6 +262,8 @@ Hook execution failures are logged and do not revert the status transition.
 | AC10 | `work_item.id` and `work_item.title` resolve to the same values as `task.id` and `task.title`. |
 | AC11 | The `local-task` tool profile is registered before the first task is dispatched. |
 | AC12 | Local task agents do not have access to GitHub-related tools. |
+| AC13 | With Automations enabled and a local task running, the agent tool list includes **`CompleteLocalTask`**. |
+| AC14 | After **`CompleteLocalTask`** runs, `task.md` has `status: agent_completed`; the next `ShouldStopWorkflowAfterTurnAsync` is true and the outer workflow round loop ends without exhausting `max_rounds`. |
 
 ## Affected Files
 
@@ -259,5 +274,6 @@ Hook execution failures are logged and do not revert the status transition.
 | `src/DotCraft.Automations/Local/LocalAutomationSource.cs` | New: IAutomationSource impl |
 | `src/DotCraft.Automations/Local/LocalTaskFileStore.cs` | New: YAML file I/O |
 | `src/DotCraft.Automations/Local/LocalWorkflowLoader.cs` | New: workflow parsing for local tasks |
+| `src/DotCraft.Automations/Local/LocalTaskCompletionToolProvider.cs` | New: `CompleteLocalTask` tool for local automation sessions |
 | `src/DotCraft.Automations/AutomationsModule.cs` | Register `LocalAutomationSource` |
 | `src/DotCraft.GitHubTracker/Workflow/WorkflowDefinition.cs` | Add `OnApprove`, `OnReject` hook fields (shared model) |

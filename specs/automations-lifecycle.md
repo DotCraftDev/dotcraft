@@ -357,6 +357,8 @@ The existing `TrackedWorkItem` maps to `AutomationTask` as follows:
 
 ## 6. Local Task Source
 
+> **Implementation note:** The on-disk layout and `IAutomationSource` behavior in [M4](milestones/M4-automations-local-source.md) (per-task directory, `task.md`, profile `local-task`, `ShouldStopWorkflowAfterTurnAsync`) supersede the older single-file YAML sketch in §6.1–6.4 below. For the authoritative format, see the M4 milestone and §13.
+
 ### 6.1 Task Store Layout
 
 Local tasks are persisted as individual YAML files under the workspace:
@@ -858,41 +860,44 @@ Because the Orchestrator and the `SessionService` are co-located in the same pro
 The Orchestrator's multi-turn loop calls `SubmitTurnAsync` and consumes the resulting event stream:
 
 ```
-for turn = 1 to max_turns:
-    prompt = BuildTurnPrompt(workflow, task, attempt, turn, maxTurns)
-    workspaceManager.RunBeforeRunHookAsync(taskWorkspacePath)
-    events = sessionClient.SubmitTurnAsync(threadId, prompt, ct)
+for round = 1 to max_rounds (unless stopped):
+    for each workflow step:
+        events = sessionClient.SubmitTurnAsync(threadId, step.Prompt, ct)
+        await foreach (evt in events):
+            update RunningEntry (turn count, token counts, last event)
+            if evt is TurnFailed → stop workflow (failure outcome)
+            if evt is TurnCancelled → stop workflow (cancel handling)
 
-    await foreach (evt in events):
-        update RunningEntry (turn count, token counts, last event)
-        if evt is TurnFailed → break loop with failure outcome
-
-    workspaceManager.RunAfterRunHookAsync(taskWorkspacePath)
-
-    states = source.FetchTaskStatesByIdsAsync([task.Id], ct)
-    if states[task.Id] == "agent_completed" → break loop (tool called CompleteTask)
-    if states[task.Id] not in ActiveStates → break loop (external state change)
+        if await source.ShouldStopWorkflowAfterTurnAsync(task, ct) → break outer (completion or sentinel)
+        if cancellation requested → break
 ```
+
+**Local source:** `ShouldStopWorkflowAfterTurnAsync` reloads `task.md` from disk (via `LocalTaskFileStore`) and returns `true` when `status == agent_completed` (YAML `agent_completed`), e.g. after the agent calls **`CompleteLocalTask`**. This replaces any file-based polling by ID in the abstract loop.
+
+**GitHub / remote sources:** completion may still be observed via tracker APIs (e.g. issue closed or state fetched by ID) where `IAutomationSource` implements that contract; the local file store does **not** use `FetchTaskStatesByIdsAsync` for the `task.md` layout.
 
 ### 13.3 LocalTaskCompletionToolProvider
 
-The `CompleteTask` tool for local tasks:
+Mirrors GitHubTracker's `IssueCompletionToolProvider` / **`CompleteIssue`**: a dedicated tool so the agent can mark the local task complete without hand-editing `task.md`.
 
-- **Tool name**: `CompleteTask`
-- **Parameters**: `summary` (string) — a summary of what the agent accomplished.
-- **Behavior**: Writes `summary` to the task file's `agent_summary` field. Sets `state` to `agent_completed` in the task file. Returns a confirmation message to the agent.
-- **Registered via**: `LocalAutomationSource.RegisterToolProfile` under the `"automation:local"` profile.
+| Item | Detail |
+|------|--------|
+| **Implementation / tool name** | **`CompleteLocalTask`** (draft name `CompleteTask` is synonymous in older text) |
+| **Parameters** | `summary` (string) — brief description of what was accomplished (same role as `CompleteIssue`'s `reason`) |
+| **Behavior** | `LocalTaskFileStore.LoadAsync(taskDir)` → if allowed, set `AgentSummary` when `summary` is non-empty, set `Status = AgentCompleted` (YAML `agent_completed`) → `SaveAsync` |
+| **Task directory** | Derived from `ToolProviderContext.WorkspacePath`: automation sets `WorkspaceOverride` to `{taskDirectory}/workspace`, so `taskDirectory = Directory.GetParent(WorkspacePath)` (full path normalization). Require `task.md` under that directory; if resolution fails or `task.md` is missing, **`CreateTools` yields no tools** (avoids injecting this tool into normal non-automation sessions). |
+| **Registration** | Registered with `CoreToolProvider` in `LocalAutomationSource.RegisterToolProfile` under profile **`local-task`** (same as `ToolProfileName`; not the legacy name `automation:local`). |
 
 ### 13.4 Completion Detection
 
-After each turn, the orchestrator calls `source.FetchTaskStatesByIdsAsync([task.Id])`. The loop exits when:
+After each turn (after the event stream for that turn ends), the orchestrator calls **`ShouldStopWorkflowAfterTurnAsync`**. The workflow round loop exits when:
 
 | Condition | Exit Reason |
 |-----------|-------------|
-| State is `agent_completed` | `CompleteTask` tool was invoked; normal exit |
-| State not in `ActiveStates` | External state change (task was cancelled or transitioned externally) |
-| `TurnFailed` event received | Agent turn failed; error exit, schedule retry |
-| Turn count reaches `max_turns` | All turns exhausted; exit without completion tool |
+| `ShouldStopWorkflowAfterTurnAsync` is `true` (local: `task.md` shows `agent_completed`) | **`CompleteLocalTask`** (or equivalent) updated the task file; normal path to `OnAgentCompletedAsync` / review |
+| `TurnFailed` | Agent turn failed; error exit |
+| `TurnCancelled` (and task not already completed) | Cancelled turn; failed / cancel handling |
+| Round count reaches `max_rounds` | All rounds exhausted without completion tool |
 
 ### 13.5 Desktop Observability
 

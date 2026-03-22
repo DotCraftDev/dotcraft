@@ -9,6 +9,8 @@
 - `config.template.json`：带 `Automations` 的 workspace 配置示例（含 Dashboard / 可选工具等默认值）
 - `example-local-task/`：示例 `task.md` 与 `workflow.md`，需复制到本机任务根目录下（本仓库不随附 `.craft/` 运行数据）
 
+**本地**自动化任务运行时，`local-task` 工具配置会提供 **`CompleteLocalTask`**，智能体可用其将 `task.md` 标为完成，而不必跑满 `max_rounds`。
+
 ## 示例内容
 
 | 路径 | 用途 |

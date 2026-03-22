@@ -9,6 +9,8 @@ It includes:
 - `config.template.json` — workspace config with `Automations` enabled and defaults for Dashboard / optional tools
 - `example-local-task/` — sample `task.md` and `workflow.md` to copy under your task root (not committed as `.craft/` in this repo)
 
+When a **local** automation task runs, the `local-task` tool profile includes **`CompleteLocalTask`** so the agent can mark the task complete in `task.md` without running until `max_rounds`.
+
 ## What is inside
 
 | Path | Purpose |
