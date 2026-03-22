@@ -1,4 +1,5 @@
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, session, Menu, ipcMain, shell } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
 import { AppServerManager } from './AppServerManager'
@@ -34,6 +35,9 @@ interface WindowContext {
 
 const windowContexts = new Map<number, WindowContext>()
 
+/** Must match `titleBarOverlay.height` (Windows / Linux) and CustomMenuBar height in renderer. */
+const TITLE_BAR_OVERLAY_HEIGHT = 36
+
 // ─── Shared (mutable) settings ────────────────────────────────────────────────
 
 let sharedSettings: AppSettings = {}
@@ -59,14 +63,29 @@ function resolveWorkspacePath(settings: AppSettings): string | null {
 // ─── Window creation ──────────────────────────────────────────────────────────
 
 function createWindow(workspacePath: string | null): BrowserWindow {
+  const isMac = process.platform === 'darwin'
+  const isDev = import.meta.env.DEV
   const win = new BrowserWindow({
     width: 1400,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#1a1a1a',
-    show: false,
-    titleBarStyle: 'default',
+    // In dev, show immediately so the window is visible even if `ready-to-show` is late
+    // or never fires (e.g. Vite not ready yet). Otherwise DevTools can be the only thing
+    // the user sees while the main window stays hidden.
+    show: isDev,
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac
+      ? {}
+      : {
+          titleBarOverlay: {
+            color: '#1a1a1a',
+            symbolColor: '#e5e5e5',
+            height: TITLE_BAR_OVERLAY_HEIGHT
+          }
+        }),
+    autoHideMenuBar: !isMac,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -78,9 +97,11 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   const workspaceName = workspacePath ? basename(workspacePath) : 'DotCraft'
   win.setTitle(`DotCraft \u2014 ${workspaceName}`)
 
-  win.once('ready-to-show', () => {
-    win.show()
-  })
+  if (!isDev) {
+    win.once('ready-to-show', () => {
+      win.show()
+    })
+  }
 
   win.on('close', () => {
     const ctx = windowContexts.get(win.id)
@@ -284,6 +305,14 @@ function openNewWindow(workspacePath: string | null): void {
   }
   windowContexts.set(win.id, ctx)
 
+  // Register IPC before loadURL so the renderer can invoke (e.g. window:get-workspace-path)
+  // as soon as JS runs — Vite dev can execute the module before did-finish-load on main.
+  if (workspacePath) {
+    registerIpcHandlers(null, () => ctx.wireClient, workspacePath, buildCallbacks(ctx))
+  } else {
+    registerIpcHandlers(null, () => null, '', buildCallbacks(ctx))
+  }
+
   if (import.meta.env.DEV) {
     win.loadURL('http://localhost:5173')
   } else {
@@ -296,15 +325,106 @@ function openNewWindow(workspacePath: string | null): void {
       saveSettings(sharedSettings)
       void connectToAppServer(ctx, workspacePath)
     } else {
-      // Show welcome screen (no workspace selected)
       broadcastConnectionStatus(win, { status: 'disconnected' })
     }
   })
 }
 
+function buildAppMenu(): Menu {
+  const isMac = process.platform === 'darwin'
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac ? ([{ role: 'appMenu' }] as MenuItemConstructorOptions[]) : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New Window',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: () => {
+            openNewWindow(sharedSettings.lastWorkspacePath ?? null)
+          }
+        },
+        { type: 'separator' },
+        isMac ? { role: 'close' } : { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac
+          ? ([{ type: 'separator' }, { role: 'front' }] as MenuItemConstructorOptions[])
+          : ([{ role: 'close' }] as MenuItemConstructorOptions[]))
+      ]
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Documentation',
+          click: async () => {
+            await shell.openExternal('https://github.com/DotCraftDev/dotcraft')
+          }
+        }
+      ]
+    }
+  ]
+  return Menu.buildFromTemplate(template)
+}
+
+function registerMenuPopupIpc(): void {
+  ipcMain.removeHandler('menu:popup-top-level')
+  ipcMain.handle(
+    'menu:popup-top-level',
+    (event, payload: { label: string; x: number; y: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) return
+      const appMenu = Menu.getApplicationMenu()
+      if (!appMenu) return
+      const item = appMenu.items.find((i) => i.label === payload.label)
+      if (!item?.submenu) return
+      item.submenu.popup({
+        window: win,
+        x: Math.round(payload.x),
+        y: Math.round(payload.y)
+      })
+    }
+  )
+}
+
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  registerMenuPopupIpc()
+  Menu.setApplicationMenu(buildAppMenu())
+
   // Apply a strict Content-Security-Policy in production only.
   // In dev, Vite's HMR injects inline scripts and uses eval for sourcemaps,
   // so we leave CSP untouched and accept the dev-only Electron security warning.
@@ -339,16 +459,21 @@ app.whenReady().then(() => {
   }
   windowContexts.set(win.id, ctx)
 
-  // Register static title IPC (shared across all windows via window focus)
-  // Note: workspace:pick-folder, workspace:switch, etc. are registered
-  // per-window inside connectToAppServer -> registerIpcHandlers.
-  // We register the static workspace:pick-folder here so it works even before
-  // any workspace is connected (e.g. on the welcome screen).
-  // The full set is registered (and re-registered) inside connectToAppServer.
+  // Register IPC before loadURL so the renderer can invoke handlers as soon as JS runs
+  // (Vite dev may run the module before main's did-finish-load callback).
+  if (workspacePath) {
+    registerIpcHandlers(null, () => ctx.wireClient, workspacePath, buildCallbacks(ctx))
+  } else {
+    registerIpcHandlers(null, () => null, '', buildCallbacks(ctx))
+  }
 
   if (import.meta.env.DEV) {
     win.loadURL('http://localhost:5173')
-    win.webContents.openDevTools()
+    // Open DevTools after load (not synchronously with loadURL): the main window used to
+    // stay `show: false` until `ready-to-show`, so only the DevTools panel appeared first.
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.openDevTools()
+    })
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -357,26 +482,6 @@ app.whenReady().then(() => {
     if (workspacePath) {
       void connectToAppServer(ctx, workspacePath)
     } else {
-      // No workspace: register minimal IPC handlers so the welcome screen can
-      // call workspace:pick-folder and workspace:switch
-      const callbacks: IpcHandlerCallbacks = {
-        onSwitchWorkspace: async (newPath: string) => {
-          addRecentWorkspace(sharedSettings, newPath)
-          saveSettings(sharedSettings)
-          await connectToAppServer(ctx, newPath)
-          if (!win.isDestroyed()) {
-            win.setTitle(`DotCraft \u2014 ${basename(newPath)}`)
-          }
-        },
-        onOpenNewWindow: () => openNewWindow(sharedSettings.lastWorkspacePath ?? null),
-        getSettings: () => sharedSettings,
-        updateSettings: (partial) => {
-          Object.assign(sharedSettings, partial)
-          saveSettings(sharedSettings)
-        },
-        getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings)
-      }
-      registerIpcHandlers(null, () => null, '', callbacks)
       broadcastConnectionStatus(win, { status: 'disconnected' })
     }
   })

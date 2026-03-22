@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { basename } from './utils/path'
 import { initConnectionStore, useConnectionStore } from './stores/connectionStore'
 import { useThreadStore } from './stores/threadStore'
 import { useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { ThreePanel } from './components/layout/ThreePanel'
+import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
 import { DetailPanel } from './components/layout/DetailPanel'
@@ -19,6 +21,34 @@ import { wireTurnToConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import './styles/tokens.css'
+
+function AppChrome({ children }: { children: ReactNode }): JSX.Element {
+  const showCustomMenu = window.api.platform !== 'darwin'
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        width: '100%',
+        overflow: 'hidden'
+      }}
+    >
+      {showCustomMenu && <CustomMenuBar />}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
 
 /**
  * Root application component.
@@ -582,36 +612,42 @@ export function App(): JSX.Element {
 
   if (isFatalError) {
     return (
-      <>
-        <ConfirmDialogHost />
-        <ToastContainer />
-        <ErrorScreen onOpenSettings={() => setShowSettings(true)} />
-        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
-      </>
+      <AppChrome>
+        <>
+          <ConfirmDialogHost />
+          <ToastContainer />
+          <ErrorScreen onOpenSettings={() => setShowSettings(true)} />
+          {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+        </>
+      </AppChrome>
     )
   }
 
   if (showWelcome) {
     return (
-      <>
-        <ToastContainer />
-        <WelcomeScreen />
-      </>
+      <AppChrome>
+        <>
+          <ToastContainer />
+          <WelcomeScreen />
+        </>
+      </AppChrome>
     )
   }
 
   return (
-    <>
-      <ConfirmDialogHost />
-      <ToastContainer />
-      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
-      <ThreePanel
-        sidebar={
-          <Sidebar workspaceName={workspaceName} workspacePath={workspacePath} onOpenSettings={() => setShowSettings(true)} />
-        }
-        conversation={<ConversationPanel workspacePath={workspacePath} />}
-        detail={<DetailPanel workspacePath={workspacePath} />}
-      />
-    </>
+    <AppChrome>
+      <>
+        <ConfirmDialogHost />
+        <ToastContainer />
+        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+        <ThreePanel
+          sidebar={
+            <Sidebar workspaceName={workspaceName} workspacePath={workspacePath} onOpenSettings={() => setShowSettings(true)} />
+          }
+          conversation={<ConversationPanel workspacePath={workspacePath} />}
+          detail={<DetailPanel workspacePath={workspacePath} />}
+        />
+      </>
+    </AppChrome>
   )
 }

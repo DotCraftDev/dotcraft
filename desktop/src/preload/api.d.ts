@@ -26,6 +26,11 @@ export interface ServerRequestPayload {
 declare global {
   interface Window {
     api: {
+      platform: 'darwin' | 'win32' | 'linux'
+      titleBarOverlayHeight: number
+      menu: {
+        popupTopLevel(label: string, x: number, y: number): Promise<void>
+      }
       appServer: {
         sendRequest(method: string, params?: unknown): Promise<unknown>
         onNotification(callback: (payload: NotificationPayload) => void): UnsubscribeFn

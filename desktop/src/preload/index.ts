@@ -75,7 +75,20 @@ ipcRenderer.on(
  * Typed API exposed to the Renderer via contextBridge.
  * The Renderer accesses this as `window.api`.
  */
+/** Matches `titleBarOverlay.height` in main process (Windows / Linux). */
+const TITLE_BAR_OVERLAY_HEIGHT = 36
+
 const api = {
+  platform: process.platform as 'darwin' | 'win32' | 'linux',
+
+  titleBarOverlayHeight: TITLE_BAR_OVERLAY_HEIGHT,
+
+  menu: {
+    popupTopLevel(label: string, x: number, y: number): Promise<void> {
+      return ipcRenderer.invoke('menu:popup-top-level', { label, x, y })
+    }
+  },
+
   appServer: {
     /**
      * Sends a JSON-RPC request to the AppServer via Main Process.
