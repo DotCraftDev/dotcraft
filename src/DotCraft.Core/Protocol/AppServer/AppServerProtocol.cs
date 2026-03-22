@@ -143,6 +143,12 @@ public sealed class AppServerServerCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HeartbeatManagement { get; set; }
+
+    /// <summary>
+    /// Server supports skills management methods (skills/list, skills/read, skills/setEnabled). See spec Section 18.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SkillsManagement { get; set; }
 }
 
 // ───── thread/start ─────
@@ -412,6 +418,70 @@ public sealed class CronJobStateWireInfo
     public string? LastError { get; set; }
 }
 
+// ───── skills/* (spec Section 18) ─────
+
+public sealed class SkillsListParams
+{
+    /// <summary>When false, skills with unmet requirements are excluded. Default true.</summary>
+    public bool? IncludeUnavailable { get; set; }
+}
+
+public sealed class SkillsListResult
+{
+    public List<SkillInfoWire> Skills { get; set; } = [];
+}
+
+/// <summary>
+/// Wire projection of <see cref="DotCraft.Skills.SkillsLoader.SkillInfo"/> for skills/list and skills/setEnabled.
+/// </summary>
+public sealed class SkillInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Description { get; set; } = string.Empty;
+
+    public string Source { get; set; } = string.Empty;
+
+    public bool Available { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UnavailableReason { get; set; }
+
+    public bool Enabled { get; set; } = true;
+
+    public string Path { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Metadata { get; set; }
+}
+
+public sealed class SkillsReadParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class SkillsReadResult
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Content { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Metadata { get; set; }
+}
+
+public sealed class SkillsSetEnabledParams
+{
+    public string Name { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+}
+
+public sealed class SkillsSetEnabledResult
+{
+    public SkillInfoWire Skill { get; set; } = new();
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -479,4 +549,9 @@ public static class AppServerMethods
 
     // Client → Server requests (heartbeat management, spec Section 17)
     public const string HeartbeatTrigger = "heartbeat/trigger";
+
+    // Client → Server requests (skills management, spec Section 18)
+    public const string SkillsList = "skills/list";
+    public const string SkillsRead = "skills/read";
+    public const string SkillsSetEnabled = "skills/setEnabled";
 }

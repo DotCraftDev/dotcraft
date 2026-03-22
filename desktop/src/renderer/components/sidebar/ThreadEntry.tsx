@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import type { ThreadSummary } from '../../types/thread'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
 import { formatRelativeTime } from '../../utils/relativeTime'
 import type { ContextMenuPosition } from '../ui/ContextMenu'
 
@@ -16,6 +17,7 @@ interface ThreadEntryProps {
  */
 export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const { activeThreadId, setActiveThreadId, renameThread, runningTurnThreadIds } = useThreadStore()
+  const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const isActive = activeThreadId === thread.id
   const hasRunningTurn = runningTurnThreadIds.has(thread.id) && !isActive
 
@@ -30,6 +32,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   function handleClick(): void {
     if (renaming) return
     setActiveThreadId(thread.id)
+    setActiveMainView('conversation')
   }
 
   function handleContextMenu(e: React.MouseEvent): void {

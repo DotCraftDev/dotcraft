@@ -6,6 +6,8 @@ import { useThreadStore } from './stores/threadStore'
 import { useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { ThreePanel } from './components/layout/ThreePanel'
+import { SkillsView } from './components/skills/SkillsView'
+import { AutomationsPlaceholder } from './components/skills/AutomationsPlaceholder'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -63,6 +65,7 @@ export function App(): JSX.Element {
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
   const [showSettings, setShowSettings] = useState(false)
   const { status, errorType } = useConnectionStore()
+  const activeMainView = useUIStore((s) => s.activeMainView)
   const {
     setThreadList,
     setLoading
@@ -139,6 +142,7 @@ export function App(): JSX.Element {
       useThreadStore.getState().reset()
       useConversationStore.getState().reset()
       useUIStore.getState().setActiveDetailTab('changes')
+      useUIStore.getState().setActiveMainView('conversation')
     }
 
     // On workspace switch (connecting), update workspace path from Main
@@ -447,6 +451,7 @@ export function App(): JSX.Element {
             const res = result as { thread: ThreadSummary }
             useThreadStore.getState().addThread(res.thread)
             useThreadStore.getState().setActiveThreadId(res.thread.id)
+            useUIStore.getState().setActiveMainView('conversation')
           })
           .catch((err: unknown) => console.error('Ctrl+N thread/start failed:', err))
       }
@@ -644,7 +649,15 @@ export function App(): JSX.Element {
           sidebar={
             <Sidebar workspaceName={workspaceName} workspacePath={workspacePath} onOpenSettings={() => setShowSettings(true)} />
           }
-          conversation={<ConversationPanel workspacePath={workspacePath} />}
+          conversation={
+            activeMainView === 'skills' ? (
+              <SkillsView />
+            ) : activeMainView === 'automations' ? (
+              <AutomationsPlaceholder />
+            ) : (
+              <ConversationPanel workspacePath={workspacePath} />
+            )
+          }
           detail={<DetailPanel workspacePath={workspacePath} />}
         />
       </>

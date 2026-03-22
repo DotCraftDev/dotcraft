@@ -65,6 +65,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       useUIStore.getState().setComposerPrefill(prompt)
       addThread(res.thread)
       setActiveThreadId(res.thread.id)
+      useUIStore.getState().setActiveMainView('conversation')
     } catch (err) {
       console.error('Failed to create quick-start thread:', err)
     } finally {

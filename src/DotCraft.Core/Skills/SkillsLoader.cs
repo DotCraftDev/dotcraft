@@ -11,6 +11,8 @@ namespace DotCraft.Skills;
 /// </summary>
 public sealed class SkillsLoader(string workspaceRoot)
 {
+    private HashSet<string> _disabledSkills = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Gets the workspace skills path.
     /// </summary>
@@ -20,6 +22,19 @@ public sealed class SkillsLoader(string workspaceRoot)
     /// Gets the user skills path.
     /// </summary>
     public string UserSkillsPath { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft", "skills");
+
+    /// <summary>
+    /// Replaces the set of disabled skill names (workspace UI / config). Disabled skills stay on disk but are omitted from agent context.
+    /// </summary>
+    public void SetDisabledSkills(IEnumerable<string>? names)
+    {
+        _disabledSkills = new HashSet<string>(names ?? [], StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns whether a skill is enabled (not listed in disabled set).
+    /// </summary>
+    public bool IsSkillEnabled(string name) => !_disabledSkills.Contains(name);
 
     /// <summary>
     /// List all available skills (workspace and builtin).
@@ -56,6 +71,7 @@ public sealed class SkillsLoader(string workspaceRoot)
                     CheckRequirements(requirements, out var unavailableReason);
                     skillInfo.Available = string.IsNullOrEmpty(unavailableReason);
                     skillInfo.UnavailableReason = unavailableReason;
+                    skillInfo.Enabled = !_disabledSkills.Contains(name);
 
                     skills.Add(skillInfo);
                 }
@@ -90,6 +106,7 @@ public sealed class SkillsLoader(string workspaceRoot)
                     CheckRequirements(requirements, out var unavailableReason);
                     skillInfo.Available = string.IsNullOrEmpty(unavailableReason);
                     skillInfo.UnavailableReason = unavailableReason;
+                    skillInfo.Enabled = !_disabledSkills.Contains(name);
 
                     skills.Add(skillInfo);
                 }
@@ -113,10 +130,10 @@ public sealed class SkillsLoader(string workspaceRoot)
         if (File.Exists(workspaceSkill))
             return File.ReadAllText(workspaceSkill, Encoding.UTF8);
 
-        // Check built-in
-        var builtinSkill = Path.Combine(UserSkillsPath, name, "SKILL.md");
-        if (File.Exists(builtinSkill))
-            return File.ReadAllText(builtinSkill, Encoding.UTF8);
+        // Check user-level skills directory
+        var userSkill = Path.Combine(UserSkillsPath, name, "SKILL.md");
+        if (File.Exists(userSkill))
+            return File.ReadAllText(userSkill, Encoding.UTF8);
 
         return null;
     }
@@ -130,6 +147,8 @@ public sealed class SkillsLoader(string workspaceRoot)
 
         foreach (var name in skillNames)
         {
+            if (_disabledSkills.Contains(name))
+                continue;
             var content = LoadSkill(name);
             if (content == null)
                 continue;
@@ -227,6 +246,9 @@ public sealed class SkillsLoader(string workspaceRoot)
 
         foreach (var skill in allSkills)
         {
+            if (!skill.Enabled)
+                continue;
+
             var description = GetSkillDescription(skill.Name);
             var metadata = GetSkillMetadata(skill.Name);
             var alwaysLoad = metadata?.GetValueOrDefault("always", "false").ToLowerInvariant() == "true";
@@ -259,6 +281,8 @@ public sealed class SkillsLoader(string workspaceRoot)
 
         foreach (var skill in ListSkills())
         {
+            if (!skill.Enabled)
+                continue;
             var metadata = GetSkillMetadata(skill.Name);
             if (metadata != null && metadata.GetValueOrDefault("always", "false").ToLowerInvariant() == "true")
             {
@@ -300,7 +324,10 @@ public sealed class SkillsLoader(string workspaceRoot)
         return metadata;
     }
 
-    private string GetSkillDescription(string name)
+    /// <summary>
+    /// Human-readable description from frontmatter, or the skill name.
+    /// </summary>
+    public string GetSkillDescription(string name)
     {
         var metadata = GetSkillMetadata(name);
         return metadata?.GetValueOrDefault("description", name) ?? name;
@@ -346,6 +373,11 @@ public sealed class SkillsLoader(string workspaceRoot)
         /// Skill requirements (bins, env vars).
         /// </summary>
         public SkillRequirements? Requirements { get; set; }
+
+        /// <summary>
+        /// When false, the skill is disabled via workspace config and omitted from agent context.
+        /// </summary>
+        public bool Enabled { get; set; } = true;
     }
 
     /// <summary>

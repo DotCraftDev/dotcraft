@@ -1,7 +1,9 @@
 using System.Text.Json;
 using DotCraft.Abstractions;
+using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Skills;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol.AppServer;
@@ -20,7 +22,9 @@ public sealed class AppServerRequestHandler(
     string serverVersion = "0.1.0",
     SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
     CronService? cronService = null,
-    HeartbeatService? heartbeatService = null)
+    HeartbeatService? heartbeatService = null,
+    SkillsLoader? skillsLoader = null,
+    string? workspaceCraftPath = null)
 {
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -77,6 +81,9 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.CronRemove => HandleCronRemoveAsync(msg, ct),
                 AppServerMethods.CronEnable => HandleCronEnableAsync(msg, ct),
                 AppServerMethods.HeartbeatTrigger => HandleHeartbeatTriggerAsync(msg, ct),
+                AppServerMethods.SkillsList => HandleSkillsListAsync(msg, ct),
+                AppServerMethods.SkillsRead => HandleSkillsReadAsync(msg, ct),
+                AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -125,7 +132,8 @@ public sealed class AppServerRequestHandler(
                 ModeSwitch = true,
                 ConfigOverride = true,
                 CronManagement = cronService != null,
-                HeartbeatManagement = heartbeatService != null
+                HeartbeatManagement = heartbeatService != null,
+                SkillsManagement = skillsLoader != null
             }
         };
 
@@ -555,6 +563,80 @@ public sealed class AppServerRequestHandler(
         {
             return new HeartbeatTriggerResult { Error = ex.Message };
         }
+    }
+
+    // ── skills/* (spec Section 18) ───────────────────────────────────────────
+
+    private Task<object?> HandleSkillsListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsList);
+        var p = GetParams<SkillsListParams>(msg);
+        var includeUnavailable = p.IncludeUnavailable ?? true;
+        var list = skillsLoader.ListSkills(filterUnavailable: !includeUnavailable);
+        var wires = list.Select(MapSkillToWire).ToList();
+        return Task.FromResult<object?>(new SkillsListResult { Skills = wires });
+    }
+
+    private Task<object?> HandleSkillsReadAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsRead);
+        var p = GetParams<SkillsReadParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+        var content = skillsLoader.LoadSkill(p.Name);
+        if (content == null)
+            throw AppServerErrors.SkillNotFound(p.Name);
+        var metadata = skillsLoader.GetSkillMetadata(p.Name);
+        return Task.FromResult<object?>(new SkillsReadResult
+        {
+            Name = p.Name,
+            Content = content,
+            Metadata = metadata
+        });
+    }
+
+    private Task<object?> HandleSkillsSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null || string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsSetEnabled);
+        var p = GetParams<SkillsSetEnabledParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var all = skillsLoader.ListSkills(filterUnavailable: false);
+        if (all.All(s => !string.Equals(s.Name, p.Name, StringComparison.OrdinalIgnoreCase)))
+            throw AppServerErrors.SkillNotFound(p.Name);
+
+        var disabled = all.Where(s => !s.Enabled).Select(s => s.Name).ToList();
+        if (p.Enabled)
+            disabled.RemoveAll(n => string.Equals(n, p.Name, StringComparison.OrdinalIgnoreCase));
+        else if (!disabled.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+            disabled.Add(p.Name);
+
+        SkillsConfigPersistence.WriteWorkspaceDisabledSkills(workspaceCraftPath, disabled);
+        skillsLoader.SetDisabledSkills(disabled);
+
+        var updated = skillsLoader.ListSkills(filterUnavailable: false)
+            .First(s => string.Equals(s.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult<object?>(new SkillsSetEnabledResult { Skill = MapSkillToWire(updated) });
+    }
+
+    private SkillInfoWire MapSkillToWire(SkillsLoader.SkillInfo s)
+    {
+        var metadata = skillsLoader!.GetSkillMetadata(s.Name);
+        return new SkillInfoWire
+        {
+            Name = s.Name,
+            Description = skillsLoader.GetSkillDescription(s.Name),
+            Source = s.Source,
+            Available = s.Available,
+            UnavailableReason = s.UnavailableReason,
+            Enabled = s.Enabled,
+            Path = s.Path,
+            Metadata = metadata
+        };
     }
 
     // -------------------------------------------------------------------------

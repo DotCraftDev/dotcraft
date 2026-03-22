@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
 import type { SessionIdentity, ThreadSummary } from '../../types/thread'
 
 interface NewThreadButtonProps {
@@ -16,6 +17,7 @@ interface NewThreadButtonProps {
 export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.Element {
   const { status } = useConnectionStore()
   const { addThread, setActiveThreadId } = useThreadStore()
+  const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const [creating, setCreating] = useState(false)
 
   const isConnected = status === 'connected'
@@ -36,6 +38,7 @@ export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.El
       }) as { thread: ThreadSummary }
       addThread(result.thread)
       setActiveThreadId(result.thread.id)
+      setActiveMainView('conversation')
     } catch (err) {
       console.error('Failed to create thread:', err)
     } finally {

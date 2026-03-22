@@ -39,6 +39,7 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
 - [18. Error States and Edge Cases](#18-error-states-and-edge-cases)
 - [19. Non-Functional Requirements](#19-non-functional-requirements)
 - [20. Phase 2 Reserved Surface](#20-phase-2-reserved-surface)
+  - [20.4 Skills Management UI](#204-skills-management-ui)
 
 ---
 
@@ -1402,8 +1403,8 @@ Phase 2 will introduce task distribution, a Kanban board, and GitHub Tracker int
 
 The sidebar includes two entries below the thread list that are navigation placeholders for Phase 2:
 
-- **Automations**: In Phase 1, shows basic cron job management (list, enable/disable, delete). In Phase 2, this will expand to include a full task distribution interface with agent dispatch and progress monitoring.
-- **Skills**: In Phase 1, shows a read-only list of workspace skills. In Phase 2, this may integrate with skill management and configuration UI.
+- **Automations**: Placeholder view until expanded automation UI ships; cron remains available via other clients. In Phase 2, this may expand to include task distribution and monitoring.
+- **Skills**: Opens the **Skills Management UI** (Section 20.4): list installed skills by source (built-in, workspace, user), open `SKILL.md` in a modal, and enable/disable skills per workspace via AppServer `skills/*` methods.
 
 ### 20.2 Reserved Navigation Structure
 
@@ -1424,3 +1425,54 @@ Phase 2 will likely require:
 - New state domains for task/issue management.
 
 These are not specified here. Phase 2 design should be initiated as a separate specification document.
+
+### 20.4 Skills Management UI
+
+This subsection normatively describes the Desktop client behavior for the **Skills** sidebar entry.
+
+#### 20.4.1 Goals
+
+- List all skills visible to the agent for the current workspace, with **source** discrimination: **built-in** (deployed under `.craft/skills/` with `.builtin` marker), **workspace** (user-authored under `.craft/skills/` without the marker), and **user** (`~/.craft/skills/` when not shadowed by workspace).
+- Show **availability** when frontmatter requirements (bins, env) are not met.
+- Allow **per-workspace enable/disable** without deleting files; disabled skills are omitted from agent context (see `Skills.DisabledSkills` in workspace `.craft/config.json` and [AppServer Protocol](appserver-protocol.md) Section 18).
+- Display **SKILL.md** content in a **modal** with rendered Markdown (frontmatter stripped for readability in the body).
+
+#### 20.4.2 Wire protocol
+
+The Desktop uses the same JSON-RPC transport as other AppServer methods (`window.api.appServer.sendRequest`):
+
+| Method | Purpose |
+|--------|---------|
+| `skills/list` | Returns `{ skills: SkillInfoWire[] }` with `includeUnavailable` optional filter. |
+| `skills/read` | Returns `{ name, content, metadata }` for the resolved `SKILL.md`. |
+| `skills/setEnabled` | Updates workspace config and returns the updated `SkillInfoWire`. |
+
+Clients must treat `capabilities.skillsManagement` from `initialize` as the gate (when false, methods are not available).
+
+#### 20.4.3 UI components
+
+| Component | Responsibility |
+|-----------|------------------|
+| `SkillsView` | Full-height main column when **Skills** is selected: header (title, short subtitle, callout for workspace vs user paths with mono path chips, Refresh, search), sections grouped by source, responsive card grid. |
+
+The header callout explains that workspace skills live under `.craft/skills/` (including deployed built-ins) and user-level skills under `~/.craft/skills/` when not shadowed by the workspace.
+| `SkillCard` | Generic initial or glyph, title, description (clamped), source badge, unavailable/disabled badges, enable **checkbox** (does not open the modal). |
+| `SkillDetailDialog` | Modal overlay: title, “Open folder” (skill directory), Markdown body, **Enable/Disable for workspace**, **Close**; **Escape** closes the modal. |
+
+Non-goals for this surface: per-skill custom icons (use generic avatar/glyph), recommended/catalog skills from remote feeds, uninstall/delete from the UI.
+
+#### 20.4.4 Navigation and state
+
+- `uiStore.activeMainView`: `'conversation' | 'skills' | 'automations'`. Selecting **Skills** or **Automations** in the sidebar sets this value; the center column renders `SkillsView`, a placeholder for Automations, or `ConversationPanel` accordingly.
+- Selecting a thread, creating a thread, or using quick-start from the welcome screen sets `activeMainView` back to `'conversation'`.
+- On connection loss, `activeMainView` resets to `'conversation'`.
+
+#### 20.4.5 Keyboard
+
+| Key | Context | Action |
+|-----|---------|--------|
+| Escape | Skill detail modal open | Close modal |
+
+#### 20.4.6 Visual design
+
+Follows Section 15 tokens: card surfaces `var(--bg-secondary)`, borders `var(--border-default)`, active sidebar row with `var(--bg-tertiary)` and accent left border, modal backdrop semi-opaque black over `var(--bg-primary)` dialog. The Skills page header callout uses a left accent border (`var(--accent)`), `var(--bg-secondary)` fill, and monospace path chips on `var(--bg-tertiary)`.

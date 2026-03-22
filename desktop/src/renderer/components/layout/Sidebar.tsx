@@ -31,7 +31,7 @@ interface SidebarProps {
  * Spec §9.8
  */
 export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: SidebarProps): JSX.Element {
-  const { sidebarCollapsed, toggleSidebar } = useUIStore()
+  const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Expose searchRef for Ctrl+K global shortcut (App.tsx reads this via
@@ -42,7 +42,13 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
   }
 
   if (sidebarCollapsed) {
-    return <CollapsedSidebar onExpand={toggleSidebar} workspacePath={workspacePath} onOpenSettings={onOpenSettings} />
+    return (
+      <CollapsedSidebar
+        onExpand={toggleSidebar}
+        workspacePath={workspacePath}
+        onOpenSettings={onOpenSettings}
+      />
+    )
   }
 
   return (
@@ -65,7 +71,7 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
       {/* Thread list -- fills remaining space */}
       <ThreadList />
 
-      {/* Reserved Phase 2 nav items */}
+      {/* Phase 2 nav: Automations, Skills */}
       <div
         style={{
           borderTop: '1px solid var(--border-default)',
@@ -73,31 +79,88 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
           flexShrink: 0
         }}
       >
-        {(['Automations', 'Skills'] as const).map((label) => (
-          <div
-            key={label}
-            style={{
-              padding: '6px 16px',
-              fontSize: '13px',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              borderRadius: '4px',
-              margin: '0 4px'
-            }}
-            onMouseEnter={(e) => {
-              ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--bg-tertiary)'
-            }}
-            onMouseLeave={(e) => {
-              ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'
-            }}
-          >
-            {label}
-          </div>
-        ))}
+        <SidebarNavRow
+          label="Automations"
+          active={activeMainView === 'automations'}
+          onClick={() => setActiveMainView('automations')}
+          icon={<AutomationsIcon />}
+        />
+        <SidebarNavRow
+          label="Skills"
+          active={activeMainView === 'skills'}
+          onClick={() => setActiveMainView('skills')}
+          icon={<SkillsIcon />}
+        />
       </div>
 
       <SidebarFooter onOpenSettings={onOpenSettings} />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 sidebar rows (Skills, Automations)
+// ---------------------------------------------------------------------------
+
+interface SidebarNavRowProps {
+  label: string
+  active: boolean
+  onClick: () => void
+  icon: JSX.Element
+}
+
+function SidebarNavRow({ label, active, onClick, icon }: SidebarNavRowProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        width: 'calc(100% - 8px)',
+        margin: '2px 4px',
+        padding: '8px 12px',
+        fontSize: '13px',
+        textAlign: 'left',
+        cursor: 'pointer',
+        borderRadius: '6px',
+        border: 'none',
+        backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
+        borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
+        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+        transition: 'background-color 120ms ease, color 120ms ease'
+      }}
+      onMouseEnter={(e) => {
+        if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+      }}
+      onMouseLeave={(e) => {
+        if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+      }}
+    >
+      <span style={{ display: 'flex', width: 18, height: 18, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
+        {icon}
+      </span>
+      {label}
+    </button>
+  )
+}
+
+function SkillsIcon(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+function AutomationsIcon(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18" />
+    </svg>
   )
 }
 
@@ -115,6 +178,7 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
   const [logoHovered, setLogoHovered] = useState(false)
   const { status } = useConnectionStore()
   const { threadList, addThread, setActiveThreadId } = useThreadStore()
+  const { activeMainView, setActiveMainView } = useUIStore()
 
   const colorMap: Record<string, string> = {
     connecting: 'var(--warning)',
@@ -140,6 +204,7 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
       }) as { thread: ThreadSummary }
       addThread(result.thread)
       setActiveThreadId(result.thread.id)
+      setActiveMainView('conversation')
     } catch (err) {
       console.error('Failed to create thread:', err)
     }
@@ -200,7 +265,10 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
           <button
             key={t.id}
             title={t.displayName ?? 'New conversation'}
-            onClick={() => setActiveThreadId(t.id)}
+            onClick={() => {
+              setActiveThreadId(t.id)
+              setActiveMainView('conversation')
+            }}
             style={{
               ...iconButtonStyle,
               fontSize: '11px',
@@ -216,6 +284,33 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
+
+      <button
+        type="button"
+        title="Automations"
+        onClick={() => setActiveMainView('automations')}
+        style={{
+          ...iconButtonStyle,
+          backgroundColor: activeMainView === 'automations' ? 'var(--bg-tertiary)' : 'transparent',
+          color: activeMainView === 'automations' ? 'var(--accent)' : 'var(--text-secondary)'
+        }}
+        aria-label="Automations"
+      >
+        <AutomationsIcon />
+      </button>
+      <button
+        type="button"
+        title="Skills"
+        onClick={() => setActiveMainView('skills')}
+        style={{
+          ...iconButtonStyle,
+          backgroundColor: activeMainView === 'skills' ? 'var(--bg-tertiary)' : 'transparent',
+          color: activeMainView === 'skills' ? 'var(--accent)' : 'var(--text-secondary)'
+        }}
+        aria-label="Skills"
+      >
+        <SkillsIcon />
+      </button>
 
       {/* Settings icon button */}
       <button

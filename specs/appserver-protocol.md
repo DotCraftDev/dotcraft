@@ -34,6 +34,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [15. WebSocket Transport](#15-websocket-transport)
 - [16. Cron Management Methods](#16-cron-management-methods)
 - [17. Heartbeat Management Methods](#17-heartbeat-management-methods)
+- [18. Skills Management Methods](#18-skills-management-methods)
 
 ---
 
@@ -60,7 +61,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -178,7 +179,8 @@ Client                              Server
     "modeSwitch": true,
     "configOverride": true,
     "cronManagement": true,
-    "heartbeatManagement": true
+    "heartbeatManagement": true,
+    "skillsManagement": true
   }
 }
 ```
@@ -196,6 +198,7 @@ Client                              Server
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
+| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). Always `true` when the server has a `SkillsLoader` configured. |
 
 ### 3.3 `initialized`
 
@@ -1554,7 +1557,7 @@ This protocol is modeled after Codex App Server. The following table summarizes 
 | Auth | Built-in (`account/login`, ChatGPT OAuth) | Outside wire protocol scope; handled by bearer token or channel auth |
 | Config | `config/read`, `config/value/write` | `thread/config/update`, `thread/mode/set` |
 | Review | `review/start`, `enteredReviewMode`, `exitedReviewMode` | Not in v1 (future extension) |
-| Skills/Apps | `skills/list`, `app/list`, `plugin/list` | Not in v1 core; extension surface |
+| Skills/Apps | `skills/list`, `app/list`, `plugin/list` | `skills/list`, `skills/read`, `skills/setEnabled` with `skillsManagement` capability |
 | Command exec | `command/exec` (standalone sandbox execution) | Not in v1 core; ACP extension surface |
 | Filesystem | `fs/readFile`, `fs/writeFile`, etc. | Not in v1 core; ACP extension surface |
 | Extension model | Experimental API opt-in via `capabilities.experimentalApi` | `ext/<namespace>/...` method namespace |
@@ -1958,3 +1961,275 @@ Trigger an immediate heartbeat run on the server.
 ### 17.3 Capability Advertisement
 
 Clients must check `capabilities.heartbeatManagement` before calling `heartbeat/trigger`. The capability is present and `true` only when the AppServer has a `HeartbeatService` configured.
+
+---
+
+## 18. Skills Management Methods
+
+### 18.1 Scope
+
+These methods expose the `SkillsLoader` surface to wire clients, enabling them to list installed skills, read skill content, and toggle skill availability. Skills are markdown files (`SKILL.md`) that teach the agent specific capabilities. They are loaded from up to three sources with a defined priority order:
+
+| Priority | Source | Location | Description |
+|----------|--------|----------|-------------|
+| 1 (highest) | `builtin` | `<workspace>/skills/<name>/` with `.builtin` marker | Default skills deployed from the assembly by `DeployBuiltInSkills()`. |
+| 2 | `workspace` | `<workspace>/skills/<name>/` without `.builtin` marker | User-created skills in the current workspace. |
+| 3 (lowest) | `user` | `~/.craft/skills/<name>/` | User-level skills shared across all workspaces. |
+
+When a skill name exists in both workspace and user directories, the workspace version takes precedence and the user version is hidden.
+
+Skills may declare requirements (executables, environment variables) in their frontmatter. A skill whose requirements are not met is reported as `available: false` with a diagnostic reason.
+
+Clients must check `capabilities.skillsManagement` in the `initialize` response before calling any `skills/*` method. If the flag is absent or `false`, the server returns `-32601` (method not found).
+
+### 18.2 `SkillInfo` Wire DTO
+
+All skills methods that return skill data use the following `SkillInfo` wire object. It is a transport-safe projection of the internal `SkillsLoader.SkillInfo` domain model.
+
+```json
+{
+  "name": "browser",
+  "description": "Browser automation via Playwright MCP - navigate, click, fill forms, take screenshots, and inspect web pages.",
+  "source": "builtin",
+  "available": true,
+  "unavailableReason": null,
+  "enabled": true,
+  "path": "/home/user/project/skills/browser/SKILL.md",
+  "metadata": {
+    "description": "Browser automation via Playwright MCP...",
+    "bins": "npx"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Skill directory name, used as the skill identifier. |
+| `description` | string | Human-readable description extracted from frontmatter `description` field. Falls back to `name` if absent. |
+| `source` | string | One of `"builtin"`, `"workspace"`, or `"user"`. Indicates where the skill is installed. |
+| `available` | boolean | `true` if all declared requirements (bins, env) are met on the server. |
+| `unavailableReason` | string? | Diagnostic message listing missing requirements. `null` when `available` is `true`. |
+| `enabled` | boolean | `true` if the skill is active and will be included in agent context. `false` if the user has disabled it via `skills/setEnabled`. |
+| `path` | string | Absolute filesystem path to the `SKILL.md` file. |
+| `metadata` | object | Key-value pairs from the YAML frontmatter of `SKILL.md`. Common keys: `description`, `name`, `bins`, `env`, `always`. |
+
+### 18.3 `skills/list`
+
+List all installed skills across all sources.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `includeUnavailable` | boolean | no | Default `true`. When `false`, skills with unmet requirements are excluded. |
+
+**Result**:
+
+```json
+{
+  "skills": [
+    {
+      "name": "browser",
+      "description": "Browser automation via Playwright MCP...",
+      "source": "builtin",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "path": "/home/user/project/skills/browser/SKILL.md",
+      "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+    },
+    {
+      "name": "create-hooks",
+      "description": "Create and configure DotCraft lifecycle hooks...",
+      "source": "builtin",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "path": "/home/user/project/skills/create-hooks/SKILL.md",
+      "metadata": { "name": "create-hooks", "description": "Create and configure DotCraft lifecycle hooks..." }
+    },
+    {
+      "name": "my-custom-skill",
+      "description": "Custom workspace skill for this project.",
+      "source": "workspace",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "path": "/home/user/project/skills/my-custom-skill/SKILL.md",
+      "metadata": { "description": "Custom workspace skill for this project." }
+    },
+    {
+      "name": "code-review",
+      "description": "Code review guidelines and procedures.",
+      "source": "user",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": false,
+      "path": "/home/user/.craft/skills/code-review/SKILL.md",
+      "metadata": { "description": "Code review guidelines and procedures." }
+    }
+  ]
+}
+```
+
+**Behavior**: Returns skills from all three sources (builtin, workspace, user) merged by the standard priority rules — workspace skills shadow user skills with the same name. Skills are sorted by source priority (builtin first, then workspace, then user), then alphabetically within each source group. The `enabled` field reflects the current config state: skills listed in the `Skills.DisabledSkills` config array are reported as `enabled: false`.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "skills/list", "id": 70, "params": {} }
+
+{ "jsonrpc": "2.0", "id": 70, "result": {
+    "skills": [
+      {
+        "name": "browser",
+        "description": "Browser automation via Playwright MCP...",
+        "source": "builtin",
+        "available": true,
+        "unavailableReason": null,
+        "enabled": true,
+        "path": "/home/user/project/skills/browser/SKILL.md",
+        "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+      }
+    ]
+} }
+```
+
+### 18.4 `skills/read`
+
+Read the full content of a skill's `SKILL.md` file.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name (directory name) to read. |
+
+**Result**:
+
+```json
+{
+  "name": "browser",
+  "content": "---\ndescription: \"Browser automation via Playwright MCP...\"\nbins: npx\n---\n\n# Browser Automation (Playwright MCP)\n\nYou have access to browser automation tools...",
+  "metadata": {
+    "description": "Browser automation via Playwright MCP...",
+    "bins": "npx"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | The skill name that was requested. |
+| `content` | string | Raw `SKILL.md` content including frontmatter. |
+| `metadata` | object | Parsed frontmatter key-value pairs. `null` if the file has no frontmatter. |
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32040` | The specified skill name does not exist in any source. |
+
+**Behavior**: Loads the skill using the standard priority order (workspace first, then user). Returns the raw markdown content of the `SKILL.md` file and its parsed frontmatter metadata.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "skills/read", "id": 71, "params": {
+    "name": "browser"
+} }
+
+{ "jsonrpc": "2.0", "id": 71, "result": {
+    "name": "browser",
+    "content": "---\ndescription: \"Browser automation...\"\nbins: npx\n---\n\n# Browser Automation\n\n...",
+    "metadata": { "description": "Browser automation...", "bins": "npx" }
+} }
+```
+
+### 18.5 `skills/setEnabled`
+
+Enable or disable a skill. Disabled skills remain on disk but are excluded from agent context.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name to enable or disable. |
+| `enabled` | boolean | yes | `true` to enable the skill; `false` to disable it. |
+
+**Result**:
+
+```json
+{
+  "skill": {
+    "name": "browser",
+    "description": "Browser automation via Playwright MCP...",
+    "source": "builtin",
+    "available": true,
+    "unavailableReason": null,
+    "enabled": false,
+    "path": "/home/user/project/skills/browser/SKILL.md",
+    "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+  }
+}
+```
+
+The `skill` field contains the updated `SkillInfo` object reflecting the new `enabled` state.
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32040` | The specified skill name does not exist in any source. |
+
+**Behavior**: Toggles a skill's enabled state by adding or removing its name from the `Skills.DisabledSkills` array in the workspace-level config (`.craft/config.json`). Workspace-level config is used so that skill preferences are per-workspace, consistent with DotCraft's two-level config model. The change is persisted immediately.
+
+When disabling: the skill name is added to `DisabledSkills`. When enabling: the skill name is removed from `DisabledSkills`. If the skill is already in the requested state, the operation is a no-op and returns the current `SkillInfo`.
+
+**Config structure**:
+
+```json
+{
+  "Skills": {
+    "DisabledSkills": ["browser", "memory"]
+  }
+}
+```
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "skills/setEnabled", "id": 72, "params": {
+    "name": "browser",
+    "enabled": false
+} }
+
+{ "jsonrpc": "2.0", "id": 72, "result": {
+    "skill": {
+      "name": "browser",
+      "description": "Browser automation via Playwright MCP...",
+      "source": "builtin",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": false,
+      "path": "/home/user/project/skills/browser/SKILL.md",
+      "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+    }
+} }
+```
+
+### 18.6 Error Codes
+
+| Code | Constant | When |
+|------|----------|------|
+| `-32040` | `SkillNotFound` | The requested skill name does not exist in any source (workspace, user, or builtin). |
+
+### 18.7 Capability Advertisement
+
+Clients must check `capabilities.skillsManagement` before calling any `skills/*` method. The capability is present and `true` when the AppServer has a `SkillsLoader` configured (which is always the case when a workspace is active).

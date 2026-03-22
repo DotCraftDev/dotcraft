@@ -9,7 +9,12 @@ const DETAIL_MIN_WIDTH = 300
 
 export type DetailPanelTab = 'changes' | 'plan' | 'terminal'
 
+/** Main content area: conversation vs Phase 2 surfaces (Skills, Automations). */
+export type ActiveMainView = 'conversation' | 'skills' | 'automations'
+
 export interface UIState {
+  /** Which primary view fills the center column (conversation panel slot). */
+  activeMainView: ActiveMainView
   sidebarCollapsed: boolean
   sidebarWidth: number
   detailPanelVisible: boolean
@@ -27,6 +32,7 @@ export interface UIState {
 }
 
 interface UIStore extends UIState {
+  setActiveMainView(view: ActiveMainView): void
   toggleSidebar(): void
   setSidebarCollapsed(collapsed: boolean): void
   setSidebarWidth(width: number): void
@@ -46,6 +52,7 @@ interface UIStore extends UIState {
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
+  activeMainView: 'conversation',
   sidebarCollapsed: false,
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
   detailPanelVisible: true,
@@ -54,6 +61,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   selectedChangedFile: null,
   autoShowTriggeredForTurn: null,
   composerPrefill: null,
+
+  setActiveMainView(view) {
+    set({ activeMainView: view })
+  },
 
   toggleSidebar() {
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }))

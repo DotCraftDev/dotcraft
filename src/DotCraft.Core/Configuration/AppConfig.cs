@@ -105,6 +105,9 @@ public sealed class AppConfig
     public CronConfig Cron { get; set; } = new();
 
     [ConfigField(Ignore = true)]
+    public SkillsConfig Skills { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
     public HooksConfig Hooks { get; set; } = new();
 
     [ConfigField(Ignore = true)]
@@ -591,6 +594,16 @@ public sealed class AppConfig
         public bool Enabled { get; set; } = true;
         
         public string StorePath { get; set; } = "cron/jobs.json";
+    }
+
+    [ConfigSection("Skills", DisplayName = "Skills", Order = 58)]
+    public sealed class SkillsConfig
+    {
+        /// <summary>
+        /// Skill directory names disabled for this workspace (not injected into agent context).
+        /// </summary>
+        [ConfigField(Hint = "JSON array of skill names to disable for this workspace")]
+        public List<string> DisabledSkills { get; set; } = [];
     }
 
     [ConfigSection("Hooks", DisplayName = "Hooks", Order = 85)]
