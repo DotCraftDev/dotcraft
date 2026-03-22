@@ -106,6 +106,13 @@ public sealed class AgentFactory : IAsyncDisposable
     }
 
     /// <summary>
+    /// Process-level tool provider context (workspace root, memory, skills).
+    /// Per-thread overrides are passed to <see cref="CreateToolsForMode(AgentMode, ToolProviderContext)"/>
+    /// and the overload of <see cref="CreateAgentWithTools(List{AITool}, AgentModeManager?, ToolProviderContext)"/>.
+    /// </summary>
+    public ToolProviderContext ToolProviderContext => _toolProviderContext;
+
+    /// <summary>
     /// Gets the last created tools for inspection.
     /// </summary>
     public IReadOnlyList<AITool>? LastCreatedTools { get; private set; }
@@ -231,11 +238,16 @@ public sealed class AgentFactory : IAsyncDisposable
     /// Creates default tools by aggregating all registered tool providers.
     /// Tools are ordered by provider priority (lower priority value = earlier in list).
     /// </summary>
-    public List<AITool> CreateDefaultTools()
+    public List<AITool> CreateDefaultTools() => CreateDefaultTools(_toolProviderContext);
+
+    /// <summary>
+    /// Creates default tools using the given tool context (e.g. per-thread workspace override).
+    /// </summary>
+    public List<AITool> CreateDefaultTools(ToolProviderContext toolContext)
     {
         var tools = _toolProviders
             .OrderBy(p => p.Priority)
-            .SelectMany(p => p.CreateTools(_toolProviderContext))
+            .SelectMany(p => p.CreateTools(toolContext))
             .ToList();
 
         // Apply global tool filtering if configured
@@ -256,9 +268,14 @@ public sealed class AgentFactory : IAsyncDisposable
     /// Creates tools filtered for the given <see cref="AgentMode"/>.
     /// Plan mode strips write/execute tools.
     /// </summary>
-    public List<AITool> CreateToolsForMode(AgentMode mode)
+    public List<AITool> CreateToolsForMode(AgentMode mode) => CreateToolsForMode(mode, _toolProviderContext);
+
+    /// <summary>
+    /// Creates tools for the given mode using the specified tool context (e.g. per-thread workspace override).
+    /// </summary>
+    public List<AITool> CreateToolsForMode(AgentMode mode, ToolProviderContext toolContext)
     {
-        var tools = CreateDefaultTools();
+        var tools = CreateDefaultTools(toolContext);
 
         if (mode == AgentMode.Plan)
         {
@@ -301,11 +318,20 @@ public sealed class AgentFactory : IAsyncDisposable
     /// <summary>
     /// Creates an AI agent with the specified tools.
     /// </summary>
-    public AIAgent CreateAgentWithTools(List<AITool> tools, AgentModeManager? modeManager = null)
+    public AIAgent CreateAgentWithTools(List<AITool> tools, AgentModeManager? modeManager = null) =>
+        BuildAgent(tools, modeManager, _toolProviderContext);
+
+    /// <summary>
+    /// Creates an AI agent with the specified tools and tool context (e.g. per-thread workspace override).
+    /// </summary>
+    public AIAgent CreateAgentWithTools(List<AITool> tools, AgentModeManager? modeManager, ToolProviderContext toolContext) =>
+        BuildAgent(tools, modeManager, toolContext);
+
+    private AIAgent BuildAgent(List<AITool> tools, AgentModeManager? modeManager, ToolProviderContext ctx)
     {
         LastCreatedTools = tools;
 
-        var deferredRegistry = _toolProviderContext.DeferredToolRegistry;
+        var deferredRegistry = ctx.DeferredToolRegistry;
 
         // Reverse middleware control:
         // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient] => FunctionInvokingChatClient => TracingChatClient
@@ -339,9 +365,9 @@ public sealed class AgentFactory : IAsyncDisposable
         // When deferred loading is active, derive connected server names from the
         // ToolServerMap so the system prompt can list them for the model.
         IReadOnlyList<string>? deferredServerNames = null;
-        if (deferredRegistry != null && _toolProviderContext.McpClientManager != null)
+        if (deferredRegistry != null && ctx.McpClientManager != null)
         {
-            deferredServerNames = _toolProviderContext.McpClientManager.ToolServerMap.Values
+            deferredServerNames = ctx.McpClientManager.ToolServerMap.Values
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
@@ -353,10 +379,10 @@ public sealed class AgentFactory : IAsyncDisposable
             ChatOptions = CreateChatOptions(tools),
             AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
                 new MemoryContextProvider(
-                    _memoryStore,
-                    _skillsLoader,
-                    _dotcraftPath,
-                    _workspacePath,
+                    ctx.MemoryStore,
+                    ctx.SkillsLoader,
+                    ctx.BotPath,
+                    ctx.WorkspacePath,
                     _traceCollector,
                     () => tools.Select(t => t.Name).ToArray(),
                     _customCommandLoader,

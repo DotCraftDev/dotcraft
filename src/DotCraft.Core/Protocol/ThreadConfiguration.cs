@@ -27,4 +27,12 @@ public sealed class ThreadConfiguration
     /// Additional tool names to enable beyond the mode's default tool set.
     /// </summary>
     public string[]? CustomTools { get; set; }
+
+    /// <summary>
+    /// When set, all tools for this thread operate on this workspace path
+    /// instead of the AppServer's root workspace path.
+    /// The thread is still registered under the AppServer's root workspace
+    /// for discoverability via thread/list.
+    /// </summary>
+    public string? WorkspaceOverride { get; set; }
 }
