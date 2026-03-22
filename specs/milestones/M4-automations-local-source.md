@@ -5,7 +5,7 @@
 | **Milestone** | M4 |
 | **Title** | Automations: Local Task Source, File Store & Review Gate Backend |
 | **Status** | Pending |
-| **Parent Spec** | [Automations Lifecycle](../automations-lifecycle.md) §6–8, §11–13 |
+| **Parent Spec** | [Automations Lifecycle](../automations-lifecycle.md) §6–8, §11–13, §16.4 |
 | **Depends On** | M3 |
 | **Blocks** | M6, M7 |
 
@@ -20,6 +20,8 @@ The milestone covers:
 - Local task lifecycle state machine with the `agent_completed` sentinel.
 - Review gate backend: storing the agent summary in the task file and exposing the `Approve`/`Reject` methods consumed by M6.
 - Tool profile for local tasks (file I/O, shell, memory, no GitHub tools).
+
+**Runtime observability:** File-log requirements for the orchestrator (poll/dispatch/status lines) are defined in [M3](M3-automations-core-orchestrator.md) and [Automations Lifecycle §16.4](../automations-lifecycle.md#164-observability-logging-and-diagnostics); M4 does not duplicate that event table.
 
 ## Scope
 

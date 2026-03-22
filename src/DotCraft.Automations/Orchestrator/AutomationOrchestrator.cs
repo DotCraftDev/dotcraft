@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text;
 using System.Threading;
 using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
@@ -161,6 +163,12 @@ public sealed class AutomationOrchestrator
 
     private async Task PollOnceAsync(CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
+        var sourceSummaries = new List<string>();
+        var globalIds = new List<string>();
+        const int maxGlobalIds = 10;
+        var totalPendingEligible = 0;
+
         foreach (var source in _sources.Values)
         {
             IReadOnlyList<AutomationTask> pending;
@@ -174,20 +182,79 @@ public sealed class AutomationOrchestrator
                 continue;
             }
 
+            var pendingOnly = pending
+                .Where(t => t.Status == AutomationTaskStatus.Pending)
+                .ToList();
+            totalPendingEligible += pendingOnly.Count;
+
+            foreach (var t in pendingOnly)
+            {
+                if (globalIds.Count >= maxGlobalIds)
+                    break;
+                globalIds.Add(TruncateTaskIdForLog(t.Id));
+            }
+
+            sourceSummaries.Add($"{source.Name} pending={pendingOnly.Count}");
+
             foreach (var task in pending)
             {
                 if (ct.IsCancellationRequested)
+                {
+                    sw.Stop();
+                    LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
                     return;
+                }
 
                 if (task.Status != AutomationTaskStatus.Pending)
                     continue;
 
                 if (!_state.TryBeginTask(task.Id))
+                {
+                    _logger.LogDebug(
+                        "Task {TaskId} skipped (already active) for source {SourceName}",
+                        task.Id,
+                        source.Name);
                     continue;
+                }
 
                 _ = Task.Run(() => RunDispatchAsync(source, task, ct), ct);
             }
         }
+
+        sw.Stop();
+        LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
+    }
+
+    private void LogPollSummary(
+        long elapsedMs,
+        List<string> sourceSummaries,
+        List<string> globalIds,
+        int totalPendingEligible)
+    {
+        var sb = new StringBuilder();
+        sb.AppendJoin("; ", sourceSummaries);
+        if (globalIds.Count > 0)
+        {
+            sb.Append(" taskIds=[");
+            sb.AppendJoin(',', globalIds);
+            sb.Append(']');
+            var more = totalPendingEligible - globalIds.Count;
+            if (more > 0)
+                sb.Append(" (+").Append(more).Append(" more)");
+        }
+
+        _logger.LogInformation(
+            "Poll completed in {ElapsedMs}ms. {PollDetails}",
+            elapsedMs,
+            sb.ToString());
+    }
+
+    /// <summary>Truncates task ids for log lines (max 64 chars).</summary>
+    private static string TruncateTaskIdForLog(string id)
+    {
+        if (string.IsNullOrEmpty(id))
+            return id;
+        return id.Length <= 64 ? id : id[..64];
     }
 
     private async Task RunDispatchAsync(IAutomationSource source, AutomationTask task, CancellationToken ct)
@@ -199,7 +266,10 @@ public sealed class AutomationOrchestrator
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Dispatch cancelled for task {TaskId}", task.Id);
+            _logger.LogInformation(
+                "Dispatch cancelled for task {TaskId} (source: {SourceName})",
+                task.Id,
+                source.Name);
             try
             {
                 task.Status = AutomationTaskStatus.Failed;
@@ -212,7 +282,7 @@ public sealed class AutomationOrchestrator
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Dispatch failed for task {TaskId}", task.Id);
+            _logger.LogError(ex, "Dispatch failed for task {TaskId} (source: {SourceName})", task.Id, source.Name);
             try
             {
                 task.Status = AutomationTaskStatus.Failed;
@@ -236,8 +306,17 @@ public sealed class AutomationOrchestrator
         if (client == null)
             throw new InvalidOperationException("Session client is not set.");
 
+        _logger.LogInformation(
+            "Dispatch starting for task {TaskId} (source: {SourceName})",
+            task.Id,
+            source.Name);
+
         task.Status = AutomationTaskStatus.Dispatched;
         await source.OnStatusChangedAsync(task, AutomationTaskStatus.Dispatched, ct);
+        _logger.LogInformation(
+            "Task {TaskId} status: Dispatched (source: {SourceName})",
+            task.Id,
+            source.Name);
 
         string workspacePath;
         if (task is LocalAutomationTask localTask)
@@ -265,9 +344,19 @@ public sealed class AutomationOrchestrator
             ct,
             displayName: task.Title);
 
+        _logger.LogInformation(
+            "Thread ready for task {TaskId} (source: {SourceName}, threadId: {ThreadId})",
+            task.Id,
+            source.Name,
+            threadId);
+
         task.ThreadId = threadId;
         task.Status = AutomationTaskStatus.AgentRunning;
         await source.OnStatusChangedAsync(task, AutomationTaskStatus.AgentRunning, ct);
+        _logger.LogInformation(
+            "Task {TaskId} status: AgentRunning (source: {SourceName})",
+            task.Id,
+            source.Name);
 
         var workflow = await source.GetWorkflowAsync(task, ct);
         if (workflow.Steps.Count == 0)
@@ -313,10 +402,22 @@ public sealed class AutomationOrchestrator
                 if (stopWorkflow || ct.IsCancellationRequested)
                     break;
             }
+
+            _logger.LogInformation(
+                "Workflow round {Round} completed for task {TaskId} (source: {SourceName}, maxRounds: {MaxRounds})",
+                round,
+                task.Id,
+                source.Name,
+                workflow.MaxRounds);
         }
 
         if (ct.IsCancellationRequested)
         {
+            _logger.LogInformation(
+                "Task {TaskId} workflow stopped: cancellation requested (source: {SourceName}, threadId: {ThreadId})",
+                task.Id,
+                source.Name,
+                threadId);
             task.Status = AutomationTaskStatus.Failed;
             try
             {
@@ -332,6 +433,11 @@ public sealed class AutomationOrchestrator
 
         if (turnFailed)
         {
+            _logger.LogInformation(
+                "Task {TaskId} workflow stopped: turn failed (source: {SourceName}, threadId: {ThreadId})",
+                task.Id,
+                source.Name,
+                threadId);
             task.Status = AutomationTaskStatus.Failed;
             await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
             return;
@@ -339,6 +445,11 @@ public sealed class AutomationOrchestrator
 
         if (turnCancelled && task.Status != AutomationTaskStatus.AgentCompleted)
         {
+            _logger.LogInformation(
+                "Task {TaskId} workflow stopped: turn cancelled (source: {SourceName}, threadId: {ThreadId})",
+                task.Id,
+                source.Name,
+                threadId);
             task.Status = AutomationTaskStatus.Failed;
             await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
             return;
@@ -346,9 +457,19 @@ public sealed class AutomationOrchestrator
 
         task.Status = AutomationTaskStatus.AgentCompleted;
         await source.OnAgentCompletedAsync(task, summary ?? string.Empty, ct);
+        _logger.LogInformation(
+            "Task {TaskId} status: AgentCompleted (source: {SourceName}, summaryLength: {SummaryLength})",
+            task.Id,
+            source.Name,
+            summary?.Length ?? 0);
 
         task.Status = AutomationTaskStatus.AwaitingReview;
         await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, ct);
+        _logger.LogInformation(
+            "Task {TaskId} status: AwaitingReview (source: {SourceName}, threadId: {ThreadId})",
+            task.Id,
+            source.Name,
+            threadId);
     }
 
     private static string ExtractSummaryFromTurn(SessionTurn turn)

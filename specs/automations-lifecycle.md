@@ -29,6 +29,7 @@ Defines the architecture and lifecycle of the DotCraft Automations module — a 
 - [14. Wire Protocol Extensions](#14-wire-protocol-extensions)
 - [15. Desktop Integration](#15-desktop-integration)
 - [16. Configuration](#16-configuration)
+  - [16.4 Observability, Logging, and Diagnostics](#164-observability-logging-and-diagnostics)
 - [17. Module Structure](#17-module-structure)
 - [18. Migration Path](#18-migration-path)
 
@@ -1179,6 +1180,42 @@ This is consistent with the existing `WorkflowLoader` behavior where YAML keys o
 ### 16.3 GitHubTracker Configuration Relationship
 
 The existing `GitHubTrackerConfig` continues to own GitHub-specific settings (API key, repository, state labels, assignee filter). Orchestrator-level settings that were previously in `GitHubTrackerConfig.Agent` and `GitHubTrackerConfig.Polling` are now mirrored in `AutomationsConfig.Orchestrator`. When both modules are enabled, `AutomationsConfig.Orchestrator` takes precedence for shared settings.
+
+### 16.4 Observability, Logging, and Diagnostics
+
+This subsection defines **operational visibility** for Automations when running headless (e.g. Gateway without Desktop): operators must be able to rely on **workspace file logs** under `.craft/logs/` (see core `Logging` configuration) to confirm that polling, dispatch, and task state transitions occurred, without opening Session thread JSON or tracing tools.
+
+#### Goals
+
+- With **only** global `Logging` enabled (`Logging.Enabled`, `Logging.Directory`, `Logging.MinLevel` at `Information` or lower), a human can grep `.craft/logs/dotcraft-*.log` and see **poll → dispatch → thread association → task status transitions** for each automation task.
+- Logs are **supplementary** to Session thread history and Tracing: they do not duplicate full prompts or tool payloads.
+
+#### Relationship to other mechanisms
+
+| Mechanism | Role |
+|-----------|------|
+| **Global `Logging`** (`AppConfig.Logging`) | File output via `ILogger`; default directory relative to `.craft` (e.g. `logs/`). No separate `Automations.Logging` section is required; an optional future extension could add Automations-specific paths or levels. |
+| **Tracing** | Fine-grained or performance diagnostics; not a substitute for the **minimum orchestrator events** below at `Information`. |
+| **Session thread store** (`threads/*.json`) | Authoritative conversation and turn history for the agent; orchestrator logs reference **task id** and **thread id**, not full message bodies. |
+
+#### Minimum log events (orchestrator)
+
+Implementations **SHOULD** emit at least the following at **`LogLevel.Information`** (subject to `Logging.MinLevel`), with structured properties or a consistent text format so that **`taskId`**, **`sourceName`**, and **`threadId`** (when known) can be grepped:
+
+| Phase | Event (conceptual) | Notes |
+|-------|-------------------|--------|
+| Poll | Poll cycle completed | May include duration; per-source **pending task count** or a **truncated list of task ids** (e.g. first N). |
+| Dispatch | Dispatch started | `taskId`, `sourceName`. |
+| Thread | Thread created or resumed | `taskId`, `threadId`, `sourceName`. |
+| Status | Task enters `AgentRunning` | After thread is bound. |
+| Workflow | Turn / round milestones | At least one line per completed round or per workflow step batch (implementation may aggregate). |
+| Completion | Task enters `AgentCompleted` / `AwaitingReview` / `Failed` | `taskId`, final status; include summary length or hash, not full summary text. |
+| Errors | `GetPendingTasksAsync`, dispatch, or persistence failure | `LogLevel.Error` with exception; include `taskId` and `sourceName` when available. |
+
+#### Non-goals
+
+- No requirement to ship a **central log stack** (ELK, Loki, etc.) in this spec.
+- **Wire-delivered log streams** or **Desktop-embedded log panels** are optional and may be specified in Wire Protocol / Desktop milestones (e.g. M6/M7), not as a prerequisite for file logging.
 
 ---
 

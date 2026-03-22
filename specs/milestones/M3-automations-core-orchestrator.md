@@ -5,7 +5,7 @@
 | **Milestone** | M3 |
 | **Title** | Automations Core: Project Skeleton, Abstractions & Orchestrator |
 | **Status** | Pending |
-| **Parent Spec** | [Automations Lifecycle](../automations-lifecycle.md) §4, §5, §10, §13.1, §16–17 |
+| **Parent Spec** | [Automations Lifecycle](../automations-lifecycle.md) §4, §5, §10, §13.1, §16, §16.4, §17 |
 | **Depends On** | M1, M2 |
 | **Blocks** | M4, M5, M6 |
 
@@ -35,6 +35,7 @@ Key deliverables:
 - `AutomationsChannelService : IChannelService` — lifecycle integration.
 - `AutomationsModule` — DI registrations.
 - Registration of the module in `DotCraft.App`.
+- Operational logging (`ILogger` at `Information` for poll/dispatch/status transitions per §16.4).
 
 ### Out of Scope
 
@@ -305,6 +306,16 @@ public class AutomationsChannelService : IChannelService
 
 `DotCraft.App`'s `HostBuilder` registers `AutomationsModule` alongside other modules.
 
+### R3.10 — Operational logging
+
+The orchestrator and closely related startup paths **MUST** satisfy [Automations Lifecycle §16.4](../automations-lifecycle.md#164-observability-logging-and-diagnostics) **Minimum log events** when global `Logging.MinLevel` is `Information` (or lower).
+
+- **`AutomationOrchestrator`** logs at `LogLevel.Information` (or higher for errors) for: each poll cycle summary (per-source pending counts or task ids, truncated if needed), dispatch start, thread id assignment, transitions toward `AgentRunning`, workflow turn/round milestones (may be aggregated), and terminal states (`AgentCompleted`, `AwaitingReview`, `Failed`) with `taskId` and `sourceName` in scope properties or message text.
+- **`AutomationsChannelService`** logs at least one **Information** line when the channel starts and when the orchestrator is wired to the shared `ISessionService` (startup summary).
+- Logger **category names** remain under the `DotCraft.Automations.*` namespace so operators can filter (`AutomationOrchestrator`, `AutomationsChannelService`, etc.).
+
+**Out of scope for R3.10:** Wire Protocol log streaming, JSON-RPC `automation/log/*` methods, or Desktop log panes — those belong to M6/M7 if desired.
+
 ## Acceptance Criteria
 
 | # | Criterion |
@@ -317,6 +328,9 @@ public class AutomationsChannelService : IChannelService
 | AC6 | `AutomationsChannelService.StartAsync` calls `RegisterToolProfile` on all registered sources before entering the dispatch loop. |
 | AC7 | Stopping the AppServer cleanly stops the orchestrator loop without hanging. |
 | AC8 | `AutomationWorkspaceManager.ProvisionAsync` creates `{WorkspaceRoot}/{sourceName}/{taskId}/` on disk. |
+| AC9 | With file logging only (`Logging.Enabled`, `Logging.MinLevel = Information`), completing one automation path from `Pending` through dispatch to `AwaitingReview` (or `Failed`) produces **grep-friendly** lines in `.craft/logs` containing the `taskId` and key status transitions, per §16.4 minimum events. |
+| AC10 | `GetPendingTasksAsync` or dispatch failures emit **Error** logs with exception details; when `taskId` / `sourceName` are known, they appear in the log line or scope. |
+| AC11 | `AutomationsChannelService` startup emits at least one **Information** line indicating the automations channel and orchestrator are active. |
 
 ## Affected Files
 

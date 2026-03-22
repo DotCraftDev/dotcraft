@@ -41,6 +41,11 @@ public sealed class AutomationsChannelService(
             throw new InvalidOperationException(
                 "Session service was not set. Automations requires GatewayHost to supply the shared ISessionService.");
 
+        logger.LogInformation(
+            "Automations channel service starting (workspace: {WorkspacePath}, craft: {CraftPath})",
+            paths.WorkspacePath,
+            paths.CraftPath);
+
         var client = new AutomationSessionClient(_sessionService, paths);
         orchestrator.SetSessionClient(client);
         await orchestrator.StartAsync(cancellationToken);
