@@ -408,15 +408,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         pendingMessage: null
       }
     })
-    // If there was a queued message, send it now
-    const pending = get().pendingMessage
-    if (pending) {
-      // pendingMessage was already cleared in the set() above — read before set
-      // The caller (App.tsx) is responsible for actually sending the RPC;
-      // we expose the pending message to it via this store flag read before reset.
-      // Re-set it briefly so App.tsx can read it in the same tick
-      set({ pendingMessage: pending })
-    }
+    // pendingMessage was already cleared in the set() above.
+    // App.tsx reads conv.pendingMessage BEFORE calling onTurnCompleted,
+    // so pending message auto-send is handled there, not here.
   },
 
   onTurnFailed(rawTurn, error) {
