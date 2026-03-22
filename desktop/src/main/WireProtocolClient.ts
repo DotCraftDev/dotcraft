@@ -197,6 +197,11 @@ class WebSocketTransport implements Transport {
   dispose(): void {
     this.disposed = true
     if (this.retryTimer) clearTimeout(this.retryTimer)
+    // Reject any writes queued while waiting for connection
+    const pending = this.pendingWrites.splice(0)
+    for (const item of pending) {
+      item.reject(new Error('WebSocketTransport is disposed'))
+    }
     this.ws?.close()
     this.ws = null
   }
