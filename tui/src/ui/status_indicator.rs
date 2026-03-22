@@ -29,7 +29,11 @@ pub struct StatusIndicator<'a> {
 
 impl<'a> StatusIndicator<'a> {
     pub fn new(state: &'a AppState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { state, theme, strings }
+        Self {
+            state,
+            theme,
+            strings,
+        }
     }
 
     /// Returns how many rows this widget needs. 0 if it should not be shown.

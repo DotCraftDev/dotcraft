@@ -1,11 +1,7 @@
 // ThreadPicker overlay — shown when the user runs /sessions.
 // Displays a scrollable list of threads with resume/archive/delete actions.
 
-use crate::{
-    app::state::ThreadPickerState,
-    i18n::Strings,
-    theme::Theme,
-};
+use crate::{app::state::ThreadPickerState, i18n::Strings, theme::Theme};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -22,16 +18,27 @@ pub struct ThreadPicker<'a> {
 
 impl<'a> ThreadPicker<'a> {
     pub fn new(picker: &'a ThreadPickerState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { picker, theme, strings }
+        Self {
+            picker,
+            theme,
+            strings,
+        }
     }
 
     /// Centered popup: 70% width, 80% height, min 50×10.
     pub fn popup_area(full: Rect) -> Rect {
         let popup_width = (full.width * 70 / 100).max(50).min(full.width);
-        let popup_height = (full.height * 80 / 100).max(10).min(full.height.saturating_sub(2));
+        let popup_height = (full.height * 80 / 100)
+            .max(10)
+            .min(full.height.saturating_sub(2));
         let x = full.x + (full.width.saturating_sub(popup_width)) / 2;
         let y = full.y + (full.height.saturating_sub(popup_height)) / 2;
-        Rect { x, y, width: popup_width, height: popup_height }
+        Rect {
+            x,
+            y,
+            width: popup_width,
+            height: popup_height,
+        }
     }
 }
 
@@ -105,7 +112,10 @@ impl Widget for ThreadPicker<'_> {
 
         // Compute visible window: scroll to keep selected row in view.
         let visible_rows = list_area.height as usize;
-        let selected = self.picker.selected.min(self.picker.threads.len().saturating_sub(1));
+        let selected = self
+            .picker
+            .selected
+            .min(self.picker.threads.len().saturating_sub(1));
         let scroll_top = if selected >= visible_rows {
             selected - visible_rows + 1
         } else {
@@ -115,13 +125,17 @@ impl Widget for ThreadPicker<'_> {
         let list_width = list_area.width as usize;
         let mut lines: Vec<Line> = Vec::new();
 
-        for (i, thread) in self.picker.threads.iter().enumerate().skip(scroll_top).take(visible_rows) {
+        for (i, thread) in self
+            .picker
+            .threads
+            .iter()
+            .enumerate()
+            .skip(scroll_top)
+            .take(visible_rows)
+        {
             let is_selected = i == selected;
 
-            let name = thread
-                .display_name
-                .as_deref()
-                .unwrap_or(thread.id.as_str());
+            let name = thread.display_name.as_deref().unwrap_or(thread.id.as_str());
 
             // Status badge: active/archived/deleted
             let status_badge = match thread.status.as_str() {
@@ -163,7 +177,10 @@ fn truncate_display_width(s: &str, max_cols: usize) -> String {
     if max_cols == 0 {
         return String::new();
     }
-    let total_width: usize = s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+    let total_width: usize = s
+        .chars()
+        .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum();
     if total_width <= max_cols {
         return s.to_string();
     }

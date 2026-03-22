@@ -25,7 +25,11 @@ pub struct FooterLine<'a> {
 
 impl<'a> FooterLine<'a> {
     pub fn new(state: &'a AppState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { state, theme, strings }
+        Self {
+            state,
+            theme,
+            strings,
+        }
     }
 }
 
@@ -44,7 +48,11 @@ impl Widget for FooterLine<'_> {
         } else {
             self.strings.disconnected
         };
-        let conn_style = if self.state.connected { self.theme.success } else { self.theme.error };
+        let conn_style = if self.state.connected {
+            self.theme.success
+        } else {
+            self.theme.error
+        };
 
         // Build right spans from outer to inner for progressive collapse.
         // Level 0 (full): "{tokens} · {connection}"
@@ -59,9 +67,10 @@ impl Widget for FooterLine<'_> {
         // ── Left side: contextual hint ───────────────────────────────────────
         let is_running = self.state.turn_status == TurnStatus::Running;
         let has_draft = !self.state.input_text.is_empty();
-        let quit_pending = self.state.last_interrupt_at.is_some_and(|t| {
-            t.elapsed().as_secs_f32() < 1.0
-        });
+        let quit_pending = self
+            .state
+            .last_interrupt_at
+            .is_some_and(|t| t.elapsed().as_secs_f32() < 1.0);
 
         let (left_hint, left_style) = if quit_pending {
             (self.strings.quit_confirm_hint, self.theme.error)
@@ -95,9 +104,7 @@ impl Widget for FooterLine<'_> {
         } else {
             format!(
                 "  {} · {} ({})",
-                self.strings.shortcuts_hint,
-                mode_label,
-                self.strings.mode_cycle_hint
+                self.strings.shortcuts_hint, mode_label, self.strings.mode_cycle_hint
             )
         };
 
@@ -120,22 +127,21 @@ impl Widget for FooterLine<'_> {
         let left_short_w = left_short.width();
 
         // Try fitting full left + full right, then progressively collapse.
-        let (left_text, show_right, right_text) =
-            if left_full_w + right_w <= width {
-                (left_full, true, right_full)
-            } else if left_medium_w + right_w <= width {
-                (left_medium, true, right_full)
-            } else if left_short_w + right_w <= width {
-                (left_short, true, right_full)
-            } else if left_full_w <= width {
-                (left_full, false, String::new())
-            } else if left_medium_w <= width {
-                (left_medium, false, String::new())
-            } else if left_short_w <= width {
-                (left_short, false, String::new())
-            } else {
-                (String::new(), false, String::new())
-            };
+        let (left_text, show_right, right_text) = if left_full_w + right_w <= width {
+            (left_full, true, right_full)
+        } else if left_medium_w + right_w <= width {
+            (left_medium, true, right_full)
+        } else if left_short_w + right_w <= width {
+            (left_short, true, right_full)
+        } else if left_full_w <= width {
+            (left_full, false, String::new())
+        } else if left_medium_w <= width {
+            (left_medium, false, String::new())
+        } else if left_short_w <= width {
+            (left_short, false, String::new())
+        } else {
+            (String::new(), false, String::new())
+        };
 
         let left_w = left_text.width();
 
@@ -176,10 +182,7 @@ impl Widget for FooterLine<'_> {
 
             // Right: tokens (dim) then " · " then connection (colored).
             if !token_str.is_empty() && self.state.connected {
-                spans.push(Span::styled(
-                    format!(" {token_str} · "),
-                    self.theme.dim,
-                ));
+                spans.push(Span::styled(format!(" {token_str} · "), self.theme.dim));
                 spans.push(Span::styled(format!("{conn_str} "), conn_style));
             } else if !token_str.is_empty() {
                 spans.push(Span::styled(format!(" {token_str} · "), self.theme.dim));

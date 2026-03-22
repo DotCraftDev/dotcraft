@@ -75,12 +75,18 @@ impl Transport {
         match self {
             Transport::Stdio(t) => {
                 let (reader, writer) = t.split();
-                (TransportReader::Stdio(reader), TransportWriter::Stdio(writer))
+                (
+                    TransportReader::Stdio(reader),
+                    TransportWriter::Stdio(writer),
+                )
             }
             #[cfg(feature = "websocket")]
             Transport::WebSocket(t) => {
                 let (reader, writer) = t.split();
-                (TransportReader::WebSocket(reader), TransportWriter::WebSocket(writer))
+                (
+                    TransportReader::WebSocket(reader),
+                    TransportWriter::WebSocket(writer),
+                )
             }
         }
     }
@@ -114,9 +120,14 @@ impl StdioTransport {
     }
 
     pub fn split(self) -> (StdioReader, StdioWriter) {
-        let reader = StdioReader { reader: self.reader };
+        let reader = StdioReader {
+            reader: self.reader,
+        };
         // The writer holds the child so the process stays alive as long as we write.
-        let writer = StdioWriter { _child: self.child, writer: self.writer };
+        let writer = StdioWriter {
+            _child: self.child,
+            writer: self.writer,
+        };
         (reader, writer)
     }
 }
@@ -164,9 +175,7 @@ mod ws {
     use super::*;
     use futures::{SinkExt, StreamExt};
     use tokio::net::TcpStream;
-    use tokio_tungstenite::{
-        connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
-    };
+    use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
     type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -176,9 +185,9 @@ mod ws {
 
     impl WebSocketTransport {
         pub async fn connect(url: &str) -> Result<Self> {
-            let (stream, _response) = connect_async(url).await.map_err(|e| {
-                anyhow::anyhow!("WebSocket connection failed: {e}")
-            })?;
+            let (stream, _response) = connect_async(url)
+                .await
+                .map_err(|e| anyhow::anyhow!("WebSocket connection failed: {e}"))?;
             Ok(Self { stream })
         }
 

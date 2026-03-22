@@ -56,10 +56,17 @@ impl<'a> HelpOverlay<'a> {
     /// Centered popup: 60% width, 80% height.
     pub fn popup_area(full: Rect) -> Rect {
         let popup_width = (full.width * 60 / 100).max(60).min(full.width);
-        let popup_height = (full.height * 80 / 100).max(12).min(full.height.saturating_sub(2));
+        let popup_height = (full.height * 80 / 100)
+            .max(12)
+            .min(full.height.saturating_sub(2));
         let x = full.x + (full.width.saturating_sub(popup_width)) / 2;
         let y = full.y + (full.height.saturating_sub(popup_height)) / 2;
-        Rect { x, y, width: popup_width, height: popup_height }
+        Rect {
+            x,
+            y,
+            width: popup_width,
+            height: popup_height,
+        }
     }
 }
 

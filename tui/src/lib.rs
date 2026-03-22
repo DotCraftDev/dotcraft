@@ -32,11 +32,8 @@ use crate::{
         input_editor::InputEditor,
         layout,
         overlays::{
-            approval::ApprovalOverlay,
-            command_popup::CommandPopup,
-            help::HelpOverlay,
-            notification::NotificationToast,
-            thread_picker::ThreadPicker,
+            approval::ApprovalOverlay, command_popup::CommandPopup, help::HelpOverlay,
+            notification::NotificationToast, thread_picker::ThreadPicker,
         },
         status_indicator::StatusIndicator,
         welcome_screen::WelcomeScreen,
@@ -159,7 +156,10 @@ pub async fn run(
     wire.initialize().await?;
     tracing::info!(
         "Connected to DotCraft AppServer v{}",
-        wire.server_info.as_ref().map(|i| i.version.as_str()).unwrap_or("?")
+        wire.server_info
+            .as_ref()
+            .map(|i| i.version.as_str())
+            .unwrap_or("?")
     );
 
     // ── 5. Terminal init ──────────────────────────────────────────────────
@@ -193,8 +193,7 @@ async fn run_event_loop(
     state: &mut AppState,
     theme: &Theme,
     strings: &Strings,
-    #[allow(unused_variables)]
-    conn_mode: &ConnectionMode,
+    #[allow(unused_variables)] conn_mode: &ConnectionMode,
 ) -> Result<()> {
     let mut tick = time::interval(Duration::from_millis(16)); // ~60 fps
     tick.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
@@ -372,7 +371,8 @@ async fn handle_terminal_event(
                     state.streaming.clear();
 
                     if let Some(cmd) = commands::parse(&text) {
-                        let quit = handle_slash_command(wire, state, strings, deferred_tx, cmd).await?;
+                        let quit =
+                            handle_slash_command(wire, state, strings, deferred_tx, cmd).await?;
                         if quit {
                             return Ok(true);
                         }
@@ -452,10 +452,7 @@ fn build_identity(workspace_path: &str) -> serde_json::Value {
     })
 }
 
-async fn create_thread(
-    wire: &mut WireClient,
-    state: &mut AppState,
-) -> Result<()> {
+async fn create_thread(wire: &mut WireClient, state: &mut AppState) -> Result<()> {
     let ws = &state.workspace_path;
     let params = serde_json::json!({
         "identity": build_identity(ws)
@@ -475,11 +472,7 @@ async fn create_thread(
     Ok(())
 }
 
-async fn submit_turn(
-    wire: &mut WireClient,
-    state: &mut AppState,
-    text: String,
-) -> Result<()> {
+async fn submit_turn(wire: &mut WireClient, state: &mut AppState, text: String) -> Result<()> {
     // Lazy thread creation: materialize on first user input.
     if state.current_thread_id.is_none() {
         create_thread(wire, state).await?;
@@ -502,7 +495,9 @@ async fn submit_turn(
         return Ok(());
     }
 
-    state.history.push(HistoryEntry::UserMessage { text: text.clone() });
+    state
+        .history
+        .push(HistoryEntry::UserMessage { text: text.clone() });
     state.at_bottom = true;
 
     let params = serde_json::json!({
@@ -527,7 +522,8 @@ async fn submit_turn(
 async fn handle_interrupt(wire: &mut WireClient, state: &mut AppState) -> Result<bool> {
     let now = Instant::now();
 
-    if state.turn_status == TurnStatus::Running || state.turn_status == TurnStatus::WaitingApproval {
+    if state.turn_status == TurnStatus::Running || state.turn_status == TurnStatus::WaitingApproval
+    {
         // Double Ctrl+C within 1 second exits even while a turn is running.
         if let Some(last) = state.last_interrupt_at {
             if now.duration_since(last) < Duration::from_secs(1) {
@@ -669,13 +665,17 @@ async fn handle_thread_picker_action(
                 state.current_thread_id = Some(id.clone());
                 state.current_thread_name = display_name;
                 // Fire async thread/read; result handled via deferred channel.
-                let (_, rx) = wire.send_request(
-                    "thread/read",
-                    serde_json::json!({ "threadId": id, "includeTurns": true }),
-                ).await?;
+                let (_, rx) = wire
+                    .send_request(
+                        "thread/read",
+                        serde_json::json!({ "threadId": id, "includeTurns": true }),
+                    )
+                    .await?;
                 let tx = deferred_tx.clone();
                 tokio::spawn(async move {
-                    let result = rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
+                    let result = rx
+                        .await
+                        .unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
                     let _ = tx.send(DeferredResult::ThreadHistoryLoaded(result));
                 });
             }
@@ -788,7 +788,10 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
         };
         for item in items {
             let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let payload = item.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+            let payload = item
+                .get("payload")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
 
             match item_type {
                 "userMessage" => {
@@ -898,14 +901,19 @@ fn format_cron_list(result: &serde_json::Value, strings: &Strings) -> String {
             .and_then(|v| v.as_str())
             .unwrap_or("(unnamed)");
         let id = job.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let enabled = job.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+        let enabled = job
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let status_str = if enabled { "enabled" } else { "disabled" };
         let last_status = job
             .get("state")
             .and_then(|s| s.get("lastStatus"))
             .and_then(|v| v.as_str())
             .unwrap_or("—");
-        lines.push(format!("  [{id}] {name} ({status_str}) — last: {last_status}"));
+        lines.push(format!(
+            "  [{id}] {name} ({status_str}) — last: {last_status}"
+        ));
     }
     lines.join("\n")
 }
@@ -958,7 +966,8 @@ async fn handle_slash_command(
         }
         SlashCommand::Heartbeat => {
             if wire.capabilities.heartbeat_management.unwrap_or(false) {
-                wire.send_request("heartbeat/trigger", serde_json::json!({})).await?;
+                wire.send_request("heartbeat/trigger", serde_json::json!({}))
+                    .await?;
                 state.history.push(HistoryEntry::SystemInfo {
                     message: "Heartbeat triggered.".to_string(),
                 });
@@ -989,13 +998,14 @@ async fn handle_slash_command(
 
             // Fire async thread/list; result handled via deferred channel.
             let identity = build_identity(&state.workspace_path);
-            let (_, rx) = wire.send_request(
-                "thread/list",
-                serde_json::json!({ "identity": identity }),
-            ).await?;
+            let (_, rx) = wire
+                .send_request("thread/list", serde_json::json!({ "identity": identity }))
+                .await?;
             let tx = deferred_tx.clone();
             tokio::spawn(async move {
-                let result = rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
+                let result = rx
+                    .await
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
                 let _ = tx.send(DeferredResult::ThreadListLoaded(result));
             });
         }
@@ -1012,20 +1022,21 @@ async fn handle_slash_command(
             state.subagent_entries.clear();
             state.streaming.clear();
             state.token_tracker.reset();
-            wire.send_request(
-                "thread/resume",
-                serde_json::json!({ "threadId": id }),
-            )
-            .await?;
+            wire.send_request("thread/resume", serde_json::json!({ "threadId": id }))
+                .await?;
             state.current_thread_id = Some(id.clone());
             // Fire async thread/read; result handled via deferred channel.
-            let (_, rx) = wire.send_request(
-                "thread/read",
-                serde_json::json!({ "threadId": id, "includeTurns": true }),
-            ).await?;
+            let (_, rx) = wire
+                .send_request(
+                    "thread/read",
+                    serde_json::json!({ "threadId": id, "includeTurns": true }),
+                )
+                .await?;
             let tx = deferred_tx.clone();
             tokio::spawn(async move {
-                let result = rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
+                let result = rx
+                    .await
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
                 let _ = tx.send(DeferredResult::ThreadHistoryLoaded(result));
             });
         }
@@ -1037,12 +1048,17 @@ async fn handle_slash_command(
                 return Ok(false);
             }
             match wire
-                .request::<serde_json::Value>("cron/list", serde_json::json!({ "includeDisabled": false }))
+                .request::<serde_json::Value>(
+                    "cron/list",
+                    serde_json::json!({ "includeDisabled": false }),
+                )
                 .await
             {
                 Ok(result) => {
                     let text = format_cron_list(&result, strings);
-                    state.history.push(HistoryEntry::SystemInfo { message: text });
+                    state
+                        .history
+                        .push(HistoryEntry::SystemInfo { message: text });
                 }
                 Err(e) => {
                     state.history.push(HistoryEntry::Error {
@@ -1188,31 +1204,26 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
         );
 
         if let Some(si_area) = zones.status_indicator {
-            frame.render_widget(
-                StatusIndicator::new(state, theme, strings),
-                si_area,
-            );
+            frame.render_widget(StatusIndicator::new(state, theme, strings), si_area);
         }
 
         // Pending input preview (between StatusIndicator and InputEditor).
         if let Some(pp_area) = zones.pending_preview {
             if let Some(queued) = state.pending_input.first() {
-                use ratatui::{text::{Line, Span}, widgets::{Paragraph, Widget}};
+                use ratatui::{
+                    text::{Line, Span},
+                    widgets::{Paragraph, Widget},
+                };
                 let preview = format!("  ┄ {}: \"{queued}\"", strings.pending_queued_prefix);
-                Paragraph::new(Line::from(Span::styled(preview, theme.dim))).render(pp_area, frame.buffer_mut());
+                Paragraph::new(Line::from(Span::styled(preview, theme.dim)))
+                    .render(pp_area, frame.buffer_mut());
             }
         }
 
-        frame.render_widget(
-            InputEditor::new(state, theme, strings),
-            zones.input_editor,
-        );
+        frame.render_widget(InputEditor::new(state, theme, strings), zones.input_editor);
 
         if let Some(footer_area) = zones.footer {
-            frame.render_widget(
-                FooterLine::new(state, theme, strings),
-                footer_area,
-            );
+            frame.render_widget(FooterLine::new(state, theme, strings), footer_area);
         }
 
         // Only show the terminal cursor when the input editor is focused and idle.
@@ -1225,46 +1236,35 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
         {
             // 2 = gutter width ("❯ " / "✎ ")
             let inner_w = zones.input_editor.width.saturating_sub(2);
-            let (row, col) = ui::input_editor::offset_to_2d(&state.input_text, state.input_cursor, inner_w);
+            let (row, col) =
+                ui::input_editor::offset_to_2d(&state.input_text, state.input_cursor, inner_w);
             let cursor_x = zones.input_editor.x + 2 + col.min(inner_w.saturating_sub(1));
-            let cursor_y = zones.input_editor.y + row.min(zones.input_editor.height.saturating_sub(1));
+            let cursor_y =
+                zones.input_editor.y + row.min(zones.input_editor.height.saturating_sub(1));
             frame.set_cursor_position((cursor_x, cursor_y));
         }
 
         // ── Command completion popup (above input) ─────────────────────
         if let Some(popup_state) = &state.command_popup {
-            let popup_area =
-                CommandPopup::popup_area(zones.input_editor, popup_state.items.len());
-            frame.render_widget(
-                CommandPopup::new(popup_state, theme),
-                popup_area,
-            );
+            let popup_area = CommandPopup::popup_area(zones.input_editor, popup_state.items.len());
+            frame.render_widget(CommandPopup::new(popup_state, theme), popup_area);
         }
 
         // ── Notification toast (non-modal, top-right) ─────────────────────
         if !state.notifications.is_empty() {
-            frame.render_widget(
-                NotificationToast::new(state, theme, strings),
-                area,
-            );
+            frame.render_widget(NotificationToast::new(state, theme, strings), area);
         }
 
         // ── Modal overlays (render last, on top) ──────────────────────────
         match &state.active_overlay {
             Some(OverlayKind::Approval) => {
                 if let Some(approval) = &state.pending_approval {
-                    frame.render_widget(
-                        ApprovalOverlay::new(approval, theme, strings),
-                        area,
-                    );
+                    frame.render_widget(ApprovalOverlay::new(approval, theme, strings), area);
                 }
             }
             Some(OverlayKind::ThreadPicker) => {
                 if let Some(picker) = &state.thread_picker {
-                    frame.render_widget(
-                        ThreadPicker::new(picker, theme, strings),
-                        area,
-                    );
+                    frame.render_widget(ThreadPicker::new(picker, theme, strings), area);
                 }
             }
             Some(OverlayKind::Help) => {
@@ -1275,4 +1275,3 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
     })?;
     Ok(())
 }
-

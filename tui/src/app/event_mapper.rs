@@ -58,7 +58,9 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     // were received (fallback for servers that don't send deltas).
                     // When deltas are received, the tracker already holds the correct total
                     // (per appserver-protocol.md §6.6: sum of deltas == tokenUsage).
-                    if state.token_tracker.input_tokens == 0 && state.token_tracker.output_tokens == 0 {
+                    if state.token_tracker.input_tokens == 0
+                        && state.token_tracker.output_tokens == 0
+                    {
                         state.token_tracker.add(inp, out);
                     }
                 }
@@ -339,7 +341,9 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                 "compacted" | "compactSkipped" | "consolidated" => {
                     state.system_status = None;
                     if let Some(msg) = message {
-                        state.history.push(HistoryEntry::SystemInfo { message: msg });
+                        state
+                            .history
+                            .push(HistoryEntry::SystemInfo { message: msg });
                     }
                 }
                 _ => {}
@@ -383,7 +387,11 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         .collect()
                 })
                 .unwrap_or_default();
-            state.plan = Some(PlanSnapshot { title, overview, todos });
+            state.plan = Some(PlanSnapshot {
+                title,
+                overview,
+                todos,
+            });
             true
         }
 
@@ -391,26 +399,28 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
         "system/jobResult" => {
             use chrono::Utc;
             let dismiss_at_ms = Utc::now().timestamp_millis() + 10_000;
-            state.notifications.push_back(crate::app::state::NotificationEntry {
-                source: params
-                    .get("source")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("cron")
-                    .to_string(),
-                job_name: params
-                    .get("jobName")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-                result: params
-                    .get("result")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-                error: params
-                    .get("error")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-                dismiss_at_ms,
-            });
+            state
+                .notifications
+                .push_back(crate::app::state::NotificationEntry {
+                    source: params
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("cron")
+                        .to_string(),
+                    job_name: params
+                        .get("jobName")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    result: params
+                        .get("result")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    error: params
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    dismiss_at_ms,
+                });
             true
         }
 

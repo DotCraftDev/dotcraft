@@ -323,11 +323,7 @@ impl<'t> MarkdownWriter<'t> {
         // Use display width so CJK characters (2 cols each) wrap correctly.
         let words: Vec<&str> = text.split_whitespace().collect();
         for word in words {
-            let current_len: usize = self
-                .current_spans
-                .iter()
-                .map(|s| s.content.width())
-                .sum();
+            let current_len: usize = self.current_spans.iter().map(|s| s.content.width()).sum();
             let word_len = word.width();
             if current_len > 0 && current_len + 1 + word_len > available as usize {
                 self.flush_line_with_prefix();
@@ -410,7 +406,12 @@ impl<'t> MarkdownWriter<'t> {
             self.flush_line();
         }
         // Avoid consecutive blank lines.
-        if self.lines.last().map(|l| l.spans.is_empty()).unwrap_or(false) {
+        if self
+            .lines
+            .last()
+            .map(|l| l.spans.is_empty())
+            .unwrap_or(false)
+        {
             return;
         }
         self.lines.push(Line::default());
@@ -449,10 +450,8 @@ impl<'t> MarkdownWriter<'t> {
             self.flush_line();
         }
         let w = self.width.saturating_sub(2) as usize;
-        self.lines.push(Line::from(Span::styled(
-            "─".repeat(w),
-            self.theme.dim,
-        )));
+        self.lines
+            .push(Line::from(Span::styled("─".repeat(w), self.theme.dim)));
         self.push_blank();
     }
 
@@ -553,7 +552,11 @@ impl<'t> MarkdownWriter<'t> {
                 let w = col_widths.get(col_idx).copied().unwrap_or(1);
                 let content: String = cell.iter().map(|s| s.content.as_ref()).collect();
                 let content = truncate_or_pad(&content, w);
-                let style = if row_idx == 0 { header_style } else { Style::default() };
+                let style = if row_idx == 0 {
+                    header_style
+                } else {
+                    Style::default()
+                };
                 spans.push(Span::styled(format!(" {content} "), style));
                 spans.push(Span::styled("│", border));
             }

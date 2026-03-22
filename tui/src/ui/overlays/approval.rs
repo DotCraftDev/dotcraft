@@ -26,7 +26,11 @@ pub struct ApprovalOverlay<'a> {
 
 impl<'a> ApprovalOverlay<'a> {
     pub fn new(approval: &'a ApprovalState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { approval, theme, strings }
+        Self {
+            approval,
+            theme,
+            strings,
+        }
     }
 
     /// Centered popup area: 60% width, up to 22 rows, vertically centered.
@@ -35,7 +39,12 @@ impl<'a> ApprovalOverlay<'a> {
         let popup_height = 22u16.min(full.height.saturating_sub(2));
         let x = full.x + (full.width.saturating_sub(popup_width)) / 2;
         let y = full.y + (full.height.saturating_sub(popup_height)) / 2;
-        Rect { x, y, width: popup_width, height: popup_height }
+        Rect {
+            x,
+            y,
+            width: popup_width,
+            height: popup_height,
+        }
     }
 }
 
@@ -106,7 +115,11 @@ impl Widget for ApprovalOverlay<'_> {
         // Decision options
         let options: &[(&str, &str, &str)] = &[
             ("[a]", self.strings.approval_accept, "accept"),
-            ("[s]", self.strings.approval_accept_session, "acceptForSession"),
+            (
+                "[s]",
+                self.strings.approval_accept_session,
+                "acceptForSession",
+            ),
             ("[!]", self.strings.approval_accept_always, "acceptAlways"),
             ("[d]", self.strings.approval_decline, "decline"),
             ("[c]", self.strings.approval_cancel, "cancel"),
