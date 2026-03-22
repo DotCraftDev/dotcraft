@@ -81,6 +81,7 @@ public sealed partial class LocalTaskFileStore(
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(UnderscoredNamingConvention.Instance)
             .IgnoreUnmatchedProperties()
+            .WithTypeConverter(new DateTimeOffsetIsoYamlConverter())
             .Build();
 
         var fm = deserializer.Deserialize<TaskFileFrontMatter>(yamlText);
@@ -138,6 +139,7 @@ public sealed partial class LocalTaskFileStore(
         var serializer = new SerializerBuilder()
             .WithNamingConvention(UnderscoredNamingConvention.Instance)
             .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+            .WithTypeConverter(new DateTimeOffsetIsoYamlConverter())
             .Build();
 
         var yaml = serializer.Serialize(fm);
