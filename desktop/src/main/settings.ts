@@ -8,9 +8,13 @@ export interface RecentWorkspace {
   lastOpenedAt: string
 }
 
+export type UiTheme = 'dark' | 'light'
+
 export interface AppSettings {
   lastWorkspacePath?: string
   appServerBinaryPath?: string
+  /** UI theme; omitted or invalid values are treated as dark by the renderer */
+  theme?: UiTheme
   recentWorkspaces?: RecentWorkspace[]
 }
 

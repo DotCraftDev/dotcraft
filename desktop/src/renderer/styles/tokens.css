@@ -116,6 +116,87 @@
   --transition-panel: 200ms ease-out;
   --transition-fade: 100ms linear;
   --transition-message: 150ms ease-out;
+
+  /* Code blocks & modals */
+  --code-block-bg: #0d1117;
+  --code-copy-bg: rgba(255, 255, 255, 0.08);
+  --code-copy-border: rgba(255, 255, 255, 0.12);
+  --code-copy-text: rgba(255, 255, 255, 0.6);
+  --on-accent: #ffffff;
+  --overlay-scrim: rgba(0, 0, 0, 0.5);
+}
+
+/* ─── Light theme (DotBot: shell / slate / sky / amber) ─── */
+html[data-theme="light"] {
+  /* shell */
+  --color-bg-primary: #f7f8fa;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #eef2f6;
+  --color-bg-active: #e2e8f0;
+
+  /* slate text */
+  --color-text-primary: #1e3347;
+  --color-text-secondary: #5c6b7a;
+  --color-text-dimmed: #94a3b8;
+
+  /* sky borders */
+  --color-border-default: #d8e0ea;
+  --color-border-active: #b8c9db;
+
+  /* brand: teal primary + sky hover; amber warning */
+  --color-accent: #4a7fa5;
+  --color-accent-hover: #5a9bc0;
+  --color-success: #16a34a;
+  --color-warning: #c9a227;
+  --color-error: #dc2626;
+  --color-info: #2563eb;
+
+  /* slate-tint bubble */
+  --color-user-message-bg: #e8eef5;
+
+  --color-diff-add-bg: rgba(22, 163, 74, 0.12);
+  --color-diff-remove-bg: rgba(220, 38, 38, 0.1);
+
+  --bg-primary: #f7f8fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef2f6;
+  --bg-active: #e2e8f0;
+
+  --text-primary: #1e3347;
+  --text-secondary: #5c6b7a;
+  --text-dimmed: #94a3b8;
+
+  --border-default: #d8e0ea;
+  --border-active: #b8c9db;
+
+  --accent: #4a7fa5;
+  --accent-hover: #5a9bc0;
+  --success: #16a34a;
+  --warning: #c9a227;
+  --error: #dc2626;
+  --info: #2563eb;
+
+  --user-message-bg: #e8eef5;
+
+  --diff-add-bg: rgba(22, 163, 74, 0.12);
+  --diff-remove-bg: rgba(220, 38, 38, 0.1);
+
+  --bg-elevated: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.1);
+
+  --shadow-level-1: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-level-2: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-level-3: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  --code-block-bg: #f6f8fa;
+  --code-copy-bg: rgba(15, 23, 42, 0.06);
+  --code-copy-border: rgba(15, 23, 42, 0.12);
+  --code-copy-text: #5c6b7a;
+  --on-accent: #ffffff;
+  --overlay-scrim: rgba(15, 23, 42, 0.35);
 }
 
 /* ─── Base Styles ─── */

@@ -118,7 +118,7 @@ export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Elem
           style={{
             padding: '10px 24px',
             backgroundColor: 'var(--accent)',
-            color: '#ffffff',
+            color: 'var(--on-accent)',
             border: 'none',
             borderRadius: '8px',
             fontSize: '14px',

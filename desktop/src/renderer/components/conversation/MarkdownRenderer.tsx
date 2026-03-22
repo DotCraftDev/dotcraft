@@ -2,8 +2,6 @@ import { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-// Import highlight.js dark theme CSS
-import 'highlight.js/styles/github-dark.css'
 import type { Components } from 'react-markdown'
 
 interface MarkdownRendererProps {
@@ -177,7 +175,7 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
     <div style={{ position: 'relative', margin: '8px 0' }}>
       <pre
         style={{
-          backgroundColor: '#0d1117',
+          backgroundColor: 'var(--code-block-bg)',
           borderRadius: '6px',
           padding: '12px 16px',
           paddingTop: '36px',
@@ -201,10 +199,10 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
           right: '8px',
           padding: '3px 8px',
           fontSize: '11px',
-          background: copied ? 'var(--success)' : 'rgba(255,255,255,0.08)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          background: copied ? 'var(--success)' : 'var(--code-copy-bg)',
+          border: '1px solid var(--code-copy-border)',
           borderRadius: '4px',
-          color: copied ? '#fff' : 'rgba(255,255,255,0.6)',
+          color: copied ? 'var(--on-accent)' : 'var(--code-copy-text)',
           cursor: 'pointer',
           transition: 'background-color 150ms ease, color 150ms ease',
           fontFamily: 'var(--font-sans)'

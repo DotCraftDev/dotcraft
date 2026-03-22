@@ -65,7 +65,7 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(0,0,0,0.5)'
+        backgroundColor: 'var(--overlay-scrim)'
       }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !committing) onClose()
@@ -235,7 +235,7 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
               border: 'none',
               borderRadius: '6px',
               backgroundColor: 'var(--accent)',
-              color: '#ffffff',
+              color: 'var(--on-accent)',
               fontSize: '13px',
               fontWeight: 500,
               cursor: (committing || success || !message.trim()) ? 'default' : 'pointer',

@@ -52,7 +52,7 @@ export function ConfirmDialog({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(0,0,0,0.5)'
+        backgroundColor: 'var(--overlay-scrim)'
       }}
       onMouseDown={(e) => {
         // Click backdrop to cancel
@@ -115,7 +115,7 @@ export function ConfirmDialog({
               border: 'none',
               borderRadius: '6px',
               backgroundColor: danger ? 'var(--error)' : 'var(--accent)',
-              color: '#ffffff',
+              color: 'var(--on-accent)',
               fontSize: '13px',
               fontWeight: 500,
               cursor: 'pointer'

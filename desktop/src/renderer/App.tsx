@@ -17,6 +17,7 @@ import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
+import { applyTheme, resolveTheme } from './utils/theme'
 import './styles/tokens.css'
 
 /**
@@ -57,6 +58,15 @@ export function App(): JSX.Element {
     })
 
     return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    window.api.settings
+      .get()
+      .then((s) => {
+        applyTheme(resolveTheme(s.theme))
+      })
+      .catch(() => {})
   }, [])
 
   // Keep conversation store workspace path in sync (cumulative diff IPC reads)

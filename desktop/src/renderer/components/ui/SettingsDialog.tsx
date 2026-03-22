@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { addToast } from '../../stores/toastStore'
+import { applyTheme, resolveTheme, type ThemeMode } from '../../utils/theme'
 
 interface SettingsDialogProps {
   onClose: () => void
@@ -13,17 +14,20 @@ interface SettingsDialogProps {
  */
 export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
   const [binaryPath, setBinaryPath] = useState('')
+  const [theme, setTheme] = useState<ThemeMode>('dark')
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
-    // Load current settings
-    window.api.settings.get().then((s) => {
-      setBinaryPath(s.appServerBinaryPath ?? '')
-    }).catch(() => {})
-    // App version from Electron (exposed via process.versions in preload or hard-coded)
+    window.api.settings
+      .get()
+      .then((s) => {
+        setBinaryPath(s.appServerBinaryPath ?? '')
+        setTheme(resolveTheme(s.theme))
+      })
+      .catch(() => {})
     setVersion(typeof process !== 'undefined' ? (process.env.npm_package_version ?? '0.1.0') : '0.1.0')
 
     function handleKeyDown(e: KeyboardEvent): void {
@@ -32,6 +36,16 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
+
+  async function handleThemeChange(next: ThemeMode): Promise<void> {
+    setTheme(next)
+    applyTheme(next)
+    try {
+      await window.api.settings.set({ theme: next })
+    } catch (err) {
+      addToast(`Failed to save theme: ${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
+  }
 
   async function handleSave(): Promise<void> {
     setSaving(true)
@@ -58,7 +72,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(0,0,0,0.5)'
+        backgroundColor: 'var(--overlay-scrim)'
       }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
@@ -127,9 +141,9 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
           </div>
         </div>
 
-        {/* Theme selector (placeholder) */}
         <div style={{ marginBottom: '16px' }}>
           <label
+            htmlFor="settings-theme"
             style={{
               display: 'block',
               fontSize: '12px',
@@ -141,24 +155,25 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
             Theme
           </label>
           <select
-            disabled
+            id="settings-theme"
+            value={theme}
+            onChange={(e) => { void handleThemeChange(e.target.value as ThemeMode) }}
             style={{
               padding: '7px 10px',
               fontSize: '13px',
               borderRadius: '6px',
               border: '1px solid var(--border-default)',
               background: 'var(--bg-primary)',
-              color: 'var(--text-dimmed)',
-              cursor: 'not-allowed',
-              width: '140px'
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              width: '180px'
             }}
           >
-            <option>Dark (default)</option>
-            <option>Light (coming soon)</option>
+            <option value="dark">Dark (default)</option>
+            <option value="light">Light</option>
           </select>
         </div>
 
-        {/* App version */}
         <div
           style={{
             fontSize: '12px',
@@ -169,7 +184,6 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
           DotCraft Desktop v{version}
         </div>
 
-        {/* Buttons */}
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button
             onClick={onClose}
@@ -193,7 +207,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
               border: 'none',
               borderRadius: '6px',
               backgroundColor: 'var(--accent)',
-              color: '#ffffff',
+              color: 'var(--on-accent)',
               fontSize: '13px',
               fontWeight: 500,
               cursor: saving ? 'default' : 'pointer',

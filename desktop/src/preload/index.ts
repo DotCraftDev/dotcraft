@@ -225,14 +225,18 @@ const api = {
     /**
      * Returns the current application settings.
      */
-    get(): Promise<{ appServerBinaryPath?: string; lastWorkspacePath?: string }> {
+    get(): Promise<{
+      appServerBinaryPath?: string
+      lastWorkspacePath?: string
+      theme?: 'dark' | 'light'
+    }> {
       return ipcRenderer.invoke('settings:get')
     },
 
     /**
      * Merges and persists partial settings updates.
      */
-    set(partial: { appServerBinaryPath?: string }): Promise<void> {
+    set(partial: { appServerBinaryPath?: string; theme?: 'dark' | 'light' }): Promise<void> {
       return ipcRenderer.invoke('settings:set', partial)
     }
   }

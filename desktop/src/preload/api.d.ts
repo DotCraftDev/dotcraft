@@ -57,8 +57,12 @@ declare global {
         openNewWindow(): Promise<void>
       }
       settings: {
-        get(): Promise<{ appServerBinaryPath?: string; lastWorkspacePath?: string }>
-        set(partial: { appServerBinaryPath?: string }): Promise<void>
+        get(): Promise<{
+          appServerBinaryPath?: string
+          lastWorkspacePath?: string
+          theme?: 'dark' | 'light'
+        }>
+        set(partial: { appServerBinaryPath?: string; theme?: 'dark' | 'light' }): Promise<void>
       }
     }
   }

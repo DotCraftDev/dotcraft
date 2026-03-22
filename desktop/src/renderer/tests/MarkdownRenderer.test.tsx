@@ -3,9 +3,8 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MarkdownRenderer } from '../components/conversation/MarkdownRenderer'
 
-// jsdom does not support CSS @import; silence highlight.js CSS import errors
 beforeAll(() => {
-  // no-op; the import error for github-dark.css is harmless in jsdom
+  // highlight.js theme is loaded dynamically from App/main; not required for these tests
 })
 
 describe('MarkdownRenderer', () => {
