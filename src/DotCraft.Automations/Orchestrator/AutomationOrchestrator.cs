@@ -114,6 +114,20 @@ public sealed class AutomationOrchestrator
         _logger.LogDebug("Automations poll loop running");
         try
         {
+            // Immediate first poll (do not wait one interval at startup).
+            try
+            {
+                await PollOnceAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Automations initial poll failed");
+            }
+
             while (!ct.IsCancellationRequested)
             {
                 try
