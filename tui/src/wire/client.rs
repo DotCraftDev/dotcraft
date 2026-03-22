@@ -150,7 +150,9 @@ impl WireClient {
         // Drain incoming messages until ours resolves.
         loop {
             match self.message_rx.recv().await {
-                None => anyhow::bail!("wire connection closed while waiting for response to {method}"),
+                None => {
+                    anyhow::bail!("wire connection closed while waiting for response to {method}")
+                }
                 Some(Err(e)) => return Err(e.into()),
                 Some(Ok(msg)) => {
                     if self.resolve_response(&msg) {
@@ -189,7 +191,11 @@ impl WireClient {
     }
 
     /// Send a JSON-RPC notification (no response expected).
-    pub async fn notify(&mut self, method: &str, params: serde_json::Value) -> Result<(), WireError> {
+    pub async fn notify(
+        &mut self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<(), WireError> {
         let notif = JsonRpcNotification {
             jsonrpc: "2.0",
             method: method.to_string(),
@@ -211,7 +217,11 @@ impl WireClient {
             result: serde_json::Value,
         }
         self.writer
-            .write_message(&Response { jsonrpc: "2.0", id, result })
+            .write_message(&Response {
+                jsonrpc: "2.0",
+                id,
+                result,
+            })
             .await
     }
 }

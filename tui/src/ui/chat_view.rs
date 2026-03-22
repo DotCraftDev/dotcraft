@@ -34,7 +34,12 @@ pub struct ChatView<'a> {
 
 impl<'a> ChatView<'a> {
     pub fn new(state: &'a AppState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { state, theme, strings, width: 80 }
+        Self {
+            state,
+            theme,
+            strings,
+            width: 80,
+        }
     }
 
     pub fn with_width(mut self, w: u16) -> Self {
@@ -54,10 +59,11 @@ impl Widget for ChatView<'_> {
         let history = &self.state.history;
         for (i, entry) in history.iter().enumerate() {
             // Emit a turn separator when transitioning from agent/tool → user.
-            let prev_is_agent_or_tool = i > 0 && matches!(
-                &history[i - 1],
-                HistoryEntry::AgentMessage { .. } | HistoryEntry::ToolCall { .. }
-            );
+            let prev_is_agent_or_tool = i > 0
+                && matches!(
+                    &history[i - 1],
+                    HistoryEntry::AgentMessage { .. } | HistoryEntry::ToolCall { .. }
+                );
             if prev_is_agent_or_tool && matches!(entry, HistoryEntry::UserMessage { .. }) {
                 self.render_turn_separator(render_width, &mut lines);
             }
@@ -156,12 +162,7 @@ impl ChatView<'_> {
 
     // ── History entry rendering ──────────────────────────────────────────────
 
-    fn render_history_entry(
-        &self,
-        entry: &HistoryEntry,
-        width: u16,
-        out: &mut Vec<Line<'static>>,
-    ) {
+    fn render_history_entry(&self, entry: &HistoryEntry, width: u16, out: &mut Vec<Line<'static>>) {
         match entry {
             HistoryEntry::UserMessage { text } => {
                 out.push(Line::default());
@@ -200,20 +201,28 @@ impl ChatView<'_> {
             }
 
             HistoryEntry::ToolCall {
-                name, args, result, success, duration, ..
+                name,
+                args,
+                result,
+                success,
+                duration,
+                ..
             } => {
                 self.render_committed_tool(
-                    name, args, result.as_deref(), *success, *duration, width, out,
+                    name,
+                    args,
+                    result.as_deref(),
+                    *success,
+                    *duration,
+                    width,
+                    out,
                 );
             }
 
             HistoryEntry::Error { message } => {
                 out.push(Line::from(vec![
                     Span::raw("  "),
-                    Span::styled(
-                        format!("{} ", self.strings.error_prefix),
-                        self.theme.error,
-                    ),
+                    Span::styled(format!("{} ", self.strings.error_prefix), self.theme.error),
                     Span::styled(message.clone(), self.theme.error),
                 ]));
                 out.push(Line::default());
@@ -281,7 +290,10 @@ impl ChatView<'_> {
             )));
             out.push(Line::from(vec![
                 Span::styled("    └ ".to_string(), self.theme.dim),
-                Span::styled(truncate(&invocation, width.saturating_sub(6) as usize), self.theme.dim),
+                Span::styled(
+                    truncate(&invocation, width.saturating_sub(6) as usize),
+                    self.theme.dim,
+                ),
             ]));
         }
     }
@@ -298,11 +310,17 @@ impl ChatView<'_> {
         out: &mut Vec<Line<'static>>,
     ) {
         let bullet = if success { "•" } else { "•" };
-        let bullet_style = if success { self.theme.success } else { self.theme.tool_error };
+        let bullet_style = if success {
+            self.theme.success
+        } else {
+            self.theme.tool_error
+        };
         let verb = self.strings.called;
 
         let invocation = Self::format_invocation(name, args);
-        let elapsed = duration.map(|d| format!(" ({:.1}s)", d.as_secs_f64())).unwrap_or_default();
+        let elapsed = duration
+            .map(|d| format!(" ({:.1}s)", d.as_secs_f64()))
+            .unwrap_or_default();
 
         // "• Called ToolName("arg") (0.3s)"
         let header = format!("  {bullet} {verb} ");
@@ -352,7 +370,11 @@ impl ChatView<'_> {
                         ""
                     };
                     let text = truncate(line, width.saturating_sub(8) as usize);
-                    let prefix_str = if is_last && inline { "    └ " } else { "    │ " };
+                    let prefix_str = if is_last && inline {
+                        "    └ "
+                    } else {
+                        "    │ "
+                    };
                     out.push(Line::from(vec![
                         Span::styled(prefix_str.to_string(), self.theme.dim),
                         Span::styled(format!("{text}{truncated_suffix}"), self.theme.dim),
@@ -372,7 +394,10 @@ impl ChatView<'_> {
             } else {
                 format!("  {} (Tab to expand)", self.strings.reasoning_header)
             };
-            out.push(Line::from(Span::styled(header, self.theme.reasoning_header)));
+            out.push(Line::from(Span::styled(
+                header,
+                self.theme.reasoning_header,
+            )));
 
             if self.state.show_reasoning {
                 for line in self.state.streaming.reasoning_buffer.lines() {
@@ -459,19 +484,31 @@ impl ChatView<'_> {
         let tick = self.state.tick_count as usize;
         for entry in entries {
             let (status_span, name_style) = if entry.is_completed {
-                (Span::styled("•  ".to_string(), self.theme.success), self.theme.dim)
+                (
+                    Span::styled("•  ".to_string(), self.theme.success),
+                    self.theme.dim,
+                )
             } else if entry.current_tool.is_some() {
                 let frame = SPINNER[tick % SPINNER.len()];
-                (Span::styled(format!("{frame}  "), self.theme.tool_active), self.theme.tool_active)
+                (
+                    Span::styled(format!("{frame}  "), self.theme.tool_active),
+                    self.theme.tool_active,
+                )
             } else {
                 let frame = SPINNER[tick % SPINNER.len()];
-                (Span::styled(format!("{frame}  "), self.theme.dim), self.theme.dim)
+                (
+                    Span::styled(format!("{frame}  "), self.theme.dim),
+                    self.theme.dim,
+                )
             };
 
             let tool_text = if entry.is_completed {
                 "Done".to_string()
             } else {
-                entry.current_tool.clone().unwrap_or_else(|| "…".to_string())
+                entry
+                    .current_tool
+                    .clone()
+                    .unwrap_or_else(|| "…".to_string())
             };
 
             let tokens = format!(
@@ -500,10 +537,18 @@ impl ChatView<'_> {
 
     // ── Inline Plan block ────────────────────────────────────────────────────
 
-    fn render_inline_plan(&self, plan: &crate::app::state::PlanSnapshot, width: u16, out: &mut Vec<Line<'static>>) {
+    fn render_inline_plan(
+        &self,
+        plan: &crate::app::state::PlanSnapshot,
+        width: u16,
+        out: &mut Vec<Line<'static>>,
+    ) {
         let rule_w = width.saturating_sub(4) as usize;
         let header = format!("──── Plan: {}", plan.title);
-        out.push(Line::from(Span::styled(truncate(&header, rule_w), self.theme.dim)));
+        out.push(Line::from(Span::styled(
+            truncate(&header, rule_w),
+            self.theme.dim,
+        )));
 
         for todo in &plan.todos {
             let (icon, style) = match todo.status.as_str() {
@@ -532,7 +577,10 @@ fn truncate(s: &str, max_cols: usize) -> String {
         return String::new();
     }
     // First check if the string fits without truncation.
-    let total_width: usize = s.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+    let total_width: usize = s
+        .chars()
+        .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum();
     if total_width <= max_cols {
         return s.to_string();
     }

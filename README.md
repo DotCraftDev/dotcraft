@@ -11,11 +11,9 @@
 
 An Agent Harness crafting a persistent AI workspace around your project.
 
-From CLI, editors, chatbots, APIs — everywhere you work.
+From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 
 ![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
-
-https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 
 </div>
 
@@ -26,7 +24,7 @@ https://github.com/user-attachments/assets/9a495e51-5bd9-4ed6-8723-28904545db3a
 <table>
 <tr>
 <td width="33%" align="center"><b>📁 Project-First</b><br/>Sessions, memory, skills, and config live under <code>.craft/</code> and follow the project</td>
-<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>CLI, editors, bots, and workflows share one session model — cross-entry resume, native platform interaction preserved</td>
+<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>Desktop, CLI, editors, bots, and workflows share one session model — cross-entry resume, native platform interaction preserved</td>
 <td width="33%" align="center"><b>🛡️ Observable</b><br/>Built-in approvals, traces, Dashboard, and optional sandbox isolation</td>
 </tr>
 </table>
@@ -104,19 +102,6 @@ I've reviewed the recent git history. Here is a summary of the
 changes in the last week: ...
 ```
 
-**Command-line reference**:
-
-| Command | Description |
-|---------|-------------|
-| `dotcraft` | Interactive CLI (default) |
-| `dotcraft app-server` | Start AppServer in stdio mode |
-| `dotcraft app-server --listen ws://host:port` | Start AppServer in WebSocket mode |
-| `dotcraft app-server --listen ws+stdio://host:port` | Start AppServer in dual mode (stdio + WebSocket) |
-| `dotcraft --remote ws://host:port/ws` | CLI connecting to a remote AppServer |
-| `dotcraft -acp` | ACP mode for editor/IDE integration |
-
-Use `--token <secret>` with `--listen` or `--remote` for WebSocket authentication. See the [AppServer Guide](./docs/en/appserver_guide.md) for details.
-
 For manual editing or the full configuration reference, see the [Configuration Guide](./docs/en/config_guide.md).
 
 ## ⚙️ Configuration
@@ -143,6 +128,7 @@ All entry points share one execution engine — the **Unified Session Core**. He
 ```mermaid
 flowchart LR
     Cli["CLI"]
+    Desktop["Desktop"]
     AppSrv["AppServer"]
     Ide["ACP / IDE"]
     Bots["QQ / WeCom / ..."]
@@ -157,6 +143,7 @@ flowchart LR
     Dashboard["Dashboard"]
 
     Cli --> AppSrv
+    Desktop --> AppSrv
     AppSrv --> Workspace
     Ide --> Workspace
     Bots --> Workspace
@@ -169,6 +156,7 @@ flowchart LR
     style Workspace fill:#ddf4ff,stroke:#54aeff,color:#0550ae
     style Dashboard fill:#e5a50a,color:#ffffff,stroke:#bf8700
     style Cli fill:#57606a,color:#ffffff,stroke:#424a53
+    style Desktop fill:#57606a,color:#ffffff,stroke:#424a53
     style AppSrv fill:#57606a,color:#ffffff,stroke:#424a53
     style Ide fill:#57606a,color:#ffffff,stroke:#424a53
     style Bots fill:#57606a,color:#ffffff,stroke:#424a53
@@ -181,6 +169,7 @@ flowchart LR
 |---|---|
 | Work in a local terminal | [CLI](#local-cli) |
 | Run DotCraft as a headless server | [AppServer](#appserver) |
+| Use a graphical desktop client | [Desktop](#desktop) |
 | Use DotCraft in an editor or IDE | [Editors and ACP](#editors-and-acp) |
 | Expose DotCraft as a service | [API / AG-UI](#api--ag-ui) |
 | Connect a chat bot | [QQ / WeCom](#qq--wecom) |
@@ -196,6 +185,12 @@ CLI mode is the default starting point for working directly in a project directo
 ### AppServer
 
 AppServer exposes DotCraft's Agent capabilities as a wire protocol (JSON-RPC) server over stdio or WebSocket, enabling remote CLI connections, multi-client access, and custom integrations in any language. See the [AppServer Guide](./docs/en/appserver_guide.md).
+
+### Desktop
+
+DotCraft Desktop is an Electron + React application that provides a graphical interface for the DotCraft Agent Harness. It connects to the AppServer via the Wire Protocol, offering a three-panel workspace with multi-session management, real-time streaming conversation, inline diff review with one-click revert, approval flow, plan tracking, and cron management. 
+
+See the [Desktop Client README](./desktop/README.md) for details.
 
 ### Editors And ACP
 
@@ -272,6 +267,7 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 **Entry points**
 
 - [AppServer Guide](./docs/en/appserver_guide.md): wire protocol server, WebSocket transport, remote CLI
+- [Desktop Client Guide](./desktop/README.md): Electron desktop application, build, launch, and feature overview
 - [API Mode Guide](./docs/en/api_guide.md): OpenAI-compatible API, tool filtering, SDK examples
 - [AG-UI Mode Guide](./docs/en/agui_guide.md): AG-UI SSE server and CopilotKit integration
 - [QQ Bot Guide](./docs/en/qq_bot_guide.md): NapCat, permissions, and approvals

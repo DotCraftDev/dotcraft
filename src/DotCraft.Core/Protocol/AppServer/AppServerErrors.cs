@@ -58,6 +58,8 @@ public static class AppServerErrors
     public const int ChannelRejectedCode = -32030;
     public const int CronJobNotFoundCode = -32031;
 
+    public const int SkillNotFoundCode = -32040;
+
     // ── Factory methods ──
 
     public static AppServerException ParseError(string? detail = null) =>
@@ -107,4 +109,7 @@ public static class AppServerErrors
 
     public static AppServerException CronJobNotFound(string jobId) =>
         new(CronJobNotFoundCode, $"Cron job not found: {jobId}");
+
+    public static AppServerException SkillNotFound(string name) =>
+        new(SkillNotFoundCode, $"Skill not found: {name}");
 }

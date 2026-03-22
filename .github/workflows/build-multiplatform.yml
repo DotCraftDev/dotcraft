@@ -118,6 +118,60 @@ jobs:
         name: ${{ matrix.output_name }}
         path: ${{ matrix.output_name }}.zip
 
+    # ── Desktop (Electron) build ──────────────────────────────────────────────
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: desktop/package-lock.json
+
+    - name: Install desktop dependencies
+      run: npm ci
+      working-directory: desktop
+
+    # Match build.bat: avoid stale dist confusing electron-builder; safe on fresh checkouts too.
+    - name: Clean desktop dist
+      shell: bash
+      run: rm -rf desktop/dist
+
+    - name: Build desktop app
+      run: npm run dist
+      working-directory: desktop
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # No code signing cert in CI; skip discovery so macOS/Windows builds do not fail.
+        CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    - name: Upload desktop artifacts - Windows
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: DotCraft-Desktop-win-x64
+        path: |
+          desktop/dist/*.exe
+          desktop/dist/*.zip
+          desktop/dist/*.blockmap
+
+    - name: Upload desktop artifacts - macOS
+      if: runner.os == 'macOS'
+      uses: actions/upload-artifact@v4
+      with:
+        name: DotCraft-Desktop-macos-x64
+        path: |
+          desktop/dist/*.dmg
+          desktop/dist/*.zip
+
+    - name: Upload desktop artifacts - Linux
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: DotCraft-Desktop-linux-x64
+        path: |
+          desktop/dist/*.AppImage
+          desktop/dist/*.deb
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
@@ -157,6 +211,11 @@ jobs:
         files: |
           artifacts/**/*.tar.gz
           artifacts/**/*.zip
+          artifacts/**/*.exe
+          artifacts/**/*.blockmap
+          artifacts/**/*.dmg
+          artifacts/**/*.AppImage
+          artifacts/**/*.deb
         body_path: release_notes.md
         append_body: true
         draft: false

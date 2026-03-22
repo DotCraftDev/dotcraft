@@ -48,7 +48,7 @@ impl StreamCollector {
         // Find the last newline in the buffer.
         let last_nl = match self.buffer[self.committed_byte_offset..].rfind('\n') {
             Some(rel) => self.committed_byte_offset + rel + 1, // include the '\n'
-            None => return Vec::new(), // nothing to commit yet
+            None => return Vec::new(),                         // nothing to commit yet
         };
 
         // Render the committed portion.

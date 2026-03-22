@@ -46,7 +46,14 @@ impl<'a> WelcomeScreen<'a> {
         theme: &'a Theme,
         strings: &'a Strings,
     ) -> Self {
-        Self { version, workspace, connected, tick_count, theme, strings }
+        Self {
+            version,
+            workspace,
+            connected,
+            tick_count,
+            theme,
+            strings,
+        }
     }
 }
 
@@ -82,13 +89,14 @@ impl Widget for WelcomeScreen<'_> {
         ]));
 
         // Workspace path (dim)
-        let ws_display = if self.workspace.is_empty() { "(none)" } else { self.workspace };
+        let ws_display = if self.workspace.is_empty() {
+            "(none)"
+        } else {
+            self.workspace
+        };
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                format!("Workspace: {ws_display}"),
-                self.theme.dim,
-            ),
+            Span::styled(format!("Workspace: {ws_display}"), self.theme.dim),
         ]));
 
         lines.push(Line::default());
@@ -96,17 +104,11 @@ impl Widget for WelcomeScreen<'_> {
         // Quick-start hints
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                self.strings.welcome_hint_start,
-                self.theme.dim,
-            ),
+            Span::styled(self.strings.welcome_hint_start, self.theme.dim),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                self.strings.welcome_hint_commands,
-                self.theme.dim,
-            ),
+            Span::styled(self.strings.welcome_hint_commands, self.theme.dim),
         ]));
 
         lines.push(Line::default());
@@ -115,10 +117,7 @@ impl Widget for WelcomeScreen<'_> {
         if self.connected {
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(
-                    self.strings.welcome_ready,
-                    self.theme.success,
-                ),
+                Span::styled(self.strings.welcome_ready, self.theme.success),
             ]));
         } else {
             let frame = SPINNER[self.tick_count as usize % SPINNER.len()];

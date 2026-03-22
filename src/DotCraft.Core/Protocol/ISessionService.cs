@@ -138,4 +138,9 @@ public interface ISessionService
     /// Unlike <see cref="ArchiveThreadAsync"/>, this operation is irreversible.
     /// </summary>
     Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates the display name of a Thread.
+    /// </summary>
+    Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default);
 }

@@ -69,8 +69,12 @@ pub struct ApprovalState {
 /// A finalized conversation entry shown in the chat history.
 #[derive(Debug, Clone)]
 pub enum HistoryEntry {
-    UserMessage { text: String },
-    AgentMessage { text: String },
+    UserMessage {
+        text: String,
+    },
+    AgentMessage {
+        text: String,
+    },
     ToolCall {
         /// Id from wire payload `callId`; matches `toolResult` to the correct tool call.
         call_id: String,
@@ -82,8 +86,12 @@ pub enum HistoryEntry {
         /// How long the tool call took (from item/started to item/completed).
         duration: Option<std::time::Duration>,
     },
-    Error { message: String },
-    SystemInfo { message: String },
+    Error {
+        message: String,
+    },
+    SystemInfo {
+        message: String,
+    },
 }
 
 /// State for the currently active (streaming) agent turn.

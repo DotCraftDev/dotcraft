@@ -43,8 +43,7 @@ pub fn highlight_code(code: &str, lang: &str, theme: &Theme) -> Vec<Line<'static
     let ss = syntax_set();
     let ts = theme_set();
 
-    let syntax = resolve_language(lang, ss)
-        .unwrap_or_else(|| ss.find_syntax_plain_text());
+    let syntax = resolve_language(lang, ss).unwrap_or_else(|| ss.find_syntax_plain_text());
 
     let syntect_theme = ts
         .themes

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using DotCraft.Abstractions;
+using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Skills;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol.AppServer;
@@ -20,7 +22,9 @@ public sealed class AppServerRequestHandler(
     string serverVersion = "0.1.0",
     SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
     CronService? cronService = null,
-    HeartbeatService? heartbeatService = null)
+    HeartbeatService? heartbeatService = null,
+    SkillsLoader? skillsLoader = null,
+    string? workspaceCraftPath = null)
 {
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -68,6 +72,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ThreadPause => HandleThreadPauseAsync(msg, ct),
                 AppServerMethods.ThreadArchive => HandleThreadArchiveAsync(msg, ct),
                 AppServerMethods.ThreadDelete => HandleThreadDeleteAsync(msg, ct),
+                AppServerMethods.ThreadRename => HandleThreadRenameAsync(msg, ct),
                 AppServerMethods.ThreadModeSet => HandleThreadModeSetAsync(msg, ct),
                 AppServerMethods.ThreadConfigUpdate => HandleThreadConfigUpdateAsync(msg, ct),
                 AppServerMethods.TurnStart => HandleTurnStartAsync(msg, ct),
@@ -76,6 +81,9 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.CronRemove => HandleCronRemoveAsync(msg, ct),
                 AppServerMethods.CronEnable => HandleCronEnableAsync(msg, ct),
                 AppServerMethods.HeartbeatTrigger => HandleHeartbeatTriggerAsync(msg, ct),
+                AppServerMethods.SkillsList => HandleSkillsListAsync(msg, ct),
+                AppServerMethods.SkillsRead => HandleSkillsReadAsync(msg, ct),
+                AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -124,7 +132,8 @@ public sealed class AppServerRequestHandler(
                 ModeSwitch = true,
                 ConfigOverride = true,
                 CronManagement = cronService != null,
-                HeartbeatManagement = heartbeatService != null
+                HeartbeatManagement = heartbeatService != null,
+                SkillsManagement = skillsLoader != null
             }
         };
 
@@ -309,6 +318,15 @@ public sealed class AppServerRequestHandler(
         return new { };
     }
 
+    private async Task<object?> HandleThreadRenameAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<ThreadRenameParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.DisplayName))
+            throw AppServerErrors.InvalidParams("'displayName' must not be empty.");
+        await sessionService.RenameThreadAsync(p.ThreadId, p.DisplayName, ct);
+        return new { };
+    }
+
     private async Task<object?> HandleThreadModeSetAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadModeSetParams>(msg);
@@ -394,6 +412,36 @@ public sealed class AppServerRequestHandler(
         await sessionService.EnsureThreadLoadedAsync(p.ThreadId, ct);
 
         var events = sessionService.SubmitInputAsync(p.ThreadId, content, p.Sender, messages, ct);
+
+        // Spec §6.10 (at-most-once delivery guarantee): when the connection already holds an active
+        // thread/subscribe subscription for this thread, the subscription dispatcher is the sole
+        // notification delivery path. Creating a second AppServerEventDispatcher here would send
+        // every turn event twice on the same transport. Instead, we read only the first TurnStarted
+        // event from the turn channel (needed to build the turn/start response), send the response,
+        // and then drain the turn channel silently so the unbounded channel does not accumulate.
+        if (connection.HasSubscription(p.ThreadId))
+        {
+            await foreach (var evt in events.WithCancellation(ct))
+            {
+                if (evt.EventType == SessionEventType.TurnStarted && evt.TurnPayload is { } startedTurn)
+                {
+                    var wireTurn = startedTurn.ToWire(includeItems: false) with { Items = [] };
+                    await transport.WriteMessageAsync(BuildResponse(msg.Id, new { turn = wireTurn }), ct);
+                    break;
+                }
+            }
+
+            // Drain the rest of the turn channel in the background so the unbounded channel does
+            // not hold memory for the duration of the turn. The subscription dispatcher on the
+            // broker side is the authoritative delivery path and handles all further events.
+            _ = Task.Run(async () =>
+            {
+                await foreach (var _ in events.WithCancellation(ct)) { }
+            }, ct);
+
+            return null;
+        }
+
         var dispatcher = new AppServerEventDispatcher(
             events, connection, transport, sessionService, OnTurnStarted,
             defaultApprovalDecision: _defaultApprovalDecision);
@@ -515,6 +563,80 @@ public sealed class AppServerRequestHandler(
         {
             return new HeartbeatTriggerResult { Error = ex.Message };
         }
+    }
+
+    // ── skills/* (spec Section 18) ───────────────────────────────────────────
+
+    private Task<object?> HandleSkillsListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsList);
+        var p = GetParams<SkillsListParams>(msg);
+        var includeUnavailable = p.IncludeUnavailable ?? true;
+        var list = skillsLoader.ListSkills(filterUnavailable: !includeUnavailable);
+        var wires = list.Select(MapSkillToWire).ToList();
+        return Task.FromResult<object?>(new SkillsListResult { Skills = wires });
+    }
+
+    private Task<object?> HandleSkillsReadAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsRead);
+        var p = GetParams<SkillsReadParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+        var content = skillsLoader.LoadSkill(p.Name);
+        if (content == null)
+            throw AppServerErrors.SkillNotFound(p.Name);
+        var metadata = skillsLoader.GetSkillMetadata(p.Name);
+        return Task.FromResult<object?>(new SkillsReadResult
+        {
+            Name = p.Name,
+            Content = content,
+            Metadata = metadata
+        });
+    }
+
+    private Task<object?> HandleSkillsSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (skillsLoader == null || string.IsNullOrEmpty(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.SkillsSetEnabled);
+        var p = GetParams<SkillsSetEnabledParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var all = skillsLoader.ListSkills(filterUnavailable: false);
+        if (all.All(s => !string.Equals(s.Name, p.Name, StringComparison.OrdinalIgnoreCase)))
+            throw AppServerErrors.SkillNotFound(p.Name);
+
+        var disabled = all.Where(s => !s.Enabled).Select(s => s.Name).ToList();
+        if (p.Enabled)
+            disabled.RemoveAll(n => string.Equals(n, p.Name, StringComparison.OrdinalIgnoreCase));
+        else if (!disabled.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+            disabled.Add(p.Name);
+
+        SkillsConfigPersistence.WriteWorkspaceDisabledSkills(workspaceCraftPath, disabled);
+        skillsLoader.SetDisabledSkills(disabled);
+
+        var updated = skillsLoader.ListSkills(filterUnavailable: false)
+            .First(s => string.Equals(s.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult<object?>(new SkillsSetEnabledResult { Skill = MapSkillToWire(updated) });
+    }
+
+    private SkillInfoWire MapSkillToWire(SkillsLoader.SkillInfo s)
+    {
+        var metadata = skillsLoader!.GetSkillMetadata(s.Name);
+        return new SkillInfoWire
+        {
+            Name = s.Name,
+            Description = skillsLoader.GetSkillDescription(s.Name),
+            Source = s.Source,
+            Available = s.Available,
+            UnavailableReason = s.UnavailableReason,
+            Enabled = s.Enabled,
+            Path = s.Path,
+            Metadata = metadata
+        };
     }
 
     // -------------------------------------------------------------------------

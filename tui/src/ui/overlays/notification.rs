@@ -18,7 +18,11 @@ pub struct NotificationToast<'a> {
 
 impl<'a> NotificationToast<'a> {
     pub fn new(state: &'a AppState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { state, theme, strings }
+        Self {
+            state,
+            theme,
+            strings,
+        }
     }
 
     /// Top-right corner area: width 42, height = notifications + 2 (borders).
@@ -27,7 +31,12 @@ impl<'a> NotificationToast<'a> {
         let h = (count as u16 + 2).min(full.height / 3).max(3);
         let x = full.x + full.width.saturating_sub(w);
         let y = full.y + 1; // below the status bar
-        Rect { x, y, width: w, height: h }
+        Rect {
+            x,
+            y,
+            width: w,
+            height: h,
+        }
     }
 }
 
@@ -60,14 +69,14 @@ impl Widget for NotificationToast<'_> {
                 let label = n.job_name.as_deref().unwrap_or("job");
                 if let Some(err) = &n.error {
                     Line::from(vec![
-                        Span::styled(
-                            format!("  ✗ {label}: "),
-                            self.theme.error,
-                        ),
+                        Span::styled(format!("  ✗ {label}: "), self.theme.error),
                         Span::styled(truncate(err, 28), self.theme.error),
                     ])
                 } else {
-                    let result = n.result.as_deref().unwrap_or(self.strings.notification_success);
+                    let result = n
+                        .result
+                        .as_deref()
+                        .unwrap_or(self.strings.notification_success);
                     Line::from(vec![
                         Span::styled(format!("  ✓ {label}: "), self.theme.tool_completed),
                         Span::styled(truncate(result, 28), self.theme.dim),

@@ -32,5 +32,12 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    run(cli.remote, cli.server_bin, cli.workspace, cli.theme, cli.lang).await
+    run(
+        cli.remote,
+        cli.server_bin,
+        cli.workspace,
+        cli.theme,
+        cli.lang,
+    )
+    .await
 }

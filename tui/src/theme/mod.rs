@@ -76,71 +76,73 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// Built-in dark theme.
+    /// Built-in dark theme — aligned with DotCraft Desktop dark tokens (`desktop/src/renderer/styles/tokens.css`).
     pub fn dark() -> Self {
+        // Desktop dark tokens (approximate RGB): text #e5e5e5, accent #4A7FA5, accent-hover #5A9BC0,
+        // success #22c55e, warning #eab308, error #ef4444, info #3b82f6, dim #666666, tertiary bg #2e2e2e.
         Self {
-            user_message: Style::default().fg(Color::Cyan),
-            agent_message: Style::default().fg(Color::White),
+            user_message: Style::default().fg(Color::Rgb(90, 155, 192)), // accent-hover (user emphasis)
+            agent_message: Style::default().fg(Color::Rgb(229, 229, 229)), // text-primary
             reasoning: Style::default()
-                .fg(Color::DarkGray)
+                .fg(Color::Rgb(102, 102, 102)) // text-dimmed
                 .add_modifier(Modifier::ITALIC),
             reasoning_header: Style::default()
-                .fg(Color::Cyan)
+                .fg(Color::Rgb(90, 155, 192))
                 .add_modifier(Modifier::ITALIC),
 
-            tool_active: Style::default().fg(Color::Yellow),
-            tool_completed: Style::default().fg(Color::DarkGray),
-            tool_error: Style::default().fg(Color::Red),
+            tool_active: Style::default().fg(Color::Rgb(234, 179, 8)), // warning
+            tool_completed: Style::default().fg(Color::Rgb(102, 102, 102)),
+            tool_error: Style::default().fg(Color::Rgb(239, 68, 68)), // error
 
             heading1: Style::default()
-                .fg(Color::Rgb(124, 58, 237))
+                .fg(Color::Rgb(90, 155, 192)) // accent-hover — matches desktop markdown emphasis
                 .add_modifier(Modifier::BOLD),
             heading2: Style::default()
-                .fg(Color::Cyan)
+                .fg(Color::Rgb(59, 130, 246)) // info (links / secondary headings)
                 .add_modifier(Modifier::BOLD),
             heading3: Style::default()
-                .fg(Color::White)
+                .fg(Color::Rgb(229, 229, 229)) // text-primary
                 .add_modifier(Modifier::BOLD),
 
             inline_code: Style::default()
-                .fg(Color::Rgb(250, 200, 100))
-                .bg(Color::Rgb(40, 40, 50)),
-            code_block_border: Style::default().fg(Color::DarkGray),
+                .fg(Color::Rgb(229, 229, 229))
+                .bg(Color::Rgb(46, 46, 46)), // bg-tertiary
+            code_block_border: Style::default().fg(Color::Rgb(102, 102, 102)),
 
-            table_border: Style::default().fg(Color::DarkGray),
+            table_border: Style::default().fg(Color::Rgb(102, 102, 102)),
             table_header: Style::default()
-                .fg(Color::White)
+                .fg(Color::Rgb(229, 229, 229))
                 .add_modifier(Modifier::BOLD),
 
-            blockquote_border: Style::default().fg(Color::DarkGray),
+            blockquote_border: Style::default().fg(Color::Rgb(102, 102, 102)),
             blockquote_text: Style::default()
-                .fg(Color::Gray)
+                .fg(Color::Rgb(160, 160, 160)) // text-secondary
                 .add_modifier(Modifier::ITALIC),
 
             link: Style::default()
-                .fg(Color::Blue)
+                .fg(Color::Rgb(59, 130, 246)) // info
                 .add_modifier(Modifier::UNDERLINED),
 
-            error: Style::default().fg(Color::Red),
-            success: Style::default().fg(Color::Green),
-            dim: Style::default().fg(Color::DarkGray),
-            system_info: Style::default().fg(Color::DarkGray),
+            error: Style::default().fg(Color::Rgb(239, 68, 68)),
+            success: Style::default().fg(Color::Rgb(34, 197, 94)),
+            dim: Style::default().fg(Color::Rgb(102, 102, 102)),
+            system_info: Style::default().fg(Color::Rgb(102, 102, 102)),
 
-            footer_fg: Style::default().fg(Color::DarkGray),
-            footer_context: Style::default().fg(Color::DarkGray),
+            footer_fg: Style::default().fg(Color::Rgb(102, 102, 102)),
+            footer_context: Style::default().fg(Color::Rgb(102, 102, 102)),
 
-            status_indicator: Style::default().fg(Color::Yellow),
+            status_indicator: Style::default().fg(Color::Rgb(234, 179, 8)), // warning
 
             welcome_brand: Style::default()
-                .fg(Color::Rgb(124, 58, 237))
+                .fg(Color::Rgb(74, 127, 165)) // accent (replaces purple; matches DotCraft desktop brand)
                 .add_modifier(Modifier::BOLD),
 
-            input_border_agent: Style::default().fg(Color::Green),
-            input_border_plan: Style::default().fg(Color::Blue),
-            input_placeholder: Style::default().fg(Color::DarkGray),
+            input_border_agent: Style::default().fg(Color::Rgb(34, 197, 94)), // success
+            input_border_plan: Style::default().fg(Color::Rgb(59, 130, 246)), // info
+            input_placeholder: Style::default().fg(Color::Rgb(102, 102, 102)),
 
             approval_border: Style::default()
-                .fg(Color::Yellow)
+                .fg(Color::Rgb(234, 179, 8))
                 .add_modifier(Modifier::BOLD),
 
             syntect_theme: "base16-ocean.dark".to_string(),

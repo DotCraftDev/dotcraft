@@ -197,7 +197,10 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
 
         KeyCode::End => {
             let after = &state.input_text[state.input_cursor..];
-            let line_end = after.find('\n').map(|i| state.input_cursor + i).unwrap_or(state.input_text.len());
+            let line_end = after
+                .find('\n')
+                .map(|i| state.input_cursor + i)
+                .unwrap_or(state.input_text.len());
             state.input_cursor = line_end;
             InputAction::None
         }
@@ -248,9 +251,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
                         selected: 0,
                     });
                 }
-            } else if !state.input_text.is_empty()
-                && state.turn_status != TurnStatus::Idle
-            {
+            } else if !state.input_text.is_empty() && state.turn_status != TurnStatus::Idle {
                 // Queue follow-up text while a turn is running; drained on turn completion.
                 let text = std::mem::take(&mut state.input_text);
                 state.input_cursor = 0;
@@ -434,19 +435,14 @@ pub fn handle_approval_overlay(
         KeyCode::Char('s') => InputAction::ApprovalDecision("acceptForSession".to_string()),
         KeyCode::Char('!') => InputAction::ApprovalDecision("acceptAlways".to_string()),
         KeyCode::Char('d') => InputAction::ApprovalDecision("decline".to_string()),
-        KeyCode::Char('c') | KeyCode::Esc => {
-            InputAction::ApprovalDecision("cancel".to_string())
-        }
+        KeyCode::Char('c') | KeyCode::Esc => InputAction::ApprovalDecision("cancel".to_string()),
 
         _ => InputAction::None,
     }
 }
 
 /// Handle key events when the ThreadPicker overlay is active.
-pub fn handle_thread_picker(
-    state: &mut AppState,
-    key: crossterm::event::KeyEvent,
-) -> InputAction {
+pub fn handle_thread_picker(state: &mut AppState, key: crossterm::event::KeyEvent) -> InputAction {
     use crossterm::event::KeyCode;
 
     let thread_count = state

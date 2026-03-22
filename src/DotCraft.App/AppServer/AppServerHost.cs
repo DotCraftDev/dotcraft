@@ -65,6 +65,8 @@ public sealed class AppServerHost(
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
+        skillsLoader.SetDisabledSkills(config.Skills.DisabledSkills);
+
         var traceCollector = sp.GetService<TraceCollector>();
         var cronTools = sp.GetService<CronTools>();
 
@@ -226,7 +228,8 @@ public sealed class AppServerHost(
 
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
-            cronService: _cronService, heartbeatService: _heartbeatService);
+            cronService: _cronService, heartbeatService: _heartbeatService,
+            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -276,7 +279,8 @@ public sealed class AppServerHost(
 
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
-            cronService: _cronService, heartbeatService: _heartbeatService);
+            cronService: _cronService, heartbeatService: _heartbeatService,
+            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -349,7 +353,8 @@ public sealed class AppServerHost(
             {
                 var wsHandler = new AppServerRequestHandler(
                     sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
-                    cronService: _cronService, heartbeatService: _heartbeatService);
+                    cronService: _cronService, heartbeatService: _heartbeatService,
+                    skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //

@@ -134,6 +134,15 @@ public sealed class FileTools(
                 Directory.CreateDirectory(directory);
 
             var encoding = File.Exists(fullPath) ? DetectFileEncoding(fullPath) : Utf8NoBom;
+            if (File.Exists(fullPath))
+            {
+                var existing = await File.ReadAllTextAsync(fullPath, encoding);
+                content = RestoreLineEndings(NormalizeToLf(content), UsesCrLf(existing));
+            }
+            else
+            {
+                content = NormalizeToLf(content);
+            }
             await File.WriteAllTextAsync(fullPath, content, encoding);
             var lineCount = content.Split('\n').Length;
             return $"Successfully wrote {content.Length} bytes ({lineCount} lines) to {path}";
@@ -148,14 +157,12 @@ public sealed class FileTools(
         }
     }
 
-    [Description("Edit a file. Two modes: (1) Search/Replace - provide oldText and newText, with automatic fuzzy matching fallback for whitespace/indentation differences. (2) Line range - provide startLine and endLine to replace specific lines with newText (pairs with ReadFile offset/limit).")]
+    [Description("Replace text in a file: provide oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 3-8 lines including surrounding context) to save tokens; do not paste entire files unless rewriting. For new files or full rewrites use WriteFile. Matching tries exact text first, then fuzzy fallbacks (line trim, indentation, collapsed whitespace, Unicode punctuation). oldText must match exactly one location.")]
     [Tool(Icon = "🔄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.EditFile))]
     public async Task<string> EditFile(
         [Description("The workspace-relative or absolute file path to edit.")] string path,
-        [Description("The text to find and replace. Required for search/replace mode, ignored in line range mode.")] string oldText = "",
-        [Description("The replacement text.")] string newText = "",
-        [Description("Start line number (1-indexed) for line range replacement. When set, switches to line range mode.")] int startLine = 0,
-        [Description("End line number (1-indexed, inclusive) for line range replacement. Defaults to startLine if not set.")] int endLine = 0)
+        [Description("The exact snippet from the file to replace. Include enough surrounding lines to be unique.")] string oldText = "",
+        [Description("The replacement text.")] string newText = "")
     {
         try
         {
@@ -171,11 +178,8 @@ public sealed class FileTools(
             var content = await File.ReadAllTextAsync(fullPath, encoding);
             newText = UnescapeUnicodeSequences(newText);
 
-            if (startLine > 0)
-                return await ApplyLineRangeEdit(fullPath, path, content, newText, startLine, endLine, encoding);
-
             if (string.IsNullOrEmpty(oldText))
-                return "Error: oldText is required for search/replace mode. Use startLine/endLine for line range mode.";
+                return "Error: oldText is required. Provide the exact snippet to find and replace.";
 
             oldText = UnescapeUnicodeSequences(oldText);
             return await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding);
@@ -527,174 +531,36 @@ public sealed class FileTools(
         return false;
     }
 
-    private static async Task<string> ApplyLineRangeEdit(
-        string fullPath, string displayPath, string content, string newText, int startLine, int endLine,
-        Encoding encoding)
-    {
-        var useCrLf = content.Contains("\r\n");
-        var normalized = content.Replace("\r\n", "\n");
-        var lines = normalized.Split('\n').ToList();
-
-        var startIdx = startLine - 1;
-        if (startIdx >= lines.Count)
-            return $"Error: startLine {startLine} is out of range (file has {lines.Count} lines).";
-
-        if (endLine < startLine) endLine = startLine;
-        var endIdx = Math.Min(endLine, lines.Count) - 1;
-        var removedCount = endIdx - startIdx + 1;
-
-        lines.RemoveRange(startIdx, removedCount);
-
-        if (!string.IsNullOrEmpty(newText))
-        {
-            var newLines = newText.Replace("\r\n", "\n").Split('\n');
-            lines.InsertRange(startIdx, newLines);
-        }
-
-        var result = string.Join("\n", lines);
-        if (useCrLf)
-            result = result.Replace("\n", "\r\n");
-
-        var insertedCount = string.IsNullOrEmpty(newText) ? 0 : newText.Replace("\r\n", "\n").Split('\n').Length;
-        await File.WriteAllTextAsync(fullPath, result, encoding);
-        return $"Successfully replaced lines {startLine}-{endLine} in {displayPath} ({removedCount} -> {insertedCount} lines)";
-    }
-
     private static async Task<string> ApplySearchReplaceEdit(
         string fullPath, string displayPath, string content, string oldText, string newText,
         Encoding encoding)
     {
-        var count = CountOccurrences(content, oldText);
-        if (count == 1)
-        {
-            var idx = content.IndexOf(oldText, StringComparison.Ordinal);
-            var newContent = content[..idx] + newText + content[(idx + oldText.Length)..];
-            await File.WriteAllTextAsync(fullPath, newContent, encoding);
-            var lineNum = content[..idx].Count(c => c == '\n') + 1;
-            var oldLineCount = oldText.Count(c => c == '\n') + 1;
-            var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
-            return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines)";
-        }
-        if (count > 1)
-            return $"Error: oldText appears {count} times in the file. Please provide more context to make it unique.";
+        // Normalize all inputs to LF for consistent matching, restore on write
+        var useCrLf = UsesCrLf(content);
+        content = NormalizeToLf(content);
+        oldText = NormalizeToLf(oldText);
+        newText = NormalizeToLf(newText);
 
-        var found = TryLineTrimmedMatch(content, oldText);
-        if (found != null)
-        {
-            var idx = content.IndexOf(found, StringComparison.Ordinal);
-            if (idx != -1)
-            {
-                var newContent = content[..idx] + newText + content[(idx + found.Length)..];
-                await File.WriteAllTextAsync(fullPath, newContent, encoding);
-                var lineNum = content[..idx].Count(c => c == '\n') + 1;
-                var oldLineCount = found.Count(c => c == '\n') + 1;
-                var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
-                return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines) (matched via line-trimmed fallback)";
-            }
-        }
+        var (ok, newLfContent, error, matchKind, lineNum, oldLineCount) = FileEditSearchReplace.Apply(content, oldText, newText);
+        if (!ok)
+            return error!;
 
-        found = TryIndentFlexibleMatch(content, oldText);
-        if (found != null)
-        {
-            var idx = content.IndexOf(found, StringComparison.Ordinal);
-            if (idx != -1)
-            {
-                var newContent = content[..idx] + newText + content[(idx + found.Length)..];
-                await File.WriteAllTextAsync(fullPath, newContent, encoding);
-                var lineNum = content[..idx].Count(c => c == '\n') + 1;
-                var oldLineCount = found.Count(c => c == '\n') + 1;
-                var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
-                return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines) (matched via indentation-flexible fallback)";
-            }
-        }
+        var newContent = RestoreLineEndings(newLfContent, useCrLf);
+        await File.WriteAllTextAsync(fullPath, newContent, encoding);
 
-        var first50 = content.Length > 50 ? content[..50] : content;
-        return $"Error: oldText not found in file. Make sure it matches the content. File has {content.Length} chars. First 50 chars: \"{first50}\"";
+        var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
+        var suffix = matchKind != null ? $" ({matchKind})" : "";
+        return $"Successfully edited {displayPath} at line {lineNum} ({oldLineCount} -> {newLineCount} lines){suffix}";
     }
 
-    private static int CountOccurrences(string content, string searchText)
-    {
-        var count = 0;
-        var pos = 0;
-        while ((pos = content.IndexOf(searchText, pos, StringComparison.Ordinal)) != -1)
-        {
-            count++;
-            pos += searchText.Length;
-        }
-        return count;
-    }
+    private static bool UsesCrLf(string content)
+        => content.Contains("\r\n");
 
-    private static string? TryLineTrimmedMatch(string content, string oldText)
-    {
-        var contentLines = content.Split('\n');
-        var searchLines = oldText.Split('\n');
-        if (searchLines.Length == 0) return null;
+    private static string NormalizeToLf(string content)
+        => content.Replace("\r\n", "\n");
 
-        string? uniqueMatch = null;
-        for (var i = 0; i <= contentLines.Length - searchLines.Length; i++)
-        {
-            var allMatch = true;
-            for (var j = 0; j < searchLines.Length; j++)
-            {
-                if (contentLines[i + j].TrimEnd('\r').Trim() != searchLines[j].TrimEnd('\r').Trim())
-                {
-                    allMatch = false;
-                    break;
-                }
-            }
-            if (allMatch)
-            {
-                var block = string.Join("\n", contentLines.Skip(i).Take(searchLines.Length));
-                if (uniqueMatch != null) return null;
-                uniqueMatch = block;
-            }
-        }
-        return uniqueMatch;
-    }
-
-    private static string? TryIndentFlexibleMatch(string content, string oldText)
-    {
-        var contentLines = content.Split('\n');
-        var searchLines = oldText.Split('\n');
-        if (searchLines.Length == 0) return null;
-
-        var searchDeindented = DeindentLines(searchLines);
-        string? uniqueMatch = null;
-
-        for (var i = 0; i <= contentLines.Length - searchLines.Length; i++)
-        {
-            var blockLines = contentLines.Skip(i).Take(searchLines.Length).ToArray();
-            var blockDeindented = DeindentLines(blockLines);
-            if (blockDeindented.Length != searchDeindented.Length) continue;
-
-            var allMatch = true;
-            for (var j = 0; j < searchDeindented.Length; j++)
-            {
-                if (blockDeindented[j] != searchDeindented[j])
-                {
-                    allMatch = false;
-                    break;
-                }
-            }
-            if (allMatch)
-            {
-                var block = string.Join("\n", blockLines);
-                if (uniqueMatch != null) return null;
-                uniqueMatch = block;
-            }
-        }
-        return uniqueMatch;
-    }
-
-    private static string[] DeindentLines(string[] lines)
-    {
-        var trimmed = lines.Select(l => l.TrimEnd('\r')).ToArray();
-        var nonEmpty = trimmed.Where(l => l.Trim().Length > 0).ToArray();
-        if (nonEmpty.Length == 0) return trimmed;
-
-        var minIndent = nonEmpty.Min(l => l.Length - l.TrimStart().Length);
-        return trimmed.Select(l => l.Length > minIndent ? l[minIndent..] : l.TrimStart()).ToArray();
-    }
+    private static string RestoreLineEndings(string content, bool useCrLf)
+        => useCrLf ? content.Replace("\n", "\r\n") : content;
 
     #endregion
 }

@@ -26,7 +26,11 @@ pub struct InputEditor<'a> {
 
 impl<'a> InputEditor<'a> {
     pub fn new(state: &'a AppState, theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { state, theme, strings }
+        Self {
+            state,
+            theme,
+            strings,
+        }
     }
 
     /// Preferred height accounting for visual line wrapping and CJK wide characters.
@@ -40,7 +44,11 @@ impl<'a> InputEditor<'a> {
         // unlike str::lines() which strips it.
         for logical_line in text.split('\n') {
             let w = logical_line.width();
-            visual_rows += if w == 0 { 1 } else { (w + inner_w - 1) / inner_w };
+            visual_rows += if w == 0 {
+                1
+            } else {
+                (w + inner_w - 1) / inner_w
+            };
         }
         (visual_rows.max(1) as u16).clamp(1, 10)
     }
@@ -90,7 +98,11 @@ impl Widget for InputEditor<'_> {
                 .lines()
                 .map(|l| Line::from(l.to_string()))
                 .collect();
-            let lines = if lines.is_empty() { vec![Line::default()] } else { lines };
+            let lines = if lines.is_empty() {
+                vec![Line::default()]
+            } else {
+                lines
+            };
             Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
                 .render(inner, buf);

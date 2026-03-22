@@ -79,7 +79,8 @@ pub const MODE_CYCLE_HINT: &str = "shift+tab 切换";
 pub const SHORTCUTS_HINT: &str = "? 查看快捷键";
 
 // UX polish round 2: welcome, action feedback
-pub const WELCOME_MESSAGE: &str = "✦ DotCraft v{}\n  工作区：{}\n  输入消息开始对话 · /help 查看命令 · /sessions 查看历史";
+pub const WELCOME_MESSAGE: &str =
+    "✦ DotCraft v{}\n  工作区：{}\n  输入消息开始对话 · /help 查看命令 · /sessions 查看历史";
 pub const NEW_SESSION_HINT: &str = "新对话。输入消息开始。";
 pub const SESSION_LOADED_PREFIX: &str = "已加载会话：";
 

@@ -422,6 +422,13 @@ internal sealed class FakeSessionService : ISessionService
         await _store.SaveThreadAsync(thread, ct);
     }
 
+    public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        thread.DisplayName = displayName;
+        await _store.SaveThreadAsync(thread, ct);
+    }
+
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
         bool includeArchived = false,

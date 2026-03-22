@@ -22,6 +22,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
   - [6.6 Usage Notifications](#66-usage-notifications)
   - [6.7 System Notifications](#67-system-notifications)
 - [6.8 Plan Notifications](#68-plan-notifications)
+- [6.10 Notification Delivery Guarantees](#610-notification-delivery-guarantees)
 - [7. Approval Flow](#7-approval-flow)
 - [8. Error Handling](#8-error-handling)
 - [9. Backpressure](#9-backpressure)
@@ -33,6 +34,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [15. WebSocket Transport](#15-websocket-transport)
 - [16. Cron Management Methods](#16-cron-management-methods)
 - [17. Heartbeat Management Methods](#17-heartbeat-management-methods)
+- [18. Skills Management Methods](#18-skills-management-methods)
 
 ---
 
@@ -59,7 +61,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -177,7 +179,8 @@ Client                              Server
     "modeSwitch": true,
     "configOverride": true,
     "cronManagement": true,
-    "heartbeatManagement": true
+    "heartbeatManagement": true,
+    "skillsManagement": true
   }
 }
 ```
@@ -195,6 +198,7 @@ Client                              Server
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
+| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). Always `true` when the server has a `SkillsLoader` configured. |
 
 ### 3.3 `initialized`
 
@@ -459,6 +463,21 @@ Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
 **Behavior**: The server recreates the agent for the specified thread with the new mode's tool set. The resulting agent must have the same mode-specific tools as an equivalent in-process agent (see Session Core spec §16.3.1). In particular, the AppServer process must supply `PlanStore` to `AgentFactory` so that plan-mode tools (`CreatePlan`) and agent-mode plan tools (`UpdateTodos`, `TodoWrite`) are correctly injected.
 
+### 4.11 `thread/rename`
+
+Update the display name of a thread.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID. |
+| `displayName` | string | yes | New display name for the thread. |
+
+**Result**: `{}`
+
 ### 4.9 `thread/config/update`
 
 Update per-thread agent configuration (MCP servers, extensions, etc.).
@@ -487,6 +506,8 @@ Submit user input to a thread and begin agent execution. The server creates a ne
 Before starting the agent, the server **must** ensure the in-memory thread is loaded from persistence if needed and that any persisted `thread.configuration` (mode, MCP servers, etc.) is applied to the execution-time agent, so turns do not silently use workspace-default tooling after a cold load or when only `thread/read` was used earlier ([Session Core](session-core.md) `EnsureThreadLoaded`).
 
 The response is returned **immediately** with the initial Turn object (status `"running"`, empty `items`). The agent's output then streams as notifications: `turn/started`, followed by `item/*` events, and finally `turn/completed` (or `turn/failed` / `turn/cancelled`).
+
+**Interaction with `thread/subscribe`**: If the calling connection already holds an active subscription for the target thread (via `thread/subscribe`), the server MUST use the subscription path to deliver all turn-scoped notifications instead of creating a separate inline dispatch path. The `turn/start` JSON-RPC response is still sent before the first `turn/started` notification. See [Section 6.10](#610-notification-delivery-guarantees) for the at-most-once delivery guarantee.
 
 **Direction**: client → server (request)
 
@@ -1290,6 +1311,32 @@ Server                                         Client
   |<----------------------------------------------|
 ```
 
+### 6.10 Notification Delivery Guarantees
+
+The server MUST deliver each event notification **at most once per connection**, regardless of how many delivery paths are active for that thread.
+
+**At-most-once rule**: When a connection holds an active `thread/subscribe` subscription for a thread and calls `turn/start` on the same thread, the server MUST NOT create a separate inline notification dispatch path for the turn. The existing subscription dispatcher is the sole delivery path for all turn-scoped notifications. The `turn/start` JSON-RPC response is still returned inline before any notifications are emitted.
+
+This rule applies to all turn-scoped notifications:
+
+| Notification | Covered |
+|---|---|
+| `turn/started` | yes |
+| `turn/completed` | yes |
+| `turn/failed` | yes |
+| `turn/cancelled` | yes |
+| `item/started` | yes |
+| `item/agentMessage/delta` | yes |
+| `item/reasoning/delta` | yes |
+| `item/completed` | yes |
+| `item/usage/delta` | yes |
+| `subagent/progress` | yes |
+| `system/event` | yes |
+
+**Rationale**: The turn channel (`SubmitInputAsync`) and the broker (`SubscribeThreadAsync`) both receive every session event from `SessionEventChannel.Write()`. Without this rule, a client that both subscribes and originates a turn would receive every notification twice, producing duplicate streaming output.
+
+**Ordering guarantee**: The at-most-once rule does not relax the ordering guarantee. The `turn/start` response still arrives at the client before the first `turn/started` notification, because the server synchronously emits `TurnStarted` into the turn channel (and by extension the broker), reads it, sends the `turn/start` response, and only then does the background subscription dispatcher forward the broker event.
+
 ---
 
 ## 10. Notification Opt-Out
@@ -1510,7 +1557,7 @@ This protocol is modeled after Codex App Server. The following table summarizes 
 | Auth | Built-in (`account/login`, ChatGPT OAuth) | Outside wire protocol scope; handled by bearer token or channel auth |
 | Config | `config/read`, `config/value/write` | `thread/config/update`, `thread/mode/set` |
 | Review | `review/start`, `enteredReviewMode`, `exitedReviewMode` | Not in v1 (future extension) |
-| Skills/Apps | `skills/list`, `app/list`, `plugin/list` | Not in v1 core; extension surface |
+| Skills/Apps | `skills/list`, `app/list`, `plugin/list` | `skills/list`, `skills/read`, `skills/setEnabled` with `skillsManagement` capability |
 | Command exec | `command/exec` (standalone sandbox execution) | Not in v1 core; ACP extension surface |
 | Filesystem | `fs/readFile`, `fs/writeFile`, etc. | Not in v1 core; ACP extension surface |
 | Extension model | Experimental API opt-in via `capabilities.experimentalApi` | `ext/<namespace>/...` method namespace |
@@ -1914,3 +1961,275 @@ Trigger an immediate heartbeat run on the server.
 ### 17.3 Capability Advertisement
 
 Clients must check `capabilities.heartbeatManagement` before calling `heartbeat/trigger`. The capability is present and `true` only when the AppServer has a `HeartbeatService` configured.
+
+---
+
+## 18. Skills Management Methods
+
+### 18.1 Scope
+
+These methods expose the `SkillsLoader` surface to wire clients, enabling them to list installed skills, read skill content, and toggle skill availability. Skills are markdown files (`SKILL.md`) that teach the agent specific capabilities. They are loaded from up to three sources with a defined priority order:
+
+| Priority | Source | Location | Description |
+|----------|--------|----------|-------------|
+| 1 (highest) | `builtin` | `<workspace>/skills/<name>/` with `.builtin` marker | Default skills deployed from the assembly by `DeployBuiltInSkills()`. |
+| 2 | `workspace` | `<workspace>/skills/<name>/` without `.builtin` marker | User-created skills in the current workspace. |
+| 3 (lowest) | `user` | `~/.craft/skills/<name>/` | User-level skills shared across all workspaces. |
+
+When a skill name exists in both workspace and user directories, the workspace version takes precedence and the user version is hidden.
+
+Skills may declare requirements (executables, environment variables) in their frontmatter. A skill whose requirements are not met is reported as `available: false` with a diagnostic reason.
+
+Clients must check `capabilities.skillsManagement` in the `initialize` response before calling any `skills/*` method. If the flag is absent or `false`, the server returns `-32601` (method not found).
+
+### 18.2 `SkillInfo` Wire DTO
+
+All skills methods that return skill data use the following `SkillInfo` wire object. It is a transport-safe projection of the internal `SkillsLoader.SkillInfo` domain model.
+
+```json
+{
+  "name": "browser",
+  "description": "Browser automation via Playwright MCP - navigate, click, fill forms, take screenshots, and inspect web pages.",
+  "source": "builtin",
+  "available": true,
+  "unavailableReason": null,
+  "enabled": true,
+  "path": "/home/user/project/skills/browser/SKILL.md",
+  "metadata": {
+    "description": "Browser automation via Playwright MCP...",
+    "bins": "npx"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Skill directory name, used as the skill identifier. |
+| `description` | string | Human-readable description extracted from frontmatter `description` field. Falls back to `name` if absent. |
+| `source` | string | One of `"builtin"`, `"workspace"`, or `"user"`. Indicates where the skill is installed. |
+| `available` | boolean | `true` if all declared requirements (bins, env) are met on the server. |
+| `unavailableReason` | string? | Diagnostic message listing missing requirements. `null` when `available` is `true`. |
+| `enabled` | boolean | `true` if the skill is active and will be included in agent context. `false` if the user has disabled it via `skills/setEnabled`. |
+| `path` | string | Absolute filesystem path to the `SKILL.md` file. |
+| `metadata` | object | Key-value pairs from the YAML frontmatter of `SKILL.md`. Common keys: `description`, `name`, `bins`, `env`, `always`. |
+
+### 18.3 `skills/list`
+
+List all installed skills across all sources.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `includeUnavailable` | boolean | no | Default `true`. When `false`, skills with unmet requirements are excluded. |
+
+**Result**:
+
+```json
+{
+  "skills": [
+    {
+      "name": "browser",
+      "description": "Browser automation via Playwright MCP...",
+      "source": "builtin",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "path": "/home/user/project/skills/browser/SKILL.md",
+      "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+    },
+    {
+      "name": "create-hooks",
+      "description": "Create and configure DotCraft lifecycle hooks...",
+      "source": "builtin",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "path": "/home/user/project/skills/create-hooks/SKILL.md",
+      "metadata": { "name": "create-hooks", "description": "Create and configure DotCraft lifecycle hooks..." }
+    },
+    {
+      "name": "my-custom-skill",
+      "description": "Custom workspace skill for this project.",
+      "source": "workspace",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": true,
+      "path": "/home/user/project/skills/my-custom-skill/SKILL.md",
+      "metadata": { "description": "Custom workspace skill for this project." }
+    },
+    {
+      "name": "code-review",
+      "description": "Code review guidelines and procedures.",
+      "source": "user",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": false,
+      "path": "/home/user/.craft/skills/code-review/SKILL.md",
+      "metadata": { "description": "Code review guidelines and procedures." }
+    }
+  ]
+}
+```
+
+**Behavior**: Returns skills from all three sources (builtin, workspace, user) merged by the standard priority rules — workspace skills shadow user skills with the same name. Skills are sorted by source priority (builtin first, then workspace, then user), then alphabetically within each source group. The `enabled` field reflects the current config state: skills listed in the `Skills.DisabledSkills` config array are reported as `enabled: false`.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "skills/list", "id": 70, "params": {} }
+
+{ "jsonrpc": "2.0", "id": 70, "result": {
+    "skills": [
+      {
+        "name": "browser",
+        "description": "Browser automation via Playwright MCP...",
+        "source": "builtin",
+        "available": true,
+        "unavailableReason": null,
+        "enabled": true,
+        "path": "/home/user/project/skills/browser/SKILL.md",
+        "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+      }
+    ]
+} }
+```
+
+### 18.4 `skills/read`
+
+Read the full content of a skill's `SKILL.md` file.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name (directory name) to read. |
+
+**Result**:
+
+```json
+{
+  "name": "browser",
+  "content": "---\ndescription: \"Browser automation via Playwright MCP...\"\nbins: npx\n---\n\n# Browser Automation (Playwright MCP)\n\nYou have access to browser automation tools...",
+  "metadata": {
+    "description": "Browser automation via Playwright MCP...",
+    "bins": "npx"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | The skill name that was requested. |
+| `content` | string | Raw `SKILL.md` content including frontmatter. |
+| `metadata` | object | Parsed frontmatter key-value pairs. `null` if the file has no frontmatter. |
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32040` | The specified skill name does not exist in any source. |
+
+**Behavior**: Loads the skill using the standard priority order (workspace first, then user). Returns the raw markdown content of the `SKILL.md` file and its parsed frontmatter metadata.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "skills/read", "id": 71, "params": {
+    "name": "browser"
+} }
+
+{ "jsonrpc": "2.0", "id": 71, "result": {
+    "name": "browser",
+    "content": "---\ndescription: \"Browser automation...\"\nbins: npx\n---\n\n# Browser Automation\n\n...",
+    "metadata": { "description": "Browser automation...", "bins": "npx" }
+} }
+```
+
+### 18.5 `skills/setEnabled`
+
+Enable or disable a skill. Disabled skills remain on disk but are excluded from agent context.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Skill name to enable or disable. |
+| `enabled` | boolean | yes | `true` to enable the skill; `false` to disable it. |
+
+**Result**:
+
+```json
+{
+  "skill": {
+    "name": "browser",
+    "description": "Browser automation via Playwright MCP...",
+    "source": "builtin",
+    "available": true,
+    "unavailableReason": null,
+    "enabled": false,
+    "path": "/home/user/project/skills/browser/SKILL.md",
+    "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+  }
+}
+```
+
+The `skill` field contains the updated `SkillInfo` object reflecting the new `enabled` state.
+
+**Errors**:
+
+| Code | When |
+|------|------|
+| `-32040` | The specified skill name does not exist in any source. |
+
+**Behavior**: Toggles a skill's enabled state by adding or removing its name from the `Skills.DisabledSkills` array in the workspace-level config (`.craft/config.json`). Workspace-level config is used so that skill preferences are per-workspace, consistent with DotCraft's two-level config model. The change is persisted immediately.
+
+When disabling: the skill name is added to `DisabledSkills`. When enabling: the skill name is removed from `DisabledSkills`. If the skill is already in the requested state, the operation is a no-op and returns the current `SkillInfo`.
+
+**Config structure**:
+
+```json
+{
+  "Skills": {
+    "DisabledSkills": ["browser", "memory"]
+  }
+}
+```
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "skills/setEnabled", "id": 72, "params": {
+    "name": "browser",
+    "enabled": false
+} }
+
+{ "jsonrpc": "2.0", "id": 72, "result": {
+    "skill": {
+      "name": "browser",
+      "description": "Browser automation via Playwright MCP...",
+      "source": "builtin",
+      "available": true,
+      "unavailableReason": null,
+      "enabled": false,
+      "path": "/home/user/project/skills/browser/SKILL.md",
+      "metadata": { "description": "Browser automation via Playwright MCP...", "bins": "npx" }
+    }
+} }
+```
+
+### 18.6 Error Codes
+
+| Code | Constant | When |
+|------|----------|------|
+| `-32040` | `SkillNotFound` | The requested skill name does not exist in any source (workspace, user, or builtin). |
+
+### 18.7 Capability Advertisement
+
+Clients must check `capabilities.skillsManagement` before calling any `skills/*` method. The capability is present and `true` when the AppServer has a `SkillsLoader` configured (which is always the case when a workspace is active).
