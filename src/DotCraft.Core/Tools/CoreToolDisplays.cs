@@ -30,15 +30,8 @@ public static class CoreToolDisplays
     public static string EditFile(IDictionary<string, object?>? args)
     {
         var path = ToolDisplayHelpers.GetString(args, "path") ?? "file";
-        var startLine = ToolDisplayHelpers.GetInt(args, "startLine");
-        var endLine = ToolDisplayHelpers.GetInt(args, "endLine");
 
-        if (startLine > 0 && endLine > 0)
-            return $"Edited {path} lines {startLine}-{endLine}";
-        if (startLine > 0)
-            return $"Edited {path} at line {startLine}";
-
-        // For search/replace mode, show the first meaningful line of oldText as a content hint
+        // For search/replace, show the first meaningful line of oldText as a content hint
         // so multiple edits to the same file are visually distinguishable.
         var oldText = ToolDisplayHelpers.GetString(args, "oldText");
         if (!string.IsNullOrWhiteSpace(oldText))

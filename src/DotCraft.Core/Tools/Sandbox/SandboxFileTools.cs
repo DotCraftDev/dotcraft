@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.RegularExpressions;
 using OpenSandbox.Models;
 
 namespace DotCraft.Tools.Sandbox;
@@ -16,6 +17,8 @@ public sealed class SandboxFileTools
 
     private const int DefaultReadLimit = 2000;
     private const int MaxLineLength = 2000;
+
+    private static readonly Regex UnicodeEscapeRegex = new(@"\\u([0-9a-fA-F]{4})", RegexOptions.Compiled);
 
     public SandboxFileTools(
         SandboxSessionManager sandboxManager,
@@ -128,42 +131,43 @@ public sealed class SandboxFileTools
         }
     }
 
-    [Description("Edit a file. Two modes: (1) Search/Replace - provide oldText and newText, with automatic fuzzy matching fallback for whitespace/indentation differences. (2) Line range - provide startLine and endLine to replace specific lines with newText (pairs with ReadFile offset/limit).")]
+    [Description("Replace text in a file: oldText (snippet to find) and newText. Prefer a minimal unique snippet. Same fuzzy matching as workspace EditFile (exact, line trim, indentation, whitespace, Unicode).")]
     [Tool(Icon = "🔄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.EditFile))]
     public async Task<string> EditFile(
         [Description("Path inside the sandbox (absolute or relative to /workspace).")] string path,
-        [Description("The text to find and replace.")] string oldText = "",
+        [Description("The snippet from the file to replace.")] string oldText = "",
         [Description("The replacement text.")] string newText = "")
     {
         if (string.IsNullOrEmpty(oldText))
-            return "Error: oldText is required for search/replace mode.";
+            return "Error: oldText is required.";
 
         try
         {
             var sandbox = await _sandboxManager.GetOrCreateAsync();
             var fullPath = ResolveSandboxPath(path);
 
-            // Read current content
             var content = await sandbox.Files.ReadFileAsync(fullPath);
+            newText = UnescapeUnicodeSequences(newText);
+            oldText = UnescapeUnicodeSequences(oldText);
 
-            // Perform replacement
-            var occurrences = CountOccurrences(content, oldText);
-            if (occurrences == 0)
-                return $"Error: oldText not found in {path}. No changes made.";
-            if (occurrences > 1)
-                return $"Error: oldText found {occurrences} times in {path}. Please provide a more specific search string.";
+            var useCrLf = content.Contains("\r\n", StringComparison.Ordinal);
+            var lfContent = content.Replace("\r\n", "\n", StringComparison.Ordinal);
+            var lfOld = oldText.Replace("\r\n", "\n", StringComparison.Ordinal);
+            var lfNew = newText.Replace("\r\n", "\n", StringComparison.Ordinal);
 
-            var idx = content.IndexOf(oldText, StringComparison.Ordinal);
-            var newContent = content.Replace(oldText, newText);
+            var (ok, newLfContent, error, matchKind, lineNum, oldLineCount) = FileEditSearchReplace.Apply(lfContent, lfOld, lfNew);
+            if (!ok)
+                return error!;
+
+            var newContent = useCrLf ? newLfContent.Replace("\n", "\r\n", StringComparison.Ordinal) : newLfContent;
 
             await sandbox.Files.WriteFilesAsync([
                 new WriteEntry { Path = fullPath, Data = newContent, Mode = 644 }
             ]);
 
-            var lineNum = content[..idx].Count(c => c == '\n') + 1;
-            var oldLineCount = oldText.Count(c => c == '\n') + 1;
-            var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
-            return $"Successfully edited {path} at line {lineNum} ({oldLineCount} -> {newLineCount} lines)";
+            var newLineCount = string.IsNullOrEmpty(lfNew) ? 0 : lfNew.Count(c => c == '\n') + 1;
+            var suffix = matchKind != null ? $" ({matchKind})" : "";
+            return $"Successfully edited {path} at line {lineNum} ({oldLineCount} -> {newLineCount} lines){suffix}";
         }
         catch (OpenSandbox.Core.SandboxException ex)
         {
@@ -265,16 +269,13 @@ public sealed class SandboxFileTools
         return string.IsNullOrWhiteSpace(output) ? "(no output)" : output;
     }
 
-    private static int CountOccurrences(string text, string search)
+    private static string UnescapeUnicodeSequences(string input)
     {
-        var count = 0;
-        var index = 0;
-        while ((index = text.IndexOf(search, index, StringComparison.Ordinal)) != -1)
-        {
-            count++;
-            index += search.Length;
-        }
-        return count;
+        if (!input.Contains("\\u"))
+            return input;
+
+        return UnicodeEscapeRegex.Replace(input, match =>
+            ((char)Convert.ToInt32(match.Groups[1].Value, 16)).ToString());
     }
 
     private static string EscapeShellArg(string arg)
