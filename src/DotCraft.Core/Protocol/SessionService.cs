@@ -36,9 +36,12 @@ public sealed class SessionService(
     TraceCollector? traceCollector = null,
     TimeSpan? approvalTimeout = null,
     ILogger<SessionService>? logger = null,
-    ApprovalStore? approvalStore = null)
+    ApprovalStore? approvalStore = null,
+    IToolProfileRegistry? toolProfileRegistry = null)
     : ISessionService
 {
+    private readonly IToolProfileRegistry? _toolProfileRegistry = toolProfileRegistry;
+
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
     // In-memory state
@@ -419,15 +422,30 @@ public sealed class SessionService(
                 TokenTracker.Current = tokenTracker;
 
                 // Step 5f: Set up approval service override
-                var approvalService = new SessionApprovalService(
-                    eventChannel,
-                    turn,
-                    NextItemSeq,
-                    _approvalTimeout,
-                    cts.Cancel,
-                    approvalStore);
-                _pendingApprovals[turnKey] = approvalService;
-                approvalOverride = SessionScopedApprovalService.SetOverride(approvalService);
+                var approvalPolicy = thread.Configuration?.ApprovalPolicy ?? ApprovalPolicy.Default;
+                IApprovalService turnApprovalService;
+                switch (approvalPolicy)
+                {
+                    case ApprovalPolicy.AutoApprove:
+                        turnApprovalService = new AutoApproveApprovalService();
+                        break;
+                    case ApprovalPolicy.Interrupt:
+                        turnApprovalService = new InterruptOnApprovalService(cts.Cancel);
+                        break;
+                    default:
+                        var sessionApproval = new SessionApprovalService(
+                            eventChannel,
+                            turn,
+                            NextItemSeq,
+                            _approvalTimeout,
+                            cts.Cancel,
+                            approvalStore);
+                        _pendingApprovals[turnKey] = sessionApproval;
+                        turnApprovalService = sessionApproval;
+                        break;
+                }
+
+                approvalOverride = SessionScopedApprovalService.SetOverride(turnApprovalService);
 
                 // Set ApprovalContext for tools that read ApprovalContextScope
                 var approvalContextDisposable = sender != null
@@ -941,13 +959,30 @@ public sealed class SessionService(
             };
         }
 
+        List<AITool>? profileTools = null;
+        if (!string.IsNullOrEmpty(config.ToolProfile))
+        {
+            if (_toolProfileRegistry == null
+                || !_toolProfileRegistry.TryGet(config.ToolProfile, out var profileProviders)
+                || profileProviders == null)
+            {
+                throw new InvalidOperationException($"Tool profile '{config.ToolProfile}' is not registered.");
+            }
+
+            var toolCtx = scopedContext ?? agentFactory.ToolProviderContext;
+            profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolCtx);
+        }
+
         if (config.McpServers is not { Length: > 0 })
         {
             if (scopedContext != null)
             {
-                var tools = agentFactory.CreateToolsForMode(mode, scopedContext);
+                var tools = profileTools ?? agentFactory.CreateToolsForMode(mode, scopedContext);
                 return agentFactory.CreateAgentWithTools(tools, mm, scopedContext);
             }
+
+            if (profileTools != null)
+                return agentFactory.CreateAgentWithTools(profileTools, mm, agentFactory.ToolProviderContext);
 
             return agentFactory.CreateAgentForMode(mode, mm);
         }
@@ -980,12 +1015,12 @@ public sealed class SessionService(
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry
             };
 
-            var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);
+            var modeTools = profileTools ?? agentFactory.CreateToolsForMode(mode, effectiveContext);
             modeTools.AddRange(mcpManager.Tools);
             return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
         }
 
-        var toolsWithMcp = agentFactory.CreateToolsForMode(mode);
+        var toolsWithMcp = profileTools ?? agentFactory.CreateToolsForMode(mode);
         toolsWithMcp.AddRange(mcpManager.Tools);
         return agentFactory.CreateAgentWithTools(toolsWithMcp, mm);
     }

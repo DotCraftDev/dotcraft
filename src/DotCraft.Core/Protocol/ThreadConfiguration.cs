@@ -35,4 +35,17 @@ public sealed class ThreadConfiguration
     /// for discoverability via thread/list.
     /// </summary>
     public string? WorkspaceOverride { get; set; }
+
+    /// <summary>
+    /// When set, the agent uses the tool set registered under this profile name
+    /// instead of the default tools for the thread's <see cref="Mode"/>.
+    /// Requires the profile to be registered in <c>IToolProfileRegistry</c>.
+    /// </summary>
+    public string? ToolProfile { get; set; }
+
+    /// <summary>
+    /// Overrides the process-level approval service for this thread only.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(ApprovalPolicyJsonConverter))]
+    public ApprovalPolicy ApprovalPolicy { get; set; } = ApprovalPolicy.Default;
 }

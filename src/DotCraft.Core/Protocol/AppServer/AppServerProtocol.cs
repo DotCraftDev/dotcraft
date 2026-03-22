@@ -181,6 +181,12 @@ public sealed class ThreadListParams
     public SessionIdentity Identity { get; set; } = new();
 
     public bool? IncludeArchived { get; set; }
+
+    /// <summary>
+    /// When set, only threads whose <c>originChannel</c> matches (case-insensitive) are returned.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChannelName { get; set; }
 }
 
 public sealed class ThreadListResult

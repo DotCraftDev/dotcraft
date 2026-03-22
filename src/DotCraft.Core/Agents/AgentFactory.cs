@@ -265,6 +265,29 @@ public sealed class AgentFactory : IAsyncDisposable
     }
 
     /// <summary>
+    /// Creates tools from an explicit provider list (e.g. registered tool profile).
+    /// </summary>
+    public List<AITool> CreateToolsFromProviders(
+        IReadOnlyList<IAgentToolProvider> providers,
+        ToolProviderContext toolContext)
+    {
+        var tools = providers
+            .OrderBy(p => p.Priority)
+            .SelectMany(p => p.CreateTools(toolContext))
+            .ToList();
+
+        if (_globalEnabledToolNames.Count > 0)
+        {
+            tools = tools
+                .Where(t => _globalEnabledToolNames.Contains(t.Name))
+                .ToList();
+        }
+
+        tools = ApplyHooks(tools);
+        return tools;
+    }
+
+    /// <summary>
     /// Creates tools filtered for the given <see cref="AgentMode"/>.
     /// Plan mode strips write/execute tools.
     /// </summary>

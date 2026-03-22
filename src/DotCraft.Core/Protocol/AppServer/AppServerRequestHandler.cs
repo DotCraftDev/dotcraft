@@ -203,6 +203,13 @@ public sealed class AppServerRequestHandler(
             p.IncludeArchived ?? false,
             ct);
 
+        if (!string.IsNullOrEmpty(p.ChannelName))
+        {
+            threads = threads
+                .Where(t => string.Equals(t.OriginChannel, p.ChannelName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
         return new ThreadListResult { Data = [.. threads] };
     }
 
