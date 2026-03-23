@@ -5,7 +5,7 @@ using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
 using DotCraft.GitHubTracker.Tracker;
 using DotCraft.GitHubTracker.Workflow;
-using DotCraft.Tools;
+using DotCraft.GitHubTracker.Workspace;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -19,6 +19,7 @@ namespace DotCraft.GitHubTracker.GitHub;
 public sealed class GitHubAutomationSource : IAutomationSource
 {
     private readonly IWorkItemTracker _tracker;
+    private readonly WorkItemWorkspaceManager _workItemWorkspaceManager;
     private readonly WorkflowLoader _issueWorkflowLoader;
     private readonly WorkflowLoader _prWorkflowLoader;
     private readonly GitHubTrackerConfig _config;
@@ -30,12 +31,14 @@ public sealed class GitHubAutomationSource : IAutomationSource
     private readonly ConcurrentDictionary<string, string> _reviewedSha = new();
     private readonly ConcurrentDictionary<string, bool> _reviewCompleted = new();
     private readonly ConcurrentDictionary<string, GitHubAutomationTask> _completedTasks = new();
+    private readonly ConcurrentDictionary<string, string> _workspaceNameToTaskId = new();
 
     private readonly string? _issuesWorkflowPath;
     private readonly string? _prWorkflowPath;
 
     public GitHubAutomationSource(
         IWorkItemTracker tracker,
+        WorkItemWorkspaceManager workItemWorkspaceManager,
         WorkflowLoader issueWorkflowLoader,
         WorkflowLoader prWorkflowLoader,
         GitHubTrackerConfig config,
@@ -43,6 +46,7 @@ public sealed class GitHubAutomationSource : IAutomationSource
         ILoggerFactory loggerFactory)
     {
         _tracker = tracker;
+        _workItemWorkspaceManager = workItemWorkspaceManager;
         _issueWorkflowLoader = issueWorkflowLoader;
         _prWorkflowLoader = prWorkflowLoader;
         _config = config;
@@ -64,15 +68,15 @@ public sealed class GitHubAutomationSource : IAutomationSource
     public void RegisterToolProfile(IToolProfileRegistry registry)
     {
         var issueProvider = new GitHubTaskToolProvider(
-            WorkItemKind.Issue, _activeTasks, _tracker, _reviewCompleted,
+            WorkItemKind.Issue, _activeTasks, _workspaceNameToTaskId, _tracker, _reviewCompleted,
             _loggerFactory.CreateLogger<GitHubTaskToolProvider>());
 
         var prProvider = new GitHubTaskToolProvider(
-            WorkItemKind.PullRequest, _activeTasks, _tracker, _reviewCompleted,
+            WorkItemKind.PullRequest, _activeTasks, _workspaceNameToTaskId, _tracker, _reviewCompleted,
             _loggerFactory.CreateLogger<GitHubTaskToolProvider>());
 
-        registry.Register("github-issue", [new CoreToolProvider(), issueProvider]);
-        registry.Register("github-pr", [new CoreToolProvider(), prProvider]);
+        registry.Register("github-issue", [issueProvider]);
+        registry.Register("github-pr", [prProvider]);
     }
 
     /// <inheritdoc />
@@ -92,6 +96,9 @@ public sealed class GitHubAutomationSource : IAutomationSource
                 if (_reviewedSha.TryGetValue(workItem.Id, out var sha) && sha == workItem.HeadSha)
                     continue;
             }
+
+            if (workItem.Kind == WorkItemKind.Issue && IsBlocked(workItem))
+                continue;
 
             var profileOverride = workItem.Kind == WorkItemKind.PullRequest
                 ? "github-pr"
@@ -246,6 +253,17 @@ public sealed class GitHubAutomationSource : IAutomationSource
     }
 
     /// <inheritdoc />
+    public async Task<string?> ProvisionWorkspaceAsync(AutomationTask task, CancellationToken ct)
+    {
+        var gh = (GitHubAutomationTask)task;
+        var workspace = await _workItemWorkspaceManager.EnsureWorkspaceAsync(gh.WorkItem, ct);
+        var dirName = Path.GetFileName(workspace.Path);
+        if (dirName != null)
+            _workspaceNameToTaskId[dirName] = task.Id;
+        return workspace.Path;
+    }
+
+    /// <inheritdoc />
     public Task ApproveTaskAsync(string taskId, CancellationToken ct)
     {
         _logger.LogInformation("GitHub task {TaskId} approved (no-op: human reviews via Desktop)", taskId);
@@ -263,7 +281,25 @@ public sealed class GitHubAutomationSource : IAutomationSource
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
+    public Task OnBeforeAgentRunAsync(AutomationTask task, string workspacePath, CancellationToken ct) =>
+        _workItemWorkspaceManager.RunBeforeRunHookAsync(workspacePath, ct);
+
+    /// <inheritdoc />
+    public Task OnAfterAgentRunAsync(AutomationTask task, string workspacePath, CancellationToken ct) =>
+        _workItemWorkspaceManager.RunAfterRunHookAsync(workspacePath, ct);
+
     #region Helpers
+
+    private bool IsBlocked(TrackedWorkItem workItem)
+    {
+        if (!string.Equals(workItem.State.Trim(), "todo", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var terminalStates = _config.Tracker.TerminalStates
+            .Select(s => s.Trim().ToLowerInvariant()).ToHashSet();
+        return workItem.BlockedBy.Any(b =>
+            b.State != null && !terminalStates.Contains(b.State.Trim().ToLowerInvariant()));
+    }
 
     private bool IsTrackingEnabled(WorkItemKind kind)
     {
@@ -314,6 +350,7 @@ public sealed class GitHubAutomationSource : IAutomationSource
     internal sealed class GitHubTaskToolProvider(
         WorkItemKind kind,
         ConcurrentDictionary<string, GitHubAutomationTask> activeTasks,
+        ConcurrentDictionary<string, string> workspaceNameToTaskId,
         IWorkItemTracker tracker,
         ConcurrentDictionary<string, bool> reviewCompleted,
         ILogger<GitHubTaskToolProvider> logger) : IAgentToolProvider
@@ -322,8 +359,12 @@ public sealed class GitHubAutomationSource : IAutomationSource
 
         public IEnumerable<AITool> CreateTools(ToolProviderContext context)
         {
-            var taskId = ExtractTaskIdFromWorkspace(context.WorkspacePath);
-            if (taskId == null || !activeTasks.TryGetValue(taskId, out var task))
+            var dirName = ExtractDirNameFromWorkspace(context.WorkspacePath);
+            if (dirName == null)
+                yield break;
+
+            var taskId = workspaceNameToTaskId.GetValueOrDefault(dirName, dirName);
+            if (!activeTasks.TryGetValue(taskId, out var task))
                 yield break;
 
             if (kind == WorkItemKind.PullRequest)
@@ -377,7 +418,7 @@ public sealed class GitHubAutomationSource : IAutomationSource
             }
         }
 
-        private static string? ExtractTaskIdFromWorkspace(string? workspacePath)
+        private static string? ExtractDirNameFromWorkspace(string? workspacePath)
         {
             if (string.IsNullOrEmpty(workspacePath))
                 return null;

@@ -76,7 +76,8 @@ public class GitHubAutomationSource : IAutomationSource
     public string ToolProfileName => "github-task";
 
     public void RegisterToolProfile(IToolProfileRegistry registry);
-    // Registers file I/O, shell, memory, and GitHub tools (gh CLI, git, etc.)
+    // Registers source-specific tools only (SubmitReview, CompleteIssue).
+    // Standard tools (file I/O, shell, web) are provided by Session Core via tool profile merging.
 
     public Task<IReadOnlyList<AutomationTask>> GetPendingTasksAsync(CancellationToken ct);
     // Delegates to IWorkItemTracker.GetOpenWorkItemsAsync,
@@ -150,6 +151,20 @@ Because GitHub task threads are now created via `AutomationSessionClient.CreateO
 ### R5.9 — OrchestratorState migration
 
 `GitHubTrackerOrchestrator` maintained an in-memory `OrchestratorState` to track active threads and prevent duplicate dispatches. This state is superseded by the `AutomationOrchestrator`'s `OrchestratorState` (M3). `GitHubTracker`'s `OrchestratorState.cs` is deleted.
+
+### R5.10 — Source-specific workspace provisioning
+
+`IAutomationSource` gains an optional `ProvisionWorkspaceAsync` method (default returns `null`). The orchestrator calls it before falling back to the generic `AutomationWorkspaceManager`. `GitHubAutomationSource` implements this by delegating to `WorkItemWorkspaceManager.EnsureWorkspaceAsync`, which performs:
+
+1. `git clone` of the repository into the per-work-item workspace.
+2. For PRs: `git fetch` + `git checkout` of the PR's head branch.
+3. Running the `after_create` hook if the workspace was newly created.
+
+This preserves the full workspace lifecycle from the old `GitHubTrackerOrchestrator` within the unified Automations dispatch flow.
+
+### R5.11 — Tool profile merge semantics
+
+Tool profiles registered by `IAutomationSource.RegisterToolProfile` contain **only source-specific tools** (e.g. `SubmitReview`, `CompleteIssue`, `CompleteLocalTask`). Session Core merges these with the standard agent tools (file I/O, shell, web, sandbox) at thread creation time. Sources must NOT include `CoreToolProvider` in their profiles to avoid duplication.
 
 ## Acceptance Criteria
 

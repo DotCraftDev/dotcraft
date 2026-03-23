@@ -48,6 +48,21 @@ public interface IAutomationSource
     Task<bool> ShouldStopWorkflowAfterTurnAsync(AutomationTask task, CancellationToken ct) =>
         Task.FromResult(false);
 
+    /// <summary>
+    /// Optionally provisions a source-specific workspace for the task (e.g. git clone + branch checkout).
+    /// Returns the workspace path, or <c>null</c> to fall back to the default <c>AutomationWorkspaceManager</c>.
+    /// </summary>
+    Task<string?> ProvisionWorkspaceAsync(AutomationTask task, CancellationToken ct) =>
+        Task.FromResult<string?>(null);
+
+    /// <summary>Called before the agent workflow loop starts. Sources may run setup hooks (e.g. git identity).</summary>
+    Task OnBeforeAgentRunAsync(AutomationTask task, string workspacePath, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    /// <summary>Called after the agent workflow loop ends (success or failure). Sources may run teardown hooks.</summary>
+    Task OnAfterAgentRunAsync(AutomationTask task, string workspacePath, CancellationToken ct) =>
+        Task.CompletedTask;
+
     /// <summary>Returns all tasks known to this source, regardless of status.</summary>
     Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct);
 

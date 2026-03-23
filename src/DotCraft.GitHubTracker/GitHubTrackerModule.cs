@@ -66,6 +66,7 @@ public sealed partial class GitHubTrackerModule : ModuleBase
 
             return new GitHubAutomationSource(
                 sp.GetRequiredService<IWorkItemTracker>(),
+                sp.GetRequiredService<WorkItemWorkspaceManager>(),
                 issueWorkflowLoader,
                 prWorkflowLoader,
                 config,

@@ -398,7 +398,8 @@ public sealed class AutomationOrchestrator
         }
         else
         {
-            workspacePath = await _workspaceManager.ProvisionAsync(task, ct);
+            workspacePath = await source.ProvisionWorkspaceAsync(task, ct)
+                            ?? await _workspaceManager.ProvisionAsync(task, ct);
         }
 
         var threadConfig = new ThreadConfiguration
@@ -441,47 +442,62 @@ public sealed class AutomationOrchestrator
         var turnFailed = false;
         var turnCancelled = false;
 
-        while (round < workflow.MaxRounds && !ct.IsCancellationRequested && !stopWorkflow)
+        await source.OnBeforeAgentRunAsync(task, workspacePath, ct);
+        try
         {
-            round++;
-            foreach (var step in workflow.Steps)
+            while (round < workflow.MaxRounds && !ct.IsCancellationRequested && !stopWorkflow)
             {
-                await foreach (var evt in client.SubmitTurnAsync(threadId, step.Prompt, ct))
+                round++;
+                foreach (var step in workflow.Steps)
                 {
-                    if (evt.EventType == SessionEventType.TurnCompleted && evt.TurnPayload is { } turn)
-                        summary = ExtractSummaryFromTurn(turn);
-
-                    if (evt.EventType == SessionEventType.TurnFailed)
+                    await foreach (var evt in client.SubmitTurnAsync(threadId, step.Prompt, ct))
                     {
-                        turnFailed = true;
+                        if (evt.EventType == SessionEventType.TurnCompleted && evt.TurnPayload is { } turn)
+                            summary = ExtractSummaryFromTurn(turn);
+
+                        if (evt.EventType == SessionEventType.TurnFailed)
+                        {
+                            turnFailed = true;
+                            stopWorkflow = true;
+                            break;
+                        }
+
+                        if (evt.EventType == SessionEventType.TurnCancelled)
+                        {
+                            turnCancelled = true;
+                            stopWorkflow = true;
+                            break;
+                        }
+                    }
+
+                    if (await source.ShouldStopWorkflowAfterTurnAsync(task, ct))
+                    {
                         stopWorkflow = true;
                         break;
                     }
 
-                    if (evt.EventType == SessionEventType.TurnCancelled)
-                    {
-                        turnCancelled = true;
-                        stopWorkflow = true;
+                    if (stopWorkflow || ct.IsCancellationRequested)
                         break;
-                    }
                 }
 
-                if (await source.ShouldStopWorkflowAfterTurnAsync(task, ct))
-                {
-                    stopWorkflow = true;
-                    break;
-                }
-
-                if (stopWorkflow || ct.IsCancellationRequested)
-                    break;
+                _logger.LogInformation(
+                    "Workflow round {Round} completed for task {TaskId} (source: {SourceName}, maxRounds: {MaxRounds})",
+                    round,
+                    task.Id,
+                    source.Name,
+                    workflow.MaxRounds);
             }
-
-            _logger.LogInformation(
-                "Workflow round {Round} completed for task {TaskId} (source: {SourceName}, maxRounds: {MaxRounds})",
-                round,
-                task.Id,
-                source.Name,
-                workflow.MaxRounds);
+        }
+        finally
+        {
+            try
+            {
+                await source.OnAfterAgentRunAsync(task, workspacePath, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OnAfterAgentRunAsync failed for task {TaskId}", task.Id);
+            }
         }
 
         if (ct.IsCancellationRequested)

@@ -977,12 +977,18 @@ public sealed class SessionService(
         {
             if (scopedContext != null)
             {
-                var tools = profileTools ?? agentFactory.CreateToolsForMode(mode, scopedContext);
+                var tools = agentFactory.CreateToolsForMode(mode, scopedContext);
+                if (profileTools != null)
+                    tools.AddRange(profileTools);
                 return agentFactory.CreateAgentWithTools(tools, mm, scopedContext);
             }
 
             if (profileTools != null)
-                return agentFactory.CreateAgentWithTools(profileTools, mm, agentFactory.ToolProviderContext);
+            {
+                var tools = agentFactory.CreateToolsForMode(mode);
+                tools.AddRange(profileTools);
+                return agentFactory.CreateAgentWithTools(tools, mm, agentFactory.ToolProviderContext);
+            }
 
             return agentFactory.CreateAgentForMode(mode, mm);
         }
@@ -1015,12 +1021,16 @@ public sealed class SessionService(
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry
             };
 
-            var modeTools = profileTools ?? agentFactory.CreateToolsForMode(mode, effectiveContext);
+            var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);
+            if (profileTools != null)
+                modeTools.AddRange(profileTools);
             modeTools.AddRange(mcpManager.Tools);
             return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
         }
 
-        var toolsWithMcp = profileTools ?? agentFactory.CreateToolsForMode(mode);
+        var toolsWithMcp = agentFactory.CreateToolsForMode(mode);
+        if (profileTools != null)
+            toolsWithMcp.AddRange(profileTools);
         toolsWithMcp.AddRange(mcpManager.Tools);
         return agentFactory.CreateAgentWithTools(toolsWithMcp, mm);
     }

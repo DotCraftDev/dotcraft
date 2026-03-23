@@ -237,8 +237,17 @@ public interface IAutomationSource
     /// <summary>
     /// Register source-specific tool providers with the tool profile registry.
     /// Called once at startup. The registered profile is referenced by ToolProfileName.
+    /// Profiles should contain ONLY source-specific tools; standard tools are merged
+    /// by Session Core at thread creation time.
     /// </summary>
     void RegisterToolProfile(IToolProfileRegistry registry);
+
+    /// <summary>
+    /// Optionally provisions a source-specific workspace (e.g. git clone + branch checkout).
+    /// Returns the workspace path, or null to fall back to AutomationWorkspaceManager.
+    /// </summary>
+    Task<string?> ProvisionWorkspaceAsync(AutomationTask task, CancellationToken ct) =>
+        Task.FromResult<string?>(null);
 
     IReadOnlyList<string> ActiveStates { get; }
     IReadOnlyList<string> TerminalStates { get; }
@@ -255,7 +264,8 @@ public interface IAutomationSource
 | `ShouldReDispatch` | Source-specific re-dispatch logic. GitHub uses this for SHA comparison; Local returns `false` for tasks in `review` state. The orchestrator calls this after its own Running/Claimed checks pass. |
 | `OnTaskDispatched` | Notification that a task has been claimed and dispatched. Sources may update internal state (e.g., Local source transitions task file to `running`, increments `round`). |
 | `OnTaskCompletedAsync` | Called when the agent run finishes (all turns exhausted or completion tool invoked). The source decides the next state: Local transitions to `review`; GitHub records SHA or schedules continuation. |
-| `RegisterToolProfile` | Called once at startup. The source registers its tool providers (e.g., `CompleteTask`, `SubmitReview`) under `ToolProfileName` in the `IToolProfileRegistry`. |
+| `RegisterToolProfile` | Called once at startup. The source registers its **source-specific** tool providers (e.g., `CompleteTask`, `SubmitReview`) under `ToolProfileName` in the `IToolProfileRegistry`. Standard tools (file, shell, web, sandbox) are provided by Session Core and must NOT be included in the profile. |
+| `ProvisionWorkspaceAsync` | Optional. Provisions a source-specific workspace for the task (e.g. git clone + branch checkout for GitHub). Returns the workspace path, or `null` to use the default `AutomationWorkspaceManager`. The orchestrator calls this before falling back to the generic provisioner. |
 | `ToolProfileName` | The profile name used in `ThreadConfiguration.ToolProfile` when creating threads for this source. Must be globally unique (e.g., `"automation:local"`, `"automation:github-issue"`). |
 | `ActiveStates` / `TerminalStates` | State name lists used by the orchestrator for reconciliation and cleanup. |
 
@@ -586,7 +596,13 @@ public string? ToolProfile { get; set; }
 
 And a new `IToolProfileRegistry` interface (see §4.3). The registry is registered as a singleton in DI. Each `IAutomationSource` calls `RegisterToolProfile` at startup.
 
-**Impact on `BuildAgentForConfigAsync`**: When `config.ToolProfile` is set, resolve the tool providers from `IToolProfileRegistry` and add them to the agent's tool collection alongside the standard tools.
+**Impact on `BuildAgentForConfigAsync`**: When `config.ToolProfile` is set, resolve the tool providers from `IToolProfileRegistry` and **merge** them into the agent's tool collection alongside the standard tools. Concretely:
+
+1. Build the standard tool set via `CreateToolsForMode` (respects `Sandbox.Enabled`, MCP, etc.).
+2. Build the profile tool set via `CreateToolsFromProviders(profileProviders, context)`.
+3. Append the profile tools to the standard tools.
+
+Profile providers must contain **only source-specific tools** (e.g. `SubmitReview`, `CompleteIssue`, `CompleteLocalTask`). They must NOT include `CoreToolProvider` or other standard providers, as these are already present in the standard tool set. Including them would cause tool duplication.
 
 ### 9.3 Per-Thread Approval Policy
 

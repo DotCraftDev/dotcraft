@@ -2,7 +2,6 @@ using System.Diagnostics;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
-using DotCraft.Tools;
 using Microsoft.Extensions.Logging;
 
 namespace DotCraft.Automations.Local;
@@ -33,7 +32,6 @@ public sealed class LocalAutomationSource(
         var completionLogger = loggerFactory.CreateLogger<LocalTaskCompletionToolProvider>();
         IReadOnlyList<IAgentToolProvider> providers =
         [
-            new CoreToolProvider(),
             new LocalTaskCompletionToolProvider(fileStore, completionLogger)
         ];
         registry.Register(ToolProfileName, providers);
