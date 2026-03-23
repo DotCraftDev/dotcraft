@@ -84,7 +84,7 @@ public sealed partial class AutomationsRequestHandler(
         File.WriteAllText(Path.Combine(taskDir, "task.md"), taskMd.TrimStart());
 
         var workflowContent = string.IsNullOrWhiteSpace(p.WorkflowTemplate)
-            ? DefaultWorkflowTemplate
+            ? BuildDefaultWorkflowContent(NormalizeWorkspaceMode(p.WorkspaceMode))
             : p.WorkflowTemplate;
         File.WriteAllText(Path.Combine(taskDir, "workflow.md"), workflowContent);
 
@@ -246,25 +246,49 @@ public sealed partial class AutomationsRequestHandler(
         }
     }
 
-    private const string DefaultWorkflowTemplate = """
-        ---
-        max_rounds: 10
-        workspace: project
-        ---
+    /// <summary>
+    /// <paramref name="workspaceYamlValue"/> is <c>project</c> or <c>isolated</c> (validated by <see cref="NormalizeWorkspaceMode"/>).
+    /// Liquid body uses <c>{{ }}</c>; keep it in a non-interpolated raw string to avoid C# brace escaping.
+    /// </summary>
+    private static string BuildDefaultWorkflowContent(string workspaceYamlValue)
+    {
+        const string Body = """
 
-        You are running a local automation task.
+            You are running a local automation task.
 
-        ## Task
+            ## Task
 
-        - **ID**: {{ task.id }}
-        - **Title**: {{ task.title }}
+            - **ID**: {{ task.id }}
+            - **Title**: {{ task.title }}
 
-        ## Instructions
+            ## Instructions
 
-        {{ task.description }}
+            {{ task.description }}
 
-        When finished, call the **`CompleteLocalTask`** tool with a short summary.
-        """;
+            When finished, call the **`CompleteLocalTask`** tool with a short summary.
+            """;
+        return $"""
+            ---
+            max_rounds: 10
+            workspace: {workspaceYamlValue}
+            ---
+            """ + Body;
+    }
+
+    /// <summary>Returns <c>project</c> or <c>isolated</c> for workflow.md YAML.</summary>
+    private static string NormalizeWorkspaceMode(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode))
+            return "project";
+
+        var m = mode.Trim();
+        if (string.Equals(m, "project", StringComparison.OrdinalIgnoreCase))
+            return "project";
+        if (string.Equals(m, "isolated", StringComparison.OrdinalIgnoreCase))
+            return "isolated";
+
+        throw AppServerErrors.InvalidParams("'workspaceMode' must be 'project' or 'isolated'.");
+    }
 
     [GeneratedRegex(@"[^a-z0-9]+")]
     private static partial Regex SlugRegex();

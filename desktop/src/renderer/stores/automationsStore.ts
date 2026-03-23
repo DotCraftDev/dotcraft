@@ -48,7 +48,8 @@ interface AutomationsState {
     title: string,
     description: string,
     workflowTemplate?: string,
-    approvalPolicy?: 'workspaceScope' | 'fullAuto'
+    approvalPolicy?: 'workspaceScope' | 'fullAuto',
+    workspaceMode?: 'project' | 'isolated'
   ): Promise<void>
   approveTask(taskId: string, sourceName: string): Promise<void>
   rejectTask(taskId: string, sourceName: string, reason?: string): Promise<void>
@@ -99,12 +100,14 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     title: string,
     description: string,
     workflowTemplate?: string,
-    approvalPolicy: 'workspaceScope' | 'fullAuto' = 'workspaceScope'
+    approvalPolicy: 'workspaceScope' | 'fullAuto' = 'workspaceScope',
+    workspaceMode: 'project' | 'isolated' = 'project'
   ) {
     const params: Record<string, unknown> = {
       title,
       description,
-      approvalPolicy
+      approvalPolicy,
+      workspaceMode
     }
     if (workflowTemplate) params.workflowTemplate = workflowTemplate
     await window.api.appServer.sendRequest('automation/task/create', params)

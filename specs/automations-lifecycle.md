@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.2 |
+| **Version** | 0.2.3 |
 | **Status** | Draft |
 | **Date** | 2026-03-24 |
 | **Parent Spec** | Symphony SPEC (GitHubTracker Orchestrator §7–8), [PR Review Lifecycle](pr-review-lifecycle.md), [AppServer Protocol](appserver-protocol.md), [Session Core](session-core.md) |
@@ -620,7 +620,7 @@ Profile providers must contain **only source-specific tools** (e.g. `SubmitRevie
 
 The **task-level** human review gate (approve / reject / request changes) is unchanged and orthogonal to this.
 
-**Desktop**: New Task offers **Workspace scope** vs **Full auto**; the review panel shows a matching badge.
+**Desktop**: New Task uses dropdowns for **Agent workspace** (`project` / `isolated`, written to `workflow.md`) and **Tool policy** (`workspaceScope` / `fullAuto`); the review panel shows a tool-policy badge.
 
 ### 9.4 `thread/list` Filter Extension
 
@@ -942,7 +942,7 @@ When a task starts running, the Desktop can subscribe via `thread/subscribe` usi
 | Method | Direction | Parameters | Returns |
 |--------|-----------|------------|---------|
 | `automation/task/list` | Client → Server | `{ source?: string, states?: string[] }` | `{ tasks: AutomationTaskWire[] }` |
-| `automation/task/create` | Client → Server | `{ title, description?, priority?, workflow?, labels?, approvalPolicy?: "workspaceScope" \| "fullAuto" }` | `{ task: AutomationTaskWire }` |
+| `automation/task/create` | Client → Server | `{ title, description?, workflowTemplate?, approvalPolicy?, workspaceMode?: "project" \| "isolated" }` | `{ task: AutomationTaskWire }` |
 | `automation/task/read` | Client → Server | `{ taskId }` | `{ task: AutomationTaskWire, threadId?: string }` |
 | `automation/task/update` | Client → Server | `{ taskId, title?, description?, priority?, labels? }` | `{ task: AutomationTaskWire }` |
 | `automation/task/cancel` | Client → Server | `{ taskId }` | `{}` |
@@ -1136,10 +1136,7 @@ The "+ New Task" button opens a creation dialog:
 │               [________________________________]      │
 │               [________________________________]      │
 │                                                       │
-│  Workflow:    [WORKFLOW.md              ▾]             │
-│  Tool policy: [Workspace scope ▾]  (see tooltip)     │
-│  Priority:    [_____]                                 │
-│  Labels:      [________________________________]      │
+│  Agent workspace: [Project ▾]   Tool policy: [Workspace scope ▾]  (?)  │
 │                                                       │
 │          ┌──────────┐  ┌──────────┐                   │
 │          │  Cancel  │  │  Create  │                   │
@@ -1147,7 +1144,7 @@ The "+ New Task" button opens a creation dialog:
 └──────────────────────────────────────────────────────┘
 ```
 
-The workflow dropdown lists all `.md` files in `.craft/automations/workflows/`. **Tool policy** maps to `approvalPolicy` on `automation/task/create` (persisted as `approval_policy` in `task.md`). The dialog calls `automation/task/create` on submit.
+**Agent workspace** maps to `workspaceMode` (`project` / `isolated`); when no custom `workflowTemplate` is sent, the server writes `workflow: project|isolated` into the generated `workflow.md`. **Tool policy** maps to `approvalPolicy` (persisted as `approval_policy` in `task.md`). Optional `?` expands details for each. The dialog calls `automation/task/create` on submit.
 
 ### 15.8 State Store
 

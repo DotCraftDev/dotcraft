@@ -563,6 +563,12 @@ public sealed class AutomationTaskCreateParams
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ApprovalPolicy { get; set; }
+
+    /// <summary>
+    /// When <see cref="WorkflowTemplate"/> is omitted, written into generated <c>workflow.md</c> as <c>workspace: project|isolated</c>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WorkspaceMode { get; set; }
 }
 
 public sealed class AutomationTaskCreateResult
