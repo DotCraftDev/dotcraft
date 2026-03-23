@@ -207,7 +207,8 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
           streamingReasoning: '',
           streamingReasoningStartedAt: null,
           activeItemId: null,
-          streamingActive: true
+          streamingActive: true,
+          subAgentEntries: [] as SubAgentEntry[]
         }
       }
       return {
@@ -218,7 +219,8 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
         streamingReasoning: '',
         streamingReasoningStartedAt: null,
         activeItemId: null,
-        streamingActive: true
+        streamingActive: true,
+        subAgentEntries: [] as SubAgentEntry[]
       }
     })
   },

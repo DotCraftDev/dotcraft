@@ -64,7 +64,8 @@ function ReviewTurnBlock({
   streamingMessage,
   streamingReasoning,
   activeItemId,
-  subAgentEntriesOverride
+  subAgentEntriesOverride,
+  isLastTurn
 }: {
   turn: ConversationTurn
   activeTurnId: string | null
@@ -74,6 +75,7 @@ function ReviewTurnBlock({
   activeItemId: string | null
   /** Scoped to the review thread; not the global conversation store. */
   subAgentEntriesOverride: SubAgentEntry[]
+  isLastTurn: boolean
 }): JSX.Element {
   const isRunning = turnStatus === 'running' && turn.id === activeTurnId
 
@@ -88,6 +90,7 @@ function ReviewTurnBlock({
         isActiveTurn={turn.id === activeTurnId}
         activeItemIdOverride={isRunning ? activeItemId ?? null : undefined}
         subAgentEntriesOverride={subAgentEntriesOverride}
+        isLastTurn={isLastTurn}
       />
     </div>
   )
@@ -312,7 +315,7 @@ export function TaskReviewPanel(): JSX.Element {
           </p>
         )}
 
-        {turns.map((turn) => (
+        {turns.map((turn, idx) => (
           <div key={turn.id} style={{ marginBottom: '16px' }}>
             <ReviewTurnBlock
               turn={turn}
@@ -322,6 +325,7 @@ export function TaskReviewPanel(): JSX.Element {
               streamingReasoning={streamingReasoning}
               activeItemId={activeItemId}
               subAgentEntriesOverride={subAgentEntries}
+              isLastTurn={idx === turns.length - 1}
             />
           </div>
         ))}

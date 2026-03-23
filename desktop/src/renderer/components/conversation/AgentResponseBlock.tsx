@@ -33,6 +33,11 @@ interface AgentResponseBlockProps {
    * (e.g. automation review scoped to reviewThreadId).
    */
   subAgentEntriesOverride?: SubAgentEntry[]
+  /**
+   * Thread-level SubAgent snapshot must render at most once. Show on the active turn
+   * while streaming, and on the last turn for the collapsed completed summary.
+   */
+  isLastTurn?: boolean
 }
 
 /**
@@ -57,7 +62,8 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   isRunning = false,
   isActiveTurn = false,
   activeItemIdOverride,
-  subAgentEntriesOverride
+  subAgentEntriesOverride,
+  isLastTurn = false
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
   const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
@@ -131,12 +137,16 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
     i++
   }
 
+  const showSubAgentProgress = isActiveTurn || isLastTurn
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       {renderNodes}
 
-      {/* SubAgent progress — always rendered after committed items */}
-      <SubAgentProgressBlock entries={subAgentEntriesOverride} />
+      {/* SubAgent progress — thread-level snapshot; one mount per stream (active or last turn) */}
+      {showSubAgentProgress ? (
+        <SubAgentProgressBlock entries={subAgentEntriesOverride} />
+      ) : null}
 
       {/* Turn-level failure */}
       {turn.status === 'failed' && turn.error && (
