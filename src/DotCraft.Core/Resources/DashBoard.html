@@ -2929,6 +2929,35 @@ function renderFormField(id, field, rawVal, scope, section, sourceBadge = '') {
     </div>`;
   }
 
+  if (field.type === 'stringList') {
+    const lines = Array.isArray(rawVal) ? rawVal.join('\n') : (rawVal ? String(rawVal) : '');
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+      ${headerHtml}
+      <textarea class="settings-input" id="${id}" rows="3"
+        placeholder="${escapeHtml(emptyText)}">${escapeHtml(lines)}</textarea>${hint}
+    </div>`;
+  }
+
+  if (field.type === 'keyValueMap') {
+    const entries = rawVal && typeof rawVal === 'object' && !Array.isArray(rawVal)
+      ? Object.entries(rawVal)
+      : [];
+    let rows = '';
+    const baseId = id;
+    if (!entries.length) {
+      rows = olKeyValueRowHtml(baseId, 0, '', '');
+    } else {
+      entries.forEach((pair, ri) => {
+        rows += olKeyValueRowHtml(baseId, ri, pair[0], pair[1]);
+      });
+    }
+    return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+      ${headerHtml}
+      <div class="ol-kv-editor" id="${id}" data-kv-base="${baseId}">${rows}
+      <button type="button" class="btn ol-kv-add" onclick="olKvAddRow('${baseId}')">Add row</button></div>${hint}
+    </div>`;
+  }
+
   // text / number
   const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
   const minAttr = field.min !== undefined ? ` min="${field.min}"` : '';
@@ -3075,6 +3104,13 @@ function collectForm(scope) {
           hasJsonError = true;
           continue;
         }
+      } else if (field.type === 'stringList') {
+        const raw = el.value.trim();
+        if (!raw) continue; // inherit
+        value = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      } else if (field.type === 'keyValueMap') {
+        value = readKeyValueMap(el);
+        if (value && Object.keys(value).length === 0) continue; // inherit when empty
       } else if (field.type === 'number') {
         const raw = el.value.trim();
         if (raw === '') continue; // inherit
