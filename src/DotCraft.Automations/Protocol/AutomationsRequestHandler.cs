@@ -133,6 +133,31 @@ public sealed partial class AutomationsRequestHandler(
         return new { ok = true };
     }
 
+    public async Task<object?> HandleTaskDeleteAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<AutomationTaskDeleteParams>(msg);
+        try
+        {
+            await orchestrator.DeleteTaskAsync(p.SourceName, p.TaskId, ct);
+        }
+        catch (KeyNotFoundException)
+        {
+            throw new AppServerException(
+                p.SourceName.Contains('/') ? SourceNotFoundCode : TaskNotFoundCode,
+                $"Task '{p.TaskId}' not found in source '{p.SourceName}'.");
+        }
+        catch (NotSupportedException ex)
+        {
+            throw new AppServerException(TaskInvalidStatusCode, ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new AppServerException(TaskInvalidStatusCode, ex.Message);
+        }
+
+        return new { ok = true };
+    }
+
     #region Helpers
 
     private static AutomationTaskWire ToWire(AutomationTask task) => new()

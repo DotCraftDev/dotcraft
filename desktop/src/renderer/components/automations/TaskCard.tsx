@@ -1,7 +1,17 @@
 import { useState } from 'react'
-import type { AutomationTask } from '../../stores/automationsStore'
+import type { AutomationTask, AutomationTaskStatus } from '../../stores/automationsStore'
 import { useAutomationsStore } from '../../stores/automationsStore'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { StatusBadge } from './StatusBadge'
+
+function isTaskDeletable(status: AutomationTaskStatus): boolean {
+  return (
+    status === 'pending' ||
+    status === 'approved' ||
+    status === 'rejected' ||
+    status === 'failed'
+  )
+}
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -37,7 +47,11 @@ function SourceBadge({ sourceName }: { sourceName: string }): JSX.Element {
 
 export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
   const [hovered, setHovered] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const selectTask = useAutomationsStore((s) => s.selectTask)
+  const deleteTask = useAutomationsStore((s) => s.deleteTask)
+  const deletable = isTaskDeletable(task.status)
 
   const actionButton = (() => {
     switch (task.status) {
@@ -99,7 +113,18 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
     }
   })()
 
+  async function handleDeleteConfirm(): Promise<void> {
+    setDeleting(true)
+    try {
+      await deleteTask(task)
+      setShowDeleteConfirm(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
+    <>
     <div
       role="button"
       tabIndex={0}
@@ -152,7 +177,55 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
         </div>
       </div>
 
-      <div style={{ flexShrink: 0 }}>{actionButton}</div>
+      <div
+        style={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}
+      >
+        {deletable && (
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowDeleteConfirm(true)
+            }}
+            style={{
+              padding: '4px 10px',
+              borderRadius: '6px',
+              border: '1px solid color-mix(in srgb, var(--error) 35%, var(--border-default))',
+              backgroundColor: 'transparent',
+              color: 'var(--error)',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: deleting ? 'default' : 'pointer',
+              opacity: deleting ? 0.6 : 1
+            }}
+          >
+            {deleting ? '…' : 'Delete'}
+          </button>
+        )}
+        {actionButton}
+      </div>
     </div>
+
+    {showDeleteConfirm && (
+      <ConfirmDialog
+        title="Delete task"
+        message={
+          task.threadId
+            ? 'Delete this automation task and its conversation thread? This cannot be undone.'
+            : 'Delete this automation task? This cannot be undone.'
+        }
+        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        danger
+        onConfirm={() => void handleDeleteConfirm()}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+    )}
+    </>
   )
 }

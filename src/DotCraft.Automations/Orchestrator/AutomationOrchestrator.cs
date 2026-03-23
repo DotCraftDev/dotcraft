@@ -134,6 +134,16 @@ public sealed class AutomationOrchestrator
         }
     }
 
+    /// <summary>
+    /// Deletes the task via its source and removes it from the orchestrator cache.
+    /// </summary>
+    public async Task DeleteTaskAsync(string sourceName, string taskId, CancellationToken ct)
+    {
+        var source = ResolveSource(sourceName);
+        await source.DeleteTaskAsync(taskId, ct);
+        _allTasks.TryRemove(TaskKey(sourceName, taskId), out _);
+    }
+
     public Task StartAsync(CancellationToken ct)
     {
         if (_sessionClient == null)

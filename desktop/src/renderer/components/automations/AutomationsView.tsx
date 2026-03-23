@@ -62,13 +62,17 @@ export function AutomationsView(): JSX.Element {
   const { tasks, loading, error, filterSource, setFilterSource, fetchTasks } =
     useAutomationsStore()
   const selectedTaskId = useAutomationsStore((s) => s.selectedTaskId)
+  const startPolling = useAutomationsStore((s) => s.startPolling)
+  const stopPolling = useAutomationsStore((s) => s.stopPolling)
   const [showNewTask, setShowNewTask] = useState(false)
 
   useEffect(() => {
+    startPolling()
     return () => {
+      stopPolling()
       useReviewPanelStore.getState().destroyReviewPanel()
     }
-  }, [])
+  }, [startPolling, stopPolling])
 
   const filteredTasks = useMemo(() => {
     let list = tasks
@@ -113,30 +117,50 @@ export function AutomationsView(): JSX.Element {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: '12px'
+            marginBottom: '12px',
+            gap: '8px'
           }}
         >
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
             Automations
           </h2>
-          {showNewButton && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <button
               type="button"
-              onClick={() => setShowNewTask(true)}
+              onClick={() => void fetchTasks()}
+              title="Refresh task list"
               style={{
-                padding: '5px 14px',
+                padding: '5px 12px',
                 borderRadius: '6px',
-                border: 'none',
-                backgroundColor: 'var(--accent)',
-                color: '#fff',
+                border: '1px solid var(--border-default)',
+                backgroundColor: 'transparent',
+                color: 'var(--text-secondary)',
                 fontSize: '12px',
-                fontWeight: 600,
+                fontWeight: 500,
                 cursor: 'pointer'
               }}
             >
-              + New Task
+              Refresh
             </button>
-          )}
+            {showNewButton && (
+              <button
+                type="button"
+                onClick={() => setShowNewTask(true)}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: 'var(--accent)',
+                  color: '#fff',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                + New Task
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filter tabs */}

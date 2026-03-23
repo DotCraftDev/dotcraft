@@ -77,4 +77,12 @@ public interface IAutomationSource
     /// Source-specific side effects (e.g. post comment, run hook) are executed.
     /// </summary>
     Task RejectTaskAsync(string taskId, string? reason, CancellationToken ct);
+
+    /// <summary>
+    /// Permanently removes the task from the source (e.g. deletes local task directory).
+    /// Default: not supported.
+    /// </summary>
+    Task DeleteTaskAsync(string taskId, CancellationToken ct) =>
+        Task.FromException(new NotSupportedException(
+            "Task deletion is not supported for this automation source."));
 }

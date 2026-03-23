@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.ComponentModel;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -278,6 +279,23 @@ public sealed class GitHubAutomationSource : IAutomationSource
         _logger.LogInformation("GitHub task {TaskId} rejected: {Reason}", taskId, reason ?? "(no reason)");
         if (_completedTasks.TryGetValue(taskId, out var gh))
             gh.Status = AutomationTaskStatus.Rejected;
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task DeleteTaskAsync(string taskId, CancellationToken ct)
+    {
+        _logger.LogInformation("GitHub task {TaskId} removed from local automation cache", taskId);
+        _completedTasks.TryRemove(taskId, out _);
+        _activeTasks.TryRemove(taskId, out _);
+        var workspaceKeys = new List<string>(_workspaceNameToTaskId.Keys);
+        foreach (var key in workspaceKeys)
+        {
+            if (_workspaceNameToTaskId.TryGetValue(key, out var tid) &&
+                string.Equals(tid, taskId, StringComparison.Ordinal))
+                _workspaceNameToTaskId.TryRemove(key, out _);
+        }
+
         return Task.CompletedTask;
     }
 

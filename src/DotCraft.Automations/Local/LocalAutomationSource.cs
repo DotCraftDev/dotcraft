@@ -138,6 +138,37 @@ public sealed class LocalAutomationSource(
         }
     }
 
+    /// <summary>
+    /// Deletes the task directory under <see cref="LocalTaskFileStore.TasksRoot"/>.
+    /// </summary>
+    public Task DeleteTaskAsync(string taskId, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return DeleteTaskCoreAsync(taskId, ct);
+    }
+
+    private async Task DeleteTaskCoreAsync(string taskId, CancellationToken ct)
+    {
+        var local = await FindTaskByIdAsync(taskId, ct)
+            ?? throw new KeyNotFoundException($"Local task '{taskId}' was not found.");
+
+        if (local.Status is AutomationTaskStatus.Dispatched or AutomationTaskStatus.AgentRunning)
+        {
+            throw new InvalidOperationException(
+                $"Task '{taskId}' cannot be deleted while the agent is running.");
+        }
+
+        var dir = Path.GetFullPath(local.TaskDirectory);
+        var root = Path.GetFullPath(fileStore.TasksRoot);
+        if (!dir.StartsWith(root, StringComparison.OrdinalIgnoreCase) || dir.Length <= root.Length)
+            throw new InvalidOperationException("Invalid task directory.");
+
+        if (Directory.Exists(dir))
+            Directory.Delete(dir, recursive: true);
+
+        await Task.CompletedTask;
+    }
+
     private async Task<LocalAutomationTask?> FindTaskByIdAsync(string taskId, CancellationToken ct)
     {
         var all = await fileStore.LoadAllAsync(ct);

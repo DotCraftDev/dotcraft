@@ -576,6 +576,13 @@ public sealed class AutomationTaskRejectParams
     public string? Reason { get; set; }
 }
 
+public sealed class AutomationTaskDeleteParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string TaskId { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -655,6 +662,7 @@ public static class AppServerMethods
     public const string AutomationTaskCreate = "automation/task/create";
     public const string AutomationTaskApprove = "automation/task/approve";
     public const string AutomationTaskReject = "automation/task/reject";
+    public const string AutomationTaskDelete = "automation/task/delete";
 
     // Server → Client notification (automations, M6)
     public const string AutomationTaskUpdated = "automation/task/updated";
