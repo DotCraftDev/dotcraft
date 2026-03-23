@@ -139,7 +139,7 @@ export function App(): JSX.Element {
         })
         .finally(() => setLoading(false))
 
-      if (capabilities?.automations) {
+      if (useConnectionStore.getState().capabilities?.automations) {
         useAutomationsStore.getState().fetchTasks()
       }
     }
