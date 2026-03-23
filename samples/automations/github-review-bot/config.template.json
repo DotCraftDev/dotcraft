@@ -1,4 +1,9 @@
 {
+  "Automations": {
+    "Enabled": true,
+    "PollingInterval": "00:01:00",
+    "MaxConcurrentTasks": 2
+  },
   "GitHubTracker": {
     "Enabled": true,
     "PullRequestWorkflowPath": "PR_WORKFLOW.md",
@@ -32,11 +37,5 @@
       "BeforeRemove": "",
       "TimeoutMs": 60000
     }
-  },
-  "Logging": {
-    "Enabled": true,
-    "MinLevel": "Information",
-    "Directory": "logs",
-    "RetentionDays": 7
   }
 }

@@ -1,58 +1,57 @@
-# DotCraft Automations sample (local tasks)
+# DotCraft Automations Samples
 
 **[中文](./README_ZH.md) | English**
 
-This folder is a **distributable reference** for running DotCraft with **local automation tasks**: a safe `config.template.json` and an **example task directory** you can copy into your own workspace.
+This folder provides ready-to-use templates for the DotCraft **Automations** pipeline. Three scenarios are included:
 
-It includes:
+- [example-local-task](./example-local-task): A **local automation task** — file-based task that runs entirely on-disk without any external service.
+- [github-review-bot](./github-review-bot): A **PR review bot** that automatically picks up open, non-draft pull requests, analyzes the diff, and submits a structured `COMMENT` review. Re-reviews automatically when new commits are pushed.
+- [github-collab-dev-bot](./github-collab-dev-bot): A **collaborative development bot** that plans, implements, and opens a PR for a given GitHub issue, using labels to coordinate state across runs.
 
-- `config.template.json` — workspace config with `Automations` enabled and defaults for Dashboard / optional tools
-- `example-local-task/` — sample `task.md` and `workflow.md` to copy under your task root (not committed as `.craft/` in this repo)
+## Architecture
 
-When a **local** automation task runs, the `local-task` tool profile includes **`CompleteLocalTask`** so the agent can mark the task complete in `task.md` without running until `max_rounds`.
+All automation sources — local tasks and GitHub work items — are managed by a single `AutomationOrchestrator`. The GitHub scenarios require **both** the `Automations` and `GitHubTracker` modules to be enabled:
+
+- `Automations` starts the orchestrator that polls all sources and dispatches tasks.
+- `GitHubTracker` registers a `GitHubAutomationSource` that feeds GitHub issues/PRs into the orchestrator.
+
+```text
+config.json
+├── Automations: { Enabled: true }       ← starts the orchestrator
+└── GitHubTracker: { Enabled: true }     ← registers GitHub source
+         │
+         └─→ AutomationOrchestrator
+               ├── LocalAutomationSource    (from Automations module)
+               └── GitHubAutomationSource   (from GitHubTracker module)
+```
 
 ## What is inside
 
 | Path | Purpose |
 |------|---------|
-| `config.template.json` | Example config; copy into your workspace as `.craft/config.json` (merge fields as needed) |
-| `example-local-task/task.md` | Task definition (YAML front matter + Markdown body) |
-| `example-local-task/workflow.md` | Workflow prompts for the agent (YAML front matter + Liquid body) |
-| `.craft/config.json` | Your **live** workspace config (create locally; usually not committed) |
-| `.craft/tasks/<task-id>/` | Where **local** task folders live at runtime (create by copying the example) |
-
-The per-task `workspace/` directory under `.craft/tasks/<task-id>/` may be created by the runtime when a task runs; you do not need to copy it from this sample.
+| `config.template.json` | Local-only config template (Automations enabled, no GitHub) |
+| `example-local-task/task.md` | Local task definition (YAML front matter + Markdown body) |
+| `example-local-task/workflow.md` | Local task workflow prompts |
+| `github-review-bot/config.template.json` | Config template for PR review (Automations + GitHubTracker) |
+| `github-review-bot/PR_WORKFLOW.md` | PR review prompt template |
+| `github-collab-dev-bot/config.template.json` | Config template for issue dev (Automations + GitHubTracker) |
+| `github-collab-dev-bot/WORKFLOW.md` | Issue development prompt template |
 
 ## Prerequisites
 
 - DotCraft installed or built on your machine
-- A real **project directory** you use as the DotCraft workspace (current working directory when you run `dotcraft`)
-- Gateway / AppServer mode if you rely on Automations services (per your deployment)
+- A project directory as the DotCraft workspace (current working directory when you run `dotcraft`)
+- For GitHub samples: a [Fine-grained Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) scoped to the target repository
 
-## Quick start
+---
 
-### 1. Apply the config template
+## Local Task Sample
 
-DotCraft reads global settings from `~/.craft/config.json` (Windows: `%USERPROFILE%\.craft\config.json`) and merges workspace overrides from `<workspace>/.craft/config.json`.
+### Quick start
 
-1. Create the workspace config directory if needed: `mkdir -p .craft` (Linux/macOS) or `mkdir .craft` (Windows PowerShell).
-2. Copy `config.template.json` to `.craft/config.json` inside **your** project workspace (or merge the `Automations` block and any other fields you need into an existing file).
-3. Keep secrets and machine-specific values in the global file when possible.
-
-### 2. Install the example local task
-
-Local tasks are discovered under the **tasks root** configured by Automations (`LocalTasksRoot`). When `LocalTasksRoot` is empty, the default is:
-
-`<workspaceRoot>/.craft/tasks/`
-
-Do **not** rely on this repository shipping `.craft/tasks/` for you. On your machine:
-
-1. Copy the `example-local-task` folder into `.craft/tasks/`.
-2. Rename the folder to your task id (for example `my-task-001`).
-3. Edit `task.md` front matter so `id` matches that folder name and set `title`, timestamps, and description as needed.
-4. Keep `task.md` and `workflow.md` together in the same directory.
-
-Resulting layout:
+1. Create the workspace config directory: `mkdir -p .craft` (Linux/macOS) or `mkdir .craft` (Windows).
+2. Copy `config.template.json` to `.craft/config.json` (or merge the `Automations` block into an existing config).
+3. Copy `example-local-task/` into `.craft/tasks/` and rename it to your task id:
 
 ```
 <your-project>/
@@ -62,32 +61,148 @@ Resulting layout:
       my-task-001/
         task.md
         workflow.md
-        workspace/          # may appear when the task runs
 ```
 
-## Configuration notes
+4. Edit `task.md` so `id` matches the folder name. Set `title`, timestamps, and description.
+5. Run `dotcraft`.
 
-### Automations fields (in `config.template.json`)
+When the agent completes, it calls `CompleteLocalTask` to mark the task done without running until `max_rounds`.
+
+### Configuration
 
 | Field | Meaning |
 |-------|---------|
-| `Automations.Enabled` | When `true`, enables the Automations module (Gateway channel). |
-| `Automations.LocalTasksRoot` | Root directory for task folders. Empty string means use `<workspaceRoot>/.craft/tasks/`. Set to an absolute path to use a custom location. |
-| `Automations.PollingInterval` | How often sources are polled. Default in template: 30 seconds (`00:00:30`). |
-| `Automations.MaxConcurrentTasks` | Cap on concurrent dispatch across sources. |
-| `Automations.WorkspaceRoot` | Root for per-task agent working directories. If omitted from JSON, the built-in default applies (under your user profile). Avoid setting this to an empty string. |
+| `Automations.Enabled` | Must be `true` to start the orchestrator. |
+| `Automations.LocalTasksRoot` | Task directory root. Empty = `<workspace>/.craft/tasks/`. |
+| `Automations.PollingInterval` | How often sources are polled. Default: `00:00:30`. |
+| `Automations.MaxConcurrentTasks` | Concurrent task limit across all sources. |
 
-### Other template fields
+---
 
-`DashBoard`, `Tools.Sandbox`, and `McpServers` behave like any other workspace config: adjust host, ports, and enabled flags for your environment.
+## GitHub Review Bot
+
+### Quick start
+
+```bash
+mkdir -p /path/to/workspace/.craft
+cp samples/automations/github-review-bot/config.template.json /path/to/workspace/.craft/config.json
+cp samples/automations/github-review-bot/PR_WORKFLOW.md       /path/to/workspace/PR_WORKFLOW.md
+```
+
+Edit `.craft/config.json`:
+
+| Field | Example | Notes |
+|---|---|---|
+| `GitHubTracker.Tracker.Repository` | `"your-org/your-repo"` | Format: `owner/repo` |
+| `GitHubTracker.Tracker.ApiKey` | `"$GITHUB_TOKEN"` | Leave as-is to use the env var |
+| `GitHubTracker.Hooks.BeforeRun` | see file | Update the email/name to your bot identity |
+
+Set the token:
+
+```bash
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+```
+
+Run `dotcraft`. The bot picks up all open, non-draft PRs automatically.
+
+### Lifecycle
+
+```
+PR opened (or new commits pushed)
+  → Bot dispatched on next poll (SHA differs from last reviewed)
+  → Bot reviews diff, calls SubmitReview COMMENT
+  → Review posted on PR
+  → Orchestrator records reviewed SHA
+  → Next poll: SHA unchanged → PR skipped
+
+New commits pushed → SHA changes → bot runs again automatically
+```
+
+The bot only submits `COMMENT` reviews — it never approves, requests changes, or merges.
+
+### Required token permissions
+
+| Permission | Level | Reason |
+|---|---|---|
+| Metadata | Read-only | Required by GitHub |
+| Contents | Read-only | Clone and check out the PR branch |
+| Pull requests | Read and Write | Read PR diff, submit review |
+
+---
+
+## GitHub Collab Dev Bot
+
+### Quick start
+
+```bash
+mkdir -p /path/to/workspace/.craft
+cp samples/automations/github-collab-dev-bot/config.template.json /path/to/workspace/.craft/config.json
+cp samples/automations/github-collab-dev-bot/WORKFLOW.md          /path/to/workspace/WORKFLOW.md
+```
+
+Edit `.craft/config.json` with your repository and token. Then run `dotcraft`.
+
+### Labels
+
+| Label | Active? | Meaning |
+|---|---|---|
+| `status:todo` | Yes | New issue, waiting to be started |
+| `status:in-progress` | Yes | Bot is implementing |
+| `status:awaiting-review` | No | PR opened, waiting for human review |
+| `status:blocked` | No | Bot is blocked, needs human input |
+
+The bot manages these labels itself during its run.
+
+### Lifecycle
+
+```
+status:todo
+  ↓  (bot runs: plan + relabel)
+status:in-progress
+  ↓  (bot runs: implement + push + open PR + relabel)
+status:awaiting-review   ← non-active, bot stops
+  ↓  (human merges PR, closes issue)
+closed
+
+If blocked at any stage:
+status:in-progress  →  status:blocked  ← non-active, bot stops
+                        ↓  (human resolves, relabels to status:todo)
+                    status:todo  →  ...
+```
+
+### Required token permissions
+
+| Permission | Level | Reason |
+|---|---|---|
+| Metadata | Read-only | Required by GitHub |
+| Contents | Read and Write | Clone, create branch, commit, push |
+| Issues | Read and Write | Read issue, comment, relabel |
+| Pull requests | Read and Write | Open PR, post PR comments |
+
+---
 
 ## Troubleshooting
 
-### Tasks never appear
+### Tasks never appear (local)
 
 - Confirm `Automations.Enabled` is `true` in the merged config.
-- Confirm the task directory is under the tasks root (default: `.craft/tasks/<task-id>/`) and contains `task.md` and `workflow.md`.
+- Confirm the task directory is under the tasks root and contains both `task.md` and `workflow.md`.
 
-### Wrong tasks directory
+### GitHub PRs/issues not being picked up
 
-- Set `LocalTasksRoot` to an absolute path, or leave it empty and use the default `.craft/tasks/` under your workspace.
+- Confirm **both** `Automations.Enabled` and `GitHubTracker.Enabled` are `true`.
+- For PRs: confirm the PR is open and not a draft; confirm its review state is in `PullRequestActiveStates`.
+- For issues: confirm the issue has a label matching an active state (e.g. `status:todo`).
+- Confirm the workflow file exists at the configured path (`PR_WORKFLOW.md` or `WORKFLOW.md`).
+
+### Review bot keeps re-running on the same commit
+
+The orchestrator records the reviewed HEAD SHA after each successful review. If the bot re-runs on the same commit, check logs for `ReviewCompleted=true`. If the run exited before calling `SubmitReview`, no SHA is recorded and the bot retries — this is intentional. The reviewed SHA is held in memory; a service restart causes all PRs to be reviewed once.
+
+### `gh: command not found`
+
+Install the [GitHub CLI](https://cli.github.com/) and ensure it is on `PATH`. For the review bot, `gh` is optional — `SubmitReview` uses DotCraft's built-in GitHub API integration.
+
+### Permission errors on `SubmitReview` or `CompleteIssue`
+
+These tools use DotCraft's own GitHub token (`$GITHUB_TOKEN`). Ensure the token has the required permissions listed above.
