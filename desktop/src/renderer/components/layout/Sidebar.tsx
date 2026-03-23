@@ -32,6 +32,8 @@ interface SidebarProps {
  */
 export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: SidebarProps): JSX.Element {
   const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
+  const capabilities = useConnectionStore((s) => s.capabilities)
+  const automationsAvailable = capabilities?.automations === true
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Expose searchRef for Ctrl+K global shortcut (App.tsx reads this via
@@ -84,6 +86,8 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
           active={activeMainView === 'automations'}
           onClick={() => setActiveMainView('automations')}
           icon={<AutomationsIcon />}
+          disabled={!automationsAvailable}
+          title={!automationsAvailable ? 'Automations module not enabled on the server' : undefined}
         />
         <SidebarNavRow
           label="Skills"
@@ -107,13 +111,17 @@ interface SidebarNavRowProps {
   active: boolean
   onClick: () => void
   icon: JSX.Element
+  disabled?: boolean
+  title?: string
 }
 
-function SidebarNavRow({ label, active, onClick, icon }: SidebarNavRowProps): JSX.Element {
+function SidebarNavRow({ label, active, onClick, icon, disabled, title }: SidebarNavRowProps): JSX.Element {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={title}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -123,19 +131,20 @@ function SidebarNavRow({ label, active, onClick, icon }: SidebarNavRowProps): JS
         padding: '8px 12px',
         fontSize: '13px',
         textAlign: 'left',
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
         borderRadius: '6px',
         border: 'none',
         backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
         borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
-        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+        color: disabled ? 'var(--text-tertiary)' : active ? 'var(--text-primary)' : 'var(--text-secondary)',
+        opacity: disabled ? 0.5 : 1,
         transition: 'background-color 120ms ease, color 120ms ease'
       }}
       onMouseEnter={(e) => {
-        if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+        if (!active && !disabled) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
       }}
       onMouseLeave={(e) => {
-        if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+        if (!active && !disabled) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
       }}
     >
       <span style={{ display: 'flex', width: 18, height: 18, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
@@ -176,9 +185,10 @@ interface CollapsedSidebarProps {
 
 function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: CollapsedSidebarProps): JSX.Element {
   const [logoHovered, setLogoHovered] = useState(false)
-  const { status } = useConnectionStore()
+  const { status, capabilities: collapsedCaps } = useConnectionStore()
   const { threadList, addThread, setActiveThreadId } = useThreadStore()
   const { activeMainView, setActiveMainView } = useUIStore()
+  const collapsedAutomationsAvailable = collapsedCaps?.automations === true
 
   const colorMap: Record<string, string> = {
     connecting: 'var(--warning)',
@@ -287,12 +297,14 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
 
       <button
         type="button"
-        title="Automations"
-        onClick={() => setActiveMainView('automations')}
+        title={collapsedAutomationsAvailable ? 'Automations' : 'Automations module not enabled on the server'}
+        onClick={collapsedAutomationsAvailable ? () => setActiveMainView('automations') : undefined}
+        disabled={!collapsedAutomationsAvailable}
         style={{
           ...iconButtonStyle,
           backgroundColor: activeMainView === 'automations' ? 'var(--bg-tertiary)' : 'transparent',
-          color: activeMainView === 'automations' ? 'var(--accent)' : 'var(--text-secondary)'
+          color: activeMainView === 'automations' ? 'var(--accent)' : 'var(--text-secondary)',
+          opacity: collapsedAutomationsAvailable ? 1 : 0.4
         }}
         aria-label="Automations"
       >

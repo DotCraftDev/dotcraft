@@ -7,7 +7,9 @@ import { useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
-import { AutomationsPlaceholder } from './components/skills/AutomationsPlaceholder'
+import { AutomationsView } from './components/automations/AutomationsView'
+import { useAutomationsStore } from './stores/automationsStore'
+import type { AutomationTask } from './stores/automationsStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -136,6 +138,10 @@ export function App(): JSX.Element {
           setThreadList([])
         })
         .finally(() => setLoading(false))
+
+      if (capabilities?.automations) {
+        useAutomationsStore.getState().fetchTasks()
+      }
     }
     // Reset all stores when disconnecting (e.g. workspace switch)
     if (status === 'disconnected' || status === 'error') {
@@ -347,6 +353,13 @@ export function App(): JSX.Element {
             const resultText = (p.result as string) ?? (p.text as string) ?? ''
             const preview = resultText.split('\n').slice(0, 2).join(' ').slice(0, 120)
             addJobResultToast(`${jobName}${preview ? ': ' + preview : ''}`)
+            break
+          }
+
+          // ── Automation task updates ────────────────────────────────────
+          case 'automation/task/updated': {
+            const task = (p.task ?? {}) as AutomationTask
+            useAutomationsStore.getState().upsertTask(task)
             break
           }
 
@@ -653,7 +666,7 @@ export function App(): JSX.Element {
             activeMainView === 'skills' ? (
               <SkillsView />
             ) : activeMainView === 'automations' ? (
-              <AutomationsPlaceholder />
+              <AutomationsView />
             ) : (
               <ConversationPanel workspacePath={workspacePath} />
             )
