@@ -22,6 +22,7 @@ import {
   getRecentWorkspaces,
   type AppSettings
 } from './settings'
+import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -115,6 +116,7 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   }
 
   win.on('close', () => {
+    releaseWorkspaceLock(currentWorkspacePath)
     appServerManager?.shutdown()
     wireClient?.dispose()
     appServerManager = null
@@ -126,13 +128,13 @@ function createWindow(workspacePath: string | null): BrowserWindow {
 }
 
 // ─── Spawn a new process for "New Window" ─────────────────────────────────────
+// Always spawns without a --workspace argument so the new process shows the
+// welcome screen. This prevents two processes from accidentally opening the
+// same workspace simultaneously.
 
-function openNewProcess(workspacePath: string | null): void {
+function openNewProcess(): void {
   const filteredArgs = stripWorkspaceArgs(process.argv.slice(1))
-  const args = workspacePath
-    ? [...filteredArgs, '--workspace', workspacePath]
-    : filteredArgs
-  const child = spawn(process.execPath, args, {
+  const child = spawn(process.execPath, filteredArgs, {
     detached: true,
     stdio: 'ignore'
   })
@@ -205,7 +207,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
       }
     },
     onOpenNewWindow: () => {
-      openNewProcess(sharedSettings.lastWorkspacePath ?? null)
+      openNewProcess()
     },
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
@@ -223,6 +225,21 @@ function reregisterIpcForWorkspace(workspacePath: string): void {
 }
 
 async function connectToAppServer(workspacePath: string): Promise<void> {
+  // Acquire the lock BEFORE tearing anything down so a failure leaves the
+  // current connection intact and propagates as an exception to the caller
+  // (e.g. the renderer's workspace:switch IPC).
+  const lockResult = acquireWorkspaceLock(workspacePath)
+  if (!lockResult.ok) {
+    throw new Error(
+      `This workspace is already open in another DotCraft Desktop window (PID ${lockResult.pid}).`
+    )
+  }
+
+  // Release lock on previous workspace after the new lock is secured
+  if (currentWorkspacePath && currentWorkspacePath !== workspacePath) {
+    releaseWorkspaceLock(currentWorkspacePath)
+  }
+
   // Tear down previous connection
   appServerManager?.shutdown()
   wireClient?.dispose()
@@ -353,7 +370,7 @@ function buildAppMenu(): Menu {
           label: 'New Window',
           accelerator: 'CmdOrCtrl+Shift+N',
           click: () => {
-            openNewProcess(sharedSettings.lastWorkspacePath ?? null)
+            openNewProcess()
           }
         },
         { type: 'separator' },
@@ -451,11 +468,18 @@ app.whenReady().then(() => {
   }
 
   sharedSettings = loadSettings()
-  const workspacePath = resolveWorkspacePath(sharedSettings)
+  let workspacePath = resolveWorkspacePath(sharedSettings)
 
+  // If another process is already using this workspace, start without one
+  // so the user sees the welcome screen and can pick a different workspace.
   if (workspacePath) {
-    addRecentWorkspace(sharedSettings, workspacePath)
-    saveSettings(sharedSettings)
+    const lockCheck = acquireWorkspaceLock(workspacePath)
+    if (!lockCheck.ok) {
+      workspacePath = null
+    } else {
+      addRecentWorkspace(sharedSettings, workspacePath)
+      saveSettings(sharedSettings)
+    }
   }
 
   const win = createWindow(workspacePath)
@@ -517,6 +541,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  releaseWorkspaceLock(currentWorkspacePath)
   appServerManager?.shutdown()
   wireClient?.dispose()
   appServerManager = null
