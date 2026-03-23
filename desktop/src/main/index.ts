@@ -174,10 +174,13 @@ async function connectViaWebSocket(
   })
 
   client.onServerRequest(async (method, params) => {
-    const { bridgeId, promise } = createServerRequestBridge()
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      broadcastServerRequest(mainWindow, { bridgeId, method, params })
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return Promise.reject(
+        new Error('Window is not available to handle server request')
+      )
     }
+    const { bridgeId, promise } = createServerRequestBridge()
+    broadcastServerRequest(mainWindow, { bridgeId, method, params })
     return promise
   })
 
@@ -323,10 +326,13 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     })
 
     client.onServerRequest(async (method, params) => {
-      const { bridgeId, promise } = createServerRequestBridge()
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        broadcastServerRequest(mainWindow, { bridgeId, method, params })
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return Promise.reject(
+          new Error('Window is not available to handle server request')
+        )
       }
+      const { bridgeId, promise } = createServerRequestBridge()
+      broadcastServerRequest(mainWindow, { bridgeId, method, params })
       return promise
     })
 
