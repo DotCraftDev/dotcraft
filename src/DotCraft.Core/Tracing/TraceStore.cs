@@ -1,12 +1,19 @@
 using System.Collections.Concurrent;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Channels;
 
 namespace DotCraft.Tracing;
 
-public sealed class TraceStore(string? storagePath = null, int maxEventsPerSession = 5000)
+/// <param name="synchronousPersist">When true, writes traces on the caller thread (blocks). When false (default), uses fire-and-forget Task.Run.</param>
+public sealed class TraceStore(
+    string? storagePath = null,
+    int maxEventsPerSession = 5000,
+    bool synchronousPersist = false)
 {
+    private int _persistInFlight;
+
     private readonly ConcurrentDictionary<string, TraceSession> _sessions = new();
 
     private readonly Channel<TraceEvent> _sseChannel = Channel.CreateBounded<TraceEvent>(
@@ -77,6 +84,20 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
     }
 
     /// <summary>
+    /// Blocks until asynchronous persistence work scheduled by this instance has completed.
+    /// No-op when <see cref="synchronousPersist"/> is true or there is no storage path.
+    /// </summary>
+    public void WaitForPendingPersistence()
+    {
+        if (storagePath == null || synchronousPersist)
+            return;
+
+        var spin = new SpinWait();
+        while (Volatile.Read(ref _persistInFlight) != 0)
+            spin.SpinOnce();
+    }
+
+    /// <summary>
     /// Replaces in-memory sessions with a full reload from <see cref="storagePath"/>.
     /// Used when the dashboard runs in a different process than trace producers (e.g. CLI + AppServer subprocess)
     /// so the UI reflects the shared on-disk trace files.
@@ -85,6 +106,8 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
     {
         if (storagePath == null)
             return;
+
+        WaitForPendingPersistence();
 
         lock (_diskMutationLock)
         {
@@ -265,6 +288,28 @@ public sealed class TraceStore(string? storagePath = null, int maxEventsPerSessi
     }
 
     private void PersistEvent(TraceEvent evt)
+    {
+        if (synchronousPersist)
+        {
+            PersistEventCore(evt);
+            return;
+        }
+
+        Interlocked.Increment(ref _persistInFlight);
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                PersistEventCore(evt);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _persistInFlight);
+            }
+        });
+    }
+
+    private void PersistEventCore(TraceEvent evt)
     {
         try
         {
