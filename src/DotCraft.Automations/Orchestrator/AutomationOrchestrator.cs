@@ -28,6 +28,7 @@ public sealed class AutomationOrchestrator
     private readonly OrchestratorState _state = new();
     private readonly ConcurrentDictionary<string, AutomationTask> _allTasks = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _concurrency;
+    private readonly SemaphoreSlim _pollGate = new(1, 1);
 
     private AutomationSessionClient? _sessionClient;
     private CancellationTokenSource? _cts;
@@ -106,6 +107,12 @@ public sealed class AutomationOrchestrator
 
         return merged.Values.ToList();
     }
+
+    /// <summary>
+    /// Runs one poll cycle immediately (e.g. Dashboard refresh). Serialized with the periodic poll loop via <see cref="_pollGate"/>.
+    /// </summary>
+    public Task TriggerImmediatePollAsync(CancellationToken cancellationToken = default) =>
+        PollOnceAsync(cancellationToken);
 
     /// <summary>
     /// Approves a task via its source. Transitions the task to <see cref="AutomationTaskStatus.Approved"/>.
@@ -245,79 +252,87 @@ public sealed class AutomationOrchestrator
 
     private async Task PollOnceAsync(CancellationToken ct)
     {
-        var sw = Stopwatch.StartNew();
-        var sourceSummaries = new List<string>();
-        var globalIds = new List<string>();
-        const int maxGlobalIds = 10;
-        var totalPendingEligible = 0;
-
-        foreach (var source in _sources.Values)
+        await _pollGate.WaitAsync(ct);
+        try
         {
-            IReadOnlyList<AutomationTask> pending;
-            try
-            {
-                pending = await source.GetPendingTasksAsync(ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "GetPendingTasksAsync failed for source {Source}", source.Name);
-                continue;
-            }
+            var sw = Stopwatch.StartNew();
+            var sourceSummaries = new List<string>();
+            var globalIds = new List<string>();
+            const int maxGlobalIds = 10;
+            var totalPendingEligible = 0;
 
-            var pendingOnly = pending
-                .Where(t => t.Status == AutomationTaskStatus.Pending)
-                .ToList();
-            totalPendingEligible += pendingOnly.Count;
-
-            foreach (var t in pendingOnly)
+            foreach (var source in _sources.Values)
             {
-                if (globalIds.Count >= maxGlobalIds)
-                    break;
-                globalIds.Add(TruncateTaskIdForLog(t.Id));
-            }
-
-            sourceSummaries.Add($"{source.Name} pending={pendingOnly.Count}");
-
-            foreach (var task in pending)
-            {
-                if (ct.IsCancellationRequested)
+                IReadOnlyList<AutomationTask> pending;
+                try
                 {
-                    sw.Stop();
-                    LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
-                    return;
+                    pending = await source.GetPendingTasksAsync(ct);
                 }
-
-                if (task.Status != AutomationTaskStatus.Pending)
-                    continue;
-
-                var taskKey = TaskKey(task);
-
-                // Check if task is eligible for retry (respects backoff delay)
-                if (_state.GetRetryCount(taskKey) > 0 &&
-                    !_state.IsEligibleForRetry(taskKey, _config.RetryInitialDelay, _config.RetryMaxDelay, DateTimeOffset.UtcNow))
+                catch (Exception ex)
                 {
-                    _logger.LogDebug(
-                        "Task {TaskId} waiting for retry backoff (source: {SourceName})",
-                        task.Id,
-                        source.Name);
+                    _logger.LogError(ex, "GetPendingTasksAsync failed for source {Source}", source.Name);
                     continue;
                 }
 
-                if (!_state.TryBeginTask(taskKey))
+                var pendingOnly = pending
+                    .Where(t => t.Status == AutomationTaskStatus.Pending)
+                    .ToList();
+                totalPendingEligible += pendingOnly.Count;
+
+                foreach (var t in pendingOnly)
                 {
-                    _logger.LogDebug(
-                        "Task {TaskId} skipped (already active) for source {SourceName}",
-                        task.Id,
-                        source.Name);
-                    continue;
+                    if (globalIds.Count >= maxGlobalIds)
+                        break;
+                    globalIds.Add(TruncateTaskIdForLog(t.Id));
                 }
 
-                _ = Task.Run(() => RunDispatchAsync(source, task, ct), ct);
+                sourceSummaries.Add($"{source.Name} pending={pendingOnly.Count}");
+
+                foreach (var task in pending)
+                {
+                    if (ct.IsCancellationRequested)
+                    {
+                        sw.Stop();
+                        LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
+                        return;
+                    }
+
+                    if (task.Status != AutomationTaskStatus.Pending)
+                        continue;
+
+                    var taskKey = TaskKey(task);
+
+                    // Check if task is eligible for retry (respects backoff delay)
+                    if (_state.GetRetryCount(taskKey) > 0 &&
+                        !_state.IsEligibleForRetry(taskKey, _config.RetryInitialDelay, _config.RetryMaxDelay, DateTimeOffset.UtcNow))
+                    {
+                        _logger.LogDebug(
+                            "Task {TaskId} waiting for retry backoff (source: {SourceName})",
+                            task.Id,
+                            source.Name);
+                        continue;
+                    }
+
+                    if (!_state.TryBeginTask(taskKey))
+                    {
+                        _logger.LogDebug(
+                            "Task {TaskId} skipped (already active) for source {SourceName}",
+                            task.Id,
+                            source.Name);
+                        continue;
+                    }
+
+                    _ = Task.Run(() => RunDispatchAsync(source, task, ct), ct);
+                }
             }
+
+            sw.Stop();
+            LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
         }
-
-        sw.Stop();
-        LogPollSummary(sw.ElapsedMilliseconds, sourceSummaries, globalIds, totalPendingEligible);
+        finally
+        {
+            _pollGate.Release();
+        }
     }
 
     private void LogPollSummary(

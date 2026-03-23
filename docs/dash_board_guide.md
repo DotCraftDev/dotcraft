@@ -11,6 +11,7 @@ DotCraft DashBoard 是一个内置的 Web 调试工具，用于实时查看 Agen
 | Trace Timeline | 每个会话的事件时间线，支持按类型过滤（请求、响应、工具调用、Token、错误） |
 | Settings | 配置文件编辑器，支持全局配置查看和工作区配置编辑，实时预览合并效果 |
 | 实时更新 | 通过 SSE（Server-Sent Events）实时推送新事件到前端 |
+| Automations | 只读展示 Automations 编排器下的任务（各 `IAutomationSource`），含按状态统计与跳转会话的链接 — **仅 Gateway**，且需在配置中启用 Automations 模块 |
 
 ---
 
@@ -72,6 +73,8 @@ DashBoard 在不同运行模式下的行为略有不同：
 | Gateway | 由 WebHostPool 管理，按端口自动合并 | 见下方说明 |
 
 > **Gateway 模式说明**：在 Gateway 模式下，DashBoard 始终使用 `DashBoard.Host` 和 `DashBoard.Port` 配置的地址。若该地址与其他服务（如 API、AG-UI）相同，DashBoard 路由会自动合并到同一个 Kestrel 服务器上，无需单独启动；若地址不同，则以独立服务器方式运行。默认 `Api.Port` 和 `DashBoard.Port` 均为 `8080`，因此通常共享同一服务器。
+
+> **Automations 面板**：仅在以 **Gateway** 运行且已加载 Automations 模块（配置中 `Automations.Enabled`）时，侧栏与 API 才可用。**CLI** 等场景下的独立 DashBoard 不会注册 Automations 快照，侧栏中不显示 Automations。
 
 ---
 
@@ -163,6 +166,16 @@ DashBoard 提供以下 REST API，均以 `/api/` 为前缀：
     }
 ]
 ```
+
+### GET /dashboard/api/orchestrators/automations/state
+
+返回自动化任务的只读快照（任务字段与 Wire `automation/task/list` 一致）。仅在 Gateway 加载 Automations 模块时注册。
+
+**响应字段**：`tasks`（含 `id`、`title`、`status`、`sourceName`、`threadId`、`createdAt`、`updatedAt` 等）、`countsByStatus`、`countsBySource`、`generatedAt`。
+
+### POST /dashboard/api/orchestrators/automations/refresh
+
+触发一次立即的 Automations 轮询（响应不阻塞等待完成）。刷新后请再调用 GET state 读取最新数据。
 
 ### GET /dashboard/api/config/schema
 

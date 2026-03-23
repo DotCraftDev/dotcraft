@@ -11,6 +11,7 @@ DotCraft DashBoard is a built-in Web debugging tool for real-time viewing of req
 | Trace Timeline | Event timeline for each session, filterable by type (request, response, tool call, token, error) |
 | Settings | Configuration file editor with global config viewing and workspace config editing, real-time merge preview |
 | Real-time Updates | Real-time event push to frontend via SSE (Server-Sent Events) |
+| Automations | Read-only task list from the Automations orchestrator (all sources), with status counts and thread links to Sessions — **Gateway mode only**, and only when the Automations module is enabled |
 
 ---
 
@@ -72,6 +73,8 @@ DashBoard behavior varies slightly across runtime modes:
 | Gateway | Managed by WebHostPool, merged automatically by port | See note below |
 
 > **Gateway Mode Note**: In Gateway mode, DashBoard always uses the address configured by `DashBoard.Host` and `DashBoard.Port`. If that address matches another service (e.g. API or AG-UI), the DashBoard routes are automatically merged into the same Kestrel server — no separate server is started. If the address differs, it runs as a standalone server. Since both `Api.Port` and `DashBoard.Port` default to `8080`, they share the same server by default.
+
+> **Automations panel**: The Automations sidebar and API are available only when running the **Gateway** host with the Automations module loaded (`Automations.Enabled` in config). The standalone DashBoard used by **CLI** (and similar hosts) does not register the Automations orchestrator snapshot, so the Automations nav item stays hidden.
 
 ---
 
@@ -163,6 +166,16 @@ Get all events for a specified session, sorted by time in ascending order.
     }
 ]
 ```
+
+### GET /dashboard/api/orchestrators/automations/state
+
+Returns a read-only snapshot of automation tasks (same task shape as Wire `automation/task/list`). Only registered when the Gateway loads the Automations module.
+
+**Response fields**: `tasks` (array of task objects with `id`, `title`, `status`, `sourceName`, `threadId`, `createdAt`, `updatedAt`, etc.), `countsByStatus`, `countsBySource`, `generatedAt`.
+
+### POST /dashboard/api/orchestrators/automations/refresh
+
+Triggers an immediate Automations poll cycle (non-blocking response). Use the GET state endpoint afterward to read updated data.
 
 ### GET /dashboard/api/config/schema
 

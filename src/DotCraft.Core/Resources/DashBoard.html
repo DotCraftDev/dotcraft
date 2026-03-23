@@ -1245,10 +1245,10 @@ body {
         <span>Sessions</span>
       </button>
 
-      <div class="nav-section" id="navSectionOrchestrators" style="display:none">Orchestrators</div>
-      <button class="nav-tab" data-panel="github-tracker" id="navTabGithubTracker" style="display:none" onclick="switchPanel('github-tracker')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 9h.01M15 9h.01M12 17c2 0 3.5-1 4-3H8c.5 2 2 3 4 3z"/></svg>
-        <span>GitHub Tracker</span>
+      <div class="nav-section" id="navSectionAutomations" style="display:none">Automations</div>
+      <button class="nav-tab" data-panel="automations" id="navTabAutomations" style="display:none" onclick="switchPanel('automations')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Automations</span>
       </button>
 
       <div class="nav-section">System</div>
@@ -1350,30 +1350,24 @@ body {
         </div>
       </div>
 
-      <!-- GitHub Tracker Panel -->
-      <div class="panel" id="panel-github-tracker">
+      <!-- Automations Panel (read-only; Gateway + Automations module) -->
+      <div class="panel" id="panel-automations">
         <div class="panel-header">
-          <div class="panel-title">GitHub Tracker</div>
-          <button class="btn btn-accent" onclick="refreshGithubTracker()">
+          <div class="panel-title">Automations</div>
+          <button class="btn btn-accent" onclick="refreshAutomationsPanel()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
           </button>
         </div>
         <div class="panel-body">
-          <div class="stats-grid" id="githubTrackerStats">
-            <div class="stat-card"><div class="stat-label">Running Agents</div><div class="stat-value accent" id="gtRunning">-</div></div>
-            <div class="stat-card"><div class="stat-label">Retrying</div><div class="stat-value warning" id="gtRetrying">-</div></div>
-            <div class="stat-card"><div class="stat-label">Total Input Tokens</div><div class="stat-value" id="gtInputTokens">-</div></div>
-            <div class="stat-card"><div class="stat-label">Total Output Tokens</div><div class="stat-value" id="gtOutputTokens">-</div></div>
-            <div class="stat-card"><div class="stat-label">Total Tokens</div><div class="stat-value success" id="gtTotalTokens">-</div></div>
-            <div class="stat-card"><div class="stat-label">Runtime (h)</div><div class="stat-value info" id="gtSecondsRunning">-</div></div>
+          <div class="stats-grid" id="automationsStats"></div>
+          <p id="automationsGeneratedAt" style="font-size:12px;color:var(--text-secondary);margin:0 0 12px"></p>
+          <div class="filter-bar" style="margin-bottom:16px">
+            <button class="filter-chip active" data-autosrc="all" onclick="setAutomationsFilter('all')">All</button>
+            <button class="filter-chip" data-autosrc="local" onclick="setAutomationsFilter('local')">local</button>
+            <button class="filter-chip" data-autosrc="github" onclick="setAutomationsFilter('github')">github</button>
           </div>
-
-          <h3 style="margin:16px 0 10px;font-size:14px;color:var(--text-secondary)">Running Agents</h3>
-          <div id="gtRunningTable"><div class="empty-state">No agents currently running.</div></div>
-
-          <h3 style="margin:16px 0 10px;font-size:14px;color:var(--text-secondary)">Retry Queue</h3>
-          <div id="gtRetryTable"><div class="empty-state">No issues queued for retry.</div></div>
+          <div id="automationsTable"><div class="empty-state">No automation tasks.</div></div>
         </div>
       </div>
 
@@ -1477,7 +1471,7 @@ function switchPanel(panel) {
   else if (panel === 'traces') refreshTraces();
   else if (panel === 'token-usage') refreshTokenUsage();
   else if (panel === 'settings') refreshSettings();
-  else if (panel === 'github-tracker') refreshGithubTracker();
+  else if (panel === 'automations') refreshAutomations();
 }
 
 async function fetchJson(url) {
@@ -3374,6 +3368,7 @@ function applySetupModeUi() {
   const navTabs = document.querySelectorAll('.nav-tab');
   if (!settingsSetupMode) {
     navTabs.forEach(tab => tab.style.display = '');
+    applyAutomationsNavVisibility();
     document.getElementById('statusText').textContent = 'Connected';
     document.getElementById('liveDot').style.display = '';
     return;
@@ -3422,18 +3417,35 @@ function checkAuthEnabled() {
   }).catch(() => {});
 }
 
-// GitHub Tracker
-let githubTrackerAvailable = false;
+// Automations (read-only dashboard; Gateway + Automations module)
+let automationsAvailable = false;
+let automationsSourceFilter = 'all';
+let _automationsLastData = null;
 
-async function probeGithubTracker() {
+/** Keeps Automations nav hidden unless the server exposes /orchestrators/automations/state (must not be overridden by applySetupModeUi). */
+function applyAutomationsNavVisibility() {
+  const section = document.getElementById('navSectionAutomations');
+  const tab = document.getElementById('navTabAutomations');
+  if (!section || !tab) return;
+  if (automationsAvailable) {
+    section.style.display = '';
+    tab.style.display = '';
+  } else {
+    section.style.display = 'none';
+    tab.style.display = 'none';
+    if (currentPanel === 'automations')
+      switchPanel('dashboard');
+  }
+}
+
+async function probeAutomations() {
   try {
-    const res = await fetch('/dashboard/api/orchestrators/github-tracker/state');
-    if (res.ok) {
-      githubTrackerAvailable = true;
-      document.getElementById('navSectionOrchestrators').style.display = '';
-      document.getElementById('navTabGithubTracker').style.display = '';
-    }
-  } catch (_) {}
+    const res = await fetch('/dashboard/api/orchestrators/automations/state');
+    automationsAvailable = res.ok;
+  } catch (_) {
+    automationsAvailable = false;
+  }
+  applyAutomationsNavVisibility();
 }
 
 function fmtTokens(n) {
@@ -3443,9 +3455,23 @@ function fmtTokens(n) {
   return String(n);
 }
 
-function fmtHours(seconds) {
-  if (seconds == null) return '-';
-  return (seconds / 3600).toFixed(2);
+function fmtIsoShort(iso) {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+  } catch (_) {
+    return '-';
+  }
+}
+
+function automationsStatusBadgeClass(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'failed' || s === 'rejected') return 'badge-warning';
+  if (s === 'approved' || s === 'agent_completed') return 'badge-success';
+  if (s === 'pending' || s === 'dispatched') return 'badge-warning';
+  if (s === 'agent_running' || s === 'awaiting_review') return 'badge-info';
+  return 'badge-info';
 }
 
 function fmtRelative(ms) {
@@ -3457,69 +3483,97 @@ function fmtRelative(ms) {
   return Math.ceil(diff / 60000) + 'm';
 }
 
-async function refreshGithubTracker() {
-  if (!githubTrackerAvailable) return;
+function setAutomationsFilter(filter) {
+  automationsSourceFilter = filter;
+  document.querySelectorAll('[data-autosrc]').forEach(c => c.classList.toggle('active', c.dataset.autosrc === filter));
+  if (_automationsLastData) renderAutomations(_automationsLastData);
+}
+
+function renderAutomations(data) {
+  _automationsLastData = data;
+  const statsEl = document.getElementById('automationsStats');
+  const genEl = document.getElementById('automationsGeneratedAt');
+  const tableEl = document.getElementById('automationsTable');
+
+  if (genEl) {
+    genEl.textContent = data.generatedAt
+      ? 'Data as of ' + fmtIsoShort(data.generatedAt)
+      : '';
+  }
+
+  const cbs = data.countsByStatus || {};
+  const entries = Object.entries(cbs).sort((a, b) => b[1] - a[1]);
+  if (statsEl) {
+    statsEl.innerHTML = entries.length
+      ? entries.map(([k, v]) =>
+          `<div class="stat-card"><div class="stat-label">${escapeHtml(k)}</div><div class="stat-value accent">${v}</div></div>`
+        ).join('')
+      : '<div class="stat-card"><div class="stat-label">Tasks</div><div class="stat-value accent">0</div></div>';
+  }
+
+  let tasks = Array.isArray(data.tasks) ? data.tasks.slice() : [];
+  if (automationsSourceFilter === 'local') {
+    tasks = tasks.filter(t => String(t.sourceName || '').toLowerCase() === 'local');
+  } else if (automationsSourceFilter === 'github') {
+    tasks = tasks.filter(t => String(t.sourceName || '').toLowerCase() === 'github');
+  }
+
+  if (tasks.length === 0) {
+    tableEl.innerHTML = '<div class="empty-state">No automation tasks.</div>';
+    return;
+  }
+
+  let html = '<table class="config-table">';
+  html += '<thead><tr>';
+  html += '<th>Title</th><th>Source</th><th>Status</th><th>Thread</th><th>Updated</th>';
+  html += '</tr></thead><tbody>';
+  for (const t of tasks) {
+    const title = escapeHtml(truncateText(t.title || t.id || '-', 64));
+    const src = escapeHtml(t.sourceName || '-');
+    const st = escapeHtml(t.status || '-');
+    const badgeCls = automationsStatusBadgeClass(t.status);
+    const tid = t.threadId;
+    const threadCell = tid
+      ? `<a href="#" onclick="openSession(${JSON.stringify(String(tid))});return false;" class="text-accent">${escapeHtml(String(tid))}</a>`
+      : '-';
+    const upd = t.updatedAt != null ? fmtIsoShort(t.updatedAt) : (t.createdAt != null ? fmtIsoShort(t.createdAt) : '-');
+    html += '<tr>';
+    html += `<td style="font-weight:500" title=${JSON.stringify(t.title || '')}>${title}</td>`;
+    html += `<td style="font-size:12px">${src}</td>`;
+    html += `<td><span class="badge ${badgeCls}">${st}</span></td>`;
+    html += `<td style="font-size:12px">${threadCell}</td>`;
+    html += `<td style="font-size:12px;color:var(--text-secondary)">${upd}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  tableEl.innerHTML = html;
+}
+
+function truncateText(text, max) {
+  if (!text || text.length <= max) return text;
+  return text.substring(0, max) + '...';
+}
+
+async function refreshAutomations() {
+  if (!automationsAvailable) return;
   try {
-    const res = await fetch('/dashboard/api/orchestrators/github-tracker/state');
+    const res = await fetch('/dashboard/api/orchestrators/automations/state');
     if (!res.ok) return;
     const data = await res.json();
-
-    document.getElementById('gtRunning').textContent = data.runningCount ?? '-';
-    document.getElementById('gtRetrying').textContent = data.retryingCount ?? '-';
-    const t = data.totals || {};
-    document.getElementById('gtInputTokens').textContent = fmtTokens(t.inputTokens);
-    document.getElementById('gtOutputTokens').textContent = fmtTokens(t.outputTokens);
-    document.getElementById('gtTotalTokens').textContent = fmtTokens(t.totalTokens);
-    document.getElementById('gtSecondsRunning').textContent = fmtHours(t.secondsRunning);
-
-    const runningEl = document.getElementById('gtRunningTable');
-    if (!data.running || data.running.length === 0) {
-      runningEl.innerHTML = '<div class="empty-state">No agents currently running.</div>';
-    } else {
-      let html = '<table class="config-table">';
-      html += '<thead><tr>';
-      html += '<th>Issue</th><th>State</th><th>Session</th>';
-      html += '<th style="text-align:right">Turns</th><th style="text-align:right">Tokens</th><th>Last Event</th>';
-      html += '</tr></thead><tbody>';
-      for (const r of data.running) {
-        const sessionLink = r.sessionId
-          ? `<a href="#" onclick="openSession('${r.sessionId}');return false;" class="text-accent">${r.sessionId}</a>`
-          : '-';
-        html += `<tr>`;
-        html += `<td style="font-weight:500">${r.identifier}</td>`;
-        html += `<td><span class="badge badge-info">${r.state || '-'}</span></td>`;
-        html += `<td style="font-size:12px">${sessionLink}</td>`;
-        html += `<td style="text-align:right">${r.turnCount ?? 0}</td>`;
-        html += `<td style="text-align:right">${fmtTokens(r.totalTokens)}</td>`;
-        html += `<td style="font-size:12px;color:var(--text-secondary)">${r.lastEvent || '-'}</td>`;
-        html += '</tr>';
-      }
-      html += '</tbody></table>';
-      runningEl.innerHTML = html;
-    }
-
-    const retryEl = document.getElementById('gtRetryTable');
-    if (!data.retrying || data.retrying.length === 0) {
-      retryEl.innerHTML = '<div class="empty-state">No issues queued for retry.</div>';
-    } else {
-      let html = '<table class="config-table">';
-      html += '<thead><tr>';
-      html += '<th>Issue</th><th style="text-align:right">Attempt</th><th>Due In</th><th>Reason</th>';
-      html += '</tr></thead><tbody>';
-      for (const r of data.retrying) {
-        html += `<tr>`;
-        html += `<td style="font-weight:500">${r.identifier}</td>`;
-        html += `<td style="text-align:right">${r.attempt}</td>`;
-        html += `<td>${fmtRelative(r.dueAtMs)}</td>`;
-        html += `<td style="color:var(--text-secondary);font-size:12px">${r.error || '-'}</td>`;
-        html += '</tr>';
-      }
-      html += '</tbody></table>';
-      retryEl.innerHTML = html;
-    }
+    renderAutomations(data);
   } catch (e) {
-    console.error('GitHub Tracker refresh failed:', e);
+    console.error('Automations refresh failed:', e);
   }
+}
+
+async function refreshAutomationsPanel() {
+  if (!automationsAvailable) return;
+  try {
+    await fetch('/dashboard/api/orchestrators/automations/refresh', { method: 'POST' });
+  } catch (e) {
+    console.error('Automations poll trigger failed:', e);
+  }
+  await refreshAutomations();
 }
 
 function openSession(sessionKey) {
@@ -3543,7 +3597,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshDashboard();
     connectSSE();
     checkAuthEnabled();
-    probeGithubTracker();
+    probeAutomations().then(() => { if (automationsAvailable) refreshAutomations(); });
   } else if (settingsData && !settingsHasApiKey) {
     switchPanel('settings');
   }
