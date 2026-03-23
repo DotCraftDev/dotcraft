@@ -5,6 +5,9 @@ edition = "2021"
 description = "DotCraft terminal user interface built on Ratatui"
 license = "Apache-2.0"
 
+[build-dependencies]
+winres = "0.1"
+
 [[bin]]
 name = "dotcraft-tui"
 path = "src/main.rs"
