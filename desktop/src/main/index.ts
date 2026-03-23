@@ -520,6 +520,7 @@ app.whenReady().then(() => {
       if (wsPath) {
         reregisterIpcForWorkspace(wsPath)
       } else {
+        unregisterIpcHandlers()
         registerIpcHandlers(null, () => null, '', buildCallbacks())
       }
 
