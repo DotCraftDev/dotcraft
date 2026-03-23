@@ -17,7 +17,7 @@ public sealed class LocalTaskCompletionToolProvider(
 
     public IEnumerable<AITool> CreateTools(ToolProviderContext context)
     {
-        var taskDir = TryResolveTaskDirectory(context.WorkspacePath);
+        var taskDir = context.AutomationTaskDirectory ?? TryResolveTaskDirectory(context.WorkspacePath);
         if (taskDir == null)
             yield break;
 

@@ -8,6 +8,9 @@ namespace DotCraft.Automations.Protocol;
 /// </summary>
 public sealed class AutomationSessionClient(ISessionService sessionService, DotCraftPaths paths)
 {
+    /// <summary>Host project workspace root (same as <see cref="SessionIdentity.WorkspacePath"/> for automations).</summary>
+    public string ProjectWorkspacePath => paths.WorkspacePath;
+
     /// <summary>
     /// Creates a new thread or resumes an existing one for the same workspace + channel + user.
     /// Configures <see cref="ThreadConfiguration"/> (workspace override, tool profile, approval policy).

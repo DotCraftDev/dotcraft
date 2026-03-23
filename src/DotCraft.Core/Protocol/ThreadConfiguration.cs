@@ -48,4 +48,19 @@ public sealed class ThreadConfiguration
     /// </summary>
     [System.Text.Json.Serialization.JsonConverter(typeof(ApprovalPolicyJsonConverter))]
     public ApprovalPolicy ApprovalPolicy { get; set; } = ApprovalPolicy.Default;
+
+    /// <summary>
+    /// Absolute path to the local automation task directory (contains <c>task.md</c>).
+    /// Used by automation-specific tools when <see cref="WorkspaceOverride"/> is the project root.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AutomationTaskDirectory { get; set; }
+
+    /// <summary>
+    /// When set, overrides <see cref="Configuration.AppConfig.Tools.File.RequireApprovalOutsideWorkspace"/> (and shell)
+    /// for core file/shell tools. Used by local automation: <c>false</c> = reject operations outside the thread workspace
+    /// without prompting; <c>true</c> = allow outside-workspace paths when combined with auto-approve policy.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireApprovalOutsideWorkspace { get; set; }
 }

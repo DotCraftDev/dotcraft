@@ -31,7 +31,8 @@ public sealed partial class LocalWorkflowLoader(ILogger<LocalWorkflowLoader> log
             return Task.FromResult(new AutomationWorkflowDefinition
             {
                 Steps = [new WorkflowStep { Prompt = RenderTemplate(content.Trim(), task) }],
-                MaxRounds = 10
+                MaxRounds = 10,
+                WorkspaceMode = AutomationWorkspaceMode.Project
             });
         }
 
@@ -62,8 +63,41 @@ public sealed partial class LocalWorkflowLoader(ILogger<LocalWorkflowLoader> log
             Steps = steps,
             MaxRounds = fm.MaxRounds > 0 ? fm.MaxRounds : 10,
             OnApprove = fm.OnApprove,
-            OnReject = fm.OnReject
+            OnReject = fm.OnReject,
+            WorkspaceMode = MapWorkspaceString(fm.Workspace)
         });
+    }
+
+    /// <summary>
+    /// Reads only <c>workflow.md</c> front matter to determine <see cref="AutomationWorkspaceMode"/>
+    /// before the orchestrator sets <see cref="LocalAutomationTask.AgentWorkspacePath"/>.
+    /// </summary>
+    public Task<AutomationWorkspaceMode> GetWorkspaceModeAsync(LocalAutomationTask task, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!File.Exists(task.WorkflowFilePath))
+            return Task.FromResult(AutomationWorkspaceMode.Project);
+
+        var content = File.ReadAllText(task.WorkflowFilePath);
+        var match = FrontMatterRegex.Match(content);
+        if (!match.Success)
+            return Task.FromResult(AutomationWorkspaceMode.Project);
+
+        var yamlText = match.Groups[1].Value;
+        var deserializer = new DeserializerBuilder()
+            .WithNamingConvention(UnderscoredNamingConvention.Instance)
+            .IgnoreUnmatchedProperties()
+            .Build();
+
+        var fm = deserializer.Deserialize<WorkflowYamlFrontMatter>(yamlText) ?? new WorkflowYamlFrontMatter();
+        return Task.FromResult(MapWorkspaceString(fm.Workspace));
+    }
+
+    private static AutomationWorkspaceMode MapWorkspaceString(string? workspace)
+    {
+        if (string.Equals(workspace?.Trim(), "isolated", StringComparison.OrdinalIgnoreCase))
+            return AutomationWorkspaceMode.Isolated;
+        return AutomationWorkspaceMode.Project;
     }
 
     /// <summary>
@@ -144,6 +178,9 @@ public sealed partial class LocalWorkflowLoader(ILogger<LocalWorkflowLoader> log
         public string? OnApprove { get; set; }
         public string? OnReject { get; set; }
         public List<string>? Steps { get; set; }
+
+        /// <summary><c>project</c> (default) or <c>isolated</c>.</summary>
+        public string? Workspace { get; set; }
     }
 
     private sealed class EmptyDisposable : IDisposable

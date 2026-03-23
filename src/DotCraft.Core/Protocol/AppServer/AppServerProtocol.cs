@@ -518,6 +518,12 @@ public sealed class AutomationTaskWire
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Local task tool boundary: <c>workspaceScope</c> (default, reject outside thread workspace) or <c>fullAuto</c> (legacy <c>autoApprove</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ApprovalPolicy { get; set; }
 }
 
 public sealed class AutomationTaskListParams
@@ -551,6 +557,12 @@ public sealed class AutomationTaskCreateParams
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? WorkflowTemplate { get; set; }
+
+    /// <summary>
+    /// <c>workspaceScope</c> (default) or <c>fullAuto</c>. Legacy <c>autoApprove</c> / <c>default</c> are accepted when reading tasks.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ApprovalPolicy { get; set; }
 }
 
 public sealed class AutomationTaskCreateResult

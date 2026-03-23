@@ -43,4 +43,16 @@ public class ToolProfileAndApprovalPolicyTests
         var roundTrip = JsonSerializer.Deserialize<ThreadConfiguration>(json, SessionJsonOptions.Default);
         Assert.Equal("local-task", roundTrip?.ToolProfile);
     }
+
+    [Fact]
+    public void ThreadConfiguration_RoundTripsRequireApprovalOutsideWorkspace()
+    {
+        var cfg = new ThreadConfiguration { RequireApprovalOutsideWorkspace = false };
+        var json = JsonSerializer.Serialize(cfg, SessionJsonOptions.Default);
+        Assert.Contains("\"requireApprovalOutsideWorkspace\":false", json);
+
+        var roundTrip = JsonSerializer.Deserialize<ThreadConfiguration>(json, SessionJsonOptions.Default);
+        Assert.NotNull(roundTrip);
+        Assert.False(roundTrip.RequireApprovalOutsideWorkspace);
+    }
 }

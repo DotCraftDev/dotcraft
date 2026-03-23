@@ -98,7 +98,8 @@ public sealed partial class LocalTaskFileStore(
             Description = body,
             AgentSummary = fm.AgentSummary,
             CreatedAt = fm.CreatedAt,
-            UpdatedAt = fm.UpdatedAt
+            UpdatedAt = fm.UpdatedAt,
+            ApprovalPolicy = fm.ApprovalPolicy
         };
     }
 
@@ -133,7 +134,8 @@ public sealed partial class LocalTaskFileStore(
             CreatedAt = task.CreatedAt,
             UpdatedAt = task.UpdatedAt,
             ThreadId = task.ThreadId,
-            AgentSummary = task.AgentSummary
+            AgentSummary = task.AgentSummary,
+            ApprovalPolicy = task.ApprovalPolicy
         };
 
         var serializer = new SerializerBuilder()
@@ -204,6 +206,9 @@ public sealed partial class LocalTaskFileStore(
         public DateTimeOffset? UpdatedAt { get; set; }
         public string? ThreadId { get; set; }
         public string? AgentSummary { get; set; }
+
+        /// <summary><c>autoApprove</c> or <c>default</c>.</summary>
+        public string? ApprovalPolicy { get; set; }
     }
 
     [GeneratedRegex(@"^---\s*\r?\n(.*?)---\s*\r?\n(.*)$", RegexOptions.Compiled | RegexOptions.Singleline)]

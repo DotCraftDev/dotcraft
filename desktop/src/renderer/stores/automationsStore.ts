@@ -23,6 +23,8 @@ export interface AutomationTask {
   threadId: string | null
   description?: string
   agentSummary?: string | null
+  /** Wire: `workspaceScope` (default) or `fullAuto`; legacy `autoApprove` / `default`. */
+  approvalPolicy?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -42,7 +44,12 @@ interface AutomationsState {
   startPolling(): void
   /** Stops periodic refresh; call on unmount. */
   stopPolling(): void
-  createTask(title: string, description: string, workflowTemplate?: string): Promise<void>
+  createTask(
+    title: string,
+    description: string,
+    workflowTemplate?: string,
+    approvalPolicy?: 'workspaceScope' | 'fullAuto'
+  ): Promise<void>
   approveTask(taskId: string, sourceName: string): Promise<void>
   rejectTask(taskId: string, sourceName: string, reason?: string): Promise<void>
   deleteTask(task: AutomationTask): Promise<void>
@@ -88,8 +95,17 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     }
   },
 
-  async createTask(title: string, description: string, workflowTemplate?: string) {
-    const params: Record<string, unknown> = { title, description }
+  async createTask(
+    title: string,
+    description: string,
+    workflowTemplate?: string,
+    approvalPolicy: 'workspaceScope' | 'fullAuto' = 'workspaceScope'
+  ) {
+    const params: Record<string, unknown> = {
+      title,
+      description,
+      approvalPolicy
+    }
     if (workflowTemplate) params.workflowTemplate = workflowTemplate
     await window.api.appServer.sendRequest('automation/task/create', params)
     await get().fetchTasks()

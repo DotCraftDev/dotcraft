@@ -21,6 +21,7 @@ public sealed class AutomationOrchestrator
 
     private readonly AutomationsConfig _config;
     private readonly AutomationWorkspaceManager _workspaceManager;
+    private readonly LocalWorkflowLoader _workflowLoader;
     private readonly IToolProfileRegistry _toolProfileRegistry;
     private readonly ILogger<AutomationOrchestrator> _logger;
     private readonly ConcurrentDictionary<string, IAutomationSource> _sources = new(StringComparer.OrdinalIgnoreCase);
@@ -37,12 +38,14 @@ public sealed class AutomationOrchestrator
     public AutomationOrchestrator(
         AutomationsConfig config,
         AutomationWorkspaceManager workspaceManager,
+        LocalWorkflowLoader workflowLoader,
         IToolProfileRegistry toolProfileRegistry,
         ILogger<AutomationOrchestrator> logger,
         IEnumerable<IAutomationSource> sources)
     {
         _config = config;
         _workspaceManager = workspaceManager;
+        _workflowLoader = workflowLoader;
         _toolProfileRegistry = toolProfileRegistry;
         _logger = logger;
         foreach (var s in sources)
@@ -400,11 +403,24 @@ public sealed class AutomationOrchestrator
             source.Name);
 
         string workspacePath;
+        string? automationTaskDirectory = null;
+
         if (task is LocalAutomationTask localTask)
         {
-            workspacePath = Path.Combine(localTask.TaskDirectory, "workspace");
-            Directory.CreateDirectory(workspacePath);
+            var workspaceMode = await _workflowLoader.GetWorkspaceModeAsync(localTask, ct);
+            if (workspaceMode == AutomationWorkspaceMode.Isolated)
+            {
+                workspacePath = Path.Combine(localTask.TaskDirectory, "workspace");
+                Directory.CreateDirectory(workspacePath);
+            }
+            else
+            {
+                workspacePath = client.ProjectWorkspacePath;
+                Directory.CreateDirectory(workspacePath);
+            }
+
             localTask.AgentWorkspacePath = workspacePath;
+            automationTaskDirectory = localTask.TaskDirectory;
         }
         else
         {
@@ -416,7 +432,9 @@ public sealed class AutomationOrchestrator
         {
             WorkspaceOverride = workspacePath,
             ToolProfile = task.ToolProfileOverride ?? source.ToolProfileName,
-            ApprovalPolicy = ApprovalPolicy.AutoApprove
+            ApprovalPolicy = ApprovalPolicy.AutoApprove,
+            AutomationTaskDirectory = automationTaskDirectory,
+            RequireApprovalOutsideWorkspace = ResolveRequireApprovalOutsideWorkspace(task)
         };
 
         var threadId = await client.CreateOrResumeThreadAsync(
@@ -579,6 +597,33 @@ public sealed class AutomationOrchestrator
             task.Id,
             source.Name,
             threadId);
+    }
+
+    /// <summary>
+    /// Local automation tool policy: when <c>false</c>, file/shell operations outside the thread workspace are rejected
+    /// without prompting; when <c>true</c>, outside-workspace operations are auto-approved (higher risk).
+    /// Non-local tasks return null to use global AppConfig tool defaults.
+    /// Legacy: <c>default</c> previously meant interactive prompts; it now maps to workspace scope (false), not full auto.
+    /// </summary>
+    private static bool? ResolveRequireApprovalOutsideWorkspace(AutomationTask task)
+    {
+        if (task is not LocalAutomationTask local)
+            return null;
+
+        var p = local.ApprovalPolicy?.Trim();
+        if (string.IsNullOrEmpty(p))
+            return false;
+
+        if (string.Equals(p, "fullAuto", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(p, "autoApprove", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(p, "workspaceScope", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (string.Equals(p, "default", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return false;
     }
 
     private static string ExtractSummaryFromTurn(SessionTurn turn)

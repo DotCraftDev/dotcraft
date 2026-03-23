@@ -16,6 +16,9 @@ public sealed class AutomationWorkflowDefinition
 
     /// <summary>Optional shell command run in the task workspace after rejection.</summary>
     public string? OnReject { get; init; }
+
+    /// <summary>Whether the agent runs in the project root or an isolated task workspace folder.</summary>
+    public AutomationWorkspaceMode WorkspaceMode { get; init; } = AutomationWorkspaceMode.Project;
 }
 
 /// <summary>

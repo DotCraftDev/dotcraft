@@ -552,6 +552,9 @@ function mapWireTaskToAutomationTask(raw: Record<string, unknown>): AutomationTa
   const createdAt = raw.createdAt ?? raw.CreatedAt
   const updatedAt = raw.updatedAt ?? raw.UpdatedAt
 
+  const approvalPolicy =
+    (raw.approvalPolicy as string | undefined) ?? (raw.ApprovalPolicy as string | undefined) ?? null
+
   return {
     id: (raw.id as string) ?? (raw.Id as string) ?? (raw.taskId as string) ?? '',
     title: (raw.title as string) ?? (raw.Title as string) ?? '',
@@ -563,6 +566,7 @@ function mapWireTaskToAutomationTask(raw: Record<string, unknown>): AutomationTa
       (raw.agentSummary as string | null) ??
       (raw.AgentSummary as string | null) ??
       null,
+    approvalPolicy,
     createdAt: createdAt != null ? String(createdAt) : new Date().toISOString(),
     updatedAt: updatedAt != null ? String(updatedAt) : new Date().toISOString()
   }

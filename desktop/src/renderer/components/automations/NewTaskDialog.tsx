@@ -8,6 +8,8 @@ interface Props {
 export function NewTaskDialog({ onClose }: Props): JSX.Element {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [approvalPolicy, setApprovalPolicy] = useState<'workspaceScope' | 'fullAuto'>('workspaceScope')
+  const [showPolicyHelp, setShowPolicyHelp] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const createTask = useAutomationsStore((s) => s.createTask)
@@ -19,7 +21,7 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
     setSubmitting(true)
     setError(null)
     try {
-      await createTask(title.trim(), description.trim())
+      await createTask(title.trim(), description.trim(), undefined, approvalPolicy)
       onClose()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
@@ -90,6 +92,132 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
               }}
             />
           </label>
+
+          <fieldset
+            style={{
+              margin: 0,
+              padding: 0,
+              border: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}
+            aria-describedby={showPolicyHelp ? 'tool-policy-details' : undefined}
+          >
+            <legend style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: 0, width: '100%' }}>
+              <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                Tool policy
+              </span>
+              <button
+                type="button"
+                aria-label="Tool policy details"
+                aria-expanded={showPolicyHelp}
+                aria-controls={showPolicyHelp ? 'tool-policy-details' : undefined}
+                title={showPolicyHelp ? 'Hide details' : 'Show details'}
+                onClick={() => setShowPolicyHelp((v) => !v)}
+                style={{
+                  width: '22px',
+                  height: '22px',
+                  borderRadius: '50%',
+                  border: '1px solid var(--border-default)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  lineHeight: 1,
+                  padding: 0
+                }}
+              >
+                ?
+              </button>
+            </legend>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '13px',
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+            >
+              <input
+                type="radio"
+                name="approvalPolicy"
+                checked={approvalPolicy === 'workspaceScope'}
+                onChange={() => setApprovalPolicy('workspaceScope')}
+              />
+              <span>
+                <strong>Workspace scope</strong>
+                <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> (default)</span>
+              </span>
+            </label>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '13px',
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+            >
+              <input
+                type="radio"
+                name="approvalPolicy"
+                checked={approvalPolicy === 'fullAuto'}
+                onChange={() => setApprovalPolicy('fullAuto')}
+              />
+              <span>
+                <strong>Full auto</strong>
+                <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> (higher risk)</span>
+              </span>
+            </label>
+            {showPolicyHelp && (
+              <div
+                id="tool-policy-details"
+                role="region"
+                aria-label="Tool policy details"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-default)',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.5,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}
+              >
+                <div>
+                  <strong style={{ color: 'var(--text-primary)' }}>Workspace scope (default)</strong>
+                  <p style={{ margin: '4px 0 0' }}>
+                    File and shell tools may access paths inside the task&apos;s agent workspace only. Operations
+                    outside that boundary are rejected automatically (no prompts). Safer for typical automation.
+                  </p>
+                </div>
+                <div>
+                  <strong style={{ color: 'var(--text-primary)' }}>Full auto</strong>
+                  <p style={{ margin: '4px 0 0' }}>
+                    File and shell tools can also target paths outside the agent workspace; those operations are
+                    auto-approved without asking. Use only when you trust the workflow and accept higher risk.
+                  </p>
+                </div>
+                <div>
+                  <strong style={{ color: 'var(--text-primary)' }}>Agent workspace vs workflow</strong>
+                  <p style={{ margin: '4px 0 0' }}>
+                    The agent workspace root comes from the task workflow (project root by default; see{' '}
+                    <code style={{ fontSize: '11px' }}>workspace: isolated</code> for a sandbox under{' '}
+                    <code style={{ fontSize: '11px' }}>.craft/tasks</code>). This setting is separate from that
+                    layout and only controls outside-workspace tool behavior.
+                  </p>
+                </div>
+              </div>
+            )}
+          </fieldset>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' }}>

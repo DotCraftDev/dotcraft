@@ -955,7 +955,9 @@ public sealed class SessionService(
                 ChannelClient = baseCtx.ChannelClient,
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
                 CronTools = baseCtx.CronTools,
-                DeferredToolRegistry = baseCtx.DeferredToolRegistry
+                DeferredToolRegistry = baseCtx.DeferredToolRegistry,
+                AutomationTaskDirectory = config.AutomationTaskDirectory,
+                RequireApprovalOutsideWorkspace = config.RequireApprovalOutsideWorkspace
             };
         }
 
@@ -1018,7 +1020,9 @@ public sealed class SessionService(
                 ChannelClient = scopedContext.ChannelClient,
                 AcpExtensionProxy = scopedContext.AcpExtensionProxy,
                 CronTools = scopedContext.CronTools,
-                DeferredToolRegistry = scopedContext.DeferredToolRegistry
+                DeferredToolRegistry = scopedContext.DeferredToolRegistry,
+                AutomationTaskDirectory = scopedContext.AutomationTaskDirectory,
+                RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace
             };
 
             var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);

@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.0 |
+| **Version** | 0.2.2 |
 | **Status** | Draft |
-| **Date** | 2026-03-22 |
+| **Date** | 2026-03-24 |
 | **Parent Spec** | Symphony SPEC (GitHubTracker Orchestrator §7–8), [PR Review Lifecycle](pr-review-lifecycle.md), [AppServer Protocol](appserver-protocol.md), [Session Core](session-core.md) |
 
 Defines the architecture and lifecycle of the DotCraft Automations module — a platform-agnostic automation framework that generalizes the existing GitHubTracker into a multi-source orchestrator supporting both local tasks and remote work-item tracking (GitHub Issues/PRs). The orchestrator runs inside the AppServer process and delegates agent execution to the shared `SessionService`, making all automation activity naturally visible to the Desktop client through the standard Wire Protocol event pipeline. Local tasks introduce a human review gate that requires explicit user approval before changes are accepted.
@@ -159,9 +159,8 @@ AutomationOrchestrator.OnTickAsync
                 │       → sessionService.CreateThreadAsync(identity, config)
                 │         identity: { channelName: "automations", userId: "task-{id}",
                 │                     workspacePath: mainWorkspacePath }
-                │         config:   { workspaceOverride: taskWorkspacePath,
-                │                     toolProfile: source.ToolProfileName,
-                │                     approvalPolicy: "auto" }
+                │         config:   { workspaceOverride, automationTaskDirectory?,
+                │                     toolProfile, approvalPolicy: autoApprove, requireApprovalOutsideWorkspace (§9.3) }
                 │
                 ├── Multi-turn loop:
                 │       → WorkspaceManager.RunBeforeRunHookAsync
@@ -584,6 +583,8 @@ public sealed class ThreadConfiguration
 
 **Impact on `BuildAgentForConfigAsync`**: When `config.WorkspaceOverride` is set, create a scoped `ToolProviderContext` with `WorkspacePath = config.WorkspaceOverride` and `BotPath = Path.Combine(config.WorkspaceOverride, ".craft")`. All tools created for this thread operate on the override path.
 
+**Automation task directory (local)**: `ThreadConfiguration` may set `AutomationTaskDirectory` to the absolute path of the local task folder (the directory containing `task.md`). It is copied into `ToolProviderContext.AutomationTaskDirectory` so tools such as **`CompleteLocalTask`** can update `task.md` even when `WorkspaceOverride` is the **project root** (where parent-of-workspace heuristics do not apply). See §12.1 and §13.3.
+
 ### 9.2 Tool Profiles
 
 Currently, `BuildAgentForConfigAsync` creates tools using the global `AgentFactory` with the default tool set. Automation sources need to inject source-specific tools (`CompleteTask`, `SubmitReview`, etc.) into the agent for a given thread.
@@ -604,21 +605,22 @@ And a new `IToolProfileRegistry` interface (see §4.3). The registry is register
 
 Profile providers must contain **only source-specific tools** (e.g. `SubmitReview`, `CompleteIssue`, `CompleteLocalTask`). They must NOT include `CoreToolProvider` or other standard providers, as these are already present in the standard tool set. Including them would cause tool duplication.
 
-### 9.3 Per-Thread Approval Policy
+### 9.3 Per-Thread Approval Policy (local automation)
 
-Currently all agent sessions use an interactive approval service (user confirms shell commands, file writes). Automation threads should auto-approve tool calls so they run unattended. The human review gate operates at the task level (between rounds), not at the per-tool-call level.
+**Local automation** does **not** use interactive per-tool prompts (`ApprovalPolicy.Default` / `SessionApprovalService`). Dispatch always uses `ApprovalPolicy.AutoApprove` for the thread so gated file/shell operations do not block on a human during the run.
 
-**Required change**: Add `ApprovalPolicy` to `ThreadConfiguration`:
+**Outside-workspace tool behavior** is controlled separately via `approval_policy` in `task.md` and optional `ThreadConfiguration.RequireApprovalOutsideWorkspace` → `ToolProviderContext.RequireApprovalOutsideWorkspace`, which overrides `AppConfig.Tools.File/Shell.RequireApprovalOutsideWorkspace` for core file/shell tools:
 
-```csharp
-/// <summary>
-/// "interactive" (default): user approval required for gated tools.
-/// "auto": all tool calls are auto-approved; the agent runs unattended.
-/// </summary>
-public string ApprovalPolicy { get; set; } = "interactive";
-```
+| `approval_policy` (wire / YAML) | Meaning |
+|---------------------------------|---------|
+| `workspaceScope` (default) | Operations **outside** the thread agent workspace are **rejected** without prompting (`RequireApprovalOutsideWorkspace = false`). |
+| `fullAuto` | Operations outside the workspace may proceed with **auto-approval** (`RequireApprovalOutsideWorkspace = true` + `AutoApprove`). Higher risk. |
+| Legacy `autoApprove` | Treated like `fullAuto`. |
+| Legacy `default` | Treated like `workspaceScope` (no longer interactive). |
 
-**Impact on `BuildAgentForConfigAsync`**: When `config.ApprovalPolicy == "auto"`, use `AutoApproveApprovalService` for the per-thread agent instead of the channel's interactive approval service.
+The **task-level** human review gate (approve / reject / request changes) is unchanged and orthogonal to this.
+
+**Desktop**: New Task offers **Workspace scope** vs **Full auto**; the review panel shows a matching badge.
 
 ### 9.4 `thread/list` Filter Extension
 
@@ -733,6 +735,7 @@ The existing WORKFLOW.md format (YAML front matter between `---` delimiters + Li
 
 | Section | Key | Type | Default | Description |
 |---------|-----|------|---------|-------------|
+| (root) | `workspace` | `project` \| `isolated` | `project` | **Local tasks only**: whether the agent uses the open project root or an isolated folder under the task bundle. See §12.1. |
 | `automation` | `source` | string | (inferred) | Source name hint. Not required when the workflow is referenced by a specific source. |
 | `automation` | `review_states` | string[] | `["review"]` | States that indicate the task is awaiting human review. |
 | `agent` | `max_rounds` | int | `3` | Maximum dispatch rounds before forced review. |
@@ -783,6 +786,7 @@ When you have completed the task, call the `CompleteTask` tool with a summary of
 | `task.review_feedback` | string? | Feedback from last "Request Changes" review |
 | `task.branch_name` | string? | Associated git branch |
 | `task.url` | string? | External URL (GitHub tasks) |
+| `task.workspace_path` | string | Resolved agent workspace directory for this run (depends on `workspace` in `workflow.md`; §12.1). |
 | `attempt` | int | Retry attempt within the current round |
 
 GitHub-specific variables (e.g., `task.diff`, `task.head_branch`) are available when the source populates them in the metadata and the workflow loader exposes them. The existing `work_item.*` variable names are supported as aliases for backward compatibility with existing GitHub workflow files.
@@ -791,32 +795,40 @@ GitHub-specific variables (e.g., `task.diff`, `task.head_branch`) are available 
 
 ## 12. Workspace Management
 
-### 12.1 Workspace Provisioning by Task Kind
+### 12.1 Local task workspace mode (two options)
 
-| Kind | Workspace Strategy |
-|------|--------------------|
-| `Local` | Create directory under `{workspace_root}`. If a git repository is configured, clone it and create a new branch. If no repository, create an empty directory. |
-| `GitHubIssue` | Clone repository, reset to default branch. Same as current behavior. |
-| `GitHubPullRequest` | Clone repository, checkout PR head branch. Same as current behavior. |
+Local tasks persist under `{dotcraftWorkspace}/.craft/tasks/<taskId>/` (`task.md`, `workflow.md`, optional `workspace/`). The **agent tool root** is `ThreadConfiguration.WorkspaceOverride`. For locals, exactly **two** modes are supported, selected by `workflow.md` YAML front matter key **`workspace`**:
 
-### 12.2 Workspace Root
+| `workspace` | Meaning | `WorkspaceOverride` |
+|-----------|---------|---------------------|
+| `project` (default) | Agent file/shell tools use the **DotCraft workspace root** (the open project). | Host `WorkspacePath` from `DotCraftPaths`. |
+| `isolated` | Agent tools are confined to an empty folder under the task bundle. | `{taskDir}/workspace` (created if missing). |
 
-Default workspace root: `{temp}/dotcraft_automation_workspaces`. Configurable via `Automations.Workspace.Root`. Supports `~` and `$VAR` expansion.
+The default template for Desktop-created tasks includes `workspace: project` so agents can modify real project files. Set `workspace: isolated` for sandbox-style tasks that must not touch the repo.
 
-For local tasks, an alternative strategy is available: when the workspace is the user's own project directory, the agent works directly in the project (or a git worktree of it) rather than a temp directory. This is controlled by the `workspace.in_place` flag in the workflow or task definition.
+**Liquid**: `task.workspace_path` in workflow templates reflects the resolved agent workspace (set on the task before the workflow is rendered).
 
-### 12.3 Workspace Lifecycle
+### 12.2 Non-local sources (GitHub)
+
+GitHub issue/PR tasks continue to use source-specific provisioning (clone/checkout under the GitHub tracker workspace root). They do not use the local `workspace:` switch above.
+
+### 12.3 Paths and roots
+
+- **Local task files**: `Automations.LocalTasksRoot`, or default `{dotcraftWorkspace}/.craft/tasks`.
+- **Generic automation workspace** (`AutomationWorkspaceManager`): default `%USERPROFILE%\.craft\automations\workspaces` for sources that use the generic provisioner (not the local `project` / `isolated` branch above).
+
+### 12.4 Workspace Lifecycle
 
 | Event | Action |
 |-------|--------|
-| Task dispatched | `EnsureWorkspaceAsync`: create or reuse workspace directory; `ThreadConfiguration.WorkspaceOverride` set to this path |
+| Task dispatched | Orchestrator resolves local workspace per §12.1; `ThreadConfiguration.WorkspaceOverride` (+ `AutomationTaskDirectory` for locals) set before the thread runs |
 | Before each turn | Run `before_run` hook |
 | After each turn | Run `after_run` hook |
 | Task completed (approved) | Run `after_approve` hook. Workspace retained until manual cleanup. |
 | Task cancelled (rejected) | Run `before_remove` hook. Clean workspace. |
 | Task in review | Workspace preserved. Thread preserved in SessionService. No cleanup. |
 
-### 12.4 Hook Variables
+### 12.5 Hook Variables
 
 Hook commands are shell templates that support the same Liquid variables as workflow prompts. For example:
 
@@ -901,7 +913,7 @@ Mirrors GitHubTracker's `IssueCompletionToolProvider` / **`CompleteIssue`**: a d
 | **Implementation / tool name** | **`CompleteLocalTask`** (draft name `CompleteTask` is synonymous in older text) |
 | **Parameters** | `summary` (string) — brief description of what was accomplished (same role as `CompleteIssue`'s `reason`) |
 | **Behavior** | `LocalTaskFileStore.LoadAsync(taskDir)` → if allowed, set `AgentSummary` when `summary` is non-empty, set `Status = AgentCompleted` (YAML `agent_completed`) → `SaveAsync` |
-| **Task directory** | Derived from `ToolProviderContext.WorkspacePath`: automation sets `WorkspaceOverride` to `{taskDirectory}/workspace`, so `taskDirectory = Directory.GetParent(WorkspacePath)` (full path normalization). Require `task.md` under that directory; if resolution fails or `task.md` is missing, **`CreateTools` yields no tools** (avoids injecting this tool into normal non-automation sessions). |
+| **Task directory** | Prefer `ToolProviderContext.AutomationTaskDirectory` when set (local automation, including **project** workspace mode). Otherwise resolve via `Directory.GetParent(WorkspacePath)` when that parent contains `task.md` (**isolated** mode). If resolution fails or `task.md` is missing, **`CreateTools` yields no tools** (avoids injecting this tool into normal non-automation sessions). |
 | **Registration** | Registered with `CoreToolProvider` in `LocalAutomationSource.RegisterToolProfile` under profile **`local-task`** (same as `ToolProfileName`; not the legacy name `automation:local`). |
 
 ### 13.4 Completion Detection
@@ -930,7 +942,7 @@ When a task starts running, the Desktop can subscribe via `thread/subscribe` usi
 | Method | Direction | Parameters | Returns |
 |--------|-----------|------------|---------|
 | `automation/task/list` | Client → Server | `{ source?: string, states?: string[] }` | `{ tasks: AutomationTaskWire[] }` |
-| `automation/task/create` | Client → Server | `{ title, description?, priority?, workflow?, labels? }` | `{ task: AutomationTaskWire }` |
+| `automation/task/create` | Client → Server | `{ title, description?, priority?, workflow?, labels?, approvalPolicy?: "workspaceScope" \| "fullAuto" }` | `{ task: AutomationTaskWire }` |
 | `automation/task/read` | Client → Server | `{ taskId }` | `{ task: AutomationTaskWire, threadId?: string }` |
 | `automation/task/update` | Client → Server | `{ taskId, title?, description?, priority?, labels? }` | `{ task: AutomationTaskWire }` |
 | `automation/task/cancel` | Client → Server | `{ taskId }` | `{}` |
@@ -977,6 +989,7 @@ The `threadId` in `automation/task/stateChanged` and `automation/review/requeste
   "reviewFeedback": null,
   "agentSummary": "Replaced session tokens with JWT...",
   "threadId": "thr_abc123",
+  "approvalPolicy": "workspaceScope",
   "url": null,
   "createdAt": "2026-03-22T10:00:00Z",
   "updatedAt": "2026-03-22T12:30:00Z"
@@ -992,14 +1005,15 @@ The `thread/start` request's `config` object is extended to support automation p
   "identity": { ... },
   "config": {
     "mode": "agent",
-    "workspaceOverride": "/tmp/dotcraft_automation_workspaces/task-001",
+    "workspaceOverride": "/path/to/project",
     "toolProfile": "automation:local",
-    "approvalPolicy": "auto"
+    "approvalPolicy": "autoApprove",
+    "requireApprovalOutsideWorkspace": false
   }
 }
 ```
 
-These fields are consumed by `BuildAgentForConfigAsync` in Session Core (§9).
+These fields are consumed by `BuildAgentForConfigAsync` in Session Core (§9). For **local task DTOs**, `approvalPolicy` on `AutomationTaskWire` is `workspaceScope` or `fullAuto` (legacy values may still appear). `thread/start` `config.approvalPolicy` remains the `ThreadConfiguration` enum wire form (`autoApprove`, etc.); automation dispatch sets `AutoApprove` and uses `requireApprovalOutsideWorkspace` from the task for core tools.
 
 ### 14.6 Capability Gate
 
@@ -1068,7 +1082,7 @@ When a task in `review` state is selected, the main content area shows a review 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  Review: task-001 — Refactor auth module                         │
-│  Round 2 · 3 turns · 847 tokens                                 │
+│  Round 2 · 3 turns · 847 tokens · [tool policy badge]           │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  [Changes]  [Summary]  [Log]                                     │
@@ -1089,6 +1103,8 @@ When a task in `review` state is selected, the main content area shows a review 
 │  └───────────┘  └────────────────────┘  └──────────┘            │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+The header may include a **tool policy** badge (workspace scope vs full auto), matching `approvalPolicy` on the task (§9.3).
 
 ### 15.5 Review Panel Tabs
 
@@ -1121,6 +1137,7 @@ The "+ New Task" button opens a creation dialog:
 │               [________________________________]      │
 │                                                       │
 │  Workflow:    [WORKFLOW.md              ▾]             │
+│  Tool policy: [Workspace scope ▾]  (see tooltip)     │
 │  Priority:    [_____]                                 │
 │  Labels:      [________________________________]      │
 │                                                       │
@@ -1130,7 +1147,7 @@ The "+ New Task" button opens a creation dialog:
 └──────────────────────────────────────────────────────┘
 ```
 
-The workflow dropdown lists all `.md` files in `.craft/automations/workflows/`. The dialog calls `automation/task/create` on submit.
+The workflow dropdown lists all `.md` files in `.craft/automations/workflows/`. **Tool policy** maps to `approvalPolicy` on `automation/task/create` (persisted as `approval_policy` in `task.md`). The dialog calls `automation/task/create` on submit.
 
 ### 15.8 State Store
 

@@ -31,6 +31,32 @@ function SourceBadge({ sourceName }: { sourceName: string }): JSX.Element {
   )
 }
 
+function ApprovalPolicyBadge({ policy }: { policy?: string | null }): JSX.Element {
+  const fullAuto =
+    policy === 'fullAuto' || policy === 'autoApprove'
+  const label = fullAuto ? 'Full auto' : 'Workspace scope'
+  const title = fullAuto
+    ? 'File/shell tools may access paths outside the agent workspace (auto-approved).'
+    : 'File/shell tools are limited to the agent workspace; outside paths are rejected.'
+  return (
+    <span
+      title={title}
+      style={{
+        display: 'inline-block',
+        padding: '1px 6px',
+        borderRadius: '8px',
+        backgroundColor: 'var(--bg-tertiary)',
+        color: fullAuto ? 'var(--accent)' : 'var(--text-secondary)',
+        fontSize: '11px',
+        fontWeight: 500,
+        lineHeight: '16px'
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
 function ReviewTurnBlock({
   turn,
   activeTurnId,
@@ -179,9 +205,12 @@ export function TaskReviewPanel(): JSX.Element {
           >
             {displayTask?.title ?? 'Task'}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
             {displayTask && <StatusBadge status={displayTask.status} />}
             {displayTask && <SourceBadge sourceName={displayTask.sourceName} />}
+            {displayTask?.sourceName === 'local' && (
+              <ApprovalPolicyBadge policy={displayTask.approvalPolicy} />
+            )}
           </div>
         </div>
         <button

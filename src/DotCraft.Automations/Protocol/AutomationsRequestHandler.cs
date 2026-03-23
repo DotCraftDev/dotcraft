@@ -63,6 +63,9 @@ public sealed partial class AutomationsRequestHandler(
 
         var now = DateTimeOffset.UtcNow.ToString("o");
         var description = p.Description ?? "";
+        var approvalPolicy = string.IsNullOrWhiteSpace(p.ApprovalPolicy)
+            ? "workspaceScope"
+            : p.ApprovalPolicy.Trim();
         var taskMd = $"""
             ---
             id: "{taskId}"
@@ -72,6 +75,7 @@ public sealed partial class AutomationsRequestHandler(
             updated_at: "{now}"
             thread_id: null
             agent_summary: null
+            approval_policy: "{EscapeYamlString(approvalPolicy)}"
             ---
 
             {description}
@@ -160,29 +164,41 @@ public sealed partial class AutomationsRequestHandler(
 
     #region Helpers
 
-    private static AutomationTaskWire ToWire(AutomationTask task) => new()
+    private static AutomationTaskWire ToWire(AutomationTask task)
     {
-        Id = task.Id,
-        Title = task.Title,
-        Status = StatusToWire(task.Status),
-        SourceName = task.SourceName,
-        ThreadId = task.ThreadId,
-        CreatedAt = task.CreatedAt,
-        UpdatedAt = task.UpdatedAt
-    };
+        var w = new AutomationTaskWire
+        {
+            Id = task.Id,
+            Title = task.Title,
+            Status = StatusToWire(task.Status),
+            SourceName = task.SourceName,
+            ThreadId = task.ThreadId,
+            CreatedAt = task.CreatedAt,
+            UpdatedAt = task.UpdatedAt
+        };
+        if (task is LocalAutomationTask local)
+            w.ApprovalPolicy = local.ApprovalPolicy;
+        return w;
+    }
 
-    private static AutomationTaskWire ToWireDetailed(AutomationTask task) => new()
+    private static AutomationTaskWire ToWireDetailed(AutomationTask task)
     {
-        Id = task.Id,
-        Title = task.Title,
-        Status = StatusToWire(task.Status),
-        SourceName = task.SourceName,
-        ThreadId = task.ThreadId,
-        Description = task.Description,
-        AgentSummary = task.AgentSummary,
-        CreatedAt = task.CreatedAt,
-        UpdatedAt = task.UpdatedAt
-    };
+        var w = new AutomationTaskWire
+        {
+            Id = task.Id,
+            Title = task.Title,
+            Status = StatusToWire(task.Status),
+            SourceName = task.SourceName,
+            ThreadId = task.ThreadId,
+            Description = task.Description,
+            AgentSummary = task.AgentSummary,
+            CreatedAt = task.CreatedAt,
+            UpdatedAt = task.UpdatedAt
+        };
+        if (task is LocalAutomationTask local)
+            w.ApprovalPolicy = local.ApprovalPolicy;
+        return w;
+    }
 
     /// <summary>
     /// Converts <see cref="AutomationTaskWire"/> from an <see cref="AutomationTask"/>
@@ -233,6 +249,7 @@ public sealed partial class AutomationsRequestHandler(
     private const string DefaultWorkflowTemplate = """
         ---
         max_rounds: 10
+        workspace: project
         ---
 
         You are running a local automation task.

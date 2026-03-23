@@ -20,4 +20,10 @@ public sealed class LocalAutomationTask : AutomationTask
     /// Absolute path to the provisioned agent workspace directory (set by the orchestrator before workflow load).
     /// </summary>
     public string? AgentWorkspacePath { get; set; }
+
+    /// <summary>
+    /// Serialized as <c>approval_policy</c> in task.md: <c>workspaceScope</c> (default, reject tools outside agent workspace)
+    /// or <c>fullAuto</c>. Legacy <c>autoApprove</c> / <c>default</c> are still read by the orchestrator.
+    /// </summary>
+    public string? ApprovalPolicy { get; set; }
 }

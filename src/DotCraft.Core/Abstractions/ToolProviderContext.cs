@@ -33,6 +33,16 @@ public sealed class ToolProviderContext
     public required string WorkspacePath { get; init; }
 
     /// <summary>
+    /// When set (e.g. local automation), absolute path to the task directory containing <c>task.md</c>.
+    /// </summary>
+    public string? AutomationTaskDirectory { get; init; }
+
+    /// <summary>
+    /// When set, overrides <see cref="Configuration.AppConfig.Tools.File.RequireApprovalOutsideWorkspace"/> for file/shell tools.
+    /// </summary>
+    public bool? RequireApprovalOutsideWorkspace { get; init; }
+
+    /// <summary>
     /// The bot path for configuration and memory storage.
     /// </summary>
     public required string BotPath { get; init; }
