@@ -16,10 +16,7 @@ public sealed partial class AutomationsRequestHandler(
     AutomationOrchestrator orchestrator,
     LocalTaskFileStore fileStore) : IAutomationsRequestHandler
 {
-    // Automation-specific error codes (M6 spec R6.9)
-    private const int TaskNotFoundCode = -32001;
-    private const int TaskInvalidStatusCode = -32002;
-    private const int SourceNotFoundCode = -32003;
+    // Automation-specific error codes are now in AppServerErrors (-32051 to -32054)
 
     public async Task<object?> HandleTaskListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
@@ -45,8 +42,7 @@ public sealed partial class AutomationsRequestHandler(
             && string.Equals(t.SourceName, p.SourceName, StringComparison.OrdinalIgnoreCase));
 
         if (task == null)
-            throw new AppServerException(TaskNotFoundCode,
-                $"Task '{p.TaskId}' not found in source '{p.SourceName}'.");
+            throw AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
 
         return ToWireDetailed(task);
     }
@@ -81,7 +77,7 @@ public sealed partial class AutomationsRequestHandler(
 
         // Check for task ID collision (rare but possible with rapid creation)
         if (Directory.Exists(fullTaskDir))
-            throw AppServerErrors.InvalidParams($"Task with ID '{taskId}' already exists.");
+            throw AppServerErrors.TaskAlreadyExists(taskId);
 
         Directory.CreateDirectory(taskDir);
 
@@ -128,13 +124,13 @@ public sealed partial class AutomationsRequestHandler(
         }
         catch (KeyNotFoundException)
         {
-            throw new AppServerException(
-                p.SourceName.Contains('/') ? SourceNotFoundCode : TaskNotFoundCode,
-                $"Task '{p.TaskId}' not found in source '{p.SourceName}'.");
+            throw p.SourceName.Contains('/')
+                ? AppServerErrors.SourceNotFound(p.SourceName)
+                : AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
         }
         catch (InvalidOperationException ex)
         {
-            throw new AppServerException(TaskInvalidStatusCode, ex.Message);
+            throw AppServerErrors.TaskInvalidStatus(ex.Message);
         }
 
         return new { ok = true };
@@ -149,13 +145,13 @@ public sealed partial class AutomationsRequestHandler(
         }
         catch (KeyNotFoundException)
         {
-            throw new AppServerException(
-                p.SourceName.Contains('/') ? SourceNotFoundCode : TaskNotFoundCode,
-                $"Task '{p.TaskId}' not found in source '{p.SourceName}'.");
+            throw p.SourceName.Contains('/')
+                ? AppServerErrors.SourceNotFound(p.SourceName)
+                : AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
         }
         catch (InvalidOperationException ex)
         {
-            throw new AppServerException(TaskInvalidStatusCode, ex.Message);
+            throw AppServerErrors.TaskInvalidStatus(ex.Message);
         }
 
         return new { ok = true };
@@ -170,17 +166,17 @@ public sealed partial class AutomationsRequestHandler(
         }
         catch (KeyNotFoundException)
         {
-            throw new AppServerException(
-                p.SourceName.Contains('/') ? SourceNotFoundCode : TaskNotFoundCode,
-                $"Task '{p.TaskId}' not found in source '{p.SourceName}'.");
+            throw p.SourceName.Contains('/')
+                ? AppServerErrors.SourceNotFound(p.SourceName)
+                : AppServerErrors.TaskNotFound(p.TaskId, p.SourceName);
         }
         catch (NotSupportedException ex)
         {
-            throw new AppServerException(TaskInvalidStatusCode, ex.Message);
+            throw AppServerErrors.TaskInvalidStatus(ex.Message);
         }
         catch (InvalidOperationException ex)
         {
-            throw new AppServerException(TaskInvalidStatusCode, ex.Message);
+            throw AppServerErrors.TaskInvalidStatus(ex.Message);
         }
 
         return new { ok = true };

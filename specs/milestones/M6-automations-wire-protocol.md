@@ -244,12 +244,15 @@ Registered in `AppServerRequestHandler.RouteAsync` under the `"automation/"` pre
 
 ### R6.9 — Error codes
 
+Automation methods use the dedicated range `-32050`–`-32059` (see `AppServerErrors` in the main Wire Protocol spec, §8.3) so they do not collide with global codes such as `-32001` (server overloaded) or `-32002` (not initialized).
+
 | Code | Meaning |
 |------|---------|
-| `-32001` | Task not found |
-| `-32002` | Task not in expected status (e.g., approve called on non-`awaiting_review` task) |
-| `-32003` | Source not found |
-| `-32004` | Automations capability not available |
+| `-32050` | Reserved for automations capability not available (not currently emitted by the server) |
+| `-32051` | Task not found |
+| `-32052` | Task not in expected status (e.g., approve called on non-`awaiting_review` task) |
+| `-32053` | Source not found |
+| `-32054` | Task already exists (e.g., create with duplicate task ID) |
 
 ## Acceptance Criteria
 
@@ -261,7 +264,7 @@ Registered in `AppServerRequestHandler.RouteAsync` under the `"automation/"` pre
 | AC4 | `automation/task/create` creates `task.md` on disk and returns the task directory path. |
 | AC5 | The created task appears in the next `automation/task/list` response without restarting the server. |
 | AC6 | `automation/task/approve` on a task in `awaiting_review` transitions it to `approved` and returns `{ ok: true }`. |
-| AC7 | `automation/task/approve` on a task in `agent_running` returns error `-32002`. |
+| AC7 | `automation/task/approve` on a task in `agent_running` returns error `-32052`. |
 | AC8 | `automation/task/reject` with a reason stores the reason and transitions to `rejected`. |
 | AC9 | A subscribed client receives `automation/task/updated` notification within 1 second of a status transition. |
 | AC10 | A client that did not advertise `"automations"` capability does not receive `automation/task/updated` notifications. |
