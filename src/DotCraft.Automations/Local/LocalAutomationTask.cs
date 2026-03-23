@@ -16,20 +16,8 @@ public sealed class LocalAutomationTask : AutomationTask
     /// <summary>Absolute path to workflow.md.</summary>
     public string WorkflowFilePath => Path.Combine(TaskDirectory, "workflow.md");
 
-    /// <summary>Markdown body of task.md (below YAML front matter).</summary>
-    public string? Description { get; set; }
-
-    /// <summary>Summary written by the agent upon completion.</summary>
-    public string? AgentSummary { get; set; }
-
     /// <summary>
     /// Absolute path to the provisioned agent workspace directory (set by the orchestrator before workflow load).
     /// </summary>
     public string? AgentWorkspacePath { get; set; }
-
-    /// <summary>UTC creation time from front matter.</summary>
-    public DateTimeOffset? CreatedAt { get; set; }
-
-    /// <summary>UTC last update time from front matter.</summary>
-    public DateTimeOffset? UpdatedAt { get; set; }
 }

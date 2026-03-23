@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotCraft.Core\DotCraft.Core.csproj" />
+    <ProjectReference Include="..\DotCraft.Automations\DotCraft.Automations.csproj" />
   </ItemGroup>
   
   <!-- Source Generator Reference -->

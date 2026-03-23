@@ -28,4 +28,23 @@ public abstract class AutomationTask
     /// Null when no agent session has been started.
     /// </summary>
     public string? ThreadId { get; set; }
+
+    /// <summary>
+    /// Optional per-task override for the tool profile name.
+    /// When set, takes precedence over <see cref="IAutomationSource.ToolProfileName"/>.
+    /// Used when a single source produces tasks that require different tool sets (e.g. PR vs Issue).
+    /// </summary>
+    public string? ToolProfileOverride { get; init; }
+
+    /// <summary>Markdown description / body of the task.</summary>
+    public string? Description { get; set; }
+
+    /// <summary>Summary written by the agent upon completion.</summary>
+    public string? AgentSummary { get; set; }
+
+    /// <summary>UTC creation time.</summary>
+    public DateTimeOffset? CreatedAt { get; set; }
+
+    /// <summary>UTC last update time.</summary>
+    public DateTimeOffset? UpdatedAt { get; set; }
 }

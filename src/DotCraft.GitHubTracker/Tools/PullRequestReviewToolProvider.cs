@@ -8,7 +8,7 @@ namespace DotCraft.GitHubTracker.Tools;
 
 /// <summary>
 /// Per-PR tool provider that exposes <c>SubmitReview</c> to the agent.
-/// Injected into each PR review agent session by WorkItemAgentRunnerFactory.
+/// Injected into each PR review agent session by GitHubAutomationSource.
 /// Reviews are always submitted as COMMENT events; automated bot reviews must not
 /// affect the PR's approval/rejection status on GitHub.
 /// See PR Lifecycle Spec section 7.1.

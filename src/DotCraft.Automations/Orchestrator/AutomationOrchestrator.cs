@@ -25,6 +25,7 @@ public sealed class AutomationOrchestrator
     private readonly ILogger<AutomationOrchestrator> _logger;
     private readonly ConcurrentDictionary<string, IAutomationSource> _sources = new(StringComparer.OrdinalIgnoreCase);
     private readonly OrchestratorState _state = new();
+    private readonly ConcurrentDictionary<string, AutomationTask> _allTasks = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _concurrency;
 
     private AutomationSessionClient? _sessionClient;
@@ -50,6 +51,12 @@ public sealed class AutomationOrchestrator
     }
 
     /// <summary>
+    /// Fired after every task status transition. Subscribers (e.g. <c>AutomationsEventDispatcher</c>)
+    /// use this to push Wire Protocol notifications.
+    /// </summary>
+    public event Func<AutomationTask, AutomationTaskStatus, Task>? OnTaskStatusChanged;
+
+    /// <summary>
     /// Registers an additional source (e.g. from tests). If the orchestrator is already running,
     /// call <see cref="RegisterToolProfilesForAllSources"/> to register profiles.
     /// </summary>
@@ -67,6 +74,64 @@ public sealed class AutomationOrchestrator
     {
         foreach (var source in _sources.Values)
             source.RegisterToolProfile(_toolProfileRegistry);
+    }
+
+    /// <summary>
+    /// Returns a snapshot of all tasks across all sources, merging the in-memory cache
+    /// (dispatched/completed tasks) with each source's full task list (includes pending).
+    /// </summary>
+    public async Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct)
+    {
+        var merged = new Dictionary<string, AutomationTask>(StringComparer.Ordinal);
+
+        foreach (var task in _allTasks.Values)
+            merged[TaskKey(task)] = task;
+
+        foreach (var source in _sources.Values)
+        {
+            try
+            {
+                var sourceTasks = await source.GetAllTasksAsync(ct);
+                foreach (var t in sourceTasks)
+                    merged.TryAdd(TaskKey(t), t);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetAllTasksAsync failed for source {Source}", source.Name);
+            }
+        }
+
+        return merged.Values.ToList();
+    }
+
+    /// <summary>
+    /// Approves a task via its source. Transitions the task to <see cref="AutomationTaskStatus.Approved"/>.
+    /// </summary>
+    public async Task ApproveTaskAsync(string sourceName, string taskId, CancellationToken ct)
+    {
+        var source = ResolveSource(sourceName);
+        await source.ApproveTaskAsync(taskId, ct);
+
+        if (_allTasks.TryGetValue(TaskKey(sourceName, taskId), out var cached))
+        {
+            cached.Status = AutomationTaskStatus.Approved;
+            await RaiseStatusChangedAsync(cached, AutomationTaskStatus.Approved);
+        }
+    }
+
+    /// <summary>
+    /// Rejects a task via its source. Transitions the task to <see cref="AutomationTaskStatus.Rejected"/>.
+    /// </summary>
+    public async Task RejectTaskAsync(string sourceName, string taskId, string? reason, CancellationToken ct)
+    {
+        var source = ResolveSource(sourceName);
+        await source.RejectTaskAsync(taskId, reason, ct);
+
+        if (_allTasks.TryGetValue(TaskKey(sourceName, taskId), out var cached))
+        {
+            cached.Status = AutomationTaskStatus.Rejected;
+            await RaiseStatusChangedAsync(cached, AutomationTaskStatus.Rejected);
+        }
     }
 
     public Task StartAsync(CancellationToken ct)
@@ -273,7 +338,9 @@ public sealed class AutomationOrchestrator
             try
             {
                 task.Status = AutomationTaskStatus.Failed;
+                TrackTask(task);
                 await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+                await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             }
             catch
             {
@@ -286,7 +353,9 @@ public sealed class AutomationOrchestrator
             try
             {
                 task.Status = AutomationTaskStatus.Failed;
+                TrackTask(task);
                 await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+                await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             }
             catch (Exception ex2)
             {
@@ -312,7 +381,9 @@ public sealed class AutomationOrchestrator
             source.Name);
 
         task.Status = AutomationTaskStatus.Dispatched;
+        TrackTask(task);
         await source.OnStatusChangedAsync(task, AutomationTaskStatus.Dispatched, ct);
+        await RaiseStatusChangedAsync(task, AutomationTaskStatus.Dispatched);
         _logger.LogInformation(
             "Task {TaskId} status: Dispatched (source: {SourceName})",
             task.Id,
@@ -333,7 +404,7 @@ public sealed class AutomationOrchestrator
         var threadConfig = new ThreadConfiguration
         {
             WorkspaceOverride = workspacePath,
-            ToolProfile = source.ToolProfileName,
+            ToolProfile = task.ToolProfileOverride ?? source.ToolProfileName,
             ApprovalPolicy = ApprovalPolicy.AutoApprove
         };
 
@@ -352,7 +423,9 @@ public sealed class AutomationOrchestrator
 
         task.ThreadId = threadId;
         task.Status = AutomationTaskStatus.AgentRunning;
+        TrackTask(task);
         await source.OnStatusChangedAsync(task, AutomationTaskStatus.AgentRunning, ct);
+        await RaiseStatusChangedAsync(task, AutomationTaskStatus.AgentRunning);
         _logger.LogInformation(
             "Task {TaskId} status: AgentRunning (source: {SourceName})",
             task.Id,
@@ -419,9 +492,11 @@ public sealed class AutomationOrchestrator
                 source.Name,
                 threadId);
             task.Status = AutomationTaskStatus.Failed;
+            TrackTask(task);
             try
             {
                 await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+                await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             }
             catch
             {
@@ -439,7 +514,9 @@ public sealed class AutomationOrchestrator
                 source.Name,
                 threadId);
             task.Status = AutomationTaskStatus.Failed;
+            TrackTask(task);
             await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             return;
         }
 
@@ -451,12 +528,16 @@ public sealed class AutomationOrchestrator
                 source.Name,
                 threadId);
             task.Status = AutomationTaskStatus.Failed;
+            TrackTask(task);
             await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
+            await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             return;
         }
 
         task.Status = AutomationTaskStatus.AgentCompleted;
+        TrackTask(task);
         await source.OnAgentCompletedAsync(task, summary ?? string.Empty, ct);
+        await RaiseStatusChangedAsync(task, AutomationTaskStatus.AgentCompleted);
         _logger.LogInformation(
             "Task {TaskId} status: AgentCompleted (source: {SourceName}, summaryLength: {SummaryLength})",
             task.Id,
@@ -464,7 +545,9 @@ public sealed class AutomationOrchestrator
             summary?.Length ?? 0);
 
         task.Status = AutomationTaskStatus.AwaitingReview;
+        TrackTask(task);
         await source.OnStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview, ct);
+        await RaiseStatusChangedAsync(task, AutomationTaskStatus.AwaitingReview);
         _logger.LogInformation(
             "Task {TaskId} status: AwaitingReview (source: {SourceName}, threadId: {ThreadId})",
             task.Id,
@@ -486,4 +569,33 @@ public sealed class AutomationOrchestrator
 
         return string.Empty;
     }
+
+    private void TrackTask(AutomationTask task) =>
+        _allTasks[TaskKey(task)] = task;
+
+    private async Task RaiseStatusChangedAsync(AutomationTask task, AutomationTaskStatus newStatus)
+    {
+        var handler = OnTaskStatusChanged;
+        if (handler != null)
+        {
+            try
+            {
+                await handler(task, newStatus);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OnTaskStatusChanged handler failed for task {TaskId}", task.Id);
+            }
+        }
+    }
+
+    private IAutomationSource ResolveSource(string sourceName)
+    {
+        if (!_sources.TryGetValue(sourceName, out var source))
+            throw new KeyNotFoundException($"Automation source '{sourceName}' not found.");
+        return source;
+    }
+
+    private static string TaskKey(AutomationTask task) => TaskKey(task.SourceName, task.Id);
+    private static string TaskKey(string sourceName, string taskId) => $"{sourceName}::{taskId}";
 }

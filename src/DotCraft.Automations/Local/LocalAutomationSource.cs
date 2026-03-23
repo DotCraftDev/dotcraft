@@ -47,6 +47,13 @@ public sealed class LocalAutomationSource(
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct)
+    {
+        var all = await fileStore.LoadAllAsync(ct);
+        return all.Cast<AutomationTask>().ToList();
+    }
+
+    /// <inheritdoc />
     public Task<AutomationWorkflowDefinition> GetWorkflowAsync(AutomationTask task, CancellationToken ct) =>
         workflowLoader.LoadAsync((LocalAutomationTask)task, ct);
 

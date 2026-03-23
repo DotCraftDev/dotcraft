@@ -47,4 +47,19 @@ public interface IAutomationSource
     /// </summary>
     Task<bool> ShouldStopWorkflowAfterTurnAsync(AutomationTask task, CancellationToken ct) =>
         Task.FromResult(false);
+
+    /// <summary>Returns all tasks known to this source, regardless of status.</summary>
+    Task<IReadOnlyList<AutomationTask>> GetAllTasksAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Approves a task in <see cref="AutomationTaskStatus.AwaitingReview"/> status.
+    /// Source-specific side effects (e.g. merge PR, run hook) are executed.
+    /// </summary>
+    Task ApproveTaskAsync(string taskId, CancellationToken ct);
+
+    /// <summary>
+    /// Rejects a task in <see cref="AutomationTaskStatus.AwaitingReview"/> status.
+    /// Source-specific side effects (e.g. post comment, run hook) are executed.
+    /// </summary>
+    Task RejectTaskAsync(string taskId, string? reason, CancellationToken ct);
 }
