@@ -36,7 +36,7 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 - 🔗 MCP, ACP, AG-UI, and OpenAI-compatible API support
 - 🌐 External Channel Adapter support for custom integrations in Python or any JSON-RPC capable language
 - 🖥️ Native editor integration for Unity, JetBrains IDEs, and Obsidian
-- 👥 GitHub-driven issue and PR orchestration via GitHubTracker
+- 👥 Automations pipeline with local tasks and GitHub issue/PR orchestration
 - 🧩 Skills, Hooks, slash commands, and workspace customization
 - ⚗️ Deferred MCP tool loading for efficient large-tool-surface usage
 
@@ -222,7 +222,7 @@ The repository now includes a reference Telegram adapter that demonstrates long 
 
 ### GitHub Workflow Automation
 
-DotCraft can poll GitHub issues and pull requests, create isolated workspaces, dispatch coding or review agents, and coordinate handoff across runs. See the [GitHubTracker Guide](./docs/en/github_tracker_guide.md).
+DotCraft can poll GitHub issues and pull requests, create isolated workspaces, dispatch coding or review agents, and coordinate handoff across runs. See the [Automations Guide](./docs/en/automations_guide.md).
 
 ![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
 
@@ -264,7 +264,7 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 
 - [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, Gateway
 - [Dashboard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
-- [GitHubTracker Guide](./docs/en/github_tracker_guide.md): issue and PR orchestration, isolated workspaces, agent dispatch, and handoff flow
+- [Automations Guide](./docs/en/automations_guide.md): local tasks and GitHub issue/PR orchestration, agent dispatch, and human review flow
 
 **Entry points**
 

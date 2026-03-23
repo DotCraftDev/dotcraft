@@ -6,7 +6,6 @@ dist
 
 # TypeScript incremental build cache
 *.tsbuildinfo
-package-lock.json
 
 # Ignore Js dependencies
 

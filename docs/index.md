@@ -20,6 +20,6 @@
 
 [Hooks 指南](./hooks_guide.md) - 生命周期事件钩子、Shell 命令扩展、安全防护
 
-[GitHubTracker 指南](./github_tracker_guide.md) - 自动轮询 GitHub Issue、派发 Agent 完成任务、git 克隆与提交、CompleteIssue 工具
+[Automations 指南](./automations_guide.md) - 自动化任务管线、本地任务与 GitHub Issue/PR 编排、Agent 派发与人工审核
 
 [DashBoard 调试工具指南](./dash_board_guide.md) - 内置 Web 调试界面、Trace 数据查看
