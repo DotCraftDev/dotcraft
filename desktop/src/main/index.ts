@@ -2,6 +2,7 @@ import { app, BrowserWindow, session, Menu, ipcMain, shell, nativeImage } from '
 import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
+import { spawn } from 'child_process'
 import { AppServerManager } from './AppServerManager'
 import { WireProtocolClient } from './WireProtocolClient'
 import {
@@ -22,18 +23,17 @@ import {
   type AppSettings
 } from './settings'
 
-// ─── Per-window state ─────────────────────────────────────────────────────────
+// ─── Single-process state ─────────────────────────────────────────────────────
+// Each Electron process owns exactly one window and one AppServer connection.
+// "New Window" spawns a separate OS process instead of creating another
+// BrowserWindow, avoiding the global-IPC-handler conflict that the previous
+// multi-window-in-one-process design had.
 
-interface WindowContext {
-  win: BrowserWindow
-  workspacePath: string
-  manager: AppServerManager | null
-  wireClient: WireProtocolClient | null
-  /** Tracks the number of AppServer crash restarts to cap retry attempts */
-  crashRetries: number
-}
-
-const windowContexts = new Map<number, WindowContext>()
+let mainWindow: BrowserWindow | null = null
+let appServerManager: AppServerManager | null = null
+let wireClient: WireProtocolClient | null = null
+let currentWorkspacePath = ''
+let crashRetries = 0
 
 /** Must match `titleBarOverlay.height` (Windows / Linux) and CustomMenuBar height in renderer. */
 const TITLE_BAR_OVERLAY_HEIGHT = 36
@@ -56,18 +56,15 @@ let sharedSettings: AppSettings = {}
 // ─── Workspace resolution ─────────────────────────────────────────────────────
 
 function resolveWorkspacePath(settings: AppSettings): string | null {
-  // 1. Command-line argument: --workspace /path
   const argIdx = process.argv.indexOf('--workspace')
   if (argIdx !== -1 && process.argv[argIdx + 1]) {
     return process.argv[argIdx + 1]
   }
 
-  // 2. Last-used workspace from settings (if it still exists)
   if (settings.lastWorkspacePath && existsSync(settings.lastWorkspacePath)) {
     return settings.lastWorkspacePath
   }
 
-  // 3. No configured workspace → show welcome screen
   return null
 }
 
@@ -88,9 +85,6 @@ function createWindow(workspacePath: string | null): BrowserWindow {
           icon: nativeImage.createFromPath(iconPath)
         }
       : {}),
-    // In dev, show immediately so the window is visible even if `ready-to-show` is late
-    // or never fires (e.g. Vite not ready yet). Otherwise DevTools can be the only thing
-    // the user sees while the main window stays hidden.
     show: isDev,
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac
@@ -121,71 +115,97 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   }
 
   win.on('close', () => {
-    const ctx = windowContexts.get(win.id)
-    if (ctx) {
-      ctx.manager?.shutdown()
-      ctx.wireClient?.dispose()
-      windowContexts.delete(win.id)
-    }
-    // Remove the static title handler only when all windows are gone
-    // (it is registered once per window in connectToAppServer via registerIpcHandlers)
+    appServerManager?.shutdown()
+    wireClient?.dispose()
+    appServerManager = null
+    wireClient = null
+    mainWindow = null
   })
 
   return win
 }
 
+// ─── Spawn a new process for "New Window" ─────────────────────────────────────
+
+function openNewProcess(workspacePath: string | null): void {
+  const filteredArgs = stripWorkspaceArgs(process.argv.slice(1))
+  const args = workspacePath
+    ? [...filteredArgs, '--workspace', workspacePath]
+    : filteredArgs
+  const child = spawn(process.execPath, args, {
+    detached: true,
+    stdio: 'ignore'
+  })
+  child.unref()
+}
+
+/** Remove any existing --workspace <path> pair from argv so the new process can set its own. */
+function stripWorkspaceArgs(argv: string[]): string[] {
+  const result: string[] = []
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--workspace') {
+      i++ // skip the value too
+    } else {
+      result.push(argv[i])
+    }
+  }
+  return result
+}
+
 // ─── WebSocket remote connection ─────────────────────────────────────────────
 
 async function connectViaWebSocket(
-  ctx: WindowContext,
   workspacePath: string,
   wsUrl: string
 ): Promise<void> {
-  const callbacks = buildCallbacks(ctx)
-  broadcastConnectionStatus(ctx.win, { status: 'connecting' })
-  unregisterIpcHandlers()
-  registerIpcHandlers(null, () => ctx.wireClient, workspacePath, callbacks)
+  const win = mainWindow!
+  broadcastConnectionStatus(win, { status: 'connecting' })
+  reregisterIpcForWorkspace(workspacePath)
 
   const client = WireProtocolClient.fromWebSocket(wsUrl)
-  ctx.wireClient = client
+  wireClient = client
 
   client.onNotification((method, params) => {
-    broadcastNotification(ctx.win, method, params)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      broadcastNotification(mainWindow, method, params)
+    }
   })
 
   client.onServerRequest(async (method, params) => {
     const { bridgeId, promise } = createServerRequestBridge()
-    broadcastServerRequest(ctx.win, { bridgeId, method, params })
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      broadcastServerRequest(mainWindow, { bridgeId, method, params })
+    }
     return promise
   })
 
   try {
     const result = await client.initialize()
-    broadcastConnectionStatus(ctx.win, {
+    broadcastConnectionStatus(win, {
       status: 'connected',
       serverInfo: result.serverInfo,
       capabilities: result.capabilities as Record<string, unknown>
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    broadcastConnectionStatus(ctx.win, { status: 'error', errorMessage: message })
+    broadcastConnectionStatus(win, { status: 'error', errorMessage: message })
   }
 }
 
 // ─── AppServer connection ─────────────────────────────────────────────────────
 
-function buildCallbacks(ctx: WindowContext): IpcHandlerCallbacks {
+function buildCallbacks(): IpcHandlerCallbacks {
   return {
     onSwitchWorkspace: async (newPath: string) => {
       addRecentWorkspace(sharedSettings, newPath)
       saveSettings(sharedSettings)
-      await connectToAppServer(ctx, newPath)
-      if (!ctx.win.isDestroyed()) {
-        ctx.win.setTitle(`DotCraft \u2014 ${basename(newPath)}`)
+      await connectToAppServer(newPath)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setTitle(`DotCraft \u2014 ${basename(newPath)}`)
       }
     },
     onOpenNewWindow: () => {
-      openNewWindow(sharedSettings.lastWorkspacePath ?? null)
+      openNewProcess(sharedSettings.lastWorkspacePath ?? null)
     },
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
@@ -196,38 +216,38 @@ function buildCallbacks(ctx: WindowContext): IpcHandlerCallbacks {
   }
 }
 
-async function connectToAppServer(
-  ctx: WindowContext,
-  workspacePath: string
-): Promise<void> {
-  // Tear down previous connection for this window if any
-  ctx.manager?.shutdown()
-  ctx.wireClient?.dispose()
-  ctx.wireClient = null
-  ctx.manager = null
+/** Re-register IPC handlers with the current workspace path (used on workspace switch). */
+function reregisterIpcForWorkspace(workspacePath: string): void {
+  unregisterIpcHandlers()
+  registerIpcHandlers(null, () => wireClient, workspacePath, buildCallbacks())
+}
 
-  ctx.workspacePath = workspacePath
+async function connectToAppServer(workspacePath: string): Promise<void> {
+  // Tear down previous connection
+  appServerManager?.shutdown()
+  wireClient?.dispose()
+  wireClient = null
+  appServerManager = null
+
+  currentWorkspacePath = workspacePath
 
   // --remote ws://host:port/ws?token=xxx  → skip AppServerManager, connect via WebSocket
   const remoteIdx = process.argv.indexOf('--remote')
   if (remoteIdx !== -1 && process.argv[remoteIdx + 1]) {
-    await connectViaWebSocket(ctx, workspacePath, process.argv[remoteIdx + 1])
+    await connectViaWebSocket(workspacePath, process.argv[remoteIdx + 1])
     return
   }
 
-  const callbacks = buildCallbacks(ctx)
-
-  broadcastConnectionStatus(ctx.win, { status: 'connecting' })
+  const win = mainWindow!
+  broadcastConnectionStatus(win, { status: 'connecting' })
 
   const manager = new AppServerManager({
     workspacePath,
     binaryPath: sharedSettings.appServerBinaryPath
   })
-  ctx.manager = manager
+  appServerManager = manager
 
-  // Re-register IPC for this window with the new workspace path
-  unregisterIpcHandlers()
-  registerIpcHandlers(null, () => ctx.wireClient, workspacePath, callbacks)
+  reregisterIpcForWorkspace(workspacePath)
 
   manager.on('error', (err: Error) => {
     const isBinaryError =
@@ -237,117 +257,90 @@ async function connectToAppServer(
       errorMessage: err.message,
       ...(isBinaryError ? { errorType: 'binary-not-found' } : {})
     }
-    broadcastConnectionStatus(ctx.win, payload as ConnectionStatusPayload)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      broadcastConnectionStatus(mainWindow, payload as ConnectionStatusPayload)
+    }
   })
 
   manager.on('crash', () => {
-    ctx.wireClient?.dispose()
-    ctx.wireClient = null
-    broadcastConnectionStatus(ctx.win, {
-      status: 'disconnected',
-      errorMessage: 'Connection lost. Reconnecting...'
-    })
+    wireClient?.dispose()
+    wireClient = null
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      broadcastConnectionStatus(mainWindow, {
+        status: 'disconnected',
+        errorMessage: 'Connection lost. Reconnecting...'
+      })
+    }
 
-    // Auto-restart on crash, up to 3 attempts
-    if (ctx.crashRetries < 3) {
-      ctx.crashRetries++
+    if (crashRetries < 3) {
+      crashRetries++
       setTimeout(() => {
-        if (!ctx.win.isDestroyed()) {
-          void connectToAppServer(ctx, ctx.workspacePath)
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          void connectToAppServer(currentWorkspacePath)
         }
       }, 2000)
     }
   })
 
   manager.on('started', async () => {
-    // Reset retry counter on successful start
-    ctx.crashRetries = 0
+    crashRetries = 0
 
     const { stdin, stdout } = manager
     if (!stdin || !stdout) {
-      broadcastConnectionStatus(ctx.win, {
-        status: 'error',
-        errorMessage: 'AppServer process streams unavailable'
-      })
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        broadcastConnectionStatus(mainWindow, {
+          status: 'error',
+          errorMessage: 'AppServer process streams unavailable'
+        })
+      }
       return
     }
 
     const client = new WireProtocolClient(stdout, stdin)
-
-    ctx.wireClient = client
+    wireClient = client
 
     client.onNotification((method, params) => {
-      broadcastNotification(ctx.win, method, params)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        broadcastNotification(mainWindow, method, params)
+      }
     })
 
     client.onServerRequest(async (method, params) => {
       const { bridgeId, promise } = createServerRequestBridge()
-      broadcastServerRequest(ctx.win, { bridgeId, method, params })
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        broadcastServerRequest(mainWindow, { bridgeId, method, params })
+      }
       return promise
     })
 
     try {
       const result = await client.initialize()
-      broadcastConnectionStatus(ctx.win, {
-        status: 'connected',
-        serverInfo: result.serverInfo,
-        capabilities: result.capabilities as Record<string, unknown>
-      })
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        broadcastConnectionStatus(mainWindow, {
+          status: 'connected',
+          serverInfo: result.serverInfo,
+          capabilities: result.capabilities as Record<string, unknown>
+        })
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const isTimeout = message.includes('timed out')
-      broadcastConnectionStatus(ctx.win, {
-        status: 'error',
-        errorMessage: isTimeout
-          ? 'AppServer is not responding. Restart?'
-          : message,
-        ...(isTimeout ? { errorType: 'handshake-timeout' } : {})
-      } as ConnectionStatusPayload)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        broadcastConnectionStatus(mainWindow, {
+          status: 'error',
+          errorMessage: isTimeout
+            ? 'AppServer is not responding. Restart?'
+            : message,
+          ...(isTimeout ? { errorType: 'handshake-timeout' } : {})
+        } as ConnectionStatusPayload)
+      }
     }
   })
 
   manager.spawn()
 }
 
-// ─── Open a new independent window ───────────────────────────────────────────
-
-function openNewWindow(workspacePath: string | null): void {
-  const win = createWindow(workspacePath)
-  const ctx: WindowContext = {
-    win,
-    workspacePath: workspacePath ?? '',
-    manager: null,
-    wireClient: null,
-    crashRetries: 0
-  }
-  windowContexts.set(win.id, ctx)
-
-  // Register IPC before loadURL so the renderer can invoke (e.g. window:get-workspace-path)
-  // as soon as JS runs — Vite dev can execute the module before did-finish-load on main.
-  if (workspacePath) {
-    unregisterIpcHandlers()
-    registerIpcHandlers(null, () => ctx.wireClient, workspacePath, buildCallbacks(ctx))
-  } else {
-    unregisterIpcHandlers()
-    registerIpcHandlers(null, () => null, '', buildCallbacks(ctx))
-  }
-
-  if (import.meta.env.DEV) {
-    win.loadURL('http://localhost:5173')
-  } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-
-  win.webContents.once('did-finish-load', () => {
-    if (workspacePath) {
-      addRecentWorkspace(sharedSettings, workspacePath)
-      saveSettings(sharedSettings)
-      void connectToAppServer(ctx, workspacePath)
-    } else {
-      broadcastConnectionStatus(win, { status: 'disconnected' })
-    }
-  })
-}
+// ─── App menu ─────────────────────────────────────────────────────────────────
 
 function buildAppMenu(): Menu {
   const isMac = process.platform === 'darwin'
@@ -360,7 +353,7 @@ function buildAppMenu(): Menu {
           label: 'New Window',
           accelerator: 'CmdOrCtrl+Shift+N',
           click: () => {
-            openNewWindow(sharedSettings.lastWorkspacePath ?? null)
+            openNewProcess(sharedSettings.lastWorkspacePath ?? null)
           }
         },
         { type: 'separator' },
@@ -444,9 +437,6 @@ app.whenReady().then(() => {
   registerMenuPopupIpc()
   Menu.setApplicationMenu(buildAppMenu())
 
-  // Apply a strict Content-Security-Policy in production only.
-  // In dev, Vite's HMR injects inline scripts and uses eval for sourcemaps,
-  // so we leave CSP untouched and accept the dev-only Electron security warning.
   if (!import.meta.env.DEV) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
@@ -469,27 +459,17 @@ app.whenReady().then(() => {
   }
 
   const win = createWindow(workspacePath)
-  const ctx: WindowContext = {
-    win,
-    workspacePath: workspacePath ?? '',
-    manager: null,
-    wireClient: null,
-    crashRetries: 0
-  }
-  windowContexts.set(win.id, ctx)
+  mainWindow = win
+  currentWorkspacePath = workspacePath ?? ''
 
-  // Register IPC before loadURL so the renderer can invoke handlers as soon as JS runs
-  // (Vite dev may run the module before main's did-finish-load callback).
   if (workspacePath) {
-    registerIpcHandlers(null, () => ctx.wireClient, workspacePath, buildCallbacks(ctx))
+    registerIpcHandlers(null, () => wireClient, workspacePath, buildCallbacks())
   } else {
-    registerIpcHandlers(null, () => null, '', buildCallbacks(ctx))
+    registerIpcHandlers(null, () => null, '', buildCallbacks())
   }
 
   if (import.meta.env.DEV) {
     win.loadURL('http://localhost:5173')
-    // Open DevTools after load (not synchronously with loadURL): the main window used to
-    // stay `show: false` until `ready-to-show`, so only the DevTools panel appeared first.
     win.webContents.once('did-finish-load', () => {
       win.webContents.openDevTools()
     })
@@ -499,7 +479,7 @@ app.whenReady().then(() => {
 
   win.webContents.once('did-finish-load', () => {
     if (workspacePath) {
-      void connectToAppServer(ctx, workspacePath)
+      void connectToAppServer(workspacePath)
     } else {
       broadcastConnectionStatus(win, { status: 'disconnected' })
     }
@@ -507,17 +487,41 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      openNewWindow(sharedSettings.lastWorkspacePath ?? null)
+      sharedSettings = loadSettings()
+      const wsPath = resolveWorkspacePath(sharedSettings)
+      const newWin = createWindow(wsPath)
+      mainWindow = newWin
+      currentWorkspacePath = wsPath ?? ''
+
+      if (wsPath) {
+        reregisterIpcForWorkspace(wsPath)
+      } else {
+        registerIpcHandlers(null, () => null, '', buildCallbacks())
+      }
+
+      if (import.meta.env.DEV) {
+        newWin.loadURL('http://localhost:5173')
+      } else {
+        newWin.loadFile(join(__dirname, '../renderer/index.html'))
+      }
+
+      newWin.webContents.once('did-finish-load', () => {
+        if (wsPath) {
+          void connectToAppServer(wsPath)
+        } else {
+          broadcastConnectionStatus(newWin, { status: 'disconnected' })
+        }
+      })
     }
   })
 })
 
 app.on('window-all-closed', () => {
-  for (const ctx of windowContexts.values()) {
-    ctx.manager?.shutdown()
-    ctx.wireClient?.dispose()
-  }
-  windowContexts.clear()
+  appServerManager?.shutdown()
+  wireClient?.dispose()
+  appServerManager = null
+  wireClient = null
+  mainWindow = null
   if (process.platform !== 'darwin') {
     app.quit()
   }
