@@ -64,6 +64,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     const params: Record<string, unknown> = { title, description }
     if (workflowTemplate) params.workflowTemplate = workflowTemplate
     await window.api.appServer.sendRequest('automation/task/create', params)
+    await get().fetchTasks()
   },
 
   async approveTask(taskId: string, sourceName: string) {

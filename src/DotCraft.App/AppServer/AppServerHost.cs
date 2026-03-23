@@ -188,37 +188,53 @@ public sealed class AppServerHost(
 
         _automationsHandler = sp.GetService<IAutomationsRequestHandler>();
         var orchestrator = sp.GetService<AutomationOrchestrator>();
+        AutomationOrchestrator? automationOrchestratorStarted = null;
         if (orchestrator != null)
         {
             _ = new AutomationsEventDispatcher(orchestrator, (task, _) =>
                 BroadcastAutomationTaskUpdated(task));
+
+            // Desktop and other AppServer clients need the poll loop to dispatch local tasks;
+            // Gateway mode does this via AutomationsChannelService — here we reuse the same session.
+            var automationSessionClient = new AutomationSessionClient(sessionService, paths);
+            orchestrator.SetSessionClient(automationSessionClient);
+            await orchestrator.StartAsync(cancellationToken);
+            automationOrchestratorStarted = orchestrator;
         }
 
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
 
-        switch (appServerConfig.Mode)
+        try
         {
-            case AppServerMode.WebSocket:
-                // -------------------------------------------------------------------
-                // Pure WebSocket mode: no stdio transport; the WebSocket server is
-                // the main loop. Stdout remains available for normal console output.
-                // -------------------------------------------------------------------
-                await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
-                break;
+            switch (appServerConfig.Mode)
+            {
+                case AppServerMode.WebSocket:
+                    // -------------------------------------------------------------------
+                    // Pure WebSocket mode: no stdio transport; the WebSocket server is
+                    // the main loop. Stdout remains available for normal console output.
+                    // -------------------------------------------------------------------
+                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                    break;
 
-            case AppServerMode.StdioAndWebSocket:
-                // -------------------------------------------------------------------
-                // Dual mode: stdio main loop + WebSocket listener running in parallel.
-                // -------------------------------------------------------------------
-                await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
-                break;
+                case AppServerMode.StdioAndWebSocket:
+                    // -------------------------------------------------------------------
+                    // Dual mode: stdio main loop + WebSocket listener running in parallel.
+                    // -------------------------------------------------------------------
+                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                    break;
 
-            default:
-                // -------------------------------------------------------------------
-                // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
-                // -------------------------------------------------------------------
-                await RunStdioOnlyAsync(sessionService, cancellationToken);
-                break;
+                default:
+                    // -------------------------------------------------------------------
+                    // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
+                    // -------------------------------------------------------------------
+                    await RunStdioOnlyAsync(sessionService, cancellationToken);
+                    break;
+            }
+        }
+        finally
+        {
+            if (automationOrchestratorStarted != null)
+                await automationOrchestratorStarted.StopAsync();
         }
 
         cronService.Stop();
