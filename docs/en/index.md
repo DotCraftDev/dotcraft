@@ -20,6 +20,6 @@ Read the DotCraft documentation to get started quickly
 
 [Hooks Guide](./hooks_guide.md) - Lifecycle event hooks, Shell command extensions, security guards
 
-[GitHubTracker Guide](./github_tracker_guide.md) - Auto-poll GitHub issues, dispatch agents to complete tasks, git clone & commit, CompleteIssue tool
+[Automations Guide](./automations_guide.md) - Automation pipeline, local tasks and GitHub issue/PR orchestration, agent dispatch and human review
 
 [DashBoard Debugging Tool Guide](./dash_board_guide.md) - Built-in Web debugging UI, Trace data viewer

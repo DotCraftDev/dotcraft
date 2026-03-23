@@ -1,3 +1,4 @@
+using System.Threading;
 using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Tracing;
@@ -130,7 +131,7 @@ public sealed class SubAgentManager
     /// Automatically registers in <see cref="SubAgentProgressBridge"/> for Live Table display
     /// and sets up a child tracing session when <see cref="TraceCollector"/> is available.
     /// </summary>
-    public async Task<string> SpawnAsync(string task, string? label = null)
+    public async Task<string> SpawnAsync(string task, string? label = null, CancellationToken cancellationToken = default)
     {
         var taskId = Guid.NewGuid().ToString("N")[..8];
         var bridgeKey = NormalizeLabel(label, task);
@@ -146,14 +147,14 @@ public sealed class SubAgentManager
 
         try
         {
-            await _concurrencyGate.WaitAsync();
+            await _concurrencyGate.WaitAsync(cancellationToken);
             try
             {
                 if (childSessionKey != null)
                     TracingChatClient.CurrentSessionKey = childSessionKey;
 
                 var subagent = CreateSubAgent(task, progressEntry);
-                var result = await subagent.RunAsync(task);
+                var result = await subagent.RunAsync(task, session: null, options: null, cancellationToken);
                 return result.Text;
             }
             finally
@@ -167,6 +168,10 @@ public sealed class SubAgentManager
                     TracingChatClient.CurrentSessionKey = parentSessionKey;
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

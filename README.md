@@ -36,7 +36,7 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 - 🔗 MCP, ACP, AG-UI, and OpenAI-compatible API support
 - 🌐 External Channel Adapter support for custom integrations in Python or any JSON-RPC capable language
 - 🖥️ Native editor integration for Unity, JetBrains IDEs, and Obsidian
-- 👥 GitHub-driven issue and PR orchestration via GitHubTracker
+- 👥 Automations pipeline with local tasks and GitHub issue/PR orchestration
 - 🧩 Skills, Hooks, slash commands, and workspace customization
 - ⚗️ Deferred MCP tool loading for efficient large-tool-surface usage
 
@@ -133,8 +133,10 @@ flowchart LR
     Ide["ACP / IDE"]
     Bots["QQ / WeCom / ..."]
     ExtCh["External Channels (Telegram, ...)"]
-    Workflow["GitHub Workflow"]
     Api["API / AG-UI"]
+    Automations["Automations"]
+    LocalSource["Local Source"]
+    GitHubSource["GitHub Source"]
 
     subgraph Workspace [".craft/"]
         Core["**Unified Session Core**"]
@@ -145,10 +147,12 @@ flowchart LR
     Cli --> AppSrv
     Desktop --> AppSrv
     AppSrv --> Workspace
+    AppSrv --> Automations
+    Automations --> LocalSource
+    Automations --> GitHubSource
     Ide --> Workspace
     Bots --> Workspace
     ExtCh -->|"SDK / JSON-RPC"| AppSrv
-    Workflow --> Workspace
     Api --> Workspace
     Workspace --> Dashboard
 
@@ -161,8 +165,10 @@ flowchart LR
     style Ide fill:#57606a,color:#ffffff,stroke:#424a53
     style Bots fill:#57606a,color:#ffffff,stroke:#424a53
     style ExtCh fill:#57606a,color:#ffffff,stroke:#424a53
-    style Workflow fill:#57606a,color:#ffffff,stroke:#424a53
     style Api fill:#57606a,color:#ffffff,stroke:#424a53
+    style Automations fill:#8250df,color:#ffffff,stroke:#6639ba
+    style LocalSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
+    style GitHubSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
 ```
 
 | If you want to... | Start here |
@@ -174,7 +180,7 @@ flowchart LR
 | Expose DotCraft as a service | [API / AG-UI](#api--ag-ui) |
 | Connect a chat bot | [QQ / WeCom](#qq--wecom) |
 | Build a custom channel adapter | [External Channels](#external-channels) |
-| Automate GitHub issues and PRs | [GitHub Workflow](#github-workflow-automation) |
+| Run automations (Local / GitHub) | [Automations](#automations) |
 
 ### Local CLI
 
@@ -188,9 +194,11 @@ AppServer exposes DotCraft's Agent capabilities as a wire protocol (JSON-RPC) se
 
 ### Desktop
 
-DotCraft Desktop is an Electron + React application that provides a graphical interface for the DotCraft Agent Harness. It connects to the AppServer via the Wire Protocol, offering a three-panel workspace with multi-session management, real-time streaming conversation, inline diff review with one-click revert, approval flow, plan tracking, and cron management. 
+DotCraft Desktop is an Electron + React application that acts as a graphical client for AppServer. Over the Wire Protocol it consumes server-side session, approval, plan, cron, and automation capabilities, providing a three-panel workspace with multi-session management, real-time streaming conversation, and inline diff review with one-click revert.
 
 See the [Desktop Client README](./desktop/README.md) for details.
+
+![desktop](https://github.com/DotCraftDev/resources/raw/master/dotcraft/desktop.gif)
 
 ### Editors And ACP
 
@@ -214,13 +222,15 @@ Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./do
 
 DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
 
-Adapters can run as subprocesses over stdio or connect independently over WebSocket, and they can be implemented in any language that speaks JSON-RPC. The Python SDK includes both a low-level `DotCraftClient` and a high-level `ChannelAdapter` base class to simplify thread management, streaming events, delivery requests, and approval flows. In this model, the adapter is a full Wire Protocol client: DotCraft can issue approval requests back to the adapter, and the adapter can render native approval UX for its platform instead of collapsing everything into a generic gateway surface.
+The Python SDK (`DotCraftClient`, `ChannelAdapter`) makes it easier to wire up external channels. Adapters can show approval flows with each platform’s native UI, so integration stays flexible.
 
 The repository now includes a reference Telegram adapter that demonstrates long polling, inline-keyboard approvals, and full end-to-end integration with DotCraft sessions. See the [Python SDK](./sdk/python/README.md).
 
-### GitHub Workflow Automation
+![telegram](https://github.com/DotCraftDev/resources/raw/master/dotcraft/telegram.jpg)
 
-DotCraft can poll GitHub issues and pull requests, create isolated workspaces, dispatch coding or review agents, and coordinate handoff across runs. See the [GitHubTracker Guide](./docs/en/github_tracker_guide.md).
+### Automations
+
+DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. Enabling the `Automations` module runs local tasks; enabling `GitHubTracker` additionally contributes `GitHubAutomationSource`, so GitHub issues and pull requests are polled, dispatched, and reviewed through the same AppServer-hosted pipeline and appear alongside local tasks in the Desktop Automations panel. See the [Automations Guide](./docs/en/automations_guide.md).
 
 ![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
 
@@ -262,7 +272,7 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 
 - [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, Gateway
 - [Dashboard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
-- [GitHubTracker Guide](./docs/en/github_tracker_guide.md): issue and PR orchestration, isolated workspaces, agent dispatch, and handoff flow
+- [Automations Guide](./docs/en/automations_guide.md): local tasks and GitHub issue/PR orchestration, agent dispatch, and human review flow
 
 **Entry points**
 

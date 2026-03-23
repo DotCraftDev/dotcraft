@@ -1,4 +1,3 @@
-using DotCraft.GitHubTracker.Orchestrator;
 using DotCraft.GitHubTracker.Tracker;
 
 namespace DotCraft.GitHubTracker.Tests.Helpers;

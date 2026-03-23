@@ -1,3 +1,4 @@
+using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
@@ -85,6 +86,7 @@ public static class ServiceRegistration
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
         services.AddSingleton<ActiveRunRegistry>();
         services.AddSingleton(new ThreadStore(botPath));
+        services.AddSingleton<IToolProfileRegistry, ToolProfileRegistry>();
 
         // Register configuration validation
         services.AddConfigurationValidation();

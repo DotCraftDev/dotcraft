@@ -77,7 +77,7 @@ export function MessageStream(): JSX.Element {
           gap: '16px'
         }}
       >
-        {turns.map((turn) => (
+        {turns.map((turn, idx) => (
           <TurnBlock
             key={turn.id}
             turn={turn}
@@ -85,6 +85,7 @@ export function MessageStream(): JSX.Element {
             streamingReasoning={turn.id === activeTurnId ? streamingReasoning : ''}
             isRunning={turnStatus === 'running' && turn.id === activeTurnId}
             isActiveTurn={turn.id === activeTurnId}
+            isLastTurn={idx === turns.length - 1}
           />
         ))}
 
@@ -107,6 +108,7 @@ interface TurnBlockProps {
   streamingReasoning: string
   isRunning: boolean
   isActiveTurn: boolean
+  isLastTurn: boolean
 }
 
 function TurnBlock({
@@ -114,7 +116,8 @@ function TurnBlock({
   streamingMessage,
   streamingReasoning,
   isRunning,
-  isActiveTurn
+  isActiveTurn,
+  isLastTurn
 }: TurnBlockProps): JSX.Element {
   // Separate user-input items from agent items
   const userItems = turn.items.filter((i: ConversationItem) => i.type === 'userMessage')
@@ -133,6 +136,7 @@ function TurnBlock({
         streamingReasoning={streamingReasoning}
         isRunning={isRunning}
         isActiveTurn={isActiveTurn}
+        isLastTurn={isLastTurn}
       />
     </div>
   )

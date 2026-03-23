@@ -60,6 +60,13 @@ public static class AppServerErrors
 
     public const int SkillNotFoundCode = -32040;
 
+    // ── Automation-specific codes (-32050 to -32059) ──
+
+    public const int TaskNotFoundCode = -32051;
+    public const int TaskInvalidStatusCode = -32052;
+    public const int SourceNotFoundCode = -32053;
+    public const int TaskAlreadyExistsCode = -32054;
+
     // ── Factory methods ──
 
     public static AppServerException ParseError(string? detail = null) =>
@@ -112,4 +119,18 @@ public static class AppServerErrors
 
     public static AppServerException SkillNotFound(string name) =>
         new(SkillNotFoundCode, $"Skill not found: {name}");
+
+    public static AppServerException TaskAlreadyExists(string taskId) =>
+        new(TaskAlreadyExistsCode, $"Task already exists: {taskId}");
+
+    public static AppServerException TaskNotFound(string taskId, string? sourceName = null) =>
+        new(TaskNotFoundCode, sourceName is null
+            ? $"Task not found: {taskId}"
+            : $"Task '{taskId}' not found in source '{sourceName}'.");
+
+    public static AppServerException TaskInvalidStatus(string detail) =>
+        new(TaskInvalidStatusCode, detail);
+
+    public static AppServerException SourceNotFound(string sourceName) =>
+        new(SourceNotFoundCode, $"Source not found: {sourceName}");
 }

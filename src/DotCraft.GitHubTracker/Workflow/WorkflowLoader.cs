@@ -101,6 +101,7 @@ public sealed partial class WorkflowLoader(GitHubTrackerConfig baseConfig, ILogg
 
         var context = new TemplateContext(options);
         context.SetValue("work_item", workItemData);
+        context.SetValue("task", workItemData);
         if (attempt.HasValue)
             context.SetValue("attempt", attempt.Value);
 

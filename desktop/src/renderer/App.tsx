@@ -7,7 +7,10 @@ import { useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
-import { AutomationsPlaceholder } from './components/skills/AutomationsPlaceholder'
+import { AutomationsView } from './components/automations/AutomationsView'
+import { useAutomationsStore } from './stores/automationsStore'
+import { useReviewPanelStore } from './stores/reviewPanelStore'
+import type { AutomationTask } from './stores/automationsStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -136,6 +139,10 @@ export function App(): JSX.Element {
           setThreadList([])
         })
         .finally(() => setLoading(false))
+
+      if (useConnectionStore.getState().capabilities?.automations) {
+        useAutomationsStore.getState().fetchTasks()
+      }
     }
     // Reset all stores when disconnecting (e.g. workspace switch)
     if (status === 'disconnected' || status === 'error') {
@@ -215,6 +222,12 @@ export function App(): JSX.Element {
             // Track running turn for background activity indicator
             const startedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
             if (startedThreadId) useThreadStore.getState().markTurnStarted(startedThreadId)
+            {
+              const rs = useReviewPanelStore.getState()
+              if (startedThreadId && rs.reviewThreadId === startedThreadId) {
+                rs.onTurnStarted(rawTurn)
+              }
+            }
             break
           }
 
@@ -265,6 +278,12 @@ export function App(): JSX.Element {
                   .catch(() => { /* non-critical — ignore */ })
               }
             }
+            {
+              const rs = useReviewPanelStore.getState()
+              if (completedThreadId && rs.reviewThreadId === completedThreadId) {
+                rs.onTurnCompleted(rawTurn)
+              }
+            }
             break
           }
 
@@ -280,6 +299,12 @@ export function App(): JSX.Element {
               conv.onApprovalTimeout()
             }
             conv.onTurnFailed(rawTurn, error)
+            {
+              const rs = useReviewPanelStore.getState()
+              if (failedThreadId && rs.reviewThreadId === failedThreadId) {
+                rs.onTurnFailed(rawTurn, error)
+              }
+            }
             break
           }
 
@@ -289,24 +314,58 @@ export function App(): JSX.Element {
             if (cancelledThreadId) useThreadStore.getState().markTurnEnded(cancelledThreadId)
             const reason = (p.reason as string) ?? ''
             conv.onTurnCancelled(rawTurn, reason)
+            {
+              const rs = useReviewPanelStore.getState()
+              if (cancelledThreadId && rs.reviewThreadId === cancelledThreadId) {
+                rs.onTurnCancelled(rawTurn, reason)
+              }
+            }
             break
           }
 
           // ── Item lifecycle ────────────────────────────────────────────
           case 'item/started':
             conv.onItemStarted(p)
+            {
+              const tid = (p.threadId as string | undefined) ?? ''
+              const rs = useReviewPanelStore.getState()
+              if (tid && rs.reviewThreadId === tid) {
+                rs.onItemStarted(p)
+              }
+            }
             break
 
           case 'item/agentMessage/delta':
             conv.onAgentMessageDelta((p.delta as string) ?? '')
+            {
+              const tid = (p.threadId as string | undefined) ?? ''
+              const rs = useReviewPanelStore.getState()
+              if (tid && rs.reviewThreadId === tid) {
+                rs.onAgentMessageDelta((p.delta as string) ?? '')
+              }
+            }
             break
 
           case 'item/reasoning/delta':
             conv.onReasoningDelta((p.delta as string) ?? '')
+            {
+              const tid = (p.threadId as string | undefined) ?? ''
+              const rs = useReviewPanelStore.getState()
+              if (tid && rs.reviewThreadId === tid) {
+                rs.onReasoningDelta((p.delta as string) ?? '')
+              }
+            }
             break
 
           case 'item/completed':
             conv.onItemCompleted(p)
+            {
+              const tid = (p.threadId as string | undefined) ?? ''
+              const rs = useReviewPanelStore.getState()
+              if (tid && rs.reviewThreadId === tid) {
+                rs.onItemCompleted(p)
+              }
+            }
             break
 
           case 'item/usage/delta': {
@@ -319,7 +378,14 @@ export function App(): JSX.Element {
           // ── SubAgent progress ─────────────────────────────────────────
           case 'subagent/progress': {
             const entries = (p.entries as SubAgentEntry[]) ?? []
-            conv.onSubagentProgress(entries)
+            const threadId = (p.threadId as string | undefined) ?? ''
+            const activeId = useThreadStore.getState().activeThreadId
+            const reviewThreadId = useReviewPanelStore.getState().reviewThreadId
+            if (threadId && threadId === reviewThreadId) {
+              useReviewPanelStore.getState().onSubagentProgress(entries)
+            } else if (!threadId || threadId === activeId) {
+              conv.onSubagentProgress(entries)
+            }
             break
           }
 
@@ -347,6 +413,21 @@ export function App(): JSX.Element {
             const resultText = (p.result as string) ?? (p.text as string) ?? ''
             const preview = resultText.split('\n').slice(0, 2).join(' ').slice(0, 120)
             addJobResultToast(`${jobName}${preview ? ': ' + preview : ''}`)
+            break
+          }
+
+          // ── Automation task updates ────────────────────────────────────
+          case 'automation/task/updated': {
+            const task = (p.task ?? {}) as AutomationTask
+            useAutomationsStore.getState().upsertTask(task)
+            {
+              const rs = useReviewPanelStore.getState()
+              if (rs.openedTaskId === task.id && rs.taskDetail) {
+                useReviewPanelStore.setState({
+                  taskDetail: { ...rs.taskDetail, ...task }
+                })
+              }
+            }
             break
           }
 
@@ -653,7 +734,7 @@ export function App(): JSX.Element {
             activeMainView === 'skills' ? (
               <SkillsView />
             ) : activeMainView === 'automations' ? (
-              <AutomationsPlaceholder />
+              <AutomationsView />
             ) : (
               <ConversationPanel workspacePath={workspacePath} />
             )

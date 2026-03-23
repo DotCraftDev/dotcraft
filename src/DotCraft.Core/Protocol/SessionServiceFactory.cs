@@ -34,6 +34,7 @@ public static class SessionServiceFactory
             sp.GetService<HookRunner>(),
             sp.GetService<TraceCollector>(),
             approvalTimeout,
-            approvalStore: sp.GetService<ApprovalStore>());
+            approvalStore: sp.GetService<ApprovalStore>(),
+            toolProfileRegistry: sp.GetService<IToolProfileRegistry>());
     }
 }

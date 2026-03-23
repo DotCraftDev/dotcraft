@@ -29,6 +29,7 @@
     <IncludeModuleUnity Condition="'$(IncludeModuleUnity)' == ''">true</IncludeModuleUnity>
     <IncludeModuleAGUI Condition="'$(IncludeModuleAGUI)' == ''">true</IncludeModuleAGUI>
     <IncludeModuleGitHubTracker Condition="'$(IncludeModuleGitHubTracker)' == ''">true</IncludeModuleGitHubTracker>
+    <IncludeModuleAutomations Condition="'$(IncludeModuleAutomations)' == ''">true</IncludeModuleAutomations>
     <IncludeModuleAPI Condition="'$(IncludeModuleAPI)' == ''">true</IncludeModuleAPI>
   </PropertyGroup>
 
@@ -55,6 +56,7 @@
     <ProjectReference Include="..\DotCraft.AGUI\DotCraft.AGUI.csproj" Condition="'$(IncludeModuleAGUI)' == 'true'" />
     <ProjectReference Include="..\DotCraft.Api\DotCraft.Api.csproj" Condition="'$(IncludeModuleAPI)' == 'true'" />
     <ProjectReference Include="..\DotCraft.GitHubTracker\DotCraft.GitHubTracker.csproj" Condition="'$(IncludeModuleGitHubTracker)' == 'true'" />
+    <ProjectReference Include="..\DotCraft.Automations\DotCraft.Automations.csproj" Condition="'$(IncludeModuleAutomations)' == 'true'" />
   </ItemGroup>
 
   <!-- Source Generator Reference -->

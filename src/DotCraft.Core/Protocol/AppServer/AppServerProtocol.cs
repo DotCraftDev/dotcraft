@@ -149,6 +149,13 @@ public sealed class AppServerServerCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SkillsManagement { get; set; }
+
+    /// <summary>
+    /// Server supports automation task methods (automation/task/*).
+    /// False when the Automations module is not loaded.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Automations { get; set; }
 }
 
 // ───── thread/start ─────
@@ -181,6 +188,12 @@ public sealed class ThreadListParams
     public SessionIdentity Identity { get; set; } = new();
 
     public bool? IncludeArchived { get; set; }
+
+    /// <summary>
+    /// When set, only threads whose <c>originChannel</c> matches (case-insensitive) are returned.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChannelName { get; set; }
 }
 
 public sealed class ThreadListResult
@@ -482,6 +495,112 @@ public sealed class SkillsSetEnabledResult
     public SkillInfoWire Skill { get; set; } = new();
 }
 
+// ───── automation/task/* DTOs (M6) ─────
+
+public sealed class AutomationTaskWire
+{
+    public string Id { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ThreadId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AgentSummary { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? CreatedAt { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Local task tool boundary: <c>workspaceScope</c> (default, reject outside thread workspace) or <c>fullAuto</c> (legacy <c>autoApprove</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ApprovalPolicy { get; set; }
+}
+
+public sealed class AutomationTaskListParams
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WorkspacePath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceName { get; set; }
+}
+
+public sealed class AutomationTaskListResult
+{
+    public List<AutomationTaskWire> Tasks { get; set; } = [];
+}
+
+public sealed class AutomationTaskReadParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string TaskId { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+}
+
+public sealed class AutomationTaskCreateParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WorkflowTemplate { get; set; }
+
+    /// <summary>
+    /// <c>workspaceScope</c> (default) or <c>fullAuto</c>. Legacy <c>autoApprove</c> / <c>default</c> are accepted when reading tasks.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ApprovalPolicy { get; set; }
+
+    /// <summary>
+    /// When <see cref="WorkflowTemplate"/> is omitted, written into generated <c>workflow.md</c> as <c>workspace: project|isolated</c>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WorkspaceMode { get; set; }
+}
+
+public sealed class AutomationTaskCreateResult
+{
+    public string TaskId { get; set; } = string.Empty;
+    public string TaskDirectory { get; set; } = string.Empty;
+}
+
+public sealed class AutomationTaskApproveParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string TaskId { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+}
+
+public sealed class AutomationTaskRejectParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string TaskId { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Reason { get; set; }
+}
+
+public sealed class AutomationTaskDeleteParams
+{
+    public string WorkspacePath { get; set; } = string.Empty;
+    public string TaskId { get; set; } = string.Empty;
+    public string SourceName { get; set; } = string.Empty;
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -554,4 +673,15 @@ public static class AppServerMethods
     public const string SkillsList = "skills/list";
     public const string SkillsRead = "skills/read";
     public const string SkillsSetEnabled = "skills/setEnabled";
+
+    // Client → Server requests (automations, M6)
+    public const string AutomationTaskList = "automation/task/list";
+    public const string AutomationTaskRead = "automation/task/read";
+    public const string AutomationTaskCreate = "automation/task/create";
+    public const string AutomationTaskApprove = "automation/task/approve";
+    public const string AutomationTaskReject = "automation/task/reject";
+    public const string AutomationTaskDelete = "automation/task/delete";
+
+    // Server → Client notification (automations, M6)
+    public const string AutomationTaskUpdated = "automation/task/updated";
 }

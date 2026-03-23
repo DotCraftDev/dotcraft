@@ -39,9 +39,11 @@ public sealed class CoreToolProvider : IAgentToolProvider
         // File tools
         var userDotCraftPath = Path.GetFullPath(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft"));
+        var requireOutside =
+            context.RequireApprovalOutsideWorkspace ?? context.Config.Tools.File.RequireApprovalOutsideWorkspace;
         var fileTools = new FileTools(
             context.WorkspacePath,
-            context.Config.Tools.File.RequireApprovalOutsideWorkspace,
+            requireOutside,
             context.Config.Tools.File.MaxFileSize,
             context.ApprovalService,
             context.PathBlacklist,
@@ -56,7 +58,7 @@ public sealed class CoreToolProvider : IAgentToolProvider
         var shellTools = new ShellTools(
             context.WorkspacePath,
             context.Config.Tools.Shell.Timeout,
-            context.Config.Tools.Shell.RequireApprovalOutsideWorkspace,
+            requireOutside,
             context.Config.Tools.Shell.MaxOutputLength,
             approvalService: context.ApprovalService,
             blacklist: context.PathBlacklist);

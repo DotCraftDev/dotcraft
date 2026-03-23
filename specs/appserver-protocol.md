@@ -1218,6 +1218,11 @@ Errors follow the standard JSON-RPC 2.0 error response format:
 | `-32020` | Approval timeout | The client took too long to respond to an approval request. |
 | `-32030` | Channel rejected | The channel adapter name is not registered in server configuration. |
 | `-32031` | Cron job not found | The specified cron job ID does not exist. |
+| `-32040` | Skill not found | The requested skill name does not exist in any source (workspace, user, or builtin). |
+| `-32051` | Task not found | `automation/*`: the specified task does not exist for the given source. |
+| `-32052` | Task invalid status | `automation/*`: the operation is not valid for the task’s current status. |
+| `-32053` | Source not found | `automation/*`: the named automation source is not registered. |
+| `-32054` | Task already exists | `automation/task/create`: a task with the same ID already exists. |
 
 ### 8.4 Turn-Level Errors
 

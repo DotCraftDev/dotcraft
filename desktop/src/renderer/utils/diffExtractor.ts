@@ -243,6 +243,80 @@ export function toAbsoluteWorkspacePath(workspacePath: string, filePath: string)
   return `${ws}/${rel}`.replace(/\/+/g, '/')
 }
 
+const READ_RETRY_ATTEMPTS = 5
+const READ_RETRY_DELAY_MS = 20
+
+/**
+ * Yield so a workspace write from AppServer is visible to readFile IPC after toolResult.
+ */
+async function yieldBeforeWorkspaceRead(): Promise<void> {
+  await new Promise<void>((resolve) => queueMicrotask(() => resolve()))
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * Read workspace file after a tool completes. Retries for EditFile when the first read
+ * still looks pre-edit (stale) so cumulative diff does not get empty hunks.
+ */
+export async function readWorkspaceAfterTool(
+  readFile: (absPath: string) => Promise<string>,
+  absPath: string,
+  toolName: 'WriteFile' | 'EditFile',
+  args: Record<string, unknown>
+): Promise<string> {
+  await yieldBeforeWorkspaceRead()
+
+  if (toolName === 'WriteFile') {
+    return readFile(absPath)
+  }
+
+  const newText = (args.newText as string | undefined) ?? ''
+  const oldText = (args.oldText as string | undefined) ?? ''
+
+  let last = ''
+  for (let attempt = 0; attempt < READ_RETRY_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, READ_RETRY_DELAY_MS))
+    }
+    last = await readFile(absPath)
+
+    if (newText !== '') {
+      if (last.includes(newText)) return last
+      continue
+    }
+
+    if (oldText !== '') {
+      if (!last.includes(oldText)) return last
+      continue
+    }
+
+    return last
+  }
+
+  return last
+}
+
+/**
+ * If full-file diff has no hunks, use per-args EditFile diff (same source as inline ToolCallCard).
+ */
+function withEditFileDisplayFallback(
+  diff: FileDiff,
+  toolName: string,
+  args: Record<string, unknown>,
+  resultText: string,
+  turnId: string
+): FileDiff {
+  if (toolName !== 'EditFile' || diff.diffHunks.length > 0) return diff
+  const inc = extractDiffFromEditFile(args, resultText, turnId)
+  if (!inc || inc.diffHunks.length === 0) return diff
+  return {
+    ...diff,
+    additions: inc.additions,
+    deletions: inc.deletions,
+    diffHunks: inc.diffHunks
+  }
+}
+
 /**
  * Reverse one EditFile application on post-edit file content (first occurrence).
  */
@@ -301,7 +375,15 @@ export function mergeFileDiffIncrement(
     }
   }
 
-  const { hunks, additions, deletions } = computeDiffHunks(orig, curr)
+  let { hunks, additions, deletions } = computeDiffHunks(orig, curr)
+  if (toolName === 'EditFile' && hunks.length === 0) {
+    const inc = extractDiffFromEditFile(args, resultText, turnId)
+    if (inc && inc.diffHunks.length > 0) {
+      hunks = inc.diffHunks
+      additions = inc.additions
+      deletions = inc.deletions
+    }
+  }
   const baseTurnIds = existing.turnIds?.length ? existing.turnIds : [existing.turnId]
   const turnIds = baseTurnIds.includes(turnId) ? [...baseTurnIds] : [...baseTurnIds, turnId]
 
@@ -352,7 +434,7 @@ export async function computeCumulativeFileDiff(
     })
 
   const absPath = toAbsoluteWorkspacePath(workspacePath, filePath)
-  const postDisk = await readFile(absPath)
+  const postDisk = await readWorkspaceAfterTool(readFile, absPath, toolName, args)
 
   if (!existing && toolName === 'EditFile') {
     const oldText = (args.oldText as string | undefined) ?? ''
@@ -361,7 +443,7 @@ export async function computeCumulativeFileDiff(
     const currentContent = postDisk !== '' ? postDisk : newText
     const originalContent = reverseEditReplace(currentContent, newText, oldText)
     const { hunks, additions, deletions } = computeDiffHunks(originalContent, currentContent)
-    return {
+    const base: FileDiff = {
       filePath,
       turnId,
       turnIds: [turnId],
@@ -373,6 +455,7 @@ export async function computeCumulativeFileDiff(
       originalContent,
       currentContent
     }
+    return withEditFileDisplayFallback(base, toolName, args, resultText, turnId)
   }
 
   const merged = mergeFileDiffIncrement(existing, toolName, args, resultText, turnId)
@@ -386,7 +469,7 @@ export async function computeCumulativeFileDiff(
           ? ''
           : reconstructOriginalContent(merged)
     const { hunks, additions, deletions } = computeDiffHunks(orig, postDisk)
-    return {
+    const reconciled: FileDiff = {
       ...merged,
       additions,
       deletions,
@@ -394,7 +477,8 @@ export async function computeCumulativeFileDiff(
       currentContent: postDisk,
       originalContent: orig
     }
+    return withEditFileDisplayFallback(reconciled, toolName, args, resultText, turnId)
   }
 
-  return merged
+  return withEditFileDisplayFallback(merged, toolName, args, resultText, turnId)
 }

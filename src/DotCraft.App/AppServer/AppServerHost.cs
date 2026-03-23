@@ -16,6 +16,9 @@ using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using DotCraft.Automations.Abstractions;
+using DotCraft.Automations.Orchestrator;
+using DotCraft.Automations.Protocol;
 using DotCraft.Tracing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -56,6 +59,8 @@ public sealed class AppServerHost(
     /// to request handlers so wire clients can trigger heartbeats via heartbeat/trigger (spec §17).
     /// </summary>
     private HeartbeatService? _heartbeatService;
+
+    private IAutomationsRequestHandler? _automationsHandler;
 
     /// <summary>
     /// Thread-safe set of currently connected transports. Used to broadcast
@@ -181,31 +186,55 @@ public sealed class AppServerHost(
             AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Heartbeat started (interval: {config.Heartbeat.IntervalSeconds}s)");
         }
 
+        _automationsHandler = sp.GetService<IAutomationsRequestHandler>();
+        var orchestrator = sp.GetService<AutomationOrchestrator>();
+        AutomationOrchestrator? automationOrchestratorStarted = null;
+        if (orchestrator != null)
+        {
+            _ = new AutomationsEventDispatcher(orchestrator, (task, _) =>
+                BroadcastAutomationTaskUpdated(task));
+
+            // Desktop and other AppServer clients need the poll loop to dispatch local tasks;
+            // Gateway mode does this via AutomationsChannelService — here we reuse the same session.
+            var automationSessionClient = new AutomationSessionClient(sessionService, paths);
+            orchestrator.SetSessionClient(automationSessionClient);
+            await orchestrator.StartAsync(cancellationToken);
+            automationOrchestratorStarted = orchestrator;
+        }
+
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
 
-        switch (appServerConfig.Mode)
+        try
         {
-            case AppServerMode.WebSocket:
-                // -------------------------------------------------------------------
-                // Pure WebSocket mode: no stdio transport; the WebSocket server is
-                // the main loop. Stdout remains available for normal console output.
-                // -------------------------------------------------------------------
-                await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
-                break;
+            switch (appServerConfig.Mode)
+            {
+                case AppServerMode.WebSocket:
+                    // -------------------------------------------------------------------
+                    // Pure WebSocket mode: no stdio transport; the WebSocket server is
+                    // the main loop. Stdout remains available for normal console output.
+                    // -------------------------------------------------------------------
+                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                    break;
 
-            case AppServerMode.StdioAndWebSocket:
-                // -------------------------------------------------------------------
-                // Dual mode: stdio main loop + WebSocket listener running in parallel.
-                // -------------------------------------------------------------------
-                await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
-                break;
+                case AppServerMode.StdioAndWebSocket:
+                    // -------------------------------------------------------------------
+                    // Dual mode: stdio main loop + WebSocket listener running in parallel.
+                    // -------------------------------------------------------------------
+                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                    break;
 
-            default:
-                // -------------------------------------------------------------------
-                // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
-                // -------------------------------------------------------------------
-                await RunStdioOnlyAsync(sessionService, cancellationToken);
-                break;
+                default:
+                    // -------------------------------------------------------------------
+                    // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
+                    // -------------------------------------------------------------------
+                    await RunStdioOnlyAsync(sessionService, cancellationToken);
+                    break;
+            }
+        }
+        finally
+        {
+            if (automationOrchestratorStarted != null)
+                await automationOrchestratorStarted.StopAsync();
         }
 
         cronService.Stop();
@@ -229,7 +258,8 @@ public sealed class AppServerHost(
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
-            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath);
+            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
+            automationsHandler: _automationsHandler);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -280,7 +310,8 @@ public sealed class AppServerHost(
         var handler = new AppServerRequestHandler(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
-            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath);
+            skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
+            automationsHandler: _automationsHandler);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -354,7 +385,8 @@ public sealed class AppServerHost(
                 var wsHandler = new AppServerRequestHandler(
                     sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
                     cronService: _cronService, heartbeatService: _heartbeatService,
-                    skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath);
+                    skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
+                    automationsHandler: _automationsHandler);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
@@ -652,6 +684,33 @@ public sealed class AppServerHost(
                 catch
                 {
                     // Transport may have been disposed or disconnected; remove it.
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts an <c>automation/task/updated</c> JSON-RPC notification to all connected transports.
+    /// Called by <see cref="AutomationsEventDispatcher"/> when a task status changes.
+    /// </summary>
+    private void BroadcastAutomationTaskUpdated(AutomationTask task)
+    {
+        var notification = AutomationsEventDispatcher.BuildNotification(task, paths.WorkspacePath);
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.AutomationTaskUpdated))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
                     _activeTransports.TryRemove(transport, out _);
                 }
             });

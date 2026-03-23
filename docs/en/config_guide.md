@@ -487,24 +487,28 @@ For detailed configuration, usage, deployment guide, and troubleshooting, see [W
 
 ---
 
-## GitHubTracker Configuration
+## Automations Configuration
 
-The GitHubTracker module automatically polls GitHub issues, creates an isolated workspace for each issue, dispatches an agent to complete the coding task, and converges the flow by calling `CompleteIssue` when the work is done.
+The Automations module provides a unified task automation pipeline supporting local tasks and GitHub issue/PR orchestration. Local tasks only require the `Automations` module; GitHub source requires both `Automations` and `GitHubTracker` to be enabled.
 
-For the complete usage flow, see the [GitHubTracker Guide](./github_tracker_guide.md).
+For the complete usage flow, see the [Automations Guide](./automations_guide.md).
 
 ### Quick Configuration
 
 ```json
 {
+    "Automations": {
+        "Enabled": true,
+        "LocalTasksRoot": "",
+        "PollingInterval": "00:00:30",
+        "MaxConcurrentTasks": 3
+    },
     "GitHubTracker": {
         "Enabled": true,
         "IssuesWorkflowPath": "WORKFLOW.md",
         "Tracker": {
             "Repository": "your-org/your-repo",
-            "ApiKey": "$GITHUB_TOKEN",
-            "GitHubStateLabelPrefix": "status:",
-            "AssigneeFilter": ""
+            "ApiKey": "$GITHUB_TOKEN"
         }
     }
 }
@@ -514,12 +518,14 @@ For the complete usage flow, see the [GitHubTracker Guide](./github_tracker_guid
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
-| `GitHubTracker.Enabled` | Enable the GitHubTracker module | `false` |
+| `Automations.Enabled` | Enable the Automations orchestrator | `false` |
+| `Automations.LocalTasksRoot` | Local task root directory; empty uses `.craft/tasks/` | empty |
+| `Automations.PollingInterval` | Polling interval | `00:00:30` |
+| `Automations.MaxConcurrentTasks` | Max concurrent tasks across all sources | `3` |
+| `GitHubTracker.Enabled` | Enable the GitHub source | `false` |
 | `GitHubTracker.IssuesWorkflowPath` | Path to the issue `WORKFLOW.md`, resolved relative to the workspace root | `WORKFLOW.md` |
 | `GitHubTracker.Tracker.Repository` | GitHub repository in `owner/repo` format | empty |
 | `GitHubTracker.Tracker.ApiKey` | GitHub token, supports `$ENV_VAR` indirection | empty |
-| `GitHubTracker.Tracker.GitHubStateLabelPrefix` | Label prefix used to infer issue state | `status:` |
-| `GitHubTracker.Tracker.AssigneeFilter` | Only process issues assigned to a specific user | empty |
 
 ## API Mode Configuration
 

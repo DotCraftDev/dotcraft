@@ -60,6 +60,7 @@ declare global {
         switch(newPath: string): Promise<void>
         getRecent(): Promise<Array<{ path: string; name: string; lastOpenedAt: string }>>
         openNewWindow(): Promise<void>
+        checkLock(wsPath: string): Promise<{ locked: boolean; pid?: number }>
       }
       settings: {
         get(): Promise<{

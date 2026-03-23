@@ -1,6 +1,6 @@
 import { ConnectionStatusIndicator } from '../ConnectionStatusIndicator'
 
-const APP_VERSION = '0.1.0'
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
 interface SidebarFooterProps {
   onOpenSettings?: () => void

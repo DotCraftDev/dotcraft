@@ -27,4 +27,40 @@ public sealed class ThreadConfiguration
     /// Additional tool names to enable beyond the mode's default tool set.
     /// </summary>
     public string[]? CustomTools { get; set; }
+
+    /// <summary>
+    /// When set, all tools for this thread operate on this workspace path
+    /// instead of the AppServer's root workspace path.
+    /// The thread is still registered under the AppServer's root workspace
+    /// for discoverability via thread/list.
+    /// </summary>
+    public string? WorkspaceOverride { get; set; }
+
+    /// <summary>
+    /// When set, the agent uses the tool set registered under this profile name
+    /// instead of the default tools for the thread's <see cref="Mode"/>.
+    /// Requires the profile to be registered in <c>IToolProfileRegistry</c>.
+    /// </summary>
+    public string? ToolProfile { get; set; }
+
+    /// <summary>
+    /// Overrides the process-level approval service for this thread only.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonConverter(typeof(ApprovalPolicyJsonConverter))]
+    public ApprovalPolicy ApprovalPolicy { get; set; } = ApprovalPolicy.Default;
+
+    /// <summary>
+    /// Absolute path to the local automation task directory (contains <c>task.md</c>).
+    /// Used by automation-specific tools when <see cref="WorkspaceOverride"/> is the project root.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AutomationTaskDirectory { get; set; }
+
+    /// <summary>
+    /// When set, overrides <see cref="Configuration.AppConfig.Tools.File.RequireApprovalOutsideWorkspace"/> (and shell)
+    /// for core file/shell tools. Used by local automation: <c>false</c> = reject operations outside the thread workspace
+    /// without prompting; <c>true</c> = allow outside-workspace paths when combined with auto-approve policy.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireApprovalOutsideWorkspace { get; set; }
 }

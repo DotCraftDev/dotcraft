@@ -1,6 +1,8 @@
 /// <reference types="react" />
 /// <reference types="react/jsx-runtime" />
 
+declare const __APP_VERSION__: string
+
 // Make React.JSX.Element available as JSX.Element globally
 declare namespace JSX {
   type Element = React.JSX.Element

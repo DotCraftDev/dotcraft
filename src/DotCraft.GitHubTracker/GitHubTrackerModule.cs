@@ -1,11 +1,8 @@
 using DotCraft.Abstractions;
+using DotCraft.Automations.Abstractions;
 using DotCraft.Configuration;
-using DotCraft.DashBoard;
-using DotCraft.Tracing;
 using DotCraft.Modules;
-using DotCraft.Skills;
-using DotCraft.GitHubTracker.Execution;
-using DotCraft.GitHubTracker.Orchestrator;
+using DotCraft.GitHubTracker.GitHub;
 using DotCraft.GitHubTracker.Tracker;
 using DotCraft.GitHubTracker.Workflow;
 using DotCraft.GitHubTracker.Workspace;
@@ -15,8 +12,8 @@ using Microsoft.Extensions.Logging;
 namespace DotCraft.GitHubTracker;
 
 /// <summary>
-/// Autonomous issue orchestrator module. Polls issue trackers and dispatches
-/// coding agents to work on issues independently.
+/// GitHub issue/PR automation module. Registers <see cref="GitHubAutomationSource"/>
+/// as an <see cref="IAutomationSource"/> discovered by the Automations orchestrator.
 /// </summary>
 [DotCraftModule("github-tracker", Priority = 50, Description = "Autonomous GitHub issue tracker orchestrator")]
 public sealed partial class GitHubTrackerModule : ModuleBase
@@ -49,7 +46,6 @@ public sealed partial class GitHubTrackerModule : ModuleBase
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
         var config = context.Config.GetSection<GitHubTrackerConfig>("GitHubTracker");
-
         var workspacePath = context.Paths.WorkspacePath;
 
         services.AddSingleton(config);
@@ -60,40 +56,25 @@ public sealed partial class GitHubTrackerModule : ModuleBase
             config,
             sp.GetRequiredService<ILogger<WorkItemWorkspaceManager>>()));
         services.AddSingleton<IWorkItemTracker>(sp => CreateTracker(config, workspacePath, sp));
-        services.AddSingleton(sp => new WorkItemAgentRunnerFactory(
-            sp.GetRequiredService<AppConfig>(),
-            sp.GetRequiredService<IWorkItemTracker>(),
-            sp.GetRequiredService<WorkItemWorkspaceManager>(),
-            sp.GetRequiredService<ModuleRegistry>(),
-            sp.GetRequiredService<SkillsLoader>(),
-            sp.GetRequiredService<ILogger<WorkItemAgentRunnerFactory>>(),
-            sp.GetRequiredService<ILoggerFactory>(),
-            sp.GetService<TraceCollector>()));
-        services.AddSingleton(sp =>
+
+        services.AddSingleton<IAutomationSource>(sp =>
         {
             var issueWorkflowLoader = sp.GetRequiredService<WorkflowLoader>();
-            // Dedicated loader for PR review workflows (separate file watch, separate cache).
             var prWorkflowLoader = new WorkflowLoader(
                 config,
                 sp.GetRequiredService<ILogger<WorkflowLoader>>());
 
-            return new GitHubTrackerOrchestrator(
+            return new GitHubAutomationSource(
                 sp.GetRequiredService<IWorkItemTracker>(),
+                sp.GetRequiredService<WorkItemWorkspaceManager>(),
                 issueWorkflowLoader,
                 prWorkflowLoader,
-                sp.GetRequiredService<WorkItemWorkspaceManager>(),
-                sp.GetRequiredService<WorkItemAgentRunnerFactory>(),
                 config,
                 workspacePath,
-                sp.GetRequiredService<ILogger<GitHubTrackerOrchestrator>>());
+                sp.GetRequiredService<ILoggerFactory>());
         });
-        services.AddSingleton<IOrchestratorSnapshotProvider>(
-            sp => sp.GetRequiredService<GitHubTrackerOrchestrator>());
     }
 
-    public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
-        => ActivatorUtilities.CreateInstance<GitHubTrackerChannelService>(sp);
-
-    private static IWorkItemTracker CreateTracker(GitHubTrackerConfig config, string workspacePath, IServiceProvider sp)
-        => new GitHubTrackerAdapter(config, workspacePath, sp.GetRequiredService<ILogger<GitHubTrackerAdapter>>());
+    private static GitHubTrackerAdapter CreateTracker(GitHubTrackerConfig config, string workspacePath, IServiceProvider sp)
+        => new(config, workspacePath, sp.GetRequiredService<ILogger<GitHubTrackerAdapter>>());
 }

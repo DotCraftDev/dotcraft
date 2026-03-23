@@ -371,9 +371,9 @@ The workspace view uses a horizontal three-panel layout:
 
 | Panel | Default Width | Min Width | Behavior |
 |-------|--------------|-----------|----------|
-| Sidebar | 240px | 200px | Collapsible to icon-only mode (48px). Resizable via drag handle. |
+| Sidebar | 240px | 200px | Collapsible to icon-only mode (48px). Fixed width (not user-resizable). |
 | Conversation | flex: 1 | 400px | Fills remaining horizontal space. Always visible. |
-| Detail | 400px | 300px | Collapsible (hidden). Resizable via drag handle. Auto-shows when file changes or plan updates arrive. |
+| Detail | 400px | 300px | Collapsible (hidden). Fixed width (not user-resizable). Auto-shows when file changes or plan updates arrive. |
 
 ### 8.2 Responsive Behavior
 
@@ -382,10 +382,6 @@ The workspace view uses a horizontal three-panel layout:
 | >= 1200px | All three panels visible at default widths. |
 | 900px - 1199px | Detail panel auto-collapses. Can be toggled by user. |
 | < 900px | Sidebar collapses to icon-only mode. Detail panel hidden. |
-
-### 8.3 Panel Drag Handles
-
-Both panel boundaries (sidebar | conversation, conversation | detail) have draggable resize handles. The handles are 4px wide, transparent by default, and highlight on hover. Drag behavior respects min-width constraints.
 
 ---
 
@@ -675,7 +671,7 @@ Shows the command and its output in monospace font.
 ```
 
 - Rendered as Markdown with full formatting support: headings, lists, code blocks (syntax highlighted), links, bold/italic, tables.
-- During streaming: text appears progressively as `item/agentMessage/delta` events arrive. A blinking cursor at the end of the text indicates ongoing streaming.
+- During streaming: text appears progressively as `item/agentMessage/delta` events arrive.
 - After completion: full message is rendered statically.
 
 **SubAgent Progress Block:**

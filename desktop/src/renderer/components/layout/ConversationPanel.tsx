@@ -78,6 +78,27 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
         </div>
       )}
 
+      {/* Archived thread notice — spec §18.2 */}
+      {activeThread.status === 'archived' && (
+        <div
+          role="status"
+          style={{
+            padding: '8px 16px',
+            backgroundColor: 'rgba(160,160,160,0.1)',
+            borderBottom: '1px solid var(--border-default)',
+            color: 'var(--text-secondary)',
+            fontSize: '12px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexShrink: 0
+          }}
+        >
+          This thread has been archived.
+        </div>
+      )}
+
       {/* Message stream (fills remaining space) */}
       {hasContent ? (
         <MessageStream />

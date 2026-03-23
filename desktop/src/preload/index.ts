@@ -231,6 +231,15 @@ const api = {
      */
     openNewWindow(): Promise<void> {
       return ipcRenderer.invoke('workspace:open-new-window')
+    },
+
+    /**
+     * Checks whether the given workspace path is currently locked by another
+     * running DotCraft Desktop process.
+     * Returns { locked: true, pid } if occupied, or { locked: false } if free.
+     */
+    checkLock(wsPath: string): Promise<{ locked: boolean; pid?: number }> {
+      return ipcRenderer.invoke('workspace:check-lock', wsPath)
     }
   },
 

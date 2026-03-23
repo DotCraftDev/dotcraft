@@ -92,12 +92,13 @@ public sealed class HostBuilder
         // Configure services for the primary module
         ConfigureModuleServices(services, primaryModule);
 
-        // In gateway mode, also configure all enabled sub-module services so their
-        // channel-specific dependencies (QQBotClient, WeComBotRegistry, etc.) are in the DI container
-        if (primaryModule.Name == "gateway")
+        // In gateway / app-server mode, also configure all enabled sub-module services so
+        // their dependencies are available in the DI container. AppServer needs this because
+        // it exposes sub-module functionality (e.g. Automations) via the Wire Protocol.
+        if (primaryModule.Name is "gateway" or "app-server")
         {
             foreach (var subModule in _registry.GetEnabledModules(_config)
-                         .Where(m => m.Name != "gateway"))
+                         .Where(m => m.Name != primaryModule.Name))
             {
                 AnsiConsole.MarkupLine($"[grey]  Configuring sub-module services: {subModule.Name}[/]");
                 ConfigureModuleServices(services, subModule);

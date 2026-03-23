@@ -24,7 +24,8 @@ public sealed class AppServerRequestHandler(
     CronService? cronService = null,
     HeartbeatService? heartbeatService = null,
     SkillsLoader? skillsLoader = null,
-    string? workspaceCraftPath = null)
+    string? workspaceCraftPath = null,
+    IAutomationsRequestHandler? automationsHandler = null)
 {
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -84,6 +85,12 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SkillsList => HandleSkillsListAsync(msg, ct),
                 AppServerMethods.SkillsRead => HandleSkillsReadAsync(msg, ct),
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
+                AppServerMethods.AutomationTaskList => RouteAutomation(h => h.HandleTaskListAsync(msg, ct)),
+                AppServerMethods.AutomationTaskRead => RouteAutomation(h => h.HandleTaskReadAsync(msg, ct)),
+                AppServerMethods.AutomationTaskCreate => RouteAutomation(h => h.HandleTaskCreateAsync(msg, ct)),
+                AppServerMethods.AutomationTaskApprove => RouteAutomation(h => h.HandleTaskApproveAsync(msg, ct)),
+                AppServerMethods.AutomationTaskReject => RouteAutomation(h => h.HandleTaskRejectAsync(msg, ct)),
+                AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -133,7 +140,8 @@ public sealed class AppServerRequestHandler(
                 ConfigOverride = true,
                 CronManagement = cronService != null,
                 HeartbeatManagement = heartbeatService != null,
-                SkillsManagement = skillsLoader != null
+                SkillsManagement = skillsLoader != null,
+                Automations = automationsHandler != null
             }
         };
 
@@ -202,6 +210,13 @@ public sealed class AppServerRequestHandler(
             p.Identity,
             p.IncludeArchived ?? false,
             ct);
+
+        if (!string.IsNullOrEmpty(p.ChannelName))
+        {
+            threads = threads
+                .Where(t => string.Equals(t.OriginChannel, p.ChannelName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
 
         return new ThreadListResult { Data = [.. threads] };
     }
@@ -695,6 +710,25 @@ public sealed class AppServerRequestHandler(
     {
         try
         {
+            // Security: Validate URL scheme to prevent SSRF attacks
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                return new TextContent($"[image:invalid-url]");
+            }
+
+            // Only allow http and https schemes to prevent file://, ftp://, etc.
+            if (!string.Equals(uri.Scheme, "http", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(uri.Scheme, "https", StringComparison.OrdinalIgnoreCase))
+            {
+                return new TextContent($"[image:blocked-scheme:{uri.Scheme}]");
+            }
+
+            // Block requests to localhost/internal networks (basic SSRF protection)
+            if (IsInternalAddress(uri.Host))
+            {
+                return new TextContent($"[image:blocked-internal]");
+            }
+
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(15));
             var response = await ImageHttpClient.GetAsync(url, cts.Token);
@@ -709,6 +743,61 @@ public sealed class AppServerRequestHandler(
             // Best-effort: return placeholder if URL cannot be fetched
             return new TextContent($"[image:{url}]");
         }
+    }
+
+    /// <summary>
+    /// Checks if a host points to an internal/reserved address.
+    /// This is a basic SSRF protection - blocks localhost, loopback, and private ranges.
+    /// </summary>
+    private static bool IsInternalAddress(string host)
+    {
+        // Block localhost variants
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+            host == "127.0.0.1" ||
+            host == "::1" ||
+            host.StartsWith("127.", StringComparison.Ordinal) ||
+            host.StartsWith("0.", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // Block common internal hostnames
+        if (host.EndsWith(".local", StringComparison.OrdinalIgnoreCase) ||
+            host.EndsWith(".internal", StringComparison.OrdinalIgnoreCase) ||
+            host.Contains("localhost"))
+        {
+            return true;
+        }
+
+        // Try to parse as IP address and check for private ranges
+        if (System.Net.IPAddress.TryParse(host, out var ip))
+        {
+            var bytes = ip.GetAddressBytes();
+
+            // IPv4 private ranges
+            if (bytes.Length == 4)
+            {
+                // 10.0.0.0/8
+                if (bytes[0] == 10) return true;
+                // 172.16.0.0/12
+                if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+                // 192.168.0.0/16
+                if (bytes[0] == 192 && bytes[1] == 168) return true;
+                // 169.254.0.0/16 (link-local)
+                if (bytes[0] == 169 && bytes[1] == 254) return true;
+            }
+
+            // IPv6 loopback and link-local
+            if (bytes.Length == 16)
+            {
+                // ::1 (loopback)
+                if (bytes.AsSpan().ToArray().All(b => b == 0) && bytes[15] == 1) return true;
+                // fe80::/10 (link-local)
+                if (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80) return true;
+            }
+        }
+
+        return false;
     }
 
     private static string InferMediaType(string pathOrUrl)
@@ -760,6 +849,13 @@ public sealed class AppServerRequestHandler(
         if (start < 0) return string.Empty;
         var end = message.IndexOf('\'', start + 1);
         return end > start ? message[(start + 1)..end] : string.Empty;
+    }
+
+    private Task<object?> RouteAutomation(Func<IAutomationsRequestHandler, Task<object?>> action)
+    {
+        if (automationsHandler == null)
+            throw AppServerErrors.MethodNotFound("automation/*");
+        return action(automationsHandler);
     }
 
     private static T GetParams<T>(AppServerIncomingMessage msg) where T : new()

@@ -22,7 +22,8 @@ public sealed class DashBoardServer : IAsyncDisposable
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
         IEnumerable<Type>? configTypes = null,
-        IDashBoardSessionHandler? sessionHandler = null)
+        IDashBoardSessionHandler? sessionHandler = null,
+        bool refreshTraceFromDiskBeforeRead = false)
     {
         var dashBoardConfig = config.DashBoard;
         var builder = WebApplication.CreateBuilder();
@@ -47,7 +48,7 @@ public sealed class DashBoardServer : IAsyncDisposable
 
         app.MapDashBoardAuth(config);
         app.UseDashBoardAuth(config);
-        app.MapDashBoard(traceStore, paths, tokenUsageStore, setupMode, orchestratorProviders, configTypes, sessionHandler);
+        app.MapDashBoard(traceStore, paths, tokenUsageStore, setupMode, orchestratorProviders, configTypes, sessionHandler, refreshTraceFromDiskBeforeRead);
 
         var url = $"http://{dashBoardConfig.Host}:{dashBoardConfig.Port}";
         _app = app;

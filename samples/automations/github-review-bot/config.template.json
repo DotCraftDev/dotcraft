@@ -1,0 +1,41 @@
+{
+  "Automations": {
+    "Enabled": true,
+    "PollingInterval": "00:01:00",
+    "MaxConcurrentTasks": 2
+  },
+  "GitHubTracker": {
+    "Enabled": true,
+    "PullRequestWorkflowPath": "PR_WORKFLOW.md",
+    "Tracker": {
+      "Repository": "your-org/your-repo",
+      "ApiKey": "$GITHUB_TOKEN",
+      "ActiveStates": [],
+      "TerminalStates": ["Done", "Closed", "Cancelled"],
+      "GitHubStateLabelPrefix": "status:",
+      "PullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
+      "PullRequestTerminalStates": ["Merged", "Closed", "Approved"]
+    },
+    "Polling": {
+      "IntervalMs": 60000
+    },
+    "Workspace": {
+      "Root": ""
+    },
+    "Agent": {
+      "MaxConcurrentAgents": 2,
+      "MaxConcurrentPullRequestAgents": 2,
+      "MaxTurns": 10,
+      "MaxRetryBackoffMs": 300000,
+      "TurnTimeoutMs": 3600000,
+      "StallTimeoutMs": 300000
+    },
+    "Hooks": {
+      "AfterCreate": "",
+      "BeforeRun": "git config user.email \"review-bot@example.com\" && git config user.name \"Review Bot\"",
+      "AfterRun": "",
+      "BeforeRemove": "",
+      "TimeoutMs": 60000
+    }
+  }
+}

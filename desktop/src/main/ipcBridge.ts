@@ -4,6 +4,7 @@ import { execFile } from 'child_process'
 import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
 import type { AppSettings, RecentWorkspace } from './settings'
+import { checkWorkspaceLock } from './workspaceLock'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -78,6 +79,7 @@ export interface IpcHandlerCallbacks {
  * - `workspace:switch`            (renderer -> main, invoke) -> triggers workspace switch
  * - `workspace:get-recent`        (renderer -> main, invoke) -> returns recent workspaces
  * - `workspace:open-new-window`   (renderer -> main, invoke) -> opens a new window
+ * - `workspace:check-lock`        (renderer -> main, invoke) -> checks if workspace is locked
  * - `settings:get`                (renderer -> main, invoke) -> returns current settings
  * - `settings:set`                (renderer -> main, invoke) -> merges partial settings
  * - `file:write`                  (renderer -> main, invoke) -> writes file within workspace
@@ -220,6 +222,11 @@ export function registerIpcHandlers(
     callbacks?.onOpenNewWindow()
   })
 
+  // Renderer -> Main: check if a workspace is already locked by another process
+  ipcMain.handle('workspace:check-lock', (_event, wsPath: string) => {
+    return checkWorkspaceLock(wsPath)
+  })
+
   // ─── Settings ──────────────────────────────────────────────────────────────
 
   // Renderer -> Main: get current settings
@@ -287,6 +294,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:switch')
   ipcMain.removeHandler('workspace:get-recent')
   ipcMain.removeHandler('workspace:open-new-window')
+  ipcMain.removeHandler('workspace:check-lock')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
 }

@@ -11,10 +11,18 @@ interface RecentWorkspace {
  * Full-screen welcome view shown on first launch (no workspace configured).
  * Spec §16.1, M7-1, M7-5
  */
+function isLockError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.toLowerCase().includes('already open')
+}
+
 export function WelcomeScreen(): JSX.Element {
   const [recents, setRecents] = useState<RecentWorkspace[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [lockedPath, setLockedPath] = useState<string | null>(null)
+  // shakingPath drives the animation; cleared on animationEnd to allow re-triggering
+  const [shakingPath, setShakingPath] = useState<string | null>(null)
 
   useEffect(() => {
     window.api.workspace.getRecent().then(setRecents).catch(() => {})
@@ -25,10 +33,16 @@ export function WelcomeScreen(): JSX.Element {
     if (!picked) return
     setLoading(true)
     setError(null)
+    setLockedPath(null)
     try {
       await window.api.workspace.switch(picked)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (isLockError(err)) {
+        setLockedPath(picked)
+        setShakingPath(picked)
+      } else {
+        setError(err instanceof Error ? err.message : String(err))
+      }
       setLoading(false)
     }
   }
@@ -36,10 +50,16 @@ export function WelcomeScreen(): JSX.Element {
   async function handleOpenRecent(path: string): Promise<void> {
     setLoading(true)
     setError(null)
+    setLockedPath(null)
     try {
       await window.api.workspace.switch(path)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (isLockError(err)) {
+        setLockedPath(path)
+        setShakingPath(path)
+      } else {
+        setError(err instanceof Error ? err.message : String(err))
+      }
       setLoading(false)
     }
   }
@@ -125,50 +145,63 @@ export function WelcomeScreen(): JSX.Element {
               overflow: 'hidden'
             }}
           >
-            {recents.map((r, idx) => (
-              <button
-                key={r.path}
-                onClick={() => { void handleOpenRecent(r.path) }}
-                disabled={loading}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: '2px',
-                  width: '100%',
-                  padding: '10px 14px',
-                  border: 'none',
-                  borderBottom: idx < recents.length - 1 ? '1px solid var(--border-default)' : 'none',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)',
-                  cursor: loading ? 'default' : 'pointer',
-                  textAlign: 'left',
-                  transition: 'background-color 100ms ease'
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-secondary)'
-                }}
-                aria-label={`Open workspace ${r.name}`}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 500 }}>{r.name}</span>
-                <span
+            {recents.map((r, idx) => {
+              const isLocked = lockedPath === r.path
+              const isShaking = shakingPath === r.path
+              return (
+                <button
+                  key={r.path}
+                  onClick={() => { void handleOpenRecent(r.path) }}
+                  disabled={loading}
                   style={{
-                    fontSize: '11px',
-                    color: 'var(--text-dimmed)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '100%'
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: '2px',
+                    width: '100%',
+                    padding: '10px 14px',
+                    border: 'none',
+                    borderBottom: idx < recents.length - 1 ? '1px solid var(--border-default)' : 'none',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    cursor: loading ? 'default' : 'pointer',
+                    textAlign: 'left',
+                    transition: 'background-color 100ms ease',
+                    animation: isShaking ? 'shake 0.4s ease' : undefined
                   }}
-                  title={r.path}
+                  onAnimationEnd={() => {
+                    if (isShaking) setShakingPath(null)
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-secondary)'
+                  }}
+                  aria-label={`Open workspace ${r.name}`}
                 >
-                  {r.path}
-                </span>
-              </button>
-            ))}
+                  <span style={{ fontSize: '13px', fontWeight: 500 }}>{r.name}</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: 'var(--text-dimmed)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%'
+                    }}
+                    title={r.path}
+                  >
+                    {r.path}
+                  </span>
+                  {isLocked && (
+                    <span style={{ fontSize: '11px', color: 'var(--warning)', marginTop: '2px' }}>
+                      Already open in another window
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}

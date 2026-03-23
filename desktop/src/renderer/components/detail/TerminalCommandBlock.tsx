@@ -1,3 +1,9 @@
+import { useMemo } from 'react'
+import { AnsiUp } from 'ansi_up'
+
+const ansiConverter = new AnsiUp()
+ansiConverter.escapeForHtml = true
+
 interface TerminalCommandBlockProps {
   command: string
   output: string
@@ -7,12 +13,18 @@ interface TerminalCommandBlockProps {
 
 /**
  * Renders a single shell command block: header + output.
+ * ANSI escape codes in the output are converted to colored HTML spans.
  * Spec §11.5
  */
 export function TerminalCommandBlock({ command, output, duration }: TerminalCommandBlockProps): JSX.Element {
   const elapsedLabel = duration !== undefined && duration > 0
     ? `(${(duration / 1000).toFixed(1)}s)`
     : ''
+
+  const outputHtml = useMemo(
+    () => (output ? ansiConverter.ansi_to_html(output) : ''),
+    [output]
+  )
 
   return (
     <div
@@ -52,7 +64,7 @@ export function TerminalCommandBlock({ command, output, duration }: TerminalComm
         }}
       />
 
-      {/* Output */}
+      {/* Output with ANSI color support */}
       {output ? (
         <pre
           style={{
@@ -65,9 +77,8 @@ export function TerminalCommandBlock({ command, output, duration }: TerminalComm
             wordBreak: 'break-all',
             overflowX: 'hidden'
           }}
-        >
-          {output}
-        </pre>
+          dangerouslySetInnerHTML={{ __html: outputHtml }}
+        />
       ) : (
         <div style={{ padding: '4px 12px 6px', color: 'var(--text-dimmed)', fontSize: '11px' }}>
           (no output)

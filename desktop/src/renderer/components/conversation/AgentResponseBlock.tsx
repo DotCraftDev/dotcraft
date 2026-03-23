@@ -11,6 +11,7 @@ import { ApprovalCard } from './ApprovalCard'
 import { aggregateToolCalls } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
+import type { SubAgentEntry } from '../../types/toolCall'
 
 interface AgentResponseBlockProps {
   turn: ConversationTurn
@@ -22,6 +23,21 @@ interface AgentResponseBlockProps {
   isRunning?: boolean
   /** Whether this is the active turn that may be in waitingApproval */
   isActiveTurn?: boolean
+  /**
+   * When set, used for streaming item highlight instead of the main conversation store
+   * (e.g. automation task review panel).
+   */
+  activeItemIdOverride?: string | null
+  /**
+   * When set, SubAgent table uses this data instead of the global conversation store
+   * (e.g. automation review scoped to reviewThreadId).
+   */
+  subAgentEntriesOverride?: SubAgentEntry[]
+  /**
+   * Thread-level SubAgent snapshot must render at most once. Show on the active turn
+   * while streaming, and on the last turn for the collapsed completed summary.
+   */
+  isLastTurn?: boolean
 }
 
 /**
@@ -44,10 +60,15 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   streamingMessage = '',
   streamingReasoning = '',
   isRunning = false,
-  isActiveTurn = false
+  isActiveTurn = false,
+  activeItemIdOverride,
+  subAgentEntriesOverride,
+  isLastTurn = false
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
-  const activeItemId = useConversationStore((s) => s.activeItemId)
+  const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
+  const activeItemId =
+    activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
 
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)
@@ -116,12 +137,16 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
     i++
   }
 
+  const showSubAgentProgress = isActiveTurn || isLastTurn
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       {renderNodes}
 
-      {/* SubAgent progress — always rendered after committed items */}
-      <SubAgentProgressBlock />
+      {/* SubAgent progress — thread-level snapshot; one mount per stream (active or last turn) */}
+      {showSubAgentProgress ? (
+        <SubAgentProgressBlock entries={subAgentEntriesOverride} />
+      ) : null}
 
       {/* Turn-level failure */}
       {turn.status === 'failed' && turn.error && (

@@ -21,6 +21,7 @@
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
     "@types/ws": "^8.18.1",
+    "ansi_up": "^6.0.6",
     "diff": "^8.0.3",
     "highlight.js": "^11.11.1",
     "react-markdown": "^10.1.0",
@@ -55,16 +56,23 @@
   "build": {
     "appId": "com.dotcraft.desktop",
     "productName": "DotCraft Desktop",
+    "icon": "resources/icon.png",
     "directories": {
       "buildResources": "resources"
     },
     "files": [
       "out/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "win": {
       "asar": true,
       "executableName": "DotCraftDesktop",
-      "signAndEditExecutable": false,
+      "icon": "resources/icon.ico",
       "target": [
         "nsis",
         "portable",
@@ -72,6 +80,7 @@
       ]
     },
     "mac": {
+      "icon": "resources/icon.png",
       "target": [
         "dmg",
         "zip"
@@ -79,10 +88,16 @@
       "category": "public.app-category.developer-tools"
     },
     "linux": {
+      "icon": "resources/icon.png",
       "target": [
         "AppImage",
         "deb"
       ]
+    },
+    "nsis": {
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico"
     }
   }
 }

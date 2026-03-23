@@ -1,5 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 
+/** Extracts a clean user-facing message from a workspace switch error. */
+function switchErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  // Strip the Electron IPC prefix "Error invoking remote method '...': Error: ..."
+  const match = raw.match(/Error invoking remote method '[^']+': Error: (.+)/)
+  return match ? match[1] : raw
+}
+
 interface RecentWorkspace {
   path: string
   name: string
@@ -47,13 +55,22 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
   async function switchWorkspace(): Promise<void> {
     setOpen(false)
     const picked = await window.api.workspace.pickFolder()
-    if (picked) await window.api.workspace.switch(picked)
+    if (!picked) return
+    try {
+      await window.api.workspace.switch(picked)
+    } catch (err) {
+      window.alert(switchErrorMessage(err))
+    }
   }
 
   async function switchToRecent(path: string): Promise<void> {
     setOpen(false)
     setShowRecents(false)
-    await window.api.workspace.switch(path)
+    try {
+      await window.api.workspace.switch(path)
+    } catch (err) {
+      window.alert(switchErrorMessage(err))
+    }
   }
 
   return (

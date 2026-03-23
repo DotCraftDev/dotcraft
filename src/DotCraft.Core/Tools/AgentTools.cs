@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Threading;
 using DotCraft.Agents;
 
 namespace DotCraft.Tools;
@@ -37,13 +38,14 @@ public sealed class AgentTools(SubAgentManager? subAgentManager = null)
     [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnSubagent))]
     public async Task<string> SpawnSubagent(
         [Description("A detailed, self-contained description of the task for the subagent to execute autonomously. Include what to investigate, what tools to use, and exactly what to report back.")] string task,
-        [Description("Optional short human-readable label shown in the UI (e.g. 'Explore auth module').")] string? label = null)
+        [Description("Optional short human-readable label shown in the UI (e.g. 'Explore auth module').")] string? label = null,
+        CancellationToken cancellationToken = default)
     {
         if (subAgentManager == null)
         {
             return "Subagent functionality is not available.";
         }
 
-        return await subAgentManager.SpawnAsync(task, label);
+        return await subAgentManager.SpawnAsync(task, label, cancellationToken);
     }
 }

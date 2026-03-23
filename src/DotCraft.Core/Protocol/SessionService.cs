@@ -4,9 +4,11 @@ using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Context;
 using DotCraft.Hooks;
+using DotCraft.Memory;
 using DotCraft.Mcp;
 using DotCraft.Security;
 using DotCraft.Sessions;
+using DotCraft.Skills;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -34,9 +36,12 @@ public sealed class SessionService(
     TraceCollector? traceCollector = null,
     TimeSpan? approvalTimeout = null,
     ILogger<SessionService>? logger = null,
-    ApprovalStore? approvalStore = null)
+    ApprovalStore? approvalStore = null,
+    IToolProfileRegistry? toolProfileRegistry = null)
     : ISessionService
 {
+    private readonly IToolProfileRegistry? _toolProfileRegistry = toolProfileRegistry;
+
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
     // In-memory state
@@ -417,15 +422,30 @@ public sealed class SessionService(
                 TokenTracker.Current = tokenTracker;
 
                 // Step 5f: Set up approval service override
-                var approvalService = new SessionApprovalService(
-                    eventChannel,
-                    turn,
-                    NextItemSeq,
-                    _approvalTimeout,
-                    cts.Cancel,
-                    approvalStore);
-                _pendingApprovals[turnKey] = approvalService;
-                approvalOverride = SessionScopedApprovalService.SetOverride(approvalService);
+                var approvalPolicy = thread.Configuration?.ApprovalPolicy ?? ApprovalPolicy.Default;
+                IApprovalService turnApprovalService;
+                switch (approvalPolicy)
+                {
+                    case ApprovalPolicy.AutoApprove:
+                        turnApprovalService = new AutoApproveApprovalService();
+                        break;
+                    case ApprovalPolicy.Interrupt:
+                        turnApprovalService = new InterruptOnApprovalService(cts.Cancel);
+                        break;
+                    default:
+                        var sessionApproval = new SessionApprovalService(
+                            eventChannel,
+                            turn,
+                            NextItemSeq,
+                            _approvalTimeout,
+                            cts.Cancel,
+                            approvalStore);
+                        _pendingApprovals[turnKey] = sessionApproval;
+                        turnApprovalService = sessionApproval;
+                        break;
+                }
+
+                approvalOverride = SessionScopedApprovalService.SetOverride(turnApprovalService);
 
                 // Set ApprovalContext for tools that read ApprovalContextScope
                 var approvalContextDisposable = sender != null
@@ -911,8 +931,69 @@ public sealed class SessionService(
             : AgentMode.Agent;
         var mm = GetOrCreateModeManager(threadId, mode);
 
+        ToolProviderContext? scopedContext = null;
+        if (!string.IsNullOrEmpty(config.WorkspaceOverride))
+        {
+            var craftPath = Path.Combine(config.WorkspaceOverride, ".craft");
+            Directory.CreateDirectory(craftPath);
+
+            var scopedMemory = new MemoryStore(craftPath);
+            var scopedSkills = new SkillsLoader(craftPath);
+            var baseCtx = agentFactory.ToolProviderContext;
+
+            scopedContext = new ToolProviderContext
+            {
+                Config = baseCtx.Config,
+                ChatClient = baseCtx.ChatClient,
+                WorkspacePath = config.WorkspaceOverride,
+                BotPath = craftPath,
+                MemoryStore = scopedMemory,
+                SkillsLoader = scopedSkills,
+                ApprovalService = baseCtx.ApprovalService,
+                PathBlacklist = new PathBlacklist([]),
+                TraceCollector = baseCtx.TraceCollector,
+                ChannelClient = baseCtx.ChannelClient,
+                AcpExtensionProxy = baseCtx.AcpExtensionProxy,
+                CronTools = baseCtx.CronTools,
+                DeferredToolRegistry = baseCtx.DeferredToolRegistry,
+                AutomationTaskDirectory = config.AutomationTaskDirectory,
+                RequireApprovalOutsideWorkspace = config.RequireApprovalOutsideWorkspace
+            };
+        }
+
+        List<AITool>? profileTools = null;
+        if (!string.IsNullOrEmpty(config.ToolProfile))
+        {
+            if (_toolProfileRegistry == null
+                || !_toolProfileRegistry.TryGet(config.ToolProfile, out var profileProviders)
+                || profileProviders == null)
+            {
+                throw new InvalidOperationException($"Tool profile '{config.ToolProfile}' is not registered.");
+            }
+
+            var toolCtx = scopedContext ?? agentFactory.ToolProviderContext;
+            profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolCtx);
+        }
+
         if (config.McpServers is not { Length: > 0 })
+        {
+            if (scopedContext != null)
+            {
+                var tools = agentFactory.CreateToolsForMode(mode, scopedContext);
+                if (profileTools != null)
+                    tools.AddRange(profileTools);
+                return agentFactory.CreateAgentWithTools(tools, mm, scopedContext);
+            }
+
+            if (profileTools != null)
+            {
+                var tools = agentFactory.CreateToolsForMode(mode);
+                tools.AddRange(profileTools);
+                return agentFactory.CreateAgentWithTools(tools, mm, agentFactory.ToolProviderContext);
+            }
+
             return agentFactory.CreateAgentForMode(mode, mm);
+        }
 
         // Dispose previous per-thread MCP manager if replacing config
         if (_threadMcpManagers.TryRemove(threadId, out var oldManager))
@@ -922,8 +1003,39 @@ public sealed class SessionService(
         await mcpManager.ConnectAsync(config.McpServers, ct);
         _threadMcpManagers[threadId] = mcpManager;
 
-        var tools = agentFactory.CreateToolsForMode(mode);
-        tools.AddRange(mcpManager.Tools);
-        return agentFactory.CreateAgentWithTools(tools, mm);
+        if (scopedContext != null)
+        {
+            var effectiveContext = new ToolProviderContext
+            {
+                Config = scopedContext.Config,
+                ChatClient = scopedContext.ChatClient,
+                WorkspacePath = scopedContext.WorkspacePath,
+                BotPath = scopedContext.BotPath,
+                MemoryStore = scopedContext.MemoryStore,
+                SkillsLoader = scopedContext.SkillsLoader,
+                ApprovalService = scopedContext.ApprovalService,
+                PathBlacklist = scopedContext.PathBlacklist,
+                TraceCollector = scopedContext.TraceCollector,
+                McpClientManager = mcpManager,
+                ChannelClient = scopedContext.ChannelClient,
+                AcpExtensionProxy = scopedContext.AcpExtensionProxy,
+                CronTools = scopedContext.CronTools,
+                DeferredToolRegistry = scopedContext.DeferredToolRegistry,
+                AutomationTaskDirectory = scopedContext.AutomationTaskDirectory,
+                RequireApprovalOutsideWorkspace = scopedContext.RequireApprovalOutsideWorkspace
+            };
+
+            var modeTools = agentFactory.CreateToolsForMode(mode, effectiveContext);
+            if (profileTools != null)
+                modeTools.AddRange(profileTools);
+            modeTools.AddRange(mcpManager.Tools);
+            return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
+        }
+
+        var toolsWithMcp = agentFactory.CreateToolsForMode(mode);
+        if (profileTools != null)
+            toolsWithMcp.AddRange(profileTools);
+        toolsWithMcp.AddRange(mcpManager.Tools);
+        return agentFactory.CreateAgentWithTools(toolsWithMcp, mm);
     }
 }
