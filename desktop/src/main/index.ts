@@ -193,7 +193,9 @@ async function connectViaWebSocket(
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    broadcastConnectionStatus(win, { status: 'error', errorMessage: message })
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      broadcastConnectionStatus(mainWindow, { status: 'error', errorMessage: message })
+    }
   }
 }
 
