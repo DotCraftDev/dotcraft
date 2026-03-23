@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { AnsiUp } from 'ansi_up'
 
 const ansiConverter = new AnsiUp()
+ansiConverter.escapeForHtml = true
 
 interface TerminalCommandBlockProps {
   command: string
