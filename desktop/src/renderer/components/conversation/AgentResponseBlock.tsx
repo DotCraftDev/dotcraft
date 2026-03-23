@@ -22,6 +22,11 @@ interface AgentResponseBlockProps {
   isRunning?: boolean
   /** Whether this is the active turn that may be in waitingApproval */
   isActiveTurn?: boolean
+  /**
+   * When set, used for streaming item highlight instead of the main conversation store
+   * (e.g. automation task review panel).
+   */
+  activeItemIdOverride?: string | null
 }
 
 /**
@@ -44,10 +49,13 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   streamingMessage = '',
   streamingReasoning = '',
   isRunning = false,
-  isActiveTurn = false
+  isActiveTurn = false,
+  activeItemIdOverride
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
-  const activeItemId = useConversationStore((s) => s.activeItemId)
+  const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
+  const activeItemId =
+    activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
 
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)

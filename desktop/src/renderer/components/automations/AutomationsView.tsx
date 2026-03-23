@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   useAutomationsStore,
   type SourceFilter
 } from '../../stores/automationsStore'
 import { TaskCard } from './TaskCard'
 import { NewTaskDialog } from './NewTaskDialog'
+import { TaskReviewPanel } from './TaskReviewPanel'
+import { useReviewPanelStore } from '../../stores/reviewPanelStore'
 
 const filterTabs: { key: SourceFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -59,7 +61,14 @@ function SkeletonCard(): JSX.Element {
 export function AutomationsView(): JSX.Element {
   const { tasks, loading, error, filterSource, setFilterSource, fetchTasks } =
     useAutomationsStore()
+  const selectedTaskId = useAutomationsStore((s) => s.selectedTaskId)
   const [showNewTask, setShowNewTask] = useState(false)
+
+  useEffect(() => {
+    return () => {
+      useReviewPanelStore.getState().destroyReviewPanel()
+    }
+  }, [])
 
   const filteredTasks = useMemo(() => {
     let list = tasks
@@ -76,11 +85,21 @@ export function AutomationsView(): JSX.Element {
     <div
       style={{
         display: 'flex',
-        flexDirection: 'column',
+        flexDirection: 'row',
         height: '100%',
+        minHeight: 0,
         backgroundColor: 'var(--bg-primary)'
       }}
     >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0
+        }}
+      >
       {/* Header */}
       <div
         style={{
@@ -220,6 +239,9 @@ export function AutomationsView(): JSX.Element {
       </div>
 
       {showNewTask && <NewTaskDialog onClose={() => setShowNewTask(false)} />}
+      </div>
+
+      {selectedTaskId && <TaskReviewPanel />}
     </div>
   )
 }
