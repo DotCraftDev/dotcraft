@@ -6,6 +6,9 @@ namespace DotCraft.Automations.Abstractions;
 /// </summary>
 public abstract class AutomationTask
 {
+    private AutomationTaskStatus _status;
+    private readonly object _statusLock = new();
+
     /// <summary>Stable unique identifier, unique within its source.</summary>
     public required string Id { get; init; }
 
@@ -14,8 +17,24 @@ public abstract class AutomationTask
     /// </summary>
     public required string Title { get; init; }
 
-    /// <summary>Current lifecycle state of the task.</summary>
-    public AutomationTaskStatus Status { get; set; }
+    /// <summary>Current lifecycle state of the task. Thread-safe via lock.</summary>
+    public AutomationTaskStatus Status
+    {
+        get
+        {
+            lock (_statusLock)
+            {
+                return _status;
+            }
+        }
+        set
+        {
+            lock (_statusLock)
+            {
+                _status = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Name of the <see cref="IAutomationSource"/> that owns this task.

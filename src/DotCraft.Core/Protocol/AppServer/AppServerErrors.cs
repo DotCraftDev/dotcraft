@@ -60,6 +60,8 @@ public static class AppServerErrors
 
     public const int SkillNotFoundCode = -32040;
 
+    public const int TaskAlreadyExistsCode = -32050;
+
     // ── Factory methods ──
 
     public static AppServerException ParseError(string? detail = null) =>
@@ -112,4 +114,7 @@ public static class AppServerErrors
 
     public static AppServerException SkillNotFound(string name) =>
         new(SkillNotFoundCode, $"Skill not found: {name}");
+
+    public static AppServerException TaskAlreadyExists(string taskId) =>
+        new(TaskAlreadyExistsCode, $"Task already exists: {taskId}");
 }

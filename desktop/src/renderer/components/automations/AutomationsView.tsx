@@ -128,6 +128,7 @@ export function AutomationsView(): JSX.Element {
             <button
               type="button"
               onClick={() => void fetchTasks()}
+              aria-label="Refresh task list"
               title="Refresh task list"
               style={{
                 padding: '5px 12px',
@@ -145,6 +146,7 @@ export function AutomationsView(): JSX.Element {
             {showNewButton && (
               <button
                 type="button"
+                aria-label="Create new task"
                 onClick={() => setShowNewTask(true)}
                 style={{
                   padding: '5px 14px',
@@ -164,12 +166,33 @@ export function AutomationsView(): JSX.Element {
         </div>
 
         {/* Filter tabs */}
-        <div style={{ display: 'flex', gap: '2px' }}>
-          {filterTabs.map((tab) => (
+        <div role="tablist" aria-label="Filter tasks by source" style={{ display: 'flex', gap: '2px' }}>
+          {filterTabs.map((tab, index) => (
             <button
               key={tab.key}
               type="button"
+              role="tab"
+              aria-selected={filterSource === tab.key}
+              aria-controls="automations-task-list"
+              id={`filter-tab-${tab.key}`}
+              tabIndex={filterSource === tab.key ? 0 : -1}
               onClick={() => setFilterSource(tab.key)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                  e.preventDefault()
+                  const tabs = filterTabs
+                  const currentIndex = tabs.findIndex(t => t.key === filterSource)
+                  let nextIndex: number
+                  if (e.key === 'ArrowRight') {
+                    nextIndex = (currentIndex + 1) % tabs.length
+                  } else {
+                    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
+                  }
+                  setFilterSource(tabs[nextIndex].key)
+                  // Focus the new tab
+                  document.getElementById(`filter-tab-${tabs[nextIndex].key}`)?.focus()
+                }
+              }}
               style={{
                 padding: '4px 12px',
                 borderRadius: '6px',
@@ -193,7 +216,12 @@ export function AutomationsView(): JSX.Element {
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '8px 6px' }}>
+      <div
+        id="automations-task-list"
+        role="tabpanel"
+        aria-labelledby={`filter-tab-${filterSource}`}
+        style={{ flex: 1, overflow: 'auto', padding: '8px 6px' }}
+      >
         {loading && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <SkeletonCard />

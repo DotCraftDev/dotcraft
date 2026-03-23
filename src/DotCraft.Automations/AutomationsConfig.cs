@@ -30,4 +30,34 @@ public sealed class AutomationsConfig
     /// </summary>
     [ConfigField(Hint = "Root directory for local task files. Leave blank for {workspaceRoot}/.craft/tasks/.")]
     public string LocalTasksRoot { get; set; } = "";
+
+    /// <summary>
+    /// Maximum time a single agent turn may run before being cancelled.
+    /// Default: 30 minutes. Set to zero or negative to disable.
+    /// </summary>
+    public TimeSpan TurnTimeout { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Maximum time an agent may be inactive (no tool calls, no output) before being considered stalled.
+    /// Default: 10 minutes. Set to zero or negative to disable.
+    /// </summary>
+    public TimeSpan StallTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Maximum number of retry attempts for failed tasks.
+    /// Default: 3. Set to 0 to disable retries.
+    /// </summary>
+    public int MaxRetries { get; set; } = 3;
+
+    /// <summary>
+    /// Initial delay between retries, with exponential backoff.
+    /// Default: 30 seconds.
+    /// </summary>
+    public TimeSpan RetryInitialDelay { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Maximum delay between retries (caps exponential backoff).
+    /// Default: 10 minutes.
+    /// </summary>
+    public TimeSpan RetryMaxDelay { get; set; } = TimeSpan.FromMinutes(10);
 }

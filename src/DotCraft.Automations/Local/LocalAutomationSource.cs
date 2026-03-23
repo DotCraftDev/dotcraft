@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
@@ -8,17 +9,30 @@ namespace DotCraft.Automations.Local;
 
 /// <summary>
 /// File-based local automation tasks under <see cref="LocalTaskFileStore.TasksRoot"/>.
+/// Implements <see cref="IDisposable"/> to release the FileSystemWatcher resource.
 /// </summary>
 public sealed class LocalAutomationSource(
     LocalTaskFileStore fileStore,
     LocalWorkflowLoader workflowLoader,
     ILoggerFactory loggerFactory,
     ILogger<LocalAutomationSource> logger)
-    : IAutomationSource
+    : IAutomationSource, IDisposable
 {
     // Picks up new task.md files without restarting the host.
     private readonly IDisposable _newTaskWatch =
         fileStore.WatchForNewTasks(t => logger.LogInformation("New local task discovered: {TaskId}", t.Id));
+
+    private bool _disposed;
+
+    /// <summary>
+    /// Disposes the FileSystemWatcher used for new task detection.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _newTaskWatch?.Dispose();
+    }
 
     /// <inheritdoc />
     public string Name => "local";
@@ -177,6 +191,17 @@ public sealed class LocalAutomationSource(
 
     private async Task RunShellHookAsync(string workingDirectory, string command, CancellationToken ct)
     {
+        // Security: Validate command to prevent injection attacks.
+        // Commands should come from trusted workflow files, but we add basic validation.
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            logger.LogWarning("Empty command passed to hook");
+            return;
+        }
+
+        // Log the command for audit trail
+        logger.LogInformation("Executing hook command in {Dir}: {Command}", workingDirectory, command);
+
         try
         {
             Directory.CreateDirectory(workingDirectory);
@@ -192,11 +217,23 @@ public sealed class LocalAutomationSource(
             if (OperatingSystem.IsWindows())
             {
                 psi.FileName = "cmd.exe";
+                // Security: Basic sanitization - reject commands with obvious injection patterns
+                if (ContainsDangerousPatterns(command))
+                {
+                    logger.LogError("Hook command rejected due to potentially dangerous pattern: {Command}", command);
+                    return;
+                }
                 psi.Arguments = "/c " + command;
             }
             else
             {
                 psi.FileName = "/bin/sh";
+                // Security: Basic sanitization for shell commands
+                if (ContainsDangerousPatterns(command))
+                {
+                    logger.LogError("Hook command rejected due to potentially dangerous pattern: {Command}", command);
+                    return;
+                }
                 psi.Arguments = "-c " + command;
             }
 
@@ -213,10 +250,57 @@ public sealed class LocalAutomationSource(
                 var err = await proc.StandardError.ReadToEndAsync(ct);
                 logger.LogWarning("Hook exited with code {Code}: {Err}", proc.ExitCode, err);
             }
+            else
+            {
+                logger.LogInformation("Hook completed successfully");
+            }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Hook execution failed for command: {Command}", command);
         }
+    }
+
+    /// <summary>
+    /// Checks for potentially dangerous patterns in shell commands.
+    /// This is a basic check - workflow files should only come from trusted sources.
+    /// </summary>
+    private static bool ContainsDangerousPatterns(string command)
+    {
+        // Check for common injection patterns
+        var dangerousPatterns = new[]
+        {
+            // Command chaining with && || ; 
+            // Note: We allow basic chaining for legitimate use cases, but log for audit
+            // Network exfiltration attempts
+            @"curl\s+.*\|",
+            @"wget\s+.*\|",
+            @"nc\s+-",
+            @"netcat",
+            // Privilege escalation
+            @"sudo\s+chmod\s+u?[sx]",
+            @"chmod\s+[ou]?[sx]",
+            // Fork bombs
+            @":\(\)\{.*\}:",
+            // Environment manipulation for malicious purposes
+            @"export\s+PATH=/",
+            @"export\s+LD_PRELOAD",
+            // Redirecting sensitive files
+            @"/etc/(passwd|shadow|sudoers)",
+            // PowerShell download and execute (on Windows)
+            @"powershell.*-e",
+            @"powershell.*downloadstring",
+            @"powershell.*invoke-expression",
+            @"powershell.*iex",
+            @"powershell.*net\.webclient"
+        };
+
+        foreach (var pattern in dangerousPatterns)
+        {
+            if (Regex.IsMatch(command, pattern, RegexOptions.IgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 }

@@ -186,6 +186,10 @@ public sealed class AutomationOrchestrator
             }
         }
 
+        // Dispose the CancellationTokenSource to release resources
+        _cts?.Dispose();
+        _cts = null;
+
         _logger.LogInformation("Automations orchestrator stopped");
     }
 
@@ -286,7 +290,20 @@ public sealed class AutomationOrchestrator
                 if (task.Status != AutomationTaskStatus.Pending)
                     continue;
 
-                if (!_state.TryBeginTask(TaskKey(task)))
+                var taskKey = TaskKey(task);
+
+                // Check if task is eligible for retry (respects backoff delay)
+                if (_state.GetRetryCount(taskKey) > 0 &&
+                    !_state.IsEligibleForRetry(taskKey, _config.RetryInitialDelay, _config.RetryMaxDelay, DateTimeOffset.UtcNow))
+                {
+                    _logger.LogDebug(
+                        "Task {TaskId} waiting for retry backoff (source: {SourceName})",
+                        task.Id,
+                        source.Name);
+                    continue;
+                }
+
+                if (!_state.TryBeginTask(taskKey))
                 {
                     _logger.LogDebug(
                         "Task {TaskId} skipped (already active) for source {SourceName}",
@@ -338,9 +355,12 @@ public sealed class AutomationOrchestrator
     private async Task RunDispatchAsync(IAutomationSource source, AutomationTask task, CancellationToken ct)
     {
         await _concurrency.WaitAsync(ct);
+        var taskKey = TaskKey(task);
         try
         {
             await DispatchTaskAsync(source, task, ct);
+            // Task succeeded - clear any retry state
+            _state.ClearRetries(taskKey);
         }
         catch (OperationCanceledException)
         {
@@ -355,29 +375,56 @@ public sealed class AutomationOrchestrator
                 await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
                 await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             }
-            catch
+            catch (Exception cleanupEx)
             {
                 // Best effort: original ct may be cancelled; source persistence may fail.
+                _logger.LogWarning(cleanupEx, "Cleanup failed for cancelled task {TaskId}", task.Id);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Dispatch failed for task {TaskId} (source: {SourceName})", task.Id, source.Name);
+            
+            // Check if we should retry
+            var shouldRetry = false;
+            if (_config.MaxRetries > 0)
+            {
+                var retryAttempt = _state.ScheduleRetry(taskKey, _config.MaxRetries, DateTimeOffset.UtcNow);
+                if (retryAttempt > 0)
+                {
+                    shouldRetry = true;
+                    _logger.LogInformation(
+                        "Task {TaskId} scheduled for retry attempt {Attempt}/{Max} (source: {SourceName})",
+                        task.Id, retryAttempt, _config.MaxRetries, source.Name);
+                }
+            }
+
             try
             {
-                task.Status = AutomationTaskStatus.Failed;
-                TrackTask(task);
-                await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, ct);
-                await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
+                if (shouldRetry)
+                {
+                    // Mark as pending for retry instead of failed
+                    task.Status = AutomationTaskStatus.Pending;
+                    TrackTask(task);
+                    await source.OnStatusChangedAsync(task, AutomationTaskStatus.Pending, CancellationToken.None);
+                    await RaiseStatusChangedAsync(task, AutomationTaskStatus.Pending);
+                }
+                else
+                {
+                    task.Status = AutomationTaskStatus.Failed;
+                    TrackTask(task);
+                    await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
+                    await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
+                }
             }
             catch (Exception ex2)
             {
-                _logger.LogError(ex2, "OnStatusChangedAsync(Failed) failed for task {TaskId}", task.Id);
+                _logger.LogError(ex2, "OnStatusChangedAsync failed for task {TaskId}", task.Id);
             }
         }
         finally
         {
-            _state.EndTask(TaskKey(task));
+            _state.EndTask(taskKey);
             _concurrency.Release();
         }
     }
@@ -542,9 +589,9 @@ public sealed class AutomationOrchestrator
                 await source.OnStatusChangedAsync(task, AutomationTaskStatus.Failed, CancellationToken.None);
                 await RaiseStatusChangedAsync(task, AutomationTaskStatus.Failed);
             }
-            catch
+            catch (Exception cleanupEx)
             {
-                // Best effort
+                _logger.LogWarning(cleanupEx, "Cleanup failed for cancelled workflow task {TaskId}", task.Id);
             }
 
             return;

@@ -34,6 +34,8 @@ export interface ReviewPanelState {
   actionError: string | null
   /** SubAgent progress rows for the thread being reviewed (isolated from main conversation). */
   subAgentEntries: SubAgentEntry[]
+  /** Sequence number to prevent race conditions from stale async operations. */
+  _seq: number
 
   openReviewPanel(taskId: string): Promise<void>
   /** Unsubscribe and clear review state (does not change sidebar selection). */
@@ -79,15 +81,22 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
   approving: false,
   rejecting: false,
   actionError: null,
+  _seq: 0,
 
   async openReviewPanel(taskId: string) {
     const prev = get()
+    
+    // Unsubscribe from previous thread if any
     if (prev.subscriptionActive && prev.reviewThreadId) {
       void window.api.appServer
         .sendRequest('thread/unsubscribe', { threadId: prev.reviewThreadId })
-        .catch(() => {})
+        .catch((err) => {
+          console.warn('Failed to unsubscribe from previous thread:', err)
+        })
     }
 
+    // Increment sequence to invalidate any in-flight operations
+    const newSeq = prev._seq + 1
     set({
       openedTaskId: taskId,
       taskDetail: null,
@@ -96,7 +105,8 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       ...emptyTurnFields(),
       loading: true,
       loadError: null,
-      actionError: null
+      actionError: null,
+      _seq: newSeq
     })
 
     const tasks = useAutomationsStore.getState().tasks
@@ -109,6 +119,13 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
         sourceName
       })) as Record<string, unknown>
 
+      // Check if this request is still valid (not stale)
+      const current = get()
+      if (current._seq !== newSeq) {
+        console.debug('openReviewPanel: stale request, ignoring')
+        return
+      }
+
       const task = mapWireTaskToAutomationTask(readResult)
       set({ taskDetail: task })
 
@@ -116,15 +133,24 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
         await get().loadThreadSnapshot(task.threadId, task)
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      set({ loadError: msg, loading: false })
+      const current = get()
+      // Only set error if this is still the current request
+      if (current._seq === newSeq) {
+        const msg = e instanceof Error ? e.message : String(e)
+        set({ loadError: msg, loading: false })
+      }
       return
     }
 
-    set({ loading: false })
+    // Only update loading state if still current
+    const current = get()
+    if (current._seq === newSeq) {
+      set({ loading: false })
+    }
   },
 
   async loadThreadSnapshot(threadId: string, task: AutomationTask) {
+    const seqAtStart = get()._seq
     set({ reviewThreadId: threadId, ...emptyTurnFields(), subscriptionActive: false })
 
     try {
@@ -132,6 +158,13 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
         threadId,
         includeTurns: true
       })) as { thread?: { turns?: Array<Record<string, unknown>> } }
+      
+      // Check if still valid
+      if (get()._seq !== seqAtStart) {
+        console.debug('loadThreadSnapshot: stale request, ignoring')
+        return
+      }
+
       const rawTurns = res.thread?.turns ?? []
       const turns = rawTurns.map((t) => wireTurnToConversationTurn(t))
       const runningTurn = turns.find((t) => t.status === 'running')
@@ -142,23 +175,38 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
         streamingActive: false
       })
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      set({ loadError: msg })
+      // Only set error if still current
+      if (get()._seq === seqAtStart) {
+        const msg = e instanceof Error ? e.message : String(e)
+        set({ loadError: msg })
+      }
       return
     }
 
     if (task.status === 'agent_running' || task.status === 'dispatched') {
       try {
         await window.api.appServer.sendRequest('thread/subscribe', { threadId })
-        set({ subscriptionActive: true, streamingActive: task.status === 'agent_running' })
-      } catch {
-        set({ subscriptionActive: false })
+        // Check if still valid before setting subscription
+        if (get()._seq === seqAtStart) {
+          set({ subscriptionActive: true, streamingActive: task.status === 'agent_running' })
+        } else {
+          // Stale - unsubscribe immediately
+          void window.api.appServer
+            .sendRequest('thread/unsubscribe', { threadId })
+            .catch(() => {})
+        }
+      } catch (err) {
+        // Only set state if still current
+        if (get()._seq === seqAtStart) {
+          set({ subscriptionActive: false })
+          console.warn('Failed to subscribe to thread:', err)
+        }
       }
     }
   },
 
   async maybeAdvancePendingThread() {
-    const { openedTaskId, reviewThreadId, loading } = get()
+    const { openedTaskId, reviewThreadId, loading, _seq } = get()
     if (!openedTaskId || loading || reviewThreadId) return
 
     const task = useAutomationsStore.getState().tasks.find((t) => t.id === openedTaskId)
@@ -169,12 +217,15 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
   },
 
   destroyReviewPanel() {
-    const { reviewThreadId, subscriptionActive } = get()
+    const { reviewThreadId, subscriptionActive, _seq } = get()
     if (subscriptionActive && reviewThreadId) {
       void window.api.appServer
         .sendRequest('thread/unsubscribe', { threadId: reviewThreadId })
-        .catch(() => {})
+        .catch((err) => {
+          console.warn('Failed to unsubscribe on destroy:', err)
+        })
     }
+    // Increment sequence to invalidate any in-flight operations
     set({
       openedTaskId: null,
       taskDetail: null,
@@ -183,7 +234,8 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       ...emptyTurnFields(),
       loading: false,
       loadError: null,
-      actionError: null
+      actionError: null,
+      _seq: _seq + 1
     })
   },
 

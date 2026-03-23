@@ -57,8 +57,32 @@ public sealed partial class AutomationsRequestHandler(
         if (string.IsNullOrWhiteSpace(p.Title))
             throw AppServerErrors.InvalidParams("'title' is required.");
 
+        // Validate title length
+        if (p.Title.Length > 200)
+            throw AppServerErrors.InvalidParams("'title' must be 200 characters or less.");
+
+        // Validate description length
+        if (p.Description != null && p.Description.Length > 10000)
+            throw AppServerErrors.InvalidParams("'description' must be 10000 characters or less.");
+
         var taskId = GenerateTaskId(p.Title);
+        
+        // Security: Validate the generated task ID to prevent path traversal
+        if (!IsValidTaskId(taskId))
+            throw AppServerErrors.InvalidParams("Generated task ID contains invalid characters.");
+
         var taskDir = Path.Combine(fileStore.TasksRoot, taskId);
+        
+        // Security: Ensure the task directory is within TasksRoot (path traversal protection)
+        var fullTaskDir = Path.GetFullPath(taskDir);
+        var fullRoot = Path.GetFullPath(fileStore.TasksRoot);
+        if (!fullTaskDir.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+            throw AppServerErrors.InvalidParams("Invalid task directory path.");
+
+        // Check for task ID collision (rare but possible with rapid creation)
+        if (Directory.Exists(fullTaskDir))
+            throw AppServerErrors.InvalidParams($"Task with ID '{taskId}' already exists.");
+
         Directory.CreateDirectory(taskDir);
 
         var now = DateTimeOffset.UtcNow.ToString("o");
@@ -292,6 +316,56 @@ public sealed partial class AutomationsRequestHandler(
 
     [GeneratedRegex(@"[^a-z0-9]+")]
     private static partial Regex SlugRegex();
+
+    /// <summary>
+    /// Validates that a path does not contain directory traversal sequences.
+    /// </summary>
+    private static bool ContainsDirectoryTraversal(string path)
+    {
+        // Check for parent directory traversal
+        if (path.Contains("..", StringComparison.Ordinal))
+            return true;
+
+        // Check for null bytes (potential null byte injection)
+        if (path.IndexOf('\0') >= 0)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Validates that a task ID is safe for use as a directory name.
+    /// </summary>
+    private static bool IsValidTaskId(string taskId)
+    {
+        if (string.IsNullOrWhiteSpace(taskId))
+            return false;
+
+        // Must not contain directory traversal
+        if (ContainsDirectoryTraversal(taskId))
+            return false;
+
+        // Must not contain path separators
+        if (taskId.IndexOfAny(new[] { '/', '\\', ':' }) >= 0)
+            return false;
+
+        // Must not be a reserved Windows name
+        var reserved = new[] { "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", 
+            "LPT1", "LPT2", "LPT3", "LPT4" };
+        if (reserved.Any(r => string.Equals(taskId, r, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a directory already exists to prevent accidental overwrites.
+    /// </summary>
+    private bool TaskDirectoryExists(string taskId)
+    {
+        var taskDir = Path.Combine(fileStore.TasksRoot, taskId);
+        return Directory.Exists(taskDir);
+    }
 
     #endregion
 }
