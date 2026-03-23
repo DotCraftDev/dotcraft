@@ -244,11 +244,19 @@ public sealed class LocalAutomationSource(
                 return;
             }
 
+            // Read stdout/stderr concurrently with process lifetime so pipe buffers cannot deadlock the child.
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderrTask = proc.StandardError.ReadToEndAsync(ct);
             await proc.WaitForExitAsync(ct);
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+
+            if (!string.IsNullOrEmpty(stdout))
+                logger.LogDebug("Hook stdout: {Stdout}", stdout);
+
             if (proc.ExitCode != 0)
             {
-                var err = await proc.StandardError.ReadToEndAsync(ct);
-                logger.LogWarning("Hook exited with code {Code}: {Err}", proc.ExitCode, err);
+                logger.LogWarning("Hook exited with code {Code}: {Err}", proc.ExitCode, stderr);
             }
             else
             {
