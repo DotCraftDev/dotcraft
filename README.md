@@ -133,8 +133,10 @@ flowchart LR
     Ide["ACP / IDE"]
     Bots["QQ / WeCom / ..."]
     ExtCh["External Channels (Telegram, ...)"]
-    Workflow["GitHub Workflow"]
     Api["API / AG-UI"]
+    Automations["Automations"]
+    LocalSource["Local Source"]
+    GitHubSource["GitHub Source"]
 
     subgraph Workspace [".craft/"]
         Core["**Unified Session Core**"]
@@ -145,10 +147,12 @@ flowchart LR
     Cli --> AppSrv
     Desktop --> AppSrv
     AppSrv --> Workspace
+    AppSrv --> Automations
+    Automations --> LocalSource
+    Automations --> GitHubSource
     Ide --> Workspace
     Bots --> Workspace
     ExtCh -->|"SDK / JSON-RPC"| AppSrv
-    Workflow --> Workspace
     Api --> Workspace
     Workspace --> Dashboard
 
@@ -161,8 +165,10 @@ flowchart LR
     style Ide fill:#57606a,color:#ffffff,stroke:#424a53
     style Bots fill:#57606a,color:#ffffff,stroke:#424a53
     style ExtCh fill:#57606a,color:#ffffff,stroke:#424a53
-    style Workflow fill:#57606a,color:#ffffff,stroke:#424a53
     style Api fill:#57606a,color:#ffffff,stroke:#424a53
+    style Automations fill:#8250df,color:#ffffff,stroke:#6639ba
+    style LocalSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
+    style GitHubSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
 ```
 
 | If you want to... | Start here |
@@ -174,7 +180,7 @@ flowchart LR
 | Expose DotCraft as a service | [API / AG-UI](#api--ag-ui) |
 | Connect a chat bot | [QQ / WeCom](#qq--wecom) |
 | Build a custom channel adapter | [External Channels](#external-channels) |
-| Automate GitHub issues and PRs | [GitHub Workflow](#github-workflow-automation) |
+| Run automations (Local / GitHub) | [Automations](#automations) |
 
 ### Local CLI
 
@@ -188,7 +194,7 @@ AppServer exposes DotCraft's Agent capabilities as a wire protocol (JSON-RPC) se
 
 ### Desktop
 
-DotCraft Desktop is an Electron + React application that provides a graphical interface for the DotCraft Agent Harness. It connects to the AppServer via the Wire Protocol, offering a three-panel workspace with multi-session management, real-time streaming conversation, inline diff review with one-click revert, approval flow, plan tracking, and cron management. 
+DotCraft Desktop is an Electron + React application that acts as a graphical client for AppServer. Over the Wire Protocol it consumes server-side session, approval, plan, cron, and automation capabilities, providing a three-panel workspace with multi-session management, real-time streaming conversation, and inline diff review with one-click revert.
 
 See the [Desktop Client README](./desktop/README.md) for details.
 
@@ -220,9 +226,9 @@ The repository now includes a reference Telegram adapter that demonstrates long 
 
 ![telegram](https://github.com/DotCraftDev/resources/raw/master/dotcraft/telegram.jpg)
 
-### GitHub Workflow Automation
+### Automations
 
-DotCraft can poll GitHub issues and pull requests, create isolated workspaces, dispatch coding or review agents, and coordinate handoff across runs. See the [Automations Guide](./docs/en/automations_guide.md).
+DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. Enabling the `Automations` module runs local tasks; enabling `GitHubTracker` additionally contributes `GitHubAutomationSource`, so GitHub issues and pull requests are polled, dispatched, and reviewed through the same AppServer-hosted pipeline and appear alongside local tasks in the Desktop Automations panel. See the [Automations Guide](./docs/en/automations_guide.md).
 
 ![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
 
