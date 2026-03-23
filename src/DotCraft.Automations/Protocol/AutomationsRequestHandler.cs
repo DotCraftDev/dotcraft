@@ -248,7 +248,7 @@ public sealed partial class AutomationsRequestHandler(
     }
 
     private static string EscapeYamlString(string value) =>
-        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
 
     private static T GetParams<T>(AppServerIncomingMessage msg) where T : new()
     {
