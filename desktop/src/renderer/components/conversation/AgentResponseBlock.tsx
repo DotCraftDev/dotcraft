@@ -11,6 +11,7 @@ import { ApprovalCard } from './ApprovalCard'
 import { aggregateToolCalls } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
+import type { SubAgentEntry } from '../../types/toolCall'
 
 interface AgentResponseBlockProps {
   turn: ConversationTurn
@@ -27,6 +28,11 @@ interface AgentResponseBlockProps {
    * (e.g. automation task review panel).
    */
   activeItemIdOverride?: string | null
+  /**
+   * When set, SubAgent table uses this data instead of the global conversation store
+   * (e.g. automation review scoped to reviewThreadId).
+   */
+  subAgentEntriesOverride?: SubAgentEntry[]
 }
 
 /**
@@ -50,7 +56,8 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   streamingReasoning = '',
   isRunning = false,
   isActiveTurn = false,
-  activeItemIdOverride
+  activeItemIdOverride,
+  subAgentEntriesOverride
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
   const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
@@ -129,7 +136,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       {renderNodes}
 
       {/* SubAgent progress — always rendered after committed items */}
-      <SubAgentProgressBlock />
+      <SubAgentProgressBlock entries={subAgentEntriesOverride} />
 
       {/* Turn-level failure */}
       {turn.status === 'failed' && turn.error && (

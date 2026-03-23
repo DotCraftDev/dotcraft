@@ -1,4 +1,5 @@
 import { useConversationStore } from '../../stores/conversationStore'
+import type { SubAgentEntry } from '../../types/toolCall'
 
 /**
  * Formats a token count into a compact human-readable string.
@@ -17,8 +18,19 @@ function formatTokenCount(count: number): string {
  * Only renders when entries.length > 0.
  * Spec §M4-9 through M4-11.
  */
-export function SubAgentProgressBlock(): JSX.Element | null {
-  const subAgentEntries = useConversationStore((s) => s.subAgentEntries)
+export interface SubAgentProgressBlockProps {
+  /**
+   * When set (including empty array), use this list instead of the global conversation store
+   * (e.g. automation review panel for a specific thread).
+   */
+  entries?: SubAgentEntry[]
+}
+
+export function SubAgentProgressBlock({
+  entries: entriesProp
+}: SubAgentProgressBlockProps = {}): JSX.Element | null {
+  const subAgentEntriesFromStore = useConversationStore((s) => s.subAgentEntries)
+  const subAgentEntries = entriesProp !== undefined ? entriesProp : subAgentEntriesFromStore
 
   if (subAgentEntries.length === 0) return null
 

@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
-import type { ConversationItem, ConversationTurn } from '../../types/conversation'
+import type { ConversationTurn } from '../../types/conversation'
 import { useAutomationsStore } from '../../stores/automationsStore'
 import { useReviewPanelStore } from '../../stores/reviewPanelStore'
 import type { AutomationTask } from '../../stores/automationsStore'
 import { StatusBadge } from './StatusBadge'
 import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
-import { UserMessageBlock } from '../conversation/UserMessageBlock'
 import { AgentResponseBlock } from '../conversation/AgentResponseBlock'
+import type { SubAgentEntry } from '../../types/toolCall'
 import { ApproveRejectBar } from './ApproveRejectBar'
 
 const PANEL_WIDTH = 480
@@ -63,7 +63,8 @@ function ReviewTurnBlock({
   turnStatus,
   streamingMessage,
   streamingReasoning,
-  activeItemId
+  activeItemId,
+  subAgentEntriesOverride
 }: {
   turn: ConversationTurn
   activeTurnId: string | null
@@ -71,15 +72,14 @@ function ReviewTurnBlock({
   streamingMessage: string
   streamingReasoning: string
   activeItemId: string | null
+  /** Scoped to the review thread; not the global conversation store. */
+  subAgentEntriesOverride: SubAgentEntry[]
 }): JSX.Element {
   const isRunning = turnStatus === 'running' && turn.id === activeTurnId
-  const userItems = turn.items.filter((i: ConversationItem) => i.type === 'userMessage')
 
+  // Orchestrator-submitted workflow prompt is modeled as userMessage; omit from automation review UI.
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {userItems.map((item: ConversationItem) => (
-        <UserMessageBlock key={item.id} text={item.text ?? ''} />
-      ))}
       <AgentResponseBlock
         turn={turn}
         streamingMessage={turn.id === activeTurnId ? streamingMessage : ''}
@@ -87,6 +87,7 @@ function ReviewTurnBlock({
         isRunning={isRunning}
         isActiveTurn={turn.id === activeTurnId}
         activeItemIdOverride={isRunning ? activeItemId ?? null : undefined}
+        subAgentEntriesOverride={subAgentEntriesOverride}
       />
     </div>
   )
@@ -113,6 +114,7 @@ export function TaskReviewPanel(): JSX.Element {
   const streamingMessage = useReviewPanelStore((s) => s.streamingMessage)
   const streamingReasoning = useReviewPanelStore((s) => s.streamingReasoning)
   const activeItemId = useReviewPanelStore((s) => s.activeItemId)
+  const subAgentEntries = useReviewPanelStore((s) => s.subAgentEntries)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentKey = turns.length + streamingMessage.length + streamingReasoning.length
@@ -319,6 +321,7 @@ export function TaskReviewPanel(): JSX.Element {
               streamingMessage={streamingMessage}
               streamingReasoning={streamingReasoning}
               activeItemId={activeItemId}
+              subAgentEntriesOverride={subAgentEntries}
             />
           </div>
         ))}

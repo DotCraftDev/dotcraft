@@ -3,6 +3,7 @@ import type { ConversationTurn, ConversationItem, TurnStatus } from '../types/co
 import { wireTurnToConversationTurn } from '../types/conversation'
 import type { AutomationTask } from './automationsStore'
 import { useAutomationsStore } from './automationsStore'
+import type { SubAgentEntry } from '../types/toolCall'
 
 /** Stable chronological order for turn items (Wire Protocol may interleave events). */
 function sortItemsByCreatedAt(items: ConversationItem[]): ConversationItem[] {
@@ -31,6 +32,8 @@ export interface ReviewPanelState {
   approving: boolean
   rejecting: boolean
   actionError: string | null
+  /** SubAgent progress rows for the thread being reviewed (isolated from main conversation). */
+  subAgentEntries: SubAgentEntry[]
 
   openReviewPanel(taskId: string): Promise<void>
   /** Unsubscribe and clear review state (does not change sidebar selection). */
@@ -48,6 +51,7 @@ export interface ReviewPanelState {
   onTurnCompleted(rawTurn: Record<string, unknown>): void
   onTurnFailed(rawTurn: Record<string, unknown>, error: string): void
   onTurnCancelled(rawTurn: Record<string, unknown>, reason: string): void
+  onSubagentProgress(entries: SubAgentEntry[]): void
 }
 
 function emptyTurnFields() {
@@ -59,7 +63,8 @@ function emptyTurnFields() {
     streamingReasoning: '',
     streamingReasoningStartedAt: null as number | null,
     activeItemId: null as string | null,
-    streamingActive: false
+    streamingActive: false,
+    subAgentEntries: [] as SubAgentEntry[]
   }
 }
 
@@ -532,6 +537,10 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       streamingReasoningStartedAt: null,
       streamingActive: false
     }))
+  },
+
+  onSubagentProgress(entries) {
+    set({ subAgentEntries: entries })
   }
 }))
 
