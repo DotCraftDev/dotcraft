@@ -24,7 +24,8 @@ public sealed class AppServerRequestHandler(
     CronService? cronService = null,
     HeartbeatService? heartbeatService = null,
     SkillsLoader? skillsLoader = null,
-    string? workspaceCraftPath = null)
+    string? workspaceCraftPath = null,
+    IAutomationsRequestHandler? automationsHandler = null)
 {
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -84,6 +85,11 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SkillsList => HandleSkillsListAsync(msg, ct),
                 AppServerMethods.SkillsRead => HandleSkillsReadAsync(msg, ct),
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
+                AppServerMethods.AutomationTaskList => RouteAutomation(h => h.HandleTaskListAsync(msg, ct)),
+                AppServerMethods.AutomationTaskRead => RouteAutomation(h => h.HandleTaskReadAsync(msg, ct)),
+                AppServerMethods.AutomationTaskCreate => RouteAutomation(h => h.HandleTaskCreateAsync(msg, ct)),
+                AppServerMethods.AutomationTaskApprove => RouteAutomation(h => h.HandleTaskApproveAsync(msg, ct)),
+                AppServerMethods.AutomationTaskReject => RouteAutomation(h => h.HandleTaskRejectAsync(msg, ct)),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -133,7 +139,8 @@ public sealed class AppServerRequestHandler(
                 ConfigOverride = true,
                 CronManagement = cronService != null,
                 HeartbeatManagement = heartbeatService != null,
-                SkillsManagement = skillsLoader != null
+                SkillsManagement = skillsLoader != null,
+                Automations = automationsHandler != null
             }
         };
 
@@ -767,6 +774,13 @@ public sealed class AppServerRequestHandler(
         if (start < 0) return string.Empty;
         var end = message.IndexOf('\'', start + 1);
         return end > start ? message[(start + 1)..end] : string.Empty;
+    }
+
+    private Task<object?> RouteAutomation(Func<IAutomationsRequestHandler, Task<object?>> action)
+    {
+        if (automationsHandler == null)
+            throw AppServerErrors.MethodNotFound("automation/*");
+        return action(automationsHandler);
     }
 
     private static T GetParams<T>(AppServerIncomingMessage msg) where T : new()

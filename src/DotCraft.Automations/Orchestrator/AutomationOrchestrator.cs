@@ -273,7 +273,7 @@ public sealed class AutomationOrchestrator
                 if (task.Status != AutomationTaskStatus.Pending)
                     continue;
 
-                if (!_state.TryBeginTask(task.Id))
+                if (!_state.TryBeginTask(TaskKey(task)))
                 {
                     _logger.LogDebug(
                         "Task {TaskId} skipped (already active) for source {SourceName}",
@@ -364,7 +364,7 @@ public sealed class AutomationOrchestrator
         }
         finally
         {
-            _state.EndTask(task.Id);
+            _state.EndTask(TaskKey(task));
             _concurrency.Release();
         }
     }
@@ -411,7 +411,7 @@ public sealed class AutomationOrchestrator
 
         var threadId = await client.CreateOrResumeThreadAsync(
             AutomationsChannelName,
-            $"task-{task.Id}",
+            $"task-{task.SourceName}-{task.Id}",
             threadConfig,
             ct,
             displayName: task.Title);

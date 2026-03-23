@@ -2,9 +2,11 @@ using DotCraft.Abstractions;
 using DotCraft.Automations.Abstractions;
 using DotCraft.Automations.Local;
 using DotCraft.Automations.Orchestrator;
+using DotCraft.Automations.Protocol;
 using DotCraft.Automations.Workspace;
 using DotCraft.Configuration;
 using DotCraft.Modules;
+using DotCraft.Protocol.AppServer;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DotCraft.Automations;
@@ -37,6 +39,8 @@ public sealed partial class AutomationsModule : ModuleBase
         services.AddSingleton<LocalAutomationSource>();
         services.AddSingleton<IAutomationSource>(sp => sp.GetRequiredService<LocalAutomationSource>());
         services.AddSingleton<AutomationOrchestrator>();
+        services.AddSingleton<AutomationsRequestHandler>();
+        services.AddSingleton<IAutomationsRequestHandler>(sp => sp.GetRequiredService<AutomationsRequestHandler>());
     }
 
     public override IChannelService? CreateChannelService(IServiceProvider sp, ModuleContext context) =>
