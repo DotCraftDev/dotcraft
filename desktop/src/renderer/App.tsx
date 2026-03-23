@@ -378,8 +378,6 @@ export function App(): JSX.Element {
           // ── SubAgent progress ─────────────────────────────────────────
           case 'subagent/progress': {
             const entries = (p.entries as SubAgentEntry[]) ?? []
-          case 'subagent/progress': {
-            const entries = (p.entries as SubAgentEntry[]) ?? []
             const threadId = (p.threadId as string | undefined) ?? ''
             const activeId = useThreadStore.getState().activeThreadId
             const reviewThreadId = useReviewPanelStore.getState().reviewThreadId
@@ -389,7 +387,6 @@ export function App(): JSX.Element {
               conv.onSubagentProgress(entries)
             }
             break
-          }
           }
 
           // ── System events ─────────────────────────────────────────────
