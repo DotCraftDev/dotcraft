@@ -198,6 +198,8 @@ DotCraft Desktop is an Electron + React application that acts as a graphical cli
 
 See the [Desktop Client README](./desktop/README.md) for details.
 
+![desktop](https://github.com/DotCraftDev/resources/raw/master/dotcraft/desktop.gif)
+
 ### Editors And ACP
 
 DotCraft supports ACP-compatible editors including Unity, Obsidian, and JetBrains IDEs. Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).

@@ -197,6 +197,8 @@ DotCraft Desktop 是一个基于 Electron + React 的桌面应用，作为 AppSe
 
 详见 [Desktop Client README](./desktop/README_ZH.md)。
 
+![desktop](https://github.com/DotCraftDev/resources/raw/master/dotcraft/desktop.gif)
+
 ### 编辑器与 ACP
 
 DotCraft 支持 ACP 兼容编辑器，包括 Unity、Obsidian 和 JetBrains 系列 IDE。你可以先查看 [ACP 模式指南](./docs/acp_guide.md)；如果你主要在 Unity 中使用，再查看 [Unity 集成指南](./docs/unity_guide.md) 与 [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md)。
