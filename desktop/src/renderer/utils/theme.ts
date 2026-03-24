@@ -31,4 +31,8 @@ export function applyTheme(mode: ThemeMode): void {
     document.head.appendChild(link)
   }
   link.href = getHljsHref(mode)
+
+  if (typeof window !== 'undefined' && window.api?.platform !== 'darwin') {
+    void window.api.window.setTitleBarOverlayTheme(mode)
+  }
 }

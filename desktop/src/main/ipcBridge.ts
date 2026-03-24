@@ -1,10 +1,14 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { ipcMain, BrowserWindow, dialog, Notification } from 'electron'
 import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
 import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
 import type { AppSettings, RecentWorkspace } from './settings'
 import { checkWorkspaceLock } from './workspaceLock'
+import {
+  TITLE_BAR_OVERLAY_BY_THEME,
+  TITLE_BAR_OVERLAY_HEIGHT
+} from '../shared/titleBarOverlay'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -115,6 +119,20 @@ export function registerIpcHandlers(
   ipcMain.handle('window:set-title', (event, title: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     win?.setTitle(title)
+  })
+
+  // Renderer -> Main: sync titleBarOverlay colors with app theme (Windows / Linux only)
+  ipcMain.handle('window:set-title-bar-overlay-theme', (event, theme: 'dark' | 'light') => {
+    if (process.platform === 'darwin') return
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    const t = theme === 'light' ? 'light' : 'dark'
+    const { color, symbolColor } = TITLE_BAR_OVERLAY_BY_THEME[t]
+    win.setTitleBarOverlay({
+      color,
+      symbolColor,
+      height: TITLE_BAR_OVERLAY_HEIGHT
+    })
   })
 
   // Renderer -> Main: get workspace path
@@ -252,14 +270,44 @@ export function broadcastConnectionStatus(
   }
 }
 
+/** Strip common Markdown for OS notification body (plain text). */
+function stripMarkdownForNotify(text: string): string {
+  return text
+    .replace(/\r?\n/g, ' ')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
  * Forwards a Wire Protocol notification to the renderer.
+ * When the window is not focused, shows a native notification for job results (spec §18.6).
  */
 export function broadcastNotification(
   win: BrowserWindow,
   method: string,
   params: unknown
 ): void {
+  if (
+    method === 'system/jobResult' &&
+    !win.isDestroyed() &&
+    !win.isFocused()
+  ) {
+    const p = (params ?? {}) as Record<string, unknown>
+    const jobName = String((p.jobName as string) ?? (p.name as string) ?? 'Job')
+    const err = (p.error as string) ?? ''
+    const result = (p.result as string) ?? (p.text as string) ?? ''
+    const bodyRaw = err || result || 'Job completed'
+    const body = stripMarkdownForNotify(bodyRaw).slice(0, 240)
+    try {
+      if (Notification.isSupported()) {
+        new Notification({ title: jobName, body }).show()
+      }
+    } catch {
+      /* ignore — notification optional */
+    }
+  }
   if (!win.isDestroyed()) {
     win.webContents.send('appserver:notification', { method, params })
   }
@@ -285,6 +333,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')
+  ipcMain.removeHandler('window:set-title-bar-overlay-theme')
   ipcMain.removeHandler('window:get-workspace-path')
   ipcMain.removeHandler('file:write')
   ipcMain.removeHandler('file:read')

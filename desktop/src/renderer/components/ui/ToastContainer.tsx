@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useToastStore, type Toast, type ToastType } from '../../stores/toastStore'
+import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
+
+/** Distance from viewport right; toast sits below titleBarOverlay so caption buttons do not cover it. */
+const TOAST_EDGE_INSET_PX = 8
+
+/** Max width for the toast stack; pair with horizontal inset (8px each side). */
+const TOAST_STACK_MAX_WIDTH_PX = 440
 
 /**
  * Stacked toast notification container, fixed to the top-right corner.
@@ -11,21 +18,27 @@ export function ToastContainer(): JSX.Element {
   const toasts = useToastStore((s) => s.toasts)
   const removeToast = useToastStore((s) => s.removeToast)
 
+  const isMac = window.api.platform === 'darwin'
+  const topPx = isMac ? 16 : window.api.titleBarOverlayHeight + 16
+  const rightPx = TOAST_EDGE_INSET_PX
+  const stackMaxWidth = `min(${TOAST_STACK_MAX_WIDTH_PX}px, calc(100vw - ${TOAST_EDGE_INSET_PX * 2}px))`
+
   return createPortal(
     <div
       aria-live="polite"
       aria-atomic="false"
       style={{
         position: 'fixed',
-        top: '16px',
-        right: '16px',
+        top: `${topPx}px`,
+        right: `${rightPx}px`,
         zIndex: 30000,
         display: 'flex',
         flexDirection: 'column',
+        alignItems: 'flex-end',
         gap: '8px',
         pointerEvents: 'none',
-        maxWidth: '360px',
-        width: '100%'
+        width: 'max-content',
+        maxWidth: stackMaxWidth
       }}
     >
       {toasts.map((toast) => (
@@ -93,7 +106,21 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): JSX.Element {
       <span style={{ color: borderColor, flexShrink: 0, fontSize: '14px', marginTop: '1px' }}>
         {typeToIcon(toast.type)}
       </span>
-      <span style={{ flex: 1, lineHeight: 1.4 }}>{toast.message}</span>
+      {toast.markdown ? (
+        <div
+          style={{
+            flex: 1,
+            lineHeight: 1.4,
+            maxHeight: 240,
+            overflow: 'auto',
+            fontSize: '13px'
+          }}
+        >
+          <MarkdownRenderer content={toast.message} />
+        </div>
+      ) : (
+        <span style={{ flex: 1, lineHeight: 1.4 }}>{toast.message}</span>
+      )}
     </div>
   )
 }

@@ -82,7 +82,8 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
           padding: '10px 16px',
           borderBottom: '1px solid var(--border-default)',
           flexShrink: 0,
-          minHeight: '44px'
+          height: 'var(--chrome-header-height)',
+          boxSizing: 'border-box'
         }}
       >
         {/* Thread name — double-click to rename */}

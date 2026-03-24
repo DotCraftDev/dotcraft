@@ -90,7 +90,8 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
                     color: 'var(--text-dimmed)',
                     fontSize: '11px',
                     userSelect: 'none',
-                    borderTop: hunkIdx > 0 ? '1px solid var(--border-default)' : undefined
+                    borderTop: hunkIdx > 0 ? '1px solid var(--border-default)' : undefined,
+                    overflowWrap: 'break-word'
                   }}
                 >
                   @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
@@ -116,8 +117,7 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
                           ? 'var(--diff-add-bg)'
                           : isRemove
                             ? 'var(--diff-remove-bg)'
-                            : 'transparent',
-                        whiteSpace: 'pre'
+                            : 'transparent'
                       }}
                     >
                       {/* Old line number */}
@@ -176,7 +176,9 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
                                 ? 'var(--text-secondary)'
                                 : 'var(--text-secondary)',
                           flex: 1,
-                          overflow: 'hidden'
+                          minWidth: 0,
+                          whiteSpace: 'pre-wrap',
+                          overflowWrap: 'break-word'
                         }}
                       >
                         {line.content}

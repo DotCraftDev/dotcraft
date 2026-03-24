@@ -9,6 +9,7 @@ import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
 import { AutomationsView } from './components/automations/AutomationsView'
 import { useAutomationsStore } from './stores/automationsStore'
+import { useCronStore, type CronJobWire } from './stores/cronStore'
 import { useReviewPanelStore } from './stores/reviewPanelStore'
 import type { AutomationTask } from './stores/automationsStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
@@ -140,14 +141,28 @@ export function App(): JSX.Element {
         })
         .finally(() => setLoading(false))
 
-      if (useConnectionStore.getState().capabilities?.automations) {
+      const caps = useConnectionStore.getState().capabilities
+      if (caps?.automations) {
         useAutomationsStore.getState().fetchTasks()
+      }
+      if (caps?.cronManagement) {
+        void useCronStore.getState().fetchJobs()
+      }
+      const hasTasks = caps?.automations === true
+      const hasCron = caps?.cronManagement === true
+      if (hasCron && !hasTasks) {
+        useUIStore.getState().setAutomationsTab('cron')
+      } else {
+        useUIStore.getState().setAutomationsTab('tasks')
       }
     }
     // Reset all stores when disconnecting (e.g. workspace switch)
     if (status === 'disconnected' || status === 'error') {
       useThreadStore.getState().reset()
       useConversationStore.getState().reset()
+      useCronStore.getState().reset()
+      useAutomationsStore.getState().selectTask(null)
+      useUIStore.getState().setAutomationsTab('tasks')
       useUIStore.getState().setActiveDetailTab('changes')
       useUIStore.getState().setActiveMainView('conversation')
     }
@@ -411,8 +426,38 @@ export function App(): JSX.Element {
           case 'system/jobResult': {
             const jobName = (p.jobName as string) ?? (p.name as string) ?? 'Job'
             const resultText = (p.result as string) ?? (p.text as string) ?? ''
-            const preview = resultText.split('\n').slice(0, 2).join(' ').slice(0, 120)
-            addJobResultToast(`${jobName}${preview ? ': ' + preview : ''}`)
+            const errText = (p.error as string) ?? ''
+            const usage = p.tokenUsage as { input?: number; output?: number } | undefined
+            let md = `**${jobName}**`
+            if (errText) {
+              md += `\n\n**Error**\n\n${errText}`
+            } else if (resultText) {
+              md += `\n\n${resultText}`
+            } else {
+              md += `\n\n_Completed._`
+            }
+            if (usage != null && ((usage.input ?? 0) > 0 || (usage.output ?? 0) > 0)) {
+              md += `\n\n_Tokens: ${usage.input ?? 0} in · ${usage.output ?? 0} out_`
+            }
+            const tid = p.threadId as string | undefined
+            if (tid) {
+              md += `\n\n_Thread:_ \`${tid}\``
+            }
+            addJobResultToast(md, true)
+            break
+          }
+
+          case 'cron/stateChanged': {
+            const removed = p.removed === true
+            const job = p.job as CronJobWire | undefined
+            if (removed && job?.id) {
+              useCronStore.getState().removeJobLocal(job.id)
+              if (useCronStore.getState().selectedCronJobId === job.id) {
+                useCronStore.getState().selectCronJob(null)
+              }
+            } else if (job) {
+              useCronStore.getState().upsertJob(job)
+            }
             break
           }
 

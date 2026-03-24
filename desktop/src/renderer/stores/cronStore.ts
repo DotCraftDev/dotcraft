@@ -1,0 +1,124 @@
+import { create } from 'zustand'
+
+/** Matches AppServer CronJobInfo wire DTO (spec §16.2). */
+export interface CronJobWire {
+  id: string
+  name: string
+  schedule: {
+    kind: string
+    everyMs?: number | null
+    atMs?: number | null
+  }
+  enabled: boolean
+  createdAtMs: number
+  deleteAfterRun: boolean
+  state: {
+    nextRunAtMs?: number | null
+    lastRunAtMs?: number | null
+    lastStatus?: string | null
+    lastError?: string | null
+    lastThreadId?: string | null
+    lastResult?: string | null
+  }
+}
+
+const POLL_MS = 15_000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+interface CronStoreState {
+  jobs: CronJobWire[]
+  loading: boolean
+  error: string | null
+  selectedCronJobId: string | null
+
+  fetchJobs(options?: { silent?: boolean }): Promise<void>
+  startPolling(): void
+  stopPolling(): void
+  removeJob(jobId: string): Promise<void>
+  enableJob(jobId: string, enabled: boolean): Promise<void>
+  selectCronJob(jobId: string | null): void
+  upsertJob(job: CronJobWire): void
+  removeJobLocal(jobId: string): void
+  reset(): void
+}
+
+export const useCronStore = create<CronStoreState>((set, get) => ({
+  jobs: [],
+  loading: false,
+  error: null,
+  selectedCronJobId: null,
+
+  async fetchJobs(options?: { silent?: boolean }) {
+    const silent = options?.silent === true
+    if (!silent) set({ loading: true, error: null })
+    try {
+      const result = (await window.api.appServer.sendRequest('cron/list', {
+        includeDisabled: true
+      })) as { jobs?: CronJobWire[] }
+      set({ jobs: result.jobs ?? [], loading: false })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!silent) set({ error: msg, loading: false })
+      else set({ loading: false })
+    }
+  },
+
+  startPolling() {
+    if (pollTimer != null) return
+    pollTimer = setInterval(() => {
+      void useCronStore.getState().fetchJobs({ silent: true })
+    }, POLL_MS)
+  },
+
+  stopPolling() {
+    if (pollTimer != null) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
+  },
+
+  async removeJob(jobId: string) {
+    await window.api.appServer.sendRequest('cron/remove', { jobId })
+    get().removeJobLocal(jobId)
+    if (get().selectedCronJobId === jobId) {
+      set({ selectedCronJobId: null })
+    }
+  },
+
+  async enableJob(jobId: string, enabled: boolean) {
+    await window.api.appServer.sendRequest('cron/enable', { jobId, enabled })
+    await get().fetchJobs({ silent: true })
+  },
+
+  selectCronJob(jobId: string | null) {
+    set({ selectedCronJobId: jobId })
+  },
+
+  upsertJob(job: CronJobWire) {
+    set((state) => {
+      const idx = state.jobs.findIndex((j) => j.id === job.id)
+      if (idx >= 0) {
+        const next = [...state.jobs]
+        next[idx] = { ...next[idx], ...job }
+        return { jobs: next }
+      }
+      return { jobs: [job, ...state.jobs] }
+    })
+  },
+
+  removeJobLocal(jobId: string) {
+    set((state) => ({
+      jobs: state.jobs.filter((j) => j.id !== jobId)
+    }))
+  },
+
+  reset() {
+    get().stopPolling()
+    set({
+      jobs: [],
+      loading: false,
+      error: null,
+      selectedCronJobId: null
+    })
+  }
+}))

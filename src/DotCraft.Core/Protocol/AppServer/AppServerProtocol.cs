@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotCraft.Cron;
 
 namespace DotCraft.Protocol.AppServer;
 
@@ -429,6 +430,42 @@ public sealed class CronJobStateWireInfo
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LastError { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LastThreadId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LastResult { get; set; }
+}
+
+/// <summary>
+/// Maps <see cref="CronJob"/> domain objects to wire DTOs (spec §16.2).
+/// </summary>
+public static class CronJobWireMapping
+{
+    public static CronJobWireInfo ToWire(CronJob job) => new()
+    {
+        Id = job.Id,
+        Name = job.Name,
+        Schedule = new CronScheduleWireInfo
+        {
+            Kind = job.Schedule.Kind,
+            EveryMs = job.Schedule.EveryMs,
+            AtMs = job.Schedule.AtMs
+        },
+        Enabled = job.Enabled,
+        CreatedAtMs = job.CreatedAtMs,
+        DeleteAfterRun = job.DeleteAfterRun,
+        State = new CronJobStateWireInfo
+        {
+            NextRunAtMs = job.State.NextRunAtMs,
+            LastRunAtMs = job.State.LastRunAtMs,
+            LastStatus = job.State.LastStatus,
+            LastError = job.State.LastError,
+            LastThreadId = job.State.LastThreadId,
+            LastResult = job.State.LastResult
+        }
+    };
 }
 
 // ───── skills/* (spec Section 18) ─────
@@ -656,6 +693,9 @@ public static class AppServerMethods
 
     // Server → Client notification (cron/heartbeat job result, spec Section 6.9)
     public const string SystemJobResult = "system/jobResult";
+
+    // Server → Client notification (cron job list sync, spec Section 16.7)
+    public const string CronStateChanged = "cron/stateChanged";
 
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
     public const string ExtChannelDeliver = "ext/channel/deliver";

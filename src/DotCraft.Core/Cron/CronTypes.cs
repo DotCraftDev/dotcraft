@@ -30,6 +30,12 @@ public sealed class CronJobState
     public long? LastRunAtMs { get; set; }
     public string? LastStatus { get; set; }
     public string? LastError { get; set; }
+
+    /// <summary>Thread ID from the most recent execution (wire clients use with thread/read).</summary>
+    public string? LastThreadId { get; set; }
+
+    /// <summary>Truncated agent text result from the most recent run (≤500 chars).</summary>
+    public string? LastResult { get; set; }
 }
 
 public sealed class CronJob
@@ -49,3 +55,14 @@ public sealed class CronStore
     public int Version { get; set; } = 1;
     public List<CronJob> Jobs { get; set; } = [];
 }
+
+/// <summary>
+/// Outcome of <see cref="CronService.OnJob"/> for persisting execution metadata (spec §16.2).
+/// </summary>
+public sealed record CronOnJobResult(
+    string? LastThreadId,
+    string? LastResult,
+    string? LastError,
+    bool Ok,
+    int? InputTokens,
+    int? OutputTokens);

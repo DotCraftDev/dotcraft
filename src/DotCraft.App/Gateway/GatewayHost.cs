@@ -148,30 +148,40 @@ public sealed class GatewayHost : IDotCraftHost
             var sessionKey = $"cron:{job.Id}";
             var approvalContext = BuildApprovalContext(job.Payload);
 
-            string? result;
+            AgentRunResult? run;
             if (approvalContext != null)
             {
                 using var _ = ApprovalContextScope.Set(approvalContext);
-                result = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
+                run = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
             }
             else
             {
-                result = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
+                run = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
             }
 
-            if (job.Payload.Deliver && result != null)
+            var deliverText = run?.Result;
+            if (job.Payload.Deliver && deliverText != null)
             {
                 var channel = job.Payload.Channel ?? "unknown";
                 var target = job.Payload.To ?? job.Payload.CreatorId ?? "";
                 try
                 {
-                    await _router.DeliverAsync(channel, target, result);
+                    await _router.DeliverAsync(channel, target, deliverText);
                 }
                 catch (Exception ex)
                 {
                     await Console.Error.WriteLineAsync($"[Cron] Delivery failed: {ex.Message}");
                 }
             }
+
+            var ok = run != null && run.Error == null;
+            return new CronOnJobResult(
+                run?.ThreadId,
+                run?.Result,
+                run?.Error,
+                ok,
+                run?.InputTokens,
+                run?.OutputTokens);
         };
 
         // Inject shared services into channels BEFORE ConfigureApps so channel adapters

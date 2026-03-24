@@ -47,7 +47,7 @@ export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.El
   }
 
   return (
-    <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-default)', flexShrink: 0 }}>
+    <div style={{ padding: '8px 12px 10px', flexShrink: 0 }}>
       <button
         onClick={handleClick}
         disabled={!isConnected || creating}

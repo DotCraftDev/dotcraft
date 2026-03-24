@@ -40,6 +40,12 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
 - [19. Non-Functional Requirements](#19-non-functional-requirements)
 - [20. Phase 2 Reserved Surface](#20-phase-2-reserved-surface)
   - [20.4 Skills Management UI](#204-skills-management-ui)
+- [21. Automations View](#21-automations-view)
+  - [21.1 Tab Bar](#211-tab-bar)
+  - [21.2 Cron Tab — Job List](#212-cron-tab--job-list)
+  - [21.3 Cron Review Panel](#213-cron-review-panel)
+- [18.5 Windows Native Notifications](#185-windows-native-notifications) _(amendment to §18)_
+- [18.6 Cron Job State Conflicts](#186-cron-job-state-conflicts) _(amendment to §18)_
 
 ---
 
@@ -174,7 +180,8 @@ Application state lives in the Renderer Process. It is the single source of trut
 | **Tokens** | `inputTokens`, `outputTokens` (cumulative for current turn) | `item/usage/delta` (additive), reset on `turn/started` |
 | **Approval** | `pendingApproval` (approval request params) or null | `item/approval/request` server request |
 | **FileChanges** | `changedFiles` (Map of filePath → FileDiff), where each `FileDiff` contains: `filePath`, `turnId`, `additions`, `deletions`, `diffHunks`, `status` ('written' or 'reverted'), `isNewFile` | Extracted from completed `toolCall`/`toolResult` items where tool is `FileWrite` / `FileEdit`. Keyed by file path so that multiple edits to the same file across turns produce a single aggregated entry in the Detail Panel, while per-turn entries remain in the Turn Completion Summary. |
-| **UI** | `sidebarCollapsed`, `detailPanelTab`, `detailPanelVisible`, `inputValue`, `agentMode` | User interactions |
+| **UI** | `sidebarCollapsed`, `detailPanelTab`, `detailPanelVisible`, `inputValue`, `agentMode`, `activeMainView` ('conversation' \| 'skills' \| 'automations'), `automationsTab` ('tasks' \| 'cron') | User interactions |
+| **CronJobs** | `cronJobs` (CronJobInfo[]), `selectedCronJobId`, `cronLoading`, `cronError` | `cron/list` response, `cron/stateChanged` notifications |
 
 ---
 
@@ -303,7 +310,18 @@ This section defines how Wire Protocol notifications are mapped to Renderer stat
 
 | Wire Method | State Mutation |
 |-------------|---------------|
-| `system/jobResult` | Show a toast notification with the job name and result text. Auto-dismiss after 10 seconds. |
+| `system/jobResult` | (1) Render the job name and result as a **Markdown toast** (auto-dismiss after 10 seconds). (2) On Windows, emit a **native OS notification** when the window is not focused (see Section 18.5). (3) Call `cron/list` (or apply `cron/stateChanged` data) to refresh the Cron tab job list so `lastResult` and `lastThreadId` are up to date. |
+
+**Toast Markdown rendering**: The `result` field may contain Markdown (headings, lists, bold, code blocks). The toast renders it via `MarkdownRenderer` with a maximum height of 120px and internal overflow scroll. The toast width expands to a maximum of 480px when Markdown content is detected.
+
+**Native notification body**: The `result` field is stripped of Markdown syntax (headings, emphasis markers, code fences, link syntax) before being passed to the OS notification API, producing readable plain text suitable for the notification center.
+
+### 6.10 Cron Job State Events
+
+| Wire Method | State Mutation |
+|-------------|---------------|
+| `cron/stateChanged` (removed: false) | Upsert the job into `cronJobs` by `job.id`. If the Cron tab is currently visible, the `CronJobCard` for this job re-renders with updated schedule, last run time, and result summary. |
+| `cron/stateChanged` (removed: true) | Remove the job with matching `job.id` from `cronJobs`. |
 
 ---
 
@@ -465,10 +483,19 @@ Each thread entry is a clickable row showing:
 
 ### 9.6 Bottom Sections
 
-**Automations** and **Skills** are navigation entries reserved for future functionality:
+**Automations** and **Skills** are navigation entries below the thread list.
 
-- **Automations**: In Phase 1, clicking opens a simple list view of cron jobs (fetched via `cron/list`) with enable/disable toggles and delete actions. This provides basic cron management without a full Kanban UI.
-- **Skills**: In Phase 1, clicking opens a read-only list of skills from `.craft/skills/`, displaying skill names and descriptions.
+**Automations**:
+
+- Clicking opens the **Automations view** (Section 21), which contains two tabs: **Tasks** and **Cron**.
+- Visible when `capabilities.automations` **or** `capabilities.cronManagement` is `true`.
+- When only one capability is present, the corresponding tab is shown without a tab bar (single-tab mode — no tab header rendered).
+- When neither capability is present, the entry is disabled with tooltip: "Automations module not enabled on the server."
+
+**Skills**:
+
+- Clicking opens the **Skills Management UI** (Section 20.4).
+- Visibility and behavior unchanged from the existing implementation.
 
 ### 9.7 Connection Status Footer
 
@@ -1397,9 +1424,9 @@ Phase 2 will introduce task distribution, a Kanban board, and GitHub Tracker int
 
 ### 20.1 Reserved Sidebar Entries
 
-The sidebar includes two entries below the thread list that are navigation placeholders for Phase 2:
+The sidebar includes two entries below the thread list:
 
-- **Automations**: Placeholder view until expanded automation UI ships; cron remains available via other clients. In Phase 2, this may expand to include task distribution and monitoring.
+- **Automations**: Phase 1 ships the full Automations view (Section 21) with Tasks and Cron tabs. Phase 2 may expand this to include a Kanban board and GitHub Tracker integration as additional views within the same navigation entry.
 - **Skills**: Opens the **Skills Management UI** (Section 20.4): list installed skills by source (built-in, workspace, user), open `SKILL.md` in a modal, and enable/disable skills per workspace via AppServer `skills/*` methods.
 
 ### 20.2 Reserved Navigation Structure
@@ -1472,3 +1499,225 @@ Non-goals for this surface: per-skill custom icons (use generic avatar/glyph), r
 #### 20.4.6 Visual design
 
 Follows Section 15 tokens: card surfaces `var(--bg-secondary)`, borders `var(--border-default)`, active sidebar row with `var(--bg-tertiary)` and accent left border, modal backdrop semi-opaque black over `var(--bg-primary)` dialog. The Skills page header callout uses a left accent border (`var(--accent)`), `var(--bg-secondary)` fill, and monospace path chips on `var(--bg-tertiary)`.
+
+---
+
+## 21. Automations View
+
+The Automations view occupies the center column when the **Automations** sidebar entry is selected (`activeMainView = 'automations'`). It contains two tabs: **Tasks** and **Cron**.
+
+### 21.1 Tab Bar
+
+```
+┌──────────────────────────────────────────────┐
+│  Automations                    [Refresh]     │
+│  ──────────────────────────────────────────  │
+│  [ Tasks ]  [ Cron ]                          │
+└──────────────────────────────────────────────┘
+```
+
+| Tab | Visible when | Content |
+|-----|-------------|---------|
+| **Tasks** | `capabilities.automations === true` | Existing automation task list (unchanged from current implementation) |
+| **Cron** | `capabilities.cronManagement === true` | Cron job list — Section 21.2 |
+
+When only one tab is available (single-capability server), the tab bar is not rendered; the corresponding content is shown directly with an appropriate section header.
+
+The active tab is stored in `uiStore.automationsTab` (`'tasks'` \| `'cron'`). Defaults to `'tasks'` when automations is available, otherwise `'cron'`.
+
+### 21.2 Cron Tab — Job List
+
+#### 21.2.1 Layout
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Automations                          [Refresh]       │
+│  ──────────────────────────────────────────────────  │
+│  [ Tasks ]  [ Cron ]                                  │
+│  ──────────────────────────────────────────────────  │
+│                                                       │
+│  ┌── CronJobCard ─────────────────────────────────┐  │
+│  │  ● drink water reminder           Every 1h     │  │
+│  │    Last run: 3h ago · "提醒：该喝水了…"   [View]│  │
+│  │                                [Disable] [Del] │  │
+│  └────────────────────────────────────────────────┘  │
+│                                                       │
+│  ┌── CronJobCard ─────────────────────────────────┐  │
+│  │  ○ daily report (disabled)        Every 24h    │  │
+│  │    Last run: 1d ago · Error: timeout       [View]│ │
+│  │                                 [Enable] [Del] │  │
+│  └────────────────────────────────────────────────┘  │
+│                                                       │
+└──────────────────────────────────────────────────────┘
+```
+
+The job list is fetched via `cron/list { includeDisabled: true }` on:
+- Initial mount of the Cron tab.
+- Receiving a `cron/stateChanged` notification.
+- User pressing the **Refresh** button.
+
+#### 21.2.2 `CronJobCard` Component
+
+Each cron job is rendered as a card row:
+
+```
+┌────────────────────────────────────────────────────────┐
+│  ●  drink water reminder             Every 1h          │
+│     Last run: 3h ago  ·  "提醒：该喝水了！保持水分…"   │
+│                                    [View] [Disable] [✕]│
+└────────────────────────────────────────────────────────┘
+```
+
+**Status icon** (left):
+
+| State | Icon | Color |
+|-------|------|-------|
+| Enabled, never run | ● | `var(--text-tertiary)` |
+| Enabled, last run ok | ● | `var(--success)` |
+| Enabled, last run error | ● | `var(--error)` |
+| Disabled | ○ | `var(--text-tertiary)` |
+| Currently running (during active turn) | Spinner | `var(--accent)` |
+
+**Center section**:
+
+- **Top row**: Job name (bold, truncated with ellipsis).
+- **Schedule badge**: Human-readable schedule derived from `schedule` field:
+  - `"every"` + `everyMs`: "Every {N}s" / "Every {N}m" / "Every {N}h" / "Every {N}d" (auto-scaled to largest whole unit).
+  - `"at"` + `atMs`: "Once at {date/time}" (formatted in local timezone).
+- **Bottom row**: "Last run: {relative time}" (e.g. "3h ago", "Never") · Result preview (first line of `state.lastResult`, truncated to 60 chars). When `lastStatus` is `"error"`, the result preview is shown in `var(--error)`.
+
+**Action buttons** (right, shown on hover or always on touch):
+
+| Button | Condition | Action |
+|--------|-----------|--------|
+| **View** | `state.lastThreadId` is non-null | Opens the Cron Review Panel (Section 21.3) |
+| **Enable** | `enabled === false` | Calls `cron/enable { jobId, enabled: true }` |
+| **Disable** | `enabled === true` | Calls `cron/enable { jobId, enabled: false }` |
+| **✕ (Delete)** | Always | Opens confirmation dialog, then calls `cron/remove { jobId }` |
+
+**Delete confirmation dialog**:
+- Title: "Delete scheduled job?"
+- Message: "Remove "{job.name}"? This cannot be undone. The job will stop running immediately."
+- Confirm button: "Delete" (danger style)
+- Cancel button: "Cancel"
+
+**Interactions**:
+- Clicking the card body (not buttons) opens the Cron Review Panel if `state.lastThreadId` is non-null; otherwise no action.
+- `Enable`/`Disable` updates the card optimistically (toggle `enabled`) before the response arrives; rolls back on error.
+
+#### 21.2.3 Empty State
+
+When no cron jobs exist:
+
+```
+  No scheduled jobs yet.
+  Ask the agent to create one in a conversation.
+  Example: "Remind me to drink water every hour."
+```
+
+#### 21.2.4 Error State
+
+When `cron/list` fails, show:
+
+```
+  Could not load scheduled jobs.
+  {error message}
+  [Retry]
+```
+
+### 21.3 Cron Review Panel
+
+When the user clicks **View** on a `CronJobCard`, a review panel slides in from the right side of the Automations view (same layout pattern as `TaskReviewPanel`).
+
+#### 21.3.1 Layout
+
+```
+┌──────────────────────────────────────────┐
+│  drink water reminder              [×]   │
+│  Every 1h  ·  Last run: 3h ago           │
+│  ──────────────────────────────────────  │
+│                                          │
+│  Agent activity                          │
+│  ─────────────                           │
+│  [Turn block — tool calls, agent msg]    │
+│                                          │
+│  ...                                     │
+└──────────────────────────────────────────┘
+```
+
+#### 21.3.2 Data Loading
+
+1. Take `state.lastThreadId` from the `CronJobInfo`.
+2. Call `thread/read { threadId: lastThreadId, includeTurns: true }`.
+3. Render the full turn history using the shared `AgentResponseBlock` component (same as `TaskReviewPanel`).
+
+The panel is **read-only**: no approval bar, no input. Users can expand tool call cards and read the agent's reasoning and file changes from the last run.
+
+#### 21.3.3 Header
+
+- **Job name** (bold, top-left)
+- **Schedule + last run** info line (e.g. "Every 1h · Last run: 3h ago")
+- **Status badge**: "Last run: OK" (green) or "Last run: Error" (red)
+- **Close button** (×, top-right): closes the panel and clears `selectedCronJobId`
+
+#### 21.3.4 Empty / Loading States
+
+| State | Display |
+|-------|---------|
+| Loading | "Loading…" placeholder |
+| Thread not found | "Execution record not found. The thread may have been deleted." |
+| No turns in thread | "No agent activity recorded for this run." |
+
+#### 21.3.5 Navigation
+
+- `Escape` key closes the panel.
+- Selecting a different `CronJobCard` replaces the panel content.
+
+---
+
+## 18. Error States and Edge Cases (Amendments)
+
+_The following sub-sections extend Section 18 with cron-specific edge cases._
+
+### 18.5 Windows Native Notifications
+
+When a `system/jobResult` notification arrives and the Desktop window is **not focused** (`mainWindow.isFocused() === false`), the Main Process emits a native OS notification using the Electron `Notification` API.
+
+**Notification fields**:
+
+| Field | Value |
+|-------|-------|
+| `title` | `jobName ?? 'Scheduled Job Completed'` |
+| `body` | `result` stripped of Markdown syntax (see below), truncated to 200 characters. If `result` is null, uses `"Job completed successfully."` or `"Job failed: {error}"`. |
+| `icon` | Application icon (same as window icon). |
+
+**Markdown stripping for `body`**: Remove the following patterns before passing to the OS notification:
+- ATX headings: `#`–`######` prefix characters and trailing `#`
+- Emphasis: `**`, `__`, `*`, `_` wrapping characters
+- Inline code: `` ` `` wrapping characters
+- Code fences: ` ``` ` blocks replaced with their content (first line only)
+- Links: `[text](url)` → `text`
+- Images: `![alt](url)` → removed
+- List markers: `-`, `*`, `+`, `1.` at line start → removed
+
+**Platform behavior**:
+
+| Platform | Behavior |
+|----------|----------|
+| Windows 10/11 | Uses `Electron.Notification`. Notification appears in Action Center. Clicking the notification focuses the DotCraft window and switches `activeMainView` to `'automations'` with the Cron tab active. |
+| macOS | Same `Electron.Notification` API; appears in Notification Center. |
+| Linux | Uses `libnotify` via Electron; behavior depends on the desktop environment. |
+
+**Guard condition**: `Notification.isSupported()` must return `true` before constructing a notification. If not supported, the toast-only path is the sole delivery mechanism.
+
+**Deduplication**: One native notification per `system/jobResult` event. Multiple jobs completing simultaneously each produce their own notification.
+
+### 18.6 Cron Job State Conflicts
+
+| Scenario | UI Behavior |
+|----------|-------------|
+| `cron/enable` request fails (job not found, `-32031`) | Roll back the optimistic toggle. Show error toast: "Failed to update job — it may have been deleted." Refresh `cron/list` to restore correct state. |
+| `cron/remove` request fails | Dismiss the confirmation dialog. Show error toast: "Failed to delete job." |
+| `cron/stateChanged` arrives for unknown `jobId` | Treat as a new job: insert into `cronJobs` list. |
+| `cron/stateChanged` with `removed: true` for unknown `jobId` | No-op (job already absent from local list). |
+| Desktop connects while a cron job is mid-execution | The `cron/list` response shows the job's current `lastStatus` from the previous run (not "running"). The running state is not surfaced at the job-list level; the active turn is only visible in the Cron Review Panel if the user opens it by thread. |

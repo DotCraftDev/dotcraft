@@ -81,7 +81,6 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
         display: 'flex',
         alignItems: 'center',
         padding: '5px 8px 5px 14px',
-        borderBottom: '1px solid var(--border-default)',
         flexShrink: 0,
         gap: '4px',
         minHeight: '32px'

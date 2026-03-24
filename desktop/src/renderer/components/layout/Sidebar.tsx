@@ -8,6 +8,12 @@ import { NewThreadButton } from '../sidebar/NewThreadButton'
 import { ThreadSearch } from '../sidebar/ThreadSearch'
 import { ThreadList } from '../sidebar/ThreadList'
 import { SidebarFooter } from '../sidebar/SidebarFooter'
+import {
+  SIDEBAR_NAV_BORDER_INACTIVE,
+  SIDEBAR_NAV_ICON_SLOT,
+  SIDEBAR_NAV_LABEL,
+  SIDEBAR_NAV_ROW_OUTER
+} from '../sidebar/sidebarNavRowStyles'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 
 interface SidebarProps {
@@ -33,7 +39,12 @@ interface SidebarProps {
 export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: SidebarProps): JSX.Element {
   const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
-  const automationsAvailable = capabilities?.automations === true
+  const automationsAvailable =
+    capabilities?.automations === true || capabilities?.cronManagement === true
+  const automationsDisabledTitle =
+    !automationsAvailable
+      ? 'Automations and Cron require server modules (automations and/or cronManagement)'
+      : undefined
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Expose searchRef for Ctrl+K global shortcut (App.tsx reads this via
@@ -73,11 +84,12 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
       {/* Thread list -- fills remaining space */}
       <ThreadList />
 
-      {/* Phase 2 nav: Automations, Skills */}
+      {/* Phase 2 nav: Automations, Skills — spacing instead of a divider line */}
       <div
         style={{
-          borderTop: '1px solid var(--border-default)',
-          padding: '4px 0',
+          marginTop: '8px',
+          paddingTop: '8px',
+          paddingBottom: '4px',
           flexShrink: 0
         }}
       >
@@ -87,7 +99,7 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
           onClick={() => setActiveMainView('automations')}
           icon={<AutomationsIcon />}
           disabled={!automationsAvailable}
-          title={!automationsAvailable ? 'Automations module not enabled on the server' : undefined}
+          title={automationsDisabledTitle}
         />
         <SidebarNavRow
           label="Skills"
@@ -123,19 +135,10 @@ function SidebarNavRow({ label, active, onClick, icon, disabled, title }: Sideba
       disabled={disabled}
       title={title}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        width: 'calc(100% - 8px)',
-        margin: '2px 4px',
-        padding: '8px 12px',
-        fontSize: '13px',
-        textAlign: 'left',
+        ...SIDEBAR_NAV_ROW_OUTER,
         cursor: disabled ? 'default' : 'pointer',
-        borderRadius: '6px',
-        border: 'none',
         backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
-        borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
+        ...(active ? { borderLeft: '3px solid var(--accent)' } : SIDEBAR_NAV_BORDER_INACTIVE),
         color: disabled ? 'var(--text-tertiary)' : active ? 'var(--text-primary)' : 'var(--text-secondary)',
         opacity: disabled ? 0.5 : 1,
         transition: 'background-color 120ms ease, color 120ms ease'
@@ -147,17 +150,15 @@ function SidebarNavRow({ label, active, onClick, icon, disabled, title }: Sideba
         if (!active && !disabled) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
       }}
     >
-      <span style={{ display: 'flex', width: 18, height: 18, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
-        {icon}
-      </span>
-      {label}
+      <span style={SIDEBAR_NAV_ICON_SLOT}>{icon}</span>
+      <span style={SIDEBAR_NAV_LABEL}>{label}</span>
     </button>
   )
 }
 
 function SkillsIcon(): JSX.Element {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
       <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
       <circle cx="12" cy="12" r="3" />
     </svg>
@@ -166,7 +167,7 @@ function SkillsIcon(): JSX.Element {
 
 function AutomationsIcon(): JSX.Element {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M3 10h18" />
     </svg>
@@ -188,7 +189,8 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
   const { status, capabilities: collapsedCaps } = useConnectionStore()
   const { threadList, addThread, setActiveThreadId } = useThreadStore()
   const { activeMainView, setActiveMainView } = useUIStore()
-  const collapsedAutomationsAvailable = collapsedCaps?.automations === true
+  const collapsedAutomationsAvailable =
+    collapsedCaps?.automations === true || collapsedCaps?.cronManagement === true
 
   const colorMap: Record<string, string> = {
     connecting: 'var(--warning)',
@@ -297,7 +299,11 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
 
       <button
         type="button"
-        title={collapsedAutomationsAvailable ? 'Automations' : 'Automations module not enabled on the server'}
+        title={
+          collapsedAutomationsAvailable
+            ? 'Automations'
+            : 'Automations and Cron require server modules (automations and/or cronManagement)'
+        }
         onClick={collapsedAutomationsAvailable ? () => setActiveMainView('automations') : undefined}
         disabled={!collapsedAutomationsAvailable}
         style={{
@@ -422,7 +428,6 @@ function LogoHeader({ onCollapse }: LogoHeaderProps): JSX.Element {
         padding: '10px 14px',
         background: 'transparent',
         border: 'none',
-        borderBottom: '1px solid var(--border-default)',
         width: '100%',
         cursor: 'pointer',
         flexShrink: 0,

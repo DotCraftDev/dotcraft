@@ -23,6 +23,10 @@ import {
   type AppSettings
 } from './settings'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
+import {
+  TITLE_BAR_OVERLAY_BY_THEME,
+  TITLE_BAR_OVERLAY_HEIGHT
+} from '../shared/titleBarOverlay'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -35,9 +39,6 @@ let appServerManager: AppServerManager | null = null
 let wireClient: WireProtocolClient | null = null
 let currentWorkspacePath = ''
 let crashRetries = 0
-
-/** Must match `titleBarOverlay.height` (Windows / Linux) and CustomMenuBar height in renderer. */
-const TITLE_BAR_OVERLAY_HEIGHT = 36
 
 /** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
 function resolveWindowIconPath(): string | null {
@@ -92,8 +93,7 @@ function createWindow(workspacePath: string | null): BrowserWindow {
       ? {}
       : {
           titleBarOverlay: {
-            color: '#1a1a1a',
-            symbolColor: '#e5e5e5',
+            ...TITLE_BAR_OVERLAY_BY_THEME.dark,
             height: TITLE_BAR_OVERLAY_HEIGHT
           }
         }),

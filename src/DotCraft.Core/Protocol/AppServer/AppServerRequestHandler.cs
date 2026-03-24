@@ -25,8 +25,11 @@ public sealed class AppServerRequestHandler(
     HeartbeatService? heartbeatService = null,
     SkillsLoader? skillsLoader = null,
     string? workspaceCraftPath = null,
-    IAutomationsRequestHandler? automationsHandler = null)
+    IAutomationsRequestHandler? automationsHandler = null,
+    Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null)
 {
+    private readonly Action<CronJobWireInfo, bool>? _broadcastCronStateChanged = broadcastCronStateChanged;
+
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
     /// <c>approvalSupport = false</c>. Sourced from the workspace's default approval policy.
@@ -525,6 +528,7 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.InvalidParams("'jobId' is required.");
         var removed = cronService.RemoveJob(p.JobId);
         if (!removed) throw AppServerErrors.CronJobNotFound(p.JobId);
+        _broadcastCronStateChanged?.Invoke(new CronJobWireInfo { Id = p.JobId }, true);
         return Task.FromResult<object?>(new CronRemoveResult { Removed = true });
     }
 
@@ -536,30 +540,11 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.InvalidParams("'jobId' is required.");
         var job = cronService.EnableJob(p.JobId, p.Enabled);
         if (job == null) throw AppServerErrors.CronJobNotFound(p.JobId);
+        _broadcastCronStateChanged?.Invoke(MapCronJob(job), false);
         return Task.FromResult<object?>(new CronEnableResult { Job = MapCronJob(job) });
     }
 
-    private static CronJobWireInfo MapCronJob(CronJob job) => new()
-    {
-        Id = job.Id,
-        Name = job.Name,
-        Schedule = new CronScheduleWireInfo
-        {
-            Kind = job.Schedule.Kind,
-            EveryMs = job.Schedule.EveryMs,
-            AtMs = job.Schedule.AtMs
-        },
-        Enabled = job.Enabled,
-        CreatedAtMs = job.CreatedAtMs,
-        DeleteAfterRun = job.DeleteAfterRun,
-        State = new CronJobStateWireInfo
-        {
-            NextRunAtMs = job.State.NextRunAtMs,
-            LastRunAtMs = job.State.LastRunAtMs,
-            LastStatus = job.State.LastStatus,
-            LastError = job.State.LastError
-        }
-    };
+    private static CronJobWireInfo MapCronJob(CronJob job) => CronJobWireMapping.ToWire(job);
 
     // ── heartbeat/trigger (spec Section 17.2) ────────────────────────────────
 

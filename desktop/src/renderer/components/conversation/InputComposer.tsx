@@ -380,14 +380,25 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
           >
             <span
               style={{
-                width: '7px',
-                height: '7px',
-                borderRadius: '50%',
-                backgroundColor: threadMode === 'agent' ? 'var(--success)' : 'var(--info)',
+                width: 14,
+                height: 14,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 flexShrink: 0
               }}
-            />
-            <span style={{ textTransform: 'capitalize' }}>{threadMode}</span>
+            >
+              <span
+                style={{
+                  width: '7px',
+                  height: '7px',
+                  borderRadius: '50%',
+                  backgroundColor: threadMode === 'agent' ? 'var(--success)' : 'var(--info)',
+                  display: 'block'
+                }}
+              />
+            </span>
+            <span style={{ textTransform: 'capitalize', lineHeight: 1.2 }}>{threadMode}</span>
           </button>
 
           <span style={{ color: 'var(--border-default)' }}>·</span>

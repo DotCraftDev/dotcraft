@@ -49,8 +49,7 @@ export function ThreadSearch({ inputRef: externalRef }: ThreadSearchProps): JSX.
   return (
     <div
       style={{
-        padding: '6px 12px',
-        borderBottom: '1px solid var(--border-default)',
+        padding: '4px 12px 10px',
         flexShrink: 0
       }}
     >

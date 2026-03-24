@@ -1,4 +1,10 @@
 import { ConnectionStatusIndicator } from '../ConnectionStatusIndicator'
+import {
+  SIDEBAR_NAV_BORDER_INACTIVE,
+  SIDEBAR_NAV_ICON_SLOT,
+  SIDEBAR_NAV_LABEL,
+  SIDEBAR_NAV_ROW_OUTER
+} from './sidebarNavRowStyles'
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
@@ -15,7 +21,7 @@ function GearIcon(): JSX.Element {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
-      style={{ flexShrink: 0 }}
+      style={{ display: 'block', flexShrink: 0 }}
     >
       <path
         d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
@@ -43,32 +49,25 @@ export function SidebarFooter({ onOpenSettings }: SidebarFooterProps): JSX.Eleme
   return (
     <div
       style={{
-        borderTop: '1px solid var(--border-default)',
-        padding: '6px 8px 8px',
+        marginTop: '8px',
+        padding: '8px 0',
         flexShrink: 0,
         display: 'flex',
         flexDirection: 'column',
         gap: '2px'
       }}
     >
-      {/* Settings button */}
       <button
+        type="button"
         onClick={onOpenSettings}
         title="Settings (Ctrl+,)"
         aria-label="Open settings"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          width: '100%',
-          padding: '6px 8px',
+          ...SIDEBAR_NAV_ROW_OUTER,
+          ...SIDEBAR_NAV_BORDER_INACTIVE,
           background: 'transparent',
-          border: 'none',
-          borderRadius: '6px',
           color: 'var(--text-secondary)',
-          fontSize: '13px',
-          cursor: 'pointer',
-          textAlign: 'left'
+          cursor: 'pointer'
         }}
         onMouseEnter={(e) => {
           ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
@@ -79,13 +78,26 @@ export function SidebarFooter({ onOpenSettings }: SidebarFooterProps): JSX.Eleme
           ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
         }}
       >
-        <GearIcon />
-        Settings
+        <span style={SIDEBAR_NAV_ICON_SLOT}>
+          <GearIcon />
+        </span>
+        <span style={SIDEBAR_NAV_LABEL}>Settings</span>
       </button>
 
-      <div style={{ padding: '2px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div
+        style={{
+          ...SIDEBAR_NAV_ROW_OUTER,
+          ...SIDEBAR_NAV_BORDER_INACTIVE,
+          backgroundColor: 'transparent',
+          cursor: 'default',
+          justifyContent: 'space-between',
+          gap: '8px'
+        }}
+      >
         <ConnectionStatusIndicator />
-        <span style={{ fontSize: '11px', color: 'var(--text-dimmed)' }}>v{APP_VERSION}</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-dimmed)', flexShrink: 0, lineHeight: 1.2 }}>
+          v{APP_VERSION}
+        </span>
       </div>
     </div>
   )

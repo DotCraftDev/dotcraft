@@ -31,7 +31,15 @@ public sealed class CronService : IDisposable
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    public Func<CronJob, Task>? OnJob { get; set; }
+    /// <summary>
+    /// Runs the agent for a due job. Return <see cref="CronOnJobResult"/> to persist last thread/result.
+    /// </summary>
+    public Func<CronJob, Task<CronOnJobResult>>? OnJob { get; set; }
+
+    /// <summary>
+    /// Fired after <see cref="ExecuteJobAsync"/> persists the store. <paramref name="removedFromStore"/> is true when the job was deleted (one-shot / delete-after-run).
+    /// </summary>
+    public Action<CronJob?, string, bool>? CronJobPersistedAfterExecution { get; set; }
 
     public CronService(string storePath)
     {
@@ -193,8 +201,9 @@ public sealed class CronService : IDisposable
 
         try
         {
+            CronOnJobResult? outcome = null;
             if (OnJob != null)
-                await OnJob(jobSnapshot);
+                outcome = await OnJob(jobSnapshot);
 
             // Re-lookup by ID so mutations are applied to the current in-list object,
             // even if ReloadStore() replaced the reference while OnJob was running.
@@ -204,8 +213,18 @@ public sealed class CronService : IDisposable
                 if (current != null)
                 {
                     current.State.LastRunAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    current.State.LastStatus = "ok";
-                    current.State.LastError = null;
+                    if (outcome != null)
+                    {
+                        current.State.LastThreadId = outcome.LastThreadId;
+                        current.State.LastResult = TruncateLastResult(outcome.LastResult);
+                        current.State.LastStatus = outcome.Ok ? "ok" : "error";
+                        current.State.LastError = outcome.Ok ? null : outcome.LastError;
+                    }
+                    else
+                    {
+                        current.State.LastStatus = "ok";
+                        current.State.LastError = null;
+                    }
 
                     if (current.DeleteAfterRun || current.Schedule.Kind == "at")
                         _store.Jobs.Remove(current);
@@ -229,6 +248,23 @@ public sealed class CronService : IDisposable
             }
         }
         SaveStore();
+        NotifyCronJobPersisted(jobId);
+    }
+
+    private void NotifyCronJobPersisted(string jobId)
+    {
+        lock (_storeLock)
+        {
+            var j = _store.Jobs.Find(x => x.Id == jobId);
+            CronJobPersistedAfterExecution?.Invoke(j, jobId, j == null);
+        }
+    }
+
+    private static string? TruncateLastResult(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        const int max = 500;
+        return s.Length <= max ? s : s[..max];
     }
 
     private static void ComputeNextRun(CronJob job)
@@ -321,7 +357,9 @@ public sealed class CronService : IDisposable
                         NextRunAtMs = j.State.NextRunAtMs,
                         LastRunAtMs = j.State.LastRunAtMs,
                         LastStatus = j.State.LastStatus,
-                        LastError = j.State.LastError
+                        LastError = j.State.LastError,
+                        LastThreadId = j.State.LastThreadId,
+                        LastResult = j.State.LastResult
                     }
                 }).ToList()
             };

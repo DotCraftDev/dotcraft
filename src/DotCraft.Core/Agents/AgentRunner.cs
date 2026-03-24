@@ -6,9 +6,19 @@ using Spectre.Console;
 namespace DotCraft.Agents;
 
 /// <summary>
+/// Result of a background agent run (cron, heartbeat, gateway cron).
+/// </summary>
+public sealed record AgentRunResult(
+    string? Result,
+    string? ThreadId,
+    int? InputTokens,
+    int? OutputTokens,
+    string? Error);
+
+/// <summary>
 /// Delegate for running an agent session.
 /// </summary>
-public delegate Task<string?> AgentRunSessionDelegate(
+public delegate Task<AgentRunResult?> AgentRunSessionDelegate(
     string prompt,
     string sessionKey,
     CancellationToken cancellationToken = default);
@@ -25,7 +35,7 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
     /// When <paramref name="quiet"/> is true all console progress lines are suppressed;
     /// use this in subprocess contexts where output is forwarded via another channel.
     /// </summary>
-    public async Task<string?> RunAsync(string prompt, string sessionKey, CancellationToken cancellationToken = default)
+    public async Task<AgentRunResult?> RunAsync(string prompt, string sessionKey, CancellationToken cancellationToken = default)
     {
         if (sessionService == null)
             return null;
@@ -69,8 +79,12 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
         else
             thread = await sessionService.CreateThreadAsync(identity, ct: cancellationToken);
 
+        var threadId = thread.Id;
+
         // Consume the event stream and accumulate the agent response text
         var sb = new StringBuilder();
+        int? inputTokens = null;
+        int? outputTokens = null;
         await foreach (var evt in sessionService.SubmitInputAsync(thread.Id, prompt, ct: cancellationToken))
         {
             switch (evt.EventType)
@@ -108,10 +122,12 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
 
                 case SessionEventType.TurnCompleted:
                 {
-                    if (!quiet)
+                    var usage = evt.TurnPayload?.TokenUsage;
+                    if (usage != null)
                     {
-                        var usage = evt.TurnPayload?.TokenUsage;
-                        if (usage != null && (usage.InputTokens > 0 || usage.OutputTokens > 0))
+                        inputTokens = (int)usage.InputTokens;
+                        outputTokens = (int)usage.OutputTokens;
+                        if (!quiet && (usage.InputTokens > 0 || usage.OutputTokens > 0))
                             AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [blue]↑ {usage.InputTokens} input[/] [green]↓ {usage.OutputTokens} output[/]");
                     }
                     break;
@@ -122,7 +138,7 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
                     var errMsg = evt.TurnPayload?.Error ?? "Turn failed";
                     if (!quiet)
                         AnsiConsole.MarkupLine($"[grey][[{tag}]][/] [red]Turn failed: {Markup.Escape(errMsg)}[/]");
-                    return null;
+                    return new AgentRunResult(null, threadId, null, null, errMsg);
                 }
             }
         }
@@ -133,6 +149,6 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
             AnsiConsole.MarkupLine($"[grey][[{tag}]][/] Response: [dim]{Markup.Escape(response.Length > 200 ? response[..200] + "..." : response)}[/]");
         }
 
-        return response;
+        return new AgentRunResult(response, threadId, inputTokens, outputTokens, null);
     }
 }

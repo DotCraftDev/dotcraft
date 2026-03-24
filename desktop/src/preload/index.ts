@@ -1,4 +1,8 @@
 import { contextBridge, ipcRenderer, shell } from 'electron'
+import {
+  TITLE_BAR_OVERLAY_HEIGHT,
+  TITLE_BAR_OVERLAY_RIGHT_RESERVE
+} from '../shared/titleBarOverlay'
 
 export type UnsubscribeFn = () => void
 
@@ -75,13 +79,13 @@ ipcRenderer.on(
  * Typed API exposed to the Renderer via contextBridge.
  * The Renderer accesses this as `window.api`.
  */
-/** Matches `titleBarOverlay.height` in main process (Windows / Linux). */
-const TITLE_BAR_OVERLAY_HEIGHT = 36
-
 const api = {
   platform: process.platform as 'darwin' | 'win32' | 'linux',
 
   titleBarOverlayHeight: TITLE_BAR_OVERLAY_HEIGHT,
+
+  /** Matches CustomMenuBar / ToastContainer right inset on Windows / Linux. */
+  titleBarOverlayRightReserve: TITLE_BAR_OVERLAY_RIGHT_RESERVE,
 
   menu: {
     popupTopLevel(label: string, x: number, y: number): Promise<void> {
@@ -149,6 +153,13 @@ const api = {
      */
     setTitle(title: string): void {
       ipcRenderer.invoke('window:set-title', title)
+    },
+
+    /**
+     * Updates native title bar overlay colors to match app theme (no-op on macOS).
+     */
+    setTitleBarOverlayTheme(theme: 'dark' | 'light'): Promise<void> {
+      return ipcRenderer.invoke('window:set-title-bar-overlay-theme', theme)
     },
 
     /**
