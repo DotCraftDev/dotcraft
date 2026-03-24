@@ -13,6 +13,7 @@ using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Skills;
+using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -86,7 +87,14 @@ public static class ServiceRegistration
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
         services.AddSingleton<ActiveRunRegistry>();
         services.AddSingleton(new ThreadStore(botPath));
-        services.AddSingleton<IToolProfileRegistry, ToolProfileRegistry>();
+        services.AddSingleton<IToolProfileRegistry>(_ =>
+        {
+            var reg = new ToolProfileRegistry();
+            reg.Register(
+                CommitMessageSuggestConstants.ToolProfileName,
+                new[] { new CommitSuggestToolProvider() });
+            return reg;
+        });
 
         // Register configuration validation
         services.AddConfigurationValidation();

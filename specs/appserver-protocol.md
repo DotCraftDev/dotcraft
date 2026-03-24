@@ -596,6 +596,30 @@ Request cancellation of an in-progress turn. The server cancels the agent execut
 
 The actual cancellation is asynchronous. Rely on the `turn/cancelled` notification to know when the turn has stopped.
 
+### 5.3 `workspace/commitMessage/suggest`
+
+Suggest a git commit message from the **source thread’s** recent conversation context plus a **unified diff** for the given file paths. The AppServer runs an internal **temporary thread** (dedicated channel identity, commit-suggest-only tool) so this request does not contend with a user turn on the source thread.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Source thread whose messages supply context. Must belong to the server’s workspace. |
+| `paths` | string[] | yes | Paths **relative to the workspace root** for `git diff`. Empty is invalid. |
+| `maxDiffChars` | number | no | Optional cap on diff size sent to the model (server may truncate further). |
+
+**Result**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message` | string | Full commit message (first line subject; optional blank line and body). |
+
+**Errors** (non-exhaustive): source thread not found; paths outside workspace; not a git repository; empty diff; model did not emit the `CommitSuggest` tool; timeout. If the server cannot run the suggest pipeline (e.g. no session service), it returns an appropriate JSON-RPC error.
+
+**Note**: The server may create and delete an **ephemeral** thread for this operation. Clients may observe transient `thread/*` / `turn/*` notifications for that internal thread; implementations typically filter or ignore threads whose origin channel marks commit-message generation.
+
 ---
 
 ## 6. Event Notifications

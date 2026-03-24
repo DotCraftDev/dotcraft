@@ -158,6 +158,7 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
       {commitOpen && (
         <CommitDialog
           workspacePath={workspacePath}
+          threadId={threadId}
           onClose={() => setCommitOpen(false)}
         />
       )}

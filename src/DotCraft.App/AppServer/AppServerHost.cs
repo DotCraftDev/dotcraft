@@ -115,6 +115,7 @@ public sealed class AppServerHost(
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+        var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
 
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
         // The agent stack (sessionService, agentFactory) lives here, so execution is
@@ -224,21 +225,21 @@ public sealed class AppServerHost(
                     // Pure WebSocket mode: no stdio transport; the WebSocket server is
                     // the main loop. Stdout remains available for normal console output.
                     // -------------------------------------------------------------------
-                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, cancellationToken);
                     break;
 
                 case AppServerMode.StdioAndWebSocket:
                     // -------------------------------------------------------------------
                     // Dual mode: stdio main loop + WebSocket listener running in parallel.
                     // -------------------------------------------------------------------
-                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, cancellationToken);
+                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, cancellationToken);
                     break;
 
                 default:
                     // -------------------------------------------------------------------
                     // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
                     // -------------------------------------------------------------------
-                    await RunStdioOnlyAsync(sessionService, cancellationToken);
+                    await RunStdioOnlyAsync(sessionService, commitMessageSuggest, cancellationToken);
                     break;
             }
         }
@@ -258,6 +259,7 @@ public sealed class AppServerHost(
 
     private async Task RunStdioOnlyAsync(
         ISessionService sessionService,
+        ICommitMessageSuggestService commitMessageSuggest,
         CancellationToken cancellationToken)
     {
         await using var transport = StdioTransport.CreateStdio();
@@ -271,7 +273,8 @@ public sealed class AppServerHost(
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
             automationsHandler: _automationsHandler,
-            broadcastCronStateChanged: BroadcastCronStateChanged);
+            broadcastCronStateChanged: BroadcastCronStateChanged,
+            commitMessageSuggest: commitMessageSuggest);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -288,9 +291,10 @@ public sealed class AppServerHost(
     private async Task RunWebSocketOnlyAsync(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
+        ICommitMessageSuggestService commitMessageSuggest,
         CancellationToken cancellationToken)
     {
-        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken, externalChannelRegistry);
+        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, commitMessageSuggest, cancellationToken, externalChannelRegistry);
 
         AnsiConsole.MarkupLine(
             $"[green][[AppServer]][/] DotCraft AppServer started (WebSocket at ws://{wsConfig.Host}:{wsConfig.Port}/ws)");
@@ -302,11 +306,12 @@ public sealed class AppServerHost(
     private async Task RunStdioWithWebSocketAsync(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
+        ICommitMessageSuggestService commitMessageSuggest,
         CancellationToken cancellationToken)
     {
         // Build the WebSocket app and start it explicitly so that bind failures
         // surface immediately (fail-fast) instead of being deferred to finally.
-        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, cancellationToken, externalChannelRegistry);
+        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, commitMessageSuggest, cancellationToken, externalChannelRegistry);
         wsApp.Urls.Add(wsUrl);
         await wsApp.StartAsync(cancellationToken);
 
@@ -324,7 +329,8 @@ public sealed class AppServerHost(
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
             automationsHandler: _automationsHandler,
-            broadcastCronStateChanged: BroadcastCronStateChanged);
+            broadcastCronStateChanged: BroadcastCronStateChanged,
+            commitMessageSuggest: commitMessageSuggest);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -347,6 +353,7 @@ public sealed class AppServerHost(
     private (WebApplication App, string Url) BuildWebSocketApp(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
+        ICommitMessageSuggestService commitMessageSuggest,
         CancellationToken hostCt,
         ExternalChannel.ExternalChannelRegistry? channelRegistry = null)
     {
@@ -400,7 +407,8 @@ public sealed class AppServerHost(
                     cronService: _cronService, heartbeatService: _heartbeatService,
                     skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
                     automationsHandler: _automationsHandler,
-                    broadcastCronStateChanged: BroadcastCronStateChanged);
+                    broadcastCronStateChanged: BroadcastCronStateChanged,
+                    commitMessageSuggest: commitMessageSuggest);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //

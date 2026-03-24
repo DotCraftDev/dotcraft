@@ -1286,8 +1286,9 @@ Based on a 4px grid:
 10. A commit dialog appears:
     - Shows the list of written (non-reverted) files.
     - Reverted files are excluded from the commit.
-    - Provides a commit message input (auto-generated from the agent's description).
-    - "Commit" button executes `git add` + `git commit` via the AppServer.
+    - Provides a commit message input (initial suggestion from the last agent message text, if any).
+    - While connected to AppServer, the user may use **generate from changes** to call `workspace/commitMessage/suggest` with the current thread id and selected paths; the server uses a temporary internal thread and copies source-thread context plus `git diff` to produce a suggested message.
+    - "Commit" button executes `git add` + `git commit` in the Electron main process (local `git`).
 11. Success notification: "Changes committed: {message}".
 
 ### 16.6 Switch Between Threads

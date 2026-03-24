@@ -7,6 +7,9 @@ const SIDEBAR_COLLAPSED_WIDTH = 48
 const DETAIL_DEFAULT_WIDTH = 400
 const DETAIL_MIN_WIDTH = 300
 
+/** Timeout for pending welcome turn to prevent permanent residue */
+const PENDING_WELCOME_TIMEOUT_MS = 30_000
+
 export type DetailPanelTab = 'changes' | 'plan' | 'terminal'
 
 /** Main content area: conversation vs Phase 2 surfaces (Skills, Automations). */
@@ -32,13 +35,13 @@ export interface UIState {
    * Prevents re-triggering after the user manually hides the panel.
    */
   autoShowTriggeredForTurn: string | null
-  /** Text to pre-fill into the InputComposer when it next mounts. */
+  /** Text to pre-fill into the InputComposer when its next mounts. */
   composerPrefill: string | null
   /**
    * First message to send after thread/read completes for a thread created from the
    * welcome screen (avoids optimistic UI being cleared by conversation reset).
    */
-  pendingWelcomeTurn: { threadId: string; text: string } | null
+  pendingWelcomeTurn: { threadId: string; text: string; createdAt: number } | null
 }
 
 interface UIStore extends UIState {
@@ -68,7 +71,12 @@ interface UIStore extends UIState {
   cancelPendingWelcomeTurnForThread(threadId: string): void
 }
 
-export const useUIStore = create<UIStore>((set, get) => ({
+/** Internal state not exposed in UIState but used for timeout management */
+interface InternalState {
+  _pendingWelcomeTimer: ReturnType<typeof setTimeout> | null
+}
+
+export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   activeMainView: 'conversation',
   automationsTab: 'tasks',
   sidebarCollapsed: false,
@@ -146,13 +154,39 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   setPendingWelcomeTurn(payload) {
-    set({ pendingWelcomeTurn: payload })
+    const existing = get()._pendingWelcomeTimer
+    if (existing != null) {
+      clearTimeout(existing)
+    }
+
+    if (payload == null) {
+      set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
+      return
+    }
+
+    const timer = setTimeout(() => {
+      const current = get().pendingWelcomeTurn
+      if (current != null) {
+        console.warn('pendingWelcomeTurn timed out, clearing')
+        set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
+      }
+    }, PENDING_WELCOME_TIMEOUT_MS)
+
+    set({
+      pendingWelcomeTurn: { ...payload, createdAt: Date.now() },
+      _pendingWelcomeTimer: timer
+    })
   },
 
   consumePendingWelcomeTurnIfMatch(threadId) {
     const p = get().pendingWelcomeTurn
     if (p && p.threadId === threadId) {
-      set({ pendingWelcomeTurn: null })
+      // Clear the timeout timer
+      const timer = get()._pendingWelcomeTimer
+      if (timer != null) {
+        clearTimeout(timer)
+      }
+      set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
       return p.text
     }
     return null
@@ -161,9 +195,16 @@ export const useUIStore = create<UIStore>((set, get) => ({
   cancelPendingWelcomeTurnForThread(threadId) {
     const p = get().pendingWelcomeTurn
     if (p?.threadId === threadId) {
-      set({ pendingWelcomeTurn: null })
+      const timer = get()._pendingWelcomeTimer
+      if (timer != null) {
+        clearTimeout(timer)
+      }
+      set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
     }
-  }
+  },
+
+  // Internal state for timeout timer (not exposed in UIState interface)
+  _pendingWelcomeTimer: null
 }))
 
 export { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_COLLAPSED_WIDTH, DETAIL_DEFAULT_WIDTH, DETAIL_MIN_WIDTH }

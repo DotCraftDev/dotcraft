@@ -31,6 +31,23 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
 }
 
+/** AppServer puts human-readable detail in `data.detail`; JSON-RPC `message` is often generic (e.g. "Invalid request"). */
+function formatJsonRpcError(error: unknown): string {
+  if (error == null || typeof error !== 'object') {
+    return 'Server returned error'
+  }
+  const e = error as { message?: string; data?: unknown }
+  const base = typeof e.message === 'string' ? e.message : 'Server returned error'
+  const data = e.data
+  if (data != null && typeof data === 'object' && 'detail' in data) {
+    const detail = (data as { detail?: unknown }).detail
+    if (typeof detail === 'string' && detail.trim() !== '') {
+      return `${base}: ${detail}`
+    }
+  }
+  return base
+}
+
 export type NotificationCallback = (method: string, params: unknown) => void
 export type ServerRequestHandler = (
   method: string,
@@ -363,10 +380,7 @@ export class WireProtocolClient extends EventEmitter {
         this.pending.delete(msg.id as number)
 
         if ('error' in msg && msg.error) {
-          const err = msg.error as { message?: string; code?: number }
-          pending.reject(
-            new Error(err.message ?? 'Server returned error')
-          )
+          pending.reject(new Error(formatJsonRpcError(msg.error)))
         } else {
           pending.resolve(msg.result)
         }

@@ -44,6 +44,20 @@ public sealed class ThreadConfiguration
     public string? ToolProfile { get; set; }
 
     /// <summary>
+    /// When <c>true</c> together with <see cref="ToolProfile"/>, the agent uses <b>only</b>
+    /// the profile tools (no mode default tools). Used for ephemeral internal threads
+    /// such as commit-message suggestion.
+    /// </summary>
+    public bool UseToolProfileOnly { get; set; }
+
+    /// <summary>
+    /// Optional system instructions for the agent (e.g. commit-message assistant).
+    /// When set, passed to <see cref="Agents.AgentFactory"/> as chat instructions.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AgentInstructions { get; set; }
+
+    /// <summary>
     /// Overrides the process-level approval service for this thread only.
     /// </summary>
     [System.Text.Json.Serialization.JsonConverter(typeof(ApprovalPolicyJsonConverter))]
