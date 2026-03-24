@@ -130,6 +130,21 @@ export abstract class ChannelAdapter {
     workspacePath?: string;
     senderExtra?: Record<string, unknown>;
   }): Promise<void> {
+    this.enqueueMessage(opts);
+  }
+
+  /**
+   * Schedule a message for serial processing (one turn at a time per identity).
+   * Does not wait for the turn to complete (matches Python asyncio.Queue.put).
+   */
+  private enqueueMessage(opts: {
+    userId: string;
+    userName: string;
+    text: string;
+    channelContext?: string;
+    workspacePath?: string;
+    senderExtra?: Record<string, unknown>;
+  }): void {
     const channelContext = opts.channelContext ?? "";
     const identityKey = this.identityKey(opts.userId, channelContext);
 
@@ -139,17 +154,10 @@ export abstract class ChannelAdapter {
       this.threadQueues.set(identityKey, q);
     }
 
-    await new Promise<void>((resolve, reject) => {
-      q!.push(async () => {
-        try {
-          await this.processMessage(identityKey, opts);
-          resolve();
-        } catch (e) {
-          reject(e);
-        }
-      });
-      void this.runWorker(identityKey, q);
+    q.push(async () => {
+      await this.processMessage(identityKey, opts);
     });
+    void this.runWorker(identityKey, q);
   }
 
   private async runWorker(
@@ -161,7 +169,13 @@ export abstract class ChannelAdapter {
     try {
       while (this.running && q.length > 0) {
         const job = q.shift();
-        if (job) await job();
+        if (job) {
+          try {
+            await job();
+          } catch (e) {
+            console.error(`Error processing message for ${identityKey}:`, e);
+          }
+        }
       }
     } finally {
       this.runningWorkers.set(identityKey, false);
@@ -209,7 +223,7 @@ export abstract class ChannelAdapter {
     } catch (e) {
       if (e instanceof DotCraftError && e.code === ERR_TURN_IN_PROGRESS) {
         await new Promise((r) => setTimeout(r, 1000));
-        await this.handleMessage(opts);
+        this.enqueueMessage(opts);
         return;
       }
       if (e instanceof DotCraftError && e.code === ERR_THREAD_NOT_ACTIVE) {
