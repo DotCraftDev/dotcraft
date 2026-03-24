@@ -499,7 +499,7 @@ Check token permissions (`Contents: Read` required) and network connectivity.
 
 ## Sample Templates
 
-Complete config templates and workflow files are available in [samples/automations/](../samples/automations/):
+Complete config templates and workflow files are available in [samples/automations/](../../samples/automations/):
 
 - `example-local-task/` — local task example
 - `github-review-bot/` — PR review bot
