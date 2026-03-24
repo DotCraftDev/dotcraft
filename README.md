@@ -17,28 +17,26 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 
 </div>
 
-> **Note:** The project is currently in the early stages of development and may experience breaking changes.
-
 ## ✨ Highlights
 
 <table>
 <tr>
 <td width="33%" align="center"><b>📁 Project-First</b><br/>Sessions, memory, skills, and config live under <code>.craft/</code> and follow the project</td>
-<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>Desktop, CLI, editors, bots, and workflows share one session model — cross-entry resume, native platform interaction preserved</td>
+<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>Desktop, CLI, editors and bots share one session model</td>
 <td width="33%" align="center"><b>🛡️ Observable</b><br/>Built-in approvals, traces, Dashboard, and optional sandbox isolation</td>
 </tr>
 </table>
 
 ![intro](https://github.com/DotCraftDev/resources/raw/master/dotcraft/intro.png)
 
-- ⚡ **Unified Session Core**: a shared execution model across all server-managed channels — enables cross-entry resume and per-platform native interaction, the architectural backbone of the "crafting around your project" vision
-- 🛠️ File, Shell, Web, and SubAgent tools for real workflows
-- 🔗 MCP, ACP, AG-UI, and OpenAI-compatible API support
-- 🌐 External Channel Adapter support for custom integrations in Python or any JSON-RPC capable language
-- 🖥️ Native editor integration for Unity, JetBrains IDEs, and Obsidian
-- 👥 Automations pipeline with local tasks and GitHub issue/PR orchestration
-- 🧩 Skills, Hooks, slash commands, and workspace customization
-- ⚗️ Deferred MCP tool loading for efficient large-tool-surface usage
+- ⚡ **Unified Session Core**: unified execution path across all channels
+- 💻 **Rich Client Matrix**: C# CLI, Rust TUI, Electron Desktop — full coverage from terminal to desktop
+- 🛠️ **Modern Agent Infrastructure**: File, Shell, Web, SubAgent tools with full MCP, Skills, Hooks, and slash commands support
+- 🖥️ **ACP Editor Integration**: native integration with Unity, JetBrains IDEs, and Obsidian
+- 🔗 **Server Capabilities**: OpenAI-compatible API and AG-UI protocol to use DotCraft as an Agent backend
+- 🌐 **Extensible Channel Integration**: Python SDK for quick integration with Telegram, Discord, and other social platforms
+- 👥 **Automation Pipeline**: support for local tasks and GitHub issue/PR orchestration
+- ⚗️ **Context-Friendly**: auto-compaction, memory consolidation, deferred MCP tool loading for efficient long sessions
 
 ## 🚀 Quick Start
 
@@ -231,6 +229,8 @@ The repository now includes a reference Telegram adapter that demonstrates long 
 ### Automations
 
 DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. Enabling the `Automations` module runs local tasks; enabling `GitHubTracker` additionally contributes `GitHubAutomationSource`, so GitHub issues and pull requests are polled, dispatched, and reviewed through the same AppServer-hosted pipeline and appear alongside local tasks in the Desktop Automations panel. See the [Automations Guide](./docs/en/automations_guide.md).
+
+![desktop-github](https://github.com/DotCraftDev/resources/raw/master/dotcraft/desktop_github.png)
 
 ![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
 
