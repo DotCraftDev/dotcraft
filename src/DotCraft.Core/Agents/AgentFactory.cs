@@ -399,22 +399,27 @@ public sealed class AgentFactory : IAsyncDisposable
         chatClientBuilder.Use(innerClient => new ImageContentSanitizingChatClient(innerClient));
         var configuredChatClient = chatClientBuilder.Build();
 
-        // When deferred loading is active, derive connected server names from the
-        // ToolServerMap so the system prompt can list them for the model.
-        IReadOnlyList<string>? deferredServerNames = null;
-        if (deferredRegistry != null && ctx.McpClientManager != null)
-        {
-            deferredServerNames = ctx.McpClientManager.ToolServerMap.Values
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-        }
-
         var options = new ChatClientAgentOptions
         {
             Name = "DotCraft",
             UseProvidedChatClientAsIs = true,
-            ChatOptions = CreateChatOptions(tools, instructions),
-            AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
+            ChatOptions = CreateChatOptions(tools, instructions)
+        };
+
+        // Custom instructions: skip MemoryContextProvider so ChatOptions.Instructions is the system prompt (e.g. commit-suggest).
+        if (string.IsNullOrWhiteSpace(instructions))
+        {
+            // When deferred loading is active, derive connected server names from the
+            // ToolServerMap so the system prompt can list them for the model.
+            IReadOnlyList<string>? deferredServerNames = null;
+            if (deferredRegistry != null && ctx.McpClientManager != null)
+            {
+                deferredServerNames = ctx.McpClientManager.ToolServerMap.Values
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
+
+            options.AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
                 new MemoryContextProvider(
                     ctx.MemoryStore,
                     ctx.SkillsLoader,
@@ -427,8 +432,8 @@ public sealed class AgentFactory : IAsyncDisposable
                     _planStore,
                     () => TracingChatClient.CurrentSessionKey,
                     sandboxEnabled: _config.Tools.Sandbox.Enabled,
-                    deferredMcpServerNames: deferredServerNames))
-        };
+                    deferredMcpServerNames: deferredServerNames));
+        }
 
         return configuredChatClient.AsAIAgent(options);
     }
