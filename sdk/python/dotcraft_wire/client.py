@@ -475,8 +475,16 @@ class DotCraftClient:
             await self._dispatch_notification(msg)
 
         elif msg.is_request:
-            # Server initiated a request (approval, deliver, heartbeat)
-            await self._dispatch_server_request(msg)
+            # Fire-and-forget: do not block the reader loop on long-running handlers (e.g.
+            # approval waiting for user input), or heartbeat responses will not be read in time.
+
+            async def _safe_server_request():
+                try:
+                    await self._dispatch_server_request(msg)
+                except Exception as e:
+                    logger.error("Error in server request handler for %s: %s", msg.method, e)
+
+            asyncio.create_task(_safe_server_request())
 
     async def _dispatch_notification(self, msg: JsonRpcMessage) -> None:
         """Call all registered handlers for a notification method."""

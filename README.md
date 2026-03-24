@@ -34,7 +34,7 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 - 🛠️ **Modern Agent Infrastructure**: File, Shell, Web, SubAgent tools with full MCP, Skills, Hooks, and slash commands support
 - 🖥️ **ACP Editor Integration**: native integration with Unity, JetBrains IDEs, and Obsidian
 - 🔗 **Server Capabilities**: OpenAI-compatible API and AG-UI protocol to use DotCraft as an Agent backend
-- 🌐 **Extensible Channel Integration**: Python SDK for quick integration with Telegram, Discord, and other social platforms
+- 🌐 **Extensible Channel Integration**: Python and TypeScript SDKs for quick integration with Telegram, WeChat, Discord, and other social platforms
 - 👥 **Automation Pipeline**: support for local tasks and GitHub issue/PR orchestration
 - ⚗️ **Context-Friendly**: auto-compaction, memory consolidation, deferred MCP tool loading for efficient long sessions
 
@@ -130,7 +130,7 @@ flowchart LR
     AppSrv["AppServer"]
     Ide["ACP / IDE"]
     Bots["QQ / WeCom / ..."]
-    ExtCh["External Channels (Telegram, ...)"]
+    ExtCh["External Channels (Telegram, WeChat, ...)"]
     Api["API / AG-UI"]
     Automations["Automations"]
     LocalSource["Local Source"]
@@ -220,9 +220,12 @@ Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./do
 
 DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
 
-The Python SDK (`DotCraftClient`, `ChannelAdapter`) makes it easier to wire up external channels. Adapters can show approval flows with each platform’s native UI, so integration stays flexible.
+The Python and TypeScript SDKs (`DotCraftClient`, `ChannelAdapter`) make it easier to wire up external channels. Adapters can show approval flows with each platform's native UI, so integration stays flexible.
 
-The repository now includes a reference Telegram adapter that demonstrates long polling, inline-keyboard approvals, and full end-to-end integration with DotCraft sessions. See the [Python SDK](./sdk/python/README.md).
+The repository includes two reference adapters:
+
+- **Telegram** (Python SDK): long polling, inline-keyboard approvals, and full end-to-end integration. See the [Python SDK](./sdk/python/README.md).
+- **WeChat** (TypeScript SDK): WebSocket transport, QR-code login, text-keyword approvals. See the [TypeScript SDK](./sdk/typescript/README.md).
 
 ![telegram](https://github.com/DotCraftDev/resources/raw/master/dotcraft/telegram.jpg)
 
@@ -285,6 +288,7 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 - [ACP Mode Guide](./docs/en/acp_guide.md): editor/IDE integration (JetBrains, Obsidian, and more)
 - [External Channel Adapter Spec](./specs/external-channel-adapter.md): wire protocol contract for out-of-process channel adapters
 - [Python SDK](./sdk/python/README.md): build external adapters with `dotcraft-wire` and the Telegram reference example
+- [TypeScript SDK](./sdk/typescript/README.md): build external adapters with `dotcraft-wire` (TypeScript) and the WeChat reference example
 
 **Editor integrations and extension points**
 

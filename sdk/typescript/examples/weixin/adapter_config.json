@@ -1,0 +1,12 @@
+{
+  "dotcraft": {
+    "wsUrl": "ws://127.0.0.1:9100/ws",
+    "token": ""
+  },
+  "weixin": {
+    "apiBaseUrl": "https://ilinkai.weixin.qq.com",
+    "dataDir": "./data",
+    "approvalTimeoutMs": 120000,
+    "botType": "3"
+  }
+}

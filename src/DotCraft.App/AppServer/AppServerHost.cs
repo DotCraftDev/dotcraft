@@ -1,6 +1,7 @@
 using System.ClientModel;
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using DotCraft.Abstractions;
 using DotCraft.Agents;
 using Microsoft.Extensions.Logging;
 using DotCraft.Common;
@@ -20,6 +21,7 @@ using DotCraft.Automations.Abstractions;
 using DotCraft.Automations.Orchestrator;
 using DotCraft.Automations.Protocol;
 using DotCraft.Tracing;
+using DotCraft.ExternalChannel;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -117,6 +119,11 @@ public sealed class AppServerHost(
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
 
+        // Linked CTS for WebSocket external channel hosts — cancelled when the main run loop exits
+        // so adapter processes stop alongside stdio/WebSocket shutdown.
+        using var extChannelCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        List<Task>? extChannelTasks = null;
+
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
         // The agent stack (sessionService, agentFactory) lives here, so execution is
         // correct and concurrency-safe. Results are delivered via system/jobResult wire
@@ -142,13 +149,28 @@ public sealed class AppServerHost(
             }
 
             var channel = job.Payload.Channel;
-            if (job.Payload.Deliver
-                && (channel == null || string.Equals(channel, "cli", StringComparison.OrdinalIgnoreCase)))
+            var isCliChannel = channel == null
+                || string.Equals(channel, "cli", StringComparison.OrdinalIgnoreCase);
+            if (job.Payload.Deliver && isCliChannel)
             {
                 if (run != null && run.Error == null)
                     BroadcastJobResult("cron", job.Id, job.Name, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
                 else if (run != null && run.Error != null)
                     BroadcastJobResult("cron", job.Id, job.Name, result: null, error: run.Error, run.ThreadId, run.InputTokens, run.OutputTokens);
+            }
+            else if (job.Payload.Deliver
+                     && !isCliChannel
+                     && !string.IsNullOrEmpty(channel)
+                     && externalChannelRegistry is { } registry
+                     && registry.TryGet(channel, out var extHost)
+                     && extHost is not null)
+            {
+                var target = job.Payload.To ?? job.Payload.CreatorId ?? "";
+                var content = run?.Error == null
+                    ? (run?.Result ?? "")
+                    : $"[Cron] {job.Name}\n{run.Error}";
+                if (!string.IsNullOrEmpty(content) || run?.Error != null)
+                    await extHost.DeliverMessageAsync(target, content);
             }
 
             var ok = run != null && run.Error == null;
@@ -214,6 +236,28 @@ public sealed class AppServerHost(
             automationOrchestratorStarted = orchestrator;
         }
 
+        // WebSocket external channels: populate registry and start hosts (GatewayHost does this when
+        // gateway is primary; AppServer is often primary so we must bootstrap here).
+        if (ExternalChannelManager.HasEnabledChannels(config) && externalChannelRegistry != null)
+        {
+            var nativeChannelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var ecManager = new ExternalChannelManager(
+                config, sessionService, nativeChannelNames, externalChannelRegistry);
+
+            if (ecManager.Channels.Count > 0)
+            {
+                foreach (var ch in ecManager.Channels)
+                {
+                    ch.HeartbeatService = heartbeatService;
+                    ch.CronService = cronService;
+                }
+
+                extChannelTasks = ecManager.Channels
+                    .Select(ch => RunExternalChannelAsync(ch, extChannelCts.Token))
+                    .ToList();
+            }
+        }
+
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
 
         try
@@ -245,6 +289,20 @@ public sealed class AppServerHost(
         }
         finally
         {
+            if (extChannelTasks is { Count: > 0 })
+            {
+                try
+                {
+                    await extChannelCts.CancelAsync();
+                    await Task.WhenAll(extChannelTasks);
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[grey][[AppServer]][/] [yellow]External channel shutdown: {Markup.Escape(ex.Message)}[/]");
+                }
+            }
+
             if (automationOrchestratorStarted != null)
                 await automationOrchestratorStarted.StopAsync();
         }
@@ -784,6 +842,26 @@ public sealed class AppServerHost(
                     _activeTransports.TryRemove(transport, out _);
                 }
             });
+        }
+    }
+
+    /// <summary>
+    /// Runs an external channel host until cancelled (mirrors <see cref="Gateway.GatewayHost.RunChannelAsync"/>).
+    /// </summary>
+    private static async Task RunExternalChannelAsync(IChannelService channel, CancellationToken ct)
+    {
+        try
+        {
+            await channel.StartAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine(
+                $"[grey][[AppServer]][/] [red]External channel '{Markup.Escape(channel.Name)}' failed: {Markup.Escape(ex.Message)}[/]");
         }
     }
 
