@@ -1299,6 +1299,12 @@ Clients can opt out via `optOutNotificationMethods: ["system/jobResult"]` during
 - Only emitted when the job's `CronPayload.Channel` is `"cli"` or null (i.e. no social channel delivery target). Jobs created from QQ, WeCom, or ExternalChannel adapters deliver their result through the respective channel's delivery mechanism and do **not** emit `system/jobResult`.
 - Clients that do not wish to display cron/heartbeat results can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
 
+**Behavior notes**:
+
+- The `result` field carries the agent's **full text output** from the turn (no truncation in `system/jobResult`). The truncated version (≤ 500 chars) is stored separately in `CronJobInfo.state.lastResult` for quick display in list UIs.
+- The `threadId` field allows clients to call `thread/read` for the full conversation and tool call history of the completed job.
+- The `cron/stateChanged` notification (Section 16.7) is emitted at the same time as `system/jobResult` when a job completes, providing updated `CronJobInfo` to keep job list UIs in sync.
+
 **Example sequence**:
 
 ```
@@ -1312,7 +1318,15 @@ Server                                         Client
   |  source: "cron",                              |
   |  jobId: "9c933b01",                           |
   |  jobName: "喝水提醒",                         |
-  |  result: "该喝水了！"                          |
+  |  threadId: "thread_abc123",                   |
+  |  result: "该喝水了！保持水分对健康很重要。"   |
+  |  tokenUsage: { inputTokens: 420, ... }        |
+  |<----------------------------------------------|
+  |                                               |
+  | cron/stateChanged (notification)              |
+  |  job.state.lastThreadId: "thread_abc123",     |
+  |  job.state.lastResult: "该喝水了！...",       |
+  |  removed: false                               |
   |<----------------------------------------------|
 ```
 
@@ -1366,6 +1380,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `system/event` | Client does not need system maintenance status (compaction, consolidation). |
 | `plan/updated` | Client does not need real-time plan/todo progress display. |
 | `system/jobResult` | Client does not need cron/heartbeat result notifications (e.g. batch or headless client). |
+| `cron/stateChanged` | Client polls `cron/list` instead of reacting to server-push job state updates. |
 
 **Example**:
 
@@ -1741,7 +1756,9 @@ All cron methods that return job data use the following `CronJobInfo` wire objec
     "nextRunAtMs": 1710594000000,
     "lastRunAtMs": 1710590400000,
     "lastStatus": "ok",
-    "lastError": null
+    "lastError": null,
+    "lastThreadId": "thread_abc123",
+    "lastResult": "提醒：该喝水了！保持水分对健康很重要。"
   }
 }
 ```
@@ -1760,6 +1777,8 @@ All cron methods that return job data use the following `CronJobInfo` wire objec
 | `state.lastRunAtMs` | integer? | Unix timestamp (ms) of the last execution. `null` if never run. |
 | `state.lastStatus` | string? | `"ok"` or `"error"`. `null` if never run. |
 | `state.lastError` | string? | Error message from the last failed run. `null` when `lastStatus` is `"ok"` or never run. |
+| `state.lastThreadId` | string? | Thread ID used for the most recent execution. `null` if the job has never run. Clients can pass this to `thread/read` to retrieve the full conversation and tool call history of the last run. |
+| `state.lastResult` | string? | Agent's text response from the most recent execution, truncated to 500 characters. `null` if the job has never run or the last run produced no text output. |
 
 ### 16.3 `cron/list`
 
@@ -1910,7 +1929,85 @@ The `job` field contains the updated `CronJobInfo` object reflecting the new `en
 
 ### 16.6 Notification Opt-Out
 
-Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) are request/response pairs — they do not produce notifications. The existing `system/jobResult` notification (Section 6.9) is the cron result delivery mechanism and remains independent. Clients that do not need cron result notifications can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
+Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) are request/response pairs. The `cron/stateChanged` notification (Section 16.7) is the real-time push for cron job state. The `system/jobResult` notification (Section 6.9) remains the full result delivery mechanism. Clients that do not need either can opt out:
+
+| Method | When to opt out |
+|--------|-----------------|
+| `cron/stateChanged` | Client polls `cron/list` instead of reacting to push updates (e.g. CLI). |
+| `system/jobResult` | Client does not need cron/heartbeat result notifications (e.g. batch or headless client). |
+
+### 16.7 `cron/stateChanged` Notification
+
+**Direction**: server → client (notification)
+
+Emitted by the AppServer when a cron job's state changes. This allows clients to maintain an up-to-date job list without polling `cron/list` repeatedly.
+
+**Triggers**:
+
+| Trigger | What changed |
+|---------|-------------|
+| Job execution completes (success or error) | `state.lastRunAtMs`, `state.lastStatus`, `state.lastError`, `state.lastThreadId`, `state.lastResult`, `state.nextRunAtMs` updated. |
+| `cron/enable` called | `enabled` and `state.nextRunAtMs` updated. |
+| `cron/remove` called | Notifies clients the job no longer exists (see `removed` field). |
+
+**Params**:
+
+```json
+{
+  "job": {
+    "id": "9c933b01",
+    "name": "drink water reminder",
+    "schedule": { "kind": "every", "everyMs": 3600000 },
+    "enabled": true,
+    "createdAtMs": 1710590400000,
+    "deleteAfterRun": false,
+    "state": {
+      "nextRunAtMs": 1710597600000,
+      "lastRunAtMs": 1710594000000,
+      "lastStatus": "ok",
+      "lastError": null,
+      "lastThreadId": "thread_abc123",
+      "lastResult": "提醒：该喝水了！"
+    }
+  },
+  "removed": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `job` | CronJobInfo | The updated job state. Contains the full `CronJobInfo` DTO reflecting the new state. |
+| `removed` | boolean | `true` when the notification is triggered by `cron/remove`. Clients should remove this job from their local list. When `true`, only `job.id` is guaranteed to be present. |
+
+**Delivery**: Broadcast to all initialized connections that have not opted out of `cron/stateChanged`.
+
+**Example sequence — job completes**:
+
+```
+Server                                          Client
+  |                                               |
+  | [CronService timer fires, AgentRunner runs]   |
+  |                                               |
+  | cron/stateChanged (notification)              |
+  |  job.id: "9c933b01",                          |
+  |  job.state.lastStatus: "ok",                  |
+  |  job.state.lastThreadId: "thread_abc123",     |
+  |  removed: false                               |
+  |---------------------------------------------> |
+```
+
+**Example sequence — job removed**:
+
+```
+Server                                          Client
+  |                                               |
+  | [cron/remove request received]                |
+  |                                               |
+  | cron/stateChanged (notification)              |
+  |  job.id: "9c933b01",                          |
+  |  removed: true                                |
+  |---------------------------------------------> |
+```
 
 ---
 
