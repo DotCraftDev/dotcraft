@@ -12,9 +12,14 @@ export type DetailPanelTab = 'changes' | 'plan' | 'terminal'
 /** Main content area: conversation vs Phase 2 surfaces (Skills, Automations). */
 export type ActiveMainView = 'conversation' | 'skills' | 'automations'
 
+/** Automations view: Tasks (orchestrator) vs Cron (scheduled jobs). */
+export type AutomationsTab = 'tasks' | 'cron'
+
 export interface UIState {
   /** Which primary view fills the center column (conversation panel slot). */
   activeMainView: ActiveMainView
+  /** Active tab inside Automations view (spec §21.1). */
+  automationsTab: AutomationsTab
   sidebarCollapsed: boolean
   sidebarWidth: number
   detailPanelVisible: boolean
@@ -33,6 +38,7 @@ export interface UIState {
 
 interface UIStore extends UIState {
   setActiveMainView(view: ActiveMainView): void
+  setAutomationsTab(tab: AutomationsTab): void
   toggleSidebar(): void
   setSidebarCollapsed(collapsed: boolean): void
   setSidebarWidth(width: number): void
@@ -53,6 +59,7 @@ interface UIStore extends UIState {
 
 export const useUIStore = create<UIStore>((set, get) => ({
   activeMainView: 'conversation',
+  automationsTab: 'tasks',
   sidebarCollapsed: false,
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
   detailPanelVisible: true,
@@ -64,6 +71,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   setActiveMainView(view) {
     set({ activeMainView: view })
+  },
+
+  setAutomationsTab(tab) {
+    set({ automationsTab: tab })
   },
 
   toggleSidebar() {

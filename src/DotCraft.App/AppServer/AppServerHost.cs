@@ -129,46 +129,57 @@ public sealed class AppServerHost(
         cronService.OnJob = async job =>
         {
             var sessionKey = $"cron:{job.Id}";
-            string? result;
+            AgentRunResult? run;
             try
             {
-                result = await runner.RunAsync(job.Payload.Message, sessionKey, cancellationToken);
+                run = await runner.RunAsync(job.Payload.Message, sessionKey, cancellationToken);
             }
             catch (Exception ex)
             {
-                result = null;
                 AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Cron job {job.Id} failed: {Markup.Escape(ex.Message)}[/]");
+                return new CronOnJobResult(null, null, ex.Message, false, null, null);
             }
 
-            // Deliver result: non-CLI channels (QQ, WeCom) require Gateway mode and
-            // MessageRouter. For CLI-originated or unattributed jobs, broadcast via wire.
             var channel = job.Payload.Channel;
-            if (job.Payload.Deliver && result != null
+            if (job.Payload.Deliver
                 && (channel == null || string.Equals(channel, "cli", StringComparison.OrdinalIgnoreCase)))
             {
-                BroadcastJobResult("cron", job.Id, job.Name, result, error: null);
+                if (run != null && run.Error == null)
+                    BroadcastJobResult("cron", job.Id, job.Name, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
+                else if (run != null && run.Error != null)
+                    BroadcastJobResult("cron", job.Id, job.Name, result: null, error: run.Error, run.ThreadId, run.InputTokens, run.OutputTokens);
             }
+
+            var ok = run != null && run.Error == null;
+            return new CronOnJobResult(run?.ThreadId, run?.Result, run?.Error, ok, run?.InputTokens, run?.OutputTokens);
+        };
+
+        cronService.CronJobPersistedAfterExecution = (job, id, removed) =>
+        {
+            if (removed)
+                BroadcastCronStateChanged(new CronJobWireInfo { Id = id }, removed: true);
+            else if (job != null)
+                BroadcastCronStateChanged(CronJobWireMapping.ToWire(job), removed: false);
         };
 
         using var heartbeatService = new HeartbeatService(
             paths.CraftPath,
             onHeartbeat: async (prompt, sessionKey, ct) =>
             {
-                string? result;
                 try
                 {
-                    result = await runner.RunAsync(prompt, sessionKey, ct);
+                    var run = await runner.RunAsync(prompt, sessionKey, ct);
+                    if (run != null && run.Error == null && run.Result != null)
+                        BroadcastJobResult("heartbeat", jobId: null, jobName: null, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
+                    else if (run != null && run.Error != null)
+                        BroadcastJobResult("heartbeat", null, null, result: null, error: run.Error, run.ThreadId, run.InputTokens, run.OutputTokens);
+                    return run;
                 }
                 catch (Exception ex)
                 {
-                    result = null;
                     AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Heartbeat run failed: {Markup.Escape(ex.Message)}[/]");
+                    return null;
                 }
-
-                if (result != null)
-                    BroadcastJobResult("heartbeat", jobId: null, jobName: null, result, error: null);
-
-                return result;
             },
             intervalSeconds: config.Heartbeat.IntervalSeconds,
             enabled: config.Heartbeat.Enabled);
@@ -259,7 +270,8 @@ public sealed class AppServerHost(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
-            automationsHandler: _automationsHandler);
+            automationsHandler: _automationsHandler,
+            broadcastCronStateChanged: BroadcastCronStateChanged);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -311,7 +323,8 @@ public sealed class AppServerHost(
             sessionService, connection, transport, serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
-            automationsHandler: _automationsHandler);
+            automationsHandler: _automationsHandler,
+            broadcastCronStateChanged: BroadcastCronStateChanged);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -386,7 +399,8 @@ public sealed class AppServerHost(
                     sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
                     cronService: _cronService, heartbeatService: _heartbeatService,
                     skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
-                    automationsHandler: _automationsHandler);
+                    automationsHandler: _automationsHandler,
+                    broadcastCronStateChanged: BroadcastCronStateChanged);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
@@ -607,8 +621,26 @@ public sealed class AppServerHost(
     /// Called when a server-managed cron or heartbeat job completes and the job was created from
     /// a CLI (non-social-channel) context. See spec Section 6.9.
     /// </summary>
-    private void BroadcastJobResult(string source, string? jobId, string? jobName, string? result, string? error)
+    private void BroadcastJobResult(
+        string source,
+        string? jobId,
+        string? jobName,
+        string? result,
+        string? error,
+        string? threadId = null,
+        int? inputTokens = null,
+        int? outputTokens = null)
     {
+        object? tokenUsage = null;
+        if (inputTokens.HasValue || outputTokens.HasValue)
+        {
+            tokenUsage = new
+            {
+                inputTokens = inputTokens ?? 0,
+                outputTokens = outputTokens ?? 0
+            };
+        }
+
         var notification = new
         {
             jsonrpc = "2.0",
@@ -618,14 +650,44 @@ public sealed class AppServerHost(
                 source,
                 jobId,
                 jobName,
+                threadId,
                 result,
-                error
+                error,
+                tokenUsage
             }
         };
 
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.ShouldSendNotification(AppServerMethods.SystemJobResult))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    private void BroadcastCronStateChanged(CronJobWireInfo job, bool removed)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.CronStateChanged,
+            @params = new { job, removed }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.CronStateChanged))
                 continue;
 
             _ = Task.Run(async () =>

@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron'
+import { ipcMain, BrowserWindow, dialog, Notification } from 'electron'
 import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
 import * as path from 'path'
@@ -252,14 +252,44 @@ export function broadcastConnectionStatus(
   }
 }
 
+/** Strip common Markdown for OS notification body (plain text). */
+function stripMarkdownForNotify(text: string): string {
+  return text
+    .replace(/\r?\n/g, ' ')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
  * Forwards a Wire Protocol notification to the renderer.
+ * When the window is not focused, shows a native notification for job results (spec §18.6).
  */
 export function broadcastNotification(
   win: BrowserWindow,
   method: string,
   params: unknown
 ): void {
+  if (
+    method === 'system/jobResult' &&
+    !win.isDestroyed() &&
+    !win.isFocused()
+  ) {
+    const p = (params ?? {}) as Record<string, unknown>
+    const jobName = String((p.jobName as string) ?? (p.name as string) ?? 'Job')
+    const err = (p.error as string) ?? ''
+    const result = (p.result as string) ?? (p.text as string) ?? ''
+    const bodyRaw = err || result || 'Job completed'
+    const body = stripMarkdownForNotify(bodyRaw).slice(0, 240)
+    try {
+      if (Notification.isSupported()) {
+        new Notification({ title: jobName, body }).show()
+      }
+    } catch {
+      /* ignore — notification optional */
+    }
+  }
   if (!win.isDestroyed()) {
     win.webContents.send('appserver:notification', { method, params })
   }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { AutomationTask, AutomationTaskStatus } from '../../stores/automationsStore'
 import { useAutomationsStore } from '../../stores/automationsStore'
+import { useCronStore } from '../../stores/cronStore'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { StatusBadge } from './StatusBadge'
 
@@ -50,8 +51,14 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const selectTask = useAutomationsStore((s) => s.selectTask)
+  const selectCronJob = useCronStore((s) => s.selectCronJob)
   const deleteTask = useAutomationsStore((s) => s.deleteTask)
   const deletable = isTaskDeletable(task.status)
+
+  function focusThisTask(): void {
+    selectCronJob(null)
+    selectTask(task.id)
+  }
 
   const actionButton = (() => {
     switch (task.status) {
@@ -61,7 +68,7 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              selectTask(task.id)
+              focusThisTask()
             }}
             style={{
               padding: '4px 12px',
@@ -84,7 +91,7 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              selectTask(task.id)
+              focusThisTask()
             }}
             style={{
               padding: '4px 12px',
@@ -128,9 +135,9 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
     <div
       role="button"
       tabIndex={0}
-      onClick={() => selectTask(task.id)}
+      onClick={() => focusThisTask()}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') selectTask(task.id)
+        if (e.key === 'Enter' || e.key === ' ') focusThisTask()
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

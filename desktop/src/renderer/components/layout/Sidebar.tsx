@@ -33,7 +33,12 @@ interface SidebarProps {
 export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: SidebarProps): JSX.Element {
   const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
-  const automationsAvailable = capabilities?.automations === true
+  const automationsAvailable =
+    capabilities?.automations === true || capabilities?.cronManagement === true
+  const automationsDisabledTitle =
+    !automationsAvailable
+      ? 'Automations and Cron require server modules (automations and/or cronManagement)'
+      : undefined
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Expose searchRef for Ctrl+K global shortcut (App.tsx reads this via
@@ -87,7 +92,7 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
           onClick={() => setActiveMainView('automations')}
           icon={<AutomationsIcon />}
           disabled={!automationsAvailable}
-          title={!automationsAvailable ? 'Automations module not enabled on the server' : undefined}
+          title={automationsDisabledTitle}
         />
         <SidebarNavRow
           label="Skills"
@@ -188,7 +193,8 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
   const { status, capabilities: collapsedCaps } = useConnectionStore()
   const { threadList, addThread, setActiveThreadId } = useThreadStore()
   const { activeMainView, setActiveMainView } = useUIStore()
-  const collapsedAutomationsAvailable = collapsedCaps?.automations === true
+  const collapsedAutomationsAvailable =
+    collapsedCaps?.automations === true || collapsedCaps?.cronManagement === true
 
   const colorMap: Record<string, string> = {
     connecting: 'var(--warning)',
@@ -297,7 +303,11 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
 
       <button
         type="button"
-        title={collapsedAutomationsAvailable ? 'Automations' : 'Automations module not enabled on the server'}
+        title={
+          collapsedAutomationsAvailable
+            ? 'Automations'
+            : 'Automations and Cron require server modules (automations and/or cronManagement)'
+        }
         onClick={collapsedAutomationsAvailable ? () => setActiveMainView('automations') : undefined}
         disabled={!collapsedAutomationsAvailable}
         style={{

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useToastStore, type Toast, type ToastType } from '../../stores/toastStore'
+import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
 
 /**
  * Stacked toast notification container, fixed to the top-right corner.
@@ -93,7 +94,21 @@ function ToastItem({ toast, onDismiss }: ToastItemProps): JSX.Element {
       <span style={{ color: borderColor, flexShrink: 0, fontSize: '14px', marginTop: '1px' }}>
         {typeToIcon(toast.type)}
       </span>
-      <span style={{ flex: 1, lineHeight: 1.4 }}>{toast.message}</span>
+      {toast.markdown ? (
+        <div
+          style={{
+            flex: 1,
+            lineHeight: 1.4,
+            maxHeight: 120,
+            overflow: 'auto',
+            fontSize: '13px'
+          }}
+        >
+          <MarkdownRenderer content={toast.message} />
+        </div>
+      ) : (
+        <span style={{ flex: 1, lineHeight: 1.4 }}>{toast.message}</span>
+      )}
     </div>
   )
 }

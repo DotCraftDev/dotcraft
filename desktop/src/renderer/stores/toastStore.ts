@@ -7,6 +7,8 @@ export interface Toast {
   message: string
   type: ToastType
   duration: number
+  /** When true, message is rendered as Markdown (job results). */
+  markdown?: boolean
 }
 
 interface ToastState {
@@ -14,7 +16,12 @@ interface ToastState {
 }
 
 interface ToastActions {
-  addToast(message: string, type?: ToastType, duration?: number): void
+  addToast(
+    message: string,
+    type?: ToastType,
+    duration?: number,
+    markdown?: boolean
+  ): void
   removeToast(id: string): void
 }
 
@@ -26,9 +33,11 @@ const JOB_RESULT_DURATION_MS = 10000
 export const useToastStore = create<ToastStore>((set, get) => ({
   toasts: [],
 
-  addToast(message, type = 'info', duration = DEFAULT_DURATION_MS) {
+  addToast(message, type = 'info', duration = DEFAULT_DURATION_MS, markdown = false) {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    set((s) => ({ toasts: [...s.toasts, { id, message, type, duration }] }))
+    set((s) => ({
+      toasts: [...s.toasts, { id, message, type, duration, ...(markdown ? { markdown: true } : {}) }]
+    }))
 
     setTimeout(() => {
       if (get().toasts.some((t) => t.id === id)) {
@@ -43,8 +52,12 @@ export const useToastStore = create<ToastStore>((set, get) => ({
 }))
 
 /** Convenience helpers for non-React callers */
-export const addToast = (message: string, type?: ToastType, duration?: number): void =>
-  useToastStore.getState().addToast(message, type, duration)
+export const addToast = (
+  message: string,
+  type?: ToastType,
+  duration?: number,
+  markdown?: boolean
+): void => useToastStore.getState().addToast(message, type, duration, markdown)
 
-export const addJobResultToast = (message: string): void =>
-  useToastStore.getState().addToast(message, 'info', JOB_RESULT_DURATION_MS)
+export const addJobResultToast = (message: string, markdown = true): void =>
+  useToastStore.getState().addToast(message, 'info', JOB_RESULT_DURATION_MS, markdown)
