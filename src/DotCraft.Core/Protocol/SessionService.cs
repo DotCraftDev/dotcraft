@@ -989,6 +989,14 @@ public sealed class SessionService(
             profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolCtx);
         }
 
+        if (config.UseToolProfileOnly)
+        {
+            if (profileTools is not { Count: > 0 })
+                throw new InvalidOperationException("UseToolProfileOnly requires a registered ToolProfile with at least one tool.");
+            var toolCtx2 = scopedContext ?? agentFactory.ToolProviderContext;
+            return agentFactory.CreateAgentWithTools(profileTools, mm, toolCtx2, config.AgentInstructions);
+        }
+
         if (config.McpServers is not { Length: > 0 })
         {
             if (scopedContext != null)

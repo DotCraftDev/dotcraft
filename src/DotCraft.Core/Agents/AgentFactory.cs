@@ -342,15 +342,29 @@ public sealed class AgentFactory : IAsyncDisposable
     /// Creates an AI agent with the specified tools.
     /// </summary>
     public AIAgent CreateAgentWithTools(List<AITool> tools, AgentModeManager? modeManager = null) =>
-        BuildAgent(tools, modeManager, _toolProviderContext);
+        BuildAgent(tools, modeManager, _toolProviderContext, instructions: null);
 
     /// <summary>
     /// Creates an AI agent with the specified tools and tool context (e.g. per-thread workspace override).
     /// </summary>
     public AIAgent CreateAgentWithTools(List<AITool> tools, AgentModeManager? modeManager, ToolProviderContext toolContext) =>
-        BuildAgent(tools, modeManager, toolContext);
+        BuildAgent(tools, modeManager, toolContext, instructions: null);
 
-    private AIAgent BuildAgent(List<AITool> tools, AgentModeManager? modeManager, ToolProviderContext ctx)
+    /// <summary>
+    /// Creates an AI agent with explicit system instructions (e.g. ephemeral commit-message assistant).
+    /// </summary>
+    public AIAgent CreateAgentWithTools(
+        List<AITool> tools,
+        AgentModeManager? modeManager,
+        ToolProviderContext toolContext,
+        string? instructions) =>
+        BuildAgent(tools, modeManager, toolContext, instructions);
+
+    private AIAgent BuildAgent(
+        List<AITool> tools,
+        AgentModeManager? modeManager,
+        ToolProviderContext ctx,
+        string? instructions = null)
     {
         LastCreatedTools = tools;
 
@@ -399,7 +413,7 @@ public sealed class AgentFactory : IAsyncDisposable
         {
             Name = "DotCraft",
             UseProvidedChatClientAsIs = true,
-            ChatOptions = CreateChatOptions(tools),
+            ChatOptions = CreateChatOptions(tools, instructions),
             AIContextProviderFactory = (_, _) => new ValueTask<AIContextProvider>(
                 new MemoryContextProvider(
                     ctx.MemoryStore,

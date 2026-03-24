@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useConversationStore } from '../../stores/conversationStore'
+import { useConnectionStore } from '../../stores/connectionStore'
 import { addToast } from '../../stores/toastStore'
 
 interface CommitDialogProps {
   workspacePath: string
+  threadId: string
   onClose: () => void
 }
 
@@ -13,9 +15,11 @@ interface CommitDialogProps {
  * Lists only non-reverted (written) files; commit message is pre-populated.
  * Spec §M6-16, §M6-17, §16.5
  */
-export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX.Element {
+export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogProps): JSX.Element {
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const turns = useConversationStore((s) => s.turns)
+  const connectionStatus = useConnectionStore((s) => s.status)
+  const isConnected = connectionStatus === 'connected'
 
   const allFiles = Array.from(changedFiles.values())
   const writtenFiles = allFiles.filter((f) => f.status === 'written')
@@ -23,6 +27,7 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
 
   const [message, setMessage] = useState(() => generateCommitMessage(turns))
   const [committing, setCommitting] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const messageRef = useRef<HTMLTextAreaElement>(null)
@@ -31,11 +36,36 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
     messageRef.current?.focus()
 
     function handleKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape' && !committing) onClose()
+      if (e.key === 'Escape' && !committing && !generating) onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [committing, onClose])
+  }, [committing, generating, onClose])
+
+  async function handleSuggestFromChanges(): Promise<void> {
+    if (!isConnected || writtenFiles.length === 0 || !threadId.trim()) return
+    setGenerating(true)
+    setError(null)
+    try {
+      const paths = writtenFiles.map((f) => toRelativePath(f.filePath, workspacePath))
+      const result = (await window.api.appServer.sendRequest('workspace/commitMessage/suggest', {
+        threadId,
+        paths
+      })) as { message?: string }
+      if (result?.message?.trim()) {
+        setMessage(result.message.trim())
+        addToast('Commit message generated from changes', 'success')
+      } else {
+        setError('Server returned an empty message.')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg)
+      addToast(`Could not generate message: ${msg}`, 'error')
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   async function handleCommit(): Promise<void> {
     if (!message.trim() || writtenFiles.length === 0) return
@@ -68,7 +98,7 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
         backgroundColor: 'var(--overlay-scrim)'
       }}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !committing) onClose()
+        if (e.target === e.currentTarget && !committing && !generating) onClose()
       }}
     >
       <div
@@ -160,9 +190,55 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
           ))}
         </div>
 
-        {/* Commit message label */}
-        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-          Commit message:
+        {/* Commit message label + generate */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            marginBottom: '6px'
+          }}
+        >
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Commit message:</span>
+          <button
+            type="button"
+            onClick={() => {
+              void handleSuggestFromChanges()
+            }}
+            disabled={
+              generating ||
+              committing ||
+              success ||
+              !isConnected ||
+              writtenFiles.length === 0 ||
+              !threadId.trim()
+            }
+            title={
+              !isConnected
+                ? 'Connect to AppServer to generate a message from your changes'
+                : writtenFiles.length === 0
+                  ? 'No files to include'
+                  : 'Generate commit message from thread context and git diff'
+            }
+            style={{
+              padding: '4px 10px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-default)',
+              backgroundColor: 'transparent',
+              color: 'var(--text-primary)',
+              cursor:
+                generating || committing || success || !isConnected || writtenFiles.length === 0
+                  ? 'default'
+                  : 'pointer',
+              opacity:
+                generating || committing || success || !isConnected || writtenFiles.length === 0 ? 0.5 : 1,
+              flexShrink: 0
+            }}
+          >
+            {generating ? 'Generating…' : 'Generate from changes'}
+          </button>
         </div>
 
         {/* Commit message textarea */}
@@ -170,7 +246,7 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
           ref={messageRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          disabled={committing || success}
+          disabled={committing || success || generating}
           rows={3}
           style={{
             width: '100%',
@@ -213,7 +289,7 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
           <button
             onClick={onClose}
-            disabled={committing}
+            disabled={committing || generating}
             style={{
               padding: '7px 16px',
               border: '1px solid var(--border-default)',
@@ -221,8 +297,8 @@ export function CommitDialog({ workspacePath, onClose }: CommitDialogProps): JSX
               backgroundColor: 'transparent',
               color: 'var(--text-primary)',
               fontSize: '13px',
-              cursor: committing ? 'default' : 'pointer',
-              opacity: committing ? 0.5 : 1
+              cursor: committing || generating ? 'default' : 'pointer',
+              opacity: committing || generating ? 0.5 : 1
             }}
           >
             Cancel

@@ -26,7 +26,8 @@ public sealed class AppServerRequestHandler(
     SkillsLoader? skillsLoader = null,
     string? workspaceCraftPath = null,
     IAutomationsRequestHandler? automationsHandler = null,
-    Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null)
+    Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null,
+    ICommitMessageSuggestService? commitMessageSuggest = null)
 {
     private readonly Action<CronJobWireInfo, bool>? _broadcastCronStateChanged = broadcastCronStateChanged;
 
@@ -94,6 +95,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.AutomationTaskApprove => RouteAutomation(h => h.HandleTaskApproveAsync(msg, ct)),
                 AppServerMethods.AutomationTaskReject => RouteAutomation(h => h.HandleTaskRejectAsync(msg, ct)),
                 AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
+                AppServerMethods.WorkspaceCommitMessageSuggest => HandleWorkspaceCommitMessageSuggestAsync(msg, ct),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -503,6 +505,29 @@ public sealed class AppServerRequestHandler(
 
         await sessionService.CancelTurnAsync(p.ThreadId, p.TurnId, ct);
         return new { };
+    }
+
+    private async Task<object?> HandleWorkspaceCommitMessageSuggestAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (commitMessageSuggest == null)
+            throw AppServerErrors.InvalidRequest("Commit message suggestion is not available on this connection.");
+        var p = GetParams<WorkspaceCommitMessageSuggestParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.ThreadId))
+            throw AppServerErrors.InvalidParams("'threadId' is required.");
+        if (p.Paths is not { Length: > 0 })
+            throw AppServerErrors.InvalidParams("'paths' must contain at least one file path.");
+        try
+        {
+            return await commitMessageSuggest.SuggestAsync(p, ct);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw AppServerErrors.ThreadNotFound(ExtractQuotedId(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw AppServerErrors.InvalidRequest(ex.Message);
+        }
     }
 
     // -------------------------------------------------------------------------

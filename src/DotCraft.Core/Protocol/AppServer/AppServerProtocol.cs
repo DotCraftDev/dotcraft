@@ -638,6 +638,27 @@ public sealed class AutomationTaskDeleteParams
     public string SourceName { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Params for <see cref="AppServerMethods.WorkspaceCommitMessageSuggest"/>.
+/// </summary>
+public sealed class WorkspaceCommitMessageSuggestParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public string[] Paths { get; set; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxDiffChars { get; set; }
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.WorkspaceCommitMessageSuggest"/>.
+/// </summary>
+public sealed class WorkspaceCommitMessageSuggestResult
+{
+    public string Message { get; set; } = string.Empty;
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -658,6 +679,9 @@ public static class AppServerMethods
     public const string ThreadConfigUpdate = "thread/config/update";
     public const string TurnStart = "turn/start";
     public const string TurnInterrupt = "turn/interrupt";
+
+    /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
+    public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
 
     // Client → Server notification (no id)
     public const string Initialized = "initialized";
