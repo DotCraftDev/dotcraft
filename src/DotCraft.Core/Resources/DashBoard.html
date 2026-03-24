@@ -179,6 +179,16 @@ body {
 .nav-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-tab.active { background: var(--accent-dim); color: var(--accent-light); font-weight: 500; }
 
+.nav-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+.nav-tab:disabled:hover {
+  background: none;
+  color: var(--text-muted);
+}
+
 .nav-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
 
 .nav-section {
@@ -1245,8 +1255,8 @@ body {
         <span>Sessions</span>
       </button>
 
-      <div class="nav-section" id="navSectionAutomations" style="display:none">Automations</div>
-      <button class="nav-tab" data-panel="automations" id="navTabAutomations" style="display:none" onclick="switchPanel('automations')">
+      <div class="nav-section" id="navSectionAutomations">Automations</div>
+      <button type="button" class="nav-tab" data-panel="automations" id="navTabAutomations" disabled onclick="switchPanel('automations')" title="Automations requires Gateway with the Automations module enabled.">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>
         <span>Automations</span>
       </button>
@@ -1461,7 +1471,15 @@ let eventSource = null;
 let allTraceEvents = [];
 let allSessions = [];
 
+let automationsAvailable = false;
+let automationsSourceFilter = 'all';
+let _automationsLastData = null;
+
 function switchPanel(panel) {
+  if (panel === 'automations' && !automationsAvailable) {
+    showToast('Automations requires Gateway with the Automations module enabled.', 'info');
+    return;
+  }
   currentPanel = panel;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.panel === panel));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + panel));
@@ -3368,7 +3386,7 @@ function applySetupModeUi() {
   const navTabs = document.querySelectorAll('.nav-tab');
   if (!settingsSetupMode) {
     navTabs.forEach(tab => tab.style.display = '');
-    applyAutomationsNavVisibility();
+    applyAutomationsNavState();
     document.getElementById('statusText').textContent = 'Connected';
     document.getElementById('liveDot').style.display = '';
     return;
@@ -3418,24 +3436,17 @@ function checkAuthEnabled() {
 }
 
 // Automations (read-only dashboard; Gateway + Automations module)
-let automationsAvailable = false;
-let automationsSourceFilter = 'all';
-let _automationsLastData = null;
 
-/** Keeps Automations nav hidden unless the server exposes /orchestrators/automations/state (must not be overridden by applySetupModeUi). */
-function applyAutomationsNavVisibility() {
-  const section = document.getElementById('navSectionAutomations');
+/** Enables or disables the Automations nav tab based on /orchestrators/automations/state (must run after applySetupModeUi resets tab display). */
+function applyAutomationsNavState() {
   const tab = document.getElementById('navTabAutomations');
-  if (!section || !tab) return;
-  if (automationsAvailable) {
-    section.style.display = '';
-    tab.style.display = '';
-  } else {
-    section.style.display = 'none';
-    tab.style.display = 'none';
-    if (currentPanel === 'automations')
-      switchPanel('dashboard');
-  }
+  if (!tab) return;
+  tab.disabled = !automationsAvailable;
+  tab.title = automationsAvailable
+    ? ''
+    : 'Automations requires Gateway with the Automations module enabled.';
+  if (!automationsAvailable && currentPanel === 'automations')
+    switchPanel('dashboard');
 }
 
 async function probeAutomations() {
@@ -3445,7 +3456,7 @@ async function probeAutomations() {
   } catch (_) {
     automationsAvailable = false;
   }
-  applyAutomationsNavVisibility();
+  applyAutomationsNavState();
 }
 
 function fmtTokens(n) {
