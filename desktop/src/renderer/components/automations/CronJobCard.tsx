@@ -47,7 +47,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
   const selectedId = useCronStore((s) => s.selectedCronJobId)
 
   const st = job.state
-  const ok = st.lastStatus === 'ok' || st.lastStatus == null
+  const ok = st.lastStatus === 'ok'
   const err = st.lastStatus === 'error'
   const dotColor = !job.enabled
     ? 'var(--text-tertiary)'
