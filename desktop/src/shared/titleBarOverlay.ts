@@ -6,7 +6,7 @@
 
 export const TITLE_BAR_OVERLAY_HEIGHT = 36
 
-/** Horizontal space reserved for native caption buttons; must match toast right inset margin. */
+/** Horizontal space reserved in CustomMenuBar so menu labels do not overlap caption buttons. */
 export const TITLE_BAR_OVERLAY_RIGHT_RESERVE = 138
 
 export type TitleBarOverlayTheme = 'dark' | 'light'

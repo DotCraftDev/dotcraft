@@ -1,6 +1,12 @@
 import { memo, useState, useEffect } from 'react'
 import type { ConversationItem } from '../../types/conversation'
 import { useConversationStore } from '../../stores/conversationStore'
+import {
+  CRON_TOOL_NAME,
+  formatCronCollapsedLabel,
+  formatCronRunningLabel,
+  formatCronResultLines
+} from '../../utils/cronToolDisplay'
 import { InlineDiffView } from './InlineDiffView'
 
 interface ToolCallCardProps {
@@ -33,6 +39,9 @@ function getCollapsedLabel(toolName: string, args: Record<string, unknown> | und
     const cmd = (args?.command as string | undefined) ?? toolName
     const short = cmd.length > 40 ? cmd.slice(0, 40) + '…' : cmd
     return `Ran ${short}`
+  }
+  if (toolName === CRON_TOOL_NAME) {
+    return formatCronCollapsedLabel(args)
   }
   return `Called ${toolName}`
 }
@@ -85,7 +94,15 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
       >
         <Spinner />
         <span>
-          Calling <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
+          {toolName === CRON_TOOL_NAME ? (
+            <span style={{ color: 'var(--text-primary)' }}>
+              {formatCronRunningLabel(args)}
+            </span>
+          ) : (
+            <>
+              Calling <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
+            </>
+          )}
           {elapsed > 0 && (
             <span style={{ color: 'var(--text-dimmed)', marginLeft: '6px' }}>
               {elapsed}s
@@ -135,7 +152,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 
         {/* Label */}
         <span style={{ flex: 1 }}>
-          {success ? label : `Failed: ${toolName}`}
+          {success ? label : `Failed: ${label}`}
           {!success && item.result && (
             <span
               style={{ color: 'var(--error)', marginLeft: '6px' }}
@@ -205,6 +222,48 @@ function ExpandedContent({
   // File diff variant
   if (FILE_WRITE_TOOLS.has(toolName) && fileDiff) {
     return <InlineDiffView diff={fileDiff.diff} />
+  }
+
+  // Cron — structured JSON result (aligned with CronToolDisplays.CronResult)
+  if (toolName === CRON_TOOL_NAME) {
+    const lines = formatCronResultLines(result)
+    if (lines && lines.length > 0) {
+      return (
+        <div
+          className="selectable"
+          style={{
+            fontSize: '12px',
+            lineHeight: 1.5,
+            color: 'var(--text-secondary)'
+          }}
+        >
+          <div
+            style={{
+              color: 'var(--text-dimmed)',
+              marginBottom: '6px',
+              fontSize: '11px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <span aria-hidden>⏰</span>
+            <span>Cron</span>
+          </div>
+          {lines.map((line, i) => (
+            <div
+              key={i}
+              style={{
+                color: line.startsWith('Error:') ? 'var(--error)' : 'var(--text-secondary)'
+              }}
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+      )
+    }
+    // Unrecognized shape — fall through to general variant below
   }
 
   // Shell variant
