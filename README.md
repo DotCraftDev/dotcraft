@@ -225,9 +225,12 @@ The Python and TypeScript SDKs (`DotCraftClient`, `ChannelAdapter`) make it easi
 The repository includes two reference adapters:
 
 - **Telegram** (Python SDK): long polling, inline-keyboard approvals, and full end-to-end integration. See the [Python SDK](./sdk/python/README.md).
+
+    ![telegram](https://github.com/DotCraftDev/resources/raw/master/dotcraft/telegram.jpg)
+    
 - **WeChat** (TypeScript SDK): WebSocket transport, QR-code login, text-keyword approvals. See the [TypeScript SDK](./sdk/typescript/README.md).
 
-![telegram](https://github.com/DotCraftDev/resources/raw/master/dotcraft/telegram.jpg)
+    ![wechat](https://github.com/DotCraftDev/resources/raw/master/dotcraft/wechat.jpg)
 
 ### Automations
 
@@ -235,7 +238,15 @@ DotCraft Automations uses a shared `AutomationOrchestrator` to run automation ta
 
 ![desktop-github](https://github.com/DotCraftDev/resources/raw/master/dotcraft/desktop_github.png)
 
+<div align="center"> 
+View automated tasks using the desktop application.
+</div>
+
 ![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
+
+<div align="center"> 
+PR Automatic Review.
+</div>
 
 ## 🛡️ Operations And Governance
 
