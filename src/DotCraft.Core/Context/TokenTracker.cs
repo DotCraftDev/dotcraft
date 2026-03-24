@@ -42,6 +42,17 @@ public sealed class TokenTracker
         Interlocked.Add(ref _totalOutputTokens, outputTokens);
     }
 
+    /// <summary>
+    /// Accumulate per-notification usage deltas from streaming (where snapshots are cumulative)
+    /// and record the latest cumulative input token count for <see cref="LastInputTokens"/> compaction checks.
+    /// </summary>
+    public void UpdateWithStreamingDeltas(long deltaInput, long deltaOutput, long cumulativeInputSnapshot)
+    {
+        Interlocked.Exchange(ref _lastInputTokens, cumulativeInputSnapshot);
+        Interlocked.Add(ref _totalInputTokens, deltaInput);
+        Interlocked.Add(ref _totalOutputTokens, deltaOutput);
+    }
+
     public void AddSubAgentTokens(long input, long output)
     {
         Interlocked.Add(ref _subAgentInputTokens, input);

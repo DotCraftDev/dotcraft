@@ -464,6 +464,7 @@ public sealed class SessionService(
                 var agentText = string.Empty;
                 var reasoningText = string.Empty;
                 long inputTokens = 0, outputTokens = 0;
+                long lastUsageInput = 0, lastUsageOutput = 0;
 
                 // SubAgent progress aggregator: lazily created when SpawnSubagent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
@@ -608,16 +609,29 @@ public sealed class SessionService(
                                 }
 
                                 case UsageContent usage:
-                                    var iterInput = usage.Details.InputTokenCount ?? 0;
-                                    var iterOutput = usage.Details.OutputTokenCount ?? 0;
-                                    if (iterInput > 0 || iterOutput > 0)
+                                {
+                                    var curIn = usage.Details.InputTokenCount ?? 0;
+                                    var curOut = usage.Details.OutputTokenCount ?? 0;
+                                    if (curIn > 0 || curOut > 0)
                                     {
-                                        inputTokens += iterInput;
-                                        outputTokens += iterOutput;
-                                        tokenTracker.Update(iterInput, iterOutput);
-                                        eventChannel.EmitUsageDelta(iterInput, iterOutput);
+                                        UsageSnapshotDelta.Compute(
+                                            curIn,
+                                            curOut,
+                                            ref lastUsageInput,
+                                            ref lastUsageOutput,
+                                            out var deltaIn,
+                                            out var deltaOut);
+                                        if (deltaIn > 0 || deltaOut > 0)
+                                        {
+                                            inputTokens += deltaIn;
+                                            outputTokens += deltaOut;
+                                            tokenTracker.UpdateWithStreamingDeltas(deltaIn, deltaOut, curIn);
+                                            eventChannel.EmitUsageDelta(deltaIn, deltaOut);
+                                        }
                                     }
+
                                     break;
+                                }
                             }
                         }
                     }
