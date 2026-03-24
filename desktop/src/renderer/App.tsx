@@ -24,6 +24,7 @@ import { SettingsDialog } from './components/ui/SettingsDialog'
 import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
+import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import './styles/tokens.css'
@@ -165,6 +166,7 @@ export function App(): JSX.Element {
       useUIStore.getState().setAutomationsTab('tasks')
       useUIStore.getState().setActiveDetailTab('changes')
       useUIStore.getState().setActiveMainView('conversation')
+      useUIStore.getState().setPendingWelcomeTurn(null)
     }
 
     // On workspace switch (connecting), update workspace path from Main
@@ -692,7 +694,10 @@ export function App(): JSX.Element {
         .sendRequest('thread/read', { threadId: curr, includeTurns: true })
         .then((result) => {
           // Stale guard: user may have switched threads while we were loading
-          if (useThreadStore.getState().activeThreadId !== requestedId) return
+          if (useThreadStore.getState().activeThreadId !== requestedId) {
+            useUIStore.getState().cancelPendingWelcomeTurnForThread(requestedId)
+            return
+          }
           const res = result as { thread: Thread }
           useThreadStore.getState().setActiveThread(res.thread)
           // Populate conversationStore with historical turns
@@ -701,8 +706,63 @@ export function App(): JSX.Element {
           performance.mark(`app:thread-switch-rendered:${requestedId}`)
           performance.measure('app:thread-switch', `app:thread-switch-start:${requestedId}`, `app:thread-switch-rendered:${requestedId}`)
           useConversationStore.getState().setTurns(convTurns)
+
+          // Welcome composer: send first turn after historical turns are loaded so reset/setTurns do not drop optimistic UI.
+          const pendingText = useUIStore.getState().consumePendingWelcomeTurnIfMatch(requestedId)
+          if (pendingText != null) {
+            const threadId = requestedId
+            const path = workspacePathRef.current
+            const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
+            if (!threadEntry?.displayName) {
+              const autoName = pendingText.length > 50 ? pendingText.slice(0, 50) + '...' : pendingText
+              useThreadStore.getState().renameThread(threadId, autoName)
+            }
+            const optimisticItemId = `local-${Date.now()}`
+            const optimisticTurnId = `local-turn-${Date.now()}`
+            const optimisticNow = new Date().toISOString()
+            const userItem: ConversationItem = {
+              id: optimisticItemId,
+              type: 'userMessage',
+              status: 'completed',
+              text: pendingText,
+              createdAt: optimisticNow,
+              completedAt: optimisticNow
+            }
+            const optimisticTurn: ConversationTurn = {
+              id: optimisticTurnId,
+              threadId,
+              status: 'running',
+              items: [userItem],
+              startedAt: optimisticNow
+            }
+            useConversationStore.getState().addOptimisticTurn(optimisticTurn)
+            void window.api.appServer
+              .sendRequest('turn/start', {
+                threadId,
+                input: [{ type: 'text', text: pendingText }],
+                identity: {
+                  channelName: 'dotcraft-desktop',
+                  userId: 'local',
+                  channelContext: `workspace:${path}`,
+                  workspacePath: path
+                }
+              })
+              .then((result) => {
+                const res = result as { turn?: { id?: string } }
+                if (res.turn?.id) {
+                  useConversationStore.getState().promoteOptimisticTurn(optimisticTurnId, res.turn.id)
+                }
+              })
+              .catch((turnErr: unknown) => {
+                console.error('Welcome screen turn/start failed:', turnErr)
+                useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
+              })
+          }
         })
-        .catch((err: unknown) => console.error('thread/read failed:', err))
+        .catch((err: unknown) => {
+          console.error('thread/read failed:', err)
+          useUIStore.getState().cancelPendingWelcomeTurnForThread(requestedId)
+        })
 
       // Guard: skip subscribe if we already hold a subscription for this thread.
       // React StrictMode runs this effect twice (mount, cleanup, remount) — but the
