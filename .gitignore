@@ -36,3 +36,4 @@ target/
 
 # E2E test artifacts
 desktop/e2e/screenshots/
+/sdk/typescript/examples/weixin/data
