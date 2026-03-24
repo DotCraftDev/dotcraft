@@ -1,9 +1,8 @@
 import type { CSSProperties } from 'react'
 
-const TOP_LEVEL_LABELS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
+import { TITLE_BAR_OVERLAY_RIGHT_RESERVE } from '../../../shared/titleBarOverlay'
 
-/** Reserve space for Windows titleBarOverlay (min / max / close). */
-const OVERLAY_RIGHT_RESERVE_PX = 138
+const TOP_LEVEL_LABELS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
 const dragRegion: CSSProperties = { WebkitAppRegion: 'drag' }
 const noDrag: CSSProperties = { WebkitAppRegion: 'no-drag' }
@@ -25,7 +24,7 @@ export function CustomMenuBar(): JSX.Element {
         flexDirection: 'row',
         alignItems: 'center',
         paddingLeft: 8,
-        paddingRight: OVERLAY_RIGHT_RESERVE_PX,
+        paddingRight: TITLE_BAR_OVERLAY_RIGHT_RESERVE,
         backgroundColor: 'var(--bg-primary)',
         borderBottom: 'none',
         fontSize: 13,

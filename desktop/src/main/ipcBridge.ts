@@ -5,6 +5,10 @@ import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
 import type { AppSettings, RecentWorkspace } from './settings'
 import { checkWorkspaceLock } from './workspaceLock'
+import {
+  TITLE_BAR_OVERLAY_BY_THEME,
+  TITLE_BAR_OVERLAY_HEIGHT
+} from '../shared/titleBarOverlay'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -115,6 +119,20 @@ export function registerIpcHandlers(
   ipcMain.handle('window:set-title', (event, title: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     win?.setTitle(title)
+  })
+
+  // Renderer -> Main: sync titleBarOverlay colors with app theme (Windows / Linux only)
+  ipcMain.handle('window:set-title-bar-overlay-theme', (event, theme: 'dark' | 'light') => {
+    if (process.platform === 'darwin') return
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    const t = theme === 'light' ? 'light' : 'dark'
+    const { color, symbolColor } = TITLE_BAR_OVERLAY_BY_THEME[t]
+    win.setTitleBarOverlay({
+      color,
+      symbolColor,
+      height: TITLE_BAR_OVERLAY_HEIGHT
+    })
   })
 
   // Renderer -> Main: get workspace path
@@ -315,6 +333,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')
+  ipcMain.removeHandler('window:set-title-bar-overlay-theme')
   ipcMain.removeHandler('window:get-workspace-path')
   ipcMain.removeHandler('file:write')
   ipcMain.removeHandler('file:read')

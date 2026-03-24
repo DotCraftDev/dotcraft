@@ -28,6 +28,7 @@ declare global {
     api: {
       platform: 'darwin' | 'win32' | 'linux'
       titleBarOverlayHeight: number
+      titleBarOverlayRightReserve: number
       menu: {
         popupTopLevel(label: string, x: number, y: number): Promise<void>
       }
@@ -42,6 +43,7 @@ declare global {
       }
       window: {
         setTitle(title: string): void
+        setTitleBarOverlayTheme(theme: 'dark' | 'light'): Promise<void>
         getWorkspacePath(): Promise<string>
       }
       shell: {

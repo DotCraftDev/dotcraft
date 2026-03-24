@@ -12,14 +12,18 @@ export function ToastContainer(): JSX.Element {
   const toasts = useToastStore((s) => s.toasts)
   const removeToast = useToastStore((s) => s.removeToast)
 
+  const isMac = window.api.platform === 'darwin'
+  const topPx = isMac ? 16 : window.api.titleBarOverlayHeight + 16
+  const rightPx = isMac ? 16 : 16 + window.api.titleBarOverlayRightReserve
+
   return createPortal(
     <div
       aria-live="polite"
       aria-atomic="false"
       style={{
         position: 'fixed',
-        top: '16px',
-        right: '16px',
+        top: `${topPx}px`,
+        right: `${rightPx}px`,
         zIndex: 30000,
         display: 'flex',
         flexDirection: 'column',
