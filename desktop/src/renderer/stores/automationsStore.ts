@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useReviewPanelStore } from './reviewPanelStore'
 
 /** Polling interval for task list while Automations view is mounted (ms). */
 const AUTOMATIONS_POLL_MS = 15_000
@@ -141,9 +142,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     get().removeTask(task.id, task.sourceName)
     if (get().selectedTaskId === task.id) {
       set({ selectedTaskId: null })
-      void import('./reviewPanelStore').then(({ useReviewPanelStore }) => {
-        useReviewPanelStore.getState().destroyReviewPanel()
-      })
+      useReviewPanelStore.getState().destroyReviewPanel()
     }
   },
 
