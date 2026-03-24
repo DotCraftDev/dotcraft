@@ -45,11 +45,13 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         backgroundColor: 'var(--bg-secondary)'
       }}
     >
-      {/* Tab bar */}
+      {/* Tab bar — fixed height matches ThreadHeader; tab underline uses inset shadow (no layout growth) */}
       <div
         style={{
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'stretch',
+          height: 'var(--chrome-header-height)',
+          boxSizing: 'border-box',
           borderBottom: '1px solid var(--border-default)',
           flexShrink: 0,
           paddingLeft: '4px'
@@ -63,7 +65,8 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
               display: 'flex',
               alignItems: 'center',
               gap: '5px',
-              padding: '8px 14px',
+              height: '100%',
+              padding: '0 14px',
               fontSize: '13px',
               fontWeight: activeDetailTab === tab.id ? 500 : 400,
               color:
@@ -72,13 +75,13 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
                   : 'var(--text-secondary)',
               backgroundColor: 'transparent',
               border: 'none',
-              borderBottom:
+              boxSizing: 'border-box',
+              boxShadow:
                 activeDetailTab === tab.id
-                  ? '2px solid var(--accent)'
-                  : '2px solid transparent',
+                  ? 'inset 0 -2px 0 var(--accent)'
+                  : 'none',
               cursor: 'pointer',
-              transition: 'color 100ms ease, border-color 100ms ease',
-              marginBottom: '-1px'
+              transition: 'color 100ms ease, box-shadow 100ms ease'
             }}
           >
             {tab.label}
@@ -112,6 +115,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
           onClick={toggleDetailPanel}
           title="Close detail panel (Ctrl+Shift+B)"
           style={{
+            alignSelf: 'center',
             width: '28px',
             height: '28px',
             borderRadius: '4px',
@@ -123,7 +127,8 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '16px',
-            marginRight: '4px'
+            marginRight: '4px',
+            flexShrink: 0
           }}
           aria-label="Close detail panel"
         >

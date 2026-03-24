@@ -54,7 +54,8 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
           zIndex: 2,
           transition: 'width 200ms ease-out, min-width 200ms ease-out',
           backgroundColor: 'var(--bg-secondary)',
-          borderRight: '1px solid var(--border-default)',
+          // Soft edge without a hard vertical border (Codex-style separation by contrast)
+          boxShadow: '1px 0 0 0 rgba(0, 0, 0, 0.12)',
           display: 'flex',
           flexDirection: 'column'
         }}
@@ -85,7 +86,8 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
           overflow: 'hidden',
           transition: 'width 200ms ease-out, min-width 200ms ease-out',
           backgroundColor: 'var(--bg-secondary)',
-          borderLeft: detailPanelVisible ? '1px solid var(--border-default)' : 'none',
+          // Soft edge without a hard vertical border
+          boxShadow: detailPanelVisible ? '-1px 0 0 0 rgba(0, 0, 0, 0.12)' : 'none',
           display: 'flex',
           flexDirection: 'column'
         }}

@@ -1,4 +1,5 @@
 import { useConnectionStore } from '../stores/connectionStore'
+import { SIDEBAR_NAV_ICON_SLOT } from './sidebar/sidebarNavRowStyles'
 
 const STATUS_CONFIG = {
   connecting: {
@@ -38,28 +39,30 @@ export function ConnectionStatusIndicator(): JSX.Element {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '6px',
-        padding: '4px 0'
+        gap: '8px',
+        minWidth: 0,
+        flex: 1
       }}
       title={label}
     >
-      {/* Status dot */}
-      <span
-        style={{
-          display: 'inline-block',
-          width: '8px',
-          height: '8px',
-          borderRadius: '50%',
-          backgroundColor: config.color,
-          flexShrink: 0,
-          animation: config.pulse ? 'pulse 2s ease-in-out infinite' : 'none'
-        }}
-        aria-hidden="true"
-      />
-      {/* Label */}
+      <span style={SIDEBAR_NAV_ICON_SLOT}>
+        <span
+          style={{
+            display: 'block',
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: config.color,
+            flexShrink: 0,
+            animation: config.pulse ? 'pulse 2s ease-in-out infinite' : 'none'
+          }}
+          aria-hidden="true"
+        />
+      </span>
       <span
         style={{
           fontSize: '12px',
+          lineHeight: 1.2,
           color: 'var(--text-secondary)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',

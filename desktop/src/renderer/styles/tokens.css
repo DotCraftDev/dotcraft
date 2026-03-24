@@ -117,6 +117,9 @@
   --transition-fade: 100ms linear;
   --transition-message: 150ms ease-out;
 
+  /* Conversation + detail panel top chrome (aligned horizontal rule) */
+  --chrome-header-height: 44px;
+
   /* Code blocks & modals */
   --code-block-bg: #0d1117;
   --code-copy-bg: rgba(255, 255, 255, 0.08);
