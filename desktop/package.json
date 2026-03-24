@@ -1,7 +1,7 @@
 {
   "name": "dotcraft-desktop",
   "version": "0.1.0",
-  "description": "DotCraft Desktop - Electron client for DotCraft Agent Harness",
+  "description": "DotCraft Desktop",
   "author": {
     "name": "DotCraft"
   },
