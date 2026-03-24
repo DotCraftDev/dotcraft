@@ -233,11 +233,11 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
               backgroundColor: 'transparent',
               color: 'var(--text-primary)',
               cursor:
-                generating || committing || success || !isConnected || writtenFiles.length === 0
+                generating || committing || success || !isConnected || writtenFiles.length === 0 || !threadId.trim()
                   ? 'default'
                   : 'pointer',
               opacity:
-                generating || committing || success || !isConnected || writtenFiles.length === 0 ? 0.5 : 1,
+                generating || committing || success || !isConnected || writtenFiles.length === 0 || !threadId.trim() ? 0.5 : 1,
               flexShrink: 0
             }}
           >
