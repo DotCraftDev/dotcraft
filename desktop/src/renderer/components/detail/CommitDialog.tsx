@@ -309,7 +309,13 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
           </button>
           <button
             onClick={() => { void handleCommit() }}
-            disabled={committing || success || !message.trim() || writtenFiles.length === 0}
+            disabled={
+              generating ||
+              committing ||
+              success ||
+              !message.trim() ||
+              writtenFiles.length === 0
+            }
             style={{
               padding: '7px 16px',
               border: 'none',
@@ -318,11 +324,19 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
               color: 'var(--on-accent)',
               fontSize: '13px',
               fontWeight: 500,
-              cursor: (committing || success || !message.trim()) ? 'default' : 'pointer',
-              opacity: (committing || success || !message.trim()) ? 0.6 : 1
+              cursor:
+                generating || committing || success || !message.trim() ? 'default' : 'pointer',
+              opacity:
+                generating || committing || success || !message.trim() ? 0.6 : 1
             }}
           >
-            {success ? 'Committed ✓' : committing ? 'Committing...' : 'Commit →'}
+            {success
+              ? 'Committed ✓'
+              : committing
+                ? 'Committing...'
+                : generating
+                  ? 'Generating…'
+                  : 'Commit →'}
           </button>
         </div>
       </div>
