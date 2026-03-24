@@ -17,10 +17,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '10.0.x'
 
@@ -57,10 +57,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: '10.0.x'
 
@@ -106,14 +106,14 @@ jobs:
 
     - name: Upload artifact - Linux/macOS
       if: runner.os != 'Windows'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ matrix.output_name }}
         path: ${{ matrix.output_name }}.tar.gz
 
     - name: Upload artifact - Windows
       if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ matrix.output_name }}
         path: ${{ matrix.output_name }}.zip
@@ -121,7 +121,7 @@ jobs:
     # ── Desktop (Electron) build ──────────────────────────────────────────────
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: '20'
         cache: 'npm'
@@ -146,7 +146,7 @@ jobs:
 
     - name: Upload desktop artifacts - Windows
       if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: DotCraft-Desktop-win-x64
         path: |
@@ -156,7 +156,7 @@ jobs:
 
     - name: Upload desktop artifacts - macOS
       if: runner.os == 'macOS'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: DotCraft-Desktop-macos-x64
         path: |
@@ -165,7 +165,7 @@ jobs:
 
     - name: Upload desktop artifacts - Linux
       if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: DotCraft-Desktop-linux-x64
         path: |
@@ -181,10 +181,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         path: artifacts
 
