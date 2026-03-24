@@ -33,7 +33,7 @@ declare global {
         popupTopLevel(label: string, x: number, y: number): Promise<void>
       }
       appServer: {
-        sendRequest(method: string, params?: unknown): Promise<unknown>
+        sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
         onNotification(callback: (payload: NotificationPayload) => void): UnsubscribeFn
         onConnectionStatus(
           callback: (status: ConnectionStatusPayload) => void

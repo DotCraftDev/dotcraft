@@ -48,10 +48,14 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
     setError(null)
     try {
       const paths = writtenFiles.map((f) => toRelativePath(f.filePath, workspacePath))
-      const result = (await window.api.appServer.sendRequest('workspace/commitMessage/suggest', {
-        threadId,
-        paths
-      })) as { message?: string }
+      const result = (await window.api.appServer.sendRequest(
+        'workspace/commitMessage/suggest',
+        {
+          threadId,
+          paths
+        },
+        120_000
+      )) as { message?: string }
       if (result?.message?.trim()) {
         setMessage(result.message.trim())
         addToast('Commit message generated from changes', 'success')

@@ -98,13 +98,16 @@ export function registerIpcHandlers(
   callbacks?: IpcHandlerCallbacks
 ): void {
   // Renderer -> Main: send a JSON-RPC request to AppServer
-  ipcMain.handle('appserver:send-request', async (_event, method: string, params?: unknown) => {
-    const client = getWireClient()
-    if (!client) {
-      throw new Error('AppServer is not connected')
+  ipcMain.handle(
+    'appserver:send-request',
+    async (_event, method: string, params?: unknown, timeoutMs?: number) => {
+      const client = getWireClient()
+      if (!client) {
+        throw new Error('AppServer is not connected')
+      }
+      return client.sendRequest(method, params, timeoutMs)
     }
-    return client.sendRequest(method, params)
-  })
+  )
 
   // Renderer -> Main: send back the user's decision for a server-initiated request
   ipcMain.handle('appserver:server-response', (_event, bridgeId: string, result: unknown) => {

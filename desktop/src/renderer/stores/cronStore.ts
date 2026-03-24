@@ -24,6 +24,33 @@ export interface CronJobWire {
 
 const POLL_MS = 15_000
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let isPollingActive = false
+
+// Register cleanup on page unload to prevent timer leaks
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (pollTimer != null) {
+      clearInterval(pollTimer)
+      pollTimer = null
+      isPollingActive = false
+    }
+  })
+  
+  // Also pause polling when page is hidden (tab switch, minimize, etc.)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && pollTimer != null) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    } else if (document.visibilityState === 'visible' && isPollingActive) {
+      // Resume polling when page becomes visible again
+      if (pollTimer == null) {
+        pollTimer = setInterval(() => {
+          void useCronStore.getState().fetchJobs({ silent: true })
+        }, POLL_MS)
+      }
+    }
+  })
+}
 
 interface CronStoreState {
   jobs: CronJobWire[]
@@ -65,6 +92,7 @@ export const useCronStore = create<CronStoreState>((set, get) => ({
 
   startPolling() {
     if (pollTimer != null) return
+    isPollingActive = true
     pollTimer = setInterval(() => {
       void useCronStore.getState().fetchJobs({ silent: true })
     }, POLL_MS)
@@ -75,6 +103,7 @@ export const useCronStore = create<CronStoreState>((set, get) => ({
       clearInterval(pollTimer)
       pollTimer = null
     }
+    isPollingActive = false
   },
 
   async removeJob(jobId: string) {

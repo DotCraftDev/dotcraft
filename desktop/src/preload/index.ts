@@ -98,8 +98,8 @@ const api = {
      * Sends a JSON-RPC request to the AppServer via Main Process.
      * Returns the result or throws on error.
      */
-    sendRequest(method: string, params?: unknown): Promise<unknown> {
-      return ipcRenderer.invoke('appserver:send-request', method, params)
+    sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
+      return ipcRenderer.invoke('appserver:send-request', method, params, timeoutMs)
     },
 
     /**

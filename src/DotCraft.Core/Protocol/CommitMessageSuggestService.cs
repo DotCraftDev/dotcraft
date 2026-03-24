@@ -129,8 +129,15 @@ public sealed class CommitMessageSuggestService(
             {
                 try
                 {
-                    await sessionService.DeleteThreadPermanentlyAsync(tempThreadId, CancellationToken.None)
+                    // Use a dedicated timeout for cleanup to ensure we don't leak threads
+                    // even if the main operation was cancelled
+                    using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    await sessionService.DeleteThreadPermanentlyAsync(tempThreadId, cleanupCts.Token)
                         .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    logger?.LogWarning("Timeout while deleting ephemeral commit-suggest thread {ThreadId}", tempThreadId);
                 }
                 catch (Exception ex)
                 {
@@ -199,16 +206,123 @@ public sealed class CommitMessageSuggestService(
                 throw new InvalidOperationException("paths must not contain empty entries.");
             if (p.Contains("..", StringComparison.Ordinal))
                 throw new InvalidOperationException("paths must not contain '..'.");
+            
             var combined = Path.GetFullPath(Path.Combine(workspaceRoot, p));
-            if (!combined.StartsWith(workspaceRoot, StringComparison.OrdinalIgnoreCase) ||
-                (combined.Length > workspaceRoot.Length &&
-                 combined[workspaceRoot.Length] != Path.DirectorySeparatorChar &&
-                 combined[workspaceRoot.Length] != Path.AltDirectorySeparatorChar))
+            
+            // Resolve symbolic links and junctions to prevent path traversal attacks
+            string resolvedPath;
+            try
+            {
+                resolvedPath = ResolveSymbolicLink(combined);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Path doesn't exist or cannot be accessed - validate the path itself
+                resolvedPath = combined;
+            }
+            
+            // Resolve workspace root as well to handle symlinks in the workspace path
+            string resolvedWorkspace = ResolveSymbolicLink(workspaceRoot);
+            
+            if (!resolvedPath.StartsWith(resolvedWorkspace, StringComparison.OrdinalIgnoreCase) ||
+                (resolvedPath.Length > resolvedWorkspace.Length &&
+                 resolvedPath[resolvedWorkspace.Length] != Path.DirectorySeparatorChar &&
+                 resolvedPath[resolvedWorkspace.Length] != Path.AltDirectorySeparatorChar))
                 throw new InvalidOperationException($"Path escapes workspace: {p}");
         }
     }
+    
+    /// <summary>Maximum symlink hops to follow (defense in depth alongside cycle detection).</summary>
+    private const int MaxSymlinkResolveDepth = 64;
+
+    /// <summary>
+    /// Resolves symbolic links, junctions, and other reparse points to get the canonical path.
+    /// Detects cycles so circular symlinks cannot cause unbounded recursion or <see cref="StackOverflowException"/>.
+    /// </summary>
+    private static string ResolveSymbolicLink(string path)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return ResolveSymbolicLinkCore(Path.GetFullPath(path), visited, depth: 0);
+    }
+
+    private static string ResolveSymbolicLinkCore(string path, HashSet<string> visited, int depth)
+    {
+        if (depth >= MaxSymlinkResolveDepth)
+            throw new InvalidOperationException("Symbolic link resolution exceeded maximum depth.");
+
+        if (!File.Exists(path) && !Directory.Exists(path))
+            return path;
+
+        if (!visited.Add(path))
+            throw new InvalidOperationException("Circular symbolic link detected.");
+
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                var dirInfo = new DirectoryInfo(path);
+                if (dirInfo.LinkTarget is { } linkTarget)
+                {
+                    var resolved = Path.GetFullPath(Path.Combine(
+                        Path.GetDirectoryName(path) ?? path,
+                        linkTarget));
+                    return ResolveSymbolicLinkCore(resolved, visited, depth + 1);
+                }
+            }
+            else if (File.Exists(path))
+            {
+                var fileInfo = new FileInfo(path);
+                if (fileInfo.LinkTarget is { } linkTarget)
+                {
+                    var resolved = Path.GetFullPath(Path.Combine(
+                        Path.GetDirectoryName(path) ?? path,
+                        linkTarget));
+                    return ResolveSymbolicLinkCore(resolved, visited, depth + 1);
+                }
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            // If we can't resolve, fall back to the original path
+        }
+
+        return Path.GetFullPath(path);
+    }
 
     private static string RunGitDiff(string workspaceRoot, string[] paths, int maxChars, ILogger? logger)
+    {
+        string stdout;
+        try
+        {
+            stdout = RunGitDiffAgainstHead(workspaceRoot, paths, logger);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "git diff execution failed");
+            throw new InvalidOperationException("Failed to run git diff. Ensure git is installed and the workspace is a repository.");
+        }
+
+        if (string.IsNullOrWhiteSpace(stdout))
+            stdout = RunGitDiffNoIndexUntracked(workspaceRoot, paths, logger);
+
+        if (string.IsNullOrWhiteSpace(stdout))
+            return string.Empty;
+
+        if (stdout.Length > maxChars)
+            return stdout[..maxChars] + "\n\n[diff truncated]";
+        return stdout;
+    }
+
+    /// <summary>Working tree vs <c>HEAD</c> for the given paths (tracked / indexed content).</summary>
+    private static string RunGitDiffAgainstHead(string workspaceRoot, string[] paths, ILogger? logger)
     {
         var psi = new ProcessStartInfo
         {
@@ -219,6 +333,10 @@ public sealed class CommitMessageSuggestService(
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        // Avoid invoking a pager (less/more) when stdout is redirected — it can block until user input and hit WaitForExit timeout.
+        psi.Environment["GIT_PAGER"] = "cat";
+        psi.Environment["PAGER"] = "cat";
+        psi.ArgumentList.Add("--no-pager");
         psi.ArgumentList.Add("diff");
         psi.ArgumentList.Add("--no-color");
         psi.ArgumentList.Add("HEAD");
@@ -226,28 +344,170 @@ public sealed class CommitMessageSuggestService(
         foreach (var p in paths)
             psi.ArgumentList.Add(p.Replace('/', Path.DirectorySeparatorChar));
 
+        using var proc = Process.Start(psi);
+        if (proc == null)
+            throw new InvalidOperationException("Could not start git.");
+        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+
+        if (!proc.WaitForExit(60_000))
+        {
+            logger?.LogWarning("git diff timed out, killing process");
+            try
+            {
+                proc.Kill(entireProcessTree: true);
+            }
+            catch (Exception killEx)
+            {
+                logger?.LogWarning(killEx, "Failed to kill timed-out git process");
+            }
+            throw new InvalidOperationException("git diff timed out after 60 seconds.");
+        }
+
+        var stdout = stdoutTask.GetAwaiter().GetResult();
+        var stderr = stderrTask.GetAwaiter().GetResult();
+
+        if (proc.ExitCode != 0 && string.IsNullOrWhiteSpace(stdout))
+        {
+            logger?.LogWarning("git diff failed: {Stderr}", stderr);
+            return string.Empty;
+        }
+
+        return stdout;
+    }
+
+    /// <summary>
+    /// For <b>untracked</b> files, <c>git diff HEAD -- path</c> is empty; use <c>git diff --no-index</c> from the null device.
+    /// </summary>
+    private static string RunGitDiffNoIndexUntracked(string workspaceRoot, string[] paths, ILogger? logger)
+    {
+        var sb = new StringBuilder();
+        var nullDevice = OperatingSystem.IsWindows() ? "NUL" : "/dev/null";
+
+        foreach (var p in paths)
+        {
+            var rel = p.Replace('/', Path.DirectorySeparatorChar);
+            var full = Path.GetFullPath(Path.Combine(workspaceRoot, rel));
+            if (!File.Exists(full))
+                continue;
+            if (IsGitPathTracked(workspaceRoot, rel, logger))
+                continue;
+
+            var chunk = RunGitDiffNoIndexSingle(workspaceRoot, nullDevice, rel, logger);
+            if (string.IsNullOrWhiteSpace(chunk))
+                continue;
+            if (sb.Length > 0)
+                sb.AppendLine().AppendLine();
+            sb.AppendLine($"--- untracked: {rel} ---");
+            sb.Append(chunk.TrimEnd());
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool IsGitPathTracked(string workspaceRoot, string relativePath, ILogger? logger)
+    {
         try
         {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workspaceRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            psi.Environment["GIT_PAGER"] = "cat";
+            psi.Environment["PAGER"] = "cat";
+            psi.ArgumentList.Add("--no-pager");
+            psi.ArgumentList.Add("ls-files");
+            psi.ArgumentList.Add("--error-unmatch");
+            psi.ArgumentList.Add("--");
+            psi.ArgumentList.Add(relativePath);
+
             using var proc = Process.Start(psi);
             if (proc == null)
-                throw new InvalidOperationException("Could not start git.");
-            var stdout = proc.StandardOutput.ReadToEnd();
-            var stderr = proc.StandardError.ReadToEnd();
-            proc.WaitForExit(60_000);
-            if (proc.ExitCode != 0 && string.IsNullOrWhiteSpace(stdout))
+                return true;
+            var outTask = proc.StandardOutput.ReadToEndAsync();
+            var errTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(10_000))
             {
-                logger?.LogWarning("git diff failed: {Stderr}", stderr);
+                try
+                {
+                    proc.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "git ls-files timed out");
+                }
+                return true;
+            }
+            _ = outTask.GetAwaiter().GetResult();
+            _ = errTask.GetAwaiter().GetResult();
+            return proc.ExitCode == 0;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "git ls-files failed for {Path}", relativePath);
+            return true;
+        }
+    }
+
+    private static string RunGitDiffNoIndexSingle(
+        string workspaceRoot,
+        string nullDevice,
+        string relativePath,
+        ILogger? logger)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workspaceRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            psi.Environment["GIT_PAGER"] = "cat";
+            psi.Environment["PAGER"] = "cat";
+            psi.ArgumentList.Add("--no-pager");
+            psi.ArgumentList.Add("diff");
+            psi.ArgumentList.Add("--no-color");
+            psi.ArgumentList.Add("--no-index");
+            psi.ArgumentList.Add(nullDevice);
+            psi.ArgumentList.Add(relativePath);
+
+            using var proc = Process.Start(psi);
+            if (proc == null)
+                return string.Empty;
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(60_000))
+            {
+                try
+                {
+                    proc.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "git diff --no-index timed out");
+                }
                 return string.Empty;
             }
 
-            if (stdout.Length > maxChars)
-                return stdout[..maxChars] + "\n\n[diff truncated]";
+            var stdout = stdoutTask.GetAwaiter().GetResult();
+            _ = stderrTask.GetAwaiter().GetResult();
+            if (string.IsNullOrWhiteSpace(stdout))
+                return string.Empty;
             return stdout;
         }
-        catch (Exception ex) when (ex is not InvalidOperationException)
+        catch (Exception ex)
         {
-            logger?.LogWarning(ex, "git diff execution failed");
-            throw new InvalidOperationException("Failed to run git diff. Ensure git is installed and the workspace is a repository.");
+            logger?.LogWarning(ex, "git diff --no-index failed for {Path}", relativePath);
+            return string.Empty;
         }
     }
 }
