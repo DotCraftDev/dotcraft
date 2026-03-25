@@ -7,6 +7,7 @@ import {
   useState
 } from 'react'
 import { FILE_REF_CLASS } from './richInputConstants'
+import { serializeEditor, truncateEditorDomToSerializedLength } from './richInputSerialization'
 
 const MAX_ROWS = 8
 const MAX_TEXT_LEN = 100_000
@@ -31,37 +32,6 @@ interface RichInputAreaProps {
   onContentChange?: () => void
   onPasteImage?: (file: File) => void
   onPasteTextOversized?: () => void
-}
-
-function serializeEditor(root: HTMLElement): string {
-  let out = ''
-  const walk = (node: Node): void => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += node.textContent ?? ''
-      return
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return
-    const el = node as HTMLElement
-    if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') {
-      return
-    }
-    if (el.classList.contains(FILE_REF_CLASS)) {
-      const p = el.getAttribute('data-relative-path') ?? ''
-      if (p) out += `@${p}`
-      return
-    }
-    if (el.tagName === 'BR') {
-      out += '\n'
-      return
-    }
-    for (const c of Array.from(el.childNodes)) {
-      walk(c)
-    }
-  }
-  for (const c of Array.from(root.childNodes)) {
-    walk(c)
-  }
-  return out
 }
 
 /** Same linearization as textBeforeCaretForAt (tags = one boundary char). */
@@ -313,8 +283,11 @@ export const RichInputArea = forwardRef<RichInputAreaHandle, RichInputAreaProps>
       onContentChange?.()
       const el = editorRef.current
       if (el && serializeEditor(el).length > MAX_TEXT_LEN) {
-        const t = serializeEditor(el).slice(0, MAX_TEXT_LEN)
-        el.textContent = t
+        truncateEditorDomToSerializedLength(el, MAX_TEXT_LEN)
+        syncEmpty()
+        adjustHeight()
+        emitAtQuery()
+        onContentChange?.()
       }
     }, [adjustHeight, emitAtQuery, onContentChange, syncEmpty])
 
