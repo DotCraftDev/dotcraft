@@ -1,54 +1,99 @@
 # Contributing to DotCraft
 
-This guide explains how to contribute to DotCraft using the development guidelines.
+Thank you for considering contributing to DotCraft!
 
-## Two Ways to Contribute
+## Development Environment Setup
 
-### Option 1: Using AI-Powered Tools
+### C# / .NET Core
+- .NET 10 SDK (preview)
+- Recommended editors: VS Code or Visual Studio 2022
 
-If you're using AI coding assistants (like CodeBuddy, Claude, or similar tools), the development guidelines are available as a **Skill** located in `samples/skills/dev-guide/`.
+### Rust / TUI (Optional)
+- Rust 1.75+ (`rustup`)
+- See `tui/README.md` for dependencies
 
-**How it works**:
-1. The AI tool loads the Skill from `samples/skills/dev-guide/SKILL.md` and `samples/skills/dev-guide/references/` files
-2. When you ask for help with DotCraft development, the AI follows the guidelines
-3. The AI references actual code files and documentation as needed
+### TypeScript / Desktop (Optional)
+- Node.js 20+ LTS
+- See `desktop/README.md` for dependencies
 
-**Example prompts**:
-- "Help me create a new Discord channel module"
-- "Add a new tool for generating reports"
-- "Review this code for DotCraft style compliance"
+## Quick Start
 
-The AI will:
-- Follow C# coding conventions
-- Place code in the correct module
-- Reference existing implementations
-- Suggest bilingual documentation
+```bash
+# Clone and build
+git clone https://github.com/xxx/dotcraft.git
+cd dotcraft
+dotnet build dotcraft.sln
 
-### Option 2: Manual Development
+# Run tests
+dotnet test tests/DotCraft.Core.Tests
+```
 
-If you prefer to work without AI assistance, simply read the guidelines directly from `samples/skills/dev-guide/`:
+## Ways to Contribute
 
-1. **Start here**: `samples/skills/dev-guide/SKILL.md` - Code style and documentation guidelines
-2. **Module development (norms and checklist)**: `samples/skills/dev-guide/references/module-development-spec.md` - Host/Channel, HITL, tools, config rules
+### 1. Code Contributions
 
-**Quick reference**:
-- **Code style**: See `samples/skills/dev-guide/SKILL.md` → Code Style Guidelines
-- **Create or change a module**: See `samples/skills/dev-guide/references/module-development-spec.md` and use the checklist there; discover implementation from the codebase (e.g. search for `[DotCraftModule(`, `CreateChannelService`, `IApprovalService`).
-- **Existing examples**: Check `src/DotCraft.QQ/` (full channel) or `src/DotCraft.Unity/` (tool-only)
+#### Using AI-Powered Tools
+If you're using AI coding assistants, load the skill from `samples/skills/dev-guide/`:
+- The AI will automatically follow code style and module conventions
+- Example prompts: "Help me create a new Discord channel module"
 
-## What's Covered
+#### Manual Development
+Reference the development guidelines:
+- **Code style**: `samples/skills/dev-guide/SKILL.md`
+- **Module spec**: `samples/skills/dev-guide/references/module-development-spec.md`
+- **Reference implementations**: `src/DotCraft.QQ/` (full channel), `src/DotCraft.Unity/` (tool-only)
 
-The guidelines include:
+### 2. Documentation Contributions
 
-- ✅ **C# Code Style** - Official conventions with modern features
-- ✅ **Module Development** - Norms and checklist (Host/Channel, HITL, tools, config) in the spec; implementation discovered from the codebase
-- ✅ **Documentation Requirements** - Bilingual (English + Chinese) standards
-- ✅ **Development Workflow** - Before, during, and after making changes
+- Chinese docs: `docs/*.md`
+- English docs: `docs/en/*.md`
+- Sample projects: `samples/` (each sample needs `README.md` + `README_ZH.md`)
 
-## Quick Checklist
+### 3. Test Contributions
 
-Before submitting your contribution:
+- Location: `tests/DotCraft.Core.Tests/`
+- Framework: xUnit + coverlet
+- New features should include unit tests
 
+### 4. Issues and Feature Requests
+
+- Use GitHub Issues for bug reports or feature requests
+- Bug reports should include: reproduction steps, expected behavior, actual behavior, environment info
+
+## Pull Request Process
+
+1. **Fork and create a branch**
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. **Write code and test**
+   - Follow code style guidelines
+   - Add necessary tests
+   - Update related documentation
+
+3. **Submit PR**
+   - Fill out the PR template
+   - Link related issues
+   - Wait for code review
+
+4. **Code Review**
+   - Requires at least one maintainer approval
+   - CI must pass before merging
+
+## Code Style Quick Reference
+
+| Stack | Style Guide | Key Requirements |
+|-------|-------------|------------------|
+| C# | Official conventions + modern features | file-scoped namespace, sealed class, XML doc |
+| Rust | Idiomatic Rust | `snake_case`, `anyhow::Result`, `#[tokio::main]` |
+| TypeScript/React | Standard React | Functional components, Zustand, Tailwind CSS 4 |
+
+See `samples/skills/dev-guide/SKILL.md` for complete guidelines.
+
+## Pre-Submission Checklist
+
+### C# Code
 - [ ] Follows C# official style conventions
 - [ ] Code placed in correct module (Core, App, or channel module)
 - [ ] XML documentation comments added for public APIs
@@ -56,13 +101,27 @@ Before submitting your contribution:
 - [ ] Configuration validated with appropriate error messages
 - [ ] Tested manually in real environment
 
+### Rust Code
+- [ ] `cargo clippy` passes without warnings
+- [ ] `cargo fmt` applied
+- [ ] New modules have documentation comments
+
+### TypeScript/React Code
+- [ ] ESLint passes without errors
+- [ ] Components use TypeScript types
+- [ ] Styles use Tailwind CSS
+
+### Documentation
+- [ ] Both language versions updated in sync
+- [ ] Links are valid
+- [ ] Code examples are runnable
+
 ## Need Help?
 
-- **Development guidelines**: Check `samples/skills/dev-guide/`
-- **Code examples**: Check existing modules in `src/`
-- **Documentation**: Check `docs/` for user guides
-- **Samples**: Check `samples/` for complete examples
-- **Questions**: Open an issue on GitHub
+- **Development guidelines**: `samples/skills/dev-guide/`
+- **Code examples**: `src/DotCraft.QQ/`, `src/DotCraft.Unity/`
+- **User docs**: `docs/`
+- **Questions**: Open a GitHub Issue
 
 ## License
 

@@ -81,6 +81,26 @@ Use XML documentation comments (`/// <summary>`, `/// <param>`, `/// <returns>`)
 - **Code comments**: English
 - **User-facing messages**: Use `LanguageService` for bilingual support, e.g. `lang.GetString("中文", "English")`. For CLI strings, the codebase centralizes entries in `DotCraft.Core.Localization.Strings`; search for `Strings.` and `LanguageService` for examples.
 
+### Rust Style (TUI)
+
+Use idiomatic Rust with modern features:
+- **Modules**: `mod.rs` for directory modules
+- **Error handling**: `anyhow::Result` for application code, `thiserror` for library errors
+- **Async**: Tokio runtime; use `#[tokio::main]` for entry points
+- **Naming**: `snake_case` for functions/variables, `PascalCase` for types
+
+Key crates (see `tui/Cargo.toml`): `ratatui` (TUI), `tokio` (async), `serde_json`, `pulldown-cmark` + `syntect` (Markdown/syntax highlighting).
+
+### React/TypeScript Style (Desktop)
+
+Follow standard React + TypeScript conventions:
+- **Components**: Functional components with hooks
+- **State**: Zustand stores in `renderer/stores/`
+- **Styling**: Tailwind CSS 4
+- **Naming**: `PascalCase` for components, `camelCase` for utilities
+
+Key dependencies (see `desktop/package.json`): `react` 19, `electron` 35, `zustand` (state), `react-markdown` + `highlight.js` (rendering).
+
 ## Documentation Guidelines
 
 ### Bilingual Requirements
@@ -162,3 +182,5 @@ When modifying protocol designs or process flows defined in `specs/`, **always u
 - **Module development (norms and checklist)**: references/module-development-spec.md
 - **Specs (protocol and process design)**: `specs/` — always consult and update these before implementation
 - **Python SDK for external channels**: `sdk/python/`
+- **TUI README**: `tui/README.md` — build instructions, CLI flags, key bindings
+- **Desktop README**: `desktop/README.md` — usage, settings, npm scripts

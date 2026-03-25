@@ -67,6 +67,22 @@ Server-managed channels (CLI, ACP, QQ, WeCom, GitHubTracker) share a unified ses
 
 `specs/appserver-protocol.md` defines a JSON-RPC wire protocol (stdio/WebSocket) projecting `ISessionService` to out-of-process clients. Used by ACP-external adapters.
 
+### Client Applications
+
+DotCraft has two external clients that connect to AppServer via the Wire Protocol:
+
+**TUI (Terminal UI)** — Rust-native terminal interface built on Ratatui. Runs as a separate process communicating via stdio (default) or WebSocket.
+
+- Location: `tui/`
+- Key modules: `wire/` (JSON-RPC client), `ui/` (Ratatui widgets), `app/` (state, input routing)
+- Build: `cd tui && cargo build --release`
+
+**Desktop** — Electron + React desktop client. Connects to AppServer via WebSocket.
+
+- Location: `desktop/`
+- Key modules: `main/` (Electron main process), `renderer/` (React UI with Zustand)
+- Build: `cd desktop && npm install && npm run dev`
+
 ### Agent Execution Pipeline
 
 Built on `Microsoft.Extensions.AI`. Key components in `DotCraft.Core.Agents`:
@@ -114,6 +130,8 @@ Tool names vary by source — use exact names for whitelists (`EnabledTools`, `T
 | `specs/` | Session Core and AppServer Protocol specifications |
 | `docs/` | Chinese docs; `docs/en/` for English |
 | `samples/` | Sample projects (ag-ui-client, hooks, skills, workspace) |
+| `tui/` | Rust terminal UI (Ratatui), connects via Wire Protocol |
+| `desktop/` | Electron + React desktop client, connects via WebSocket |
 
 ## Code Style
 
