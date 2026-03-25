@@ -34,22 +34,26 @@ function getCollapsedLabel(
   if (EXPLORE_TOOLS.has(toolName)) {
     const path = (args?.path as string | undefined) ?? (args?.pattern as string | undefined) ?? ''
     const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename ? `Explored ${filename}` : `Explored files`
+    return filename
+      ? translate(locale, 'toolCall.explored', { filename })
+      : translate(locale, 'toolCall.exploredFiles')
   }
   if (FILE_WRITE_TOOLS.has(toolName)) {
     const path = (args?.path as string | undefined) ?? ''
     const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename ? `Edited ${filename}` : `Edited file`
+    return filename
+      ? translate(locale, 'toolCall.edited', { filename })
+      : translate(locale, 'toolCall.editedFile')
   }
   if (SHELL_TOOLS.has(toolName)) {
     const cmd = (args?.command as string | undefined) ?? toolName
     const short = cmd.length > 40 ? cmd.slice(0, 40) + '…' : cmd
-    return `Ran ${short}`
+    return translate(locale, 'toolCall.ran', { cmd: short })
   }
   if (toolName === CRON_TOOL_NAME) {
     return formatCronCollapsedLabel(args, locale)
   }
-  return `Called ${toolName}`
+  return translate(locale, 'toolCall.called', { toolName })
 }
 
 /**
@@ -107,7 +111,8 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
             </span>
           ) : (
             <>
-              Calling <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
+              {translate(locale, 'toolCall.calling')}{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
             </>
           )}
           {elapsed > 0 && (
@@ -159,7 +164,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 
         {/* Label */}
         <span style={{ flex: 1 }}>
-          {success ? label : `Failed: ${label}`}
+          {success ? label : translate(locale, 'toolCall.failed', { label })}
           {!success && item.result && (
             <span
               style={{ color: 'var(--error)', marginLeft: '6px' }}
