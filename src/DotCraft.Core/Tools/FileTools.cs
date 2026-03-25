@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
 using DotCraft.Security;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tools;
 
@@ -48,13 +49,26 @@ public sealed class FileTools(
         ".git", "node_modules"
     };
 
+    /// <summary>
+    /// Image extensions returned as <see cref="DataContent"/> for vision models (subset of <see cref="BinaryExtensions"/>).
+    /// </summary>
+    private static readonly Dictionary<string, string> ImageExtensionToMediaType = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".png"] = "image/png",
+        [".jpg"] = "image/jpeg",
+        [".jpeg"] = "image/jpeg",
+        [".gif"] = "image/gif",
+        [".webp"] = "image/webp",
+        [".bmp"] = "image/bmp",
+    };
+
     private readonly string _workspaceRoot = Path.GetFullPath(workspaceRoot);
     
     private readonly IReadOnlyList<string> _trustedReadPaths = trustedReadPaths ?? [];
 
-    [Description("Read the contents of a file or list the contents of a directory. If the path is a directory, lists its entries. Supports offset and limit for paginated reading of large files.")]
+    [Description("Read the contents of a file or list the contents of a directory. If the path is a directory, lists its entries. Supports offset and limit for paginated reading of large text files. Image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) are returned as vision input for the model (full file only; offset/limit do not apply).")]
     [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile))]
-    public async Task<string> ReadFile(
+    public async Task<IList<AIContent>> ReadFile(
         [Description("The workspace-relative or absolute path to read.")] string path,
         [Description("The line number to start reading from (1-indexed). Enables line-numbered output when set.")] int offset = 0,
         [Description("The maximum number of lines to read (defaults to 2000 when offset is used).")] int limit = 0)
@@ -64,17 +78,30 @@ public sealed class FileTools(
             var fullPath = ResolvePath(path);
             var validateResult = await ValidatePathAsync(fullPath, "read", path);
             if (validateResult != null)
-                return validateResult;
+                return ReadFileTextResult(validateResult);
 
             if (Directory.Exists(fullPath))
-                return FormatDirectoryListing(fullPath, path);
+                return ReadFileTextResult(FormatDirectoryListing(fullPath, path));
 
             if (!File.Exists(fullPath))
-                return $"Error: File not found: {path}";
+                return ReadFileTextResult($"Error: File not found: {path}");
 
             var fileInfo = new FileInfo(fullPath);
             if (fileInfo.Length > maxFileSize)
-                return $"Error: File too large ({fileInfo.Length} bytes). Max size: {maxFileSize} bytes.";
+                return ReadFileTextResult($"Error: File too large ({fileInfo.Length} bytes). Max size: {maxFileSize} bytes.");
+
+            if (TryGetImageMediaType(fullPath, out var mediaType))
+            {
+                if (offset > 0)
+                {
+                    return ReadFileTextResult(
+                        "Error: Line offset/limit pagination is not supported for image files; call ReadFile without offset and limit to load the image as vision input.");
+                }
+
+                var bytes = await File.ReadAllBytesAsync(fullPath);
+                var summary = $"Image: {path} ({bytes.Length:N0} bytes, {mediaType})";
+                return [new TextContent(summary), new DataContent(bytes, mediaType)];
+            }
 
             var encoding = DetectFileEncoding(fullPath);
 
@@ -83,7 +110,7 @@ public sealed class FileTools(
                 var lines = await File.ReadAllLinesAsync(fullPath, encoding);
                 var startIndex = offset - 1;
                 if (startIndex >= lines.Length)
-                    return $"Error: Offset {offset} is out of range for this file ({lines.Length} lines).";
+                    return ReadFileTextResult($"Error: Offset {offset} is out of range for this file ({lines.Length} lines).");
 
                 var readLimit = limit > 0 ? limit : DefaultReadLimit;
                 var endIndex = Math.Min(lines.Length, startIndex + readLimit);
@@ -101,19 +128,27 @@ public sealed class FileTools(
                 else
                     sb.AppendLine($"\n(End of file - total {lines.Length} lines)");
 
-                return sb.ToString();
+                return ReadFileTextResult(sb.ToString());
             }
 
-            return await File.ReadAllTextAsync(fullPath, encoding);
+            return ReadFileTextResult(await File.ReadAllTextAsync(fullPath, encoding));
         }
         catch (UnauthorizedAccessException)
         {
-            return $"Error: Permission denied: {path}";
+            return ReadFileTextResult($"Error: Permission denied: {path}");
         }
         catch (Exception ex)
         {
-            return $"Error reading file: {ex.Message}";
+            return ReadFileTextResult($"Error reading file: {ex.Message}");
         }
+    }
+
+    private static IList<AIContent> ReadFileTextResult(string text) => [new TextContent(text)];
+
+    private static bool TryGetImageMediaType(string fullPath, out string mediaType)
+    {
+        var ext = Path.GetExtension(fullPath);
+        return ImageExtensionToMediaType.TryGetValue(ext, out mediaType!);
     }
 
     [Description("Write content to a file at the given path. Creates parent directories if needed.")]

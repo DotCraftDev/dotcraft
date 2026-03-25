@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Agents;
@@ -6,6 +7,7 @@ namespace DotCraft.Agents;
 /// Replaces non-text content (images, binary data) in tool-result messages with
 /// text descriptions before forwarding to the LLM API.
 /// Many OpenAI-compatible endpoints reject non-text content in tool-role messages (HTTP 400).
+/// Image bytes from the current tool round are re-attached as a synthetic user message so vision models can see them.
 /// </summary>
 public sealed class ImageContentSanitizingChatClient(IChatClient innerClient) : DelegatingChatClient(innerClient)
 {
@@ -27,11 +29,27 @@ public sealed class ImageContentSanitizingChatClient(IChatClient innerClient) : 
 
     private static List<ChatMessage> SanitizeMessages(IEnumerable<ChatMessage> messages)
     {
-        var result = new List<ChatMessage>();
+        var list = messages is IList<ChatMessage> il
+            ? new List<ChatMessage>(il)
+            : new List<ChatMessage>(messages);
 
-        foreach (var msg in messages)
+        // Tool messages strictly after the last non-tool message belong to the current invocation round.
+        var lastNonToolIndex = -1;
+        for (var i = 0; i < list.Count; i++)
         {
-            bool needsSanitization = false;
+            if (list[i].Role != ChatRole.Tool)
+                lastNonToolIndex = i;
+        }
+
+        var promotedImages = new List<DataContent>();
+        var result = new List<ChatMessage>(list.Count + 1);
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            var msg = list[i];
+            var isCurrentRoundTool = msg.Role == ChatRole.Tool && i > lastNonToolIndex;
+
+            var needsSanitization = false;
             foreach (var content in msg.Contents)
             {
                 if (content is FunctionResultContent frc && HasNonTextContent(frc.Result))
@@ -51,12 +69,36 @@ public sealed class ImageContentSanitizingChatClient(IChatClient innerClient) : 
             foreach (var content in msg.Contents)
             {
                 if (content is FunctionResultContent frc && HasNonTextContent(frc.Result))
+                {
+                    if (isCurrentRoundTool && frc.Result is IEnumerable<AIContent> items)
+                    {
+                        foreach (var item in items)
+                        {
+                            if (item is DataContent dc &&
+                                dc.MediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                                promotedImages.Add(dc);
+                        }
+                    }
+
                     newContents.Add(new FunctionResultContent(frc.CallId, DescribeResult(frc.Result)));
+                }
                 else
+                {
                     newContents.Add(content);
+                }
             }
 
-            result.Add(new ChatMessage(msg.Role, newContents));
+            result.Add(new ChatMessage(msg.Role, (IList<AIContent>)newContents));
+        }
+
+        if (promotedImages.Count > 0)
+        {
+            var parts = new List<AIContent>(promotedImages.Count + 1)
+            {
+                new TextContent("[Image content from tool results — attached for vision analysis.]")
+            };
+            parts.AddRange(promotedImages);
+            result.Add(new ChatMessage(ChatRole.User, (IList<AIContent>)parts));
         }
 
         return result;

@@ -1,3 +1,4 @@
+using DotCraft.Agents;
 using DotCraft.Tracing;
 using Microsoft.Extensions.AI;
 
@@ -58,7 +59,7 @@ internal sealed class HookWrappedFunction : DelegatingAIFunction
                 SessionId = TracingChatClient.CurrentSessionKey,
                 ToolName = toolName,
                 ToolArgs = ArgumentsToDict(arguments),
-                ToolResult = result?.ToString()
+                ToolResult = ImageContentSanitizingChatClient.DescribeResult(result)
             };
 
             await _hookRunner.RunAsync(

@@ -231,6 +231,11 @@ public static class CoreToolDisplays
         if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
             return [result.Split('\n')[0].Trim()];
 
+        // Multimodal ReadFile (image): DescribeResult text starts with summary + binary line
+        if (result.StartsWith("Image:", StringComparison.Ordinal) &&
+            result.Contains("[Image (", StringComparison.Ordinal))
+            return ["Image file (vision input)"];
+
         // Directory listing: lines prefixed with [DIR] or [FILE]
         var lines = result.Split('\n');
         var dirCount = lines.Count(l => l.StartsWith("[DIR] ", StringComparison.Ordinal));
