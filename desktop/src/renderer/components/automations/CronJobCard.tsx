@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { translate, type AppLocale } from '../../../shared/locales'
 import type { CronJobWire } from '../../stores/cronStore'
 import { useCronStore } from '../../stores/cronStore'
 import { useAutomationsStore } from '../../stores/automationsStore'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { formatNextRun } from '../../utils/cronNextRunDisplay'
 
@@ -44,20 +46,22 @@ function formatSchedule(job: CronJobWire): string {
   return job.schedule.kind
 }
 
-function relativeLastRun(lastRunAtMs?: number | null): string {
-  if (lastRunAtMs == null) return 'Never'
+function relativeLastRun(lastRunAtMs: number | undefined | null, locale: AppLocale): string {
+  if (lastRunAtMs == null) return translate(locale, 'cron.display.never')
   const diff = Date.now() - lastRunAtMs
   const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return 'just now'
+  if (seconds < 60) return translate(locale, 'cron.display.justNow')
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return translate(locale, 'cron.last.minAgo', { n: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return translate(locale, 'cron.last.hourAgo', { n: hours })
   const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return translate(locale, 'cron.last.dayAgo', { n: days })
 }
 
 export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const [hovered, setHovered] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -68,7 +72,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
   const selectedId = useCronStore((s) => s.selectedCronJobId)
 
   const st = job.state
-  const nextRun = formatNextRun(st.nextRunAtMs, job.enabled)
+  const nextRun = formatNextRun(st.nextRunAtMs, job.enabled, locale)
   const ok = st.lastStatus === 'ok'
   const err = st.lastStatus === 'error'
   const dotColor = !job.enabled
@@ -172,9 +176,9 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
               marginTop: '3px'
             }}
           >
-            Next run: {nextRun.absolute}
+            {t('cron.card.nextRunPrefix')} {nextRun.absolute}
             {nextRun.relative != null ? ` · ${nextRun.relative}` : ''}
-            {!job.enabled && st.nextRunAtMs != null ? ' · Paused' : ''}
+            {!job.enabled && st.nextRunAtMs != null ? t('cron.card.pausedSuffix') : ''}
           </div>
           <div
             style={{
@@ -186,7 +190,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
               textOverflow: 'ellipsis'
             }}
           >
-            Last run: {relativeLastRun(st.lastRunAtMs)} · {preview}
+            {t('cron.card.lastRunPrefix')} {relativeLastRun(st.lastRunAtMs, locale)} · {preview}
           </div>
         </div>
         <div
@@ -218,7 +222,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
                   cursor: 'pointer'
                 }}
               >
-                View
+                {t('cron.card.view')}
               </button>
             )}
             <button
@@ -237,7 +241,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
                 cursor: 'pointer'
               }}
             >
-              {job.enabled ? 'Disable' : 'Enable'}
+              {job.enabled ? t('cron.disable') : t('cron.enable')}
             </button>
             <button
               type="button"
@@ -258,7 +262,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
                 opacity: deleting ? 0.6 : 1
               }}
             >
-              {deleting ? '…' : 'Delete'}
+              {deleting ? t('cron.deleting') : t('cron.delete')}
             </button>
           </div>
         </div>
@@ -266,9 +270,9 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
 
       {showDelete && (
         <ConfirmDialog
-          title="Delete scheduled job?"
-          message={`Remove "${job.name}"? This cannot be undone.`}
-          confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+          title={t('cron.deleteTitle')}
+          message={t('cron.deleteConfirmMessage', { name: job.name })}
+          confirmLabel={deleting ? t('cron.deleting') : t('cron.deleteConfirm')}
           danger
           onConfirm={() => void handleDeleteConfirm()}
           onCancel={() => setShowDelete(false)}

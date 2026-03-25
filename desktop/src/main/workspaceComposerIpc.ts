@@ -4,6 +4,7 @@
 import { randomUUID } from 'crypto'
 import { promises as fs } from 'fs'
 import * as path from 'path'
+import { translate, DEFAULT_LOCALE, type AppLocale } from '../shared/locales'
 import { watch as fsWatch, type FSWatcher } from 'fs'
 import { globby } from 'globby'
 
@@ -227,21 +228,24 @@ export function invalidateFileIndex(): void {
 export async function saveImageDataUrlToTemp(
   workspaceRoot: string,
   dataUrl: string,
-  suggestedFileName?: string
+  suggestedFileName?: string,
+  locale: AppLocale = DEFAULT_LOCALE
 ): Promise<string> {
   const resolved = path.resolve(workspaceRoot)
   const match = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl.trim())
   if (!match) {
-    throw new Error('Invalid image data URL')
+    throw new Error(translate(locale, 'ipc.invalidImageDataUrl'))
   }
   const mime = match[1].trim().toLowerCase()
   const b64 = match[2].replace(/\s/g, '')
   const buf = Buffer.from(b64, 'base64')
   if (buf.length > MAX_IMAGE_BYTES) {
-    throw new Error(`Image too large (${buf.length} bytes). Maximum ${MAX_IMAGE_BYTES} bytes.`)
+    throw new Error(
+      translate(locale, 'ipc.imageTooLarge', { bytes: buf.length, max: MAX_IMAGE_BYTES })
+    )
   }
   if (!mime.startsWith('image/')) {
-    throw new Error('Clipboard data is not an image')
+    throw new Error(translate(locale, 'ipc.clipboardNotImage'))
   }
   const ext = MIME_TO_EXT[mime] ?? (path.extname(suggestedFileName ?? '') || '.png')
   const dir = path.join(resolved, '.craft', 'tmp', 'images')

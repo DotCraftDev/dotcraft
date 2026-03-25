@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { translate, type AppLocale } from '../../../shared/locales'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import type { AutomationTask, AutomationTaskStatus } from '../../stores/automationsStore'
 import { useAutomationsStore } from '../../stores/automationsStore'
 import { useCronStore } from '../../stores/cronStore'
@@ -14,20 +16,26 @@ function isTaskDeletable(status: AutomationTaskStatus): boolean {
   )
 }
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, locale: AppLocale): string {
   const diff = Date.now() - new Date(iso).getTime()
   const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return 'just now'
+  if (seconds < 60) return translate(locale, 'cron.display.justNow')
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return translate(locale, 'cron.last.minAgo', { n: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return translate(locale, 'cron.last.hourAgo', { n: hours })
   const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return translate(locale, 'cron.last.dayAgo', { n: days })
 }
 
-function SourceBadge({ sourceName }: { sourceName: string }): JSX.Element {
-  const label = sourceName === 'github' ? 'GitHub' : 'Local'
+function SourceBadgeSource({
+  sourceName,
+  t
+}: {
+  sourceName: string
+  t: ReturnType<typeof useT>
+}): JSX.Element {
+  const label = sourceName === 'github' ? t('auto.source.github') : t('auto.source.local')
   return (
     <span
       style={{
@@ -47,6 +55,8 @@ function SourceBadge({ sourceName }: { sourceName: string }): JSX.Element {
 }
 
 export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const [hovered, setHovered] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -81,7 +91,7 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
               cursor: 'pointer'
             }}
           >
-            Review
+            {t('auto.task.review')}
           </button>
         )
       case 'agent_running':
@@ -104,16 +114,16 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
               cursor: 'pointer'
             }}
           >
-            View
+            {t('auto.task.view')}
           </button>
         )
       case 'approved':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 500 }}>Done</span>
+          <span style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 500 }}>{t('auto.task.done')}</span>
         )
       case 'rejected':
         return (
-          <span style={{ fontSize: '12px', color: 'var(--error)', fontWeight: 500 }}>Rejected</span>
+          <span style={{ fontSize: '12px', color: 'var(--error)', fontWeight: 500 }}>{t('auto.task.rejected')}</span>
         )
       default:
         return null
@@ -179,8 +189,8 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
             color: 'var(--text-tertiary)'
           }}
         >
-          <SourceBadge sourceName={task.sourceName} />
-          <span>{relativeTime(task.updatedAt)}</span>
+          <SourceBadgeSource sourceName={task.sourceName} t={t} />
+          <span>{relativeTime(task.updatedAt, locale)}</span>
         </div>
       </div>
 
@@ -212,7 +222,7 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
               opacity: deleting ? 0.6 : 1
             }}
           >
-            {deleting ? '…' : 'Delete'}
+            {deleting ? t('auto.deleting') : t('auto.delete')}
           </button>
         )}
         {actionButton}
@@ -221,13 +231,11 @@ export function TaskCard({ task }: { task: AutomationTask }): JSX.Element {
 
     {showDeleteConfirm && (
       <ConfirmDialog
-        title="Delete task"
+        title={t('auto.task.deleteTitle')}
         message={
-          task.threadId
-            ? 'Delete this automation task and its conversation thread? This cannot be undone.'
-            : 'Delete this automation task? This cannot be undone.'
+          task.threadId ? t('auto.task.deleteWithThread') : t('auto.task.deleteOnly')
         }
-        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        confirmLabel={deleting ? t('auto.deleting') : t('auto.delete')}
         danger
         onConfirm={() => void handleDeleteConfirm()}
         onCancel={() => setShowDeleteConfirm(false)}

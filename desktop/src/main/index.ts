@@ -27,6 +27,12 @@ import {
   TITLE_BAR_OVERLAY_BY_THEME,
   TITLE_BAR_OVERLAY_HEIGHT
 } from '../shared/titleBarOverlay'
+import {
+  normalizeLocale,
+  translate,
+  type AppLocale,
+  type TopLevelMenuId
+} from '../shared/locales'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -107,7 +113,8 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   })
 
   const workspaceName = workspacePath ? basename(workspacePath) : 'DotCraft'
-  win.setTitle(`DotCraft \u2014 ${workspaceName}`)
+  const loc = normalizeLocale(sharedSettings.locale)
+  win.setTitle(translate(loc, 'app.titleWithWorkspace', { name: workspaceName }))
 
   if (!isDev) {
     win.once('ready-to-show', () => {
@@ -208,7 +215,10 @@ function buildCallbacks(): IpcHandlerCallbacks {
       saveSettings(sharedSettings)
       await connectToAppServer(newPath)
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.setTitle(`DotCraft \u2014 ${basename(newPath)}`)
+        const loc = normalizeLocale(sharedSettings.locale)
+        mainWindow.setTitle(
+          translate(loc, 'app.titleWithWorkspace', { name: basename(newPath) })
+        )
       }
     },
     onOpenNewWindow: () => {
@@ -216,8 +226,16 @@ function buildCallbacks(): IpcHandlerCallbacks {
     },
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
-      Object.assign(sharedSettings, partial)
+      const prevLocale = normalizeLocale(sharedSettings.locale)
+      const next: Partial<typeof sharedSettings> = { ...partial }
+      if (partial.locale !== undefined) {
+        next.locale = normalizeLocale(partial.locale)
+      }
+      Object.assign(sharedSettings, next)
       saveSettings(sharedSettings)
+      if (partial.locale !== undefined && normalizeLocale(sharedSettings.locale) !== prevLocale) {
+        refreshAppMenu()
+      }
     },
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings)
   }
@@ -235,8 +253,9 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   // (e.g. the renderer's workspace:switch IPC).
   const lockResult = acquireWorkspaceLock(workspacePath)
   if (!lockResult.ok) {
+    const loc = normalizeLocale(sharedSettings.locale)
     throw new Error(
-      `This workspace is already open in another DotCraft Desktop window (PID ${lockResult.pid}).`
+      translate(loc, 'main.error.workspaceLocked', { pid: lockResult.pid ?? 0 })
     )
   }
 
@@ -288,9 +307,10 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     wireClient?.dispose()
     wireClient = null
     if (mainWindow && !mainWindow.isDestroyed()) {
+      const loc = normalizeLocale(sharedSettings.locale)
       broadcastConnectionStatus(mainWindow, {
         status: 'disconnected',
-        errorMessage: 'Connection lost. Reconnecting...'
+        errorMessage: translate(loc, 'main.status.reconnecting')
       })
     }
 
@@ -310,9 +330,10 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     const { stdin, stdout } = manager
     if (!stdin || !stdout) {
       if (mainWindow && !mainWindow.isDestroyed()) {
+        const loc = normalizeLocale(sharedSettings.locale)
         broadcastConnectionStatus(mainWindow, {
           status: 'error',
-          errorMessage: 'AppServer process streams unavailable'
+          errorMessage: translate(loc, 'main.error.streamsUnavailable')
         })
       }
       return
@@ -351,10 +372,11 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
       const message = err instanceof Error ? err.message : String(err)
       const isTimeout = message.includes('timed out')
       if (mainWindow && !mainWindow.isDestroyed()) {
+        const loc = normalizeLocale(sharedSettings.locale)
         broadcastConnectionStatus(mainWindow, {
           status: 'error',
           errorMessage: isTimeout
-            ? 'AppServer is not responding. Restart?'
+            ? translate(loc, 'main.error.handshakeTimeout')
             : message,
           ...(isTimeout ? { errorType: 'handshake-timeout' } : {})
         } as ConnectionStatusPayload)
@@ -367,15 +389,17 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
 
 // ─── App menu ─────────────────────────────────────────────────────────────────
 
-function buildAppMenu(): Menu {
+function buildAppMenu(locale: AppLocale): Menu {
   const isMac = process.platform === 'darwin'
+  const L = (key: string) => translate(locale, key)
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? ([{ role: 'appMenu' }] as MenuItemConstructorOptions[]) : []),
     {
-      label: 'File',
+      id: 'file',
+      label: L('menu.file'),
       submenu: [
         {
-          label: 'New Window',
+          label: L('menu.newWindow'),
           accelerator: 'CmdOrCtrl+Shift+N',
           click: () => {
             openNewProcess()
@@ -386,7 +410,8 @@ function buildAppMenu(): Menu {
       ]
     },
     {
-      label: 'Edit',
+      id: 'edit',
+      label: L('menu.edit'),
       submenu: [
         { role: 'undo' },
         { role: 'redo' },
@@ -398,7 +423,8 @@ function buildAppMenu(): Menu {
       ]
     },
     {
-      label: 'View',
+      id: 'view',
+      label: L('menu.view'),
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
@@ -412,7 +438,8 @@ function buildAppMenu(): Menu {
       ]
     },
     {
-      label: 'Window',
+      id: 'window',
+      label: L('menu.window'),
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
@@ -422,10 +449,11 @@ function buildAppMenu(): Menu {
       ]
     },
     {
-      label: 'Help',
+      id: 'help',
+      label: L('menu.help'),
       submenu: [
         {
-          label: 'Documentation',
+          label: L('menu.documentation'),
           click: async () => {
             await shell.openExternal('https://github.com/DotCraftDev/dotcraft')
           }
@@ -436,16 +464,20 @@ function buildAppMenu(): Menu {
   return Menu.buildFromTemplate(template)
 }
 
+function refreshAppMenu(): void {
+  Menu.setApplicationMenu(buildAppMenu(normalizeLocale(sharedSettings.locale)))
+}
+
 function registerMenuPopupIpc(): void {
   ipcMain.removeHandler('menu:popup-top-level')
   ipcMain.handle(
     'menu:popup-top-level',
-    (event, payload: { label: string; x: number; y: number }) => {
+    (event, payload: { menuId: TopLevelMenuId; x: number; y: number }) => {
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win || win.isDestroyed()) return
       const appMenu = Menu.getApplicationMenu()
       if (!appMenu) return
-      const item = appMenu.items.find((i) => i.label === payload.label)
+      const item = appMenu.items.find((i) => i.id === payload.menuId)
       if (!item?.submenu) return
       item.submenu.popup({
         window: win,
@@ -460,7 +492,8 @@ function registerMenuPopupIpc(): void {
 
 app.whenReady().then(() => {
   registerMenuPopupIpc()
-  Menu.setApplicationMenu(buildAppMenu())
+  sharedSettings = loadSettings()
+  refreshAppMenu()
 
   if (!import.meta.env.DEV) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -475,7 +508,6 @@ app.whenReady().then(() => {
     })
   }
 
-  sharedSettings = loadSettings()
   let workspacePath = resolveWorkspacePath(sharedSettings)
 
   // If another process is already using this workspace, start without one

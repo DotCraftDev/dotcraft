@@ -1,8 +1,8 @@
 import type { CSSProperties } from 'react'
 
 import { TITLE_BAR_OVERLAY_RIGHT_RESERVE } from '../../../shared/titleBarOverlay'
-
-const TOP_LEVEL_LABELS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
+import { TOP_LEVEL_MENU_IDS, type TopLevelMenuId } from '../../../shared/locales'
+import { useT } from '../../contexts/LocaleContext'
 
 const dragRegion: CSSProperties = { WebkitAppRegion: 'drag' }
 const noDrag: CSSProperties = { WebkitAppRegion: 'no-drag' }
@@ -11,8 +11,18 @@ const noDrag: CSSProperties = { WebkitAppRegion: 'no-drag' }
  * In-window menu strip for Windows / Linux when using a hidden OS title bar.
  * macOS uses the system menu bar only; this component is not rendered there.
  */
+const MENU_LABEL_KEY: Record<TopLevelMenuId, 'menu.file' | 'menu.edit' | 'menu.view' | 'menu.window' | 'menu.help'> =
+  {
+    file: 'menu.file',
+    edit: 'menu.edit',
+    view: 'menu.view',
+    window: 'menu.window',
+    help: 'menu.help'
+  }
+
 export function CustomMenuBar(): JSX.Element {
   const height = window.api.titleBarOverlayHeight
+  const t = useT()
 
   return (
     <div
@@ -31,9 +41,9 @@ export function CustomMenuBar(): JSX.Element {
         color: 'var(--text-secondary)'
       }}
     >
-      {TOP_LEVEL_LABELS.map((label) => (
+      {TOP_LEVEL_MENU_IDS.map((menuId) => (
         <button
-          key={label}
+          key={menuId}
           type="button"
           style={{
             ...noDrag,
@@ -49,10 +59,10 @@ export function CustomMenuBar(): JSX.Element {
           onMouseDown={(e) => {
             e.preventDefault()
             const r = e.currentTarget.getBoundingClientRect()
-            void window.api.menu.popupTopLevel(label, r.left, r.bottom)
+            void window.api.menu.popupTopLevel(menuId, r.left, r.bottom)
           }}
         >
-          {label}
+          {t(MENU_LABEL_KEY[menuId])}
         </button>
       ))}
     </div>

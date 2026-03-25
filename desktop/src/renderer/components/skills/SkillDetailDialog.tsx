@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { MarkdownRenderer } from '../conversation/MarkdownRenderer'
 import type { SkillEntry } from '../../stores/skillsStore'
 import { dirname } from '../../utils/path'
@@ -21,6 +22,7 @@ export function SkillDetailDialog({
   onClose,
   onToggleEnabled
 }: SkillDetailDialogProps): JSX.Element {
+  const t = useT()
   const skillDir = dirname(skill.path)
 
   useEffect(() => {
@@ -133,9 +135,9 @@ export function SkillDetailDialog({
                 </p>
               ) : null}
               <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                {skill.source === 'builtin' && 'Built-in skill'}
-                {skill.source === 'workspace' && 'Workspace skill'}
-                {skill.source === 'user' && 'User-level skill'}
+                {skill.source === 'builtin' && t('skillDetail.builtInSubtitle')}
+                {skill.source === 'workspace' && t('skillDetail.workspaceSubtitle')}
+                {skill.source === 'user' && t('skillDetail.userSubtitle')}
               </p>
             </div>
             </div>
@@ -146,9 +148,9 @@ export function SkillDetailDialog({
               onClick={() => void window.api.shell.openPath(skillDir)}
               style={secondaryBtn}
             >
-              Open folder
+              {t('skillDetail.openFolder')}
             </button>
-            <button type="button" onClick={onClose} style={iconCloseBtn} aria-label="Close">
+            <button type="button" onClick={onClose} style={iconCloseBtn} aria-label={t('skillDetail.close')}>
               ×
             </button>
           </div>
@@ -163,7 +165,7 @@ export function SkillDetailDialog({
           }}
         >
           {loading ? (
-            <p style={{ color: 'var(--text-secondary)' }}>Loading…</p>
+            <p style={{ color: 'var(--text-secondary)' }}>{t('skillDetail.loading')}</p>
           ) : (
             <MarkdownRenderer content={markdownBody} />
           )}
@@ -186,10 +188,10 @@ export function SkillDetailDialog({
             onClick={() => void onToggleEnabled(!skill.enabled)}
             style={skill.enabled ? dangerOutlineBtn : primaryBtn}
           >
-            {skill.enabled ? 'Disable for workspace' : 'Enable for workspace'}
+            {skill.enabled ? t('skillDetail.disableWorkspace') : t('skillDetail.enableWorkspace')}
           </button>
           <button type="button" onClick={onClose} style={secondaryBtn}>
-            Close
+            {t('skillDetail.close')}
           </button>
         </footer>
       </div>

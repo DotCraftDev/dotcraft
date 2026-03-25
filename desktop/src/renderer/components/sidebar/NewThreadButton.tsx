@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -15,6 +16,7 @@ interface NewThreadButtonProps {
  * Spec §9.3
  */
 export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.Element {
+  const t = useT()
   const { status } = useConnectionStore()
   const { addThread, setActiveThreadId } = useThreadStore()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
@@ -51,7 +53,8 @@ export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.El
       <button
         onClick={handleClick}
         disabled={!isConnected || creating}
-        title="New Thread (Ctrl+N)"
+        title={t('sidebar.newThread')}
+        aria-label={t('sidebar.newThread')}
         style={{
           width: '100%',
           padding: '6px 12px',
@@ -80,7 +83,7 @@ export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.El
         }}
       >
         <span aria-hidden="true">{creating ? '…' : '+'}</span>
-        {creating ? 'Creating...' : 'New Thread'}
+        {creating ? t('sidebar.newThreadCreating') : t('sidebar.newThreadLabel')}
       </button>
     </div>
   )

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { addToast } from '../../stores/toastStore'
@@ -16,6 +17,7 @@ interface CommitDialogProps {
  * Spec §M6-16, §M6-17, §16.5
  */
 export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogProps): JSX.Element {
+  const t = useT()
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const turns = useConversationStore((s) => s.turns)
   const connectionStatus = useConnectionStore((s) => s.status)
@@ -58,14 +60,14 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
       )) as { message?: string }
       if (result?.message?.trim()) {
         setMessage(result.message.trim())
-        addToast('Commit message generated from changes', 'success')
+        addToast(t('commit.toast.generated'), 'success')
       } else {
-        setError('Server returned an empty message.')
+        setError(t('commit.error.emptyServer'))
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
-      addToast(`Could not generate message: ${msg}`, 'error')
+      addToast(t('commit.toast.generateFailed', { error: msg }), 'error')
     } finally {
       setGenerating(false)
     }
@@ -79,7 +81,7 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
       const filePaths = writtenFiles.map((f) => f.filePath)
       await window.api.git.commit(workspacePath, filePaths, message.trim())
       setSuccess(true)
-      addToast(`Changes committed: ${message.trim().split('\n')[0]}`, 'success')
+      addToast(t('commit.toast.done', { line: message.trim().split('\n')[0] }), 'success')
       setTimeout(onClose, 1200)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -91,7 +93,7 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Commit Changes"
+      aria-label={t('commit.title')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -127,7 +129,7 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
             color: 'var(--text-primary)'
           }}
         >
-          Commit Changes
+          {t('commit.title')}
         </h2>
 
         {/* File list header */}
@@ -138,8 +140,12 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
             marginBottom: '6px'
           }}
         >
-          Files to commit ({writtenFiles.length} of {allFiles.length}
-          {revertedCount > 0 ? ` — ${revertedCount} reverted` : ''}):
+          {t('commit.filesHeader', {
+            written: writtenFiles.length,
+            all: allFiles.length,
+            reverted:
+              revertedCount > 0 ? t('commit.revertedSuffix', { count: revertedCount }) : ''
+          })}
         </div>
 
         {/* Written files */}
@@ -204,7 +210,7 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
             marginBottom: '6px'
           }}
         >
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Commit message:</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{t('commit.messageLabel')}</span>
           <button
             type="button"
             onClick={() => {
@@ -220,10 +226,10 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
             }
             title={
               !isConnected
-                ? 'Connect to AppServer to generate a message from your changes'
+                ? t('commit.generateTitle.disconnected')
                 : writtenFiles.length === 0
-                  ? 'No files to include'
-                  : 'Generate commit message from thread context and git diff'
+                  ? t('commit.generateTitle.noFiles')
+                  : t('commit.generateTitle.connected')
             }
             style={{
               padding: '4px 10px',
@@ -241,7 +247,7 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
               flexShrink: 0
             }}
           >
-            {generating ? 'Generating…' : 'Generate from changes'}
+            {generating ? t('commit.generating') : t('commit.generateButton')}
           </button>
         </div>
 
@@ -267,7 +273,7 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
             fontFamily: 'inherit',
             lineHeight: 1.5
           }}
-          placeholder="Describe what was changed..."
+          placeholder={t('commit.placeholder')}
         />
 
         {/* Error */}
@@ -305,7 +311,7 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
               opacity: committing || generating ? 0.5 : 1
             }}
           >
-            Cancel
+            {t('commit.cancel')}
           </button>
           <button
             onClick={() => { void handleCommit() }}
@@ -331,12 +337,12 @@ export function CommitDialog({ workspacePath, threadId, onClose }: CommitDialogP
             }}
           >
             {success
-              ? 'Committed ✓'
+              ? t('commit.success')
               : committing
-                ? 'Committing...'
+                ? t('commit.committing')
                 : generating
-                  ? 'Generating…'
-                  : 'Commit →'}
+                  ? t('commit.generating')
+                  : t('commit.button')}
           </button>
         </div>
       </div>

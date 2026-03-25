@@ -3,6 +3,7 @@ import {
   TITLE_BAR_OVERLAY_HEIGHT,
   TITLE_BAR_OVERLAY_RIGHT_RESERVE
 } from '../shared/titleBarOverlay'
+import type { TopLevelMenuId } from '../shared/locales/types'
 
 export type UnsubscribeFn = () => void
 
@@ -88,8 +89,8 @@ const api = {
   titleBarOverlayRightReserve: TITLE_BAR_OVERLAY_RIGHT_RESERVE,
 
   menu: {
-    popupTopLevel(label: string, x: number, y: number): Promise<void> {
-      return ipcRenderer.invoke('menu:popup-top-level', { label, x, y })
+    popupTopLevel(menuId: TopLevelMenuId, x: number, y: number): Promise<void> {
+      return ipcRenderer.invoke('menu:popup-top-level', { menuId, x, y })
     }
   },
 
@@ -280,6 +281,7 @@ const api = {
       appServerBinaryPath?: string
       lastWorkspacePath?: string
       theme?: 'dark' | 'light'
+      locale?: 'en' | 'zh-Hans'
     }> {
       return ipcRenderer.invoke('settings:get')
     },
@@ -287,7 +289,11 @@ const api = {
     /**
      * Merges and persists partial settings updates.
      */
-    set(partial: { appServerBinaryPath?: string; theme?: 'dark' | 'light' }): Promise<void> {
+    set(partial: {
+      appServerBinaryPath?: string
+      theme?: 'dark' | 'light'
+      locale?: 'en' | 'zh-Hans'
+    }): Promise<void> {
       return ipcRenderer.invoke('settings:set', partial)
     }
   }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useT } from '../contexts/LocaleContext'
 import { DotCraftLogo } from './ui/DotCraftLogo'
 
 interface RecentWorkspace {
@@ -17,6 +18,7 @@ function isLockError(err: unknown): boolean {
 }
 
 export function WelcomeScreen(): JSX.Element {
+  const t = useT()
   const [recents, setRecents] = useState<RecentWorkspace[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -81,10 +83,10 @@ export function WelcomeScreen(): JSX.Element {
       {/* Logo / title */}
       <DotCraftLogo size={72} style={{ marginBottom: '20px' }} />
       <div style={{ marginBottom: '10px', fontSize: '28px', fontWeight: 700, letterSpacing: '-0.5px' }}>
-        DotCraft Desktop
+        {t('app.brandSubtitle')}
       </div>
       <div style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '40px' }}>
-        Select a workspace folder to get started.
+        {t('welcome.tagline')}
       </div>
 
       {/* Primary action */}
@@ -103,9 +105,9 @@ export function WelcomeScreen(): JSX.Element {
           opacity: loading ? 0.7 : 1,
           marginBottom: '32px'
         }}
-        aria-label="Open workspace folder"
+        aria-label={t('welcome.openWorkspace')}
       >
-        {loading ? 'Opening...' : 'Open Workspace'}
+        {loading ? t('welcome.opening') : t('welcome.openWorkspace')}
       </button>
 
       {/* Error */}
@@ -136,7 +138,7 @@ export function WelcomeScreen(): JSX.Element {
               marginBottom: '8px'
             }}
           >
-            Recent
+            {t('welcome.recent')}
           </div>
           <div
             style={{
@@ -196,7 +198,7 @@ export function WelcomeScreen(): JSX.Element {
                   </span>
                   {isLocked && (
                     <span style={{ fontSize: '11px', color: 'var(--warning)', marginTop: '2px' }}>
-                      Already open in another window
+                      {t('welcome.alreadyOpen')}
                     </span>
                   )}
                 </button>

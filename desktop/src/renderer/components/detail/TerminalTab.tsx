@@ -1,3 +1,4 @@
+import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { TerminalCommandBlock } from './TerminalCommandBlock'
 
@@ -10,6 +11,7 @@ const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
  * Spec §11.5
  */
 export function TerminalTab(): JSX.Element {
+  const t = useT()
   const turns = useConversationStore((s) => s.turns)
 
   // Collect all completed shell tool calls across all turns
@@ -60,7 +62,7 @@ export function TerminalTab(): JSX.Element {
             whiteSpace: 'pre-line'
           }}
         >
-          {'No terminal output yet.\nShell commands run by the agent\nwill appear here.'}
+          {t('terminal.empty')}
         </p>
       </div>
     )

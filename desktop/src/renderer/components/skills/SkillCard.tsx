@@ -1,3 +1,4 @@
+import { useT } from '../../contexts/LocaleContext'
 import type { SkillEntry } from '../../stores/skillsStore'
 
 interface SkillCardProps {
@@ -10,6 +11,7 @@ interface SkillCardProps {
  * Single skill row in the grid: generic glyph, title, description, source badge, enable switch.
  */
 export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): JSX.Element {
+  const t = useT()
   const letter = (skill.name[0] ?? '?').toUpperCase()
   const hue = hashHue(skill.name)
 
@@ -70,7 +72,7 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
           <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>
             {skill.name}
           </span>
-          <SourceBadge source={skill.source} />
+          <SourceBadge source={skill.source} t={t} />
           {!skill.available && (
             <span
               style={{
@@ -82,7 +84,7 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
               }}
               title={skill.unavailableReason ?? ''}
             >
-              Unavailable
+              {t('skillCard.unavailable')}
             </span>
           )}
           {!skill.enabled && (
@@ -95,7 +97,7 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
                 color: 'var(--text-dimmed)'
               }}
             >
-              Disabled
+              {t('skillCard.disabledBadge')}
             </span>
           )}
         </div>
@@ -111,13 +113,13 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
             overflow: 'hidden'
           }}
         >
-          {skill.description || 'No description'}
+          {skill.description || t('skillCard.noDescription')}
         </p>
       </div>
       <div style={{ flexShrink: 0, paddingTop: '2px' }} onClick={handleSwitchClick}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
           <span style={{ fontSize: '11px', color: 'var(--text-dimmed)', userSelect: 'none' }}>
-            On
+            {t('skillCard.on')}
           </span>
           <input
             type="checkbox"
@@ -125,7 +127,7 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
             onChange={(e) => {
               void onToggleEnabled(e.target.checked)
             }}
-            aria-label={skill.enabled ? 'Disable skill' : 'Enable skill'}
+            aria-label={skill.enabled ? t('skillCard.toggleDisable') : t('skillCard.toggleEnable')}
           />
         </label>
       </div>
@@ -133,7 +135,13 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
   )
 }
 
-function SourceBadge({ source }: { source: SkillEntry['source'] }): JSX.Element {
+function SourceBadge({
+  source,
+  t
+}: {
+  source: SkillEntry['source']
+  t: ReturnType<typeof useT>
+}): JSX.Element {
   const styles: Record<SkillEntry['source'], React.CSSProperties> = {
     builtin: {
       fontSize: '11px',
@@ -158,9 +166,9 @@ function SourceBadge({ source }: { source: SkillEntry['source'] }): JSX.Element 
     }
   }
   const labels: Record<SkillEntry['source'], string> = {
-    builtin: 'Built-in',
-    workspace: 'Workspace',
-    user: 'User'
+    builtin: t('skillCard.builtin'),
+    workspace: t('skills.source.workspace'),
+    user: t('skills.source.user')
   }
   return <span style={styles[source]}>{labels[source]}</span>
 }

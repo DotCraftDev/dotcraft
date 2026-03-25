@@ -23,6 +23,8 @@ npm run dev
 
 The window uses the current workspace folder (or the path you pass with `--workspace`).
 
+**Language:** UI strings support English (default) and Simplified Chinese (`zh-Hans`). Change under **Settings** (Ctrl+,).
+
 ---
 
 ## npm scripts

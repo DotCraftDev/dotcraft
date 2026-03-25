@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import type { ThreadSummary } from '../../types/thread'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import { formatRelativeTime } from '../../utils/relativeTime'
 import type { ContextMenuPosition } from '../ui/ContextMenu'
 
@@ -16,6 +17,8 @@ interface ThreadEntryProps {
  * Spec §9.5
  */
 export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
+  const locale = useLocale()
+  const t = useT()
   const { activeThreadId, setActiveThreadId, renameThread, runningTurnThreadIds } = useThreadStore()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const isActive = activeThreadId === thread.id
@@ -26,8 +29,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const [renameValue, setRenameValue] = useState(thread.displayName ?? '')
   const renameInputRef = useRef<HTMLInputElement>(null)
 
-  const displayName = thread.displayName ?? 'New conversation'
-  const relativeTime = formatRelativeTime(thread.lastActiveAt)
+  const displayName = thread.displayName ?? t('sidebar.newConversation')
+  const relativeTime = formatRelativeTime(thread.lastActiveAt, new Date(), locale)
 
   function handleClick(): void {
     if (renaming) return
@@ -103,8 +106,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
         {/* Activity indicator: pulsing dot when a turn is running in the background */}
         {hasRunningTurn && (
           <span
-            aria-label="Turn running"
-            title="Turn running"
+            aria-label={t('threadEntry.turnRunning')}
+            title={t('threadEntry.turnRunning')}
             style={{
               width: '7px',
               height: '7px',
@@ -211,15 +214,16 @@ function ThreadEntryContextMenu({
   onRename,
   threadId
 }: ThreadEntryContextMenuProps): JSX.Element {
+  const t = useT()
   const { removeThread, activeThreadId, setActiveThreadId } = useThreadStore()
   const confirm = useConfirmDialog()
 
   async function handleArchive(): Promise<void> {
     onClose()
     const ok = await confirm({
-      title: 'Archive conversation?',
-      message: 'This conversation will be moved to your archive and removed from this list.',
-      confirmLabel: 'Archive'
+      title: t('threadEntry.archiveTitle'),
+      message: t('threadEntry.archiveMessage'),
+      confirmLabel: t('threadEntry.archiveConfirm')
     })
     if (!ok) return
     try {
@@ -234,9 +238,9 @@ function ThreadEntryContextMenu({
   async function handleDelete(): Promise<void> {
     onClose()
     const ok = await confirm({
-      title: 'Delete conversation?',
-      message: 'This conversation will be permanently deleted. This cannot be undone.',
-      confirmLabel: 'Delete',
+      title: t('threadEntry.deleteTitle'),
+      message: t('threadEntry.deleteMessage'),
+      confirmLabel: t('threadEntry.delete'),
       danger: true
     })
     if (!ok) return
@@ -254,9 +258,9 @@ function ThreadEntryContextMenu({
       position={position}
       onClose={onClose}
       items={[
-        { label: 'Rename', onClick: onRename },
-        { label: 'Archive', onClick: handleArchive },
-        { label: 'Delete', onClick: handleDelete, danger: true }
+        { label: t('threadEntry.rename'), onClick: onRename },
+        { label: t('threadEntry.archive'), onClick: handleArchive },
+        { label: t('threadEntry.delete'), onClick: handleDelete, danger: true }
       ]}
     />
   )

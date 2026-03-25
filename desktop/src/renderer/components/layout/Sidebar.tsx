@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
+import { connectionStatusLabel } from '../../utils/connectionStatusLabel'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
@@ -37,14 +39,13 @@ interface SidebarProps {
  * Spec §9.8
  */
 export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: SidebarProps): JSX.Element {
+  const t = useT()
   const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const automationsAvailable =
     capabilities?.automations === true || capabilities?.cronManagement === true
   const automationsDisabledTitle =
-    !automationsAvailable
-      ? 'Automations and Cron require server modules (automations and/or cronManagement)'
-      : undefined
+    !automationsAvailable ? t('sidebar.automationsDisabled') : undefined
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Expose searchRef for Ctrl+K global shortcut (App.tsx reads this via
@@ -94,7 +95,7 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
         }}
       >
         <SidebarNavRow
-          label="Automations"
+          label={t('sidebar.automations')}
           active={activeMainView === 'automations'}
           onClick={() => setActiveMainView('automations')}
           icon={<AutomationsIcon />}
@@ -102,7 +103,7 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
           title={automationsDisabledTitle}
         />
         <SidebarNavRow
-          label="Skills"
+          label={t('sidebar.skills')}
           active={activeMainView === 'skills'}
           onClick={() => setActiveMainView('skills')}
           icon={<SkillsIcon />}
@@ -185,8 +186,9 @@ interface CollapsedSidebarProps {
 }
 
 function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: CollapsedSidebarProps): JSX.Element {
+  const t = useT()
   const [logoHovered, setLogoHovered] = useState(false)
-  const { status, capabilities: collapsedCaps } = useConnectionStore()
+  const { status, errorMessage, capabilities: collapsedCaps } = useConnectionStore()
   const { threadList, addThread, setActiveThreadId } = useThreadStore()
   const { activeMainView, setActiveMainView } = useUIStore()
   const collapsedAutomationsAvailable =
@@ -236,8 +238,8 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
       {/* Logo doubles as expand button — swaps to panel-open icon on hover */}
       <button
         onClick={onExpand}
-        title="Expand sidebar (Ctrl+B)"
-        aria-label="Expand sidebar"
+        title={t('sidebar.expand')}
+        aria-label={t('sidebar.expand')}
         onMouseEnter={() => setLogoHovered(true)}
         onMouseLeave={() => setLogoHovered(false)}
         style={{
@@ -254,7 +256,7 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
 
       {/* New thread icon */}
       <button
-        title="New Thread (Ctrl+N)"
+        title={t('sidebar.newThread')}
         onClick={handleNewThread}
         disabled={status !== 'connected'}
         style={{
@@ -265,20 +267,20 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
           fontWeight: 700,
           opacity: status !== 'connected' ? 0.5 : 1
         }}
-        aria-label="New Thread"
+        aria-label={t('sidebar.newThread')}
       >
         +
       </button>
 
       {/* Thread dots: first letter of each recent thread */}
-      {recentThreads.map((t) => {
-        const letter = (t.displayName ?? 'N')[0].toUpperCase()
+      {recentThreads.map((thread) => {
+        const letter = (thread.displayName ?? 'N')[0].toUpperCase()
         return (
           <button
-            key={t.id}
-            title={t.displayName ?? 'New conversation'}
+            key={thread.id}
+            title={thread.displayName ?? t('sidebar.newConversation')}
             onClick={() => {
-              setActiveThreadId(t.id)
+              setActiveThreadId(thread.id)
               setActiveMainView('conversation')
             }}
             style={{
@@ -287,7 +289,7 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
               fontWeight: 600,
               backgroundColor: 'var(--bg-tertiary)'
             }}
-            aria-label={t.displayName ?? 'New conversation'}
+            aria-label={thread.displayName ?? t('sidebar.newConversation')}
           >
             {letter}
           </button>
@@ -301,8 +303,8 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
         type="button"
         title={
           collapsedAutomationsAvailable
-            ? 'Automations'
-            : 'Automations and Cron require server modules (automations and/or cronManagement)'
+            ? t('sidebar.automations')
+            : t('sidebar.automationsDisabled')
         }
         onClick={collapsedAutomationsAvailable ? () => setActiveMainView('automations') : undefined}
         disabled={!collapsedAutomationsAvailable}
@@ -312,20 +314,20 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
           color: activeMainView === 'automations' ? 'var(--accent)' : 'var(--text-secondary)',
           opacity: collapsedAutomationsAvailable ? 1 : 0.4
         }}
-        aria-label="Automations"
+        aria-label={t('sidebar.automations')}
       >
         <AutomationsIcon />
       </button>
       <button
         type="button"
-        title="Skills"
+        title={t('sidebar.skills')}
         onClick={() => setActiveMainView('skills')}
         style={{
           ...iconButtonStyle,
           backgroundColor: activeMainView === 'skills' ? 'var(--bg-tertiary)' : 'transparent',
           color: activeMainView === 'skills' ? 'var(--accent)' : 'var(--text-secondary)'
         }}
-        aria-label="Skills"
+        aria-label={t('sidebar.skills')}
       >
         <SkillsIcon />
       </button>
@@ -333,8 +335,8 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
       {/* Settings icon button */}
       <button
         onClick={onOpenSettings}
-        title="Settings (Ctrl+,)"
-        aria-label="Open settings"
+        title={t('sidebar.settingsShortcut')}
+        aria-label={t('sidebar.openSettingsAria')}
         style={iconButtonStyle}
       >
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -352,8 +354,12 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
           backgroundColor: colorMap[status] ?? 'var(--text-dimmed)',
           marginBottom: '8px'
         }}
-        title={`Status: ${status}`}
-        aria-label={`Connection status: ${status}`}
+        title={t('connection.statusTitle', {
+          status: connectionStatusLabel(status, errorMessage, t)
+        })}
+        aria-label={t('connection.statusTitle', {
+          status: connectionStatusLabel(status, errorMessage, t)
+        })}
       />
     </div>
   )
@@ -412,13 +418,15 @@ interface LogoHeaderProps {
 }
 
 function LogoHeader({ onCollapse }: LogoHeaderProps): JSX.Element {
+  const t = useT()
   const [hovered, setHovered] = useState(false)
 
   return (
     <button
+      type="button"
       onClick={onCollapse}
-      title="Collapse sidebar (Ctrl+B)"
-      aria-label="Collapse sidebar"
+      title={t('sidebar.collapseTitle')}
+      aria-label={t('sidebar.collapseAria')}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{

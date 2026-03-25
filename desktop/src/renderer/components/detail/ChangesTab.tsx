@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -16,6 +17,8 @@ interface ChangesTabProps {
  * Spec §11.3
  */
 export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
+  const t = useT()
+  const locale = useLocale()
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const revertFile = useConversationStore((s) => s.revertFile)
   const reapplyFile = useConversationStore((s) => s.reapplyFile)
@@ -70,10 +73,14 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
   async function handleRevertAll(): Promise<void> {
     const count = writtenFiles.length
     if (count === 0) return
+    const enPlural = locale === 'zh-Hans' ? '' : count === 1 ? '' : 's'
     const confirmed = await confirm({
-      title: 'Revert all changes?',
-      message: `Revert all ${count} file change${count === 1 ? '' : 's'}? This cannot be undone.`,
-      confirmLabel: 'Revert All',
+      title: t('changes.revertAllTitle'),
+      message: t('changes.revertAllMessage', {
+        count,
+        plural: enPlural
+      }),
+      confirmLabel: t('changes.revertAllConfirm'),
       danger: true
     })
     if (!confirmed) return
@@ -102,7 +109,7 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
             whiteSpace: 'pre-line'
           }}
         >
-          {'No file changes yet.\nThe agent\'s edits will appear here.'}
+          {t('changes.empty')}
         </p>
       </div>
     )
@@ -123,7 +130,12 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
           color: 'var(--text-secondary)'
         }}
       >
-        <span>{files.length} file{files.length !== 1 ? 's' : ''} changed</span>
+        <span>
+          {t('changes.summaryLine', {
+            count: files.length,
+            plural: locale === 'zh-Hans' ? '' : files.length === 1 ? '' : 's'
+          })}
+        </span>
         <span style={{ display: 'flex', gap: '4px' }}>
           {totalAdd > 0 && <span style={{ color: 'var(--success)' }}>+{totalAdd}</span>}
           {totalDel > 0 && <span style={{ color: 'var(--error)' }}>-{totalDel}</span>}
@@ -142,7 +154,7 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
               cursor: 'pointer'
             }}
           >
-            Revert All ↺
+            {t('changes.revertAllButton')}
           </button>
         )}
       </div>
@@ -181,7 +193,7 @@ export function ChangesTab({ workspacePath }: ChangesTabProps): JSX.Element {
               fontSize: '12px'
             }}
           >
-            Select a file to view its diff
+            {t('changes.selectFileHint')}
           </div>
         )}
       </div>

@@ -77,4 +77,10 @@ describe('formatRelativeTime', () => {
   it('formats 12 months ago as "12mo"', () => {
     expect(formatRelativeTime(monthsAgo(12), now)).toBe('12mo')
   })
+
+  it('uses Intl-style output for zh-Hans', () => {
+    const s = formatRelativeTime(minutesAgo(5), now, 'zh-Hans')
+    expect(s.length).toBeGreaterThan(0)
+    expect(s).not.toMatch(/^\d+m$/)
+  })
 })

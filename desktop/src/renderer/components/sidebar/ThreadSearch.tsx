@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { useThreadStore } from '../../stores/threadStore'
 
 interface ThreadSearchProps {
@@ -11,6 +12,7 @@ interface ThreadSearchProps {
  * Spec §9.4
  */
 export function ThreadSearch({ inputRef: externalRef }: ThreadSearchProps): JSX.Element {
+  const t = useT()
   const { searchQuery, setSearchQuery } = useThreadStore()
   const internalRef = useRef<HTMLInputElement>(null)
   const ref = externalRef ?? internalRef
@@ -79,8 +81,8 @@ export function ThreadSearch({ inputRef: externalRef }: ThreadSearchProps): JSX.
           value={localValue}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="Search threads..."
-          aria-label="Search conversations"
+          placeholder={t('threadSearch.placeholder')}
+          aria-label={t('threadSearch.aria')}
           style={{
             width: '100%',
             padding: '5px 28px 5px 26px',
@@ -120,7 +122,7 @@ export function ThreadSearch({ inputRef: externalRef }: ThreadSearchProps): JSX.
               lineHeight: 1,
               padding: '2px'
             }}
-            aria-label="Clear search"
+            aria-label={t('threadSearch.clear')}
           >
             ×
           </button>

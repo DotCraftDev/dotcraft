@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { addToast } from '../../stores/toastStore'
 import { applyTheme, resolveTheme, type ThemeMode } from '../../utils/theme'
+import { normalizeLocale, type AppLocale } from '../../../shared/locales'
+import { useSetUiLocale, useT } from '../../contexts/LocaleContext'
 
 interface SettingsDialogProps {
   onClose: () => void
@@ -13,8 +15,11 @@ interface SettingsDialogProps {
  * Spec M7-7, §17.1 (Ctrl+,)
  */
 export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
+  const t = useT()
+  const setUiLocale = useSetUiLocale()
   const [binaryPath, setBinaryPath] = useState('')
   const [theme, setTheme] = useState<ThemeMode>('dark')
+  const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -26,9 +31,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
       .then((s) => {
         setBinaryPath(s.appServerBinaryPath ?? '')
         setTheme(resolveTheme(s.theme))
+        setLocale(normalizeLocale(s.locale))
       })
       .catch(() => {})
-    setVersion(typeof process !== 'undefined' ? (process.env.npm_package_version ?? '0.1.0') : '0.1.0')
+    setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
 
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.key === 'Escape') onClose()
@@ -43,7 +49,28 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
     try {
       await window.api.settings.set({ theme: next })
     } catch (err) {
-      addToast(`Failed to save theme: ${err instanceof Error ? err.message : String(err)}`, 'error')
+      addToast(
+        t('settings.saveThemeFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    }
+  }
+
+  async function handleLocaleChange(next: AppLocale): Promise<void> {
+    const normalized = normalizeLocale(next)
+    setLocale(normalized)
+    try {
+      await window.api.settings.set({ locale: normalized })
+      setUiLocale(normalized)
+    } catch (err) {
+      addToast(
+        t('settings.saveFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
     }
   }
 
@@ -51,10 +78,15 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
     setSaving(true)
     try {
       await window.api.settings.set({ appServerBinaryPath: binaryPath.trim() || undefined })
-      addToast('Settings saved', 'success')
+      addToast(t('settings.savedToast'), 'success')
       onClose()
     } catch (err) {
-      addToast(`Failed to save settings: ${err instanceof Error ? err.message : String(err)}`, 'error')
+      addToast(
+        t('settings.saveFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
     } finally {
       setSaving(false)
     }
@@ -64,7 +96,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Settings"
+      aria-label={t('settings.title')}
       style={{
         position: 'fixed',
         inset: 0,
@@ -97,7 +129,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
             color: 'var(--text-primary)'
           }}
         >
-          Settings
+          {t('settings.title')}
         </h2>
 
         {/* AppServer binary path */}
@@ -112,7 +144,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
               marginBottom: '6px'
             }}
           >
-            AppServer binary path
+            {t('settings.appServerBinary')}
           </label>
           <input
             id="settings-binary-path"
@@ -120,7 +152,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
             type="text"
             value={binaryPath}
             onChange={(e) => setBinaryPath(e.target.value)}
-            placeholder="Leave empty to use dotcraft from PATH"
+            placeholder={t('settings.binaryPlaceholder')}
             style={{
               width: '100%',
               boxSizing: 'border-box',
@@ -133,12 +165,51 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
               outline: 'none',
               fontFamily: 'var(--font-mono)'
             }}
-            onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--border-active)' }}
-            onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)' }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = 'var(--border-active)'
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = 'var(--border-default)'
+            }}
           />
           <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-            Override the default dotcraft binary location.
+            {t('settings.binaryHint')}
           </div>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label
+            htmlFor="settings-language"
+            style={{
+              display: 'block',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px'
+            }}
+          >
+            {t('settings.language')}
+          </label>
+          <select
+            id="settings-language"
+            value={locale}
+            onChange={(e) => {
+              void handleLocaleChange(e.target.value as AppLocale)
+            }}
+            style={{
+              padding: '7px 10px',
+              fontSize: '13px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-default)',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              width: '180px'
+            }}
+          >
+            <option value="en">{t('settings.language.en')}</option>
+            <option value="zh-Hans">{t('settings.language.zhHans')}</option>
+          </select>
         </div>
 
         <div style={{ marginBottom: '16px' }}>
@@ -152,12 +223,14 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
               marginBottom: '6px'
             }}
           >
-            Theme
+            {t('settings.theme')}
           </label>
           <select
             id="settings-theme"
             value={theme}
-            onChange={(e) => { void handleThemeChange(e.target.value as ThemeMode) }}
+            onChange={(e) => {
+              void handleThemeChange(e.target.value as ThemeMode)
+            }}
             style={{
               padding: '7px 10px',
               fontSize: '13px',
@@ -169,8 +242,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
               width: '180px'
             }}
           >
-            <option value="dark">Dark (default)</option>
-            <option value="light">Light</option>
+            <option value="dark">{t('settings.optionThemeDark')}</option>
+            <option value="light">{t('settings.optionThemeLight')}</option>
           </select>
         </div>
 
@@ -181,11 +254,12 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
             marginBottom: '20px'
           }}
         >
-          DotCraft Desktop v{version}
+          DotCraft Desktop {t('settings.version')} {version}
         </div>
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button
+            type="button"
             onClick={onClose}
             style={{
               padding: '7px 16px',
@@ -197,10 +271,13 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
               cursor: 'pointer'
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
-            onClick={() => { void handleSave() }}
+            type="button"
+            onClick={() => {
+              void handleSave()
+            }}
             disabled={saving}
             style={{
               padding: '7px 16px',
@@ -214,7 +291,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
               opacity: saving ? 0.7 : 1
             }}
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? t('settings.saving') : t('settings.save')}
           </button>
         </div>
       </div>

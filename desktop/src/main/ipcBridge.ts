@@ -15,6 +15,7 @@ import {
   searchWorkspaceFiles,
   warmFileSearchIndex
 } from './workspaceComposerIpc'
+import { translate, normalizeLocale, DEFAULT_LOCALE, type AppLocale } from '../shared/locales'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -97,6 +98,10 @@ export interface IpcHandlerCallbacks {
  * - `file:delete`                 (renderer -> main, invoke) -> deletes file within workspace
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
  */
+function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
+  return normalizeLocale(callbacks?.getSettings()?.locale ?? DEFAULT_LOCALE)
+}
+
 export function registerIpcHandlers(
   _wireClient: WireProtocolClient | null,
   getWireClient: () => WireProtocolClient | null,
@@ -111,7 +116,7 @@ export function registerIpcHandlers(
     async (_event, method: string, params?: unknown, timeoutMs?: number) => {
       const client = getWireClient()
       if (!client) {
-        throw new Error('AppServer is not connected')
+        throw new Error(translate(mainLocale(callbacks), 'ipc.appServerNotConnected'))
       }
       return client.sendRequest(method, params, timeoutMs)
     }
@@ -155,7 +160,9 @@ export function registerIpcHandlers(
     const resolved = path.resolve(absPath)
     const wsResolved = path.resolve(workspacePath)
     if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
-      throw new Error(`Access denied: path is outside workspace: ${absPath}`)
+      throw new Error(
+        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
+      )
     }
     await fs.writeFile(resolved, content, 'utf-8')
   })
@@ -165,7 +172,9 @@ export function registerIpcHandlers(
     const resolved = path.resolve(absPath)
     const wsResolved = path.resolve(workspacePath)
     if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
-      throw new Error(`Access denied: path is outside workspace: ${absPath}`)
+      throw new Error(
+        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
+      )
     }
     try {
       return await fs.readFile(resolved, 'utf-8')
@@ -181,7 +190,9 @@ export function registerIpcHandlers(
     const resolved = path.resolve(absPath)
     const wsResolved = path.resolve(workspacePath)
     if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
-      throw new Error(`Access denied: path is outside workspace: ${absPath}`)
+      throw new Error(
+        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
+      )
     }
     await fs.unlink(resolved)
   })
@@ -262,9 +273,10 @@ export function registerIpcHandlers(
     async (_event, params: { dataUrl: string; fileName?: string }) => {
       const ws = workspacePath
       if (!ws) {
-        throw new Error('No workspace open')
+        throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
       }
-      const pathAbs = await saveImageDataUrlToTemp(ws, params.dataUrl, params.fileName)
+      const loc = mainLocale(callbacks)
+      const pathAbs = await saveImageDataUrlToTemp(ws, params.dataUrl, params.fileName, loc)
       return { path: pathAbs }
     }
   )
@@ -279,7 +291,7 @@ export function registerIpcHandlers(
       const ws = path.resolve(workspacePath)
       const req = path.resolve(params.workspacePath)
       if (ws !== req) {
-        throw new Error('Workspace path mismatch')
+        throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
       }
       if (!ws) {
         return { files: [] as { name: string; relativePath: string; dir: string }[] }

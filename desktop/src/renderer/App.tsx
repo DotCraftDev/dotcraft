@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { translate } from '../shared/locales'
+import { useLocale } from './contexts/LocaleContext'
 import { basename } from './utils/path'
 import { initConnectionStore, useConnectionStore } from './stores/connectionStore'
 import { useThreadStore } from './stores/threadStore'
@@ -66,6 +68,10 @@ function AppChrome({ children }: { children: ReactNode }): JSX.Element {
  * - Spec §9, §12
  */
 export function App(): JSX.Element {
+  const locale = useLocale()
+  const localeRef = useRef(locale)
+  localeRef.current = locale
+
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
   const [showSettings, setShowSettings] = useState(false)
@@ -91,12 +97,19 @@ export function App(): JSX.Element {
       if (path) {
         const name = basename(path)
         setWorkspaceName(name)
-        window.api.window.setTitle(`DotCraft \u2014 ${name}`)
       }
     })
 
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    if (workspacePath) {
+      window.api.window.setTitle(
+        translate(locale, 'app.titleWithWorkspace', { name: workspaceName })
+      )
+    }
+  }, [workspacePath, workspaceName, locale])
 
   useEffect(() => {
     window.api.settings
@@ -217,7 +230,7 @@ export function App(): JSX.Element {
             const reason = (p.reason as string | undefined) ?? (p.message as string | undefined) ?? 'unknown'
             if (reason === 'not-found' || reason.includes('not found')) {
               useThreadStore.getState().removeThread(tid)
-              addToast('Thread not found — removed from list', 'warning')
+              addToast(translate(localeRef.current, 'toast.threadNotFound'), 'warning')
             }
             break
           }
@@ -227,7 +240,7 @@ export function App(): JSX.Element {
             doUpdateStatus(pp.threadId, 'archived')
             const activeId = useThreadStore.getState().activeThreadId
             if (activeId === pp.threadId) {
-              addToast('This conversation was archived by another client', 'info')
+              addToast(translate(localeRef.current, 'toast.threadArchived'), 'info')
             }
             break
           }
@@ -640,7 +653,7 @@ export function App(): JSX.Element {
             const item = items[j]
             if (item.type === 'agentMessage' && item.text) {
               navigator.clipboard.writeText(item.text).then(() => {
-                addToast('Copied to clipboard', 'success', 2000)
+                addToast(translate(localeRef.current, 'toast.copied'), 'success', 2000)
               }).catch(() => {})
               return
             }
@@ -719,7 +732,7 @@ export function App(): JSX.Element {
               const autoName =
                 pendingText.length > 50
                   ? pendingText.slice(0, 50) + '...'
-                  : pendingText || 'Image message'
+                  : pendingText || translate(localeRef.current, 'toast.imageMessage')
               useThreadStore.getState().renameThread(threadId, autoName)
             }
             const optimisticItemId = `local-${Date.now()}`

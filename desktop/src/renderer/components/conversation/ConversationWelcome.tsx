@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
@@ -18,29 +19,6 @@ interface Suggestion {
   title: string
   prompt: string
 }
-
-const SUGGESTIONS: Suggestion[] = [
-  {
-    icon: '📄',
-    title: 'Explore this workspace',
-    prompt: 'Give me a quick overview of this project: what it does, its structure, and where the main entry points are.'
-  },
-  {
-    icon: '🐛',
-    title: 'Find and fix a bug',
-    prompt: 'Scan the codebase for potential bugs, error-prone patterns, or unhandled edge cases and suggest fixes.'
-  },
-  {
-    icon: '✨',
-    title: 'Write a new feature',
-    prompt: 'Help me design and implement a new feature for this project. Describe what you want to build.'
-  },
-  {
-    icon: '📝',
-    title: 'Generate documentation',
-    prompt: 'Generate clear documentation for this codebase: README sections, inline comments, and API docs.'
-  }
-]
 
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
@@ -64,6 +42,7 @@ function isImageFile(file: File): boolean {
  * clicking New Thread first; quick-start cards prefill the composer.
  */
 export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps): JSX.Element {
+  const t = useT()
   const [contentRevision, setContentRevision] = useState(0)
   const [images, setImages] = useState<ImageAttachment[]>([])
   const [dragOver, setDragOver] = useState(false)
@@ -79,6 +58,36 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
   const showMentionPopover = atQuery !== null && !mentionDismissed
+
+  const suggestions: Suggestion[] = useMemo(
+    () => [
+      {
+        icon: '📄',
+        title: t('welcome.suggestion.explore'),
+        prompt:
+          'Give me a quick overview of this project: what it does, its structure, and where the main entry points are.'
+      },
+      {
+        icon: '🐛',
+        title: t('welcome.suggestion.bug'),
+        prompt:
+          'Scan the codebase for potential bugs, error-prone patterns, or unhandled edge cases and suggest fixes.'
+      },
+      {
+        icon: '✨',
+        title: t('welcome.suggestion.feature'),
+        prompt:
+          'Help me design and implement a new feature for this project. Describe what you want to build.'
+      },
+      {
+        icon: '📝',
+        title: t('welcome.suggestion.docs'),
+        prompt:
+          'Generate clear documentation for this codebase: README sections, inline comments, and API docs.'
+      }
+    ],
+    [t]
+  )
 
   const handleAtQuery = useCallback((q: string | null): void => {
     setAtQuery(q)
@@ -100,11 +109,14 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       const baseLen = dataUrl.split(',')[1]?.length ?? 0
       const approxBytes = Math.floor((baseLen * 3) / 4)
       if (approxBytes > MAX_IMAGE_BYTES) {
-        addToast(`Image too large. Maximum ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`, 'warning')
+        addToast(
+          t('welcomeComposer.imageTooLarge', { mb: MAX_IMAGE_BYTES / 1024 / 1024 }),
+          'warning'
+        )
         return
       }
       if (images.length >= MAX_IMAGES) {
-        addToast(`Maximum ${MAX_IMAGES} images per message.`, 'warning')
+        addToast(t('welcomeComposer.maxImages', { max: MAX_IMAGES }), 'warning')
         return
       }
       try {
@@ -112,10 +124,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         setImages((prev) => [...prev, { tempPath: path, dataUrl, fileName, mimeType }])
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        addToast(`Could not save image: ${msg}`, 'error')
+        addToast(t('welcomeComposer.saveImageFailed', { error: msg }), 'error')
       }
     },
-    [images.length]
+    [images.length, t]
   )
 
   const sendFromWelcome = useCallback(async (): Promise<void> => {
@@ -205,13 +217,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         reader.readAsDataURL(file)
       }
       if (rejected > 0) {
-        addToast(
-          `Only image files can be attached (${rejected} file(s) skipped).`,
-          'warning'
-        )
+        addToast(t('input.nonImageRejected', { count: rejected }), 'warning')
       }
     },
-    [saveDataUrlAsTemp]
+    [saveDataUrlAsTemp, t]
   )
 
   function fillSuggestion(prompt: string): void {
@@ -259,12 +268,12 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               letterSpacing: '-0.3px'
             }}
           >
-            What can I help you build?
+            {t('welcome.heroTitle')}
           </h1>
           <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0, textAlign: 'center', maxWidth: '420px' }}>
             {isConnected
-              ? 'Select a thread from the sidebar, type below, or pick a quick start.'
-              : 'Connecting to workspace…'}
+              ? t('welcomeComposer.hint.select')
+              : t('welcomeComposer.hint.connecting')}
           </p>
         </div>
 
@@ -279,7 +288,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               marginBottom: '8px'
             }}
           >
-            {SUGGESTIONS.map((s, idx) => (
+            {suggestions.map((s, idx) => (
               <button
                 key={idx}
                 type="button"
@@ -353,7 +362,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   color: 'var(--accent)'
                 }}
               >
-                Drop image to attach
+                {t('composer.dropImage')}
               </div>
             )}
             <ImageStrip
@@ -377,7 +386,11 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                 ref={richRef}
                 disabled={busy}
                 suppressSubmit={showMentionPopover}
-                placeholder={isConnected ? 'Ask DotCraft anything…' : 'Connecting…'}
+                placeholder={
+                  isConnected
+                    ? t('welcomeComposer.placeholder.ask')
+                    : t('composer.placeholder.connecting')
+                }
                 onSubmit={() => {
                   void sendFromWelcome()
                 }}
@@ -388,7 +401,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                 onPasteImage={onPasteImage}
                 onPasteTextOversized={() => {
                   addToast(
-                    `Input truncated to ${MAX_TEXT_LENGTH.toLocaleString()} characters`,
+                    t('input.truncated', { max: MAX_TEXT_LENGTH.toLocaleString() }),
                     'warning'
                   )
                 }}
@@ -398,8 +411,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               type="button"
               onClick={() => { void sendFromWelcome() }}
               disabled={!canSend}
-              title="Send (Enter)"
-              aria-label="Send message"
+              title={t('welcome.sendTitle')}
+              aria-label={t('welcome.sendAria')}
               style={{
                 width: '34px',
                 height: '34px',

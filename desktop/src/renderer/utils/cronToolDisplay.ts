@@ -3,7 +3,17 @@
  * DotCraft.Core.Cron.CronToolDisplays (server).
  */
 
+import { translate, type AppLocale, type MessageKey } from '../../shared/locales'
+
 export const CRON_TOOL_NAME = 'Cron'
+
+function tr(
+  locale: AppLocale,
+  key: MessageKey | string,
+  vars?: Record<string, string | number>
+): string {
+  return translate(locale, key, vars)
+}
 
 function formatDuration(seconds: number): string {
   const s = Math.floor(seconds)
@@ -30,68 +40,80 @@ function tryGetLong(value: unknown): number | null {
   return null
 }
 
-function formatAddCollapsed(args: Record<string, unknown> | undefined): string {
+function formatAddCollapsed(args: Record<string, unknown> | undefined, locale: AppLocale): string {
   const name = getString(args, 'name')
-  const message = getString(args, 'message') ?? 'task'
+  const message = getString(args, 'message') ?? tr(locale, 'cron.add.taskDefault')
   const label = name ?? (message.length > 40 ? `${message.slice(0, 40)}…` : message)
 
   const dailyTime = getString(args, 'dailyTime')
   const dailyHour = tryGetLong(args?.dailyHour)
   if (dailyTime != null && dailyTime !== '') {
     const tz = getString(args, 'timeZone') ?? 'UTC'
-    return `Schedule "${label}" daily at ${dailyTime} (${tz})`
+    return tr(locale, 'cron.add.scheduleDailyTime', { label, dailyTime, tz })
   }
   if (dailyHour != null) {
     const dm = tryGetLong(args?.dailyMinute) ?? 0
     const tz = getString(args, 'timeZone') ?? 'UTC'
     const hh = String(dailyHour).padStart(2, '0')
     const mm = String(dm).padStart(2, '0')
-    return `Schedule "${label}" daily at ${hh}:${mm} (${tz})`
+    return tr(locale, 'cron.add.scheduleDailyHour', { label, hh, mm, tz })
   }
 
   const everySec = tryGetLong(args?.everySeconds)
   const delaySec = tryGetLong(args?.delaySeconds)
   if (everySec != null && everySec > 0) {
     if (delaySec != null && delaySec > 0) {
-      return `Schedule "${label}" in ${formatDuration(delaySec)}, then every ${formatDuration(everySec)}`
+      return tr(locale, 'cron.add.scheduleEveryIn', {
+        label,
+        delay: formatDuration(delaySec),
+        every: formatDuration(everySec)
+      })
     }
-    return `Schedule "${label}" every ${formatDuration(everySec)}`
+    return tr(locale, 'cron.add.scheduleEvery', { label, every: formatDuration(everySec) })
   }
   if (delaySec != null && delaySec > 0) {
-    return `Schedule "${label}" in ${formatDuration(delaySec)}`
+    return tr(locale, 'cron.add.scheduleIn', { label, delay: formatDuration(delaySec) })
   }
-  return `Schedule "${label}"`
+  return tr(locale, 'cron.add.scheduleGeneric', { label })
 }
 
 /** Collapsed summary for a completed Cron call (matches CronToolDisplays.Cron). */
-export function formatCronCollapsedLabel(args: Record<string, unknown> | undefined): string {
+export function formatCronCollapsedLabel(
+  args: Record<string, unknown> | undefined,
+  locale: AppLocale
+): string {
   const action = (getString(args, 'action') ?? '?').trim().toLowerCase()
   switch (action) {
     case 'add':
-      return formatAddCollapsed(args)
+      return formatAddCollapsed(args, locale)
     case 'list':
-      return 'List scheduled jobs'
+      return tr(locale, 'cron.tool.listJobs')
     case 'remove':
-      return `Remove job ${getString(args, 'jobId') ?? '?'}`
+      return tr(locale, 'cron.tool.removeCollapsed', { id: getString(args, 'jobId') ?? '?' })
     default:
-      return `Cron (${action})`
+      return tr(locale, 'cron.add.cronUnknown', { action })
   }
 }
 
 /** In-progress line while the Cron tool is running. */
-export function formatCronRunningLabel(args: Record<string, unknown> | undefined): string {
+export function formatCronRunningLabel(
+  args: Record<string, unknown> | undefined,
+  locale: AppLocale
+): string {
   const action = (getString(args, 'action') ?? '?').trim().toLowerCase()
   switch (action) {
     case 'add':
-      return 'Scheduling…'
+      return tr(locale, 'cron.tool.scheduling')
     case 'list':
-      return 'Listing scheduled jobs…'
+      return tr(locale, 'cron.tool.listing')
     case 'remove': {
       const jid = getString(args, 'jobId')
-      return jid ? `Removing job ${jid}…` : 'Removing job…'
+      return jid
+        ? tr(locale, 'cron.tool.removing', { id: jid })
+        : tr(locale, 'cron.tool.removingGeneric')
     }
     default:
-      return `Running Cron (${action})…`
+      return tr(locale, 'cron.run.cronUnknown', { action })
   }
 }
 
@@ -121,7 +143,7 @@ function getJsonNumber(obj: Record<string, unknown>, ...keys: string[]): number 
  * Parses Cron tool JSON result into display lines (matches CronToolDisplays.CronResult).
  * Returns null when the payload is not a recognized Cron result (caller may fall back to raw text).
  */
-export function formatCronResultLines(result: string | undefined): string[] | null {
+export function formatCronResultLines(result: string | undefined, locale: AppLocale): string[] | null {
   if (result == null || result.trim() === '') return null
   let root: unknown
   try {
@@ -134,7 +156,7 @@ export function formatCronResultLines(result: string | undefined): string[] | nu
 
   const err = getJsonStr(o, 'error')
   if (err !== undefined) {
-    return [`Error: ${err}`]
+    return [tr(locale, 'cron.result.errorPrefix', { error: err })]
   }
 
   const status = getJsonStr(o, 'status')
@@ -151,22 +173,25 @@ export function formatCronResultLines(result: string | undefined): string[] | nu
         hour12: false
       })
     }
-    const nameDisplay = jobName ?? id ?? 'job'
-    return [`Created: ${nameDisplay}  ·  triggers at ${timeLabel}`]
+    const nameDisplay = jobName ?? id ?? tr(locale, 'cron.result.jobDefault')
+    return [tr(locale, 'cron.result.createdLine', { name: nameDisplay, time: timeLabel })]
   }
   if (status === 'removed') {
     const jobId = getJsonStr(o, 'jobId', 'JobId')
-    return [`Removed job ${jobId}`]
+    return [tr(locale, 'cron.result.removed', { jobId: jobId ?? '' })]
   }
   if (status === 'not_found') {
     const jobId = getJsonStr(o, 'jobId', 'JobId')
-    return [`Job ${jobId} not found`]
+    return [tr(locale, 'cron.result.notFound', { jobId: jobId ?? '' })]
   }
 
   const count = getJsonNumber(o, 'count', 'Count')
   if (count != null) {
     const c = Math.floor(count)
-    return c === 0 ? ['No scheduled jobs'] : [`${c} scheduled job${c === 1 ? '' : 's'}`]
+    const plural = locale === 'zh-Hans' ? '' : c === 1 ? '' : 's'
+    return c === 0
+      ? [tr(locale, 'cron.tool.noJobs')]
+      : [tr(locale, 'cron.tool.jobCount', { count: c, plural })]
   }
 
   return null
