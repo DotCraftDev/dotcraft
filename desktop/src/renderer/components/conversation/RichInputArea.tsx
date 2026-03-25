@@ -4,7 +4,8 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
-  useState
+  useState,
+  type ForwardedRef
 } from 'react'
 import { FILE_REF_CLASS } from './richInputConstants'
 import { serializeEditor, truncateEditorDomToSerializedLength } from './richInputSerialization'
@@ -127,20 +128,19 @@ function parseAtQuery(beforeCaret: string): { fullMatch: string; query: string }
   return { fullMatch: m[0], query: m[1] }
 }
 
-export const RichInputArea = forwardRef<RichInputAreaHandle, RichInputAreaProps>(
-  function RichInputArea(
-    {
-      disabled,
-      placeholder = PLACEHOLDER,
-      suppressSubmit,
-      onSubmit,
-      onAtQuery,
-      onContentChange,
-      onPasteImage,
-      onPasteTextOversized
-    },
-    ref
-  ) {
+export const RichInputArea = forwardRef(function RichInputArea(
+  {
+    disabled,
+    placeholder = PLACEHOLDER,
+    suppressSubmit,
+    onSubmit,
+    onAtQuery,
+    onContentChange,
+    onPasteImage,
+    onPasteTextOversized
+  }: RichInputAreaProps,
+  ref: ForwardedRef<RichInputAreaHandle>
+) {
     const editorRef = useRef<HTMLDivElement>(null)
     const [showPh, setShowPh] = useState(true)
 
@@ -354,7 +354,6 @@ export const RichInputArea = forwardRef<RichInputAreaHandle, RichInputAreaProps>
           onInput()
           onPasteTextOversized?.()
           return
-        }
         }
         e.preventDefault()
         const text = e.clipboardData.getData('text/plain')
