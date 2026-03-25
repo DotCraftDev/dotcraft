@@ -407,7 +407,7 @@ public sealed class CronJobWireInfo
 
 public sealed class CronScheduleWireInfo
 {
-    /// <summary>"every" or "at"</summary>
+    /// <summary>"every", "at", or "daily"</summary>
     public string Kind { get; set; } = string.Empty;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -415,6 +415,18 @@ public sealed class CronScheduleWireInfo
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? AtMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? InitialDelayMs { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DailyHour { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DailyMinute { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Tz { get; set; }
 }
 
 public sealed class CronJobStateWireInfo
@@ -451,7 +463,11 @@ public static class CronJobWireMapping
         {
             Kind = job.Schedule.Kind,
             EveryMs = job.Schedule.EveryMs,
-            AtMs = job.Schedule.AtMs
+            AtMs = job.Schedule.AtMs,
+            InitialDelayMs = job.Schedule.InitialDelayMs,
+            DailyHour = job.Schedule.DailyHour,
+            DailyMinute = job.Schedule.DailyMinute,
+            Tz = job.Schedule.Tz
         },
         Enabled = job.Enabled,
         CreatedAtMs = job.CreatedAtMs,

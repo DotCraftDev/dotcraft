@@ -5,7 +5,14 @@ public sealed class CronSchedule
     public string Kind { get; set; } = "every";
     public long? AtMs { get; set; }
     public long? EveryMs { get; set; }
+    /// <summary>When <see cref="Kind"/> is <c>every</c>, optional delay (ms) before the first run only.</summary>
+    public long? InitialDelayMs { get; set; }
+    /// <summary>When <see cref="Kind"/> is <c>daily</c>, local hour 0–23.</summary>
+    public int? DailyHour { get; set; }
+    /// <summary>When <see cref="Kind"/> is <c>daily</c>, local minute 0–59.</summary>
+    public int? DailyMinute { get; set; }
     public string? Expr { get; set; }
+    /// <summary>IANA time zone id for <c>daily</c> schedules (e.g. Asia/Shanghai).</summary>
     public string? Tz { get; set; }
 }
 

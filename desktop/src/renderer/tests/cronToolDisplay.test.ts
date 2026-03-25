@@ -26,6 +26,28 @@ describe('formatCronCollapsedLabel', () => {
     ).toBe('Schedule "x" in 2m')
   })
 
+  it('summarizes add with everySeconds and delaySeconds', () => {
+    expect(
+      formatCronCollapsedLabel({
+        action: 'add',
+        message: 'x',
+        everySeconds: 3600,
+        delaySeconds: 600
+      })
+    ).toBe('Schedule "x" in 10m, then every 1h')
+  })
+
+  it('summarizes daily with dailyTime', () => {
+    expect(
+      formatCronCollapsedLabel({
+        action: 'add',
+        message: 'tea',
+        dailyTime: '15:00',
+        timeZone: 'Asia/Shanghai'
+      })
+    ).toBe('Schedule "tea" daily at 15:00 (Asia/Shanghai)')
+  })
+
   it('truncates long message when name absent', () => {
     const long = 'a'.repeat(50)
     const out = formatCronCollapsedLabel({ action: 'add', message: long })
