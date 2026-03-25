@@ -31,6 +31,8 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
 - [10. Conversation Panel](#10-conversation-panel)
 - [11. Detail Panel](#11-detail-panel)
 - [12. Input Composer](#12-input-composer)
+  - [12.6 Image Attachments](#126-image-attachments)
+  - [12.7 @ File References](#127--file-references)
 - [13. Approval Flow](#13-approval-flow)
 - [14. Workspace Management](#14-workspace-management)
 - [15. Visual Design System](#15-visual-design-system)
@@ -46,6 +48,7 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
   - [21.3 Cron Review Panel](#213-cron-review-panel)
 - [18.5 Windows Native Notifications](#185-windows-native-notifications) _(amendment to §18)_
 - [18.6 Cron Job State Conflicts](#186-cron-job-state-conflicts) _(amendment to §18)_
+- [18.7 Attachment Edge Cases](#187-attachment-edge-cases) _(amendment to §18.4)_
 
 ---
 
@@ -164,7 +167,32 @@ The Main Process handles Wire Protocol communication (spawning AppServer, WebSoc
 |-------|---------------|
 | **Main Process** | Spawn/manage AppServer child process (or connect via WebSocket). Maintain Wire Protocol client — send requests, receive responses and notifications. Forward protocol events to Renderer via IPC. Handle system-level concerns: window management, system tray, auto-update, native menus, file dialogs. |
 | **Renderer Process** | Render the three-panel UI. Maintain application state (thread list, current thread, active turn, streaming buffers). Translate user actions (click, type, keyboard shortcut) into Wire Protocol requests sent to Main via IPC. |
-| **IPC Contract** | Main exposes a typed API to Renderer via `contextBridge`. Renderer calls methods like `appServer.sendRequest(method, params)` and listens for events via `appServer.onNotification(callback)`. The IPC layer is a thin pass-through; it does not add business logic. |
+| **IPC Contract** | Main exposes a typed API to Renderer via `contextBridge`. Renderer calls methods like `appServer.sendRequest(method, params)` and listens for events via `appServer.onNotification(callback)`. The IPC layer is a thin pass-through; it does not add business logic. Additional IPC methods cover local filesystem operations needed by the composer (see §4.2.1). |
+
+### 4.2.1 Additional IPC Methods
+
+Beyond the AppServer pass-through (`appServer.sendRequest`), the Main Process exposes these IPC channels for composer functionality:
+
+| Channel (via `contextBridge`) | Direction | Params | Returns | Purpose |
+|-------------------------------|-----------|--------|---------|---------|
+| `workspace.saveImageToTemp` | Renderer → Main | `{ dataUrl: string, fileName?: string }` | `{ path: string }` | Write base64-encoded image bytes to `.craft/tmp/images/<uuid>.<ext>` on the local filesystem. Returns the **absolute path** the AppServer process can read via `localImage`. |
+| `workspace.searchFiles` | Renderer → Main | `{ query: string, workspacePath: string, limit?: number }` | `{ files: FileMatch[] }` | Fuzzy filename search within the workspace for the `@` file autocomplete popover. `FileMatch` shape: `{ name: string, relativePath: string, dir: string }`. |
+
+**`saveImageToTemp` rules:**
+
+- The temp directory is `.craft/tmp/images/` inside the active workspace root. It is created on first use.
+- The filename is `<uuid>.<ext>`, where `<ext>` is derived from the data URL's MIME type.
+- The Main Process **does not clean up** temp files automatically during a session; the AppServer cleans `.craft/tmp/` on startup and on clean shutdown.
+- Maximum data URL size accepted: 20 MB (larger rejects with an error).
+
+**`searchFiles` rules:**
+
+- Search is performed in the Main Process by walking the workspace directory tree (Node.js `fs`).
+- Excluded paths: `.git/`, `node_modules/`, `.craft/`, `bin/`, `obj/`, `dist/`, `out/`, `build/`, `.next/`, `__pycache__/`, `*.pyc`, `*.min.js`.
+- The result is a **fuzzy match** on the filename portion only (not the full path). Case-insensitive.
+- Results are sorted by relevance (exact prefix match first, then substring, then fuzzy distance), then alphabetically.
+- The file tree is **cached** in the Main Process and refreshed every 5 seconds via `fs.watch`; the cache is invalidated on workspace change.
+- `limit` defaults to 10. Maximum 20.
 
 ### 4.3 State Architecture
 
@@ -182,6 +210,7 @@ Application state lives in the Renderer Process. It is the single source of trut
 | **FileChanges** | `changedFiles` (Map of filePath → FileDiff), where each `FileDiff` contains: `filePath`, `turnId`, `additions`, `deletions`, `diffHunks`, `status` ('written' or 'reverted'), `isNewFile` | Extracted from completed `toolCall`/`toolResult` items where tool is `FileWrite` / `FileEdit`. Keyed by file path so that multiple edits to the same file across turns produce a single aggregated entry in the Detail Panel, while per-turn entries remain in the Turn Completion Summary. |
 | **UI** | `sidebarCollapsed`, `detailPanelTab`, `detailPanelVisible`, `inputValue`, `agentMode`, `activeMainView` ('conversation' \| 'skills' \| 'automations'), `automationsTab` ('tasks' \| 'cron') | User interactions |
 | **CronJobs** | `cronJobs` (CronJobInfo[]), `selectedCronJobId`, `cronLoading`, `cronError` | `cron/list` response, `cron/stateChanged` notifications |
+| **ComposerAttachments** | Local to `InputComposer` component state (not global store). `images: ImageAttachment[]` for image attachments shown in the image strip. `ImageAttachment`: `{ tempPath: string, dataUrl: string, fileName: string, mimeType: string }`. File references are **not** stored as separate state — they exist as inline `<span>` elements inside the `contentEditable` div and are extracted at send time by walking the DOM. | User attachment interactions (drag-drop, paste for images; `@` selection for inline file tags). Image state cleared on send; inline tags are cleared with the div content. |
 
 ---
 
@@ -583,12 +612,18 @@ Each user message is rendered as a distinct block:
 
 ```
 ┌─────────────────────────────────────────────┐
+│  [img] screenshot.png   [img] diagram.png   │  ← image thumbnails (only if images attached)
+│  ─────────────────────────────────────────  │
 │  Add an Esc shortcut to exit voice mode.    │
 └─────────────────────────────────────────────┘
 ```
 
 - Right-aligned or full-width with a subtle background tint to distinguish from agent messages.
-- Plain text rendering (no markdown). Images (if attached) shown inline.
+- Plain text rendering (no markdown).
+- **Image thumbnails**: If the turn's user message included image attachments, render a horizontal row of thumbnails above the text. Each thumbnail is `max-height: 80px`, `max-width: 120px`, rounded corners (`border-radius: 6px`), `object-fit: cover`. The filename is shown as a tooltip on hover.
+- **Lightbox**: Clicking a thumbnail opens a fullscreen modal overlay showing the full image. The overlay closes on click outside or `Esc`.
+- **@ file references**: `@path` tokens in the message text are displayed as-is in the history view. They are plain text (no special rendering in the message bubble) because the server stores text only. The inline tag rendering is a composer-only affordance.
+- **Persistence note**: The `UserMessagePayload` stored by the server contains text only. Image thumbnails in the history view are rendered from the client-side optimistic turn record while the session is active. After reconnect or thread reload, image thumbnails will not be available (the server has no record of the raw bytes), and the thumbnail row is omitted. This is expected behavior for V1.
 
 #### 10.3.3 Agent Response Block
 
@@ -1026,24 +1061,37 @@ The input composer is fixed at the bottom of the conversation panel.
 
 ```
 ┌──────────────────────────────────────────────────────┐
+│  [📷 screenshot.png ✕]                                │  Image strip (hidden when no images)
+│  ──────────────────────────────────────────────────  │
 │  ┌──────────────────────────────────────────────┐    │
-│  │                                              │    │
-│  │  Ask DotCraft anything                       │    │  Text area
-│  │                                              │    │
+│  │  Please review [📄 src/utils.ts] and fix     │    │  Rich input area
+│  │  the bug in [📄 src/parser.ts]               │    │  (contentEditable div with inline file tags)
 │  └──────────────────────────────────────────────┘    │
-│  ┌──────────┐                        ┌────────────┐  │
-│  │ Model ▾  │                        │   Send ▶   │  │  Bottom bar
-│  └──────────┘                        └────────────┘  │
+│  ┌──────────┐               ┌────────────┐  │
+│  │ Agent ●  │ · Model       │   Send ▶   │  │  Bottom bar
+│  └──────────┘               └────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
 
-### 12.2 Text Input Area
+**Image strip**: A horizontally scrollable row of pill tags for image attachments only. Hidden entirely when `images` is empty. Each pill shows a 20×20 px thumbnail and the filename. Every pill has an `✕` button that removes it from state. The strip appears above the rich input area, inside the composer border.
+
+**Rich input area**: The primary editing surface is a `contentEditable` div (not a plain `<textarea>`) to support inline file reference tags mixed with free-form text. See §12.2 for details.
+
+Images are attached via **clipboard paste** or **drag-and-drop** onto the composer (see §12.6); there is no separate attach button in V1.
+
+### 12.2 Rich Input Area
+
+The input area is a **`contentEditable` div** rather than a plain `<textarea>`. This is required to support inline file reference tags (non-editable pill elements) embedded within the user's free-form text. Visually and functionally it behaves like a multi-line text input with the following additions:
 
 - **Multi-line**: Grows vertically as the user types (1 line minimum, 8 lines maximum before scrolling internally).
-- **Placeholder**: "Ask DotCraft anything" in dimmed text when empty.
+- **Placeholder**: "Ask DotCraft anything" shown as a dimmed pseudo-element when the div is empty.
 - **Submit**: `Enter` sends the message (calls `turn/start`). `Shift+Enter` inserts a newline.
 - **Disabled state**: When a turn is running (`turnStatus = running`), the input area shows a subtle disabled overlay. The user can still type; pressing `Enter` queues the message as a pending follow-up (sent automatically when the current turn completes).
-- **Image paste**: Pasting an image from clipboard attaches it as a `localImage` input part. A thumbnail preview appears above the text input.
+- **Image paste**: Pasting an image from the clipboard (Ctrl+V) attaches it to the image strip. See §12.6.
+- **@ trigger**: Typing `@` opens the file search popover. On selection, an **inline file tag** is inserted at the cursor position within the rich input. See §12.7.
+- **Inline file tags**: Non-editable `<span>` elements rendered inline with text. They flow with the text and can appear at any position — beginning, middle, or end of the message. The cursor can be placed before or after a tag. Pressing `Backspace` with the cursor immediately after a tag removes it.
+- **Paste handling**: Pasting rich content (HTML) is sanitized to plain text. Only image data from clipboard is treated specially (see §12.6). File tags are not pasteable.
+- **Serialization**: On send, the `contentEditable` div's content is serialized to plain text: each file tag is replaced with `@relative/path`, and the rest is the user's typed text. See §12.7.5.
 
 ### 12.3 Model Selector
 
@@ -1067,6 +1115,145 @@ A subtle mode badge appears inside the input area or adjacent to it:
 - **Plan mode**: Blue dot + "Plan"
 
 Clicking the badge toggles between modes (calls `thread/mode/set`). Keyboard shortcut: `Ctrl+Shift+M`.
+
+---
+
+### 12.6 Image Attachments
+
+#### 12.6.1 Attachment Methods
+
+Users can attach images to a message via two paths:
+
+| Method | Trigger | Behavior |
+|--------|---------|----------|
+| **Clipboard paste** | Ctrl+V while the rich input is focused | Image data is extracted from the clipboard event, saved to a temp file via `workspace.saveImageToTemp`, and added as a pill to the image strip. |
+| **Drag-and-drop** | Drag image file(s) onto the composer area | The entire composer container is the drop target. On `dragover`, the composer shows a blue dashed border (`2px dashed var(--accent)`) and a centered overlay label "Drop image to attach". On `drop`, each accepted file is saved via `workspace.saveImageToTemp` and added to the strip. Files with unsupported extensions are rejected (toast shown if any were rejected). |
+
+#### 12.6.2 Image Strip
+
+The image strip is a horizontally scrollable flex row rendered above the rich input area. It is hidden entirely when empty.
+
+**Image pill anatomy:**
+
+```
+┌──────────────────────────────────────┐
+│  [thumbnail]  screenshot.png    [✕]  │
+└──────────────────────────────────────┘
+```
+
+- **Thumbnail**: 20×20 px, `object-fit: cover`, `border-radius: 3px`, using the `dataUrl` stored in the `ImageAttachment` record for instant rendering without a disk read.
+- **Filename**: truncated with ellipsis at 140px max-width.
+- **Remove button (✕)**: removes the attachment from `images` state. The corresponding temp file is **not** deleted immediately (temp files are left for the AppServer to clean up).
+
+#### 12.6.3 Limits and Validation
+
+| Constraint | Value | Error handling |
+|-----------|-------|----------------|
+| Max images per message | 5 | Excess files are rejected with toast: "Maximum 5 images per message." |
+| Max size per image | 10 MB (data URL byte length) | Rejected with toast: "Image too large ({N} MB). Maximum 10 MB." |
+| Supported formats | `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp` | Unsupported format rejected with toast: "Unsupported image format: {ext}." |
+
+#### 12.6.4 Wire Encoding
+
+On send (`turn/start`), each `ImageAttachment` in `images` is appended to the `input` array **after** the text part:
+
+```json
+{
+  "type": "localImage",
+  "path": "/absolute/path/to/.craft/tmp/images/<uuid>.png"
+}
+```
+
+The AppServer reads the file bytes at the given path and creates a `DataContent` instance for the model (see `AppServerRequestHandler.ResolveLocalImageAsync`). The text part always comes first, followed by image parts in attachment order.
+
+#### 12.6.5 Clipboard Paste — Bug Fix Note
+
+The existing `InputComposer` sends clipboard images as `{ type: "localImage", data: base64, mimeType }`. The AppServer's `SessionWireInputPart` only reads the `Path` field, so these are silently dropped. The implementation of §12.6 must replace this broken behavior with the temp-file-path approach described above.
+
+#### 12.6.6 ConversationWelcome Parity
+
+The welcome screen composer (`ConversationWelcome`) must support the same image attachment methods (paste, drag-and-drop) as `InputComposer`. The collected `ImageAttachment[]` is passed into the `pendingWelcomeTurn` store entry alongside the text, so `App.tsx` can include the image parts when it fires `turn/start` after the thread is created.
+
+---
+
+### 12.7 @ File References
+
+#### 12.7.1 Trigger and Popover
+
+Typing `@` in the rich input area opens a **file search popover** positioned immediately above the input area, left-aligned with the caret.
+
+The popover appears as a floating panel (elevation level 2: `box-shadow: 0 4px 12px rgba(0,0,0,0.4)`, `background: var(--bg-secondary)`, `border: 1px solid var(--border-default)`, `border-radius: 8px`).
+
+```
+┌──────────────────────────────────────────┐
+│  📄 InputComposer.tsx      components/   │  ← focused (highlighted bg)
+│  📄 InputComposer.test.ts  tests/        │
+│  📄 composerStore.ts       stores/       │
+│  📄 PendingMessageIndicator.tsx  …       │
+│  · · ·                                   │
+└──────────────────────────────────────────┘
+```
+
+Each row shows:
+- File icon (📄)
+- **Filename** (bold, matches highlighted in accent color)
+- **Directory** (dimmed, right-aligned or as a subdued suffix): workspace-relative parent directory of the file, truncated with ellipsis.
+
+The popover shows at most 10 results. An empty state ("No matching files") is shown when no results are found.
+
+#### 12.7.2 Search Behavior
+
+As the user continues typing after `@` (e.g., `@Inp`), the query is updated in real-time and `workspace.searchFiles` is called with the current query string (debounced at 80ms to avoid excessive IPC calls). The popover list updates as results arrive.
+
+The `@` trigger only activates when the character immediately preceding `@` is a whitespace character, or `@` is at the start of the content. Mid-word `@` symbols (e.g., email addresses) do not trigger the popover.
+
+#### 12.7.3 Keyboard Navigation
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move focus up / down the result list |
+| `Enter` or `Tab` | Select the focused item |
+| `Esc` | Dismiss the popover without selecting; the `@query` text remains in the input |
+| Any other key | Updates the query and re-runs search |
+
+#### 12.7.4 Selection Behavior
+
+When the user selects a file from the popover:
+
+1. The `@query` text in the `contentEditable` div (the characters from `@` through the cursor) is **replaced** with an **inline file tag** — a non-editable `<span>` element.
+2. The popover is dismissed.
+3. A space character is inserted after the tag so the cursor lands in a normal text node and the user can continue typing.
+4. Focus remains in the rich input area.
+
+**Inline file tag anatomy:**
+
+```
+[📄 src/utils.ts]
+```
+
+The tag is rendered as an inline pill: `display: inline-flex`, `border-radius: 4px`, `background: var(--bg-tertiary)`, `padding: 1px 6px`, `font-size: 13px`, `vertical-align: baseline`, `white-space: nowrap`, `user-select: none`, `contenteditable: false`. It contains:
+- A file icon (📄, 12px).
+- The workspace-relative path in normal weight.
+
+**Removal**: Pressing `Backspace` when the cursor (caret) is immediately after a file tag deletes the entire tag in a single keystroke. Tags can also be selected with mouse or Shift+Arrow and deleted with `Delete`/`Backspace`.
+
+#### 12.7.5 Wire Encoding on Send
+
+On send, the `contentEditable` div's DOM is walked to produce a flat text string. Each inline file tag `<span>` is serialized as `@relative/path`. Normal text nodes are preserved as-is. The result is a natural text message with `@` references at the positions the user placed them:
+
+```
+Please review @src/utils.ts and fix the bug in @src/parser.ts
+```
+
+This is sent as a single `{ "type": "text", "text": "..." }` part. No new `InputPart` type is needed. The agent interprets the `@path` tokens and may choose to read those files as part of its response.
+
+> **Rationale**: Keeping `@` references as plain text avoids any wire protocol changes and preserves compatibility. The agent's system prompt and available `ReadFile` tool give it sufficient context to act on these hints. Encoding them inline (rather than prepending all refs at the start) preserves the user's intended context — e.g., "fix @src/a.ts using the pattern from @src/b.ts" is more natural than "@src/a.ts @src/b.ts fix a.ts using the pattern from b.ts".
+
+#### 12.7.6 Limitations (V1)
+
+- Only **files** are searchable via `@`; directories are not selectable.
+- The same file can be inserted multiple times (the agent handles deduplication).
+- After send, file refs appear as plain `@path` text in the user message bubble in history (no special tag rendering — the server stores text only).
 
 ---
 
@@ -1323,8 +1510,18 @@ Based on a 4px grid:
 |----------|--------|
 | `Enter` | Send message |
 | `Shift+Enter` | Insert newline |
-| `Escape` | Cancel running turn |
+| `Escape` | Cancel running turn (when `@` popover is not open) |
 | `Ctrl+Shift+C` | Copy last agent response |
+
+### 17.2.1 Composer Attachment Shortcuts
+
+| Shortcut | Context | Action |
+|----------|---------|--------|
+| `Ctrl+V` (image in clipboard) | Input focused | Attaches the clipboard image (see §12.6.1) |
+| `@` | Typed in input | Opens file search popover (see §12.7.1) |
+| `↑` / `↓` | `@` popover open | Navigate results |
+| `Enter` or `Tab` | `@` popover open, item focused | Select file ref |
+| `Esc` | `@` popover open | Dismiss popover without selecting |
 
 ### 17.3 Approval Shortcuts
 
@@ -1371,7 +1568,13 @@ Based on a 4px grid:
 |----------|----------|
 | User sends message while turn is running | Message is queued as a pending follow-up. A subtle "Queued" indicator appears below the input. The queued message is sent automatically when the current turn completes. Only one message can be queued at a time; subsequent attempts replace the queued message. |
 | User pastes extremely long text | Input text is accepted up to 100,000 characters. Beyond that, paste is truncated with a warning toast. |
-| User sends empty message | Send button is disabled. `Enter` on empty input is a no-op. |
+| User sends empty message | Send button is disabled. `Enter` on empty input is a no-op. **Exception**: a message with no text but at least one image attachment is valid and may be sent (the `input` array will contain only `localImage` parts). |
+| User drags a non-image file onto the composer | The drop event is accepted (to prevent default browser behavior), but the file is rejected. Toast: "Only image files can be attached ({ext} is not supported)." The drop overlay is dismissed. |
+| User drags a folder onto the composer | Rejected silently. Folders produce no `File` entries via the drop API and are simply ignored. |
+| `workspace.saveImageToTemp` fails (disk full, permission denied) | The attachment is not added to the image strip. Toast: "Could not save image: {error message}." |
+| `workspace.searchFiles` returns slowly (> 300ms) | The popover shows a subtle loading spinner row while results are pending. Results replace the spinner when they arrive. |
+| @ popover open while turn is running | The popover is available; file refs can be composed during a running turn (they will be included in the queued pending message). |
+| Image attachment present when turn is running and user sends a queued message | The pending message mechanism stores text only (§18.4 first row). Queued follow-up messages sent automatically after turn completion are text-only; image attachments are discarded from the queue. A toast warns: "Image attachments cannot be queued — they will not be included in the follow-up message." |
 
 ---
 
@@ -1722,3 +1925,17 @@ When a `system/jobResult` notification arrives and the Desktop window is **not f
 | `cron/stateChanged` arrives for unknown `jobId` | Treat as a new job: insert into `cronJobs` list. |
 | `cron/stateChanged` with `removed: true` for unknown `jobId` | No-op (job already absent from local list). |
 | Desktop connects while a cron job is mid-execution | The `cron/list` response shows the job's current `lastStatus` from the previous run (not "running"). The running state is not surfaced at the job-list level; the active turn is only visible in the Cron Review Panel if the user opens it by thread. |
+
+### 18.7 Attachment Edge Cases
+
+_This sub-section extends §18.4 with attachment-specific error scenarios._
+
+| Scenario | UI Behavior |
+|----------|-------------|
+| Non-image file dragged onto composer | Drop accepted (to suppress default browser download behavior), file rejected. Toast: "Only image files can be attached ({ext} is not supported)." |
+| Folder dragged onto composer | Ignored silently. The HTML5 drop API produces no `File` entries for directory drops in Electron. |
+| `workspace.saveImageToTemp` IPC fails | Attachment not added to image strip. Toast: "Could not save image: {error message}." |
+| Image removed from image strip before send | The temp file path is orphaned on disk until the next AppServer startup cleanup. No corrective action needed in the UI. |
+| Image attachments present when message is queued (turn running) | Image attachments are discarded from the pending follow-up queue. Toast: "Image attachments cannot be queued — they will not be included in the follow-up message." See §18.4. |
+| `@` file search IPC returns no results | Popover shows "No matching files" empty state. User can dismiss with Esc or continue refining the query. |
+| `workspace.searchFiles` IPC fails | Popover shows "Search unavailable" with dimmed text. No toast — failure is transient and non-blocking. |

@@ -708,13 +708,18 @@ export function App(): JSX.Element {
           useConversationStore.getState().setTurns(convTurns)
 
           // Welcome composer: send first turn after historical turns are loaded so reset/setTurns do not drop optimistic UI.
-          const pendingText = useUIStore.getState().consumePendingWelcomeTurnIfMatch(requestedId)
-          if (pendingText != null) {
+          const pendingWelcome = useUIStore.getState().consumePendingWelcomeTurnIfMatch(requestedId)
+          if (pendingWelcome != null) {
             const threadId = requestedId
             const path = workspacePathRef.current
+            const pendingText = pendingWelcome.text.trim()
+            const pendingImages = pendingWelcome.images
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
             if (!threadEntry?.displayName) {
-              const autoName = pendingText.length > 50 ? pendingText.slice(0, 50) + '...' : pendingText
+              const autoName =
+                pendingText.length > 50
+                  ? pendingText.slice(0, 50) + '...'
+                  : pendingText || 'Image message'
               useThreadStore.getState().renameThread(threadId, autoName)
             }
             const optimisticItemId = `local-${Date.now()}`
@@ -725,6 +730,7 @@ export function App(): JSX.Element {
               type: 'userMessage',
               status: 'completed',
               text: pendingText,
+              imageDataUrls: pendingImages?.map((i) => i.dataUrl),
               createdAt: optimisticNow,
               completedAt: optimisticNow
             }
@@ -736,17 +742,28 @@ export function App(): JSX.Element {
               startedAt: optimisticNow
             }
             useConversationStore.getState().addOptimisticTurn(optimisticTurn)
-            void window.api.appServer
-              .sendRequest('turn/start', {
-                threadId,
-                input: [{ type: 'text', text: pendingText }],
-                identity: {
-                  channelName: 'dotcraft-desktop',
-                  userId: 'local',
-                  channelContext: `workspace:${path}`,
-                  workspacePath: path
-                }
-              })
+
+            const inputParts: Array<{ type: string; text?: string; path?: string }> = []
+            if (pendingText.length > 0) {
+              inputParts.push({ type: 'text', text: pendingText })
+            }
+            for (const img of pendingImages ?? []) {
+              inputParts.push({ type: 'localImage', path: img.tempPath })
+            }
+            if (inputParts.length === 0) {
+              useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
+            } else {
+              void window.api.appServer
+                .sendRequest('turn/start', {
+                  threadId,
+                  input: inputParts,
+                  identity: {
+                    channelName: 'dotcraft-desktop',
+                    userId: 'local',
+                    channelContext: `workspace:${path}`,
+                    workspacePath: path
+                  }
+                })
               .then((result) => {
                 const res = result as { turn?: { id?: string } }
                 if (res.turn?.id) {
@@ -757,6 +774,7 @@ export function App(): JSX.Element {
                 console.error('Welcome screen turn/start failed:', turnErr)
                 useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
               })
+            }
           }
         })
         .catch((err: unknown) => {

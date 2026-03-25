@@ -1,18 +1,29 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { addToast } from '../../stores/toastStore'
 import { useUIStore } from '../../stores/uiStore'
-import type { ConversationItem, ConversationTurn } from '../../types/conversation'
+import type { ConversationItem, ConversationTurn, ImageAttachment } from '../../types/conversation'
 import { PendingMessageIndicator } from './PendingMessageIndicator'
+import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
+import { ImageStrip } from './ImageStrip'
+import { FileSearchPopover } from './FileSearchPopover'
 
-interface ImageAttachment {
-  dataUrl: string
-  mimeType: string
+const MAX_TEXT_LENGTH = 100_000
+const MAX_IMAGES = 5
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'])
+
+function extForFile(name: string): string {
+  const i = name.lastIndexOf('.')
+  return i >= 0 ? name.slice(i).toLowerCase() : ''
 }
 
-const MAX_ROWS = 8
-const MAX_TEXT_LENGTH = 100_000
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith('image/')) return true
+  return IMAGE_EXTENSIONS.has(extForFile(file.name))
+}
 
 interface InputComposerProps {
   threadId: string
@@ -22,18 +33,17 @@ interface InputComposerProps {
 
 /**
  * Bottom input area for the conversation panel.
- * - Multi-line textarea that grows 1–8 rows.
- * - Enter sends; Shift+Enter inserts newline.
- * - When a turn is running: enter queues a pending message instead.
- * - Send button changes to Stop (square) when running.
- * - Mode indicator (Agent / Plan) toggles via thread/mode/set.
- * - Model name display (read-only).
- * Spec §10.3.4
+ * Rich input with @ file refs, image strip (paste / drag-drop), Enter to send.
  */
 export function InputComposer({ threadId, workspacePath, modelName = 'Default' }: InputComposerProps): JSX.Element {
-  const [text, setText] = useState('')
-  const [imageAttachment, setImageAttachment] = useState<ImageAttachment | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [images, setImages] = useState<ImageAttachment[]>([])
+  const [atQuery, setAtQuery] = useState<string | null>(null)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  /** Bumps on rich-input edits so `canSend` re-evaluates from ref (contentEditable has no React state). */
+  const [contentRevision, setContentRevision] = useState(0)
+  const richRef = useRef<RichInputAreaHandle>(null)
+  const composerWrapRef = useRef<HTMLDivElement>(null)
 
   const turnStatus = useConversationStore((s) => s.turnStatus)
   const pendingMessage = useConversationStore((s) => s.pendingMessage)
@@ -45,22 +55,32 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
   const isRunning = turnStatus === 'running'
   const isWaitingApproval = turnStatus === 'waitingApproval'
 
-  // Consume any pending prefill text written by ConversationWelcome before this mounted
+  const showMentionPopover = atQuery !== null && !mentionDismissed
+
+  const handleAtQuery = useCallback((q: string | null): void => {
+    setAtQuery(q)
+    if (q !== null) setMentionDismissed(false)
+  }, [])
+
+  // Consume any pending prefill text when InputComposer mounts
   useEffect(() => {
     if (composerPrefill) {
-      setText(composerPrefill)
+      const t = composerPrefill
       useUIStore.getState().consumeComposerPrefill()
-      setTimeout(() => textareaRef.current?.focus(), 0)
+      setTimeout(() => {
+        richRef.current?.setPlainText(t)
+        richRef.current?.focus()
+      }, 0)
     }
   }, [composerPrefill])
 
-  // Expose focus and pre-fill functions globally so other components can drive the composer
   useEffect(() => {
-    const focus = (): void => { textareaRef.current?.focus() }
+    const focus = (): void => {
+      richRef.current?.focus()
+    }
     const setTextAndFocus = (value: string): void => {
-      setText(value)
-      // Focus after a tick so the textarea has re-rendered with the new value
-      setTimeout(() => textareaRef.current?.focus(), 0)
+      richRef.current?.setPlainText(value)
+      setTimeout(() => richRef.current?.focus(), 0)
     }
     ;(window as Window & { __inputComposerFocus?: () => void }).__inputComposerFocus = focus
     ;(window as Window & { __inputComposerSetText?: (v: string) => void }).__inputComposerSetText = setTextAndFocus
@@ -70,58 +90,128 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
     }
   }, [])
 
-  // Return focus to textarea when transitioning from waitingApproval back to running/idle
   const prevTurnStatusRef = useRef(turnStatus)
   useEffect(() => {
     const prev = prevTurnStatusRef.current
     if (prev === 'waitingApproval' && turnStatus !== 'waitingApproval') {
-      textareaRef.current?.focus()
+      richRef.current?.focus()
     }
     prevTurnStatusRef.current = turnStatus
   }, [turnStatus])
 
-  // Auto-resize textarea
-  function adjustHeight(): void {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    const lineHeight = parseInt(getComputedStyle(el).lineHeight) || 20
-    const maxHeight = lineHeight * MAX_ROWS + 24 // 24px vertical padding
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
-  }
+  const saveDataUrlAsTemp = useCallback(
+    async (dataUrl: string, fileName: string, mimeType: string): Promise<void> => {
+      const baseLen = dataUrl.split(',')[1]?.length ?? 0
+      const approxBytes = Math.floor((baseLen * 3) / 4)
+      if (approxBytes > MAX_IMAGE_BYTES) {
+        addToast(`Image too large. Maximum ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`, 'warning')
+        return
+      }
+      if (images.length >= MAX_IMAGES) {
+        addToast(`Maximum ${MAX_IMAGES} images per message.`, 'warning')
+        return
+      }
+      try {
+        const { path } = await window.api.workspace.saveImageToTemp({ dataUrl, fileName })
+        setImages((prev) => [
+          ...prev,
+          { tempPath: path, dataUrl, fileName, mimeType }
+        ])
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        addToast(`Could not save image: ${msg}`, 'error')
+      }
+    },
+    [images.length]
+  )
 
-  useEffect(() => {
-    adjustHeight()
-  }, [text])
+  const onPasteImage = useCallback(
+    (file: File): void => {
+      if (!isImageFile(file)) {
+        addToast(`Unsupported image format: ${extForFile(file.name) || 'unknown'}`, 'warning')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        void saveDataUrlAsTemp(dataUrl, file.name, file.type || 'image/png')
+      }
+      reader.readAsDataURL(file)
+    },
+    [saveDataUrlAsTemp]
+  )
+
+  const onDragOver = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(true)
+  }, [])
+
+  const onDragLeave = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+  }, [])
+
+  const onDrop = useCallback(
+    (e: React.DragEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      setDragOver(false)
+      const fl = Array.from(e.dataTransfer.files || [])
+      let rejected = 0
+      for (const file of fl) {
+        if (!isImageFile(file)) {
+          rejected++
+          continue
+        }
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result as string
+          void saveDataUrlAsTemp(dataUrl, file.name, file.type || 'image/png')
+        }
+        reader.readAsDataURL(file)
+      }
+      if (rejected > 0) {
+        addToast(
+          `Only image files can be attached (${rejected} file(s) skipped).`,
+          'warning'
+        )
+      }
+    },
+    [saveDataUrlAsTemp]
+  )
 
   const sendMessage = useCallback(async () => {
+    const text = richRef.current?.getText() ?? ''
     const trimmed = text.trim()
-    if (!trimmed) return
-
-    // Block sending and queueing during approval wait — user must decide first
+    if (!trimmed && images.length === 0) return
     if (isWaitingApproval) return
 
     if (isRunning) {
-      // Queue as pending (only one queued at a time — latest wins)
+      if (images.length > 0) {
+        addToast(
+          'Image attachments cannot be queued — they will not be included in the follow-up message.',
+          'warning'
+        )
+      }
       setPendingMessage(trimmed)
-      setText('')
+      richRef.current?.clear()
+      setImages([])
       return
     }
 
-    const capturedImage = imageAttachment
-    setText('')
-    setImageAttachment(null)
+    const capturedImages = [...images]
+    richRef.current?.clear()
+    setImages([])
 
-    // Optimistically name a new thread from the first message — mirrors server behaviour.
-    // This fires immediately so the sidebar shows the name while the agent is still running.
     const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
     if (!threadEntry?.displayName) {
-      const autoName = trimmed.length > 50 ? trimmed.slice(0, 50) + '...' : trimmed
+      const autoName =
+        trimmed.length > 50 ? trimmed.slice(0, 50) + '...' : trimmed || 'Image message'
       useThreadStore.getState().renameThread(threadId, autoName)
     }
 
-    // Optimistically add the user message and a placeholder turn to the store
-    // so the UI updates immediately without waiting for server notifications.
     const optimisticItemId = `local-${Date.now()}`
     const optimisticTurnId = `local-turn-${Date.now()}`
     const optimisticNow = new Date().toISOString()
@@ -130,6 +220,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
       type: 'userMessage',
       status: 'completed',
       text: trimmed,
+      imageDataUrls: capturedImages.map((i) => i.dataUrl),
       createdAt: optimisticNow,
       completedAt: optimisticNow
     }
@@ -142,16 +233,19 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
     }
     useConversationStore.getState().addOptimisticTurn(optimisticTurn)
 
-    try {
-      const inputParts: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
-        { type: 'text', text: trimmed }
-      ]
-      if (capturedImage) {
-        // Strip data URL prefix to get raw base64
-        const base64 = capturedImage.dataUrl.split(',')[1] ?? ''
-        inputParts.push({ type: 'localImage', data: base64, mimeType: capturedImage.mimeType })
-      }
+    const inputParts: Array<{ type: string; text?: string; path?: string }> = []
+    if (trimmed.length > 0) {
+      inputParts.push({ type: 'text', text: trimmed })
+    }
+    for (const img of capturedImages) {
+      inputParts.push({ type: 'localImage', path: img.tempPath })
+    }
+    if (inputParts.length === 0) {
+      useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
+      return
+    }
 
+    try {
       const result = await window.api.appServer.sendRequest('turn/start', {
         threadId,
         input: inputParts,
@@ -162,23 +256,18 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
           workspacePath
         }
       })
-      // Promote the optimistic turn to the real server turn ID immediately,
-      // so turn/interrupt can send the correct turnId without waiting for
-      // the turn/started notification.
       const res = result as { turn?: { id?: string } }
       if (res.turn?.id) {
         useConversationStore.getState().promoteOptimisticTurn(optimisticTurnId, res.turn.id)
       }
     } catch (err) {
       console.error('turn/start failed:', err)
-      // On failure, remove the optimistic turn and show an error
       useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
     }
-  }, [text, imageAttachment, isRunning, isWaitingApproval, threadId, workspacePath, setPendingMessage])
+  }, [images, isRunning, isWaitingApproval, threadId, workspacePath, setPendingMessage])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
-    // Don't send interrupt if we only have a local optimistic ID (server hasn't confirmed yet)
     if (!activeTurnId || activeTurnId.startsWith('local-turn-')) return
     try {
       await window.api.appServer.sendRequest('turn/interrupt', { threadId, turnId: activeTurnId })
@@ -186,43 +275,6 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
       console.error('turn/interrupt failed:', err)
     }
   }, [threadId])
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      void sendMessage()
-    }
-  }
-
-  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>): void {
-    // Handle image paste
-    const items = Array.from(e.clipboardData.items)
-    const imageItem = items.find((item) => item.type.startsWith('image/'))
-    if (imageItem) {
-      e.preventDefault()
-      const file = imageItem.getAsFile()
-      if (!file) return
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string
-        if (dataUrl) setImageAttachment({ dataUrl, mimeType: imageItem.type })
-      }
-      reader.readAsDataURL(file)
-      return
-    }
-
-    // Handle oversized text paste
-    const pastedText = e.clipboardData.getData('text')
-    if (pastedText.length > MAX_TEXT_LENGTH) {
-      e.preventDefault()
-      const truncated = pastedText.slice(0, MAX_TEXT_LENGTH)
-      setText((prev) => {
-        const combined = prev + truncated
-        return combined.slice(0, MAX_TEXT_LENGTH)
-      })
-      addToast(`Input truncated to ${MAX_TEXT_LENGTH.toLocaleString()} characters`, 'warning')
-    }
-  }
 
   async function toggleMode(): Promise<void> {
     const newMode = threadMode === 'agent' ? 'plan' : 'agent'
@@ -237,7 +289,17 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
     }
   }
 
-  const canSend = text.trim().length > 0 && !isWaitingApproval
+  const canSend = useMemo(() => {
+    const textLen = (richRef.current?.getText() ?? '').trim().length
+    return (textLen > 0 || images.length > 0) && !isWaitingApproval
+  }, [contentRevision, images.length, isWaitingApproval])
+
+  const onSelectFile = useCallback(
+    (relativePath: string): void => {
+      richRef.current?.insertFileTag(relativePath)
+    },
+    []
+  )
 
   return (
     <div
@@ -246,124 +308,122 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
         flexShrink: 0
       }}
     >
-      {/* Pending message indicator */}
       {pendingMessage && <PendingMessageIndicator message={pendingMessage} />}
 
       <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        {/* Image attachment thumbnail */}
-        {imageAttachment && (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <img
-                src={imageAttachment.dataUrl}
-                alt="Attachment preview"
-                style={{
-                  maxWidth: '80px',
-                  maxHeight: '60px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-default)',
-                  objectFit: 'cover'
-                }}
-              />
-              <button
-                onClick={() => setImageAttachment(null)}
-                aria-label="Remove image attachment"
-                title="Remove image"
-                style={{
-                  position: 'absolute',
-                  top: '-6px',
-                  right: '-6px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  background: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-default)',
-                  color: 'var(--text-secondary)',
-                  fontSize: '10px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 0
-                }}
-              >
-                ✕
-              </button>
+        <div
+          ref={composerWrapRef}
+          style={{ position: 'relative' }}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
+          {dragOver && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 20,
+                border: '2px dashed var(--accent)',
+                borderRadius: '10px',
+                background: 'rgba(124, 58, 237, 0.08)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                pointerEvents: 'none',
+                fontSize: '13px',
+                color: 'var(--accent)'
+              }}
+            >
+              Drop image to attach
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Textarea row */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => { if (!isWaitingApproval) setText(e.target.value) }}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={isWaitingApproval ? 'Waiting for approval decision...' : 'Ask DotCraft anything'}
-            rows={1}
-            disabled={isWaitingApproval}
-            style={{
-              flex: 1,
-              resize: 'none',
-              border: '1px solid var(--border-default)',
-              borderRadius: '8px',
-              padding: '8px 12px',
-              fontSize: '14px',
-              lineHeight: '20px',
-              fontFamily: 'var(--font-sans)',
-              backgroundColor: isWaitingApproval ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-              color: isWaitingApproval ? 'var(--text-dimmed)' : 'var(--text-primary)',
-              outline: 'none',
-              overflowY: 'auto',
-              transition: 'border-color 100ms ease, background-color 150ms ease',
-              cursor: isWaitingApproval ? 'not-allowed' : 'text',
-              opacity: isWaitingApproval ? 0.6 : 1
+          <ImageStrip
+            images={images}
+            onRemove={(idx) => {
+              setImages((prev) => prev.filter((_, i) => i !== idx))
             }}
-            onFocus={(e) => { if (!isWaitingApproval) e.currentTarget.style.borderColor = 'var(--border-active)' }}
-            onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--border-default)')}
           />
 
-          {/* Send / Stop button — hidden during approval wait */}
-          {!isWaitingApproval && (
-            isRunning ? (
-              <button
-                onClick={stopTurn}
-                title="Stop (Esc)"
-                aria-label="Stop turn"
-                style={{
-                  ...sendButtonBase,
-                  backgroundColor: 'var(--error)',
-                  color: '#fff'
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
+            <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+              <FileSearchPopover
+                query={atQuery ?? ''}
+                visible={showMentionPopover}
+                workspacePath={workspacePath}
+                onSelect={onSelectFile}
+                onDismiss={() => {
+                  setMentionDismissed(true)
                 }}
-              >
-                <StopIcon />
-              </button>
-            ) : (
-              <button
-                onClick={sendMessage}
-                disabled={!canSend}
-                title="Send (Enter)"
-                aria-label="Send message"
-                style={{
-                  ...sendButtonBase,
-                  backgroundColor: canSend ? 'var(--accent)' : 'var(--bg-tertiary)',
-                  color: canSend ? '#fff' : 'var(--text-dimmed)',
-                  cursor: canSend ? 'pointer' : 'default'
+              />
+              <RichInputArea
+                ref={richRef}
+                disabled={isWaitingApproval}
+                suppressSubmit={showMentionPopover}
+                placeholder={
+                  isWaitingApproval ? 'Waiting for approval decision...' : 'Ask DotCraft anything'
+                }
+                onSubmit={() => {
+                  void sendMessage()
                 }}
-              >
-                <SendIcon />
-              </button>
-            )
-          )}
+                onAtQuery={handleAtQuery}
+                onContentChange={() => {
+                  setContentRevision((n) => n + 1)
+                }}
+                onPasteImage={onPasteImage}
+                onPasteTextOversized={() => {
+                  addToast(
+                    `Input truncated to ${MAX_TEXT_LENGTH.toLocaleString()} characters`,
+                    'warning'
+                  )
+                }}
+              />
+            </div>
+
+            {!isWaitingApproval &&
+              (isRunning ? (
+                <button
+                  type="button"
+                  onClick={stopTurn}
+                  title="Stop (Esc)"
+                  aria-label="Stop turn"
+                  style={{
+                    ...sendButtonBase,
+                    backgroundColor: 'var(--error)',
+                    color: '#fff'
+                  }}
+                >
+                  <StopIcon />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void sendMessage()
+                  }}
+                  disabled={!canSend}
+                  title="Send (Enter)"
+                  aria-label="Send message"
+                  style={{
+                    ...sendButtonBase,
+                    backgroundColor: canSend ? 'var(--accent)' : 'var(--bg-tertiary)',
+                    color: canSend ? '#fff' : 'var(--text-dimmed)',
+                    cursor: canSend ? 'pointer' : 'default'
+                  }}
+                >
+                  <SendIcon />
+                </button>
+              ))}
+          </div>
         </div>
 
-        {/* Bottom row: mode + model */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Mode toggle */}
           <button
-            onClick={toggleMode}
+            type="button"
+            onClick={() => {
+              void toggleMode()
+            }}
             title={`Mode: ${threadMode}. Click to toggle.`}
             style={{
               display: 'flex',
@@ -403,24 +463,12 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
 
           <span style={{ color: 'var(--border-default)' }}>·</span>
 
-          {/* Model name (read-only) */}
-          <span
-            style={{
-              fontSize: '12px',
-              color: 'var(--text-dimmed)'
-            }}
-          >
-            {modelName}
-          </span>
+          <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>{modelName}</span>
         </div>
       </div>
     </div>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Icons
-// ---------------------------------------------------------------------------
 
 function SendIcon(): JSX.Element {
   return (
@@ -437,10 +485,6 @@ function StopIcon(): JSX.Element {
     </svg>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
 
 const sendButtonBase: React.CSSProperties = {
   width: '34px',
