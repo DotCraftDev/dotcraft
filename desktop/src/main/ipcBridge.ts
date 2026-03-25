@@ -12,7 +12,8 @@ import {
 import {
   invalidateFileIndex,
   saveImageDataUrlToTemp,
-  searchWorkspaceFiles
+  searchWorkspaceFiles,
+  warmFileSearchIndex
 } from './workspaceComposerIpc'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -300,6 +301,10 @@ export function registerIpcHandlers(
   ipcMain.handle('settings:set', (_event, partial: Partial<AppSettings>) => {
     callbacks?.updateSettings(partial)
   })
+
+  if (workspacePath) {
+    warmFileSearchIndex(workspacePath)
+  }
 }
 
 /**

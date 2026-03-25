@@ -32,6 +32,14 @@ const FORCE_EXCLUDED_PATH_SEGMENTS = new Set([
   '__pycache__'
 ])
 
+/** fast-glob ignore patterns (merged with gitignore) to prune traversal early. */
+const GLOB_FORCE_IGNORE: string[] = Array.from(FORCE_EXCLUDED_PATH_SEGMENTS).map(
+  (seg) => `**/${seg}/**`
+)
+
+/** Debounce invalidating the in-memory index after fs.watch events (saves full globby rescans). */
+const INDEX_INVALIDATE_DEBOUNCE_MS = 1200
+
 export interface FileMatchWire {
   name: string
   relativePath: string
@@ -47,6 +55,13 @@ interface FileIndexEntry {
 let fileIndex: FileIndexEntry[] | null = null
 let fileIndexWorkspace: string | null = null
 let fileIndexWatcher: FSWatcher | null = null
+let indexInvalidateDebounce: ReturnType<typeof setTimeout> | null = null
+
+/** Bumped on explicit invalidate or debounced watch invalidation so in-flight builds do not commit stale data. */
+let fileIndexEpoch = 0
+
+let indexBuildPending: Promise<FileIndexEntry[]> | null = null
+let indexBuildPendingRoot: string | null = null
 
 function shouldSkipFile(relPath: string): boolean {
   const base = path.basename(relPath)
@@ -68,7 +83,8 @@ async function buildFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> 
     cwd: root,
     onlyFiles: true,
     gitignore: true,
-    dot: true
+    dot: true,
+    ignore: GLOB_FORCE_IGNORE
   })
   const out: FileIndexEntry[] = []
   for (const relRaw of paths) {
@@ -82,26 +98,71 @@ async function buildFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> 
   return out
 }
 
+function scheduleDebouncedIndexInvalidate(): void {
+  if (indexInvalidateDebounce) {
+    clearTimeout(indexInvalidateDebounce)
+  }
+  indexInvalidateDebounce = setTimeout(() => {
+    indexInvalidateDebounce = null
+    fileIndexEpoch++
+    fileIndex = null
+    fileIndexWorkspace = null
+  }, INDEX_INVALIDATE_DEBOUNCE_MS)
+}
+
+function ensureFsWatchForWorkspace(resolvedRoot: string): void {
+  if (fileIndexWatcher) {
+    return
+  }
+  try {
+    fileIndexWatcher = fsWatch(resolvedRoot, { recursive: true }, () => {
+      scheduleDebouncedIndexInvalidate()
+    })
+  } catch {
+    /* recursive watch unsupported or failed — index refreshes on next cold miss */
+  }
+}
+
 async function ensureFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> {
   const resolved = path.resolve(workspaceRoot)
   if (fileIndex && fileIndexWorkspace === resolved) {
     return fileIndex
   }
-  if (fileIndexWatcher) {
-    fileIndexWatcher.close()
-    fileIndexWatcher = null
+  if (indexBuildPending && indexBuildPendingRoot === resolved) {
+    return indexBuildPending
   }
-  fileIndex = await buildFileIndex(resolved)
-  fileIndexWorkspace = resolved
-  try {
-    fileIndexWatcher = fsWatch(resolved, { recursive: true }, () => {
-      fileIndex = null
-      fileIndexWorkspace = null
-    })
-  } catch {
-    /* recursive watch unsupported or failed — index refreshes on next cold miss */
-  }
-  return fileIndex
+  const snapshotEpoch = fileIndexEpoch
+  const p = (async (): Promise<FileIndexEntry[]> => {
+    try {
+      const built = await buildFileIndex(resolved)
+      if (snapshotEpoch !== fileIndexEpoch) {
+        if (fileIndex && fileIndexWorkspace === resolved) {
+          return fileIndex
+        }
+        return ensureFileIndex(workspaceRoot)
+      }
+      fileIndex = built
+      fileIndexWorkspace = resolved
+      ensureFsWatchForWorkspace(resolved)
+      return fileIndex
+    } finally {
+      indexBuildPending = null
+      indexBuildPendingRoot = null
+    }
+  })()
+  indexBuildPending = p
+  indexBuildPendingRoot = resolved
+  return p
+}
+
+/**
+ * Starts a background index build so the first @ search is less likely to block.
+ */
+export function warmFileSearchIndex(workspaceRoot: string): void {
+  if (!workspaceRoot.trim()) return
+  void ensureFileIndex(workspaceRoot).catch(() => {
+    /* ignore — next search will retry */
+  })
 }
 
 function scoreMatch(name: string, qLower: string): number {
@@ -144,8 +205,15 @@ export async function searchWorkspaceFiles(
 }
 
 export function invalidateFileIndex(): void {
+  if (indexInvalidateDebounce) {
+    clearTimeout(indexInvalidateDebounce)
+    indexInvalidateDebounce = null
+  }
+  fileIndexEpoch++
   fileIndex = null
   fileIndexWorkspace = null
+  indexBuildPending = null
+  indexBuildPendingRoot = null
   if (fileIndexWatcher) {
     fileIndexWatcher.close()
     fileIndexWatcher = null
