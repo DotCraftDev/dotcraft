@@ -785,7 +785,7 @@ export function translate(
   let s = table[key] ?? fallback[key] ?? String(key)
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
-      s = s.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v))
+      s = s.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), () => String(v))
     }
   }
   return s
