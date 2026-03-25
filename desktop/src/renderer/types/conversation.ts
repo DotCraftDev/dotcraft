@@ -47,6 +47,8 @@ export interface ConversationItem {
   status: ItemStatus
   /** Primary text content: userMessage text, agentMessage markdown, error message */
   text?: string
+  /** Optimistic-only: data URLs for user-attached images (not persisted by server) */
+  imageDataUrls?: string[]
   /** Reasoning (thinking) text — reasoningContent items */
   reasoning?: string
   /** Tool name — toolCall items */
@@ -88,7 +90,17 @@ export interface ConversationTurn {
 }
 
 /** Supported input part types for turn/start */
-export type InputPart = { type: 'text'; text: string }
+export type InputPart =
+  | { type: 'text'; text: string }
+  | { type: 'localImage'; path: string }
+
+/** User-attached image in the composer (temp file + preview) */
+export interface ImageAttachment {
+  tempPath: string
+  dataUrl: string
+  fileName: string
+  mimeType: string
+}
 
 /** Agent operating mode */
 export type ThreadMode = 'agent' | 'plan'

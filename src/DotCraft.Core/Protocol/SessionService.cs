@@ -572,8 +572,7 @@ public sealed class SessionService(
 
                                 case FunctionResultContent fr:
                                 {
-                                    var resultText = fr.Result is string s ? s
-                                        : fr.Result?.ToString() ?? string.Empty;
+                                    var resultText = ImageContentSanitizingChatClient.DescribeResult(fr.Result);
                                     var toolResultItem = new SessionItem
                                     {
                                         Id = SessionIdGenerator.NewItemId(NextItemSeq()),

@@ -63,6 +63,12 @@ declare global {
         getRecent(): Promise<Array<{ path: string; name: string; lastOpenedAt: string }>>
         openNewWindow(): Promise<void>
         checkLock(wsPath: string): Promise<{ locked: boolean; pid?: number }>
+        saveImageToTemp(params: { dataUrl: string; fileName?: string }): Promise<{ path: string }>
+        searchFiles(params: {
+          query: string
+          workspacePath: string
+          limit?: number
+        }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }>
       }
       settings: {
         get(): Promise<{

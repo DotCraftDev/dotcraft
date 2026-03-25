@@ -9,6 +9,12 @@ import {
   TITLE_BAR_OVERLAY_BY_THEME,
   TITLE_BAR_OVERLAY_HEIGHT
 } from '../shared/titleBarOverlay'
+import {
+  invalidateFileIndex,
+  saveImageDataUrlToTemp,
+  searchWorkspaceFiles,
+  warmFileSearchIndex
+} from './workspaceComposerIpc'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -97,6 +103,8 @@ export function registerIpcHandlers(
   workspacePath: string,
   callbacks?: IpcHandlerCallbacks
 ): void {
+  invalidateFileIndex()
+
   // Renderer -> Main: send a JSON-RPC request to AppServer
   ipcMain.handle(
     'appserver:send-request',
@@ -248,6 +256,40 @@ export function registerIpcHandlers(
     return checkWorkspaceLock(wsPath)
   })
 
+  // Renderer -> Main: save clipboard/drag image bytes to .craft/tmp/images for localImage wire part
+  ipcMain.handle(
+    'workspace:save-image-to-temp',
+    async (_event, params: { dataUrl: string; fileName?: string }) => {
+      const ws = workspacePath
+      if (!ws) {
+        throw new Error('No workspace open')
+      }
+      const pathAbs = await saveImageDataUrlToTemp(ws, params.dataUrl, params.fileName)
+      return { path: pathAbs }
+    }
+  )
+
+  // Renderer -> Main: fuzzy file name search for @ mentions
+  ipcMain.handle(
+    'workspace:search-files',
+    async (
+      _event,
+      params: { query: string; workspacePath: string; limit?: number }
+    ) => {
+      const ws = path.resolve(workspacePath)
+      const req = path.resolve(params.workspacePath)
+      if (ws !== req) {
+        throw new Error('Workspace path mismatch')
+      }
+      if (!ws) {
+        return { files: [] as { name: string; relativePath: string; dir: string }[] }
+      }
+      const limit = Math.min(20, Math.max(1, params.limit ?? 10))
+      const files = await searchWorkspaceFiles(ws, params.query, limit)
+      return { files }
+    }
+  )
+
   // ─── Settings ──────────────────────────────────────────────────────────────
 
   // Renderer -> Main: get current settings
@@ -259,6 +301,10 @@ export function registerIpcHandlers(
   ipcMain.handle('settings:set', (_event, partial: Partial<AppSettings>) => {
     callbacks?.updateSettings(partial)
   })
+
+  if (workspacePath) {
+    warmFileSearchIndex(workspacePath)
+  }
 }
 
 /**
@@ -347,6 +393,9 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:get-recent')
   ipcMain.removeHandler('workspace:open-new-window')
   ipcMain.removeHandler('workspace:check-lock')
+  ipcMain.removeHandler('workspace:save-image-to-temp')
+  ipcMain.removeHandler('workspace:search-files')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
+  invalidateFileIndex()
 }

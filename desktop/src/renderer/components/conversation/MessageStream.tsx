@@ -126,7 +126,11 @@ function TurnBlock({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       {/* User messages */}
       {userItems.map((item: ConversationItem) => (
-        <UserMessageBlock key={item.id} text={item.text ?? ''} />
+        <UserMessageBlock
+          key={item.id}
+          text={item.text ?? ''}
+          imageDataUrls={item.imageDataUrls}
+        />
       ))}
 
       {/* Agent response */}

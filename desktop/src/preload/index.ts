@@ -251,6 +251,24 @@ const api = {
      */
     checkLock(wsPath: string): Promise<{ locked: boolean; pid?: number }> {
       return ipcRenderer.invoke('workspace:check-lock', wsPath)
+    },
+
+    /**
+     * Writes a data URL image to `.craft/tmp/images/` and returns the absolute path for `localImage`.
+     */
+    saveImageToTemp(params: { dataUrl: string; fileName?: string }): Promise<{ path: string }> {
+      return ipcRenderer.invoke('workspace:save-image-to-temp', params)
+    },
+
+    /**
+     * Fuzzy filename search within the workspace for @ file autocomplete.
+     */
+    searchFiles(params: {
+      query: string
+      workspacePath: string
+      limit?: number
+    }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }> {
+      return ipcRenderer.invoke('workspace:search-files', params)
     }
   },
 

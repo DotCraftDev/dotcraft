@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { ImageAttachment } from '../types/conversation'
 
 const SIDEBAR_DEFAULT_WIDTH = 240
 const SIDEBAR_MIN_WIDTH = 200
@@ -41,7 +42,12 @@ export interface UIState {
    * First message to send after thread/read completes for a thread created from the
    * welcome screen (avoids optimistic UI being cleared by conversation reset).
    */
-  pendingWelcomeTurn: { threadId: string; text: string; createdAt: number } | null
+  pendingWelcomeTurn: {
+    threadId: string
+    text: string
+    images?: ImageAttachment[]
+    createdAt: number
+  } | null
 }
 
 interface UIStore extends UIState {
@@ -64,9 +70,13 @@ interface UIStore extends UIState {
   /** Read and clear the prefill text atomically. */
   consumeComposerPrefill(): string | null
   /** Queue first turn for a thread created from the welcome composer. */
-  setPendingWelcomeTurn(payload: { threadId: string; text: string } | null): void
-  /** If pending matches threadId, return text and clear; otherwise return null. */
-  consumePendingWelcomeTurnIfMatch(threadId: string): string | null
+  setPendingWelcomeTurn(
+    payload: { threadId: string; text: string; images?: ImageAttachment[] } | null
+  ): void
+  /** If pending matches threadId, return payload and clear; otherwise return null. */
+  consumePendingWelcomeTurnIfMatch(
+    threadId: string
+  ): { text: string; images?: ImageAttachment[] } | null
   /** Clear pending welcome turn when it targets the given thread (e.g. thread/read failed). */
   cancelPendingWelcomeTurnForThread(threadId: string): void
 }
@@ -187,7 +197,8 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         clearTimeout(timer)
       }
       set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
-      return p.text
+      const { text, images } = p
+      return images !== undefined ? { text, images } : { text }
     }
     return null
   },

@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
+import type { ImageAttachment } from '../../types/conversation'
+import { FileSearchPopover } from './FileSearchPopover'
+import { ImageStrip } from './ImageStrip'
+import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 
 interface ConversationWelcomeProps {
   workspacePath: string
@@ -38,8 +42,21 @@ const SUGGESTIONS: Suggestion[] = [
   }
 ]
 
-const MAX_ROWS = 4
 const MAX_TEXT_LENGTH = 100_000
+const MAX_IMAGES = 5
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'])
+
+function extForFile(name: string): string {
+  const i = name.lastIndexOf('.')
+  return i >= 0 ? name.slice(i).toLowerCase() : ''
+}
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith('image/')) return true
+  return IMAGE_EXTENSIONS.has(extForFile(file.name))
+}
 
 /**
  * Welcome state when the workspace is connected but no thread is selected.
@@ -47,42 +64,73 @@ const MAX_TEXT_LENGTH = 100_000
  * clicking New Thread first; quick-start cards prefill the composer.
  */
 export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps): JSX.Element {
-  const [text, setText] = useState('')
+  const [contentRevision, setContentRevision] = useState(0)
+  const [images, setImages] = useState<ImageAttachment[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
+  const [atQuery, setAtQuery] = useState<string | null>(null)
+  const [mentionDismissed, setMentionDismissed] = useState(false)
   const sendInFlightRef = useRef(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const { addThread, setActiveThreadId } = useThreadStore()
 
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
+  const showMentionPopover = atQuery !== null && !mentionDismissed
+
+  const handleAtQuery = useCallback((q: string | null): void => {
+    setAtQuery(q)
+    if (q !== null) setMentionDismissed(false)
+  }, [])
+
+  const onSelectFile = useCallback((relativePath: string): void => {
+    richRef.current?.insertFileTag(relativePath)
+  }, [])
 
   useEffect(() => {
     if (isConnected) {
-      textareaRef.current?.focus()
+      richRef.current?.focus()
     }
   }, [isConnected])
 
-  function adjustHeight(): void {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    const lineHeight = parseInt(getComputedStyle(el).lineHeight) || 20
-    const maxHeight = lineHeight * MAX_ROWS + 24
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
-  }
-
-  useEffect(() => {
-    adjustHeight()
-  }, [text])
+  const saveDataUrlAsTemp = useCallback(
+    async (dataUrl: string, fileName: string, mimeType: string): Promise<void> => {
+      const baseLen = dataUrl.split(',')[1]?.length ?? 0
+      const approxBytes = Math.floor((baseLen * 3) / 4)
+      if (approxBytes > MAX_IMAGE_BYTES) {
+        addToast(`Image too large. Maximum ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`, 'warning')
+        return
+      }
+      if (images.length >= MAX_IMAGES) {
+        addToast(`Maximum ${MAX_IMAGES} images per message.`, 'warning')
+        return
+      }
+      try {
+        const { path } = await window.api.workspace.saveImageToTemp({ dataUrl, fileName })
+        setImages((prev) => [...prev, { tempPath: path, dataUrl, fileName, mimeType }])
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        addToast(`Could not save image: ${msg}`, 'error')
+      }
+    },
+    [images.length]
+  )
 
   const sendFromWelcome = useCallback(async (): Promise<void> => {
-    const trimmed = text.trim()
-    if (!trimmed || sendInFlightRef.current || connectionStatus !== 'connected') return
+    const trimmed = (richRef.current?.getText() ?? '').trim()
+    if (
+      (!trimmed && images.length === 0) ||
+      sendInFlightRef.current ||
+      connectionStatus !== 'connected'
+    ) {
+      return
+    }
 
     sendInFlightRef.current = true
     setStarting(true)
+    const capturedImages = [...images]
     try {
       const res = await window.api.appServer.sendRequest('thread/start', {
         identity: {
@@ -94,45 +142,87 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         historyMode: 'server'
       }) as { thread: { id: string; displayName?: string | null; status?: string; createdAt?: string } }
 
-      useUIStore.getState().setPendingWelcomeTurn({ threadId: res.thread.id, text: trimmed })
+      useUIStore.getState().setPendingWelcomeTurn({
+        threadId: res.thread.id,
+        text: trimmed,
+        images: capturedImages.length > 0 ? capturedImages : undefined
+      })
       addThread(res.thread)
       setActiveThreadId(res.thread.id)
       useUIStore.getState().setActiveMainView('conversation')
-      setText('')
+      richRef.current?.clear()
+      setImages([])
     } catch (err) {
       console.error('Failed to start thread from welcome composer:', err)
     } finally {
       sendInFlightRef.current = false
       setStarting(false)
     }
-  }, [text, connectionStatus, workspacePath, addThread, setActiveThreadId])
+  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId])
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      void sendFromWelcome()
-    }
-  }
+  const onPasteImage = useCallback(
+    (file: File): void => {
+      if (!isImageFile(file)) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        void saveDataUrlAsTemp(dataUrl, file.name, file.type || 'image/png')
+      }
+      reader.readAsDataURL(file)
+    },
+    [saveDataUrlAsTemp]
+  )
 
-  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>): void {
-    const pastedText = e.clipboardData.getData('text')
-    if (pastedText.length > MAX_TEXT_LENGTH) {
+  const onDragOver = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(true)
+  }, [])
+
+  const onDragLeave = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+  }, [])
+
+  const onDrop = useCallback(
+    (e: React.DragEvent): void => {
       e.preventDefault()
-      const truncated = pastedText.slice(0, MAX_TEXT_LENGTH)
-      setText((prev) => {
-        const combined = prev + truncated
-        return combined.slice(0, MAX_TEXT_LENGTH)
-      })
-      addToast(`Input truncated to ${MAX_TEXT_LENGTH.toLocaleString()} characters`, 'warning')
-    }
-  }
+      e.stopPropagation()
+      setDragOver(false)
+      const fl = Array.from(e.dataTransfer.files || [])
+      let rejected = 0
+      for (const file of fl) {
+        if (!isImageFile(file)) {
+          rejected++
+          continue
+        }
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result as string
+          void saveDataUrlAsTemp(dataUrl, file.name, file.type || 'image/png')
+        }
+        reader.readAsDataURL(file)
+      }
+      if (rejected > 0) {
+        addToast(
+          `Only image files can be attached (${rejected} file(s) skipped).`,
+          'warning'
+        )
+      }
+    },
+    [saveDataUrlAsTemp]
+  )
 
   function fillSuggestion(prompt: string): void {
-    setText(prompt)
-    setTimeout(() => textareaRef.current?.focus(), 0)
+    richRef.current?.setPlainText(prompt)
+    setTimeout(() => richRef.current?.focus(), 0)
   }
 
-  const canSend = text.trim().length > 0 && isConnected && !starting
+  const canSend = useMemo(() => {
+    const textLen = (richRef.current?.getText() ?? '').trim().length
+    return (textLen > 0 || images.length > 0) && isConnected && !starting
+  }, [contentRevision, images.length, isConnected, starting])
 
   return (
     <div
@@ -240,36 +330,70 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         }}
       >
         <div style={{ maxWidth: '720px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => { setText(e.target.value.slice(0, MAX_TEXT_LENGTH)) }}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={isConnected ? 'Ask DotCraft anything…' : 'Connecting…'}
-              rows={1}
-              disabled={busy}
-              aria-busy={starting}
-              style={{
-                flex: 1,
-                resize: 'none',
-                border: '1px solid var(--border-default)',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '14px',
-                lineHeight: '20px',
-                fontFamily: 'var(--font-sans)',
-                backgroundColor: busy ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                color: busy ? 'var(--text-dimmed)' : 'var(--text-primary)',
-                outline: 'none',
-                overflowY: 'auto',
-                transition: 'border-color 100ms ease, background-color 150ms ease',
-                cursor: busy ? 'not-allowed' : 'text'
+          <div
+            style={{ position: 'relative' }}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+          >
+            {dragOver && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 20,
+                  border: '2px dashed var(--accent)',
+                  borderRadius: '10px',
+                  background: 'rgba(124, 58, 237, 0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  pointerEvents: 'none',
+                  fontSize: '13px',
+                  color: 'var(--accent)'
+                }}
+              >
+                Drop image to attach
+              </div>
+            )}
+            <ImageStrip
+              images={images}
+              onRemove={(idx) => {
+                setImages((prev) => prev.filter((_, i) => i !== idx))
               }}
-              onFocus={(e) => { if (!busy) e.currentTarget.style.borderColor = 'var(--border-active)' }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)' }}
             />
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
+            <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+              <FileSearchPopover
+                query={atQuery ?? ''}
+                visible={showMentionPopover}
+                workspacePath={workspacePath}
+                onSelect={onSelectFile}
+                onDismiss={() => {
+                  setMentionDismissed(true)
+                }}
+              />
+              <RichInputArea
+                ref={richRef}
+                disabled={busy}
+                suppressSubmit={showMentionPopover}
+                placeholder={isConnected ? 'Ask DotCraft anything…' : 'Connecting…'}
+                onSubmit={() => {
+                  void sendFromWelcome()
+                }}
+                onAtQuery={handleAtQuery}
+                onContentChange={() => {
+                  setContentRevision((n) => n + 1)
+                }}
+                onPasteImage={onPasteImage}
+                onPasteTextOversized={() => {
+                  addToast(
+                    `Input truncated to ${MAX_TEXT_LENGTH.toLocaleString()} characters`,
+                    'warning'
+                  )
+                }}
+              />
+            </div>
             <button
               type="button"
               onClick={() => { void sendFromWelcome() }}
@@ -293,6 +417,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
             >
               <SendIcon />
             </button>
+            </div>
           </div>
         </div>
       </div>
