@@ -60,11 +60,13 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
 
   async function handleLocaleChange(next: AppLocale): Promise<void> {
     const normalized = normalizeLocale(next)
+    const prev = locale
     setLocale(normalized)
     try {
       await window.api.settings.set({ locale: normalized })
       setUiLocale(normalized)
     } catch (err) {
+      setLocale(prev)
       addToast(
         t('settings.saveFailed', {
           error: err instanceof Error ? err.message : String(err)
@@ -72,6 +74,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
         'error'
       )
     }
+  }
   }
 
   async function handleSave(): Promise<void> {
