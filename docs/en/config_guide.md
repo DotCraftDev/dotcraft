@@ -49,30 +49,7 @@ In this case, DotCraft will use the `ApiKey` from global config, but the `Model`
 
 ---
 
-## Visual Configuration via Dashboard
-
-In addition to editing JSON files directly, DotCraft's built-in Dashboard provides a **visual Settings page** for a safer and more convenient configuration experience.
-
-The Dashboard starts automatically at `http://127.0.0.1:8080/dashboard`. Open that URL and click **Settings** in the left navigation bar.
-
-### Page Layout
-
-- **Left panel (Global config)**: Read-only view of `~/.craft/config.json`; sensitive fields (ApiKey, passwords, etc.) are always masked
-- **Right panel (Workspace config)**: Editable form for `.craft/config.json`, overriding global values per field; leave a field empty to inherit the global value
-- **Bottom preview**: Live merged config view with source annotations (global or workspace) for each field
-- **Save button**: Writes the workspace config to disk; restart DotCraft to apply the changes
-
-The Dashboard's Settings form structure (field types, descriptions, allowed values, etc.) is **automatically generated** from C# config class metadata on the server side, so it always stays in sync with the code without any manual maintenance.
-
-### Security Notes
-
-- Sensitive fields such as ApiKey and passwords are always displayed as `***` and are never transmitted in plain text
-- If a sensitive field is left unchanged (still shown as `***`), the save operation will preserve the existing value from disk rather than overwriting it
-- A field is only updated when you explicitly enter a new value
-
-> After saving, you must **restart DotCraft manually** for the changes to take effect.
-
----
+> 💡 **Tip**: In addition to editing JSON files directly, you can use the Dashboard visual configuration page. See [Dashboard Guide](./dash_board_guide.md) for details.
 
 ## Basic Configuration
 
@@ -202,112 +179,27 @@ Examples:
 
 ### Sandbox Mode (OpenSandbox)
 
-DotCraft supports using [OpenSandbox](https://github.com/alibaba/OpenSandbox) to migrate Shell and File tool execution from the host machine to isolated Docker containers. When enabled, all Agent command execution and file operations happen inside containers with zero risk to the host.
+Migrate Shell and File tool execution to isolated Docker containers via [OpenSandbox](https://github.com/alibaba/OpenSandbox).
 
-**Prerequisites**:
-1. Docker running on the host or a remote server
-2. Install and start OpenSandbox Server: `pip install opensandbox-server && opensandbox-server`
-3. Set `Tools.Sandbox.Enabled = true` in config and specify the server address
-
-#### Sandbox Configuration
+**Prerequisites**: Docker running + Install OpenSandbox Server: `pip install opensandbox-server && opensandbox-server`
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
 | `Tools.Sandbox.Enabled` | Enable sandbox mode | `false` |
-| `Tools.Sandbox.Domain` | OpenSandbox server address (host:port) | `localhost:5880` |
-| `Tools.Sandbox.ApiKey` | OpenSandbox API Key (optional, depends on server config) | empty |
-| `Tools.Sandbox.UseHttps` | Use HTTPS connection | `false` |
+| `Tools.Sandbox.Domain` | OpenSandbox server address | `localhost:5880` |
+| `Tools.Sandbox.ApiKey` | OpenSandbox API Key (optional) | empty |
+| `Tools.Sandbox.UseHttps` | Use HTTPS | `false` |
 | `Tools.Sandbox.Image` | Docker image for sandbox containers | `ubuntu:latest` |
-| `Tools.Sandbox.TimeoutSeconds` | Sandbox TTL in seconds (server-side auto-termination) | `600` |
+| `Tools.Sandbox.TimeoutSeconds` | Sandbox TTL in seconds | `600` |
 | `Tools.Sandbox.Cpu` | Container CPU limit | `1` |
 | `Tools.Sandbox.Memory` | Container memory limit | `512Mi` |
-| `Tools.Sandbox.NetworkPolicy` | Network policy: `deny` (block all egress), `allow` (no restrictions), `custom` (custom rules) | `allow` |
-| `Tools.Sandbox.AllowedEgressDomains` | Domains allowed for outbound access (only when `NetworkPolicy = custom`) | `[]` |
-| `Tools.Sandbox.IdleTimeoutSeconds` | Idle timeout in seconds before auto-destroying unused sandbox. Set to 0 to disable | `300` |
-| `Tools.Sandbox.SyncWorkspace` | Sync host workspace into sandbox `/workspace` on creation | `true` |
-| `Tools.Sandbox.SyncExclude` | Relative paths to exclude from workspace sync (prefix matching, see below) | see defaults below |
+| `Tools.Sandbox.NetworkPolicy` | Network policy: `deny`/`allow`/`custom` | `allow` |
+| `Tools.Sandbox.AllowedEgressDomains` | Domains allowed for outbound access | `[]` |
+| `Tools.Sandbox.IdleTimeoutSeconds` | Idle timeout in seconds | `300` |
+| `Tools.Sandbox.SyncWorkspace` | Sync host workspace into sandbox | `true` |
+| `Tools.Sandbox.SyncExclude` | Paths to exclude from workspace sync | see defaults |
 
-#### Sandbox Configuration Examples
-
-**Minimal config** (local OpenSandbox server, defaults):
-
-```json
-{
-    "Tools": {
-        "Sandbox": {
-            "Enabled": true,
-            "Domain": "localhost:8080"
-        }
-    }
-}
-```
-
-**Production config** (remote server + custom network policy + resource limits):
-
-```json
-{
-    "Tools": {
-        "Sandbox": {
-            "Enabled": true,
-            "Domain": "sandbox.example.com:443",
-            "ApiKey": "your-sandbox-api-key",
-            "UseHttps": true,
-            "Image": "node:20-slim",
-            "TimeoutSeconds": 1800,
-            "Cpu": "2",
-            "Memory": "1Gi",
-            "NetworkPolicy": "custom",
-            "AllowedEgressDomains": ["pypi.org", "registry.npmjs.org", "github.com"],
-            "IdleTimeoutSeconds": 600,
-            "SyncWorkspace": true,
-            "SyncExclude": [
-                ".craft/config.json",
-                ".craft/sessions",
-                ".craft/memory",
-                ".craft/dashboard",
-                ".craft/security",
-                ".craft/logs",
-                ".craft/plans"
-            ]
-        }
-    }
-}
-```
-
-#### SyncExclude Matching Rules
-
-Each entry in `SyncExclude` is a forward-slash relative path prefix from the workspace root:
-
-- Exact file path: `.craft/config.json` → skips only that file
-- Directory prefix: `.craft/sessions` → skips the entire directory and all its contents
-- Matching is case-insensitive (Windows compatible)
-
-> **Security note**: The defaults cover all sensitive DotCraft runtime directories. If you need to customize, extend the list rather than replacing it entirely.
-
-#### How It Works
-
-When sandbox is enabled:
-
-1. **Tool replacement**: `CoreToolProvider` no longer provides local `ShellTools` / `FileTools`; `SandboxToolProvider` provides containerized equivalents. Tool names remain identical (`Exec`, `ReadFile`, `WriteFile`, `EditFile`, `GrepFiles`, `FindFiles`), so system prompts require no changes
-2. **Lifecycle management**: Each Agent session automatically creates and reuses a sandbox container, destroyed after idle timeout
-3. **Workspace sync**: When `SyncWorkspace = true`, host workspace files are pushed to the container's `/workspace` directory on creation. Paths listed in `SyncExclude` are skipped; the defaults exclude all sensitive `.craft/` runtime data (API keys, conversation history, memory, traces, approval records, logs, and plans) to prevent host secrets from leaking into the container
-4. **SubAgent isolation**: SubAgents also execute inside the sandbox, sharing the same container instance
-
-#### Security Model Comparison
-
-| Dimension | Local Mode | Sandbox Mode |
-|-----------|-----------|-------------|
-| Command execution | Host machine + regex filtering | Isolated container |
-| File access | Workspace boundary check | Container filesystem isolation |
-| Network access | Unrestricted | NetworkPolicy controlled |
-| Resource usage | Unrestricted | CPU/Memory hard limits |
-| Bypass risk | Regex may be bypassed | Container escape (extremely low probability) |
-| Human approval | Every out-of-workspace operation | Only when writing back to host |
-| Performance overhead | None | Container startup ~2-5s |
-
-#### Backward Compatibility
-
-When `Tools.Sandbox.Enabled = false` (the default), behavior is identical to before — all tools execute locally on the host machine.
+When enabled, each Agent session automatically creates and reuses a sandbox container. SubAgents also execute within the same container.
 
 ---
 
@@ -390,150 +282,42 @@ No additional configuration needed. Token statistics depend on the LLM provider 
 
 ## Heartbeat Service
 
-Heartbeat periodically reads the `HEARTBEAT.md` file from the .craft directory. If there is executable content, it is automatically submitted to the Agent for processing. Suitable for periodic inspections, status monitoring, etc.
+Heartbeat periodically reads the `.craft/HEARTBEAT.md` file and automatically executes the tasks defined within.
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
 | `Heartbeat.Enabled` | Enable heartbeat service | `false` |
-| `Heartbeat.IntervalSeconds` | Check interval (seconds) | `1800` (30 minutes) |
-| `Heartbeat.NotifyAdmin` | In QQ mode, whether to privately notify admins with results | `false` |
-
-### Heartbeat Configuration Example
-
-```json
-{
-    "Heartbeat": {
-        "Enabled": true,
-        "IntervalSeconds": 1800,
-        "NotifyAdmin": false
-    }
-}
-```
-
-**Console output**: During Heartbeat execution, tool calls and results are output to the console in the format `[Heartbeat] tool_name args` / `[Heartbeat] Result: ...`, convenient for debugging.
-
-**Admin notification**: In QQ mode with `"NotifyAdmin": true`, Heartbeat results are automatically sent as private messages to all `AdminUsers`.
-
-### Heartbeat Usage
-
-1. Create a `HEARTBEAT.md` file in the .craft directory
-2. Write tasks to be executed periodically:
-
-```markdown
-# Heartbeat Tasks
-
-## Active Tasks
-- Check if the project has new GitHub issues and summarize
-- Check log files for anomalies
-```
-
-3. Start DotCraft (auto-runs in QQ mode; manually trigger in CLI mode via `/heartbeat trigger`)
-4. The Agent will automatically execute tasks based on HEARTBEAT.md content. If the file is empty or contains only titles/comments, it will be skipped
-5. Heartbeat has independent Session management but shares long-term memory with the main Agent.
-
-### Manual Trigger
-
-- **CLI mode**: Enter `/heartbeat trigger`
-- **QQ mode**: Send `/heartbeat trigger`
-
----
-
-## WeCom Integration
-
-DotCraft provides two WeCom integration capabilities:
-
-| Capability | Config Section | Description |
-|-----------|----------------|-------------|
-| WeCom Push | `WeCom` | Send notifications to WeCom groups via group bot Webhook |
-| WeCom Bot | `WeComBot` | Run as an independent mode, receive and respond to WeCom messages |
-
-### Quick Configuration
-
-**WeCom Push** (Webhook notifications):
-
-```json
-{
-    "WeCom": {
-        "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
-    }
-}
-```
-
-**WeCom Bot mode** (bidirectional interaction):
-
-```json
-{
-    "WeComBot": {
-        "Enabled": true,
-        "Port": 9000,
-        "Host": "0.0.0.0",
-        "AdminUsers": ["zhangsan", "lisi"],
-        "WhitelistedUsers": ["wangwu"],
-        "WhitelistedChats": ["wrxxxxxxxx"],
-        "ApprovalTimeoutSeconds": 60,
-        "Robots": [
-            {
-                "Path": "/dotcraft",
-                "Token": "your_token",
-                "AesKey": "your_aeskey"
-            }
-        ]
-    }
-}
-```
-
-For detailed configuration, usage, deployment guide, and troubleshooting, see [WeCom Guide](./wecom_guide.md).
+| `Heartbeat.IntervalSeconds` | Check interval (seconds) | `1800` |
+| `Heartbeat.NotifyAdmin` | In QQ mode, whether to privately notify admins with results | `true` |
 
 ---
 
 ## Automations Configuration
 
-The Automations module provides a unified task automation pipeline supporting local tasks and GitHub issue/PR orchestration. Local tasks only require the `Automations` module; GitHub source requires both `Automations` and `GitHubTracker` to be enabled.
-
-For the complete usage flow, see the [Automations Guide](./automations_guide.md).
-
-### Quick Configuration
-
-```json
-{
-    "Automations": {
-        "Enabled": true,
-        "LocalTasksRoot": "",
-        "PollingInterval": "00:00:30",
-        "MaxConcurrentTasks": 3
-    },
-    "GitHubTracker": {
-        "Enabled": true,
-        "IssuesWorkflowPath": "WORKFLOW.md",
-        "Tracker": {
-            "Repository": "your-org/your-repo",
-            "ApiKey": "$GITHUB_TOKEN"
-        }
-    }
-}
-```
-
-### Key Fields
+Automations provides a unified task automation pipeline supporting local tasks and GitHub issue/PR orchestration. See [Automations Guide](./automations_guide.md) for details.
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
 | `Automations.Enabled` | Enable the Automations orchestrator | `false` |
 | `Automations.LocalTasksRoot` | Local task root directory; empty uses `.craft/tasks/` | empty |
+| `Automations.WorkspaceRoot` | Task workspace root; empty uses system temp directory | empty |
 | `Automations.PollingInterval` | Polling interval | `00:00:30` |
 | `Automations.MaxConcurrentTasks` | Max concurrent tasks across all sources | `3` |
+| `Automations.TurnTimeout` | Single turn timeout | `00:30:00` |
+| `Automations.StallTimeout` | Stall timeout (no response) | `00:10:00` |
+| `Automations.MaxRetries` | Maximum retry count | `3` |
+| `Automations.RetryInitialDelay` | Retry initial delay | `00:00:30` |
+| `Automations.RetryMaxDelay` | Retry maximum delay | `00:10:00` |
 | `GitHubTracker.Enabled` | Enable the GitHub source | `false` |
-| `GitHubTracker.IssuesWorkflowPath` | Path to the issue `WORKFLOW.md`, resolved relative to the workspace root | `WORKFLOW.md` |
+| `GitHubTracker.IssuesWorkflowPath` | Path to the issue `WORKFLOW.md` | `WORKFLOW.md` |
 | `GitHubTracker.Tracker.Repository` | GitHub repository in `owner/repo` format | empty |
-| `GitHubTracker.Tracker.ApiKey` | GitHub token, supports `$ENV_VAR` indirection | empty |
+| `GitHubTracker.Tracker.ApiKey` | GitHub token, supports `$ENV_VAR` | empty |
+
+---
 
 ## API Mode Configuration
 
-API mode exposes DotCraft as an OpenAI-compatible HTTP service, allowing external applications to call it directly using standard OpenAI SDKs. Based on the [Microsoft.Agents.AI.Hosting.OpenAI](https://github.com/microsoft/agent-framework) official framework.
-
-For detailed usage guide, see [API Mode Guide](./api_guide.md).
-
-Quick reference:
+API mode exposes DotCraft as an OpenAI-compatible HTTP service. See [API Mode Guide](./api_guide.md) for details.
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
@@ -543,66 +327,13 @@ Quick reference:
 | `Api.ApiKey` | API access key (Bearer Token), no verification when empty | empty |
 | `Api.AutoApprove` | Auto-approve all file/Shell operations when true; auto-reject when false | `true` |
 
-### API Mode Configuration Example
-
-**Basic config** (all tools enabled, no authentication):
-
-```json
-{
-    "Api": {
-        "Enabled": true,
-        "Port": 8080,
-        "AutoApprove": true
-    }
-}
-```
-
-**Search tools only** (for search service scenarios):
-
-```json
-{
-    "EnabledTools": ["WebSearch", "WebFetch"],
-    "Api": {
-        "Enabled": true,
-        "Port": 8080,
-        "ApiKey": "your-api-access-key",
-        "AutoApprove": false
-    }
-}
-```
-
-### Tool Filtering
-
-The root-level `EnabledTools` field controls globally available tools. Enables all tools when set to an empty array or not set. This applies to all runtime modes (CLI, API, QQ Bot, etc.).
-
-Available built-in tool names: `spawn_subagent`, `ReadFile`, `WriteFile`, `EditFile`, `GrepFiles`, `FindFiles`, `Exec`, `WebSearch`, `WebFetch`, `Cron`, `WeComNotify`.
-
-### Authentication
-
-When `Api.ApiKey` is configured with a non-empty value, all API requests must carry a Bearer Token:
-
-```
-Authorization: Bearer your-api-access-key
-```
-
-### Approval Mechanism
-
-API mode controls sensitive operation approval via `AutoApprove`:
-
-- **`AutoApprove: true`** (default): All file operations and Shell commands auto-approved
-- **`AutoApprove: false`**: All file operations and Shell commands auto-rejected
-
-For details, see the [API Mode Guide](./api_guide.md#operation-approval).
+Root-level `EnabledTools` field controls globally available tools (enables all when empty): `SpawnSubagent`, `ReadFile`, `WriteFile`, `EditFile`, `GrepFiles`, `FindFiles`, `Exec`, `WebSearch`, `WebFetch`, `Cron`, `WeComNotify`.
 
 ---
 
 ## AG-UI Mode Configuration
 
-AG-UI mode exposes Agent capabilities via the [AG-UI Protocol](https://github.com/ag-ui-protocol/ag-ui) as an SSE streaming endpoint, compatible with CopilotKit and other AG-UI clients.
-
-For detailed usage, see the [AG-UI Mode Guide](./agui_guide.md).
-
-Quick reference:
+AG-UI mode exposes Agent capabilities via the [AG-UI Protocol](https://github.com/ag-ui-protocol/ag-ui) as an SSE streaming endpoint. See [AG-UI Mode Guide](./agui_guide.md) for details.
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
@@ -618,55 +349,27 @@ Quick reference:
 
 ## ACP Mode Configuration
 
-ACP ([Agent Client Protocol](https://agentclientprotocol.com/)) mode allows DotCraft to integrate directly with code editors/IDEs (such as Cursor, VS Code, and other compatible editors) as an AI coding agent. The editor communicates with DotCraft via stdio (standard input/output) using the JSON-RPC 2.0 protocol, similar to how LSP (Language Server Protocol) works.
+ACP ([Agent Client Protocol](https://agentclientprotocol.com/)) mode allows DotCraft to integrate with code editors/IDEs. See [ACP Mode Guide](./acp_guide.md) for details.
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
 | `Acp.Enabled` | Enable ACP mode | `false` |
 
-### Enabling ACP Mode
+ACP mode communicates via stdin/stdout using JSON-RPC 2.0 protocol, with higher priority than API mode. In Gateway mode, it can run concurrently with QQ Bot, WeCom Bot, and API.
 
-```json
-{
-    "Acp": {
-        "Enabled": true
-    }
-}
-```
+---
 
-### How It Works
+## Dashboard Configuration
 
-When enabled, DotCraft communicates via stdin/stdout JSON-RPC messages:
+Dashboard provides a web-based visual configuration interface and session management. See [Dashboard Guide](./dash_board_guide.md) for details.
 
-1. **Editor launches DotCraft process**: The editor starts DotCraft as a subprocess and communicates via stdio
-2. **Initialization handshake**: Both sides exchange protocol versions and capability declarations
-3. **Session management**: The editor creates a session; DotCraft broadcasts available slash commands and config options
-4. **Prompt interaction**: The editor sends user messages; DotCraft streams back replies, tool call statuses, and results
-5. **Permission requests**: Before executing sensitive operations, DotCraft requests user authorization through the protocol
-
-### Supported ACP Protocol Features
-
-| Feature | Description |
-|---------|-------------|
-| `initialize` | Protocol version negotiation and capability exchange |
-| `session/new` | Create a new session |
-| `session/load` | Load an existing session and replay history |
-| `session/list` | List all ACP sessions |
-| `session/prompt` | Send a prompt and receive streaming replies |
-| `session/update` | Agent pushes message chunks, tool call statuses, etc. to the editor |
-| `session/cancel` | Cancel an ongoing operation |
-| `requestPermission` | Agent requests execution permission from the editor |
-| `fs/readTextFile` | Read files through the editor (including unsaved changes) |
-| `fs/writeTextFile` | Write files through the editor (with diff preview) |
-| `terminal/*` | Create and manage terminals through the editor |
-| Slash Commands | Automatically broadcast custom commands to the editor |
-| Config Options | Expose selectable configuration (mode, model, etc.) to the editor |
-
-### Relationship with Other Modes
-
-- ACP mode can run as a standalone mode (higher priority than API mode)
-- In Gateway mode, ACP can run concurrently with QQ Bot, WeCom Bot, and API
-- ACP mode session IDs are prefixed with `acp:`, isolated from other channels
+| Config Item | Description | Default |
+|-------------|-------------|---------|
+| `DashBoard.Enabled` | Enable Dashboard | `false` |
+| `DashBoard.Host` | HTTP service listen address | `127.0.0.1` |
+| `DashBoard.Port` | HTTP service listen port | `8080` |
+| `DashBoard.Username` | Login username; enables auth when set with Password | empty |
+| `DashBoard.Password` | Login password | empty |
 
 ---
 
@@ -694,630 +397,86 @@ Hooks allow you to run custom scripts when specific events occur. The hooks conf
 
 ## Cron Scheduled Task Service
 
-Cron is a scheduled task scheduling system supporting one-time and recurring tasks. Tasks are persisted to JSON files and automatically restored after restart.
+Cron provides scheduled task management supporting one-time (`at`) and recurring (`every`) tasks.
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
-| `Cron.Enabled` | Enable scheduled tasks | `false` |
+| `Cron.Enabled` | Enable scheduled tasks | `true` |
 | `Cron.StorePath` | Task storage file path (relative to `.craft/`) | `cron/jobs.json` |
 
-### Cron Configuration Example
-
-```json
-{
-    "Cron": {
-        "Enabled": true,
-        "StorePath": "cron/jobs.json"
-    }
-}
-```
-
-### Schedule Types
-
-| Type | Description | Parameter |
-|------|-------------|-----------|
-| `at` | One-time task, auto-deleted after execution at specified time | `AtMs` (Unix millisecond timestamp) |
-| `every` | Recurring task, repeats at fixed intervals | `EveryMs` (interval in milliseconds) |
-
-### Delivery Channels
-
-Cron tasks support multiple delivery channels (set `deliver: true` when creating the task):
-
-| `channel` | `to` | Description | Prerequisite |
-|-----------|------|-------------|--------------|
-| `"qq"` | `"group:<groupId>"` | Deliver to specified QQ group | QQ Bot mode |
-| `"qq"` | `"<qqUserId>"` | Deliver to specified QQ private chat | QQ Bot mode |
-| `"wecom"` | `"<ChatId>"` | Deliver to specific WeCom group | WeCom Bot mode |
-| `"wecom"` | (omit) | Deliver to WeCom (global Webhook) | `WeCom` config enabled |
-
-### Agent Self-Service Task Creation
-
-When Cron is enabled, the Agent can create scheduled tasks via the `Cron` tool. For example, saying "remind me to drink water every hour" in conversation will trigger:
-
-```
-Cron(action: "add", message: "Remind user to drink water", everySeconds: 3600, name: "Drink water reminder")
-```
-
-### Command Line Management
-
-**CLI mode**:
-- `/cron list` - View all tasks
-- `/cron remove <jobId>` - Delete a task
-- `/cron enable <jobId>` - Enable a task
-- `/cron disable <jobId>` - Disable a task
-
-**QQ mode**:
-- `/cron list` - View all tasks
-- `/cron remove <jobId>` - Delete a task
+Agent can create tasks via the `Cron` tool, supporting delivery to QQ groups/private chats or WeCom.
 
 ---
 
 ## MCP Service Integration
 
-DotCraft supports connecting external tool services via [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). MCP is an open protocol for standardizing the integration between AI applications and external tools/data sources.
+DotCraft supports connecting external tool services via [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
 
-Once configured, tools provided by MCP servers are automatically registered with the Agent and used alongside built-in tools (files, Shell, Web, etc.).
-
-### Configuration
-
-`McpServers` is an array where each element defines an MCP server connection:
+`McpServers` is an array where each element defines an MCP server:
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
-| `Name` | Server name (for logging and tool tracing) | empty |
+| `Name` | Server name | empty |
 | `Enabled` | Whether to enable this server | `true` |
 | `Transport` | Transport method: `stdio` (local process) or `http` (HTTP/SSE) | `stdio` |
 | `Command` | Start command (stdio only) | empty |
 | `Arguments` | Command arguments list (stdio only) | `[]` |
 | `EnvironmentVariables` | Environment variables (stdio only) | `{}` |
-| `Url` | Server address (http only), e.g., `https://mcp.exa.ai/mcp` | empty |
+| `Url` | Server address (http only) | empty |
 | `Headers` | Additional HTTP request headers (http only) | `{}` |
 
-### Transport Methods
-
-**HTTP/SSE Transport**: Connect to remote MCP servers, suitable for cloud MCP services (e.g., Exa).
-
+**HTTP example**:
 ```json
-{
-    "McpServers": [
-        {
-            "Name": "exa",
-            "Transport": "http",
-            "Url": "https://mcp.exa.ai/mcp"
-        }
-    ]
-}
+{ "Name": "exa", "Transport": "http", "Url": "https://mcp.exa.ai/mcp" }
 ```
 
-**Stdio Transport**: Start a local process and communicate via stdin/stdout, suitable for local MCP servers.
-
+**Stdio example**:
 ```json
-{
-    "McpServers": [
-        {
-            "Name": "filesystem",
-            "Transport": "stdio",
-            "Command": "npx",
-            "Arguments": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-        }
-    ]
-}
+{ "Name": "filesystem", "Transport": "stdio", "Command": "npx", "Arguments": ["-y", "@modelcontextprotocol/server-filesystem", "/path"] }
 ```
 
-### MCP Servers with Authentication
+### Deferred Loading
 
-Some MCP servers require API Key authentication, which can be passed via `Headers` (HTTP) or `EnvironmentVariables` (stdio):
-
-```json
-{
-    "McpServers": [
-        {
-            "Name": "my-service",
-            "Transport": "http",
-            "Url": "https://example.com/mcp",
-            "Headers": {
-                "Authorization": "Bearer your-api-key"
-            }
-        },
-        {
-            "Name": "local-tool",
-            "Transport": "stdio",
-            "Command": "my-mcp-server",
-            "EnvironmentVariables": {
-                "API_KEY": "your-api-key"
-            }
-        }
-    ]
-}
-```
-
-### Multi-Server Configuration
-
-Multiple MCP servers can be connected simultaneously; all server tools are merged and registered with the Agent:
-
-```json
-{
-    "McpServers": [
-        {
-            "Name": "exa",
-            "Transport": "http",
-            "Url": "https://mcp.exa.ai/mcp"
-        },
-        {
-            "Name": "github",
-            "Transport": "stdio",
-            "Command": "npx",
-            "Arguments": ["-y", "@modelcontextprotocol/server-github"],
-            "EnvironmentVariables": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxxx"
-            }
-        }
-    ]
-}
-```
-
-### Disabling a Single Server
-
-Set `Enabled: false` to temporarily disable an MCP server without deleting the configuration:
-
-```json
-{
-    "McpServers": [
-        {
-            "Name": "exa",
-            "Enabled": false,
-            "Transport": "http",
-            "Url": "https://mcp.exa.ai/mcp"
-        }
-    ]
-}
-```
-
-### Startup Behavior
-
-- MCP servers connect automatically on application startup; after successful connection, the console outputs the number of discovered tools
-- Connection failures do not prevent application startup; failed servers output error logs
-- All MCP connections are automatically disconnected on application exit
-
-### Exa Search Migration Note
-
-DotCraft's built-in `Tools.Web.SearchProvider: "Exa"` uses a manual MCP call approach. This can now be replaced via MCP configuration:
-
-1. Add Exa server configuration in `McpServers`
-2. Switch `Tools.Web.SearchProvider` to `Bing` or another provider
-3. The Agent will get all Exa tools via MCP (not just search), including `WebSearch_exa`, `research_exa`, etc.
-
-### Browser Automation (Playwright MCP)
-
-Microsoft provides an official [`@playwright/mcp`](https://github.com/microsoft/playwright-mcp) MCP server that enables the Agent to control a real browser (Chromium/Firefox/WebKit) for web interaction tasks. It operates on the accessibility tree rather than screenshots — fast, deterministic, and no vision model required.
-
-**Prerequisites**: Node.js 18+, plus install the browser:
-
-```bash
-npx playwright install chromium
-```
-
-**Configuration** (add to `config.json`):
-
-```json
-{
-    "McpServers": [
-        {
-            "Name": "playwright",
-            "Transport": "stdio",
-            "Command": "npx",
-            "Arguments": ["-y", "@playwright/mcp@latest"]
-        }
-    ]
-}
-```
-
-Once configured, the Agent automatically gains 22 browser control tools, including: `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_fill_form`, `browser_take_screenshot`, and more.
-
-### MCP Tool Deferred Loading
-
-> **Experimental**: This feature is still under evaluation and behavior may change in future releases.
-
-When many MCP servers are connected and the total tool count is high, injecting all tool definitions upfront into every LLM call carries significant token overhead and can degrade tool selection accuracy. **Deferred Loading** lets the Agent discover and activate MCP tools on demand rather than loading them all at session start.
-
-When enabled, MCP tools are not sent to the LLM upfront. Instead, the Agent receives a `SearchTools` function it can call to look up tools by keyword. Once found, those tools are immediately activated and available for direct invocation in subsequent calls.
-
-#### How It Works
-
-1. When the Agent needs an external capability, it calls `SearchTools(query: "keyword")`
-2. The system performs a fuzzy search across all deferred tools and returns the best matches
-3. Matched tools are immediately injected into the next LLM call's tool list
-4. The tool list grows monotonically within a session, keeping the prompt prefix stable for cache reuse after the initial discovery
-
-#### Configuration
+When MCP tool count is high, enable deferred loading to reduce token overhead:
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
 | `Tools.DeferredLoading.Enabled` | Enable deferred loading | `false` |
-| `Tools.DeferredLoading.AlwaysLoadedTools` | MCP tool names to always load upfront (high-frequency tools) | `[]` |
-| `Tools.DeferredLoading.MaxSearchResults` | Maximum results returned per `SearchTools` call (1–20) | `5` |
-| `Tools.DeferredLoading.DeferThreshold` | Skip deferred loading if total MCP tool count is below this value | `10` |
-
-#### Example
-
-```json
-{
-    "Tools": {
-        "DeferredLoading": {
-            "Enabled": true,
-            "AlwaysLoadedTools": ["github_create_issue", "slack_send_message"],
-            "MaxSearchResults": 5,
-            "DeferThreshold": 10
-        }
-    }
-}
-```
-
-#### Guiding the Agent with a Skill
-
-When deferred loading is active, the system prompt automatically includes the names of connected MCP services and basic `SearchTools` usage instructions. However, for the Agent to reliably know which keywords to search in specific scenarios, it is recommended to write a dedicated Skill under `.craft/skills/` that describes the capabilities and typical usage of each MCP service.
-
-**Example Skill** (`.craft/skills/github-mcp/SKILL.md`):
-
-```markdown
-# GitHub MCP Tools
-
-A GitHub MCP server is connected, providing tools of the following types:
-- Issue management: search with "github issue"
-- Pull Requests: search with "github pull request" or "github pr"
-- Repository operations: search with "github repo" or "github repository"
-- Code search: search with "github search code"
-
-Always call SearchTools to activate the required tools before using them.
-```
-
-A Skill like this, combined with the workspace `AGENTS.md` or the on-demand skill loading mechanism, significantly improves the Agent's accuracy in choosing the right search keywords.
+| `Tools.DeferredLoading.AlwaysLoadedTools` | MCP tool names to always load upfront | `[]` |
+| `Tools.DeferredLoading.MaxSearchResults` | Maximum results per `SearchTools` call | `5` |
+| `Tools.DeferredLoading.DeferThreshold` | Skip deferred loading if tool count is below this | `10` |
 
 ---
 
 ## Custom Commands
 
-Custom Commands let you save frequently used prompt templates as Markdown files and invoke them via `/command-name`. DotCraft expands the command file content into a full prompt and passes it to the Agent for processing.
-
-### Command File Locations
+Save frequently used prompt templates as Markdown files and invoke them via `/command-name`.
 
 | Level | Path | Priority |
 |-------|------|----------|
-| Workspace | `<workspace>/.craft/commands/` | High (overrides same-name user-level commands) |
+| Workspace | `<workspace>/.craft/commands/` | High |
 | User | `~/.craft/commands/` | Low |
 
-### Command File Format
+Each `.md` file corresponds to a command (e.g., `code-review.md` → `/code-review`). Supports `$ARGUMENTS` placeholder for user input.
 
-Each `.md` file corresponds to a command; the filename is the command name (e.g. `code-review.md` → `/code-review`).
-
-Files support YAML frontmatter for metadata:
-
-```markdown
----
-description: Review code changes for bugs, security issues, and style
----
-
-Run `git diff` on the current branch, then review all changes for:
-1. Correctness and logic errors
-2. Security vulnerabilities
-3. Edge cases and error handling
-4. Code style and readability
-
-$ARGUMENTS
-```
-
-### Placeholders
-
-| Placeholder | Description |
-|-------------|-------------|
-| `$ARGUMENTS` | The full argument string from user input (`/cmd foo bar` → `foo bar`) |
-| `$1`, `$2`, ... | Positional arguments split by spaces |
-
-### Subdirectory Namespaces
-
-Commands can be organized in subdirectories, with directory separators mapped to `:`:
-
-```
-commands/
-├── code-review.md      → /code-review
-├── explain.md          → /explain
-└── frontend/
-    └── component.md    → /frontend:component
-```
-
-### Built-in Commands
-
-DotCraft ships with the following built-in commands, automatically deployed to the workspace `commands/` directory on first run:
-
-| Command | Description |
-|---------|-------------|
-| `/code-review` | Review code changes |
-| `/explain` | Explain code in detail |
-| `/summarize` | Summarize content concisely |
-
-You can edit these files to customize their behavior, or add new `.md` files to create your own commands.
-
-### CLI Commands
-
-- `/commands` — List all available custom commands
-
----
-
-## QQ Bot Commands
-
-QQ Bot mode supports the following slash commands (send directly in chat):
-
-| Command | Description |
-|---------|-------------|
-| `/new` or `/clear` | Clear current session, start new conversation |
-| `/help` | Show available commands |
-| `/heartbeat trigger` | Manually trigger a heartbeat check |
-| `/cron list` | View all scheduled tasks |
-| `/cron remove <id>` | Delete a scheduled task |
+Built-in commands: `/code-review`, `/explain`, `/summarize`.
 
 ---
 
 ## Gateway Multi-Channel Concurrent Mode
 
-By default, DotCraft runs only one channel module at a time (highest-priority wins). **Gateway mode** removes this restriction, allowing QQ Bot, WeCom Bot, and the API service to run concurrently **within the same process**, sharing a single HeartbeatService, CronService, and DashBoard.
+Gateway mode allows QQ Bot, WeCom Bot, API, AG-UI, Automations, and other services to run concurrently in the same process.
 
-### How to Enable
+**Auto-enable**: When any channel is enabled in config (`QQBot`/`WeComBot`/`Api`/`AgUi`/`Automations`/`GitHubTracker`, etc.), Gateway mode activates automatically — no manual configuration needed.
 
-Set `Gateway.Enabled = true` together with all the channel modules you want to run:
-
+**Enable example**:
 ```json
 {
-    "Gateway": { "Enabled": true },
-    "QQBot": {
-        "Enabled": true,
-        "Port": 6700,
-        "AdminUsers": [123456789]
-    },
-    "WeComBot": {
-        "Enabled": true,
-        "Port": 9000,
-        "Robots": [{ "Path": "/dotcraft", "Token": "your_token", "AesKey": "your_aeskey" }]
-    },
-    "Api": {
-        "Enabled": true,
-        "Port": 8080
-    },
-    "AgUi": {
-        "Enabled": true,
-        "Port": 5100,
-        "Path": "/ag-ui"
-    },
-    "DashBoard": {
-        "Enabled": true,
-        "Port": 8080
-    }
+    "QQBot": { "Enabled": true, "Port": 6700 },
+    "WeComBot": { "Enabled": true, "Port": 9000 },
+    "Api": { "Enabled": true, "Port": 8080 },
+    "DashBoard": { "Enabled": true, "Port": 8080 }
 }
 ```
 
-### Configuration
-
-| Config Item | Description | Default |
-|-------------|-------------|---------|
-| `Gateway.Enabled` | Enable Gateway multi-channel concurrent mode | `false` |
-
-### How It Works
-
-When enabled, DotCraft will:
-
-1. Select GatewayModule as the primary module (highest priority: 100)
-2. Create an independent AgentFactory, ChannelAdapter, and network listener for each enabled channel (QQ / WeCom / API / AG-UI)
-3. Use **WebHostPool** to group all HTTP services by `(scheme, host, port)`: services configured to the same address automatically share a single Kestrel server — no manual port coordination required
-4. Start all channels concurrently — each channel has its own streaming pipeline and approval workflow
-5. Share a single HeartbeatService and CronService, routing results to the correct channel via MessageRouter
-
-```
-GatewayHost
-├── HeartbeatService (shared — routes notifications per channel)
-├── CronService (shared — routes delivery via Payload.Channel)
-├── WebHostPool (groups services by host:port, merges same-address services)
-│   ├── http://127.0.0.1:8080 ← ApiChannelService + Dashboard routes
-│   └── http://127.0.0.1:5100 ← AGUIChannelService routes
-├── QQChannelService    → QQChannelAdapter → Agent (independent)
-├── WeComChannelService → WeComChannelAdapter → Agent (independent)
-├── ApiChannelService   → OpenAI API endpoints → Agent (independent)
-└── AGUIChannelService  → AG-UI SSE endpoints → Agent (independent)
-```
-
-### Port Sharing
-
-In Gateway mode, all HTTP services (API, AG-UI, Dashboard) are managed by **WebHostPool**. Whenever two services share the same `Host` and `Port`, they are automatically merged into a single Kestrel listener — routes are dispatched by path prefix with no manual configuration needed.
-
-**Default port assignments**:
-
-| Service | Default Host | Default Port |
-|---------|-------------|--------------|
-| `Api` | `127.0.0.1` | `8080` |
-| `DashBoard` | `127.0.0.1` | `8080` |
-| `AgUi` | `127.0.0.1` | `5100` |
-| `WeComBot` | `0.0.0.0` | `9000` (HTTPS) |
-
-Because `Api` and `DashBoard` share the same default port, they are served from the same Kestrel instance in Gateway mode by default. To serve them on separate ports, set `DashBoard.Port` to a different value.
-
-**Example scenarios**:
-
-- `Api.Port = 8080`, `DashBoard.Port = 8080` (default): API and Dashboard routes are merged on `127.0.0.1:8080`, single external port
-- `Api.Port = 8080`, `AgUi.Port = 8080`: API and AG-UI share the same port; AG-UI is distinguished by its `/ag-ui` path
-- `Api.Port = 8080`, `AgUi.Port = 5100` (default): Both listen on independent ports with no overlap
-
-### Cron Cross-Channel Delivery
-
-In Gateway mode, the Cron task `deliver` feature routes to the correct channel via the `channel` field:
-
-| `channel` value | Delivery target | Example `to` |
-|---|---|---|
-| `"qq"` | QQ private chat (`to` = QQ number) or group (`to` = group number with `group:` prefix) | `"123456789"` / `"group:98765432"` |
-| `"wecom"` | Specific WeCom group (`to` = ChatId); omit `to` to fall back to global `WeCom.WebhookUrl` | `"wrxxxxxxxx"` |
-| `"api"` | API channel has no proactive delivery; ignored | — |
-| `"ag-ui"` | AG-UI channel has no proactive delivery; ignored | — |
-
-### Heartbeat Cross-Channel Notifications
-
-Heartbeat results are broadcast to all channels that have admin configuration:
-- QQ: Private message sent to all `QQBot.AdminUsers`
-- WeCom: Sent to the WeCom group via `WeCom.WebhookUrl` (requires `WeCom.WebhookUrl` to be configured)
-
-### Backward Compatibility
-
-When `Gateway.Enabled = false` (the default), behavior is identical to before — the highest-priority enabled module runs alone.
-
----
-
-## Full Configuration Example
-
-```json
-{
-    "ApiKey": "sk-your-api-key",
-    "Model": "gpt-4o-mini",
-    "EndPoint": "https://api.openai.com/v1",
-    "MaxToolCallRounds": 100,
-    "SubagentMaxToolCallRounds": 50,
-    "SubagentMaxConcurrency": 3,
-    "MaxSessionQueueSize": 3,
-    "CompactSessions": true,
-    "MaxContextTokens": 160000,
-    "MemoryWindow": 50,
-    "ConsolidationModel": "",
-    "EnabledTools": [],
-    "Reasoning": {
-        "Enabled": true,
-        "Effort": "Medium",
-        "Output": "Full"
-    },
-    "Logging": {
-        "Enabled": true,
-        "Console": false,
-        "MinLevel": "Information",
-        "Directory": "logs",
-        "RetentionDays": 7
-    },
-    "Hooks": {
-        "Enabled": true
-    },
-    "Tools": {
-        "File": {
-            "RequireApprovalOutsideWorkspace": true,
-            "MaxFileSize": 10485760
-        },
-        "Shell": {
-            "RequireApprovalOutsideWorkspace": true,
-            "Timeout": 300,
-            "MaxOutputLength": 10000
-        },
-        "Web": {
-            "MaxChars": 50000,
-            "Timeout": 300,
-            "SearchMaxResults": 5,
-            "SearchProvider": "Bing"
-        },
-        "Sandbox": {
-            "Enabled": false,
-            "Domain": "localhost:5880",
-            "ApiKey": "",
-            "UseHttps": false,
-            "Image": "ubuntu:latest",
-            "TimeoutSeconds": 600,
-            "Cpu": "1",
-            "Memory": "512Mi",
-            "NetworkPolicy": "allow",
-            "AllowedEgressDomains": [],
-            "IdleTimeoutSeconds": 300,
-            "SyncWorkspace": true,
-            "SyncExclude": [
-                ".craft/config.json",
-                ".craft/sessions",
-                ".craft/memory",
-                ".craft/dashboard",
-                ".craft/security",
-                ".craft/logs",
-                ".craft/plans"
-            ]
-        }
-    },
-    "Security": {
-        "BlacklistedPaths": [
-            "~/.ssh",
-            "~/.gnupg",
-            "/etc/shadow"
-        ]
-    },
-    "QQBot": {
-        "Enabled": false,
-        "Host": "127.0.0.1",
-        "Port": 6700,
-        "AccessToken": "",
-        "AdminUsers": [],
-        "WhitelistedUsers": [],
-        "WhitelistedGroups": [],
-        "ApprovalTimeoutSeconds": 60
-    },
-    "WeComBot": {
-        "Enabled": false,
-        "Host": "0.0.0.0",
-        "Port": 9000,
-        "AdminUsers": [],
-        "WhitelistedUsers": [],
-        "WhitelistedChats": [],
-        "ApprovalTimeoutSeconds": 60,
-        "Robots": []
-    },
-    "Api": {
-        "Enabled": false,
-        "Host": "127.0.0.1",
-        "Port": 8080,
-        "ApiKey": "",
-        "AutoApprove": true
-    },
-    "AgUi": {
-        "Enabled": false,
-        "Host": "127.0.0.1",
-        "Port": 5100,
-        "Path": "/ag-ui",
-        "RequireAuth": false,
-        "ApiKey": "",
-        "ApprovalMode": "interactive"
-    },
-    "Heartbeat": {
-        "Enabled": false,
-        "IntervalSeconds": 1800,
-        "NotifyAdmin": false
-    },
-    "WeCom": {
-        "Enabled": false,
-        "WebhookUrl": ""
-    },
-    "Cron": {
-        "Enabled": false,
-        "StorePath": "cron/jobs.json"
-    },
-    "Acp": {
-        "Enabled": false
-    },
-    "AppServer": {
-        "Mode": "Disabled",
-        "WebSocket": {
-            "Host": "127.0.0.1",
-            "Port": 9100,
-            "Token": ""
-        }
-    },
-    "CLI": {
-        "AppServerBin": "",
-        "AppServerUrl": "",
-        "AppServerToken": ""
-    },
-    "DashBoard": {
-        "Enabled": false,
-        "Host": "127.0.0.1",
-        "Port": 8080
-    },
-    "McpServers": [],
-    "Gateway": {
-        "Enabled": false
-    }
-}
-```
+All HTTP services are managed by WebHostPool — services with the same `Host:Port` automatically share the port.
