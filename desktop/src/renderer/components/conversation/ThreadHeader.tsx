@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { CommitDialog } from '../detail/CommitDialog'
@@ -15,6 +16,7 @@ interface ThreadHeaderProps {
  * Spec §10.2, M7-10
  */
 export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHeaderProps): JSX.Element {
+  const t = useT()
   const [commitOpen, setCommitOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(threadName)
@@ -94,7 +96,7 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
             onChange={(e) => setRenameValue(e.target.value)}
             onKeyDown={handleRenameKeyDown}
             onBlur={() => { void commitRename() }}
-            aria-label="Rename thread"
+            aria-label={t('threadHeader.renameAria')}
             style={{
               flex: 1,
               fontSize: '14px',
@@ -111,7 +113,7 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
         ) : (
           <h1
             onDoubleClick={startRename}
-            title="Double-click to rename"
+            title={t('threadHeader.renameTitle')}
             style={{
               flex: 1,
               margin: 0,
@@ -132,26 +134,26 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
         {/* Open button */}
         <button
           onClick={handleOpen}
-          title={`Open workspace: ${workspacePath}`}
+          title={t('threadHeader.openTitle', { path: workspacePath })}
           style={headerButtonStyle}
-          aria-label="Open workspace in explorer"
+          aria-label={t('threadHeader.openWorkspaceTitle')}
         >
-          Open
+          {t('threadHeader.open')}
         </button>
 
         {/* Commit button */}
         <button
           onClick={() => setCommitOpen(true)}
           disabled={!hasWrittenFiles}
-          title={hasWrittenFiles ? 'Commit file changes to git' : 'No changes to commit'}
+          title={hasWrittenFiles ? t('threadHeader.commitTitle') : t('threadHeader.noCommitTitle')}
           style={{
             ...headerButtonStyle,
             opacity: hasWrittenFiles ? 1 : 0.4,
             cursor: hasWrittenFiles ? 'pointer' : 'default'
           }}
-          aria-label="Commit changes to git"
+          aria-label={t('threadHeader.commitTitle')}
         >
-          Commit
+          {t('threadHeader.commit')}
         </button>
       </div>
 

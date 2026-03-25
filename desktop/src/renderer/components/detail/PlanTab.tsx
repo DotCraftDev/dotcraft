@@ -1,3 +1,4 @@
+import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import type { PlanTodoItem, PlanTodoStatus } from '../../stores/conversationStore'
 
@@ -7,6 +8,7 @@ import type { PlanTodoItem, PlanTodoStatus } from '../../stores/conversationStor
  * Spec §11.4
  */
 export function PlanTab(): JSX.Element {
+  const t = useT()
   const plan = useConversationStore((s) => s.plan)
 
   if (!plan) {
@@ -29,7 +31,7 @@ export function PlanTab(): JSX.Element {
             whiteSpace: 'pre-line'
           }}
         >
-          {'No plan yet.\nThe agent\'s plan will appear here\nwhen it creates one.'}
+          {t('plan.empty')}
         </p>
       </div>
     )

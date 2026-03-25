@@ -1,4 +1,6 @@
+import { useT } from '../../contexts/LocaleContext'
 import type { ThreadSummary, ThreadGroup as ThreadGroupType } from '../../types/thread'
+import type { MessageKey } from '../../../shared/locales'
 import { ThreadEntry } from './ThreadEntry'
 
 interface ThreadGroupProps {
@@ -6,11 +8,20 @@ interface ThreadGroupProps {
   threads: ThreadSummary[]
 }
 
+const GROUP_LABEL_KEY: Record<ThreadGroupType, MessageKey> = {
+  Today: 'threadGroup.today',
+  Yesterday: 'threadGroup.yesterday',
+  'Previous 7 Days': 'threadGroup.prev7Days',
+  'Previous 30 Days': 'threadGroup.prev30Days',
+  Older: 'threadGroup.older'
+}
+
 /**
  * Renders a time-group heading and its list of thread entries.
  * Spec §7.2, §9.5
  */
 export function ThreadGroup({ label, threads }: ThreadGroupProps): JSX.Element {
+  const t = useT()
   return (
     <div style={{ marginBottom: '4px' }}>
       {/* Group heading: 11px, semibold, uppercase, dimmed */}
@@ -24,7 +35,7 @@ export function ThreadGroup({ label, threads }: ThreadGroupProps): JSX.Element {
           letterSpacing: '0.04em'
         }}
       >
-        {label}
+        {t(GROUP_LABEL_KEY[label])}
       </div>
 
       {threads.map((thread) => (

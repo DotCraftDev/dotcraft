@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 
 /** Extracts a clean user-facing message from a workspace switch error. */
 function switchErrorMessage(err: unknown): string {
@@ -26,6 +27,7 @@ interface WorkspaceHeaderProps {
  * Spec §9.2, M7-2, M7-3, M7-5
  */
 export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeaderProps): JSX.Element {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [recents, setRecents] = useState<RecentWorkspace[]>([])
   const [showRecents, setShowRecents] = useState(false)
@@ -105,8 +107,8 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
       {/* Overflow menu trigger */}
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); if (open) setShowRecents(false) }}
-        title="Workspace options"
-        aria-label="Workspace options"
+        title={t('workspaceHeader.optionsAria')}
+        aria-label={t('workspaceHeader.optionsAria')}
         style={{
           flexShrink: 0,
           background: 'transparent',
@@ -167,8 +169,8 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
           >
             {workspacePath}
           </div>
-          <DropdownItem label="Open in Explorer" onClick={openInExplorer} />
-          <DropdownItem label="Switch Workspace" onClick={() => { void switchWorkspace() }} />
+          <DropdownItem label={t('workspaceHeader.openInExplorer')} onClick={openInExplorer} />
+          <DropdownItem label={t('workspaceHeader.switchWorkspace')} onClick={() => { void switchWorkspace() }} />
           {/* Recent workspaces submenu */}
           <div
             style={{ position: 'relative' }}
@@ -176,7 +178,7 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
             onMouseLeave={() => setShowRecents(false)}
           >
             <DropdownItem
-              label="Recent Workspaces"
+              label={t('workspaceHeader.recentWorkspaces')}
               disabled={recents.length === 0}
               hasSubmenu={recents.length > 0}
             />

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 
 interface Props {
   onConfirm(reason: string): void
@@ -9,6 +10,7 @@ interface Props {
  * Optional rejection reason for automation task reject flow (M8).
  */
 export function RejectDialog({ onConfirm, onCancel }: Props): JSX.Element {
+  const t = useT()
   const [reason, setReason] = useState('')
 
   useEffect(() => {
@@ -61,18 +63,18 @@ export function RejectDialog({ onConfirm, onCancel }: Props): JSX.Element {
             color: 'var(--text-primary)'
           }}
         >
-          Reject task
+          {t('auto.rejectDialogTitle')}
         </div>
         <div style={{ padding: '16px 20px' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Reason for rejection (optional)
+              {t('auto.rejectReasonLabel')}
             </span>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={4}
-              placeholder="Add context for why this task is rejected..."
+              placeholder={t('auto.rejectPlaceholder')}
               style={{
                 padding: '8px 10px',
                 borderRadius: '6px',
@@ -108,7 +110,7 @@ export function RejectDialog({ onConfirm, onCancel }: Props): JSX.Element {
               cursor: 'pointer'
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -124,7 +126,7 @@ export function RejectDialog({ onConfirm, onCancel }: Props): JSX.Element {
               cursor: 'pointer'
             }}
           >
-            Reject
+            {t('auto.reject')}
           </button>
         </div>
       </div>

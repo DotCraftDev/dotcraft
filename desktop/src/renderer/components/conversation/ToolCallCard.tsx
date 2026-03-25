@@ -1,5 +1,7 @@
 import { memo, useState, useEffect } from 'react'
+import { translate, type AppLocale } from '../../../shared/locales'
 import type { ConversationItem } from '../../types/conversation'
+import { useLocale } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import {
   CRON_TOOL_NAME,
@@ -24,26 +26,34 @@ const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
 /**
  * Returns the collapsed-state label for a completed tool call.
  */
-function getCollapsedLabel(toolName: string, args: Record<string, unknown> | undefined): string {
+function getCollapsedLabel(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  locale: AppLocale
+): string {
   if (EXPLORE_TOOLS.has(toolName)) {
     const path = (args?.path as string | undefined) ?? (args?.pattern as string | undefined) ?? ''
     const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename ? `Explored ${filename}` : `Explored files`
+    return filename
+      ? translate(locale, 'toolCall.explored', { filename })
+      : translate(locale, 'toolCall.exploredFiles')
   }
   if (FILE_WRITE_TOOLS.has(toolName)) {
     const path = (args?.path as string | undefined) ?? ''
     const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename ? `Edited ${filename}` : `Edited file`
+    return filename
+      ? translate(locale, 'toolCall.edited', { filename })
+      : translate(locale, 'toolCall.editedFile')
   }
   if (SHELL_TOOLS.has(toolName)) {
     const cmd = (args?.command as string | undefined) ?? toolName
     const short = cmd.length > 40 ? cmd.slice(0, 40) + '…' : cmd
-    return `Ran ${short}`
+    return translate(locale, 'toolCall.ran', { cmd: short })
   }
   if (toolName === CRON_TOOL_NAME) {
-    return formatCronCollapsedLabel(args)
+    return formatCronCollapsedLabel(args, locale)
   }
-  return `Called ${toolName}`
+  return translate(locale, 'toolCall.called', { toolName })
 }
 
 /**
@@ -52,6 +62,7 @@ function getCollapsedLabel(toolName: string, args: Record<string, unknown> | und
  * Spec §M4-1 through M4-7.
  */
 export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCallCardProps): JSX.Element {
+  const locale = useLocale()
   const [expanded, setExpanded] = useState(false)
   const [elapsed, setElapsed] = useState(0)
 
@@ -96,11 +107,12 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
         <span>
           {toolName === CRON_TOOL_NAME ? (
             <span style={{ color: 'var(--text-primary)' }}>
-              {formatCronRunningLabel(args)}
+              {formatCronRunningLabel(args, locale)}
             </span>
           ) : (
             <>
-              Calling <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
+              {translate(locale, 'toolCall.calling')}{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
             </>
           )}
           {elapsed > 0 && (
@@ -114,7 +126,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   }
 
   // ── Completed state ───────────────────────────────────────────────────────
-  const label = getCollapsedLabel(toolName, args)
+  const label = getCollapsedLabel(toolName, args, locale)
 
   return (
     <div
@@ -152,7 +164,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 
         {/* Label */}
         <span style={{ flex: 1 }}>
-          {success ? label : `Failed: ${label}`}
+          {success ? label : translate(locale, 'toolCall.failed', { label })}
           {!success && item.result && (
             <span
               style={{ color: 'var(--error)', marginLeft: '6px' }}
@@ -194,6 +206,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
             success={success}
             fileDiff={fileDiff ? { diff: fileDiff } : undefined}
             turnId={turnId}
+            locale={locale}
           />
         </div>
       )}
@@ -210,6 +223,7 @@ interface ExpandedContentProps {
   success: boolean
   fileDiff: { diff: import('../../types/toolCall').FileDiff } | undefined
   turnId: string
+  locale: AppLocale
 }
 
 function ExpandedContent({
@@ -217,7 +231,8 @@ function ExpandedContent({
   args,
   result,
   success,
-  fileDiff
+  fileDiff,
+  locale
 }: ExpandedContentProps): JSX.Element {
   // File diff variant
   if (FILE_WRITE_TOOLS.has(toolName) && fileDiff) {
@@ -226,8 +241,11 @@ function ExpandedContent({
 
   // Cron — structured JSON result (aligned with CronToolDisplays.CronResult)
   if (toolName === CRON_TOOL_NAME) {
-    const lines = formatCronResultLines(result)
+    const lines = formatCronResultLines(result, locale)
     if (lines && lines.length > 0) {
+      const errSample = translate(locale, 'cron.result.errorPrefix', { error: '†' })
+      const errMarker = errSample.indexOf('†')
+      const errPrefix = errMarker >= 0 ? errSample.slice(0, errMarker) : 'Error: '
       return (
         <div
           className="selectable"
@@ -254,7 +272,7 @@ function ExpandedContent({
             <div
               key={i}
               style={{
-                color: line.startsWith('Error:') ? 'var(--error)' : 'var(--text-secondary)'
+                color: line.startsWith(errPrefix) ? 'var(--error)' : 'var(--text-secondary)'
               }}
             >
               {line}

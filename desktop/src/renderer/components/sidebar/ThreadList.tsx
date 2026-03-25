@@ -1,4 +1,5 @@
 import { useShallow } from 'zustand/react/shallow'
+import { useT } from '../../contexts/LocaleContext'
 import { useThreadStore, selectFilteredThreads } from '../../stores/threadStore'
 import { groupThreads } from '../../utils/threadGrouping'
 import { ThreadGroup } from './ThreadGroup'
@@ -11,6 +12,7 @@ import { THREAD_GROUP_ORDER } from '../../types/thread'
  * Spec §9.5
  */
 export function ThreadList(): JSX.Element {
+  const t = useT()
   const { threadList, searchQuery, loading } = useThreadStore()
   // useShallow prevents infinite re-renders: selectFilteredThreads returns a new
   // array on every call (via .filter), so without shallow equality Zustand's
@@ -20,7 +22,7 @@ export function ThreadList(): JSX.Element {
   if (loading) {
     return (
       <div style={emptyStyle}>
-        <span style={{ color: 'var(--text-dimmed)', fontSize: '13px' }}>Loading...</span>
+        <span style={{ color: 'var(--text-dimmed)', fontSize: '13px' }}>{t('threadList.loading')}</span>
       </div>
     )
   }
@@ -29,9 +31,9 @@ export function ThreadList(): JSX.Element {
     return (
       <div style={emptyStyle}>
         <span style={{ color: 'var(--text-dimmed)', fontSize: '13px', textAlign: 'center' }}>
-          No conversations yet.
+          {t('threadList.empty')}
           <br />
-          Click &ldquo;+ New Thread&rdquo; to start.
+          {t('threadList.emptyHint', { label: t('sidebar.newThreadLabel') })}
         </span>
       </div>
     )
@@ -41,7 +43,7 @@ export function ThreadList(): JSX.Element {
     return (
       <div style={emptyStyle}>
         <span style={{ color: 'var(--text-dimmed)', fontSize: '13px' }}>
-          No threads match your search.
+          {t('threadList.noSearchResults')}
         </span>
       </div>
     )

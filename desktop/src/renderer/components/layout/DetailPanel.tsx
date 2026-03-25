@@ -1,3 +1,4 @@
+import { useT } from '../../contexts/LocaleContext'
 import { useUIStore, type DetailPanelTab } from '../../stores/uiStore'
 import { useConversationStore } from '../../stores/conversationStore'
 import { ChangesTab } from '../detail/ChangesTab'
@@ -17,6 +18,7 @@ const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
  * Spec §11
  */
 export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Element {
+  const t = useT()
   const { activeDetailTab, setActiveDetailTab, toggleDetailPanel } = useUIStore()
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const turns = useConversationStore((s) => s.turns)
@@ -31,9 +33,17 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
   }, 0)
 
   const tabs: { id: DetailPanelTab; label: string; badge?: number }[] = [
-    { id: 'changes', label: 'Changes', badge: changedFileCount > 0 ? changedFileCount : undefined },
-    { id: 'plan', label: 'Plan' },
-    { id: 'terminal', label: 'Terminal', badge: terminalCount > 0 ? terminalCount : undefined }
+    {
+      id: 'changes',
+      label: t('detailPanel.tabChanges'),
+      badge: changedFileCount > 0 ? changedFileCount : undefined
+    },
+    { id: 'plan', label: t('detailPanel.tabPlan') },
+    {
+      id: 'terminal',
+      label: t('detailPanel.tabTerminal'),
+      badge: terminalCount > 0 ? terminalCount : undefined
+    }
   ]
 
   return (
@@ -113,7 +123,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         {/* Close button */}
         <button
           onClick={toggleDetailPanel}
-          title="Close detail panel (Ctrl+Shift+B)"
+          title={t('detailPanel.closeTitle')}
           style={{
             alignSelf: 'center',
             width: '28px',
@@ -130,7 +140,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
             marginRight: '4px',
             flexShrink: 0
           }}
-          aria-label="Close detail panel"
+          aria-label={t('detailPanel.closeAria')}
         >
           ×
         </button>

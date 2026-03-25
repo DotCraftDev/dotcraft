@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import type { ConversationTurn } from '../../types/conversation'
 import { useAutomationsStore } from '../../stores/automationsStore'
 import { useReviewPanelStore } from '../../stores/reviewPanelStore'
@@ -11,8 +12,14 @@ import { ApproveRejectBar } from './ApproveRejectBar'
 
 const PANEL_WIDTH = 480
 
-function SourceBadge({ sourceName }: { sourceName: string }): JSX.Element {
-  const label = sourceName === 'github' ? 'GitHub' : 'Local'
+function SourceBadge({
+  sourceName,
+  t
+}: {
+  sourceName: string
+  t: ReturnType<typeof useT>
+}): JSX.Element {
+  const label = sourceName === 'github' ? t('auto.source.github') : t('auto.source.local')
   return (
     <span
       style={{
@@ -31,13 +38,17 @@ function SourceBadge({ sourceName }: { sourceName: string }): JSX.Element {
   )
 }
 
-function ApprovalPolicyBadge({ policy }: { policy?: string | null }): JSX.Element {
+function ApprovalPolicyBadge({
+  policy,
+  t
+}: {
+  policy?: string | null
+  t: ReturnType<typeof useT>
+}): JSX.Element {
   const fullAuto =
     policy === 'fullAuto' || policy === 'autoApprove'
-  const label = fullAuto ? 'Full auto' : 'Workspace scope'
-  const title = fullAuto
-    ? 'File/shell tools may access paths outside the agent workspace (auto-approved).'
-    : 'File/shell tools are limited to the agent workspace; outside paths are rejected.'
+  const label = fullAuto ? t('auto.review.fullAuto') : t('auto.review.workspaceScope')
+  const title = fullAuto ? t('auto.review.policyFullAuto') : t('auto.review.policyWorkspace')
   return (
     <span
       title={title}
@@ -100,6 +111,7 @@ function ReviewTurnBlock({
  * Side panel for automation task review: history, live stream, approve/reject (M8).
  */
 export function TaskReviewPanel(): JSX.Element {
+  const t = useT()
   const selectedTaskId = useAutomationsStore((s) => s.selectedTaskId)
   const tasks = useAutomationsStore((s) => s.tasks)
   const openReviewPanel = useReviewPanelStore((s) => s.openReviewPanel)
@@ -208,19 +220,19 @@ export function TaskReviewPanel(): JSX.Element {
               wordBreak: 'break-word'
             }}
           >
-            {displayTask?.title ?? 'Task'}
+            {displayTask?.title ?? t('auto.taskTitleFallback')}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
             {displayTask && <StatusBadge status={displayTask.status} />}
-            {displayTask && <SourceBadge sourceName={displayTask.sourceName} />}
+            {displayTask && <SourceBadge sourceName={displayTask.sourceName} t={t} />}
             {displayTask?.sourceName === 'local' && (
-              <ApprovalPolicyBadge policy={displayTask.approvalPolicy} />
+              <ApprovalPolicyBadge policy={displayTask.approvalPolicy} t={t} />
             )}
           </div>
         </div>
         <button
           type="button"
-          aria-label="Close review panel"
+          aria-label={t('auto.review.panelCloseAria')}
           onClick={() => closeReviewPanel()}
           style={{
             flexShrink: 0,
@@ -241,7 +253,7 @@ export function TaskReviewPanel(): JSX.Element {
 
       {loading && (
         <div style={{ padding: '16px', fontSize: '13px', color: 'var(--text-tertiary)' }}>
-          Loading…
+          {t('threadList.loading')}
         </div>
       )}
 
@@ -267,7 +279,7 @@ export function TaskReviewPanel(): JSX.Element {
               marginBottom: '8px'
             }}
           >
-            Agent summary
+            {t('auto.review.agentSummaryHeading')}
           </div>
           <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
             <MarkdownRenderer content={displayTask.agentSummary} />
@@ -294,24 +306,24 @@ export function TaskReviewPanel(): JSX.Element {
             marginBottom: '10px'
           }}
         >
-          Agent activity
+          {t('auto.review.agentActivityHeading')}
         </div>
 
         {showWaitingThread && (
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Waiting for agent to start…
+            {t('auto.review.waitingAgent')}
           </p>
         )}
 
         {showNoActivity && (
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-            No agent activity recorded.
+            {t('auto.review.noActivityRecorded')}
           </p>
         )}
 
         {reviewThreadId && turns.length === 0 && !showWaitingThread && !showNoActivity && !loading && (
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
-            No turns yet.
+            {t('auto.review.noTurnsYet')}
           </p>
         )}
 

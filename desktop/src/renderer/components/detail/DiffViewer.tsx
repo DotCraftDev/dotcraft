@@ -1,3 +1,4 @@
+import { useT } from '../../contexts/LocaleContext'
 import type { FileDiff } from '../../types/toolCall'
 
 interface DiffViewerProps {
@@ -12,6 +13,7 @@ interface DiffViewerProps {
  * Spec §11.3.3
  */
 export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): JSX.Element {
+  const t = useT()
   const relativePath = toRelativePath(diff.filePath, workspacePath)
   const isReverted = diff.status === 'reverted'
 
@@ -44,7 +46,7 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
         </span>
         {diff.isNewFile ? (
           <span style={{ fontSize: '11px', color: 'var(--info)', border: '1px solid var(--info)', borderRadius: '3px', padding: '1px 5px' }}>
-            New file
+            {t('diffViewer.newFile')}
           </span>
         ) : (
           <span style={{ display: 'flex', gap: '6px', fontSize: '11px', color: 'var(--text-dimmed)' }}>
@@ -55,7 +57,7 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
         {onRevert && (
           <button
             onClick={onRevert}
-            title={isReverted ? 'Re-apply this file' : 'Revert this file'}
+            title={isReverted ? t('changesFile.reapplyTitle') : t('changesFile.revertTitle')}
             style={{
               padding: '2px 8px',
               fontSize: '11px',
@@ -66,7 +68,7 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
               cursor: 'pointer'
             }}
           >
-            {isReverted ? 'Re-apply' : '↺ Revert'}
+            {isReverted ? t('diffViewer.reapply') : t('diffViewer.revert')}
           </button>
         )}
       </div>
@@ -74,7 +76,9 @@ export function DiffViewer({ diff, workspacePath, onRevert }: DiffViewerProps): 
       {/* Diff content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {diff.diffHunks.length === 0 ? (
-          <div style={{ padding: '16px', color: 'var(--text-dimmed)', fontSize: '12px' }}>No changes</div>
+          <div style={{ padding: '16px', color: 'var(--text-dimmed)', fontSize: '12px' }}>
+            {t('diffViewer.noChanges')}
+          </div>
         ) : (
           diff.diffHunks.map((hunk, hunkIdx) => {
             let oldLineNum = hunk.oldStart

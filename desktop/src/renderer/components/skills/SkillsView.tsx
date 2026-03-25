@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { useSkillsStore } from '../../stores/skillsStore'
 import { SkillCard } from './SkillCard'
 import { SkillDetailDialog } from './SkillDetailDialog'
@@ -8,6 +9,7 @@ import { addToast } from '../../stores/toastStore'
  * Full-width skills management surface (Codex-style list + detail modal).
  */
 export function SkillsView(): JSX.Element {
+  const t = useT()
   const {
     skills,
     loading,
@@ -39,9 +41,9 @@ export function SkillsView(): JSX.Element {
   const grouped = useMemo(() => {
     const order: Array<'builtin' | 'workspace' | 'user'> = ['builtin', 'workspace', 'user']
     const titles: Record<'builtin' | 'workspace' | 'user', string> = {
-      builtin: 'Built-in skills',
-      workspace: 'Workspace skills',
-      user: 'User skills'
+      builtin: t('skills.builtin'),
+      workspace: t('skills.workspace'),
+      user: t('skills.user')
     }
     const map: Record<'builtin' | 'workspace' | 'user', typeof filtered> = {
       builtin: [],
@@ -52,7 +54,7 @@ export function SkillsView(): JSX.Element {
       map[s.source].push(s)
     }
     return order.map((src) => ({ source: src, title: titles[src], items: map[src] }))
-  }, [filtered])
+  }, [filtered, t])
 
   const selected = selectedSkillName
     ? skills.find((s) => s.name === selectedSkillName) ?? null
@@ -81,27 +83,19 @@ export function SkillsView(): JSX.Element {
           {/* Grows with header row so the path callout can stay on one line when space allows */}
           <div style={{ flex: '1 1 0%', minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 600, color: 'var(--text-primary)' }}>
-              Skills
+              {t('skills.pageTitle')}
             </h1>
-            <p style={skillsIntroSubtitle}>
-              Extend the agent with markdown skills. Enable or disable each skill for this workspace.
-            </p>
+            <p style={skillsIntroSubtitle}>{t('skills.intro')}</p>
             <div style={skillsSourcesCallout} role="note">
               <p style={skillsSourceLine}>
-                <strong style={skillsSourceHeading}>Workspace</strong>{' '}
+                <strong style={skillsSourceHeading}>{t('skills.source.workspace')}</strong>{' '}
                 <PathChip>.craft/skills/</PathChip>
-                <span style={skillsSourceRest}>
-                  {' '}
-                  — Includes built-ins deployed here and project-only skills.
-                </span>
+                <span style={skillsSourceRest}>{t('skills.callout.workspaceLine')}</span>
               </p>
               <p style={{ ...skillsSourceLine, marginTop: '10px' }}>
-                <strong style={skillsSourceHeading}>User</strong>{' '}
+                <strong style={skillsSourceHeading}>{t('skills.source.user')}</strong>{' '}
                 <PathChip>~/.craft/skills/</PathChip>
-                <span style={skillsSourceRest}>
-                  {' '}
-                  — Shared across projects when no same-named skill exists in the workspace.
-                </span>
+                <span style={skillsSourceRest}>{t('skills.callout.userLine')}</span>
               </p>
             </div>
           </div>
@@ -110,13 +104,13 @@ export function SkillsView(): JSX.Element {
               type="button"
               onClick={() => void fetchSkills()}
               style={toolbarBtn}
-              title="Refresh list"
+              title={t('skills.refresh')}
             >
-              Refresh
+              {t('skills.refresh')}
             </button>
             <input
               type="search"
-              placeholder="Search skills"
+              placeholder={t('skills.searchPlaceholder')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{
@@ -134,14 +128,14 @@ export function SkillsView(): JSX.Element {
       </header>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
-        {loading && <p style={{ color: 'var(--text-secondary)' }}>Loading skills…</p>}
+        {loading && <p style={{ color: 'var(--text-secondary)' }}>{t('skills.loading')}</p>}
         {error && (
           <p style={{ color: 'var(--error)' }} role="alert">
             {error}
           </p>
         )}
         {!loading && !error && skills.length === 0 && (
-          <p style={{ color: 'var(--text-secondary)' }}>No skills found for this workspace.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>{t('skills.empty')}</p>
         )}
         {!loading &&
           !error &&
@@ -176,7 +170,7 @@ export function SkillsView(): JSX.Element {
                         try {
                           await toggleSkillEnabled(skill.name, enabled)
                         } catch {
-                          addToast('Failed to update skill', 'error')
+                          addToast(t('skills.updateFailed'), 'error')
                         }
                       }}
                     />
@@ -199,7 +193,7 @@ export function SkillsView(): JSX.Element {
               if (!enabled) clearSelection()
               else void selectSkill(selected.name)
             } catch {
-              addToast('Failed to update skill', 'error')
+              addToast(t('skills.updateFailed'), 'error')
             }
           }}
         />

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 
 const DEBOUNCE_MS = 80
 
@@ -26,6 +27,7 @@ export function FileSearchPopover({
   onSelect,
   onDismiss
 }: FileSearchPopoverProps): JSX.Element | null {
+  const t = useT()
   const [loading, setLoading] = useState(false)
   const [files, setFiles] = useState<FileMatch[]>([])
   const [highlight, setHighlight] = useState(0)
@@ -131,17 +133,17 @@ export function FileSearchPopover({
     >
       {loading && (
         <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-          Loading…
+          {t('fileSearch.loading')}
         </div>
       )}
       {!loading && files.length === 0 && query.trim() !== '' && (
         <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-          No matching files
+          {t('fileSearch.noMatch')}
         </div>
       )}
       {!loading && files.length === 0 && query.trim() === '' && (
         <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-          Type to search files
+          {t('fileSearch.hint')}
         </div>
       )}
       {files.map((f, i) => (

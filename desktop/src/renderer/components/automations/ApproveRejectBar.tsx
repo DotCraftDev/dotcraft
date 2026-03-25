@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { RejectDialog } from './RejectDialog'
 import { useAutomationsStore } from '../../stores/automationsStore'
@@ -13,6 +14,7 @@ interface Props {
  * Approve / Reject action bar for tasks in awaiting_review (M8).
  */
 export function ApproveRejectBar({ task }: Props): JSX.Element {
+  const t = useT()
   const [showApproveConfirm, setShowApproveConfirm] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const approveTask = useAutomationsStore((s) => s.approveTask)
@@ -93,7 +95,7 @@ export function ApproveRejectBar({ task }: Props): JSX.Element {
               opacity: rejecting || approving ? 0.6 : 1
             }}
           >
-            {rejecting ? 'Rejecting…' : 'Reject'}
+            {rejecting ? t('auto.rejecting') : t('auto.reject')}
           </button>
           <button
             type="button"
@@ -114,16 +116,16 @@ export function ApproveRejectBar({ task }: Props): JSX.Element {
               opacity: approving || rejecting ? 0.6 : 1
             }}
           >
-            {approving ? 'Approving…' : 'Approve'}
+            {approving ? t('auto.approving') : t('auto.approve')}
           </button>
         </div>
       </div>
 
       {showApproveConfirm && (
         <ConfirmDialog
-          title="Approve task"
-          message="Approve this task? The agent's changes will be applied."
-          confirmLabel="Approve"
+          title={t('auto.approveTitle')}
+          message={t('auto.approveMessage')}
+          confirmLabel={t('auto.approve')}
           onConfirm={() => void handleApprove()}
           onCancel={() => setShowApproveConfirm(false)}
         />

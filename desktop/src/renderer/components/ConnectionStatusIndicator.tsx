@@ -1,25 +1,23 @@
 import { useConnectionStore } from '../stores/connectionStore'
+import { useT } from '../contexts/LocaleContext'
+import { connectionStatusLabel } from '../utils/connectionStatusLabel'
 import { SIDEBAR_NAV_ICON_SLOT } from './sidebar/sidebarNavRowStyles'
 
 const STATUS_CONFIG = {
   connecting: {
     color: 'var(--warning)',
-    label: 'Connecting...',
     pulse: true
   },
   connected: {
     color: 'var(--success)',
-    label: 'Connected',
     pulse: false
   },
   disconnected: {
     color: 'var(--error)',
-    label: 'Disconnected \u2014 Reconnecting...',
     pulse: true
   },
   error: {
     color: 'var(--error)',
-    label: null, // uses errorMessage from store
     pulse: false
   }
 } as const
@@ -30,9 +28,10 @@ const STATUS_CONFIG = {
  * Spec §5.3 and spec §9.7
  */
 export function ConnectionStatusIndicator(): JSX.Element {
+  const t = useT()
   const { status, errorMessage } = useConnectionStore()
   const config = STATUS_CONFIG[status]
-  const label = config.label ?? errorMessage ?? 'Unknown error'
+  const label = connectionStatusLabel(status, errorMessage, t)
 
   return (
     <div

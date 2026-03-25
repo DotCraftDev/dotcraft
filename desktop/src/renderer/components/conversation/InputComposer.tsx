@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { addToast } from '../../stores/toastStore'
@@ -36,6 +37,7 @@ interface InputComposerProps {
  * Rich input with @ file refs, image strip (paste / drag-drop), Enter to send.
  */
 export function InputComposer({ threadId, workspacePath, modelName = 'Default' }: InputComposerProps): JSX.Element {
+  const t = useT()
   const [images, setImages] = useState<ImageAttachment[]>([])
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [mentionDismissed, setMentionDismissed] = useState(false)
@@ -65,10 +67,10 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
   // Consume any pending prefill text when InputComposer mounts
   useEffect(() => {
     if (composerPrefill) {
-      const t = composerPrefill
+      const prefill = composerPrefill
       useUIStore.getState().consumeComposerPrefill()
       setTimeout(() => {
-        richRef.current?.setPlainText(t)
+        richRef.current?.setPlainText(prefill)
         richRef.current?.focus()
       }, 0)
     }
@@ -104,11 +106,14 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
       const baseLen = dataUrl.split(',')[1]?.length ?? 0
       const approxBytes = Math.floor((baseLen * 3) / 4)
       if (approxBytes > MAX_IMAGE_BYTES) {
-        addToast(`Image too large. Maximum ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`, 'warning')
+        addToast(
+          t('input.imageTooLarge', { mb: MAX_IMAGE_BYTES / 1024 / 1024 }),
+          'warning'
+        )
         return
       }
       if (images.length >= MAX_IMAGES) {
-        addToast(`Maximum ${MAX_IMAGES} images per message.`, 'warning')
+        addToast(t('input.maxImages', { max: MAX_IMAGES }), 'warning')
         return
       }
       try {
@@ -119,16 +124,19 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
         ])
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        addToast(`Could not save image: ${msg}`, 'error')
+        addToast(t('input.saveImageFailed', { error: msg }), 'error')
       }
     },
-    [images.length]
+    [images.length, t]
   )
 
   const onPasteImage = useCallback(
     (file: File): void => {
       if (!isImageFile(file)) {
-        addToast(`Unsupported image format: ${extForFile(file.name) || 'unknown'}`, 'warning')
+        addToast(
+          t('input.unsupportedImage', { ext: extForFile(file.name) || 'unknown' }),
+          'warning'
+        )
         return
       }
       const reader = new FileReader()
@@ -173,13 +181,10 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
         reader.readAsDataURL(file)
       }
       if (rejected > 0) {
-        addToast(
-          `Only image files can be attached (${rejected} file(s) skipped).`,
-          'warning'
-        )
+        addToast(t('input.nonImageRejected', { count: rejected }), 'warning')
       }
     },
-    [saveDataUrlAsTemp]
+    [saveDataUrlAsTemp, t]
   )
 
   const sendMessage = useCallback(async () => {
@@ -190,10 +195,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
 
     if (isRunning) {
       if (images.length > 0) {
-        addToast(
-          'Image attachments cannot be queued — they will not be included in the follow-up message.',
-          'warning'
-        )
+        addToast(t('input.imageAttachmentsQueued'), 'warning')
       }
       setPendingMessage(trimmed)
       richRef.current?.clear()
@@ -208,7 +210,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
     const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
     if (!threadEntry?.displayName) {
       const autoName =
-        trimmed.length > 50 ? trimmed.slice(0, 50) + '...' : trimmed || 'Image message'
+        trimmed.length > 50 ? trimmed.slice(0, 50) + '...' : trimmed || t('toast.imageMessage')
       useThreadStore.getState().renameThread(threadId, autoName)
     }
 
@@ -264,7 +266,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
       console.error('turn/start failed:', err)
       useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
     }
-  }, [images, isRunning, isWaitingApproval, threadId, workspacePath, setPendingMessage])
+  }, [images, isRunning, isWaitingApproval, threadId, workspacePath, setPendingMessage, t])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
@@ -335,7 +337,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
                 color: 'var(--accent)'
               }}
             >
-              Drop image to attach
+              {t('composer.dropImage')}
             </div>
           )}
 
@@ -362,7 +364,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
                 disabled={isWaitingApproval}
                 suppressSubmit={showMentionPopover}
                 placeholder={
-                  isWaitingApproval ? 'Waiting for approval decision...' : 'Ask DotCraft anything'
+                  isWaitingApproval ? t('composer.placeholder.approval') : t('composer.placeholder.ask')
                 }
                 onSubmit={() => {
                   void sendMessage()
@@ -374,7 +376,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
                 onPasteImage={onPasteImage}
                 onPasteTextOversized={() => {
                   addToast(
-                    `Input truncated to ${MAX_TEXT_LENGTH.toLocaleString()} characters`,
+                    t('input.truncated', { max: MAX_TEXT_LENGTH.toLocaleString() }),
                     'warning'
                   )
                 }}
@@ -386,8 +388,8 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
                 <button
                   type="button"
                   onClick={stopTurn}
-                  title="Stop (Esc)"
-                  aria-label="Stop turn"
+                  title={t('composer.stopTitle')}
+                  aria-label={t('composer.stopAria')}
                   style={{
                     ...sendButtonBase,
                     backgroundColor: 'var(--error)',
@@ -403,8 +405,8 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
                     void sendMessage()
                   }}
                   disabled={!canSend}
-                  title="Send (Enter)"
-                  aria-label="Send message"
+                  title={t('composer.sendTitleAlt')}
+                  aria-label={t('composer.sendAriaAlt')}
                   style={{
                     ...sendButtonBase,
                     backgroundColor: canSend ? 'var(--accent)' : 'var(--bg-tertiary)',
@@ -424,7 +426,9 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
             onClick={() => {
               void toggleMode()
             }}
-            title={`Mode: ${threadMode}. Click to toggle.`}
+            title={t('composer.modeTitle', {
+              mode: t(threadMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')
+            })}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -458,12 +462,16 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
                 }}
               />
             </span>
-            <span style={{ textTransform: 'capitalize', lineHeight: 1.2 }}>{threadMode}</span>
+            <span style={{ lineHeight: 1.2 }}>
+              {t(threadMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')}
+            </span>
           </button>
 
           <span style={{ color: 'var(--border-default)' }}>·</span>
 
-          <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>{modelName}</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+            {modelName === 'Default' ? t('composer.defaultModel') : modelName}
+          </span>
         </div>
       </div>
     </div>

@@ -59,6 +59,8 @@ if (typeof window !== 'undefined') {
 interface CronStoreState {
   jobs: CronJobWire[]
   loading: boolean
+  /** True after at least one successful `fetchJobs`; used to avoid skeleton flash on tab revisit. */
+  listLoadedOnce: boolean
   error: string | null
   selectedCronJobId: string | null
 
@@ -76,17 +78,21 @@ interface CronStoreState {
 export const useCronStore = create<CronStoreState>((set, get) => ({
   jobs: [],
   loading: false,
+  listLoadedOnce: false,
   error: null,
   selectedCronJobId: null,
 
   async fetchJobs(options?: { silent?: boolean }) {
     const silent = options?.silent === true
-    if (!silent) set({ loading: true, error: null })
+    if (!silent) {
+      if (!get().listLoadedOnce) set({ loading: true, error: null })
+      else set({ error: null })
+    }
     try {
       const result = (await window.api.appServer.sendRequest('cron/list', {
         includeDisabled: true
       })) as { jobs?: CronJobWire[] }
-      set({ jobs: result.jobs ?? [], loading: false })
+      set({ jobs: result.jobs ?? [], loading: false, listLoadedOnce: true })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       if (!silent) set({ error: msg, loading: false })
@@ -150,6 +156,7 @@ export const useCronStore = create<CronStoreState>((set, get) => ({
     set({
       jobs: [],
       loading: false,
+      listLoadedOnce: false,
       error: null,
       selectedCronJobId: null
     })

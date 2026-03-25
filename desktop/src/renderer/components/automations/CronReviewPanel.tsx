@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { wireTurnToConversationTurn } from '../../types/conversation'
 import type { ConversationTurn } from '../../types/conversation'
 import { useCronStore, type CronJobWire } from '../../stores/cronStore'
@@ -10,6 +11,7 @@ const PANEL_WIDTH = 480
  * Read-only review of a cron execution thread (thread/read by lastThreadId).
  */
 export function CronReviewPanel(): JSX.Element {
+  const t = useT()
   const selectedCronJobId = useCronStore((s) => s.selectedCronJobId)
   const jobs = useCronStore((s) => s.jobs)
   const selectCronJob = useCronStore((s) => s.selectCronJob)
@@ -105,7 +107,7 @@ export function CronReviewPanel(): JSX.Element {
             {job.name}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '6px' }}>
-            Cron job · last run:{' '}
+            {t('cron.review.cronJobLastRun')}{' '}
             {job.state.lastRunAtMs != null
               ? new Date(job.state.lastRunAtMs).toLocaleString()
               : '—'}
@@ -113,7 +115,7 @@ export function CronReviewPanel(): JSX.Element {
         </div>
         <button
           type="button"
-          aria-label="Close review panel"
+          aria-label={t('auto.review.panelCloseAria')}
           onClick={() => selectCronJob(null)}
           style={{
             flexShrink: 0,
@@ -134,7 +136,7 @@ export function CronReviewPanel(): JSX.Element {
 
       {loading && (
         <div style={{ padding: '16px', fontSize: '13px', color: 'var(--text-tertiary)' }}>
-          Loading…
+          {t('threadList.loading')}
         </div>
       )}
 
@@ -144,13 +146,13 @@ export function CronReviewPanel(): JSX.Element {
 
       {!loading && !loadError && !threadId && (
         <div style={{ padding: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-          No execution record yet. Run the job once to see activity here.
+          {t('cron.review.noExecutionYet')}
         </div>
       )}
 
       {!loading && !loadError && threadId && turns.length === 0 && (
         <div style={{ padding: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-          No turns in this thread.
+          {t('cron.review.noTurnsInThread')}
         </div>
       )}
 

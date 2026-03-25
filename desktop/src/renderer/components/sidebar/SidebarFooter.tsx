@@ -1,3 +1,4 @@
+import { useT } from '../../contexts/LocaleContext'
 import { ConnectionStatusIndicator } from '../ConnectionStatusIndicator'
 import {
   SIDEBAR_NAV_BORDER_INACTIVE,
@@ -46,6 +47,7 @@ function GearIcon(): JSX.Element {
  * Spec §9.6
  */
 export function SidebarFooter({ onOpenSettings }: SidebarFooterProps): JSX.Element {
+  const t = useT()
   return (
     <div
       style={{
@@ -60,8 +62,8 @@ export function SidebarFooter({ onOpenSettings }: SidebarFooterProps): JSX.Eleme
       <button
         type="button"
         onClick={onOpenSettings}
-        title="Settings (Ctrl+,)"
-        aria-label="Open settings"
+        title={t('sidebar.settingsShortcut')}
+        aria-label={t('sidebar.openSettingsAria')}
         style={{
           ...SIDEBAR_NAV_ROW_OUTER,
           ...SIDEBAR_NAV_BORDER_INACTIVE,
@@ -81,7 +83,7 @@ export function SidebarFooter({ onOpenSettings }: SidebarFooterProps): JSX.Eleme
         <span style={SIDEBAR_NAV_ICON_SLOT}>
           <GearIcon />
         </span>
-        <span style={SIDEBAR_NAV_LABEL}>Settings</span>
+        <span style={SIDEBAR_NAV_LABEL}>{t('sidebarFooter.settings')}</span>
       </button>
 
       <div

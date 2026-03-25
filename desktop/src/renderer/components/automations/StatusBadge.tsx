@@ -1,3 +1,5 @@
+import { useT } from '../../contexts/LocaleContext'
+import type { MessageKey } from '../../../shared/locales'
 import type { AutomationTaskStatus } from '../../stores/automationsStore'
 
 interface StatusConfig {
@@ -93,19 +95,32 @@ function WarningIcon(): JSX.Element {
   )
 }
 
-const statusMap: Record<AutomationTaskStatus, StatusConfig> = {
-  pending: { label: 'Pending', color: 'var(--text-tertiary)', icon: <ClockIcon /> },
-  dispatched: { label: 'Dispatched', color: 'var(--accent)', icon: <ArrowRightIcon /> },
-  agent_running: { label: 'Running', color: 'var(--accent)', icon: <SpinnerIcon /> },
-  agent_completed: { label: 'Completed', color: 'var(--accent)', icon: <CheckOutlineIcon /> },
-  awaiting_review: { label: 'Review', color: 'var(--warning)', icon: <EyeIcon /> },
-  approved: { label: 'Approved', color: 'var(--success)', icon: <CheckFilledIcon /> },
-  rejected: { label: 'Rejected', color: 'var(--error)', icon: <XIcon /> },
-  failed: { label: 'Failed', color: 'var(--error)', icon: <WarningIcon /> }
+const STATUS_LABEL_KEY: Record<AutomationTaskStatus, MessageKey> = {
+  pending: 'status.pending',
+  dispatched: 'status.dispatched',
+  agent_running: 'status.running',
+  agent_completed: 'status.agentCompleted',
+  awaiting_review: 'status.review',
+  approved: 'status.approved',
+  rejected: 'status.rejected',
+  failed: 'status.failed'
+}
+
+const statusMap: Record<AutomationTaskStatus, Omit<StatusConfig, 'label'>> = {
+  pending: { color: 'var(--text-tertiary)', icon: <ClockIcon /> },
+  dispatched: { color: 'var(--accent)', icon: <ArrowRightIcon /> },
+  agent_running: { color: 'var(--accent)', icon: <SpinnerIcon /> },
+  agent_completed: { color: 'var(--accent)', icon: <CheckOutlineIcon /> },
+  awaiting_review: { color: 'var(--warning)', icon: <EyeIcon /> },
+  approved: { color: 'var(--success)', icon: <CheckFilledIcon /> },
+  rejected: { color: 'var(--error)', icon: <XIcon /> },
+  failed: { color: 'var(--error)', icon: <WarningIcon /> }
 }
 
 export function StatusBadge({ status }: { status: AutomationTaskStatus }): JSX.Element {
+  const t = useT()
   const cfg = statusMap[status] ?? statusMap.pending
+  const labelKey = STATUS_LABEL_KEY[status] ?? STATUS_LABEL_KEY.pending
   return (
     <span
       style={{
@@ -118,7 +133,7 @@ export function StatusBadge({ status }: { status: AutomationTaskStatus }): JSX.E
       }}
     >
       {cfg.icon}
-      {cfg.label}
+      {t(labelKey)}
     </span>
   )
 }

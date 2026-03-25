@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import {
   useAutomationsStore,
   type SourceFilter
@@ -12,12 +13,6 @@ import { TaskReviewPanel } from './TaskReviewPanel'
 import { CronJobCard } from './CronJobCard'
 import { CronReviewPanel } from './CronReviewPanel'
 import { useReviewPanelStore } from '../../stores/reviewPanelStore'
-
-const filterTabs: { key: SourceFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'local', label: 'Local' },
-  { key: 'github', label: 'GitHub' }
-]
 
 function SkeletonCard(): JSX.Element {
   return (
@@ -64,6 +59,7 @@ function SkeletonCard(): JSX.Element {
 }
 
 export function AutomationsView(): JSX.Element {
+  const t = useT()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const hasTasks = capabilities?.automations === true
   const hasCron = capabilities?.cronManagement === true
@@ -85,6 +81,15 @@ export function AutomationsView(): JSX.Element {
   const selectedCronJobId = useCronStore((s) => s.selectedCronJobId)
 
   const [showNewTask, setShowNewTask] = useState(false)
+
+  const filterTabs: { key: SourceFilter; label: string }[] = useMemo(
+    () => [
+      { key: 'all', label: t('auto.filterAll') },
+      { key: 'local', label: t('auto.source.local') },
+      { key: 'github', label: t('auto.source.github') }
+    ],
+    [t]
+  )
 
   const showMainTabs = hasTasks && hasCron
   const activePanel: 'tasks' | 'cron' = showMainTabs
@@ -167,15 +172,15 @@ export function AutomationsView(): JSX.Element {
             }}
           >
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Automations
+              {t('auto.viewTitle')}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
               {activePanel === 'tasks' && (
                 <button
                   type="button"
                   onClick={() => void fetchTasks()}
-                  aria-label="Refresh task list"
-                  title="Refresh task list"
+                  aria-label={t('auto.refreshTasks')}
+                  title={t('auto.refreshTasks')}
                   style={{
                     padding: '5px 12px',
                     borderRadius: '6px',
@@ -187,14 +192,15 @@ export function AutomationsView(): JSX.Element {
                     cursor: 'pointer'
                   }}
                 >
-                  Refresh
+                  {t('common.refresh')}
                 </button>
               )}
               {activePanel === 'cron' && hasCron && (
                 <button
                   type="button"
                   onClick={refreshCron}
-                  aria-label="Refresh cron jobs"
+                  aria-label={t('auto.refreshCron')}
+                  title={t('auto.refreshCron')}
                   style={{
                     padding: '5px 12px',
                     borderRadius: '6px',
@@ -206,13 +212,13 @@ export function AutomationsView(): JSX.Element {
                     cursor: 'pointer'
                   }}
                 >
-                  Refresh
+                  {t('common.refresh')}
                 </button>
               )}
               {activePanel === 'tasks' && showNewButton && (
                 <button
                   type="button"
-                  aria-label="Create new task"
+                  aria-label={t('auto.createTask')}
                   onClick={() => setShowNewTask(true)}
                   style={{
                     padding: '5px 14px',
@@ -225,14 +231,14 @@ export function AutomationsView(): JSX.Element {
                     cursor: 'pointer'
                   }}
                 >
-                  + New Task
+                  {t('auto.newTaskButtonLabel')}
                 </button>
               )}
             </div>
           </div>
 
           {showMainTabs && (
-            <div role="tablist" aria-label="Automations" style={{ display: 'flex', gap: '2px' }}>
+            <div role="tablist" aria-label={t('auto.tablistAria')} style={{ display: 'flex', gap: '2px' }}>
               <button
                 type="button"
                 role="tab"
@@ -249,7 +255,7 @@ export function AutomationsView(): JSX.Element {
                   cursor: 'pointer'
                 }}
               >
-                Tasks
+                {t('auto.tabTasks')}
               </button>
               <button
                 type="button"
@@ -267,7 +273,7 @@ export function AutomationsView(): JSX.Element {
                   cursor: 'pointer'
                 }}
               >
-                Cron
+                {t('auto.tabCron')}
               </button>
             </div>
           )}
@@ -275,7 +281,7 @@ export function AutomationsView(): JSX.Element {
           {activePanel === 'tasks' && (
             <div
               role="tablist"
-              aria-label="Filter tasks by source"
+              aria-label={t('auto.filterSource')}
               style={{ display: 'flex', gap: '2px', marginTop: showMainTabs ? '10px' : '0' }}
             >
               {filterTabs.map((tab) => (
@@ -349,7 +355,7 @@ export function AutomationsView(): JSX.Element {
                     cursor: 'pointer'
                   }}
                 >
-                  Retry
+                  {t('common.retry')}
                 </button>
               </div>
             )}
@@ -367,11 +373,9 @@ export function AutomationsView(): JSX.Element {
                   textAlign: 'center'
                 }}
               >
-                <p style={{ margin: 0 }}>No automation tasks yet.</p>
+                <p style={{ margin: 0 }}>{t('auto.emptyTasks')}</p>
                 {showNewButton && (
-                  <p style={{ margin: '8px 0 0', fontSize: '12px' }}>
-                    Click &quot;+ New Task&quot; to create one, or wait for GitHub tasks to be discovered.
-                  </p>
+                  <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{t('auto.emptyTasksHint')}</p>
                 )}
               </div>
             )}
@@ -424,7 +428,7 @@ export function AutomationsView(): JSX.Element {
                     cursor: 'pointer'
                   }}
                 >
-                  Retry
+                  {t('common.retry')}
                 </button>
               </div>
             )}
@@ -441,10 +445,8 @@ export function AutomationsView(): JSX.Element {
                   textAlign: 'center'
                 }}
               >
-                <p style={{ margin: 0 }}>No scheduled jobs yet.</p>
-                <p style={{ margin: '8px 0 0', fontSize: '12px' }}>
-                  Ask the agent in chat to create a cron job, e.g. “Remind me every hour…”
-                </p>
+                <p style={{ margin: 0 }}>{t('auto.emptyCron')}</p>
+                <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{t('auto.emptyCronHint')}</p>
               </div>
             )}
 

@@ -4,7 +4,7 @@
 |-------|-------|
 | **Version** | 0.1.0 |
 | **Status** | Draft |
-| **Date** | 2026-03-21 |
+| **Date** | 2026-03-25 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) |
 
 Purpose: Define the product design, UI structure, interaction model, and behavioral contract for **DotCraft Desktop**, an Electron + React desktop application that provides a graphical interface for the DotCraft Agent Harness. The Desktop client connects to the DotCraft AppServer via the Wire Protocol, offering a three-panel workspace for agent conversation, multi-session management, file review, and plan tracking.
@@ -46,6 +46,7 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
   - [21.1 Tab Bar](#211-tab-bar)
   - [21.2 Cron Tab — Job List](#212-cron-tab--job-list)
   - [21.3 Cron Review Panel](#213-cron-review-panel)
+- [22. Localization](#22-localization)
 - [18.5 Windows Native Notifications](#185-windows-native-notifications) _(amendment to §18)_
 - [18.6 Cron Job State Conflicts](#186-cron-job-state-conflicts) _(amendment to §18)_
 - [18.7 Attachment Edge Cases](#187-attachment-edge-cases) _(amendment to §18.4)_
@@ -64,6 +65,7 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
 - The approval flow: how the Desktop client presents approval prompts and sends decisions.
 - The visual design system: color tokens, typography, spacing, theming.
 - The workspace management model: how users open, switch, and manage workspaces.
+- The localization model: which surfaces follow a user-selected display language, default language, and formatting expectations (see [Section 22](#22-localization)).
 
 ### 1.2 What This Spec Does Not Define
 
@@ -1876,6 +1878,65 @@ The panel is **read-only**: no approval bar, no input. Users can expand tool cal
 
 - `Escape` key closes the panel.
 - Selecting a different `CronJobCard` replaces the panel content.
+
+---
+
+## 22. Localization
+
+This section defines **product-level** rules for display language and locale-sensitive formatting in DotCraft Desktop. It does **not** mandate a particular string catalog format, i18n library, or IPC encoding — those are implementation choices.
+
+### 22.1 Scope: What Must Be Localized
+
+The following **client-owned** surfaces SHALL follow the user’s active display language (see §22.3):
+
+- All **fixed labels** in the Desktop chrome: sidebar, headers, buttons, empty states, settings, dialogs, toasts, and in-window menu labels where the client supplies the text.
+- **User-facing error and status messages** produced by the Desktop client (connection failures, IPC errors, validation messages).
+- **Locale-aware formatting** of dates, times, and relative times **when the client formats them for display** (e.g. “3 hours ago”, schedule summaries), using the active locale.
+
+### 22.2 Scope: What Is Not Required to Match the UI Language
+
+The following SHALL remain **verbatim or protocol-defined**, and MUST NOT be rewritten by the client solely for localization:
+
+- **Agent-generated content**: message bodies, tool summaries, plan text, and any natural language returned by the AppServer or model.
+- **User and workspace data**: file paths, thread titles if supplied by the user or server, cron job names, and similar domain strings.
+- **Wire Protocol** method names, JSON keys, and structured enums — these are language-neutral identifiers.
+
+Native OS menus that use **standard Electron roles** (e.g. Cut, Copy, Undo) MAY follow the operating system’s language rather than the in-app preference; this is acceptable. Custom-labeled menu items and the in-window menu strip SHOULD align with the active Desktop display language.
+
+### 22.3 Supported Languages and Default
+
+| Language | BCP 47 tag (normative) | Default |
+|----------|-------------------------|---------|
+| English | `en` | **Yes** — if no preference is stored or the stored value is invalid, the client behaves as `en`. |
+| Simplified Chinese | `zh-Hans` | No |
+
+Additional languages are out of scope until a future revision of this spec.
+
+### 22.4 User Control and Persistence
+
+- The user MUST be able to change the display language from **Settings** without reinstalling the app.
+- The choice MUST be **persisted** across sessions (same machine, same user data directory).
+- Changing the language MUST apply to **renderer-owned UI** immediately or after a defined, short refresh path (full window reload is permitted but not required).
+- **Native application menus** (Main process) MUST be rebuilt or updated when the display language changes so that custom labels stay consistent with the in-app language.
+
+### 22.5 Identifiers vs. Display Strings
+
+Menu commands, shortcuts, and any logic that targets a **specific command or menu subtree** MUST use **stable logical identifiers** (e.g. menu group id) in client logic. **Translated text MUST NOT** be used as the sole key for routing or IPC matching, because the same action must work in every supported language.
+
+### 22.6 Locale Identifiers and Formatting
+
+- Stored preferences MUST use **BCP 47** tags as in §22.3 (`en`, `zh-Hans`).
+- The root document’s **HTML `lang` attribute** SHOULD reflect the active locale for accessibility and font selection.
+- **Numbers, dates, and relative times** SHOULD use `Intl`-style locale-aware formatting appropriate to the active locale (e.g. Chinese relative time conventions when `zh-Hans` is active).
+
+### 22.7 Relationship to the AppServer Protocol
+
+Selecting a display language in the Desktop client does **not** imply a change to Wire Protocol behavior. Any future **server-side** locale or agent language controls would be defined in [appserver-protocol.md](appserver-protocol.md) separately; this section applies only to the Desktop **client UI**.
+
+### 22.8 Quality Bar
+
+- Terminology for the same concept (e.g. “thread”, “workspace”, “turn”) SHOULD be **consistent** within each target language across the application.
+- **Truncation and overflow**: localized strings MAY be longer than English; layouts SHOULD tolerate longer labels (ellipsis, flexible width) without breaking core workflows.
 
 ---
 

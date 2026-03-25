@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join, basename } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { normalizeLocale, type AppLocale } from '../shared/locales'
 
 export interface RecentWorkspace {
   path: string
@@ -15,6 +16,8 @@ export interface AppSettings {
   appServerBinaryPath?: string
   /** UI theme; omitted or invalid values are treated as dark by the renderer */
   theme?: UiTheme
+  /** Display language (BCP 47); omitted or invalid values are treated as English */
+  locale?: AppLocale
   recentWorkspaces?: RecentWorkspace[]
 }
 
@@ -28,7 +31,11 @@ export function loadSettings(): AppSettings {
   const filePath = getSettingsPath()
   try {
     if (existsSync(filePath)) {
-      return JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
+      const raw = JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
+      if (raw.locale !== undefined) {
+        raw.locale = normalizeLocale(raw.locale)
+      }
+      return raw
     }
   } catch {
     // Ignore corrupt settings

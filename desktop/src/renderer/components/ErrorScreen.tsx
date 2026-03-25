@@ -1,4 +1,5 @@
 import { useConnectionStore } from '../stores/connectionStore'
+import { useT } from '../contexts/LocaleContext'
 
 interface ErrorScreenProps {
   onOpenSettings?: () => void
@@ -13,6 +14,7 @@ interface ErrorScreenProps {
  * - Initialize handshake timeout (errorType: 'handshake-timeout')
  */
 export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Element | null {
+  const t = useT()
   const { status, errorMessage, errorType } = useConnectionStore()
 
   if (status !== 'error') return null
@@ -21,22 +23,22 @@ export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Elem
   const isHandshakeTimeout = errorType === 'handshake-timeout'
 
   const title = isBinaryNotFound
-    ? 'DotCraft AppServer Not Found'
+    ? t('error.title.binary')
     : isHandshakeTimeout
-      ? 'AppServer Not Responding'
-      : 'Connection Error'
+      ? t('error.title.timeout')
+      : t('error.title.generic')
 
   const description = isBinaryNotFound
-    ? 'Please install DotCraft or configure the binary path in Settings.'
+    ? t('error.desc.binary')
     : isHandshakeTimeout
-      ? 'The AppServer did not respond within 10 seconds.'
-      : (errorMessage ?? 'An unexpected error occurred.')
+      ? t('error.desc.timeout')
+      : (errorMessage ?? t('error.desc.unexpected'))
 
   const actionLabel = isBinaryNotFound
-    ? 'Open Settings'
+    ? t('error.action.openSettings')
     : isHandshakeTimeout
-      ? 'Restart'
-      : 'Retry'
+      ? t('error.action.restart')
+      : t('error.action.retry')
 
   function handleAction(): void {
     if (isBinaryNotFound) {
@@ -114,6 +116,7 @@ export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Elem
 
         {/* Action button */}
         <button
+          type="button"
           onClick={handleAction}
           style={{
             padding: '10px 24px',
@@ -153,7 +156,7 @@ export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Elem
                 marginBottom: '8px'
               }}
             >
-              Error details
+              {t('error.details')}
             </summary>
             <pre
               style={{

@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import type { FileDiff } from '../../types/toolCall'
 
 interface ChangesFileListProps {
@@ -74,6 +75,7 @@ interface FileRowProps {
 }
 
 function FileRow({ file, workspacePath, isSelected, onSelect, onRevert, onReapply }: FileRowProps): JSX.Element {
+  const t = useT()
   const isReverted = file.status === 'reverted'
   const relativePath = toRelativePath(file.filePath, workspacePath)
   const filename = relativePath.split(/[\\/]/).pop() ?? relativePath
@@ -108,7 +110,7 @@ function FileRow({ file, workspacePath, isSelected, onSelect, onRevert, onReappl
     >
       {/* Status dot */}
       <span
-        title={isReverted ? 'Reverted' : 'Written'}
+        title={isReverted ? t('changesFile.reverted') : t('changesFile.written')}
         style={{
           width: '7px',
           height: '7px',
@@ -133,7 +135,9 @@ function FileRow({ file, workspacePath, isSelected, onSelect, onRevert, onReappl
           {filename}
         </span>
         {file.isNewFile && (
-          <span style={{ color: 'var(--info)', marginLeft: '4px', fontSize: '10px' }}>new</span>
+          <span style={{ color: 'var(--info)', marginLeft: '4px', fontSize: '10px' }}>
+            {t('changesFile.newBadge')}
+          </span>
         )}
       </span>
 
@@ -154,7 +158,7 @@ function FileRow({ file, workspacePath, isSelected, onSelect, onRevert, onReappl
           if (isReverted) onReapply()
           else onRevert()
         }}
-        title={isReverted ? 'Re-apply' : 'Revert'}
+        title={isReverted ? t('changesFile.reapplyTitle') : t('changesFile.revertTitle')}
         style={{
           padding: '1px 6px',
           fontSize: '10px',
@@ -166,7 +170,7 @@ function FileRow({ file, workspacePath, isSelected, onSelect, onRevert, onReappl
           flexShrink: 0
         }}
       >
-        {isReverted ? 'Re-apply' : 'Revert'}
+        {isReverted ? t('changesFile.reapply') : t('changesFile.revert')}
       </button>
     </div>
   )

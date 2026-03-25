@@ -30,7 +30,11 @@ declare global {
       titleBarOverlayHeight: number
       titleBarOverlayRightReserve: number
       menu: {
-        popupTopLevel(label: string, x: number, y: number): Promise<void>
+        popupTopLevel(
+          menuId: 'file' | 'edit' | 'view' | 'window' | 'help',
+          x: number,
+          y: number
+        ): Promise<void>
       }
       appServer: {
         sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
@@ -75,8 +79,13 @@ declare global {
           appServerBinaryPath?: string
           lastWorkspacePath?: string
           theme?: 'dark' | 'light'
+          locale?: 'en' | 'zh-Hans'
         }>
-        set(partial: { appServerBinaryPath?: string; theme?: 'dark' | 'light' }): Promise<void>
+        set(partial: {
+          appServerBinaryPath?: string
+          theme?: 'dark' | 'light'
+          locale?: 'en' | 'zh-Hans'
+        }): Promise<void>
       }
     }
   }

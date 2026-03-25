@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from 'react'
+import { useT } from '../../contexts/LocaleContext'
 import { useAutomationsStore } from '../../stores/automationsStore'
 
 interface Props {
@@ -35,6 +36,7 @@ function helpButtonStyle(): CSSProperties {
 }
 
 export function NewTaskDialog({ onClose }: Props): JSX.Element {
+  const t = useT()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [workspaceMode, setWorkspaceMode] = useState<'project' | 'isolated'>('project')
@@ -97,20 +99,20 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
             color: 'var(--text-primary)'
           }}
         >
-          New Automation Task
+          {t('auto.newTask.title')}
         </div>
 
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'auto' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' }}>
-              Title <span style={{ color: 'var(--error)' }}>*</span>
+              {t('auto.newTask.titleLabel')} <span style={{ color: 'var(--error)' }}>*</span>
             </span>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
-              placeholder="e.g. Implement feature X"
+              placeholder={t('auto.newTask.namePlaceholder')}
               autoFocus
               style={{
                 padding: '8px 10px',
@@ -132,14 +134,14 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
                   htmlFor="new-task-agent-workspace"
                   style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' }}
                 >
-                  Agent workspace
+                  {t('auto.newTask.agentWorkspaceLabel')}
                 </label>
                 <button
                   type="button"
-                  aria-label="Agent workspace details"
+                  aria-label={t('auto.newTask.agentWorkspaceLabel')}
                   aria-expanded={showWorkspaceHelp}
                   aria-controls={showWorkspaceHelp ? 'agent-workspace-details' : undefined}
-                  title={showWorkspaceHelp ? 'Hide details' : 'Show details'}
+                  title={showWorkspaceHelp ? t('auto.newTask.detailsHide') : t('auto.newTask.detailsShow')}
                   onClick={() => setShowWorkspaceHelp((v) => !v)}
                   style={helpButtonStyle()}
                 >
@@ -154,14 +156,14 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
                 aria-describedby={showWorkspaceHelp ? 'agent-workspace-details' : undefined}
                 style={selectStyle}
               >
-                <option value="project">Project (open workspace root)</option>
-                <option value="isolated">Isolated (sandbox under .craft/tasks)</option>
+                <option value="project">{t('auto.newTask.workspaceProject')}</option>
+                <option value="isolated">{t('auto.newTask.workspaceIsolated')}</option>
               </select>
               {showWorkspaceHelp && (
                 <div
                   id="agent-workspace-details"
                   role="region"
-                  aria-label="Agent workspace details"
+                  aria-label={t('auto.newTask.agentWorkspaceLabel')}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '8px',
@@ -172,16 +174,10 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
                     lineHeight: 1.5
                   }}
                 >
-                  <strong style={{ color: 'var(--text-primary)' }}>Project</strong>
-                  <p style={{ margin: '4px 0 8px' }}>
-                    The agent&apos;s file/shell tools use the current DotCraft workspace folder (your repo). Best for
-                    real code changes.
-                  </p>
-                  <strong style={{ color: 'var(--text-primary)' }}>Isolated</strong>
-                  <p style={{ margin: '4px 0 0' }}>
-                    The agent runs in an empty folder under this task in <code style={{ fontSize: '11px' }}>.craft/tasks</code>.
-                    Safer when you want containment; copy or generate files there before integrating.
-                  </p>
+                  <strong style={{ color: 'var(--text-primary)' }}>{t('auto.newTask.helpProjectTitle')}</strong>
+                  <p style={{ margin: '4px 0 8px' }}>{t('auto.newTask.helpProjectBody')}</p>
+                  <strong style={{ color: 'var(--text-primary)' }}>{t('auto.newTask.helpIsolatedTitle')}</strong>
+                  <p style={{ margin: '4px 0 0' }}>{t('auto.newTask.helpIsolatedBody')}</p>
                 </div>
               )}
             </div>
@@ -193,14 +189,14 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
                   htmlFor="new-task-tool-policy"
                   style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' }}
                 >
-                  Tool policy
+                  {t('auto.newTask.toolPolicyLabel')}
                 </label>
                 <button
                   type="button"
-                  aria-label="Tool policy details"
+                  aria-label={t('auto.newTask.toolPolicyLabel')}
                   aria-expanded={showPolicyHelp}
                   aria-controls={showPolicyHelp ? 'tool-policy-details' : undefined}
-                  title={showPolicyHelp ? 'Hide details' : 'Show details'}
+                  title={showPolicyHelp ? t('auto.newTask.detailsHide') : t('auto.newTask.detailsShow')}
                   onClick={() => setShowPolicyHelp((v) => !v)}
                   style={helpButtonStyle()}
                 >
@@ -215,14 +211,14 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
                 aria-describedby={showPolicyHelp ? 'tool-policy-details' : undefined}
                 style={selectStyle}
               >
-                <option value="workspaceScope">Workspace scope (default, safer)</option>
-                <option value="fullAuto">Full auto (higher risk)</option>
+                <option value="workspaceScope">{t('auto.newTask.policyWorkspace')}</option>
+                <option value="fullAuto">{t('auto.newTask.policyFullAuto')}</option>
               </select>
               {showPolicyHelp && (
                 <div
                   id="tool-policy-details"
                   role="region"
-                  aria-label="Tool policy details"
+                  aria-label={t('auto.newTask.toolPolicyLabel')}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '8px',
@@ -237,18 +233,14 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
                   }}
                 >
                   <div>
-                    <strong style={{ color: 'var(--text-primary)' }}>Workspace scope (default)</strong>
-                    <p style={{ margin: '4px 0 0' }}>
-                      File and shell tools may access paths inside the task&apos;s agent workspace only (see Agent
-                      workspace above). Operations outside that boundary are rejected automatically (no prompts).
-                    </p>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      {t('auto.newTask.policyHelpWorkspaceTitle')}
+                    </strong>
+                    <p style={{ margin: '4px 0 0' }}>{t('auto.review.policyWorkspace')}</p>
                   </div>
                   <div>
-                    <strong style={{ color: 'var(--text-primary)' }}>Full auto</strong>
-                    <p style={{ margin: '4px 0 0' }}>
-                      File and shell tools can also target paths outside the agent workspace; those operations are
-                      auto-approved without asking. Use only when you trust the workflow and accept higher risk.
-                    </p>
+                    <strong style={{ color: 'var(--text-primary)' }}>{t('auto.newTask.policyHelpFullTitle')}</strong>
+                    <p style={{ margin: '4px 0 0' }}>{t('auto.review.policyFullAuto')}</p>
                   </div>
                 </div>
               )}
@@ -257,13 +249,13 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' }}>
-              Description <span style={{ color: 'var(--error)' }}>*</span>
+              {t('auto.newTask.descriptionLabel')} <span style={{ color: 'var(--error)' }}>*</span>
             </span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={6}
-              placeholder="Describe what the agent should do. Markdown supported."
+              placeholder={t('auto.newTask.promptPlaceholder')}
               style={{
                 padding: '8px 10px',
                 borderRadius: '6px',
@@ -315,7 +307,7 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
               cursor: 'pointer'
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -333,7 +325,7 @@ export function NewTaskDialog({ onClose }: Props): JSX.Element {
               opacity: submitting ? 0.7 : 1
             }}
           >
-            {submitting ? 'Creating...' : 'Create Task'}
+            {submitting ? t('auto.newTask.creating') : t('auto.newTask.create')}
           </button>
         </div>
       </div>
