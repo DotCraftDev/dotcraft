@@ -375,8 +375,12 @@ export const RichInputArea = forwardRef<RichInputAreaHandle, RichInputAreaProps>
         const pasted = e.clipboardData.getData('text/plain')
         if (pasted.length > MAX_TEXT_LEN) {
           e.preventDefault()
+          const truncated = pasted.slice(0, MAX_TEXT_LEN)
+          document.execCommand('insertText', false, truncated)
+          onInput()
           onPasteTextOversized?.()
           return
+        }
         }
         e.preventDefault()
         const text = e.clipboardData.getData('text/plain')
