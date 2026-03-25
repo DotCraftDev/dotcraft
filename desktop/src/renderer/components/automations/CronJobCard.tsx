@@ -36,7 +36,7 @@ function formatSchedule(job: CronJobWire): string {
     if (s.initialDelayMs != null && s.initialDelayMs > 0) {
       const dsec = Math.floor(s.initialDelayMs / 1000)
       const dlab =
-        dsec < 60 ? `${dsec}s` : dsec < 3600 ? `${Math.floor(dsec / 60)}m` : `${Math.floor(dsec / 3600)}h`
+        dsec < 60 ? `${dsec}s` : dsec < 3600 ? `${Math.floor(dsec / 60)}m` : dsec < 86400 ? `${Math.floor(dsec / 3600)}h` : `${Math.floor(dsec / 86400)}d`
       return `First in ${dlab}, then ${line.toLowerCase()}`
     }
     return line
