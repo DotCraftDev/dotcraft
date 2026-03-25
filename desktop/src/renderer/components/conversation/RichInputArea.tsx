@@ -219,7 +219,8 @@ export const RichInputArea = forwardRef<RichInputAreaHandle, RichInputAreaProps>
         if (!parsed) return
 
         const endLinear = before.length
-        const startLinear = endLinear - parsed.fullMatch.length
+        const leadingWs = parsed.fullMatch.length > 0 && parsed.fullMatch[0] !== '@' ? 1 : 0
+        const startLinear = endLinear - parsed.fullMatch.length + leadingWs
         const startLoc = walkToLinearOffset(el, startLinear)
         const endLoc = walkToLinearOffset(el, endLinear)
         if (!startLoc || !endLoc) return
