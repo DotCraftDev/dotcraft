@@ -3,22 +3,43 @@ import type { CronJobWire } from '../../stores/cronStore'
 import { useCronStore } from '../../stores/cronStore'
 import { useAutomationsStore } from '../../stores/automationsStore'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { formatNextRun } from '../../utils/cronNextRunDisplay'
 
 function formatSchedule(job: CronJobWire): string {
   const s = job.schedule
   if (s.kind === 'at' && s.atMs != null) {
     return `Once at ${new Date(s.atMs).toLocaleString()}`
   }
+  if (s.kind === 'daily' && s.dailyHour != null && s.dailyMinute != null) {
+    const hh = String(s.dailyHour).padStart(2, '0')
+    const mm = String(s.dailyMinute).padStart(2, '0')
+    const tz = s.tz && s.tz.trim() !== '' ? s.tz : 'UTC'
+    return `Daily at ${hh}:${mm} (${tz})`
+  }
   if (s.kind === 'every' && s.everyMs != null) {
     const ms = s.everyMs
     const sec = Math.floor(ms / 1000)
-    if (sec < 60) return `Every ${sec}s`
-    const min = Math.floor(sec / 60)
-    if (min < 60) return `Every ${min}m`
-    const h = Math.floor(min / 60)
-    if (h < 48) return `Every ${h}h`
-    const d = Math.floor(h / 24)
-    return `Every ${d}d`
+    let line = ''
+    if (sec < 60) line = `Every ${sec}s`
+    else {
+      const min = Math.floor(sec / 60)
+      if (min < 60) line = `Every ${min}m`
+      else {
+        const h = Math.floor(min / 60)
+        if (h < 48) line = `Every ${h}h`
+        else {
+          const d = Math.floor(h / 24)
+          line = `Every ${d}d`
+        }
+      }
+    }
+    if (s.initialDelayMs != null && s.initialDelayMs > 0) {
+      const dsec = Math.floor(s.initialDelayMs / 1000)
+      const dlab =
+        dsec < 60 ? `${dsec}s` : dsec < 3600 ? `${Math.floor(dsec / 60)}m` : dsec < 86400 ? `${Math.floor(dsec / 3600)}h` : `${Math.floor(dsec / 86400)}d`
+      return `First in ${dlab}, then ${line.toLowerCase()}`
+    }
+    return line
   }
   return job.schedule.kind
 }
@@ -47,6 +68,7 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
   const selectedId = useCronStore((s) => s.selectedCronJobId)
 
   const st = job.state
+  const nextRun = formatNextRun(st.nextRunAtMs, job.enabled)
   const ok = st.lastStatus === 'ok'
   const err = st.lastStatus === 'error'
   const dotColor = !job.enabled
@@ -142,6 +164,17 @@ export function CronJobCard({ job }: { job: CronJobWire }): JSX.Element {
             }}
           >
             {formatSchedule(job)}
+          </div>
+          <div
+            style={{
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+              marginTop: '3px'
+            }}
+          >
+            Next run: {nextRun.absolute}
+            {nextRun.relative != null ? ` · ${nextRun.relative}` : ''}
+            {!job.enabled && st.nextRunAtMs != null ? ' · Paused' : ''}
           </div>
           <div
             style={{

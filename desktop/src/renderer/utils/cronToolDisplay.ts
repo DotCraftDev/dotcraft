@@ -35,13 +35,30 @@ function formatAddCollapsed(args: Record<string, unknown> | undefined): string {
   const message = getString(args, 'message') ?? 'task'
   const label = name ?? (message.length > 40 ? `${message.slice(0, 40)}…` : message)
 
+  const dailyTime = getString(args, 'dailyTime')
+  const dailyHour = tryGetLong(args?.dailyHour)
+  if (dailyTime != null && dailyTime !== '') {
+    const tz = getString(args, 'timeZone') ?? 'UTC'
+    return `Schedule "${label}" daily at ${dailyTime} (${tz})`
+  }
+  if (dailyHour != null) {
+    const dm = tryGetLong(args?.dailyMinute) ?? 0
+    const tz = getString(args, 'timeZone') ?? 'UTC'
+    const hh = String(dailyHour).padStart(2, '0')
+    const mm = String(dm).padStart(2, '0')
+    return `Schedule "${label}" daily at ${hh}:${mm} (${tz})`
+  }
+
+  const everySec = tryGetLong(args?.everySeconds)
   const delaySec = tryGetLong(args?.delaySeconds)
+  if (everySec != null && everySec > 0) {
+    if (delaySec != null && delaySec > 0) {
+      return `Schedule "${label}" in ${formatDuration(delaySec)}, then every ${formatDuration(everySec)}`
+    }
+    return `Schedule "${label}" every ${formatDuration(everySec)}`
+  }
   if (delaySec != null && delaySec > 0) {
     return `Schedule "${label}" in ${formatDuration(delaySec)}`
-  }
-  const everySec = tryGetLong(args?.everySeconds)
-  if (everySec != null && everySec > 0) {
-    return `Schedule "${label}" every ${formatDuration(everySec)}`
   }
   return `Schedule "${label}"`
 }

@@ -1771,7 +1771,11 @@ All cron methods that return job data use the following `CronJobInfo` wire objec
   "schedule": {
     "kind": "every",
     "everyMs": 3600000,
-    "atMs": null
+    "atMs": null,
+    "initialDelayMs": null,
+    "dailyHour": null,
+    "dailyMinute": null,
+    "tz": null
   },
   "enabled": true,
   "createdAtMs": 1710590400000,
@@ -1791,13 +1795,17 @@ All cron methods that return job data use the following `CronJobInfo` wire objec
 |-------|------|-------------|
 | `id` | string | Short opaque job identifier (8 hex chars). |
 | `name` | string | Human-readable job name. |
-| `schedule.kind` | string | `"every"` for recurring or `"at"` for one-time. |
+| `schedule.kind` | string | `"every"` (recurring), `"at"` (one-time), or `"daily"` (fixed local time of day). |
 | `schedule.everyMs` | integer? | Interval in milliseconds. Present when `kind` is `"every"`. |
 | `schedule.atMs` | integer? | Unix timestamp (ms) for one-time execution. Present when `kind` is `"at"`. |
+| `schedule.initialDelayMs` | integer? | Present when `kind` is `"every"`: optional delay (ms) before the **first** run only; omitted or `null` when not used. |
+| `schedule.dailyHour` | integer? | Present when `kind` is `"daily"`: local hour 0–23. |
+| `schedule.dailyMinute` | integer? | Present when `kind` is `"daily"`: local minute 0–59. |
+| `schedule.tz` | string? | IANA time zone id for `daily` schedules (e.g. `Asia/Shanghai`). Omitted or `null` means UTC. |
 | `enabled` | boolean | Whether the job is active and will fire when due. |
 | `createdAtMs` | integer | Unix timestamp (ms) when the job was created. |
 | `deleteAfterRun` | boolean | If `true`, the job is removed after its first successful execution. |
-| `state.nextRunAtMs` | integer? | Unix timestamp (ms) of the next scheduled run. `null` if the job has no valid schedule or is disabled. |
+| `state.nextRunAtMs` | integer? | Unix timestamp (ms) of the next scheduled run. `null` if the job has no valid schedule. May still be set when `enabled` is `false` (paused; the slot is preserved). |
 | `state.lastRunAtMs` | integer? | Unix timestamp (ms) of the last execution. `null` if never run. |
 | `state.lastStatus` | string? | `"ok"` or `"error"`. `null` if never run. |
 | `state.lastError` | string? | Error message from the last failed run. `null` when `lastStatus` is `"ok"` or never run. |
@@ -1920,7 +1928,7 @@ Enable or disable a cron job.
 }
 ```
 
-The `job` field contains the updated `CronJobInfo` object reflecting the new `enabled` state. When enabling a job, `state.nextRunAtMs` is recomputed from the current time.
+The `job` field contains the updated `CronJobInfo` object reflecting the new `enabled` state. When **enabling** a job, `state.nextRunAtMs` is recomputed **only** if it was `null` or less than or equal to the current time (UTC, i.e. due or overdue); otherwise the existing future `nextRunAtMs` is kept so pause/resume does not shift the schedule.
 
 **Errors**:
 
@@ -1928,7 +1936,7 @@ The `job` field contains the updated `CronJobInfo` object reflecting the new `en
 |------|------|
 | `-32031` | The specified `jobId` does not exist. |
 
-**Behavior**: Updates the job's `enabled` field in the server's in-memory `CronService`. If enabling, `nextRunAtMs` is recomputed. Persists the change to disk immediately.
+**Behavior**: Updates the job's `enabled` field in the server's in-memory `CronService`. Disabling does not clear `nextRunAtMs`. When enabling, `nextRunAtMs` is updated only as described above. Persists the change to disk immediately.
 
 **Example**:
 
@@ -1946,7 +1954,7 @@ The `job` field contains the updated `CronJobInfo` object reflecting the new `en
       "enabled": false,
       "createdAtMs": 1710590400000,
       "deleteAfterRun": false,
-      "state": { "nextRunAtMs": null, "lastRunAtMs": null, "lastStatus": null, "lastError": null }
+      "state": { "nextRunAtMs": 1710594000000, "lastRunAtMs": null, "lastStatus": null, "lastError": null }
     }
 } }
 ```
@@ -1971,7 +1979,7 @@ Emitted by the AppServer when a cron job's state changes. This allows clients to
 | Trigger | What changed |
 |---------|-------------|
 | Job execution completes (success or error) | `state.lastRunAtMs`, `state.lastStatus`, `state.lastError`, `state.lastThreadId`, `state.lastResult`, `state.nextRunAtMs` updated. |
-| `cron/enable` called | `enabled` and `state.nextRunAtMs` updated. |
+| `cron/enable` called | `enabled` updated; `state.nextRunAtMs` may change when enabling only if the previous next run was missing or in the past (otherwise unchanged). |
 | `cron/remove` called | Notifies clients the job no longer exists (see `removed` field). |
 
 **Params**:

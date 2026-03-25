@@ -8,6 +8,10 @@ export interface CronJobWire {
     kind: string
     everyMs?: number | null
     atMs?: number | null
+    initialDelayMs?: number | null
+    dailyHour?: number | null
+    dailyMinute?: number | null
+    tz?: string | null
   }
   enabled: boolean
   createdAtMs: number

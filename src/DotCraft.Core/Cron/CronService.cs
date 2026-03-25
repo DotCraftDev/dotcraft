@@ -119,7 +119,12 @@ public sealed class CronService : IDisposable
             job = _store.Jobs.Find(j => j.Id == jobId);
             if (job == null) return null;
             job.Enabled = enabled;
-            if (enabled) ComputeNextRun(job);
+            if (enabled)
+            {
+                var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                if (!job.State.NextRunAtMs.HasValue || job.State.NextRunAtMs.Value <= now)
+                    ComputeNextRun(job);
+            }
         }
         SaveStore();
         return job;
@@ -270,18 +275,10 @@ public sealed class CronService : IDisposable
     private static void ComputeNextRun(CronJob job)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        switch (job.Schedule.Kind)
-        {
-            case "at":
-                job.State.NextRunAtMs = job.Schedule.AtMs;
-                break;
-            case "every" when job.Schedule.EveryMs.HasValue:
-                job.State.NextRunAtMs = now + job.Schedule.EveryMs.Value;
-                break;
-            default:
-                job.State.NextRunAtMs = null;
-                break;
-        }
+        job.State.NextRunAtMs = CronScheduleHelpers.ComputeNextRunMs(
+            job.Schedule,
+            job.State.LastRunAtMs,
+            now);
     }
 
     /// <summary>

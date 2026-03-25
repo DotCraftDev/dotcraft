@@ -29,17 +29,27 @@ public static class CronToolDisplays
         var message = GetString(args, "message") ?? "task";
         var label = name ?? (message.Length > 40 ? message[..40] + "…" : message);
 
-        if (args != null && args.TryGetValue("delaySeconds", out var delayObj))
+        if (args != null && (!string.IsNullOrEmpty(GetString(args, "dailyTime")) || args.ContainsKey("dailyHour")))
         {
-            if (TryGetLong(delayObj, out var delaySec))
-                return $"Schedule \"{label}\" in {FormatDuration(delaySec)}";
+            var dt = GetString(args, "dailyTime");
+            if (!string.IsNullOrEmpty(dt))
+                return $"Schedule \"{label}\" daily at {dt} ({GetString(args, "timeZone") ?? "UTC"})";
+            if (args.TryGetValue("dailyHour", out var ho) && TryGetLong(ho, out var dh))
+            {
+                var dm = args.TryGetValue("dailyMinute", out var mo) && TryGetLong(mo, out var dmin) ? dmin : 0L;
+                return $"Schedule \"{label}\" daily at {dh:D2}:{dm:D2} ({GetString(args, "timeZone") ?? "UTC"})";
+            }
         }
 
-        if (args != null && args.TryGetValue("everySeconds", out var everyObj))
+        if (args != null && args.TryGetValue("everySeconds", out var everyObj) && TryGetLong(everyObj, out var everySec))
         {
-            if (TryGetLong(everyObj, out var everySec))
-                return $"Schedule \"{label}\" every {FormatDuration(everySec)}";
+            if (args.TryGetValue("delaySeconds", out var delayObj) && TryGetLong(delayObj, out var delaySec))
+                return $"Schedule \"{label}\" in {FormatDuration(delaySec)}, then every {FormatDuration(everySec)}";
+            return $"Schedule \"{label}\" every {FormatDuration(everySec)}";
         }
+
+        if (args != null && args.TryGetValue("delaySeconds", out var delayObj2) && TryGetLong(delayObj2, out var delaySec2))
+            return $"Schedule \"{label}\" in {FormatDuration(delaySec2)}";
 
         return $"Schedule \"{label}\"";
     }
