@@ -75,7 +75,6 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
       )
     }
   }
-  }
 
   async function handleSave(): Promise<void> {
     setSaving(true)
