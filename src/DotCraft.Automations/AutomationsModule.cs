@@ -49,4 +49,8 @@ public sealed partial class AutomationsModule : ModuleBase
 
     public override IChannelService? CreateChannelService(IServiceProvider sp, ModuleContext context) =>
         ActivatorUtilities.CreateInstance<AutomationsChannelService>(sp);
+
+    /// <inheritdoc />
+    public override IReadOnlyList<SessionChannelListEntry> GetSessionChannelListEntries() =>
+        [new("automations", "system")];
 }

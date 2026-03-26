@@ -29,7 +29,7 @@ public sealed class AutomationSessionClient(ISessionService sessionService, DotC
             WorkspacePath = paths.WorkspacePath
         };
 
-        var existing = await sessionService.FindThreadsAsync(identity, includeArchived: false, ct);
+        var existing = await sessionService.FindThreadsAsync(identity, includeArchived: false, ct: ct);
         var match = existing.FirstOrDefault(t =>
             string.Equals(t.OriginChannel, channelName, StringComparison.OrdinalIgnoreCase));
 

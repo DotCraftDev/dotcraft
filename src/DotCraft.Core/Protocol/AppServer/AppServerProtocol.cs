@@ -195,6 +195,13 @@ public sealed class ThreadListParams
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ChannelName { get; set; }
+
+    /// <summary>
+    /// When non-null, passed to <see cref="ISessionService.FindThreadsAsync"/> as cross-channel origins.
+    /// When null (JSON omitted), no cross-channel list is applied.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? CrossChannelOrigins { get; set; }
 }
 
 public sealed class ThreadListResult
@@ -675,12 +682,40 @@ public sealed class WorkspaceCommitMessageSuggestResult
     public string Message { get; set; } = string.Empty;
 }
 
+// ───── channel/list (Desktop cross-channel picker) ─────
+
+/// <summary>
+/// One discoverable session channel for <see cref="AppServerMethods.ChannelList"/> (originChannel values).
+/// </summary>
+public sealed class ChannelInfo
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// UI grouping: <c>builtin</c>, <c>social</c>, <c>system</c>, or <c>external</c>.
+    /// </summary>
+    public string Category { get; set; } = "builtin";
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.ChannelList"/>.
+/// </summary>
+public sealed class ChannelListResult
+{
+    public List<ChannelInfo> Channels { get; set; } = [];
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
 {
     // Client → Server requests
     public const string Initialize = "initialize";
+
+    /// <summary>
+    /// Lists known origin channels for cross-channel thread visibility (Desktop settings).
+    /// </summary>
+    public const string ChannelList = "channel/list";
     public const string ThreadStart = "thread/start";
     public const string ThreadResume = "thread/resume";
     public const string ThreadList = "thread/list";

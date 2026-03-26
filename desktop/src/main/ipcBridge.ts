@@ -310,9 +310,12 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: merge + persist partial settings update
-  ipcMain.handle('settings:set', (_event, partial: Partial<AppSettings>) => {
-    callbacks?.updateSettings(partial)
-  })
+  ipcMain.handle(
+    'settings:set',
+    (_event, partial: Partial<AppSettings>) => {
+      callbacks?.updateSettings(partial)
+    }
+  )
 
   if (workspacePath) {
     warmFileSearchIndex(workspacePath)

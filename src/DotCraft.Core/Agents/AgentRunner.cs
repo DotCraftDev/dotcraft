@@ -18,9 +18,14 @@ public sealed record AgentRunResult(
 /// <summary>
 /// Delegate for running an agent session.
 /// </summary>
+/// <param name="threadDisplayName">
+/// Optional sidebar title for new threads (e.g. cron job name); avoids deriving the name from the system prompt wrapper.
+/// </param>
+/// <param name="cancellationToken">Cancellation token (last parameter per common .NET convention).</param>
 public delegate Task<AgentRunResult?> AgentRunSessionDelegate(
     string prompt,
     string sessionKey,
+    string? threadDisplayName = null,
     CancellationToken cancellationToken = default);
 
 /// <summary>
@@ -35,10 +40,17 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
     /// When <paramref name="quiet"/> is true all console progress lines are suppressed;
     /// use this in subprocess contexts where output is forwarded via another channel.
     /// </summary>
-    public async Task<AgentRunResult?> RunAsync(string prompt, string sessionKey, CancellationToken cancellationToken = default)
+    /// <inheritdoc cref="AgentRunSessionDelegate" />
+    public async Task<AgentRunResult?> RunAsync(
+        string prompt,
+        string sessionKey,
+        string? threadDisplayName = null,
+        CancellationToken cancellationToken = default)
     {
         if (sessionService == null)
             return null;
+
+        var rawUserPrompt = prompt;
 
         var tag = sessionKey.StartsWith("heartbeat") ? "Heartbeat"
             : sessionKey.StartsWith("cron:") ? "Cron"
@@ -74,10 +86,19 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
 
         SessionThread thread;
         var matchingThread = existing.FirstOrDefault(s => s.Status != ThreadStatus.Archived);
+        string? displayNameForNewThread = null;
+        if (sessionKey.StartsWith("cron:"))
+        {
+            if (!string.IsNullOrWhiteSpace(threadDisplayName))
+                displayNameForNewThread = TruncateDisplay(threadDisplayName.Trim());
+            else if (!string.IsNullOrWhiteSpace(rawUserPrompt))
+                displayNameForNewThread = TruncateDisplay(rawUserPrompt);
+        }
+
         if (matchingThread != null)
             thread = await sessionService.ResumeThreadAsync(matchingThread.Id, cancellationToken);
         else
-            thread = await sessionService.CreateThreadAsync(identity, ct: cancellationToken);
+            thread = await sessionService.CreateThreadAsync(identity, displayName: displayNameForNewThread, ct: cancellationToken);
 
         var threadId = thread.Id;
 
@@ -150,5 +171,14 @@ public sealed class AgentRunner(string workspacePath, ISessionService? sessionSe
         }
 
         return new AgentRunResult(response, threadId, inputTokens, outputTokens, null);
+    }
+
+    /// <summary>Matches session list preview length in <see cref="Protocol.SessionService"/>.</summary>
+    private static string TruncateDisplay(string text, int maxLen = 50)
+    {
+        var normalized = text.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ').Trim();
+        if (normalized.Length <= maxLen)
+            return normalized;
+        return normalized[..maxLen] + "...";
     }
 }

@@ -70,6 +70,9 @@ public sealed class AppServerHost(
     /// </summary>
     private readonly ConcurrentDictionary<IAppServerTransport, AppServerConnection> _activeTransports = new();
 
+    private ModuleRegistryChannelListContributor CreateChannelListContributor() =>
+        new(moduleRegistry, _cronService, _heartbeatService);
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         skillsLoader.SetDisabledSkills(config.Skills.DisabledSkills);
@@ -117,6 +120,7 @@ public sealed class AppServerHost(
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+        sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
 
         // Linked CTS for WebSocket external channel hosts — cancelled when the main run loop exits
@@ -140,7 +144,7 @@ public sealed class AppServerHost(
             AgentRunResult? run;
             try
             {
-                run = await runner.RunAsync(job.Payload.Message, sessionKey, cancellationToken);
+                run = await runner.RunAsync(job.Payload.Message, sessionKey, job.Name, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -187,11 +191,11 @@ public sealed class AppServerHost(
 
         using var heartbeatService = new HeartbeatService(
             paths.CraftPath,
-            onHeartbeat: async (prompt, sessionKey, ct) =>
+            onHeartbeat: async (prompt, sessionKey, threadDisplayName, ct) =>
             {
                 try
                 {
-                    var run = await runner.RunAsync(prompt, sessionKey, ct);
+                    var run = await runner.RunAsync(prompt, sessionKey, threadDisplayName, ct);
                     if (run != null && run.Error == null && run.Result != null)
                         BroadcastJobResult("heartbeat", jobId: null, jobName: null, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
                     else if (run != null && run.Error != null)
@@ -242,7 +246,7 @@ public sealed class AppServerHost(
         {
             var nativeChannelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ecManager = new ExternalChannelManager(
-                config, sessionService, nativeChannelNames, externalChannelRegistry);
+                config, sessionService, nativeChannelNames, moduleRegistry, externalChannelRegistry);
 
             if (ecManager.Channels.Count > 0)
             {
@@ -327,7 +331,8 @@ public sealed class AppServerHost(
         _activeTransports.TryAdd(transport, connection);
 
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            sessionService, connection, transport, CreateChannelListContributor(),
+            serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
             automationsHandler: _automationsHandler,
@@ -383,7 +388,8 @@ public sealed class AppServerHost(
         _activeTransports.TryAdd(transport, connection);
 
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            sessionService, connection, transport, CreateChannelListContributor(),
+            serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
             automationsHandler: _automationsHandler,
@@ -461,7 +467,8 @@ public sealed class AppServerHost(
             try
             {
                 var wsHandler = new AppServerRequestHandler(
-                    sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
+                    sessionService, wsConnection, wsTransport, CreateChannelListContributor(),
+                    serverVersion: AppVersion.Informational,
                     cronService: _cronService, heartbeatService: _heartbeatService,
                     skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
                     automationsHandler: _automationsHandler,
@@ -634,34 +641,43 @@ public sealed class AppServerHost(
         AppServerIncomingMessage msg,
         CancellationToken ct)
     {
-        object? result;
+        var previousTransport = AppServerRequestContext.CurrentTransport;
+        AppServerRequestContext.CurrentTransport = transport;
         try
         {
-            result = await handler.HandleRequestAsync(msg, ct);
-        }
-        catch (AppServerException ex)
-        {
-            await transport.WriteMessageAsync(AppServerRequestHandler.BuildErrorResponse(msg.Id, ex.ToError()), ct);
-            return;
-        }
-        catch (OperationCanceledException)
-        {
-            // Request cancelled — no response needed
-            return;
-        }
-        catch (Exception ex)
-        {
-            var internalErr = AppServerErrors.InternalError(ex.Message).ToError();
-            await transport.WriteMessageAsync(AppServerRequestHandler.BuildErrorResponse(msg.Id, internalErr), ct);
-            await Console.Error.WriteLineAsync($"[AppServer] Internal error: {ex}");
-            return;
-        }
+            object? result;
+            try
+            {
+                result = await handler.HandleRequestAsync(msg, ct);
+            }
+            catch (AppServerException ex)
+            {
+                await transport.WriteMessageAsync(AppServerRequestHandler.BuildErrorResponse(msg.Id, ex.ToError()), ct);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                // Request cancelled — no response needed
+                return;
+            }
+            catch (Exception ex)
+            {
+                var internalErr = AppServerErrors.InternalError(ex.Message).ToError();
+                await transport.WriteMessageAsync(AppServerRequestHandler.BuildErrorResponse(msg.Id, internalErr), ct);
+                await Console.Error.WriteLineAsync($"[AppServer] Internal error: {ex}");
+                return;
+            }
 
-        // null result means the handler already sent the response inline (turn/start)
-        if (result != null)
+            // null result means the handler already sent the response inline (turn/start)
+            if (result != null)
+            {
+                await transport.WriteMessageAsync(
+                    AppServerRequestHandler.BuildResponse(msg.Id, result), ct);
+            }
+        }
+        finally
         {
-            await transport.WriteMessageAsync(
-                AppServerRequestHandler.BuildResponse(msg.Id, result), ct);
+            AppServerRequestContext.CurrentTransport = previousTransport;
         }
     }
 
@@ -754,6 +770,43 @@ public sealed class AppServerHost(
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.ShouldSendNotification(AppServerMethods.CronStateChanged))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts <c>thread/started</c> to all connected transports when any channel creates a thread
+    /// in the shared <see cref="SessionService"/> (so Desktop sidebar updates without polling).
+    /// </summary>
+    private void BroadcastThreadStarted(SessionThread thread)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadStarted,
+            @params = new { thread = thread.ToWire() }
+        };
+
+        var skipTransport = AppServerRequestContext.CurrentTransport;
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadStarted))
+                continue;
+
+            if (skipTransport != null && ReferenceEquals(transport, skipTransport))
                 continue;
 
             _ = Task.Run(async () =>

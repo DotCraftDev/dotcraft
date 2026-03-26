@@ -20,6 +20,9 @@ public sealed partial class WeComModule : ModuleBase
     public override bool IsEnabled(AppConfig config) => config.GetSection<WeComBotConfig>("WeComBot").Enabled;
 
     /// <inheritdoc />
+    public override IReadOnlyList<SessionChannelListEntry> GetSessionChannelListEntries() => [new("wecom", "social")];
+
+    /// <inheritdoc />
     public override IReadOnlyList<string> ValidateConfig(AppConfig config)
         => _validator.Validate(config.GetSection<WeComBotConfig>("WeComBot"));
 

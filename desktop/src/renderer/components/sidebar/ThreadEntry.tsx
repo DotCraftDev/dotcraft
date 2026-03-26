@@ -31,6 +31,9 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
 
   const displayName = thread.displayName ?? t('sidebar.newConversation')
   const relativeTime = formatRelativeTime(thread.lastActiveAt, new Date(), locale)
+  const showOriginBadge =
+    thread.originChannel.length > 0 &&
+    thread.originChannel.toLowerCase() !== 'dotcraft-desktop'
 
   function handleClick(): void {
     if (renaming) return
@@ -153,19 +156,41 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span
-            style={{
-              flex: 1,
-              fontSize: '13px',
-              color: 'var(--text-primary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              minWidth: 0
-            }}
-          >
-            {displayName}
-          </span>
+          <>
+            <span
+              style={{
+                flex: 1,
+                fontSize: '13px',
+                color: 'var(--text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0
+              }}
+            >
+              {displayName}
+            </span>
+            {showOriginBadge && (
+              <span
+                title={thread.originChannel}
+                aria-label={thread.originChannel}
+                style={{
+                  flexShrink: 0,
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  lineHeight: 1,
+                  padding: '2px 5px',
+                  borderRadius: '4px',
+                  color: 'var(--text-dimmed)',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.03em'
+                }}
+              >
+                {thread.originChannel}
+              </span>
+            )}
+          </>
         )}
 
         {/* Relative time */}

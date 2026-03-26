@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 
@@ -42,6 +43,7 @@ internal sealed class AppServerTestHarness : IDisposable
         Connection = new AppServerConnection();
         Handler = new AppServerRequestHandler(
             Service, Connection, Transport,
+            new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
             serverVersion: "0.0.1-test",
             defaultApprovalDecision: defaultApprovalDecision);
 

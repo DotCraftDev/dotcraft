@@ -1,12 +1,35 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { addToast } from '../../stores/toastStore'
 import { applyTheme, resolveTheme, type ThemeMode } from '../../utils/theme'
 import { normalizeLocale, type AppLocale } from '../../../shared/locales'
 import { useSetUiLocale, useT } from '../../contexts/LocaleContext'
+import type { MessageKey } from '../../../shared/locales'
+import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
+
+/** Wire shape from `channel/list` (appserver-protocol.md §4.3.1). */
+interface ChannelInfoWire {
+  name: string
+  category: string
+}
+
+const CATEGORY_ORDER = ['builtin', 'social', 'system', 'external'] as const
+
+const CATEGORY_LABEL_KEY: Record<string, MessageKey> = {
+  builtin: 'settings.channelCategory.builtin',
+  social: 'settings.channelCategory.social',
+  system: 'settings.channelCategory.system',
+  external: 'settings.channelCategory.external'
+}
+
+function formatChannelChipLabel(name: string): string {
+  return name.toUpperCase()
+}
 
 interface SettingsDialogProps {
   onClose: () => void
+  /** Called after visible channel preferences are saved (reload thread list). */
+  onVisibleChannelsUpdated?: () => void
 }
 
 /**
@@ -14,7 +37,10 @@ interface SettingsDialogProps {
  * Allows configuring AppServer binary path and displays app info.
  * Spec M7-7, §17.1 (Ctrl+,)
  */
-export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
+export function SettingsDialog({
+  onClose,
+  onVisibleChannelsUpdated
+}: SettingsDialogProps): JSX.Element {
   const t = useT()
   const setUiLocale = useSetUiLocale()
   const [binaryPath, setBinaryPath] = useState('')
@@ -22,16 +48,21 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState(false)
+  /** Mirrors machine-local `visibleChannels` (see ensureVisibleChannelsSeeded). */
+  const [visibleChannels, setVisibleChannels] = useState<string[]>([])
+  const [serverChannels, setServerChannels] = useState<ChannelInfoWire[] | null>(null)
+  const [channelListError, setChannelListError] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
     window.api.settings
       .get()
-      .then((s) => {
+      .then(async (s) => {
         setBinaryPath(s.appServerBinaryPath ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
+        setVisibleChannels(await ensureVisibleChannelsSeeded(s))
       })
       .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
@@ -42,6 +73,41 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
+
+  useEffect(() => {
+    let cancelled = false
+    setServerChannels(null)
+    setChannelListError(false)
+    window.api.appServer
+      .sendRequest('channel/list', {})
+      .then((res) => {
+        if (cancelled) return
+        const r = res as { channels?: ChannelInfoWire[] }
+        setServerChannels(r.channels ?? [])
+        setChannelListError(false)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServerChannels([])
+          setChannelListError(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const channelsByCategory = useMemo(() => {
+    const list = serverChannels ?? []
+    const map = new Map<string, ChannelInfoWire[]>()
+    for (const c of list) {
+      const cat = c.category || 'builtin'
+      const arr = map.get(cat) ?? []
+      arr.push(c)
+      map.set(cat, arr)
+    }
+    return map
+  }, [serverChannels])
 
   async function handleThemeChange(next: ThemeMode): Promise<void> {
     setTheme(next)
@@ -74,6 +140,29 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
         'error'
       )
     }
+  }
+
+  async function setVisibleChannelsAndPersist(next: string[]): Promise<void> {
+    setVisibleChannels(next)
+    try {
+      await window.api.settings.set({ visibleChannels: next })
+      onVisibleChannelsUpdated?.()
+    } catch (err) {
+      addToast(
+        t('settings.saveFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    }
+  }
+
+  function toggleVisibleChannel(channel: string, checked: boolean): void {
+    const base = visibleChannels
+    const next = checked
+      ? Array.from(new Set([...base, channel]))
+      : base.filter((c) => c !== channel)
+    void setVisibleChannelsAndPersist(next)
   }
 
   async function handleSave(): Promise<void> {
@@ -119,7 +208,9 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
           boxShadow: 'var(--shadow-level-3)',
           padding: '24px',
           width: '420px',
-          maxWidth: 'calc(100vw - 48px)'
+          maxWidth: 'calc(100vw - 48px)',
+          maxHeight: 'calc(100vh - 48px)',
+          overflowY: 'auto'
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -212,6 +303,93 @@ export function SettingsDialog({ onClose }: SettingsDialogProps): JSX.Element {
             <option value="en">{t('settings.language.en')}</option>
             <option value="zh-Hans">{t('settings.language.zhHans')}</option>
           </select>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <div
+            style={{
+              display: 'block',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px'
+            }}
+          >
+            {t('settings.crossChannelVisibility')}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginBottom: '10px', lineHeight: 1.45 }}>
+            {t('settings.crossChannelHint')}
+          </div>
+          {serverChannels === null && (
+            <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
+              {t('settings.channelListLoading')}
+            </div>
+          )}
+          {serverChannels !== null && channelListError && (
+            <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
+              {t('settings.channelListUnavailable')}
+            </div>
+          )}
+          {serverChannels !== null &&
+            !channelListError &&
+            CATEGORY_ORDER.map((cat) => {
+              const items = channelsByCategory.get(cat)
+              if (!items?.length) return null
+              const labelKey = CATEGORY_LABEL_KEY[cat]
+              return (
+                <div key={cat} style={{ marginBottom: '10px' }}>
+                  <div
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      color: 'var(--text-dimmed)',
+                      marginBottom: '6px'
+                    }}
+                  >
+                    {labelKey ? t(labelKey) : cat}
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '6px'
+                    }}
+                  >
+                    {items.map((ch) => {
+                      const selected = visibleChannels.includes(ch.name)
+                      return (
+                        <button
+                          key={ch.name}
+                          type="button"
+                          role="checkbox"
+                          aria-checked={selected}
+                          onClick={() => {
+                            toggleVisibleChannel(ch.name, !selected)
+                          }}
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            letterSpacing: '0.02em',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            border: selected
+                              ? '1px solid var(--accent)'
+                              : '1px solid var(--border-default)',
+                            backgroundColor: selected ? 'var(--accent)' : 'transparent',
+                            color: selected ? 'var(--on-accent)' : 'var(--text-primary)'
+                          }}
+                        >
+                          {formatChannelChipLabel(ch.name)}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
         </div>
 
         <div style={{ marginBottom: '16px' }}>

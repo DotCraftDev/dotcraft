@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using DotCraft.Abstractions;
 using DotCraft.Configuration;
@@ -19,6 +20,7 @@ public sealed class AppServerRequestHandler(
     ISessionService sessionService,
     AppServerConnection connection,
     IAppServerTransport transport,
+    IAppServerChannelListContributor channelListContributor,
     string serverVersion = "0.1.0",
     SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
     CronService? cronService = null,
@@ -29,6 +31,8 @@ public sealed class AppServerRequestHandler(
     Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null,
     ICommitMessageSuggestService? commitMessageSuggest = null)
 {
+    private readonly IAppServerChannelListContributor _channelListContributor = channelListContributor;
+
     private readonly Action<CronJobWireInfo, bool>? _broadcastCronStateChanged = broadcastCronStateChanged;
 
     /// <summary>
@@ -68,6 +72,7 @@ public sealed class AppServerRequestHandler(
             return await (method switch
             {
                 AppServerMethods.Initialize => HandleInitializeAsync(msg, ct),
+                AppServerMethods.ChannelList => HandleChannelListAsync(msg, ct),
                 AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
                 AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
                 AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
@@ -174,7 +179,7 @@ public sealed class AppServerRequestHandler(
 
         // Fix 8: The host sends the thread/start response first, then emits the
         // thread/started notification as required by spec Section 4.1.
-        _ = SendNotificationAfterResponseAsync(
+        await SendNotificationAfterResponseAsync(
             msg.Id,
             new { thread = thread.ToWire() },
             AppServerMethods.ThreadStarted,
@@ -204,16 +209,18 @@ public sealed class AppServerRequestHandler(
         }
 
         // No subscription: send response then notification inline.
-        _ = SendNotificationAfterResponseAsync(msg.Id, responseResult, AppServerMethods.ThreadResumed, notifParams, ct);
+        await SendNotificationAfterResponseAsync(msg.Id, responseResult, AppServerMethods.ThreadResumed, notifParams, ct);
         return null;
     }
 
     private async Task<object?> HandleThreadListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadListParams>(msg);
+        var crossOrigins = ResolveCrossChannelOriginsForThreadList(p);
         var threads = await sessionService.FindThreadsAsync(
             p.Identity,
             p.IncludeArchived ?? false,
+            crossOrigins,
             ct);
 
         if (!string.IsNullOrEmpty(p.ChannelName))
@@ -224,6 +231,70 @@ public sealed class AppServerRequestHandler(
         }
 
         return new ThreadListResult { Data = [.. threads] };
+    }
+
+    /// <summary>
+    /// Passes through <c>crossChannelOrigins</c> from the client; when omitted or null, no cross-channel list is applied.
+    /// </summary>
+    private static IReadOnlyList<string>? ResolveCrossChannelOriginsForThreadList(ThreadListParams p) =>
+        p.CrossChannelOrigins;
+
+    private Task<object?> HandleChannelListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = msg;
+        _ = ct;
+
+        var channels = new List<ChannelInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string name, string category)
+        {
+            if (!seen.Add(name))
+                return;
+            channels.Add(new ChannelInfo { Name = name, Category = category });
+        }
+
+        _channelListContributor.AppendBaseChannels(channels, seen);
+
+        if (!string.IsNullOrEmpty(workspaceCraftPath))
+        {
+            var configPath = Path.Combine(workspaceCraftPath, "config.json");
+            if (File.Exists(configPath))
+            {
+                try
+                {
+                    var cfg = AppConfig.LoadWithGlobalFallback(configPath);
+                    var ext = cfg.GetSection<ExternalChannelsConfig>("ExternalChannels");
+                    foreach (var (name, entry) in ext.GetChannels())
+                    {
+                        if (!entry.Enabled)
+                            continue;
+                        Add(name, "external");
+                    }
+                }
+                catch
+                {
+                    // Best-effort: invalid config should not fail channel/list
+                }
+            }
+        }
+
+        static int CategoryOrder(string c) => c switch
+        {
+            "builtin" => 0,
+            "social" => 1,
+            "system" => 2,
+            "external" => 3,
+            _ => 4
+        };
+
+        channels.Sort((a, b) =>
+        {
+            var cmp = CategoryOrder(a.Category).CompareTo(CategoryOrder(b.Category));
+            return cmp != 0 ? cmp : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        });
+
+        return Task.FromResult<object?>(new ChannelListResult { Channels = channels });
     }
 
     private async Task<object?> HandleThreadReadAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -294,7 +365,7 @@ public sealed class AppServerRequestHandler(
             return null;
         }
 
-        _ = SendNotificationAfterResponseAsync(
+        await SendNotificationAfterResponseAsync(
             msg.Id, new { },
             AppServerMethods.ThreadStatusChanged,
             new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Paused },
@@ -323,7 +394,7 @@ public sealed class AppServerRequestHandler(
             return null;
         }
 
-        _ = SendNotificationAfterResponseAsync(
+        await SendNotificationAfterResponseAsync(
             msg.Id, new { },
             AppServerMethods.ThreadStatusChanged,
             new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Archived },

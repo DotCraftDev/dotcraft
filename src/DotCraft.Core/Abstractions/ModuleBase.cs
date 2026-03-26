@@ -32,4 +32,7 @@ public abstract class ModuleBase : IDotCraftModule
 
     /// <inheritdoc />
     public virtual IEnumerable<IAgentToolProvider> GetToolProviders() => [];
+
+    /// <inheritdoc />
+    public virtual IReadOnlyList<SessionChannelListEntry> GetSessionChannelListEntries() => [];
 }

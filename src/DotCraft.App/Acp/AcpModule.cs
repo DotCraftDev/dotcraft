@@ -14,6 +14,9 @@ public sealed partial class AcpModule : ModuleBase
 {
     /// <inheritdoc />
     public override bool IsEnabled(AppConfig config) => config.GetSection<AcpConfig>("Acp").Enabled;
+
+    /// <inheritdoc />
+    public override IReadOnlyList<SessionChannelListEntry> GetSessionChannelListEntries() => [new("acp", "builtin")];
 }
 
 /// <summary>

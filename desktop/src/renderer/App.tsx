@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { translate } from '../shared/locales'
 import { useLocale } from './contexts/LocaleContext'
@@ -29,6 +29,7 @@ import { wireTurnToConversationTurn } from './types/conversation'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
+import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import './styles/tokens.css'
 
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
@@ -84,6 +85,30 @@ export function App(): JSX.Element {
 
   const workspacePathRef = useRef('')
 
+  const reloadThreadList = useCallback(async () => {
+    const path = workspacePathRef.current
+    const identity: SessionIdentity = {
+      channelName: 'dotcraft-desktop',
+      userId: 'local',
+      channelContext: `workspace:${path}`,
+      workspacePath: path
+    }
+    setLoading(true)
+    try {
+      const settings = await window.api.settings.get()
+      const crossChannelOrigins = await ensureVisibleChannelsSeeded(settings)
+      const params = { identity, crossChannelOrigins }
+      const result = await window.api.appServer.sendRequest('thread/list', params)
+      const res = result as { data: ThreadSummary[] }
+      setThreadList(res.data ?? [])
+    } catch (err: unknown) {
+      console.error('Failed to load thread list:', err)
+      setThreadList([])
+    } finally {
+      setLoading(false)
+    }
+  }, [setThreadList, setLoading])
+
   // -------------------------------------------------------------------------
   // Bootstrap: workspace path + connection store
   // -------------------------------------------------------------------------
@@ -135,25 +160,7 @@ export function App(): JSX.Element {
     if (status === 'connected' && prevStatusRef.current !== 'connected') {
       performance.mark('app:connected')
       performance.measure('app:startup', 'app:bootstrap-start', 'app:connected')
-      const path = workspacePathRef.current
-      const identity: SessionIdentity = {
-        channelName: 'dotcraft-desktop',
-        userId: 'local',
-        channelContext: `workspace:${path}`,
-        workspacePath: path
-      }
-      setLoading(true)
-      window.api.appServer
-        .sendRequest('thread/list', { identity })
-        .then((result) => {
-          const res = result as { data: ThreadSummary[] }
-          setThreadList(res.data ?? [])
-        })
-        .catch((err: unknown) => {
-          console.error('Failed to load thread list:', err)
-          setThreadList([])
-        })
-        .finally(() => setLoading(false))
+      void reloadThreadList()
 
       const caps = useConnectionStore.getState().capabilities
       if (caps?.automations) {
@@ -194,7 +201,7 @@ export function App(): JSX.Element {
       }).catch(() => {})
     }
     prevStatusRef.current = status
-  }, [status, setThreadList, setLoading])
+  }, [status, reloadThreadList])
 
   // -------------------------------------------------------------------------
   // Wire protocol notifications
@@ -839,7 +846,14 @@ export function App(): JSX.Element {
           <ConfirmDialogHost />
           <ToastContainer />
           <ErrorScreen onOpenSettings={() => setShowSettings(true)} />
-          {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+          {showSettings && (
+            <SettingsDialog
+              onClose={() => setShowSettings(false)}
+              onVisibleChannelsUpdated={() => {
+                void reloadThreadList()
+              }}
+            />
+          )}
         </>
       </AppChrome>
     )
@@ -861,7 +875,14 @@ export function App(): JSX.Element {
       <>
         <ConfirmDialogHost />
         <ToastContainer />
-        {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+        {showSettings && (
+          <SettingsDialog
+            onClose={() => setShowSettings(false)}
+            onVisibleChannelsUpdated={() => {
+              void reloadThreadList()
+            }}
+          />
+        )}
         <ThreePanel
           sidebar={
             <Sidebar workspaceName={workspaceName} workspacePath={workspacePath} onOpenSettings={() => setShowSettings(true)} />

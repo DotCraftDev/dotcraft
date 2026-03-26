@@ -19,6 +19,11 @@ export interface AppSettings {
   /** Display language (BCP 47); omitted or invalid values are treated as English */
   locale?: AppLocale
   recentWorkspaces?: RecentWorkspace[]
+  /**
+   * Passed as `crossChannelOrigins` on `thread/list`. If the key is absent, the client
+   * seeds it from all `builtin` channels in `channel/list` (see specs/desktop-client.md §9.4.1).
+   */
+  visibleChannels?: string[]
 }
 
 const MAX_RECENT = 20

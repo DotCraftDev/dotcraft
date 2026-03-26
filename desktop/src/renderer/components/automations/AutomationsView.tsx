@@ -91,25 +91,39 @@ export function AutomationsView(): JSX.Element {
     [t]
   )
 
-  const showMainTabs = hasTasks && hasCron
-  const activePanel: 'tasks' | 'cron' = showMainTabs
-    ? automationsTab
-    : hasTasks
+  const activePanel: 'tasks' | 'cron' =
+    automationsTab === 'tasks' && hasTasks
       ? 'tasks'
-      : 'cron'
+      : automationsTab === 'cron' && hasCron
+        ? 'cron'
+        : hasTasks
+          ? 'tasks'
+          : 'cron'
+
+  const showTabBar = hasTasks || hasCron
 
   useEffect(() => {
     if (hasTasks && !hasCron) setAutomationsTab('tasks')
     else if (!hasTasks && hasCron) setAutomationsTab('cron')
   }, [hasTasks, hasCron, setAutomationsTab])
 
+  // Only poll automation/task/list when the server advertises automations (cron-only workspaces have no handler).
   useEffect(() => {
+    if (!hasTasks) {
+      stopPolling()
+      return
+    }
     startPolling()
     return () => {
       stopPolling()
+    }
+  }, [hasTasks, startPolling, stopPolling])
+
+  useEffect(() => {
+    return () => {
       useReviewPanelStore.getState().destroyReviewPanel()
     }
-  }, [startPolling, stopPolling])
+  }, [])
 
   useEffect(() => {
     if (activePanel !== 'cron' || !hasCron) {
@@ -237,22 +251,28 @@ export function AutomationsView(): JSX.Element {
             </div>
           </div>
 
-          {showMainTabs && (
+          {showTabBar && (
             <div role="tablist" aria-label={t('auto.tablistAria')} style={{ display: 'flex', gap: '2px' }}>
               <button
                 type="button"
                 role="tab"
-                aria-selected={automationsTab === 'tasks'}
-                onClick={() => setAutomationsTab('tasks')}
+                disabled={!hasTasks}
+                aria-disabled={!hasTasks}
+                aria-selected={activePanel === 'tasks'}
+                title={hasTasks ? undefined : t('auto.tabTasksUnavailable')}
+                onClick={() => {
+                  if (hasTasks) setAutomationsTab('tasks')
+                }}
                 style={{
                   padding: '4px 12px',
                   borderRadius: '6px',
                   border: 'none',
-                  backgroundColor: automationsTab === 'tasks' ? 'var(--bg-tertiary)' : 'transparent',
-                  color: automationsTab === 'tasks' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                  backgroundColor: activePanel === 'tasks' ? 'var(--bg-tertiary)' : 'transparent',
+                  color: activePanel === 'tasks' ? 'var(--text-primary)' : 'var(--text-tertiary)',
                   fontSize: '12px',
                   fontWeight: 500,
-                  cursor: 'pointer'
+                  cursor: hasTasks ? 'pointer' : 'not-allowed',
+                  opacity: hasTasks ? 1 : 0.55
                 }}
               >
                 {t('auto.tabTasks')}
@@ -260,17 +280,23 @@ export function AutomationsView(): JSX.Element {
               <button
                 type="button"
                 role="tab"
-                aria-selected={automationsTab === 'cron'}
-                onClick={() => setAutomationsTab('cron')}
+                disabled={!hasCron}
+                aria-disabled={!hasCron}
+                aria-selected={activePanel === 'cron'}
+                title={hasCron ? undefined : t('auto.tabCronUnavailable')}
+                onClick={() => {
+                  if (hasCron) setAutomationsTab('cron')
+                }}
                 style={{
                   padding: '4px 12px',
                   borderRadius: '6px',
                   border: 'none',
-                  backgroundColor: automationsTab === 'cron' ? 'var(--bg-tertiary)' : 'transparent',
-                  color: automationsTab === 'cron' ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                  backgroundColor: activePanel === 'cron' ? 'var(--bg-tertiary)' : 'transparent',
+                  color: activePanel === 'cron' ? 'var(--text-primary)' : 'var(--text-tertiary)',
                   fontSize: '12px',
                   fontWeight: 500,
-                  cursor: 'pointer'
+                  cursor: hasCron ? 'pointer' : 'not-allowed',
+                  opacity: hasCron ? 1 : 0.55
                 }}
               >
                 {t('auto.tabCron')}
@@ -282,7 +308,7 @@ export function AutomationsView(): JSX.Element {
             <div
               role="tablist"
               aria-label={t('auto.filterSource')}
-              style={{ display: 'flex', gap: '2px', marginTop: showMainTabs ? '10px' : '0' }}
+              style={{ display: 'flex', gap: '2px', marginTop: activePanel === 'tasks' ? '10px' : '0' }}
             >
               {filterTabs.map((tab) => (
                 <button

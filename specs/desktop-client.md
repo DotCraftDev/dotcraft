@@ -28,6 +28,7 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
 - [7. Information Architecture](#7-information-architecture)
 - [8. Layout System](#8-layout-system)
 - [9. Sidebar](#9-sidebar)
+  - [9.4.1 Cross-channel thread visibility](#941-cross-channel-thread-visibility)
 - [10. Conversation Panel](#10-conversation-panel)
 - [11. Detail Panel](#11-detail-panel)
 - [12. Input Composer](#12-input-composer)
@@ -276,7 +277,7 @@ This section defines how Wire Protocol notifications are mapped to Renderer stat
 
 | Wire Method | State Mutation |
 |-------------|---------------|
-| `thread/started` | Prepend new thread to `threadList`. If this client initiated the creation, set `activeThreadId` to the new thread. |
+| `thread/started` | Prepend new thread to `threadList` (skip if `thread.id` already present). If this client initiated the creation via `thread/start`, set `activeThreadId` to the new thread. Same notification may arrive when another channel creates a thread in the shared server process. |
 | `thread/resumed` | Update thread status in `threadList`. Set `activeThreadId`. |
 | `thread/statusChanged` | Update matching thread's status in `threadList`. If the active thread was archived/paused, clear `activeThreadId` or show notification. |
 
@@ -491,6 +492,32 @@ A prominent button at the top of the sidebar.
 
 A search input that filters the thread list by display name. The filter is applied locally (client-side) against the cached thread list. Debounced at 150ms.
 
+### 9.4.1 Cross-channel thread visibility
+
+DotCraft Desktop uses a workspace-scoped `channelContext` (e.g. `workspace:{absolutePath}`) so its thread pool is distinct from the CLI, which uses `channelContext = null`. To support **cross-channel resume** from the Desktop UI, the client opts in by listing additional **origin channels** whose threads should appear in the sidebar alongside Desktop-native threads.
+
+**Channel picker (`channel/list`)**
+
+- When the user opens **Settings**, the client calls [`channel/list`](appserver-protocol.md#431-channellist) (no params). The server returns discoverable channels grouped by `category` (`builtin`, `social`, `system`, `external`), including enabled keys from `ExternalChannels` in merged workspace config.
+- The Settings UI renders **toggle chips** per category (not a fixed hardcoded list). Chip labels use the canonical channel name (e.g. `CLI`, `QQ`, `TELEGRAM`).
+- If `channel/list` fails (e.g. AppServer not connected), the picker shows an unavailable message; cross-channel preferences still persist when toggled after a successful load.
+
+**Settings (Electron `userData/settings.json`)**
+
+- `visibleChannels?: string[]` — Machine-local list of origin channel name strings passed as `crossChannelOrigins` on every `thread/list` request (including `[]` when the user has cleared all chips).
+- **Default (first run):** If the `visibleChannels` key has never been written, the client calls `channel/list`, takes every channel whose `category` is `builtin`, persists those names as `visibleChannels`, and uses that list for `thread/list`. If `channel/list` fails before the key exists, the client uses an empty list for that request without persisting (retries on a later load).
+- **Explicit `[]`:** If the user has saved an empty array, that value is kept (no cross-channel threads beyond normal identity match).
+
+**Wire behavior**
+
+- On connect / refresh, Desktop calls `thread/list` with the current workspace identity and `crossChannelOrigins` set from the resolved machine-local list as above.
+- Results may include threads where `originChannel` differs from `dotcraft-desktop`; those threads remain mixed into the same temporal groups as local threads ([§7.2](#72-thread-grouping)).
+
+**Sidebar presentation**
+
+- For threads whose `originChannel` is not `dotcraft-desktop`, show a compact **origin badge** next to the display name (the persisted channel name, typically uppercased for display) so users can distinguish provenance.
+- Selecting, reading, resuming, and continuing such threads uses the same flows as native Desktop threads (`thread/read`, `thread/subscribe`, `turn/start`). New turns are attributed to the Desktop channel per Session Core; the thread’s stored `channelContext` from creation is unchanged.
+
 ### 9.5 Thread List
 
 Each thread entry is a clickable row showing:
@@ -520,7 +547,7 @@ Each thread entry is a clickable row showing:
 
 - Clicking opens the **Automations view** (Section 21), which contains two tabs: **Tasks** and **Cron**.
 - Visible when `capabilities.automations` **or** `capabilities.cronManagement` is `true`.
-- When only one capability is present, the corresponding tab is shown without a tab bar (single-tab mode — no tab header rendered).
+- The Automations view always shows both **Tasks** and **Cron** tabs in the tab bar. A tab whose capability is not advertised by the server is **disabled** (dimmed, non-interactive, with a tooltip explaining that the module is not enabled).
 - When neither capability is present, the entry is disabled with tooltip: "Automations module not enabled on the server."
 
 **Skills**:
@@ -1722,12 +1749,12 @@ The Automations view occupies the center column when the **Automations** sidebar
 └──────────────────────────────────────────────┘
 ```
 
-| Tab | Visible when | Content |
-|-----|-------------|---------|
-| **Tasks** | `capabilities.automations === true` | Existing automation task list (unchanged from current implementation) |
-| **Cron** | `capabilities.cronManagement === true` | Cron job list — Section 21.2 |
+| Tab | Content when active | Interaction |
+|-----|--------------------|-------------|
+| **Tasks** | Automation task list — unchanged from current implementation | Enabled only when `capabilities.automations === true`; otherwise the tab is visible but disabled. |
+| **Cron** | Cron job list — Section 21.2 | Enabled only when `capabilities.cronManagement === true`; otherwise the tab is visible but disabled. |
 
-When only one tab is available (single-capability server), the tab bar is not rendered; the corresponding content is shown directly with an appropriate section header.
+The tab bar always renders **Tasks** and **Cron** side by side. The client resolves which panel is shown: if the stored `automationsTab` points at a disabled tab, the UI falls back to the first available capability (tasks if `automations` is true, else cron).
 
 The active tab is stored in `uiStore.automationsTab` (`'tasks'` \| `'cron'`). Defaults to `'tasks'` when automations is available, otherwise `'cron'`.
 

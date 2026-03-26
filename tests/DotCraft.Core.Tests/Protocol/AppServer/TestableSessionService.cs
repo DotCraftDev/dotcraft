@@ -21,6 +21,9 @@ internal sealed class TestableSessionService : ISessionService
     public IReadOnlyList<(string threadId, string turnId)> CancelledTurns => _cancelledTurns;
     public IReadOnlyList<(string threadId, string turnId, string requestId, SessionApprovalDecision decision)> ResolvedApprovals => _resolvedApprovals;
 
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
+
     public TestableSessionService(ThreadStore store) => _store = store;
 
     // -------------------------------------------------------------------------
@@ -70,6 +73,7 @@ internal sealed class TestableSessionService : ISessionService
         }
         _cache[thread.Id] = thread;
         await _store.SaveThreadAsync(thread, ct);
+        ThreadCreatedForBroadcast?.Invoke(thread);
         return thread;
     }
 
@@ -111,17 +115,39 @@ internal sealed class TestableSessionService : ISessionService
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
         bool includeArchived = false,
+        IReadOnlyList<string>? crossChannelOrigins = null,
         CancellationToken ct = default)
     {
         var index = await _store.LoadIndexAsync(ct);
+        var hasCross = crossChannelOrigins is { Count: > 0 };
         return index
             .Where(s =>
-                string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
-                && (includeArchived || s.Status != ThreadStatus.Archived)
-                && (identity.UserId == null || s.UserId == identity.UserId)
-                && (identity.ChannelContext == null
-                    ? s.ChannelContext == null
-                    : s.ChannelContext == identity.ChannelContext))
+            {
+                if (!string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase))
+                    return false;
+                if (!(includeArchived || s.Status != ThreadStatus.Archived))
+                    return false;
+
+                var identityMatch =
+                    (identity.UserId == null || s.UserId == identity.UserId)
+                    && (identity.ChannelContext == null
+                        ? s.ChannelContext == null
+                        : s.ChannelContext == identity.ChannelContext);
+
+                if (identityMatch)
+                    return true;
+
+                if (!hasCross)
+                    return false;
+
+                foreach (var o in crossChannelOrigins!)
+                {
+                    if (string.Equals(o, s.OriginChannel, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+
+                return false;
+            })
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
     }

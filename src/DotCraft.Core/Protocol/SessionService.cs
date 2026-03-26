@@ -53,6 +53,9 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
 
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
+
     // =========================================================================
     // Thread lifecycle
     // =========================================================================
@@ -95,6 +98,7 @@ public sealed class SessionService(
 
         await threadStore.SaveThreadAsync(thread, ct);
         broker.PublishThreadEvent(SessionEventType.ThreadCreated, thread);
+        ThreadCreatedForBroadcast?.Invoke(thread);
 
         return thread;
     }
@@ -203,19 +207,50 @@ public sealed class SessionService(
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
         bool includeArchived = false,
+        IReadOnlyList<string>? crossChannelOrigins = null,
         CancellationToken ct = default)
     {
         var all = await threadStore.LoadIndexAsync(ct);
+        var hasCross = crossChannelOrigins is { Count: > 0 };
+
         return all
             .Where(s =>
-                (includeArchived || s.Status != ThreadStatus.Archived)
-                && string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
-                && (identity.UserId == null || s.UserId == identity.UserId)
-                && (identity.ChannelContext == null
-                    ? s.ChannelContext == null
-                    : s.ChannelContext == identity.ChannelContext))
+            {
+                if (!(includeArchived || s.Status != ThreadStatus.Archived))
+                    return false;
+                if (!string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                // userId and channelContext apply together for the native identity path only.
+                // Cron/heartbeat threads use synthetic userIds (e.g. cron:jobId) while Desktop uses local;
+                // they are included only via crossChannelOrigins (workspace + originChannel).
+                var identityMatch =
+                    (identity.UserId == null || s.UserId == identity.UserId)
+                    && (identity.ChannelContext == null
+                        ? s.ChannelContext == null
+                        : s.ChannelContext == identity.ChannelContext);
+
+                if (identityMatch)
+                    return true;
+
+                if (!hasCross)
+                    return false;
+
+                return OriginChannelInList(s.OriginChannel, crossChannelOrigins!);
+            })
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
+    }
+
+    private static bool OriginChannelInList(string originChannel, IReadOnlyList<string> origins)
+    {
+        foreach (var o in origins)
+        {
+            if (string.Equals(o, originChannel, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     /// <inheritdoc/>

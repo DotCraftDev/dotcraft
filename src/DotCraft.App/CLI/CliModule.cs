@@ -25,6 +25,9 @@ public sealed partial class CliModule : ModuleBase
     /// <inheritdoc />
     public override IEnumerable<IAgentToolProvider> GetToolProviders()
         => [];
+
+    /// <inheritdoc />
+    public override IReadOnlyList<SessionChannelListEntry> GetSessionChannelListEntries() => [new("cli", "builtin")];
 }
 
 /// <summary>
