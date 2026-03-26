@@ -20,9 +20,8 @@ export interface AppSettings {
   locale?: AppLocale
   recentWorkspaces?: RecentWorkspace[]
   /**
-   * When set, passed as `crossChannelOrigins` on `thread/list` so the sidebar can show
-   * threads from other channels (e.g. CLI). When omitted, the server uses workspace config
-   * defaults (see specs/desktop-client.md §9.4.1).
+   * Passed as `crossChannelOrigins` on `thread/list`. If the key is absent, the client
+   * seeds it from all `builtin` channels in `channel/list` (see specs/desktop-client.md §9.4.1).
    */
   visibleChannels?: string[]
 }

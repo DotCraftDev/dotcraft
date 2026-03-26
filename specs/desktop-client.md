@@ -504,14 +504,13 @@ DotCraft Desktop uses a workspace-scoped `channelContext` (e.g. `workspace:{abso
 
 **Settings (Electron `userData/settings.json`)**
 
-- `visibleChannels?: string[]` — Machine-local list of origin channel name strings to include when calling `thread/list`.
-- When `visibleChannels` is **undefined**, the client **omits** `crossChannelOrigins` on `thread/list` so the AppServer can apply workspace defaults from `.craft/config.json` (`Desktop.visibleChannels`). See [AppServer Protocol §4.3](appserver-protocol.md#43-threadlist).
-- When `visibleChannels` is an **array** (including empty), the client sends that array as `crossChannelOrigins` explicitly.
-- **Use workspace defaults** clears `visibleChannels` from local storage (`clearVisibleChannels`) so the server-only default applies.
+- `visibleChannels?: string[]` — Machine-local list of origin channel name strings passed as `crossChannelOrigins` on every `thread/list` request (including `[]` when the user has cleared all chips).
+- **Default (first run):** If the `visibleChannels` key has never been written, the client calls `channel/list`, takes every channel whose `category` is `builtin`, persists those names as `visibleChannels`, and uses that list for `thread/list`. If `channel/list` fails before the key exists, the client uses an empty list for that request without persisting (retries on a later load).
+- **Explicit `[]`:** If the user has saved an empty array, that value is kept (no cross-channel threads beyond normal identity match).
 
 **Wire behavior**
 
-- On connect / refresh, Desktop calls `thread/list` with the current workspace identity and optional `crossChannelOrigins` as above.
+- On connect / refresh, Desktop calls `thread/list` with the current workspace identity and `crossChannelOrigins` set from the resolved machine-local list as above.
 - Results may include threads where `originChannel` differs from `dotcraft-desktop`; those threads remain mixed into the same temporal groups as local threads ([§7.2](#72-thread-grouping)).
 
 **Sidebar presentation**

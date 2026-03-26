@@ -234,35 +234,10 @@ public sealed class AppServerRequestHandler(
     }
 
     /// <summary>
-    /// Client explicitly sends <c>crossChannelOrigins</c> (possibly empty) when set in JSON;
-    /// when omitted, load defaults from merged workspace config <c>Desktop.visibleChannels</c>.
+    /// Passes through <c>crossChannelOrigins</c> from the client; when omitted or null, no cross-channel list is applied.
     /// </summary>
-    private IReadOnlyList<string>? ResolveCrossChannelOriginsForThreadList(ThreadListParams p)
-    {
-        if (p.CrossChannelOrigins != null)
-            return p.CrossChannelOrigins;
-
-        if (string.IsNullOrEmpty(workspaceCraftPath))
-            return null;
-
-        var configPath = Path.Combine(workspaceCraftPath, "config.json");
-        if (!File.Exists(configPath))
-            return null;
-
-        try
-        {
-            var cfg = AppConfig.LoadWithGlobalFallback(configPath);
-            var desktop = cfg.GetSection<DesktopConfig>("Desktop");
-            if (desktop.VisibleChannels is { Count: > 0 })
-                return desktop.VisibleChannels;
-        }
-        catch
-        {
-            // Best-effort: invalid config should not fail thread/list
-        }
-
-        return null;
-    }
+    private static IReadOnlyList<string>? ResolveCrossChannelOriginsForThreadList(ThreadListParams p) =>
+        p.CrossChannelOrigins;
 
     private Task<object?> HandleChannelListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {

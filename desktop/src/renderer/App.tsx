@@ -29,6 +29,7 @@ import { wireTurnToConversationTurn } from './types/conversation'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
+import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import './styles/tokens.css'
 
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
@@ -95,10 +96,8 @@ export function App(): JSX.Element {
     setLoading(true)
     try {
       const settings = await window.api.settings.get()
-      const params: { identity: SessionIdentity; crossChannelOrigins?: string[] } = { identity }
-      if (settings.visibleChannels !== undefined) {
-        params.crossChannelOrigins = settings.visibleChannels
-      }
+      const crossChannelOrigins = await ensureVisibleChannelsSeeded(settings)
+      const params = { identity, crossChannelOrigins }
       const result = await window.api.appServer.sendRequest('thread/list', params)
       const res = result as { data: ThreadSummary[] }
       setThreadList(res.data ?? [])

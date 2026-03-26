@@ -198,7 +198,7 @@ public sealed class ThreadListParams
 
     /// <summary>
     /// When non-null, passed to <see cref="ISessionService.FindThreadsAsync"/> as cross-channel origins.
-    /// When null (JSON omitted), the AppServer may apply workspace <c>Desktop.visibleChannels</c> from config.
+    /// When null (JSON omitted), no cross-channel list is applied.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? CrossChannelOrigins { get; set; }

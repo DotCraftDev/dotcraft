@@ -332,22 +332,8 @@ List threads matching a given identity.
 |-------|------|----------|-------------|
 | `identity` | SessionIdentity | yes | Identity to filter by. |
 | `includeArchived` | boolean | no | Default `false`. When `true`, archived threads are included in the result set. |
-| `crossChannelOrigins` | string[] \| null | no | When **omitted** or JSON `null`, the server may apply workspace defaults from `.craft/config.json` (see below). When present as an array (possibly empty), that list is passed to Session Core `FindThreadsAsync` as `crossChannelOrigins`: non-empty values additionally return threads whose `originChannel` is in the list (same `workspacePath` and `userId` as identity, **ignoring** `channelContext`). See [Session Core §9.5](session-core.md#95-cross-channel-resume-protocol). |
+| `crossChannelOrigins` | string[] \| null | no | When **omitted** or JSON `null`, no cross-channel origin list is applied (only threads matching the identity path in Session Core). When present as an array (possibly empty), that list is passed to Session Core `FindThreadsAsync` as `crossChannelOrigins`: non-empty values additionally return threads whose `originChannel` is in the list (same `workspacePath` and `userId` as identity, **ignoring** `channelContext`). DotCraft Desktop always sends an explicit array once machine-local defaults have been resolved. See [Session Core §9.5](session-core.md#95-cross-channel-resume-protocol). |
 | `channelName` | string | no | When set, post-filters results to threads whose persisted `originChannel` matches (case-insensitive). Same as existing filter. |
-
-**Workspace config fallback (Desktop visibility defaults)**
-
-When the client **omits** `crossChannelOrigins` (recommended for clients that want team-shared defaults), the server loads merged config via `AppConfig.LoadWithGlobalFallback` for `<workspace>/.craft/config.json` and reads the optional section:
-
-```json
-"Desktop": {
-  "visibleChannels": ["cli", "acp"]
-}
-```
-
-If `Desktop.visibleChannels` is present and non-empty, it is used as `crossChannelOrigins`. If the client sends an explicit `crossChannelOrigins` array (including `[]`), the client value wins and workspace defaults are not applied for that field.
-
-**Configuration priority** (normative for DotCraft Desktop): per-machine Desktop settings may send an explicit `crossChannelOrigins` array; when omitted, workspace `Desktop.visibleChannels` applies; when both are absent, no cross-context threads are returned beyond the normal identity match.
 
 **Result**:
 

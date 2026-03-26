@@ -5,6 +5,7 @@ import { applyTheme, resolveTheme, type ThemeMode } from '../../utils/theme'
 import { normalizeLocale, type AppLocale } from '../../../shared/locales'
 import { useSetUiLocale, useT } from '../../contexts/LocaleContext'
 import type { MessageKey } from '../../../shared/locales'
+import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 
 /** Wire shape from `channel/list` (appserver-protocol.md §4.3.1). */
 interface ChannelInfoWire {
@@ -47,8 +48,8 @@ export function SettingsDialog({
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState(false)
-  /** Mirrors settings.visibleChannels; undefined = use server/workspace defaults. */
-  const [visibleChannels, setVisibleChannels] = useState<string[] | undefined>(undefined)
+  /** Mirrors machine-local `visibleChannels` (see ensureVisibleChannelsSeeded). */
+  const [visibleChannels, setVisibleChannels] = useState<string[]>([])
   const [serverChannels, setServerChannels] = useState<ChannelInfoWire[] | null>(null)
   const [channelListError, setChannelListError] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -57,11 +58,11 @@ export function SettingsDialog({
     inputRef.current?.focus()
     window.api.settings
       .get()
-      .then((s) => {
+      .then(async (s) => {
         setBinaryPath(s.appServerBinaryPath ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
-        setVisibleChannels(s.visibleChannels)
+        setVisibleChannels(await ensureVisibleChannelsSeeded(s))
       })
       .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
@@ -141,14 +142,10 @@ export function SettingsDialog({
     }
   }
 
-  async function setVisibleChannelsAndPersist(next: string[] | undefined): Promise<void> {
+  async function setVisibleChannelsAndPersist(next: string[]): Promise<void> {
     setVisibleChannels(next)
     try {
-      if (next === undefined) {
-        await window.api.settings.set({ clearVisibleChannels: true })
-      } else {
-        await window.api.settings.set({ visibleChannels: next })
-      }
+      await window.api.settings.set({ visibleChannels: next })
       onVisibleChannelsUpdated?.()
     } catch (err) {
       addToast(
@@ -161,7 +158,7 @@ export function SettingsDialog({
   }
 
   function toggleVisibleChannel(channel: string, checked: boolean): void {
-    const base = visibleChannels ?? []
+    const base = visibleChannels
     const next = checked
       ? Array.from(new Set([...base, channel]))
       : base.filter((c) => c !== channel)
@@ -361,7 +358,7 @@ export function SettingsDialog({
                     }}
                   >
                     {items.map((ch) => {
-                      const selected = visibleChannels?.includes(ch.name) ?? false
+                      const selected = visibleChannels.includes(ch.name)
                       return (
                         <button
                           key={ch.name}
@@ -393,24 +390,6 @@ export function SettingsDialog({
                 </div>
               )
             })}
-          <button
-            type="button"
-            onClick={() => {
-              void setVisibleChannelsAndPersist(undefined)
-            }}
-            style={{
-              marginTop: '8px',
-              padding: '4px 0',
-              fontSize: '12px',
-              color: 'var(--accent)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              textDecoration: 'underline'
-            }}
-          >
-            {t('settings.crossChannelReset')}
-          </button>
         </div>
 
         <div style={{ marginBottom: '16px' }}>

@@ -88,7 +88,6 @@ declare global {
             theme?: 'dark' | 'light'
             locale?: 'en' | 'zh-Hans'
             visibleChannels?: string[]
-            clearVisibleChannels?: boolean
           }
         ): Promise<void>
       }
