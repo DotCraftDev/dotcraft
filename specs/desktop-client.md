@@ -548,7 +548,7 @@ Each thread entry is a clickable row showing:
 
 - Clicking opens the **Automations view** (Section 21), which contains two tabs: **Tasks** and **Cron**.
 - Visible when `capabilities.automations` **or** `capabilities.cronManagement` is `true`.
-- When only one capability is present, the corresponding tab is shown without a tab bar (single-tab mode — no tab header rendered).
+- The Automations view always shows both **Tasks** and **Cron** tabs in the tab bar. A tab whose capability is not advertised by the server is **disabled** (dimmed, non-interactive, with a tooltip explaining that the module is not enabled).
 - When neither capability is present, the entry is disabled with tooltip: "Automations module not enabled on the server."
 
 **Skills**:
@@ -1750,12 +1750,12 @@ The Automations view occupies the center column when the **Automations** sidebar
 └──────────────────────────────────────────────┘
 ```
 
-| Tab | Visible when | Content |
-|-----|-------------|---------|
-| **Tasks** | `capabilities.automations === true` | Existing automation task list (unchanged from current implementation) |
-| **Cron** | `capabilities.cronManagement === true` | Cron job list — Section 21.2 |
+| Tab | Content when active | Interaction |
+|-----|--------------------|-------------|
+| **Tasks** | Automation task list — unchanged from current implementation | Enabled only when `capabilities.automations === true`; otherwise the tab is visible but disabled. |
+| **Cron** | Cron job list — Section 21.2 | Enabled only when `capabilities.cronManagement === true`; otherwise the tab is visible but disabled. |
 
-When only one tab is available (single-capability server), the tab bar is not rendered; the corresponding content is shown directly with an appropriate section header.
+The tab bar always renders **Tasks** and **Cron** side by side. The client resolves which panel is shown: if the stored `automationsTab` points at a disabled tab, the UI falls back to the first available capability (tasks if `automations` is true, else cron).
 
 The active tab is stored in `uiStore.automationsTab` (`'tasks'` \| `'cron'`). Defaults to `'tasks'` when automations is available, otherwise `'cron'`.
 
