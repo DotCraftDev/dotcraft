@@ -152,11 +152,11 @@ public sealed class GatewayHost : IDotCraftHost
             if (approvalContext != null)
             {
                 using var _ = ApprovalContextScope.Set(approvalContext);
-                run = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
+                run = await sharedAgentRunner(job.Payload.Message, sessionKey, job.Name, cancellationToken);
             }
             else
             {
-                run = await sharedAgentRunner(job.Payload.Message, sessionKey, cancellationToken);
+                run = await sharedAgentRunner(job.Payload.Message, sessionKey, job.Name, cancellationToken);
             }
 
             var deliverText = run?.Result;

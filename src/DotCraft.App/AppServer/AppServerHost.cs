@@ -143,7 +143,7 @@ public sealed class AppServerHost(
             AgentRunResult? run;
             try
             {
-                run = await runner.RunAsync(job.Payload.Message, sessionKey, cancellationToken);
+                run = await runner.RunAsync(job.Payload.Message, sessionKey, job.Name, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -190,11 +190,11 @@ public sealed class AppServerHost(
 
         using var heartbeatService = new HeartbeatService(
             paths.CraftPath,
-            onHeartbeat: async (prompt, sessionKey, ct) =>
+            onHeartbeat: async (prompt, sessionKey, threadDisplayName, ct) =>
             {
                 try
                 {
-                    var run = await runner.RunAsync(prompt, sessionKey, ct);
+                    var run = await runner.RunAsync(prompt, sessionKey, threadDisplayName, ct);
                     if (run != null && run.Error == null && run.Result != null)
                         BroadcastJobResult("heartbeat", jobId: null, jobName: null, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
                     else if (run != null && run.Error != null)

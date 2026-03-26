@@ -81,7 +81,7 @@ public sealed class HeartbeatService(string workspacePath, AgentRunSessionDelega
             return null;
 
         var prompt = $"Heartbeat check. Current HEARTBEAT.md content:\n\n{content}\n\nExecute any actionable tasks described above. If there are no actionable tasks, respond with HEARTBEAT_OK.";
-        var run = await onHeartbeat(prompt, "heartbeat");
+        var run = await onHeartbeat(prompt, "heartbeat", null, CancellationToken.None);
         return run?.Result;
     }
 
