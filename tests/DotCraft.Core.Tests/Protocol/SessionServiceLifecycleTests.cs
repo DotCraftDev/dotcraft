@@ -64,6 +64,16 @@ public sealed class SessionServiceLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateThread_InvokesThreadCreatedForBroadcast()
+    {
+        SessionThread? seen = null;
+        _svc.ThreadCreatedForBroadcast = t => seen = t;
+        var thread = await _svc.CreateThreadAsync(MakeIdentity());
+        Assert.NotNull(seen);
+        Assert.Equal(thread.Id, seen!.Id);
+    }
+
+    [Fact]
     public async Task CreateThread_IdFormat_IsValid()
     {
         var thread = await _svc.CreateThreadAsync(MakeIdentity());
@@ -417,6 +427,9 @@ internal sealed class FakeSessionService : ISessionService
 
     public FakeSessionService(ThreadStore store) => _store = store;
 
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
+
     public async Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
@@ -447,6 +460,7 @@ internal sealed class FakeSessionService : ISessionService
 
         _threads[thread.Id] = thread;
         await _store.SaveThreadAsync(thread, ct);
+        ThreadCreatedForBroadcast?.Invoke(thread);
         return thread;
     }
 

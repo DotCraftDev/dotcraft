@@ -261,6 +261,8 @@ Create a new thread. The server generates a Thread ID and persists initial state
 
 The server also emits a `thread/started` notification after the response.
 
+In a shared Session Core process (typical AppServer mode), when **any** channel creates a thread (not only via `thread/start` on this connection), the server **broadcasts** the same `thread/started` notification to **all** connected clients. Clients that already received `thread/started` from their own `thread/start` should dedupe by thread id.
+
 **Example**:
 
 ```json
@@ -684,7 +686,7 @@ All notifications share the pattern:
 
 #### `thread/started`
 
-Emitted when a new thread is created via `thread/start`.
+Emitted when a new thread is created. Sent to the initiating client after `thread/start` (see Section 4.1), and **broadcast to all connected clients** when a thread is created by any other channel in the same process (CLI, cron, etc.) so UIs such as DotCraft Desktop can refresh the thread list without polling.
 
 **Params**: `{ "thread": Thread }`
 

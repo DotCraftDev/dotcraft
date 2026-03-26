@@ -277,7 +277,7 @@ This section defines how Wire Protocol notifications are mapped to Renderer stat
 
 | Wire Method | State Mutation |
 |-------------|---------------|
-| `thread/started` | Prepend new thread to `threadList`. If this client initiated the creation, set `activeThreadId` to the new thread. |
+| `thread/started` | Prepend new thread to `threadList` (skip if `thread.id` already present). If this client initiated the creation via `thread/start`, set `activeThreadId` to the new thread. Same notification may arrive when another channel creates a thread in the shared server process. |
 | `thread/resumed` | Update thread status in `threadList`. Set `activeThreadId`. |
 | `thread/statusChanged` | Update matching thread's status in `threadList`. If the active thread was archived/paused, clear `activeThreadId` or show notification. |
 

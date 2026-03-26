@@ -120,6 +120,7 @@ public sealed class AppServerHost(
 
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
+        sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
 
         // Linked CTS for WebSocket external channel hosts — cancelled when the main run loop exits
@@ -760,6 +761,38 @@ public sealed class AppServerHost(
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.ShouldSendNotification(AppServerMethods.CronStateChanged))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts <c>thread/started</c> to all connected transports when any channel creates a thread
+    /// in the shared <see cref="SessionService"/> (so Desktop sidebar updates without polling).
+    /// </summary>
+    private void BroadcastThreadStarted(SessionThread thread)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadStarted,
+            @params = new { thread = thread.ToWire() }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadStarted))
                 continue;
 
             _ = Task.Run(async () =>

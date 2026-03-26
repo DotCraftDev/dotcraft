@@ -21,6 +21,9 @@ internal sealed class TestableSessionService : ISessionService
     public IReadOnlyList<(string threadId, string turnId)> CancelledTurns => _cancelledTurns;
     public IReadOnlyList<(string threadId, string turnId, string requestId, SessionApprovalDecision decision)> ResolvedApprovals => _resolvedApprovals;
 
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
+
     public TestableSessionService(ThreadStore store) => _store = store;
 
     // -------------------------------------------------------------------------
@@ -70,6 +73,7 @@ internal sealed class TestableSessionService : ISessionService
         }
         _cache[thread.Id] = thread;
         await _store.SaveThreadAsync(thread, ct);
+        ThreadCreatedForBroadcast?.Invoke(thread);
         return thread;
     }
 

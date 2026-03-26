@@ -53,6 +53,9 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
 
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
+
     // =========================================================================
     // Thread lifecycle
     // =========================================================================
@@ -95,6 +98,7 @@ public sealed class SessionService(
 
         await threadStore.SaveThreadAsync(thread, ct);
         broker.PublishThreadEvent(SessionEventType.ThreadCreated, thread);
+        ThreadCreatedForBroadcast?.Invoke(thread);
 
         return thread;
     }

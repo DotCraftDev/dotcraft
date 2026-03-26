@@ -148,4 +148,10 @@ public interface ISessionService
     /// Updates the display name of a Thread.
     /// </summary>
     Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Optional hook invoked after a thread is successfully created and persisted (any channel).
+    /// Hosts use this to notify all wire clients (e.g. broadcast <c>thread/started</c> on AppServer).
+    /// </summary>
+    Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
 }
