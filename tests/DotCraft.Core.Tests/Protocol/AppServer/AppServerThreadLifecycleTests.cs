@@ -79,6 +79,48 @@ public sealed class AppServerThreadLifecycleTests : IDisposable
             "Notification (with 'method') must arrive after the response");
     }
 
+    /// <summary>
+    /// When <see cref="AppServerRequestContext.CurrentTransport"/> matches the client transport,
+    /// a broadcast hook must skip that transport (mirrors <c>AppServerHost.BroadcastThreadStarted</c>)
+    /// so the initiator does not receive a duplicate <c>thread/started</c> from broadcast + handler.
+    /// </summary>
+    [Fact]
+    public async Task ThreadStart_BroadcastHookSkipsCurrentTransportWhenContextSet()
+    {
+        var previous = AppServerRequestContext.CurrentTransport;
+        AppServerRequestContext.CurrentTransport = _h.Transport;
+        try
+        {
+            _h.Service.ThreadCreatedForBroadcast = thread =>
+            {
+                var skip = AppServerRequestContext.CurrentTransport;
+                if (skip != null && ReferenceEquals(_h.Transport, skip))
+                    return;
+                _h.Transport.WriteMessageAsync(new
+                {
+                    jsonrpc = "2.0",
+                    method = AppServerMethods.ThreadStarted,
+                    @params = new { thread = thread.ToWire() }
+                }, default).GetAwaiter().GetResult();
+            };
+
+            var msg = _h.BuildRequest(AppServerMethods.ThreadStart, new
+            {
+                identity = new { channelName = "appserver", userId = "test_user", workspacePath = _h.Identity.WorkspacePath }
+            });
+            await _h.ExecuteRequestAsync(msg);
+
+            await _h.Transport.ReadNextSentAsync();
+            await _h.Transport.ReadNextSentAsync();
+            Assert.Null(_h.Transport.TryReadSent());
+        }
+        finally
+        {
+            _h.Service.ThreadCreatedForBroadcast = null;
+            AppServerRequestContext.CurrentTransport = previous;
+        }
+    }
+
     [Fact]
     public async Task ThreadStart_WithHistoryModeClient_ThreadHasClientHistoryMode()
     {

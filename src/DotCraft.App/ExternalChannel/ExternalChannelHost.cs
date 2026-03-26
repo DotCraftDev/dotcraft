@@ -462,36 +462,45 @@ public sealed class ExternalChannelHost(
         AppServerIncomingMessage msg,
         CancellationToken ct)
     {
-        object? result;
+        var previousTransport = AppServerRequestContext.CurrentTransport;
+        AppServerRequestContext.CurrentTransport = transport;
         try
         {
-            result = await handler.HandleRequestAsync(msg, ct);
-        }
-        catch (AppServerException ex)
-        {
-            await transport.WriteMessageAsync(
-                AppServerRequestHandler.BuildErrorResponse(msg.Id, ex.ToError()), ct);
-            return;
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch (Exception ex)
-        {
-            var internalErr = AppServerErrors.InternalError(ex.Message).ToError();
-            await transport.WriteMessageAsync(
-                AppServerRequestHandler.BuildErrorResponse(msg.Id, internalErr), ct);
-            await Console.Error.WriteLineAsync(
-                $"[ExternalChannel:{handler}] Internal error: {ex}");
-            return;
-        }
+            object? result;
+            try
+            {
+                result = await handler.HandleRequestAsync(msg, ct);
+            }
+            catch (AppServerException ex)
+            {
+                await transport.WriteMessageAsync(
+                    AppServerRequestHandler.BuildErrorResponse(msg.Id, ex.ToError()), ct);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                var internalErr = AppServerErrors.InternalError(ex.Message).ToError();
+                await transport.WriteMessageAsync(
+                    AppServerRequestHandler.BuildErrorResponse(msg.Id, internalErr), ct);
+                await Console.Error.WriteLineAsync(
+                    $"[ExternalChannel:{handler}] Internal error: {ex}");
+                return;
+            }
 
-        // null result means the handler already sent the response inline (turn/start)
-        if (result != null)
+            // null result means the handler already sent the response inline (turn/start)
+            if (result != null)
+            {
+                await transport.WriteMessageAsync(
+                    AppServerRequestHandler.BuildResponse(msg.Id, result), ct);
+            }
+        }
+        finally
         {
-            await transport.WriteMessageAsync(
-                AppServerRequestHandler.BuildResponse(msg.Id, result), ct);
+            AppServerRequestContext.CurrentTransport = previousTransport;
         }
     }
 

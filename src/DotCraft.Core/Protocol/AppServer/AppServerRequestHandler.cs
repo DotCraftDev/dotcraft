@@ -179,7 +179,7 @@ public sealed class AppServerRequestHandler(
 
         // Fix 8: The host sends the thread/start response first, then emits the
         // thread/started notification as required by spec Section 4.1.
-        _ = SendNotificationAfterResponseAsync(
+        await SendNotificationAfterResponseAsync(
             msg.Id,
             new { thread = thread.ToWire() },
             AppServerMethods.ThreadStarted,
