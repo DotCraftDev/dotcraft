@@ -209,7 +209,7 @@ public sealed class AppServerRequestHandler(
         }
 
         // No subscription: send response then notification inline.
-        _ = SendNotificationAfterResponseAsync(msg.Id, responseResult, AppServerMethods.ThreadResumed, notifParams, ct);
+        await SendNotificationAfterResponseAsync(msg.Id, responseResult, AppServerMethods.ThreadResumed, notifParams, ct);
         return null;
     }
 
@@ -390,7 +390,7 @@ public sealed class AppServerRequestHandler(
             return null;
         }
 
-        _ = SendNotificationAfterResponseAsync(
+        await SendNotificationAfterResponseAsync(
             msg.Id, new { },
             AppServerMethods.ThreadStatusChanged,
             new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Paused },
@@ -419,7 +419,7 @@ public sealed class AppServerRequestHandler(
             return null;
         }
 
-        _ = SendNotificationAfterResponseAsync(
+        await SendNotificationAfterResponseAsync(
             msg.Id, new { },
             AppServerMethods.ThreadStatusChanged,
             new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Archived },
