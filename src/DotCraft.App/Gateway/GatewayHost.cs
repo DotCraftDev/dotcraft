@@ -4,6 +4,7 @@ using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
+using DotCraft.ExternalChannel;
 using DotCraft.Tracing;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
@@ -34,7 +35,7 @@ public sealed class GatewayHost : IDotCraftHost
     private readonly List<IChannelService> _allChannels; // native + external, populated during RunAsync
     private readonly MessageRouter _router;
     private readonly ModuleRegistry _moduleRegistry;
-    private readonly ExternalChannel.ExternalChannelRegistry _externalChannelRegistry;
+    private readonly ExternalChannelRegistry _externalChannelRegistry;
     private AgentFactory? _sharedAgentFactory;
     private ISessionService? _sharedSessionService;
 
@@ -47,7 +48,7 @@ public sealed class GatewayHost : IDotCraftHost
         IEnumerable<IChannelService> channels,
         MessageRouter router,
         ModuleRegistry moduleRegistry,
-        ExternalChannel.ExternalChannelRegistry externalChannelRegistry)
+        ExternalChannelRegistry externalChannelRegistry)
     {
         _sp = sp;
         _config = config;
@@ -116,11 +117,10 @@ public sealed class GatewayHost : IDotCraftHost
         }
 
         // --- Phase 3.5: Create external channel hosts (requires SessionService from Phase 3) ---
-        if (ExternalChannel.ExternalChannelManager.HasEnabledChannels(_config) && _sharedSessionService != null)
+        if (ExternalChannelManager.HasEnabledChannels(_config) && _sharedSessionService != null)
         {
             var nativeChannelNames = _channels.Select(ch => ch.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var externalChannelManager = new ExternalChannel.ExternalChannelManager(
-                _config, _sharedSessionService, nativeChannelNames, _externalChannelRegistry);
+            var externalChannelManager = new ExternalChannelManager(_config, _sharedSessionService, nativeChannelNames, _moduleRegistry, _externalChannelRegistry);
 
             foreach (var extCh in externalChannelManager.Channels)
             {

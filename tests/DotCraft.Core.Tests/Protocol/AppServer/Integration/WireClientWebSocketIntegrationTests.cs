@@ -1,3 +1,4 @@
+using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 
@@ -47,7 +48,10 @@ public sealed class WireClientWebSocketIntegrationTests : IAsyncDisposable
             await using var wsTransport = new WebSocketTransport(serverWs);
             wsTransport.Start();
             var connection = new AppServerConnection();
-            var handler = new AppServerRequestHandler(_service, connection, wsTransport, "0.0.1-test");
+            var handler = new AppServerRequestHandler(
+                _service, connection, wsTransport,
+                new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
+                "0.0.1-test");
             await RunServerLoopAsync(wsTransport, connection, handler, _serverCts.Token);
         });
 
@@ -196,7 +200,10 @@ public sealed class WireClientWebSocketIntegrationTests : IAsyncDisposable
             await using var ws2Transport = new WebSocketTransport(serverWs2);
             ws2Transport.Start();
             var conn2 = new AppServerConnection();
-            var handler2 = new AppServerRequestHandler(_service, conn2, ws2Transport, "0.0.1-test");
+            var handler2 = new AppServerRequestHandler(
+                _service, conn2, ws2Transport,
+                new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
+                "0.0.1-test");
             await RunServerLoopAsync(ws2Transport, conn2, handler2, serverLoop2Cts.Token);
         });
 

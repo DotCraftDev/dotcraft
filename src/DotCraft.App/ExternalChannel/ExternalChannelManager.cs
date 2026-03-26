@@ -2,6 +2,7 @@ using DotCraft.Abstractions;
 using DotCraft.AppServer;
 using DotCraft.Common;
 using DotCraft.Configuration;
+using DotCraft.Modules;
 using DotCraft.Protocol;
 using Spectre.Console;
 
@@ -36,6 +37,7 @@ public sealed class ExternalChannelManager
     /// <param name="config">Application configuration.</param>
     /// <param name="sessionService">Shared session service for all external channels.</param>
     /// <param name="nativeChannelNames">Names of native channels (for conflict detection).</param>
+    /// <param name="moduleRegistry">Registered DotCraft modules (for <c>channel/list</c> discovery).</param>
     /// <param name="registry">
     /// External channel registry for WebSocket routing. If null, a new instance is created.
     /// </param>
@@ -43,6 +45,7 @@ public sealed class ExternalChannelManager
         AppConfig config,
         ISessionService sessionService,
         IReadOnlyCollection<string> nativeChannelNames,
+        ModuleRegistry moduleRegistry,
         ExternalChannelRegistry? registry = null)
     {
         _registry = registry ?? new ExternalChannelRegistry();
@@ -95,7 +98,7 @@ public sealed class ExternalChannelManager
                 }
             }
 
-            var host = new ExternalChannelHost(entry, sessionService, serverVersion);
+            var host = new ExternalChannelHost(entry, sessionService, serverVersion, moduleRegistry);
             _hosts.Add(host);
 
             // Register WebSocket channels for connection routing

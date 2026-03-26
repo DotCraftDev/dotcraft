@@ -28,6 +28,7 @@ We thank the Codex team for their pioneering work in desktop AI agent UX.
 - [7. Information Architecture](#7-information-architecture)
 - [8. Layout System](#8-layout-system)
 - [9. Sidebar](#9-sidebar)
+  - [9.4.1 Cross-channel thread visibility](#941-cross-channel-thread-visibility)
 - [10. Conversation Panel](#10-conversation-panel)
 - [11. Detail Panel](#11-detail-panel)
 - [12. Input Composer](#12-input-composer)
@@ -490,6 +491,33 @@ A prominent button at the top of the sidebar.
 ### 9.4 Thread Search
 
 A search input that filters the thread list by display name. The filter is applied locally (client-side) against the cached thread list. Debounced at 150ms.
+
+### 9.4.1 Cross-channel thread visibility
+
+DotCraft Desktop uses a workspace-scoped `channelContext` (e.g. `workspace:{absolutePath}`) so its thread pool is distinct from the CLI, which uses `channelContext = null`. To support **cross-channel resume** from the Desktop UI, the client opts in by listing additional **origin channels** whose threads should appear in the sidebar alongside Desktop-native threads.
+
+**Channel picker (`channel/list`)**
+
+- When the user opens **Settings**, the client calls [`channel/list`](appserver-protocol.md#431-channellist) (no params). The server returns discoverable channels grouped by `category` (`builtin`, `social`, `system`, `external`), including enabled keys from `ExternalChannels` in merged workspace config.
+- The Settings UI renders **toggle chips** per category (not a fixed hardcoded list). Chip labels use the canonical channel name (e.g. `CLI`, `QQ`, `TELEGRAM`).
+- If `channel/list` fails (e.g. AppServer not connected), the picker shows an unavailable message; cross-channel preferences still persist when toggled after a successful load.
+
+**Settings (Electron `userData/settings.json`)**
+
+- `visibleChannels?: string[]` — Machine-local list of origin channel name strings to include when calling `thread/list`.
+- When `visibleChannels` is **undefined**, the client **omits** `crossChannelOrigins` on `thread/list` so the AppServer can apply workspace defaults from `.craft/config.json` (`Desktop.visibleChannels`). See [AppServer Protocol §4.3](appserver-protocol.md#43-threadlist).
+- When `visibleChannels` is an **array** (including empty), the client sends that array as `crossChannelOrigins` explicitly.
+- **Use workspace defaults** clears `visibleChannels` from local storage (`clearVisibleChannels`) so the server-only default applies.
+
+**Wire behavior**
+
+- On connect / refresh, Desktop calls `thread/list` with the current workspace identity and optional `crossChannelOrigins` as above.
+- Results may include threads where `originChannel` differs from `dotcraft-desktop`; those threads remain mixed into the same temporal groups as local threads ([§7.2](#72-thread-grouping)).
+
+**Sidebar presentation**
+
+- For threads whose `originChannel` is not `dotcraft-desktop`, show a compact **origin badge** next to the display name (the persisted channel name, typically uppercased for display) so users can distinguish provenance.
+- Selecting, reading, resuming, and continuing such threads uses the same flows as native Desktop threads (`thread/read`, `thread/subscribe`, `turn/start`). New turns are attributed to the Desktop channel per Session Core; the thread’s stored `channelContext` from creation is unchanged.
 
 ### 9.5 Thread List
 

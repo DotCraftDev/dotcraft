@@ -330,6 +330,22 @@ List threads matching a given identity.
 |-------|------|----------|-------------|
 | `identity` | SessionIdentity | yes | Identity to filter by. |
 | `includeArchived` | boolean | no | Default `false`. When `true`, archived threads are included in the result set. |
+| `crossChannelOrigins` | string[] \| null | no | When **omitted** or JSON `null`, the server may apply workspace defaults from `.craft/config.json` (see below). When present as an array (possibly empty), that list is passed to Session Core `FindThreadsAsync` as `crossChannelOrigins`: non-empty values additionally return threads whose `originChannel` is in the list (same `workspacePath` and `userId` as identity, **ignoring** `channelContext`). See [Session Core §9.5](session-core.md#95-cross-channel-resume-protocol). |
+| `channelName` | string | no | When set, post-filters results to threads whose persisted `originChannel` matches (case-insensitive). Same as existing filter. |
+
+**Workspace config fallback (Desktop visibility defaults)**
+
+When the client **omits** `crossChannelOrigins` (recommended for clients that want team-shared defaults), the server loads merged config via `AppConfig.LoadWithGlobalFallback` for `<workspace>/.craft/config.json` and reads the optional section:
+
+```json
+"Desktop": {
+  "visibleChannels": ["cli", "acp"]
+}
+```
+
+If `Desktop.visibleChannels` is present and non-empty, it is used as `crossChannelOrigins`. If the client sends an explicit `crossChannelOrigins` array (including `[]`), the client value wins and workspace defaults are not applied for that field.
+
+**Configuration priority** (normative for DotCraft Desktop): per-machine Desktop settings may send an explicit `crossChannelOrigins` array; when omitted, workspace `Desktop.visibleChannels` applies; when both are absent, no cross-context threads are returned beyond the normal identity match.
 
 **Result**:
 
@@ -349,6 +365,38 @@ List threads matching a given identity.
 ```
 
 Results are ordered by `lastActiveAt` descending. Cursor pagination is deferred from v1 because the current Core only guarantees deterministic full-list ordering.
+
+### 4.3.1 `channel/list`
+
+Lists discoverable **origin channel** names for UI such as DotCraft Desktop’s cross-channel thread visibility picker. No Session Core query; this is configuration-derived metadata.
+
+**Direction**: client → server (request)
+
+**Params**: `{}` (empty object) or omitted — no required fields.
+
+**Result**:
+
+```json
+{
+  "channels": [
+    { "name": "cli", "category": "builtin" },
+    { "name": "qq", "category": "social" },
+    { "name": "telegram", "category": "external" }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | Canonical `originChannel` string (case as stored). |
+| `category` | `builtin` (CLI, ACP), `social` (QQ, WeCom), `system` (cron, heartbeat, automations), or `external` (enabled entries under `ExternalChannels` in merged workspace config). |
+
+**Semantics**:
+
+- Base channels come from **loaded DotCraft modules** that contribute session origins (`cli`, `acp`, `qq`, `wecom`, `automations`, etc., depending on which assemblies are registered). Modules that do not own DotCraft-managed threads (for example HTTP API-only or AG-UI hosting) contribute nothing. There is no separate fixed fallback list: discovery is entirely module-driven plus optional Core services. The AppServer process also appends `cron` and `heartbeat` (category `system`) when the corresponding services are present.
+- Adds each **enabled** key from `ExternalChannels` in `.craft/config.json` (merged with global config) with `category: "external"`.
+- Does **not** include `dotcraft-desktop` or `commit-suggest` (not intended as cross-channel visibility sources).
+- Results are sorted by category order (builtin → social → system → external), then by `name` (ordinal case-insensitive).
 
 ### 4.4 `thread/read`
 

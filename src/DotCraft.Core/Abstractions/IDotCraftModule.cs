@@ -5,19 +5,19 @@ namespace DotCraft.Abstractions;
 
 /// <summary>
 /// Defines a module that can be registered with the DotCraft application.
-/// Each module represents an interaction channel (CLI, API, QQ, WeCom, etc.).
+/// Each module represents an interaction channel.
 /// </summary>
 public interface IDotCraftModule
 {
     /// <summary>
-    /// Gets the unique name of the module (e.g., "cli", "api", "qq", "wecom").
+    /// Gets the unique name of the module.
     /// </summary>
     string Name { get; }
 
     /// <summary>
     /// Gets the priority of the module for host selection.
     /// Higher priority modules are preferred when multiple modules are enabled.
-    /// Default priority is 0. Suggested priorities: CLI=0, API=10, WeCom=20, QQ=30.
+    /// Default priority is 0.
     /// </summary>
     int Priority => 0;
 
@@ -57,4 +57,11 @@ public interface IDotCraftModule
     /// </summary>
     /// <returns>An enumerable of tool providers, or empty if the module provides no tools.</returns>
     IEnumerable<IAgentToolProvider> GetToolProviders() => [];
+
+    /// <summary>
+    /// Session origin channels contributed by this module for AppServer <c>channel/list</c>
+    /// (cross-channel visibility). Empty for modules that do not own DotCraft-managed threads
+    /// (e.g. gateway shell) or channels that should not appear in the picker (e.g. HTTP API-only).
+    /// </summary>
+    IReadOnlyList<SessionChannelListEntry> GetSessionChannelListEntries() => [];
 }

@@ -51,12 +51,17 @@ public interface ISessionService
     Task ArchiveThreadAsync(string threadId, CancellationToken ct = default);
 
     /// <summary>
-    /// Discovers Threads matching the given identity (workspace + user + channel).
+    /// Discovers Threads matching the given identity (workspace + user + channel context).
     /// Returns summaries ordered by LastActiveAt descending.
     /// </summary>
+    /// <param name="crossChannelOrigins">
+    /// When non-null and non-empty, also includes threads that match workspace + userId and have
+    /// <see cref="ThreadSummary.OriginChannel"/> in this list (case-insensitive), ignoring channel context.
+    /// </param>
     Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
         bool includeArchived = false,
+        IReadOnlyList<string>? crossChannelOrigins = null,
         CancellationToken ct = default);
 
     /// <summary>

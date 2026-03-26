@@ -4,6 +4,7 @@ using DotCraft.Abstractions;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Modules;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Protocol;
 using DotCraft.Security;
@@ -23,11 +24,13 @@ namespace DotCraft.ExternalChannel;
 public sealed class ExternalChannelHost(
     ExternalChannelEntry config,
     ISessionService sessionService,
-    string serverVersion)
+    string serverVersion,
+    ModuleRegistry moduleRegistry)
     : IChannelService
 {
     private readonly ExternalChannelEntry _config = config ?? throw new ArgumentNullException(nameof(config));
     private readonly ISessionService _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
+    private readonly ModuleRegistry _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -242,7 +245,9 @@ public sealed class ExternalChannelHost(
         _transport = transport;
         _connection = new AppServerConnection();
         _handler = new AppServerRequestHandler(
-            _sessionService, _connection, transport, serverVersion);
+            _sessionService, _connection, transport,
+            new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
+            serverVersion);
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -365,7 +370,10 @@ public sealed class ExternalChannelHost(
 
         _transport = transport;
         _connection = connection;
-        _handler = new AppServerRequestHandler(_sessionService, connection, transport, serverVersion);
+        _handler = new AppServerRequestHandler(
+            _sessionService, connection, transport,
+            new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
+            serverVersion);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +

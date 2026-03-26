@@ -1,5 +1,6 @@
 using System.IO.Pipelines;
 using System.Text.Json;
+using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 
@@ -53,7 +54,10 @@ public sealed class WireClientIntegrationTests : IAsyncDisposable
         serverTransport.Start();
 
         var connection = new AppServerConnection();
-        var handler = new AppServerRequestHandler(_service, connection, serverTransport, serverVersion: "0.0.1-test");
+        var handler = new AppServerRequestHandler(
+            _service, connection, serverTransport,
+            new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
+            serverVersion: "0.0.1-test");
 
         _serverLoop = Task.Run(() => RunServerLoopAsync(serverTransport, connection, handler, _serverCts.Token));
 

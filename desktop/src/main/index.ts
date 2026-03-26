@@ -227,11 +227,19 @@ function buildCallbacks(): IpcHandlerCallbacks {
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
       const prevLocale = normalizeLocale(sharedSettings.locale)
+      const clearVis = (partial as { clearVisibleChannels?: boolean }).clearVisibleChannels === true
       const next: Partial<typeof sharedSettings> = { ...partial }
+      delete (next as { clearVisibleChannels?: boolean }).clearVisibleChannels
+      if (clearVis) {
+        delete next.visibleChannels
+      }
       if (partial.locale !== undefined) {
         next.locale = normalizeLocale(partial.locale)
       }
       Object.assign(sharedSettings, next)
+      if (clearVis) {
+        delete sharedSettings.visibleChannels
+      }
       saveSettings(sharedSettings)
       if (partial.locale !== undefined && normalizeLocale(sharedSettings.locale) !== prevLocale) {
         refreshAppMenu()

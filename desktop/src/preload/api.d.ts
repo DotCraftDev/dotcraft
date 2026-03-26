@@ -80,12 +80,17 @@ declare global {
           lastWorkspacePath?: string
           theme?: 'dark' | 'light'
           locale?: 'en' | 'zh-Hans'
+          visibleChannels?: string[]
         }>
-        set(partial: {
-          appServerBinaryPath?: string
-          theme?: 'dark' | 'light'
-          locale?: 'en' | 'zh-Hans'
-        }): Promise<void>
+        set(
+          partial: {
+            appServerBinaryPath?: string
+            theme?: 'dark' | 'light'
+            locale?: 'en' | 'zh-Hans'
+            visibleChannels?: string[]
+            clearVisibleChannels?: boolean
+          }
+        ): Promise<void>
       }
     }
   }

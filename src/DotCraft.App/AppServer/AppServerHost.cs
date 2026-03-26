@@ -70,6 +70,9 @@ public sealed class AppServerHost(
     /// </summary>
     private readonly ConcurrentDictionary<IAppServerTransport, AppServerConnection> _activeTransports = new();
 
+    private ModuleRegistryChannelListContributor CreateChannelListContributor() =>
+        new(moduleRegistry, _cronService, _heartbeatService);
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         skillsLoader.SetDisabledSkills(config.Skills.DisabledSkills);
@@ -242,7 +245,7 @@ public sealed class AppServerHost(
         {
             var nativeChannelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ecManager = new ExternalChannelManager(
-                config, sessionService, nativeChannelNames, externalChannelRegistry);
+                config, sessionService, nativeChannelNames, moduleRegistry, externalChannelRegistry);
 
             if (ecManager.Channels.Count > 0)
             {
@@ -327,7 +330,8 @@ public sealed class AppServerHost(
         _activeTransports.TryAdd(transport, connection);
 
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            sessionService, connection, transport, CreateChannelListContributor(),
+            serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
             automationsHandler: _automationsHandler,
@@ -383,7 +387,8 @@ public sealed class AppServerHost(
         _activeTransports.TryAdd(transport, connection);
 
         var handler = new AppServerRequestHandler(
-            sessionService, connection, transport, serverVersion: AppVersion.Informational,
+            sessionService, connection, transport, CreateChannelListContributor(),
+            serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
             automationsHandler: _automationsHandler,
@@ -461,7 +466,8 @@ public sealed class AppServerHost(
             try
             {
                 var wsHandler = new AppServerRequestHandler(
-                    sessionService, wsConnection, wsTransport, serverVersion: AppVersion.Informational,
+                    sessionService, wsConnection, wsTransport, CreateChannelListContributor(),
+                    serverVersion: AppVersion.Informational,
                     cronService: _cronService, heartbeatService: _heartbeatService,
                     skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
                     automationsHandler: _automationsHandler,

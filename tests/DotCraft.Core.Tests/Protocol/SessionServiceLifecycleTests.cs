@@ -240,6 +240,64 @@ public sealed class SessionServiceLifecycleTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task FindThreads_CrossChannelOrigins_IncludesOtherChannelContexts()
+    {
+        var ws = "/ws/desktop";
+        var desktop = new SessionIdentity
+        {
+            ChannelName = "dotcraft-desktop",
+            UserId = "local",
+            WorkspacePath = ws,
+            ChannelContext = "workspace:" + ws
+        };
+        var cli = new SessionIdentity
+        {
+            ChannelName = "cli",
+            UserId = "local",
+            WorkspacePath = ws,
+            ChannelContext = null
+        };
+        await _svc.CreateThreadAsync(desktop);
+        await _svc.CreateThreadAsync(cli);
+
+        var desktopOnly = await _svc.FindThreadsAsync(desktop);
+        Assert.Single(desktopOnly);
+        Assert.Equal("dotcraft-desktop", desktopOnly[0].OriginChannel);
+
+        var merged = await _svc.FindThreadsAsync(desktop, crossChannelOrigins: ["cli"]);
+        Assert.Equal(2, merged.Count);
+    }
+
+    [Fact]
+    public async Task FindThreads_CrossChannelOrigins_IncludesCronWithSyntheticUserId()
+    {
+        var ws = "/ws/cron_cross";
+        var desktop = new SessionIdentity
+        {
+            ChannelName = "dotcraft-desktop",
+            UserId = "local",
+            WorkspacePath = ws,
+            ChannelContext = "workspace:" + ws
+        };
+        var cronIdentity = new SessionIdentity
+        {
+            ChannelName = "cron",
+            UserId = "cron:d9f53704",
+            WorkspacePath = ws,
+            ChannelContext = null
+        };
+        await _svc.CreateThreadAsync(desktop);
+        var cronThread = await _svc.CreateThreadAsync(cronIdentity);
+
+        var desktopOnly = await _svc.FindThreadsAsync(desktop);
+        Assert.Single(desktopOnly);
+
+        var merged = await _svc.FindThreadsAsync(desktop, crossChannelOrigins: ["cron"]);
+        Assert.Equal(2, merged.Count);
+        Assert.Contains(merged, s => s.Id == cronThread.Id && s.OriginChannel == "cron");
+    }
+
     // -------------------------------------------------------------------------
     // GetThread
     // -------------------------------------------------------------------------
@@ -432,17 +490,39 @@ internal sealed class FakeSessionService : ISessionService
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
         bool includeArchived = false,
+        IReadOnlyList<string>? crossChannelOrigins = null,
         CancellationToken ct = default)
     {
         var index = await _store.LoadIndexAsync(ct);
+        var hasCross = crossChannelOrigins is { Count: > 0 };
         return index
             .Where(s =>
-                string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase)
-                && (includeArchived || s.Status != ThreadStatus.Archived)
-                && (identity.UserId == null || s.UserId == identity.UserId)
-                && (identity.ChannelContext == null
-                    ? s.ChannelContext == null
-                    : s.ChannelContext == identity.ChannelContext))
+            {
+                if (!string.Equals(s.WorkspacePath, identity.WorkspacePath, StringComparison.OrdinalIgnoreCase))
+                    return false;
+                if (!(includeArchived || s.Status != ThreadStatus.Archived))
+                    return false;
+
+                var identityMatch =
+                    (identity.UserId == null || s.UserId == identity.UserId)
+                    && (identity.ChannelContext == null
+                        ? s.ChannelContext == null
+                        : s.ChannelContext == identity.ChannelContext);
+
+                if (identityMatch)
+                    return true;
+
+                if (!hasCross)
+                    return false;
+
+                foreach (var o in crossChannelOrigins!)
+                {
+                    if (string.Equals(o, s.OriginChannel, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+
+                return false;
+            })
             .OrderByDescending(s => s.LastActiveAt)
             .ToList();
     }

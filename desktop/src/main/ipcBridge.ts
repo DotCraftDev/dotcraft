@@ -69,8 +69,8 @@ export interface IpcHandlerCallbacks {
   onOpenNewWindow: () => void
   /** Returns the current settings object. */
   getSettings: () => AppSettings
-  /** Updates and persists partial settings. */
-  updateSettings: (partial: Partial<AppSettings>) => void
+  /** Updates and persists partial settings. `clearVisibleChannels` removes `visibleChannels` so AppServer uses workspace config. */
+  updateSettings: (partial: Partial<AppSettings> & { clearVisibleChannels?: boolean }) => void
   /** Returns the recent workspaces list. */
   getRecentWorkspaces: () => RecentWorkspace[]
 }
@@ -310,9 +310,12 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: merge + persist partial settings update
-  ipcMain.handle('settings:set', (_event, partial: Partial<AppSettings>) => {
-    callbacks?.updateSettings(partial)
-  })
+  ipcMain.handle(
+    'settings:set',
+    (_event, partial: Partial<AppSettings> & { clearVisibleChannels?: boolean }) => {
+      callbacks?.updateSettings(partial)
+    }
+  )
 
   if (workspacePath) {
     warmFileSearchIndex(workspacePath)

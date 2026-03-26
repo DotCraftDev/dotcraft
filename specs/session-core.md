@@ -865,7 +865,9 @@ If thread count grows large enough that scanning becomes slow, a `thread-index.j
 
 ### 9.5 Cross-Channel Resume Protocol
 
-`FindThreadsAsync` matches threads by three fields. `ChannelName` is **not** used as a filter:
+#### Default discovery (no `crossChannelOrigins`)
+
+`FindThreadsAsync(identity, includeArchived, crossChannelOrigins: null)` matches threads by three fields. `ChannelName` on the identity is **not** used as a filter:
 
 | Field | Behavior |
 |---|---|
@@ -878,9 +880,22 @@ This means cross-channel discovery is **natural for channels that share the same
 - **CLI and ACP** both use `UserId = "local"` and `ChannelContext = null`. They discover each other's threads automatically. A thread created in CLI appears in ACP's session list, and vice versa. This is by design — both are local, single-user channels on the same machine.
 - **QQ and WeCom** use per-user, per-context identifiers (`ChannelContext = "group:{id}"`, `"chat:{chatId}"`). Each conversation context has its own isolated thread pool. CLI and ACP cannot see QQ/WeCom threads and vice versa. This is also by design — social channel threads are scoped to their originating context.
 
-Resume flow:
+#### Opt-in cross-context discovery (`crossChannelOrigins`)
 
-1. **Discovery**: Adapter calls `FindThreadsAsync(identity)`. Returns threads matching `WorkspacePath` + `UserId` + `ChannelContext`.
+`FindThreadsAsync` accepts an optional fourth parameter: `crossChannelOrigins` (`IReadOnlyList<string>?`, default `null`).
+
+- When `crossChannelOrigins` is **null** or **empty**, behavior is identical to the default discovery above (no extra threads).
+- When **non-empty**, the result set is the union of:
+  1. Threads that satisfy the default identity predicate (`WorkspacePath` + `UserId` + `ChannelContext` as in the table above), **and**
+  2. Threads that match `WorkspacePath` (case-insensitive) + `OriginChannel` contained in `crossChannelOrigins` (case-insensitive string match), **ignoring `ChannelContext`**. This branch does **not** require `UserId` to match the request identity, so channels that use per-job or per-session synthetic user IDs (e.g. `cron:{jobId}`) still appear when the user opts in to that origin.
+
+The union is deduplicated by thread ID and ordered by `LastActiveAt` descending.
+
+This opt-in path exists so clients such as **DotCraft Desktop** (which uses a non-null `ChannelContext` such as `workspace:{path}`) can still list threads created by channels with a different context (e.g. CLI with `ChannelContext = null`) when the user explicitly allows those origin channels.
+
+#### Resume flow
+
+1. **Discovery**: Adapter calls `FindThreadsAsync(identity, includeArchived, crossChannelOrigins)`. Returns threads matching the combined predicate when `crossChannelOrigins` is set, otherwise the default predicate only.
 2. **Selection**: The adapter presents the list to the user, or auto-selects the most recently active thread.
 3. **Resume**: Adapter calls `ResumeThreadAsync(threadId)`. Session Core sets status to `Active` and updates `LastActiveAt`.
 4. **Session Load**: Session Core loads the `{threadId}.session.json` file, reconstructing the LLM context.

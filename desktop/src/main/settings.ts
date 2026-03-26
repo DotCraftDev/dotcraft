@@ -19,6 +19,12 @@ export interface AppSettings {
   /** Display language (BCP 47); omitted or invalid values are treated as English */
   locale?: AppLocale
   recentWorkspaces?: RecentWorkspace[]
+  /**
+   * When set, passed as `crossChannelOrigins` on `thread/list` so the sidebar can show
+   * threads from other channels (e.g. CLI). When omitted, the server uses workspace config
+   * defaults (see specs/desktop-client.md §9.4.1).
+   */
+  visibleChannels?: string[]
 }
 
 const MAX_RECENT = 20
