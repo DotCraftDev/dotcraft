@@ -138,7 +138,7 @@ flowchart LR
     GitHubSource["GitHub Source"]
 
     subgraph Workspace [".craft/"]
-        Core["**Unified Session Core**"]
+        Core["Unified Session Core"]
     end
 
     Dashboard["Dashboard"]
