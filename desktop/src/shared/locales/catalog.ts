@@ -62,7 +62,6 @@ const MESSAGES_EN = {
   'welcome.suggestion.docs': 'Generate documentation',
   'welcome.sendTitle': 'Send (Enter)',
   'welcome.sendAria': 'Send message',
-  'welcome.openDashboardHint': 'Open DashBoard in your browser for traces and sessions.',
 
   // Error screen
   'error.title.binary': 'DotCraft AppServer Not Found',
@@ -480,7 +479,6 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'welcome.suggestion.docs': '生成文档',
   'welcome.sendTitle': '发送 (Enter)',
   'welcome.sendAria': '发送消息',
-  'welcome.openDashboardHint': '在浏览器中打开 DashBoard，查看 Trace 与会话。',
 
   'error.title.binary': '未找到 DotCraft AppServer',
   'error.title.timeout': 'AppServer 无响应',
