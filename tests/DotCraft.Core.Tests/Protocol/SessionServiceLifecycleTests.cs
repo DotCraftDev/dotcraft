@@ -74,6 +74,38 @@ public sealed class SessionServiceLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteThreadPermanentlyAsync_InvokesThreadDeletedForBroadcast()
+    {
+        string? seenId = null;
+        _svc.ThreadDeletedForBroadcast = id => seenId = id;
+        var thread = await _svc.CreateThreadAsync(MakeIdentity());
+        await _svc.DeleteThreadPermanentlyAsync(thread.Id);
+        Assert.Equal(thread.Id, seenId);
+    }
+
+    [Fact]
+    public async Task RenameThreadAsync_InvokesThreadRenamedForBroadcast_WhenNameChanges()
+    {
+        SessionThread? seen = null;
+        _svc.ThreadRenamedForBroadcast = t => seen = t;
+        var thread = await _svc.CreateThreadAsync(MakeIdentity());
+        await _svc.RenameThreadAsync(thread.Id, "New title");
+        Assert.NotNull(seen);
+        Assert.Equal(thread.Id, seen!.Id);
+        Assert.Equal("New title", seen.DisplayName);
+    }
+
+    [Fact]
+    public async Task RenameThreadAsync_DoesNotInvokeThreadRenamedForBroadcast_WhenNameUnchanged()
+    {
+        var invokes = 0;
+        _svc.ThreadRenamedForBroadcast = _ => invokes++;
+        var thread = await _svc.CreateThreadAsync(MakeIdentity(), displayName: "Same");
+        await _svc.RenameThreadAsync(thread.Id, "Same");
+        Assert.Equal(0, invokes);
+    }
+
+    [Fact]
     public async Task CreateThread_IdFormat_IsValid()
     {
         var thread = await _svc.CreateThreadAsync(MakeIdentity());
@@ -430,6 +462,12 @@ internal sealed class FakeSessionService : ISessionService
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public Action<string>? ThreadDeletedForBroadcast { get; set; }
+
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
+
     public async Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
@@ -497,8 +535,11 @@ internal sealed class FakeSessionService : ISessionService
     public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
     {
         var thread = await GetOrLoadAsync(threadId, ct);
+        var previous = thread.DisplayName;
         thread.DisplayName = displayName;
         await _store.SaveThreadAsync(thread, ct);
+        if (previous != displayName)
+            ThreadRenamedForBroadcast?.Invoke(thread);
     }
 
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
@@ -589,6 +630,7 @@ internal sealed class FakeSessionService : ISessionService
         _threads.Remove(threadId);
         _store.DeleteThread(threadId);
         _store.DeleteSessionFile(threadId);
+        ThreadDeletedForBroadcast?.Invoke(threadId);
         return Task.CompletedTask;
     }
 

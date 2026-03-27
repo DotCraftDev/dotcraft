@@ -1,4 +1,3 @@
-using System.Threading;
 using DotCraft.Configuration;
 using DotCraft.Context;
 using DotCraft.Tracing;

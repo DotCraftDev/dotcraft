@@ -25,7 +25,8 @@ public sealed class ExternalChannelHost(
     ExternalChannelEntry config,
     ISessionService sessionService,
     string serverVersion,
-    ModuleRegistry moduleRegistry)
+    ModuleRegistry moduleRegistry,
+    string hostWorkspacePath)
     : IChannelService
 {
     private readonly ExternalChannelEntry _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -247,7 +248,8 @@ public sealed class ExternalChannelHost(
         _handler = new AppServerRequestHandler(
             _sessionService, _connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
-            serverVersion);
+            serverVersion,
+            hostWorkspacePath: hostWorkspacePath);
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -373,7 +375,8 @@ public sealed class ExternalChannelHost(
         _handler = new AppServerRequestHandler(
             _sessionService, connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
-            serverVersion);
+            serverVersion,
+            hostWorkspacePath: hostWorkspacePath);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +

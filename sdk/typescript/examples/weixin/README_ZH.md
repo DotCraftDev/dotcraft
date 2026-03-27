@@ -34,6 +34,8 @@ npm start
 | `config.example.json` | **DotCraft** 工作区配置片段：启用 `ExternalChannels.weixin`（WebSocket）。 |
 | `adapter_config.json` | **微信适配器**运行时配置（随仓库提供，直接编辑）。 |
 
+本适配器在 `thread/start` 中不传工作区路径；DotCraft AppServer 会将空身份中的工作区替换为宿主进程的工作区根目录，因此 Desktop 等客户端可在同一项目下列出这些线程。
+
 ## 命令
 
 在对话中发送 **`/new`**（整段消息仅为此命令，不区分大小写）可结束当前会话线程并开启新对话，下一条消息会进入新线程；与 Telegram 示例中的 `/new` 一致。若当时有待处理的审批，会先按取消处理。

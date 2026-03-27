@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.Json;
 using DotCraft.GitHubTracker.Tests.Fakes;
 using DotCraft.GitHubTracker.Tracker;

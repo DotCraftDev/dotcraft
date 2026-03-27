@@ -3,8 +3,9 @@ Entry point: python -m dotcraft_telegram
 
 Reads configuration from environment variables:
   TELEGRAM_BOT_TOKEN   (required) Telegram bot token from @BotFather
-  DOTCRAFT_WORKSPACE   (optional) Workspace path passed to thread/start
   HTTPS_PROXY          (optional) HTTPS proxy URL for Telegram API
+
+Workspace identity for threads is normalized on the DotCraft AppServer host when the adapter omits it.
 """
 
 import asyncio
@@ -30,12 +31,10 @@ async def main() -> None:
         )
         sys.exit(1)
 
-    workspace = os.environ.get("DOTCRAFT_WORKSPACE", "")
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
 
     adapter = TelegramAdapter(
         bot_token=token,
-        workspace_path=workspace,
         proxy=proxy,
     )
 

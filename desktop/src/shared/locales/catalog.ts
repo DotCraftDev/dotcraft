@@ -19,6 +19,7 @@ const MESSAGES_EN = {
   'menu.help': 'Help',
   'menu.newWindow': 'New Window',
   'menu.documentation': 'Documentation',
+  'menu.openDashboard': 'Open DashBoard',
 
   // Settings
   'settings.title': 'Settings',
@@ -61,6 +62,7 @@ const MESSAGES_EN = {
   'welcome.suggestion.docs': 'Generate documentation',
   'welcome.sendTitle': 'Send (Enter)',
   'welcome.sendAria': 'Send message',
+  'welcome.openDashboardHint': 'Open DashBoard in your browser for traces and sessions.',
 
   // Error screen
   'error.title.binary': 'DotCraft AppServer Not Found',
@@ -76,6 +78,10 @@ const MESSAGES_EN = {
 
   // Sidebar
   'sidebar.automations': 'Automations',
+  'sidebar.dashboard': 'DashBoard',
+  'sidebar.dashboardDisabledConnect': 'Connect to the AppServer to open DashBoard',
+  'sidebar.dashboardDisabledNoUrl': 'DashBoard is not hosted by the server (enable DashBoard in config)',
+  'sidebar.dashboardOpenTitle': 'Open DashBoard in browser',
   'sidebar.skills': 'Skills',
   'sidebar.automationsDisabled':
     'Automations and Cron require server modules (automations and/or cronManagement)',
@@ -433,6 +439,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'menu.help': '帮助',
   'menu.newWindow': '新建窗口',
   'menu.documentation': '文档',
+  'menu.openDashboard': '打开 DashBoard',
 
   'settings.title': '设置',
   'settings.language': '语言',
@@ -473,6 +480,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'welcome.suggestion.docs': '生成文档',
   'welcome.sendTitle': '发送 (Enter)',
   'welcome.sendAria': '发送消息',
+  'welcome.openDashboardHint': '在浏览器中打开 DashBoard，查看 Trace 与会话。',
 
   'error.title.binary': '未找到 DotCraft AppServer',
   'error.title.timeout': 'AppServer 无响应',
@@ -486,6 +494,10 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'error.details': '错误详情',
 
   'sidebar.automations': '自动化',
+  'sidebar.dashboard': 'DashBoard',
+  'sidebar.dashboardDisabledConnect': '请先连接 AppServer 后再打开 DashBoard',
+  'sidebar.dashboardDisabledNoUrl': '服务器未托管 DashBoard（请在配置中启用 DashBoard）',
+  'sidebar.dashboardOpenTitle': '在浏览器中打开 DashBoard',
   'sidebar.skills': '技能',
   'sidebar.automationsDisabled': '自动化与定时任务需要服务器启用 automations 和/或 cronManagement 模块',
   'sidebar.expand': '展开侧栏 (Ctrl+B)',

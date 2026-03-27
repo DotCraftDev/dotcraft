@@ -45,7 +45,8 @@ internal sealed class AppServerTestHarness : IDisposable
             Service, Connection, Transport,
             new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
             serverVersion: "0.0.1-test",
-            defaultApprovalDecision: defaultApprovalDecision);
+            defaultApprovalDecision: defaultApprovalDecision,
+            hostWorkspacePath: _tempDir);
 
         Identity = new SessionIdentity
         {

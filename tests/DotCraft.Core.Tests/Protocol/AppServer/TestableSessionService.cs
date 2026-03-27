@@ -24,6 +24,12 @@ internal sealed class TestableSessionService : ISessionService
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public Action<string>? ThreadDeletedForBroadcast { get; set; }
+
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
+
     public TestableSessionService(ThreadStore store) => _store = store;
 
     // -------------------------------------------------------------------------
@@ -108,8 +114,11 @@ internal sealed class TestableSessionService : ISessionService
     public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
     {
         var t = await GetOrLoadAsync(threadId, ct);
+        var previous = t.DisplayName;
         t.DisplayName = displayName;
         await _store.SaveThreadAsync(t, ct);
+        if (previous != displayName)
+            ThreadRenamedForBroadcast?.Invoke(t);
     }
 
     public async Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
@@ -174,6 +183,7 @@ internal sealed class TestableSessionService : ISessionService
         _cache.Remove(threadId);
         _store.DeleteThread(threadId);
         _store.DeleteSessionFile(threadId);
+        ThreadDeletedForBroadcast?.Invoke(threadId);
         return Task.CompletedTask;
     }
 

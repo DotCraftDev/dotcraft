@@ -237,6 +237,7 @@ export class DotCraftClient {
     let resolveWait: (() => void) | null = null;
     const allMethods = [
       "thread/started",
+      "thread/renamed",
       "thread/resumed",
       "thread/statusChanged",
       "turn/started",

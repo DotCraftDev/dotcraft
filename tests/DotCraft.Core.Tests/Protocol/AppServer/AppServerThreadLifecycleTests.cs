@@ -43,6 +43,21 @@ public sealed class AppServerThreadLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task ThreadStart_OmitsWorkspacePath_NormalizesToHostWorkspace()
+    {
+        var msg = _h.BuildRequest(AppServerMethods.ThreadStart, new
+        {
+            identity = new { channelName = "appserver", userId = "test_user_no_ws" }
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        var thread = response.RootElement.GetProperty("result").GetProperty("thread");
+        Assert.Equal(_h.Identity.WorkspacePath, thread.GetProperty("workspacePath").GetString());
+    }
+
+    [Fact]
     public async Task ThreadStart_EmitsThreadStartedNotification()
     {
         var msg = _h.BuildRequest(AppServerMethods.ThreadStart, new

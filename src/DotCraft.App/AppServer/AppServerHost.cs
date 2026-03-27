@@ -22,6 +22,8 @@ using DotCraft.Automations.Orchestrator;
 using DotCraft.Automations.Protocol;
 using DotCraft.Tracing;
 using DotCraft.ExternalChannel;
+using DotCraft.Channels;
+using DotCraft.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,7 +48,7 @@ public sealed class AppServerHost(
     PathBlacklist blacklist,
     McpClientManager mcpClientManager,
     ModuleRegistry moduleRegistry,
-    ExternalChannel.ExternalChannelRegistry? externalChannelRegistry = null) : IDotCraftHost
+    ExternalChannelRegistry? externalChannelRegistry = null) : IDotCraftHost
 {
     private AgentFactory? _agentFactory;
 
@@ -63,6 +65,13 @@ public sealed class AppServerHost(
     private HeartbeatService? _heartbeatService;
 
     private IAutomationsRequestHandler? _automationsHandler;
+
+    private ChannelRunner? _channelRunner;
+
+    /// <summary>
+    /// DashBoard URL when <see cref="ChannelRunner"/> hosts it; exposed via wire <c>initialize</c>.
+    /// </summary>
+    private string? _dashboardUrl;
 
     /// <summary>
     /// Thread-safe set of currently connected transports. Used to broadcast
@@ -97,7 +106,7 @@ public sealed class AppServerHost(
             approvalService: scopedApproval,
             blacklist,
             toolProviders: toolProviders,
-            toolProviderContext: new Abstractions.ToolProviderContext
+            toolProviderContext: new ToolProviderContext
             {
                 Config = config,
                 ChatClient = new OpenAIClient(
@@ -121,12 +130,9 @@ public sealed class AppServerHost(
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
+        sessionService.ThreadDeletedForBroadcast = BroadcastThreadDeleted;
+        sessionService.ThreadRenamedForBroadcast = BroadcastThreadRenamed;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
-
-        // Linked CTS for WebSocket external channel hosts — cancelled when the main run loop exits
-        // so adapter processes stop alongside stdio/WebSocket shutdown.
-        using var extChannelCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        List<Task>? extChannelTasks = null;
 
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
         // The agent stack (sessionService, agentFactory) lives here, so execution is
@@ -138,48 +144,7 @@ public sealed class AppServerHost(
         // system/jobResult wire notifications instead of console output.
         var runner = new AgentRunner(paths.WorkspacePath, sessionService, quiet: true);
 
-        cronService.OnJob = async job =>
-        {
-            var sessionKey = $"cron:{job.Id}";
-            AgentRunResult? run;
-            try
-            {
-                run = await runner.RunAsync(job.Payload.Message, sessionKey, job.Name, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Cron job {job.Id} failed: {Markup.Escape(ex.Message)}[/]");
-                return new CronOnJobResult(null, null, ex.Message, false, null, null);
-            }
-
-            var channel = job.Payload.Channel;
-            var isCliChannel = channel == null
-                || string.Equals(channel, "cli", StringComparison.OrdinalIgnoreCase);
-            if (job.Payload.Deliver && isCliChannel)
-            {
-                if (run != null && run.Error == null)
-                    BroadcastJobResult("cron", job.Id, job.Name, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
-                else if (run != null && run.Error != null)
-                    BroadcastJobResult("cron", job.Id, job.Name, result: null, error: run.Error, run.ThreadId, run.InputTokens, run.OutputTokens);
-            }
-            else if (job.Payload.Deliver
-                     && !isCliChannel
-                     && !string.IsNullOrEmpty(channel)
-                     && externalChannelRegistry is { } registry
-                     && registry.TryGet(channel, out var extHost)
-                     && extHost is not null)
-            {
-                var target = job.Payload.To ?? job.Payload.CreatorId ?? "";
-                var content = run?.Error == null
-                    ? (run?.Result ?? "")
-                    : $"[Cron] {job.Name}\n{run.Error}";
-                if (!string.IsNullOrEmpty(content) || run?.Error != null)
-                    await extHost.DeliverMessageAsync(target, content);
-            }
-
-            var ok = run != null && run.Error == null;
-            return new CronOnJobResult(run?.ThreadId, run?.Result, run?.Error, ok, run?.InputTokens, run?.OutputTokens);
-        };
+        var messageRouter = sp.GetRequiredService<MessageRouter>();
 
         cronService.CronJobPersistedAfterExecution = (job, id, removed) =>
         {
@@ -212,18 +177,6 @@ public sealed class AppServerHost(
             enabled: config.Heartbeat.Enabled);
         _heartbeatService = heartbeatService;
 
-        if (config.Cron.Enabled)
-        {
-            cronService.Start();
-            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Cron service started ({cronService.ListJobs().Count} jobs)");
-        }
-
-        if (config.Heartbeat.Enabled)
-        {
-            heartbeatService.Start();
-            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Heartbeat started (interval: {config.Heartbeat.IntervalSeconds}s)");
-        }
-
         _automationsHandler = sp.GetService<IAutomationsRequestHandler>();
         var orchestrator = sp.GetService<AutomationOrchestrator>();
         AutomationOrchestrator? automationOrchestratorStarted = null;
@@ -240,27 +193,75 @@ public sealed class AppServerHost(
             automationOrchestratorStarted = orchestrator;
         }
 
-        // WebSocket external channels: populate registry and start hosts (GatewayHost does this when
-        // gateway is primary; AppServer is often primary so we must bootstrap here).
-        if (ExternalChannelManager.HasEnabledChannels(config) && externalChannelRegistry != null)
+        // Native channels, external channels, and DashBoard share WebHostPool + MessageRouter (Gateway parity).
+        _dashboardUrl = null;
+        _channelRunner = ChannelRunner.TryCreateForAppServer(sp, config, paths, moduleRegistry);
+        if (_channelRunner != null)
         {
-            var nativeChannelNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var ecManager = new ExternalChannelManager(
-                config, sessionService, nativeChannelNames, moduleRegistry, externalChannelRegistry);
-
-            if (ecManager.Channels.Count > 0)
-            {
-                foreach (var ch in ecManager.Channels)
-                {
-                    ch.HeartbeatService = heartbeatService;
-                    ch.CronService = cronService;
-                }
-
-                extChannelTasks = ecManager.Channels
-                    .Select(ch => RunExternalChannelAsync(ch, extChannelCts.Token))
-                    .ToList();
-            }
+            _channelRunner.Initialize(sessionService, heartbeatService, cronService);
+            await _channelRunner.StartWebPoolAsync();
+            _dashboardUrl = _channelRunner.DashBoardUrl;
         }
+
+        cronService.OnJob = async job =>
+        {
+            var sessionKey = $"cron:{job.Id}";
+            AgentRunResult? run;
+            try
+            {
+                run = await runner.RunAsync(job.Payload.Message, sessionKey, job.Name, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[grey][[AppServer]][/] [red]Cron job {job.Id} failed: {Markup.Escape(ex.Message)}[/]");
+                return new CronOnJobResult(null, null, ex.Message, false, null, null);
+            }
+
+            var channel = job.Payload.Channel;
+            var isCliChannel = channel == null
+                || string.Equals(channel, "cli", StringComparison.OrdinalIgnoreCase);
+            if (job.Payload.Deliver && isCliChannel)
+            {
+                if (run != null && run.Error == null)
+                    BroadcastJobResult("cron", job.Id, job.Name, run.Result, error: null, run.ThreadId, run.InputTokens, run.OutputTokens);
+                else if (run != null && run.Error != null)
+                    BroadcastJobResult("cron", job.Id, job.Name, result: null, error: run.Error, run.ThreadId, run.InputTokens, run.OutputTokens);
+            }
+            else if (job.Payload.Deliver
+                     && !isCliChannel
+                     && !string.IsNullOrEmpty(channel))
+            {
+                var target = job.Payload.To ?? job.Payload.CreatorId ?? "";
+                var content = run?.Error == null
+                    ? (run?.Result ?? "")
+                    : $"[Cron] {job.Name}\n{run.Error}";
+                if (!string.IsNullOrEmpty(content) || run?.Error != null)
+                    await messageRouter.DeliverAsync(channel, target, content);
+            }
+
+            var ok = run != null && run.Error == null;
+            return new CronOnJobResult(run?.ThreadId, run?.Result, run?.Error, ok, run?.InputTokens, run?.OutputTokens);
+        };
+
+        if (config.Heartbeat.NotifyAdmin)
+        {
+            heartbeatService.OnResult = async result =>
+                await messageRouter.BroadcastToAdminsAsync($"[Heartbeat] {result}");
+        }
+
+        if (config.Cron.Enabled)
+        {
+            cronService.Start();
+            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Cron service started ({cronService.ListJobs().Count} jobs)");
+        }
+
+        if (config.Heartbeat.Enabled)
+        {
+            heartbeatService.Start();
+            AnsiConsole.MarkupLine($"[grey][[AppServer]][/] Heartbeat started (interval: {config.Heartbeat.IntervalSeconds}s)");
+        }
+
+        _channelRunner?.BeginChannelLoops(cancellationToken);
 
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
 
@@ -293,18 +294,19 @@ public sealed class AppServerHost(
         }
         finally
         {
-            if (extChannelTasks is { Count: > 0 })
+            if (_channelRunner != null)
             {
                 try
                 {
-                    await extChannelCts.CancelAsync();
-                    await Task.WhenAll(extChannelTasks);
+                    await _channelRunner.DisposeAsync();
                 }
                 catch (Exception ex)
                 {
                     AnsiConsole.MarkupLine(
-                        $"[grey][[AppServer]][/] [yellow]External channel shutdown: {Markup.Escape(ex.Message)}[/]");
+                        $"[grey][[AppServer]][/] [yellow]Channel runner shutdown: {Markup.Escape(ex.Message)}[/]");
                 }
+
+                _channelRunner = null;
             }
 
             if (automationOrchestratorStarted != null)
@@ -335,9 +337,11 @@ public sealed class AppServerHost(
             serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
+            hostWorkspacePath: paths.WorkspacePath,
             automationsHandler: _automationsHandler,
             broadcastCronStateChanged: BroadcastCronStateChanged,
-            commitMessageSuggest: commitMessageSuggest);
+            commitMessageSuggest: commitMessageSuggest,
+            dashboardUrl: _dashboardUrl);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -392,9 +396,11 @@ public sealed class AppServerHost(
             serverVersion: AppVersion.Informational,
             cronService: _cronService, heartbeatService: _heartbeatService,
             skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
+            hostWorkspacePath: paths.WorkspacePath,
             automationsHandler: _automationsHandler,
             broadcastCronStateChanged: BroadcastCronStateChanged,
-            commitMessageSuggest: commitMessageSuggest);
+            commitMessageSuggest: commitMessageSuggest,
+            dashboardUrl: _dashboardUrl);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -419,7 +425,7 @@ public sealed class AppServerHost(
         ISessionService sessionService,
         ICommitMessageSuggestService commitMessageSuggest,
         CancellationToken hostCt,
-        ExternalChannel.ExternalChannelRegistry? channelRegistry = null)
+        ExternalChannelRegistry? channelRegistry = null)
     {
         // Refuse to start if the binding is non-loopback without a token (spec §15.4)
         var isLoopback = wsConfig.Host is "127.0.0.1" or "::1" or "[::1]" or "localhost";
@@ -471,9 +477,11 @@ public sealed class AppServerHost(
                     serverVersion: AppVersion.Informational,
                     cronService: _cronService, heartbeatService: _heartbeatService,
                     skillsLoader: skillsLoader, workspaceCraftPath: paths.CraftPath,
+                    hostWorkspacePath: paths.WorkspacePath,
                     automationsHandler: _automationsHandler,
                     broadcastCronStateChanged: BroadcastCronStateChanged,
-                    commitMessageSuggest: commitMessageSuggest);
+                    commitMessageSuggest: commitMessageSuggest,
+                    dashboardUrl: _dashboardUrl);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
@@ -824,6 +832,78 @@ public sealed class AppServerHost(
     }
 
     /// <summary>
+    /// Broadcasts <c>thread/renamed</c> to all connected transports when a thread's display name changes
+    /// (Wire <c>thread/rename</c>, first-message title, or any <see cref="ISessionService.RenameThreadAsync"/> caller).
+    /// </summary>
+    private void BroadcastThreadRenamed(SessionThread thread)
+    {
+        if (string.IsNullOrEmpty(thread.DisplayName))
+            return;
+
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadRenamed,
+            @params = new { threadId = thread.Id, displayName = thread.DisplayName }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadRenamed))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts <c>thread/deleted</c> to all connected transports after permanent thread removal
+    /// (Wire <c>thread/delete</c>, DashBoard, etc.).
+    /// </summary>
+    private void BroadcastThreadDeleted(string threadId)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadDeleted,
+            @params = new { threadId }
+        };
+
+        var skipTransport = AppServerRequestContext.CurrentTransport;
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadDeleted))
+                continue;
+
+            if (skipTransport != null && ReferenceEquals(transport, skipTransport))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
     /// Broadcasts a <c>plan/updated</c> JSON-RPC notification to all connected transports.
     /// Called from the <c>onPlanUpdated</c> callback injected into <see cref="AgentFactory"/>.
     /// The callback fires synchronously on the tool execution thread; transport writes are
@@ -895,26 +975,6 @@ public sealed class AppServerHost(
                     _activeTransports.TryRemove(transport, out _);
                 }
             });
-        }
-    }
-
-    /// <summary>
-    /// Runs an external channel host until cancelled (mirrors <see cref="Gateway.GatewayHost.RunChannelAsync"/>).
-    /// </summary>
-    private static async Task RunExternalChannelAsync(IChannelService channel, CancellationToken ct)
-    {
-        try
-        {
-            await channel.StartAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            // Normal shutdown
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine(
-                $"[grey][[AppServer]][/] [red]External channel '{Markup.Escape(channel.Name)}' failed: {Markup.Escape(ex.Message)}[/]");
         }
     }
 

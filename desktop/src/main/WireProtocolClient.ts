@@ -23,6 +23,8 @@ export interface ServerCapabilities {
 export interface InitializeResult {
   serverInfo: ServerInfo
   capabilities: ServerCapabilities
+  /** Present when AppServer hosts DashBoard (initialize result). */
+  dashboardUrl?: string
 }
 
 interface PendingRequest {
@@ -325,6 +327,7 @@ export class WireProtocolClient extends EventEmitter {
     const result = await this.sendRequest<{
       serverInfo: ServerInfo
       capabilities: ServerCapabilities
+      dashboardUrl?: string
     }>(
       'initialize',
       {

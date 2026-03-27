@@ -226,6 +226,20 @@ export function App(): JSX.Element {
             break
           }
 
+          case 'thread/renamed': {
+            const pp = p as { threadId: string; displayName: string }
+            if (pp.displayName?.trim()) {
+              useThreadStore.getState().renameThread(pp.threadId, pp.displayName)
+            }
+            break
+          }
+
+          case 'thread/deleted': {
+            const pp = p as { threadId: string }
+            useThreadStore.getState().removeThread(pp.threadId)
+            break
+          }
+
           case 'thread/statusChanged': {
             const pp = p as { threadId: string; newStatus: string }
             doUpdateStatus(pp.threadId, pp.newStatus as 'active' | 'paused' | 'archived')
@@ -298,9 +312,8 @@ export function App(): JSX.Element {
               // Clear the pending message now that we've sent it
               useConversationStore.getState().setPendingMessage(null)
             }
-            // Refresh thread name: server auto-sets displayName from the first user message.
-            // Since there is no thread/renamed notification, we poll once after each completed
-            // turn if the thread still has no custom name.
+            // Fallback: poll thread/read if sidebar still has no displayName (e.g. missed thread/renamed).
+            // Primary updates come from thread/renamed broadcast and thread/read on selection.
             if (completedThreadId) {
               const ts = useThreadStore.getState()
               const threadEntry = ts.threadList.find((t) => t.id === completedThreadId)
@@ -720,6 +733,15 @@ export function App(): JSX.Element {
           }
           const res = result as { thread: Thread }
           useThreadStore.getState().setActiveThread(res.thread)
+          {
+            const name = res.thread.displayName?.trim()
+            if (name) {
+              const entry = useThreadStore.getState().threadList.find((t) => t.id === requestedId)
+              if (entry && entry.displayName !== name) {
+                useThreadStore.getState().renameThread(requestedId, name)
+              }
+            }
+          }
           // Populate conversationStore with historical turns
           const rawTurns = (res.thread.turns ?? []) as unknown as Array<Record<string, unknown>>
           const convTurns = rawTurns.map(wireTurnToConversationTurn)

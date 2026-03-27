@@ -53,6 +53,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const sendInFlightRef = useRef(false)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
+  const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
   const { addThread, setActiveThreadId } = useThreadStore()
 
   const isConnected = connectionStatus === 'connected'
@@ -275,6 +276,25 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               ? t('welcomeComposer.hint.select')
               : t('welcomeComposer.hint.connecting')}
           </p>
+          {isConnected && dashboardUrl ? (
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: '10px 0 0 0', textAlign: 'center', maxWidth: '420px' }}>
+              <button
+                type="button"
+                onClick={() => void window.api.shell.openExternal(dashboardUrl)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--accent)',
+                  cursor: 'pointer',
+                  padding: 0,
+                  font: 'inherit',
+                  textDecoration: 'underline'
+                }}
+              >
+                {t('welcome.openDashboardHint')}
+              </button>
+            </p>
+          ) : null}
         </div>
 
         {isConnected && (

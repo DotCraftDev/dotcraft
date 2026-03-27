@@ -13,6 +13,7 @@ export interface ConnectionStatusPayload {
     protocolVersion?: string
   }
   capabilities?: Record<string, unknown>
+  dashboardUrl?: string
   errorMessage?: string
   errorType?: 'binary-not-found' | 'handshake-timeout' | 'crash'
 }
@@ -52,6 +53,8 @@ declare global {
       }
       shell: {
         openPath(path: string): Promise<string>
+        /** Opens http(s) URLs in the system browser (validated in the main process). */
+        openExternal(url: string): Promise<void>
       }
       file: {
         writeFile(absPath: string, content: string): Promise<void>

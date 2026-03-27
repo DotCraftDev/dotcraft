@@ -59,11 +59,10 @@ async def main():
         client_version="1.0.0",
     )
 
-    # 创建线程
+    # 创建线程（不传 workspace_path；由 AppServer 使用宿主工作区根目录）
     thread = await client.thread_start(
         channel_name="my-channel",
         user_id="user-123",
-        workspace_path="/path/to/workspace",
     )
 
     # 提交对话轮次并流式接收事件
@@ -182,7 +181,6 @@ result = await client.initialize(
 thread = await client.thread_start(
     channel_name="telegram",
     user_id="12345",
-    workspace_path="/workspace",
     channel_context="group:67890",   # 可选
     display_name="我的线程",          # 可选
     history_mode="server",           # "server" | "client"

@@ -59,8 +59,7 @@ pip install -r sdk/python/examples/telegram/requirements.txt
       "args": ["-m", "dotcraft_telegram"],
       "workingDirectory": "sdk/python/examples/telegram",
       "env": {
-        "TELEGRAM_BOT_TOKEN": "your-bot-token-here",
-        "DOTCRAFT_WORKSPACE": ""
+        "TELEGRAM_BOT_TOKEN": "your-bot-token-here"
       }
     }
   }
@@ -83,7 +82,6 @@ DotCraft 会自动以子进程方式启动 Telegram 适配器。你可以在 std
 
 ```bash
 export TELEGRAM_BOT_TOKEN="your-token-here"
-export DOTCRAFT_WORKSPACE="/path/to/workspace"
 cd sdk/python/examples/telegram
 python -m dotcraft_telegram
 ```
@@ -95,7 +93,6 @@ python -m dotcraft_telegram
 | 变量 | 必填 | 说明 |
 |------|------|------|
 | `TELEGRAM_BOT_TOKEN` | 是 | 来自 @BotFather 的 Bot Token。 |
-| `DOTCRAFT_WORKSPACE` | 否 | 传给 `thread/start` 的工作区路径。默认为空（使用服务器配置的工作区根目录）。 |
 | `HTTPS_PROXY` | 否 | Telegram API 的 HTTPS 代理 URL（在网络受限环境中使用）。 |
 
 ## 命令

@@ -59,8 +59,7 @@ Add the following to your DotCraft `config.json`. Replace `your-bot-token-here` 
       "args": ["-m", "dotcraft_telegram"],
       "workingDirectory": "sdk/python/examples/telegram",
       "env": {
-        "TELEGRAM_BOT_TOKEN": "your-bot-token-here",
-        "DOTCRAFT_WORKSPACE": ""
+        "TELEGRAM_BOT_TOKEN": "your-bot-token-here"
       }
     }
   }
@@ -83,7 +82,6 @@ You can also run the adapter outside DotCraft to test it in isolation (WebSocket
 
 ```bash
 export TELEGRAM_BOT_TOKEN="your-token-here"
-export DOTCRAFT_WORKSPACE="/path/to/workspace"
 cd sdk/python/examples/telegram
 python -m dotcraft_telegram
 ```
@@ -95,7 +93,6 @@ python -m dotcraft_telegram
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather. |
-| `DOTCRAFT_WORKSPACE` | No | Workspace path passed to `thread/start`. Defaults to empty (server's configured workspace root). |
 | `HTTPS_PROXY` | No | HTTPS proxy URL for the Telegram API (useful in restricted networks). |
 
 ## Commands

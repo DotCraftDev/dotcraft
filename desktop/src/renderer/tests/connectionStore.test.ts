@@ -17,6 +17,7 @@ describe('connectionStore', () => {
     expect(state.serverInfo).toBeNull()
     expect(state.capabilities).toBeNull()
     expect(state.errorMessage).toBeNull()
+    expect(state.dashboardUrl).toBeNull()
   })
 
   it('transitions to "connected" with serverInfo and capabilities', () => {
@@ -31,6 +32,17 @@ describe('connectionStore', () => {
     expect(state.serverInfo?.name).toBe('dotcraft')
     expect(state.serverInfo?.version).toBe('0.2.0')
     expect(state.capabilities?.threadManagement).toBe(true)
+    expect(state.dashboardUrl).toBeNull()
+  })
+
+  it('stores dashboardUrl when connected and payload includes it', () => {
+    useConnectionStore.getState().setStatus({
+      status: 'connected',
+      serverInfo: { name: 'dotcraft', version: '0.2.0' },
+      capabilities: {},
+      dashboardUrl: 'http://127.0.0.1:8080/dashboard'
+    })
+    expect(useConnectionStore.getState().dashboardUrl).toBe('http://127.0.0.1:8080/dashboard')
   })
 
   it('transitions to "disconnected" with reconnect message', () => {
@@ -50,6 +62,7 @@ describe('connectionStore', () => {
     expect(state.status).toBe('disconnected')
     expect(state.errorMessage).toBe('Connection lost. Reconnecting...')
     expect(state.serverInfo).toBeNull()
+    expect(state.dashboardUrl).toBeNull()
   })
 
   it('transitions to "error" with binary-not-found errorType', () => {
@@ -89,6 +102,7 @@ describe('connectionStore', () => {
     const state = useConnectionStore.getState()
     expect(state.serverInfo).toBeNull()
     expect(state.capabilities).toBeNull()
+    expect(state.dashboardUrl).toBeNull()
   })
 
   it('resets to initial state', () => {

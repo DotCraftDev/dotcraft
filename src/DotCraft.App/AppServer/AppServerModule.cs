@@ -1,8 +1,11 @@
 using DotCraft.Abstractions;
 using DotCraft.Configuration;
+using DotCraft.ExternalChannel;
+using DotCraft.Gateway;
 using DotCraft.Hosting;
 using DotCraft.Modules;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DotCraft.AppServer;
 
@@ -16,6 +19,15 @@ public sealed partial class AppServerModule : ModuleBase
     /// <inheritdoc />
     public override bool IsEnabled(AppConfig config) =>
         config.GetSection<AppServerConfig>("AppServer").Mode != AppServerMode.Disabled;
+
+    /// <inheritdoc />
+    public override void ConfigureServices(IServiceCollection services, ModuleContext context)
+    {
+        // When gateway submodule is disabled, AppServer still needs MessageRouter / ExternalChannelRegistry
+        // for ChannelRunner (native channels, external channels, cron delivery).
+        services.TryAddSingleton(_ => new MessageRouter());
+        services.TryAddSingleton<ExternalChannelRegistry>();
+    }
 }
 
 /// <summary>

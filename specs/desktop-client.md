@@ -204,7 +204,7 @@ Application state lives in the Renderer Process. It is the single source of trut
 | Domain | Key State | Updated By |
 |--------|-----------|------------|
 | **Connection** | `status` (connecting / connected / disconnected / error), `serverInfo`, `capabilities` | Main Process IPC events |
-| **Threads** | `threadList` (ThreadSummary[]), `activeThreadId`, `threadCache` (Map of threadId → full Thread with turns) | `thread/list` response, `thread/started`, `thread/statusChanged` notifications |
+| **Threads** | `threadList` (ThreadSummary[]), `activeThreadId`, `threadCache` (Map of threadId → full Thread with turns) | `thread/list` response, `thread/started`, `thread/renamed`, `thread/deleted`, `thread/statusChanged` notifications |
 | **ActiveTurn** | `turnStatus` (idle / running / waitingApproval), `streamingMessage`, `streamingReasoning`, `activeToolCalls`, `turnStartedAt` | `turn/started`, `item/*` notifications, `turn/completed` / `turn/failed` / `turn/cancelled` |
 | **SubAgents** | `entries` (SubAgentEntry[]) | `subagent/progress` notifications (full snapshot replacement) |
 | **Plan** | `plan` ({ title, overview, todos }) or null | `plan/updated` notifications (full snapshot replacement) |
@@ -278,6 +278,8 @@ This section defines how Wire Protocol notifications are mapped to Renderer stat
 | Wire Method | State Mutation |
 |-------------|---------------|
 | `thread/started` | Prepend new thread to `threadList` (skip if `thread.id` already present). If this client initiated the creation via `thread/start`, set `activeThreadId` to the new thread. Same notification may arrive when another channel creates a thread in the shared server process. |
+| `thread/renamed` | Update `displayName` for the matching `threadId` in `threadList` (no-op if absent). Duplicate deliveries with the same name are idempotent. Used when another channel renames a thread or when Session Core sets the title from the first user message; cross-channel threads may otherwise stay on the default “New conversation” label until this fires or the user opens the thread (see `thread/read` merge below). |
+| `thread/deleted` | Remove the thread with matching `threadId` from `threadList` (no-op if absent). Clear `activeThreadId` and conversation state if that thread was selected. Applies when deletion originated from DashBoard, another client, or this client’s own `thread/delete` (dedupe is harmless). |
 | `thread/resumed` | Update thread status in `threadList`. Set `activeThreadId`. |
 | `thread/statusChanged` | Update matching thread's status in `threadList`. If the active thread was archived/paused, clear `activeThreadId` or show notification. |
 
@@ -522,7 +524,7 @@ DotCraft Desktop uses a workspace-scoped `channelContext` (e.g. `workspace:{abso
 
 Each thread entry is a clickable row showing:
 
-- **Display name**: The thread's `displayName` (auto-generated from first user message, or explicitly set). Truncated with ellipsis.
+- **Display name**: The thread's `displayName` (auto-generated from first user message, or explicitly set). Truncated with ellipsis. The authoritative value is whatever the server last exposed via `thread/list` / `thread/read`; the client updates the sidebar when it receives `thread/renamed` (Section 6.1) and when a successful `thread/read` returns a newer `displayName` than the cached list entry (so opening a conversation reconciles the list with the server).
 - **Time indicator**: Relative time since `lastActiveAt` (e.g., "2h", "1d", "3d").
 - **Active indicator**: The currently selected thread has a highlighted background and a left accent border.
 - **Status icon** (subtle, only for non-active states):

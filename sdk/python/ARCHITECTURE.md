@@ -272,5 +272,5 @@ Adapters can override `on_turn_completed(thread_id, turn_id, reply_text)` to cus
 When `ChannelAdapter` calls `thread/start`, it uses the `workspace_path` from:
 
 1. The `workspace_path` argument to `handle_message()` if provided.
-2. The `DEFAULT_WORKSPACE_PATH` class attribute (defaults to empty string, which DotCraft maps to the server's configured workspace root).
+2. The `DEFAULT_WORKSPACE_PATH` class attribute (defaults to empty string). The DotCraft AppServer then substitutes the host process workspace root when `identity.workspacePath` is omitted or empty.
 

@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Channels;
 
 namespace DotCraft.Tracing;

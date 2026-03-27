@@ -57,7 +57,8 @@ public sealed class WireClientIntegrationTests : IAsyncDisposable
         var handler = new AppServerRequestHandler(
             _service, connection, serverTransport,
             new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
-            serverVersion: "0.0.1-test");
+            serverVersion: "0.0.1-test",
+            hostWorkspacePath: _tempDir);
 
         _serverLoop = Task.Run(() => RunServerLoopAsync(serverTransport, connection, handler, _serverCts.Token));
 
@@ -107,6 +108,21 @@ public sealed class WireClientIntegrationTests : IAsyncDisposable
         var threadId = thread.GetProperty("id").GetString();
         Assert.NotNull(threadId);
         Assert.StartsWith("thread_", threadId);
+    }
+
+    [Fact]
+    public async Task ThreadStart_OmitsWorkspacePath_NormalizesToHostWorkspace()
+    {
+        await _wire.InitializeAsync();
+
+        var result = await _wire.SendRequestAsync(AppServerMethods.ThreadStart, new
+        {
+            identity = new { channelName = "cli", userId = "local_no_ws" },
+            historyMode = "server"
+        });
+
+        var thread = result.RootElement.GetProperty("result").GetProperty("thread");
+        Assert.Equal(_tempDir, thread.GetProperty("workspacePath").GetString());
     }
 
     // -------------------------------------------------------------------------

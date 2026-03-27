@@ -104,6 +104,13 @@ public sealed class AppServerInitializeResult
     public AppServerServerInfo ServerInfo { get; set; } = new();
 
     public AppServerServerCapabilities Capabilities { get; set; } = new();
+
+    /// <summary>
+    /// DashBoard UI URL when the server hosts it (…/dashboard); omitted when disabled.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("dashboardUrl")]
+    public string? DashboardUrl { get; set; }
 }
 
 public sealed class AppServerServerInfo
@@ -739,8 +746,11 @@ public static class AppServerMethods
 
     // Server → Client notifications
     public const string ThreadStarted = "thread/started";
+    public const string ThreadDeleted = "thread/deleted";
     public const string ThreadResumed = "thread/resumed";
     public const string ThreadStatusChanged = "thread/statusChanged";
+    /// <summary>Server broadcast when a thread's display name changes (rename RPC or first-message title).</summary>
+    public const string ThreadRenamed = "thread/renamed";
     public const string TurnStarted = "turn/started";
     public const string TurnCompleted = "turn/completed";
     public const string TurnFailed = "turn/failed";

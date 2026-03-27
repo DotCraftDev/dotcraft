@@ -1,5 +1,4 @@
 using DotCraft.Agents;
-using DotCraft.Protocol;
 
 namespace DotCraft.Automations.Abstractions;
 
