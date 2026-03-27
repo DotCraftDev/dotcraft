@@ -8,6 +8,7 @@ use crate::{
     i18n::Strings,
     theme::Theme,
     ui::markdown,
+    ui::tool_format::{format_invocation_display, format_result_summary},
 };
 use ratatui::{
     buffer::Buffer,
@@ -239,26 +240,9 @@ impl ChatView<'_> {
 
     // ── Tool call rendering ────────────────────────────────────────────────
 
-    /// Format tool call arguments as a compact inline invocation.
+    /// Format tool call arguments as a compact inline invocation (aligned with CLI `ToolRegistry.FormatToolCall`).
     fn format_invocation(name: &str, args: &str) -> String {
-        if args.is_empty() {
-            return format!("{name}()");
-        }
-        // Try to extract a compact single-argument display from JSON.
-        // If args is a JSON object with a single string value, show it quoted.
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
-            if let Some(obj) = v.as_object() {
-                if obj.len() == 1 {
-                    let val = obj.values().next().unwrap();
-                    if let Some(s) = val.as_str() {
-                        return format!("{name}(\"{s}\")");
-                    }
-                }
-            }
-        }
-        // Fallback: truncated raw args.
-        let compact = truncate(args, 60);
-        format!("{name}({compact})")
+        format_invocation_display(name, args)
     }
 
     /// Render an active (in-flight) tool call.
@@ -359,7 +343,13 @@ impl ChatView<'_> {
         // Result summary (always visible, dimmed, max TOOL_CALL_MAX_LINES).
         if let Some(result_text) = result {
             if !result_text.is_empty() {
-                let result_lines: Vec<&str> = result_text.lines().collect();
+                let result_lines: Vec<String> = if let Some(formatted) =
+                    format_result_summary(name, result_text)
+                {
+                    formatted
+                } else {
+                    result_text.lines().map(str::to_string).collect()
+                };
                 let show_count = result_lines.len().min(TOOL_CALL_MAX_LINES);
                 let last_shown = show_count.saturating_sub(1);
                 for (i, line) in result_lines.iter().take(show_count).enumerate() {

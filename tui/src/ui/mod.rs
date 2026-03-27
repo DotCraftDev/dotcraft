@@ -1,4 +1,5 @@
 pub mod chat_view;
+pub mod tool_format;
 pub mod footer_line;
 pub mod highlight;
 pub mod input_editor;
