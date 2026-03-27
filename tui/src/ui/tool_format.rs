@@ -4,10 +4,10 @@
 use serde_json::Value;
 use unicode_width::UnicodeWidthChar;
 
-/// Format a tool invocation line like `ToolRegistry.FormatToolCall` for known tools;
-/// falls back to the legacy TUI heuristic (single string field or truncated JSON).
-pub fn format_invocation_display(tool_name: &str, args: &str) -> String {
-    if let Some(s) = match tool_name {
+/// Full-sentence invocations from `CoreToolDisplays` (e.g. `Searched "…"`). These must not be
+/// combined with the TUI `Calling`/`Called` prefixes — see [`invocation_needs_calling_called_prefix`].
+fn try_standalone_invocation_sentence(tool_name: &str, args: &str) -> Option<String> {
+    match tool_name {
         "WebSearch" => parse_query_field(args).map(|q| {
             let t = truncate_chars(&q, 80);
             format!("Searched \"{t}\"")
@@ -21,10 +21,21 @@ pub fn format_invocation_display(tool_name: &str, args: &str) -> String {
             format!("Searched tools: \"{t}\"")
         }),
         _ => None,
-    } {
-        return s;
     }
-    format_generic_invocation(tool_name, args)
+}
+
+/// Format a tool invocation line like `ToolRegistry.FormatToolCall` for known tools;
+/// falls back to the legacy TUI heuristic (single string field or truncated JSON).
+pub fn format_invocation_display(tool_name: &str, args: &str) -> String {
+    try_standalone_invocation_sentence(tool_name, args)
+        .unwrap_or_else(|| format_generic_invocation(tool_name, args))
+}
+
+/// When `true`, [`crate::ui::chat_view::ChatView`] should prefix the line with localized
+/// `Calling` / `Called`. When `false`, [`format_invocation_display`] is already a full sentence
+/// (standalone tools), so those prefixes are omitted to avoid double verbs (e.g. `Calling Searched "…"`).
+pub fn invocation_needs_calling_called_prefix(tool_name: &str, args: &str) -> bool {
+    try_standalone_invocation_sentence(tool_name, args).is_none()
 }
 
 fn parse_query_field(args: &str) -> Option<String> {
@@ -371,5 +382,31 @@ mod tests {
     #[test]
     fn result_unknown_tool_returns_none() {
         assert!(format_result_summary("ReadFile", "{}").is_none());
+    }
+
+    #[test]
+    fn prefix_flag_false_for_standalone_tools_with_valid_args() {
+        assert!(!invocation_needs_calling_called_prefix(
+            "WebSearch",
+            r#"{"query":"x","maxResults":5}"#
+        ));
+        assert!(!invocation_needs_calling_called_prefix(
+            "WebFetch",
+            r#"{"url":"https://a.com"}"#
+        ));
+        assert!(!invocation_needs_calling_called_prefix(
+            "SearchTools",
+            r#"{"query":"ReadFile"}"#
+        ));
+    }
+
+    #[test]
+    fn prefix_flag_true_when_standalone_parse_fails_or_generic_tool() {
+        assert!(invocation_needs_calling_called_prefix("WebSearch", "{}"));
+        assert!(invocation_needs_calling_called_prefix(
+            "ReadFile",
+            r#"{"path":"src/main.rs"}"#
+        ));
+        assert!(invocation_needs_calling_called_prefix("McpTool", r#"{"x":1}"#));
     }
 }
