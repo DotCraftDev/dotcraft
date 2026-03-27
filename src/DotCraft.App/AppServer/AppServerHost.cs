@@ -130,6 +130,7 @@ public sealed class AppServerHost(
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
+        sessionService.ThreadDeletedForBroadcast = BroadcastThreadDeleted;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
 
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
@@ -807,6 +808,43 @@ public sealed class AppServerHost(
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.ShouldSendNotification(AppServerMethods.ThreadStarted))
+                continue;
+
+            if (skipTransport != null && ReferenceEquals(transport, skipTransport))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts <c>thread/deleted</c> to all connected transports after permanent thread removal
+    /// (Wire <c>thread/delete</c>, DashBoard, etc.).
+    /// </summary>
+    private void BroadcastThreadDeleted(string threadId)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadDeleted,
+            @params = new { threadId }
+        };
+
+        var skipTransport = AppServerRequestContext.CurrentTransport;
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadDeleted))
                 continue;
 
             if (skipTransport != null && ReferenceEquals(transport, skipTransport))

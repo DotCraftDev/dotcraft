@@ -74,6 +74,16 @@ public sealed class SessionServiceLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteThreadPermanentlyAsync_InvokesThreadDeletedForBroadcast()
+    {
+        string? seenId = null;
+        _svc.ThreadDeletedForBroadcast = id => seenId = id;
+        var thread = await _svc.CreateThreadAsync(MakeIdentity());
+        await _svc.DeleteThreadPermanentlyAsync(thread.Id);
+        Assert.Equal(thread.Id, seenId);
+    }
+
+    [Fact]
     public async Task CreateThread_IdFormat_IsValid()
     {
         var thread = await _svc.CreateThreadAsync(MakeIdentity());
@@ -430,6 +440,9 @@ internal sealed class FakeSessionService : ISessionService
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public Action<string>? ThreadDeletedForBroadcast { get; set; }
+
     public async Task<SessionThread> CreateThreadAsync(
         SessionIdentity identity,
         ThreadConfiguration? config = null,
@@ -589,6 +602,7 @@ internal sealed class FakeSessionService : ISessionService
         _threads.Remove(threadId);
         _store.DeleteThread(threadId);
         _store.DeleteSessionFile(threadId);
+        ThreadDeletedForBroadcast?.Invoke(threadId);
         return Task.CompletedTask;
     }
 

@@ -56,6 +56,9 @@ public sealed class SessionService(
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public Action<string>? ThreadDeletedForBroadcast { get; set; }
+
     // =========================================================================
     // Thread lifecycle
     // =========================================================================
@@ -201,6 +204,8 @@ public sealed class SessionService(
         // Delete persisted files
         threadStore.DeleteThread(threadId);
         threadStore.DeleteSessionFile(threadId);
+
+        ThreadDeletedForBroadcast?.Invoke(threadId);
     }
 
     /// <inheritdoc/>

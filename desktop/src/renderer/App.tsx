@@ -226,6 +226,12 @@ export function App(): JSX.Element {
             break
           }
 
+          case 'thread/deleted': {
+            const pp = p as { threadId: string }
+            useThreadStore.getState().removeThread(pp.threadId)
+            break
+          }
+
           case 'thread/statusChanged': {
             const pp = p as { threadId: string; newStatus: string }
             doUpdateStatus(pp.threadId, pp.newStatus as 'active' | 'paused' | 'archived')

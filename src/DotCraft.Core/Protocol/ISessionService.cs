@@ -154,4 +154,11 @@ public interface ISessionService
     /// Hosts use this to notify all wire clients (e.g. broadcast <c>thread/started</c> on AppServer).
     /// </summary>
     Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
+
+    /// <summary>
+    /// Optional hook invoked after <see cref="DeleteThreadPermanentlyAsync"/> completes successfully
+    /// (memory and disk state removed). Hosts use this to notify all wire clients (e.g. broadcast
+    /// <c>thread/deleted</c> on AppServer).
+    /// </summary>
+    Action<string>? ThreadDeletedForBroadcast { get; set; }
 }

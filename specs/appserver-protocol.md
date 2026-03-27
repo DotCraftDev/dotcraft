@@ -482,6 +482,8 @@ Permanently delete a thread and its associated session data.
 
 **Result**: `{}`
 
+After the thread is permanently removed from Session Core, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). This applies whether deletion was requested via this Wire method, another channel, or an out-of-band surface such as the **DashBoard** HTTP API that calls the same `DeleteThreadPermanentlyAsync` path. Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent (dedupe by `threadId`).
+
 ### 4.10 `thread/mode/set`
 
 Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
@@ -675,6 +677,22 @@ All notifications share the pattern:
 Emitted when a new thread is created. Sent to the initiating client after `thread/start` (see Section 4.1), and **broadcast to all connected clients** when a thread is created by any other channel in the same process (CLI, cron, etc.) so UIs such as DotCraft Desktop can refresh the thread list without polling.
 
 **Params**: `{ "thread": Thread }`
+
+#### `thread/deleted`
+
+Emitted when a thread is **permanently** deleted (irreversible removal of thread and session files). The server **broadcasts** this notification to **all** connected clients after `DeleteThreadPermanentlyAsync` completes, regardless of whether deletion was triggered by Wire `thread/delete`, DashBoard, or any other host integration that uses the same Session Core API.
+
+**Params**: `{ "threadId": "<id>" }`
+
+Clients should remove the thread from any local thread list and clear selection if the active thread was deleted. Duplicate notifications for the same `threadId` should be ignored.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "thread/deleted", "params": {
+    "threadId": "thread_20260316_x7k2m4"
+} }
+```
 
 #### `thread/resumed`
 
@@ -1434,6 +1452,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `item/agentMessage/delta` | Client does not support streaming; will wait for `item/completed`. |
 | `item/reasoning/delta` | Client does not display reasoning content. |
 | `thread/started` | Client does not need thread lifecycle events. |
+| `thread/deleted` | Client does not need thread list sync when threads are removed elsewhere (e.g. polls `thread/list` only). |
 | `thread/statusChanged` | Client manages thread status locally. |
 | `subagent/progress` | Client does not display SubAgent real-time progress. |
 | `item/usage/delta` | Client does not need real-time token consumption display; will use `turn/completed.tokenUsage` for final totals. |

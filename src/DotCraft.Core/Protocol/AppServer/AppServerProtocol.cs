@@ -746,6 +746,7 @@ public static class AppServerMethods
 
     // Server → Client notifications
     public const string ThreadStarted = "thread/started";
+    public const string ThreadDeleted = "thread/deleted";
     public const string ThreadResumed = "thread/resumed";
     public const string ThreadStatusChanged = "thread/statusChanged";
     public const string TurnStarted = "turn/started";

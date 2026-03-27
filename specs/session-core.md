@@ -577,6 +577,10 @@ SessionEvent
   - Emitted when Thread status changes (Active → Paused, Active → Archived).
   - Payload: `{ previousStatus: string, newStatus: string }`.
 
+- **`thread/deleted` (Wire Protocol only; not a `SessionEvent`)**
+  - Permanent removal is performed via `ISessionService.DeleteThreadPermanentlyAsync(threadId)`. Session Core removes in-memory state and thread/session files; it does **not** enqueue a `SessionEvent` on the turn/event stream (there is no active turn for deletion).
+  - Hosts that multiplex **multiple Wire clients** onto the same Session Core process (e.g. DotCraft AppServer) **SHOULD** broadcast a `thread/deleted` notification on the AppServer Wire Protocol after deletion completes, including when deletion is initiated outside Wire (e.g. DashBoard HTTP `DELETE` on `/dashboard/api/sessions/{sessionKey}`), so UIs stay consistent. See [AppServer Protocol §4.9 `thread/delete`](appserver-protocol.md#49-threaddelete) and [§6.1 Thread Notifications](appserver-protocol.md#61-thread-notifications).
+
 #### Turn Events
 
 - **`turn/started`**

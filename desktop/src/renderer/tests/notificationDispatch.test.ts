@@ -16,6 +16,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useConversationStore } from '../stores/conversationStore'
+import { useThreadStore } from '../stores/threadStore'
+import type { ThreadSummary } from '../types/thread'
 
 // ---------------------------------------------------------------------------
 // Replay a notification payload through the same dispatch logic as App.tsx.
@@ -80,6 +82,30 @@ function dispatch(payload: { method: string; params: unknown }): void {
       conv.onSystemEvent((p.kind as string) ?? '')
       break
 
+    default:
+      break
+  }
+}
+
+/**
+ * Mirrors App.tsx thread lifecycle branch (threadList / removeThread).
+ */
+function dispatchThreadLifecycle(payload: { method: string; params: unknown }): void {
+  const method = payload.method
+  const p = (payload.params ?? {}) as Record<string, unknown>
+  const { addThread, removeThread } = useThreadStore.getState()
+
+  switch (method) {
+    case 'thread/started': {
+      const pp = p as { thread: ThreadSummary }
+      addThread(pp.thread)
+      break
+    }
+    case 'thread/deleted': {
+      const pp = p as { threadId: string }
+      removeThread(pp.threadId)
+      break
+    }
     default:
       break
   }
@@ -201,6 +227,35 @@ describe('notification dispatch payload format', () => {
     expect(() => {
       dispatch({ method: 'unknown/future/event', params: { foo: 'bar' } })
     }).not.toThrow()
+  })
+})
+
+describe('thread lifecycle notification dispatch', () => {
+  const minimalThread = (id: string): ThreadSummary => ({
+    id,
+    displayName: 'T',
+    status: 'active',
+    originChannel: 'dotcraft-desktop',
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString()
+  })
+
+  beforeEach(() => {
+    useThreadStore.getState().reset()
+  })
+
+  it('removes thread from list on thread/deleted', () => {
+    dispatchThreadLifecycle({
+      method: 'thread/started',
+      params: { thread: minimalThread('thread_del_1') }
+    })
+    expect(useThreadStore.getState().threadList.some((t) => t.id === 'thread_del_1')).toBe(true)
+
+    dispatchThreadLifecycle({
+      method: 'thread/deleted',
+      params: { threadId: 'thread_del_1' }
+    })
+    expect(useThreadStore.getState().threadList.some((t) => t.id === 'thread_del_1')).toBe(false)
   })
 })
 
