@@ -126,6 +126,7 @@ All entry points share one execution engine — the **Unified Session Core**. He
 ```mermaid
 flowchart LR
     Cli["CLI"]
+    Tui["TUI"]
     Desktop["Desktop"]
     AppSrv["AppServer"]
     Ide["ACP / IDE"]
@@ -143,6 +144,7 @@ flowchart LR
     Dashboard["Dashboard"]
 
     Cli --> AppSrv
+    Tui --> AppSrv
     Desktop --> AppSrv
     AppSrv --> Workspace
     AppSrv --> Automations
@@ -158,6 +160,7 @@ flowchart LR
     style Workspace fill:#ddf4ff,stroke:#54aeff,color:#0550ae
     style Dashboard fill:#e5a50a,color:#ffffff,stroke:#bf8700
     style Cli fill:#57606a,color:#ffffff,stroke:#424a53
+    style Tui fill:#57606a,color:#ffffff,stroke:#424a53
     style Desktop fill:#57606a,color:#ffffff,stroke:#424a53
     style AppSrv fill:#57606a,color:#ffffff,stroke:#424a53
     style Ide fill:#57606a,color:#ffffff,stroke:#424a53
@@ -171,7 +174,8 @@ flowchart LR
 
 | If you want to... | Start here |
 |---|---|
-| Work in a local terminal | [CLI](#local-cli) |
+| Work in a local terminal | [CLI](#cli) |
+| Use a rich terminal UI | [TUI](#tui) |
 | Run DotCraft as a headless server | [AppServer](#appserver) |
 | Use a graphical desktop client | [Desktop](#desktop) |
 | Use DotCraft in an editor or IDE | [Editors and ACP](#editors-and-acp) |
@@ -180,11 +184,17 @@ flowchart LR
 | Build a custom channel adapter | [External Channels](#external-channels) |
 | Run automations (Local / GitHub) | [Automations](#automations) |
 
-### Local CLI
+### CLI
 
 CLI mode is the default starting point for working directly in a project directory.
 
 ![repl](https://github.com/DotCraftDev/resources/raw/master/dotcraft/repl.gif)
+
+### TUI
+
+TUI is a terminal interface built on Ratatui, connecting to AppServer over Wire Protocol.
+
+![tui](https://github.com/DotCraftDev/resources/raw/master/dotcraft/tui.gif)
 
 ### AppServer
 
