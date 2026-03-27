@@ -11,6 +11,10 @@ import {
   textPart,
 } from "./models.js";
 import { Transport } from "./transport.js";
+import {
+  extractAgentReplyTextFromTurnCompletedParams,
+  mergeReplyTextFromDeltaAndSnapshot,
+} from "./turnReply.js";
 
 export abstract class ChannelAdapter {
   protected readonly client: DotCraftClient;
@@ -240,7 +244,10 @@ export abstract class ChannelAdapter {
         const delta = String((event.params as Record<string, unknown>)?.delta ?? "");
         replyParts.push(delta);
       } else if (event.method === "turn/completed") {
-        const fullReply = replyParts.join("");
+        const params = (event.params as Record<string, unknown>) ?? {};
+        const snapshotText = extractAgentReplyTextFromTurnCompletedParams(params);
+        const deltaText = replyParts.join("");
+        const fullReply = mergeReplyTextFromDeltaAndSnapshot(deltaText, snapshotText);
         await this.onTurnCompleted(thread.id, turn.id, fullReply, channelContext);
         break;
       } else if (event.method === "turn/failed") {

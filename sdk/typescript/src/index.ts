@@ -39,5 +39,9 @@ export {
   WebSocketTransport,
 } from "./transport.js";
 export type { Transport, WebSocketTransportOptions } from "./transport.js";
+export {
+  extractAgentReplyTextFromTurnCompletedParams,
+  mergeReplyTextFromDeltaAndSnapshot,
+} from "./turnReply.js";
 
 export const version = "0.1.0";

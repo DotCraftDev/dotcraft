@@ -19,6 +19,10 @@ from typing import AsyncIterator
 from .client import DotCraftClient, DotCraftError
 from .models import ERR_TURN_IN_PROGRESS, Thread
 from .transport import Transport
+from .turn_reply import (
+    extract_agent_reply_text_from_turn_completed,
+    merge_reply_text_from_delta_and_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +291,10 @@ class ChannelAdapter(ABC):
                 reply_parts.append(delta)
 
             elif event.method == "turn/completed":
-                full_reply = "".join(reply_parts)
+                params = event.params or {}
+                snapshot_text = extract_agent_reply_text_from_turn_completed(params)
+                delta_text = "".join(reply_parts)
+                full_reply = merge_reply_text_from_delta_and_snapshot(delta_text, snapshot_text)
                 await self.on_turn_completed(thread.id, turn.id, full_reply, channel_context)
                 break
 
