@@ -32,7 +32,7 @@ interface SidebarProps {
  * 2. NewThreadButton (Ctrl+N, disabled when disconnected)
  * 3. ThreadSearch (Ctrl+K, debounced)
  * 4. ThreadList (grouped, scrollable)
- * 5. Reserved nav items (Automations, Skills)
+ * 5. Reserved nav items (DashBoard link, Automations, Skills)
  * 6. SidebarFooter (connection status, version)
  *
  * Collapsed mode (48px): shows first-letter dots for recent threads.
@@ -42,6 +42,18 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
   const t = useT()
   const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const connectionStatus = useConnectionStore((s) => s.status)
+  const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
+  const dashboardOpenEnabled = connectionStatus === 'connected' && Boolean(dashboardUrl)
+  const dashboardDisabledTitle = !dashboardOpenEnabled
+    ? connectionStatus !== 'connected'
+      ? t('sidebar.dashboardDisabledConnect')
+      : t('sidebar.dashboardDisabledNoUrl')
+    : undefined
+  const dashboardHoverTitle = dashboardOpenEnabled
+    ? `${t('sidebar.dashboardOpenTitle')}${dashboardUrl ? ` — ${dashboardUrl}` : ''}`
+    : dashboardDisabledTitle
+
   const automationsAvailable =
     capabilities?.automations === true || capabilities?.cronManagement === true
   const automationsDisabledTitle =
@@ -95,6 +107,17 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
         }}
       >
         <SidebarNavRow
+          label={t('sidebar.dashboard')}
+          active={false}
+          onClick={() => {
+            if (dashboardUrl) void window.api.shell.openExternal(dashboardUrl)
+          }}
+          icon={<DashboardIcon />}
+          disabled={!dashboardOpenEnabled}
+          title={dashboardHoverTitle}
+          externalLink
+        />
+        <SidebarNavRow
           label={t('sidebar.automations')}
           active={activeMainView === 'automations'}
           onClick={() => setActiveMainView('automations')}
@@ -126,9 +149,19 @@ interface SidebarNavRowProps {
   icon: JSX.Element
   disabled?: boolean
   title?: string
+  /** When set, shows a small external-link affordance (opens browser / external URL). */
+  externalLink?: boolean
 }
 
-function SidebarNavRow({ label, active, onClick, icon, disabled, title }: SidebarNavRowProps): JSX.Element {
+function SidebarNavRow({
+  label,
+  active,
+  onClick,
+  icon,
+  disabled,
+  title,
+  externalLink
+}: SidebarNavRowProps): JSX.Element {
   return (
     <button
       type="button"
@@ -152,8 +185,36 @@ function SidebarNavRow({ label, active, onClick, icon, disabled, title }: Sideba
       }}
     >
       <span style={SIDEBAR_NAV_ICON_SLOT}>{icon}</span>
-      <span style={SIDEBAR_NAV_LABEL}>{label}</span>
+      <span style={{ ...SIDEBAR_NAV_LABEL, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        {externalLink ? (
+          <span style={{ flexShrink: 0, opacity: 0.65, display: 'flex' }} aria-hidden>
+            <ExternalLinkGlyph />
+          </span>
+        ) : null}
+      </span>
     </button>
+  )
+}
+
+function ExternalLinkGlyph(): JSX.Element {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  )
+}
+
+function DashboardIcon(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
   )
 }
 
@@ -188,9 +249,16 @@ interface CollapsedSidebarProps {
 function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: CollapsedSidebarProps): JSX.Element {
   const t = useT()
   const [logoHovered, setLogoHovered] = useState(false)
-  const { status, errorMessage, capabilities: collapsedCaps } = useConnectionStore()
+  const { status, errorMessage, capabilities: collapsedCaps, dashboardUrl: collapsedDashboardUrl } =
+    useConnectionStore()
   const { threadList, addThread, setActiveThreadId } = useThreadStore()
   const { activeMainView, setActiveMainView } = useUIStore()
+  const collapsedDashboardOpen = status === 'connected' && Boolean(collapsedDashboardUrl)
+  const collapsedDashboardTitle = !collapsedDashboardOpen
+    ? status !== 'connected'
+      ? t('sidebar.dashboardDisabledConnect')
+      : t('sidebar.dashboardDisabledNoUrl')
+    : `${t('sidebar.dashboardOpenTitle')}${collapsedDashboardUrl ? ` — ${collapsedDashboardUrl}` : ''}`
   const collapsedAutomationsAvailable =
     collapsedCaps?.automations === true || collapsedCaps?.cronManagement === true
 
@@ -299,6 +367,25 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
+      <button
+        type="button"
+        title={collapsedDashboardTitle}
+        onClick={
+          collapsedDashboardOpen && collapsedDashboardUrl
+            ? () => void window.api.shell.openExternal(collapsedDashboardUrl)
+            : undefined
+        }
+        disabled={!collapsedDashboardOpen}
+        style={{
+          ...iconButtonStyle,
+          backgroundColor: 'transparent',
+          color: collapsedDashboardOpen ? 'var(--accent)' : 'var(--text-secondary)',
+          opacity: collapsedDashboardOpen ? 1 : 0.4
+        }}
+        aria-label={t('sidebar.dashboard')}
+      >
+        <DashboardIcon />
+      </button>
       <button
         type="button"
         title={

@@ -25,6 +25,8 @@ export interface ConnectionState {
   status: ConnectionStatus
   serverInfo: ServerInfo | null
   capabilities: ServerCapabilities | null
+  /** DashBoard URL when AppServer reports it at initialize; null if unavailable. */
+  dashboardUrl: string | null
   errorMessage: string | null
   errorType: ConnectionErrorType | null
 }
@@ -38,6 +40,7 @@ const initialState: ConnectionState = {
   status: 'connecting',
   serverInfo: null,
   capabilities: null,
+  dashboardUrl: null,
   errorMessage: null,
   errorType: null
 }
@@ -46,10 +49,12 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   ...initialState,
 
   setStatus(payload: ConnectionStatusPayload) {
+    const connected = payload.status === 'connected'
     set({
       status: payload.status,
       serverInfo: payload.serverInfo ?? null,
       capabilities: (payload.capabilities as ServerCapabilities) ?? null,
+      dashboardUrl: connected ? (payload.dashboardUrl ?? null) : null,
       errorMessage: payload.errorMessage ?? null,
       errorType: (payload.errorType as ConnectionErrorType) ?? null
     })

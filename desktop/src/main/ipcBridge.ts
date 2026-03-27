@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog, Notification } from 'electron'
+import { ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
 import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
 import * as path from 'path'
@@ -29,6 +29,8 @@ export interface ConnectionStatusPayload {
     protocolVersion?: string
   }
   capabilities?: Record<string, unknown>
+  /** DashBoard URL when the server hosts it (initialize). */
+  dashboardUrl?: string
   errorMessage?: string
   errorType?: ConnectionErrorType
 }
@@ -97,6 +99,7 @@ export interface IpcHandlerCallbacks {
  * - `file:read`                   (renderer -> main, invoke) -> reads UTF-8 file within workspace
  * - `file:delete`                 (renderer -> main, invoke) -> deletes file within workspace
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
+ * - `shell:open-external`         (renderer -> main, invoke) -> opens http(s) URL in system browser
  */
 function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
   return normalizeLocale(callbacks?.getSettings()?.locale ?? DEFAULT_LOCALE)
@@ -153,6 +156,23 @@ export function registerIpcHandlers(
 
   // Renderer -> Main: get workspace path
   ipcMain.handle('window:get-workspace-path', () => workspacePath)
+
+  // Renderer -> Main: open http(s) URL in the system browser (DashBoard, etc.)
+  ipcMain.handle('shell:open-external', async (_event, url: string) => {
+    if (typeof url !== 'string' || url.trim() === '') {
+      throw new Error('Invalid URL')
+    }
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new Error('Invalid URL')
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('Only http(s) URLs are allowed')
+    }
+    await shell.openExternal(url)
+  })
 
   // Renderer -> Main: write a file to disk (used for revert/re-apply)
   ipcMain.handle('file:write', async (_event, absPath: string, content: string) => {
@@ -399,6 +419,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('window:set-title')
   ipcMain.removeHandler('window:set-title-bar-overlay-theme')
   ipcMain.removeHandler('window:get-workspace-path')
+  ipcMain.removeHandler('shell:open-external')
   ipcMain.removeHandler('file:write')
   ipcMain.removeHandler('file:read')
   ipcMain.removeHandler('file:delete')

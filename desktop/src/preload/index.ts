@@ -20,6 +20,7 @@ export interface ConnectionStatusPayload {
     protocolVersion?: string
   }
   capabilities?: Record<string, unknown>
+  dashboardUrl?: string
   errorMessage?: string
   errorType?: 'binary-not-found' | 'handshake-timeout' | 'crash'
 }
@@ -177,6 +178,13 @@ const api = {
      */
     openPath(path: string): Promise<string> {
       return shell.openPath(path)
+    },
+
+    /**
+     * Opens an http(s) URL in the system browser (validated in the main process).
+     */
+    openExternal(url: string): Promise<void> {
+      return ipcRenderer.invoke('shell:open-external', url)
     }
   },
 

@@ -309,6 +309,39 @@ describe('WireProtocolClient', () => {
     expect(result.serverInfo.name).toBe('dotcraft')
   })
 
+  it('parses dashboardUrl from initialize result when present', async () => {
+    const lines: string[] = []
+    toServer.on('data', (chunk: Buffer) => {
+      chunk
+        .toString('utf8')
+        .split('\n')
+        .filter(Boolean)
+        .forEach((line) => lines.push(line))
+    })
+
+    const initPromise = client.initialize()
+
+    await new Promise((r) => setTimeout(r, 10))
+
+    const initReq = JSON.parse(lines[0])
+    const capturedId = initReq.id as number
+
+    fromServer.push(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: capturedId,
+        result: {
+          serverInfo: { name: 'dotcraft', version: '0.2.0' },
+          capabilities: { threadManagement: true },
+          dashboardUrl: 'http://127.0.0.1:8080/dashboard'
+        }
+      }) + '\n'
+    )
+
+    const result = await initPromise
+    expect(result.dashboardUrl).toBe('http://127.0.0.1:8080/dashboard')
+  })
+
   // ─── Ignored / malformed lines ───────────────────────────────────────────────
 
   it('ignores malformed JSON lines without throwing', async () => {

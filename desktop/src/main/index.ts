@@ -45,6 +45,8 @@ let appServerManager: AppServerManager | null = null
 let wireClient: WireProtocolClient | null = null
 let currentWorkspacePath = ''
 let crashRetries = 0
+/** Last DashBoard URL from a successful initialize (for View menu). */
+let lastDashboardUrl: string | null = null
 
 /** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
 function resolveWindowIconPath(): string | null {
@@ -168,7 +170,7 @@ async function connectViaWebSocket(
   wsUrl: string
 ): Promise<void> {
   const win = mainWindow!
-  broadcastConnectionStatus(win, { status: 'connecting' })
+  emitConnectionStatus(win, { status: 'connecting' })
   reregisterIpcForWorkspace(workspacePath)
 
   const client = WireProtocolClient.fromWebSocket(wsUrl)
@@ -193,15 +195,16 @@ async function connectViaWebSocket(
 
   try {
     const result = await client.initialize()
-    broadcastConnectionStatus(win, {
+    emitConnectionStatus(win, {
       status: 'connected',
       serverInfo: result.serverInfo,
-      capabilities: result.capabilities as Record<string, unknown>
+      capabilities: result.capabilities as Record<string, unknown>,
+      dashboardUrl: result.dashboardUrl
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (mainWindow && !mainWindow.isDestroyed()) {
-      broadcastConnectionStatus(mainWindow, { status: 'error', errorMessage: message })
+      emitConnectionStatus(mainWindow, { status: 'error', errorMessage: message })
     }
   }
 }
@@ -280,7 +283,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   }
 
   const win = mainWindow!
-  broadcastConnectionStatus(win, { status: 'connecting' })
+  emitConnectionStatus(win, { status: 'connecting' })
 
   const manager = new AppServerManager({
     workspacePath,
@@ -299,7 +302,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
       ...(isBinaryError ? { errorType: 'binary-not-found' } : {})
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
-      broadcastConnectionStatus(mainWindow, payload as ConnectionStatusPayload)
+      emitConnectionStatus(mainWindow, payload as ConnectionStatusPayload)
     }
   })
 
@@ -308,7 +311,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     wireClient = null
     if (mainWindow && !mainWindow.isDestroyed()) {
       const loc = normalizeLocale(sharedSettings.locale)
-      broadcastConnectionStatus(mainWindow, {
+      emitConnectionStatus(mainWindow, {
         status: 'disconnected',
         errorMessage: translate(loc, 'main.status.reconnecting')
       })
@@ -331,7 +334,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     if (!stdin || !stdout) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         const loc = normalizeLocale(sharedSettings.locale)
-        broadcastConnectionStatus(mainWindow, {
+        emitConnectionStatus(mainWindow, {
           status: 'error',
           errorMessage: translate(loc, 'main.error.streamsUnavailable')
         })
@@ -362,10 +365,11 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     try {
       const result = await client.initialize()
       if (mainWindow && !mainWindow.isDestroyed()) {
-        broadcastConnectionStatus(mainWindow, {
+        emitConnectionStatus(mainWindow, {
           status: 'connected',
           serverInfo: result.serverInfo,
-          capabilities: result.capabilities as Record<string, unknown>
+          capabilities: result.capabilities as Record<string, unknown>,
+          dashboardUrl: result.dashboardUrl
         })
       }
     } catch (err) {
@@ -373,7 +377,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
       const isTimeout = message.includes('timed out')
       if (mainWindow && !mainWindow.isDestroyed()) {
         const loc = normalizeLocale(sharedSettings.locale)
-        broadcastConnectionStatus(mainWindow, {
+        emitConnectionStatus(mainWindow, {
           status: 'error',
           errorMessage: isTimeout
             ? translate(loc, 'main.error.handshakeTimeout')
@@ -434,6 +438,15 @@ function buildAppMenu(locale: AppLocale): Menu {
         { role: 'zoomIn' },
         { role: 'zoomOut' },
         { type: 'separator' },
+        {
+          label: L('menu.openDashboard'),
+          accelerator: 'CmdOrCtrl+Shift+D',
+          enabled: Boolean(lastDashboardUrl),
+          click: async () => {
+            if (lastDashboardUrl) await shell.openExternal(lastDashboardUrl)
+          }
+        },
+        { type: 'separator' },
         { role: 'togglefullscreen' }
       ]
     },
@@ -466,6 +479,16 @@ function buildAppMenu(locale: AppLocale): Menu {
 
 function refreshAppMenu(): void {
   Menu.setApplicationMenu(buildAppMenu(normalizeLocale(sharedSettings.locale)))
+}
+
+function emitConnectionStatus(win: BrowserWindow, payload: ConnectionStatusPayload): void {
+  if (payload.status === 'connected') {
+    lastDashboardUrl = payload.dashboardUrl ?? null
+  } else {
+    lastDashboardUrl = null
+  }
+  broadcastConnectionStatus(win, payload)
+  refreshAppMenu()
 }
 
 function registerMenuPopupIpc(): void {
@@ -545,7 +568,7 @@ app.whenReady().then(() => {
     if (workspacePath) {
       void connectToAppServer(workspacePath)
     } else {
-      broadcastConnectionStatus(win, { status: 'disconnected' })
+      emitConnectionStatus(win, { status: 'disconnected' })
     }
   })
 
@@ -574,7 +597,7 @@ app.whenReady().then(() => {
         if (wsPath) {
           void connectToAppServer(wsPath)
         } else {
-          broadcastConnectionStatus(newWin, { status: 'disconnected' })
+          emitConnectionStatus(newWin, { status: 'disconnected' })
         }
       })
     }
