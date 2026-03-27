@@ -46,6 +46,8 @@ First run opens a **QR code** in the terminal; scan with WeChat. Credentials are
 | `weixin.dataDir` | Directory for credentials and sync cursor |
 | `weixin.approvalTimeoutMs` | Approval prompt timeout (default 120000) |
 
+Threads created by this adapter do not send a workspace path in `thread/start`; the DotCraft AppServer substitutes the host process workspace root so Desktop and other clients list them under the same project.
+
 ## Commands
 
 Send **`/new`** in the chat (exact message, case-insensitive) to archive the current DotCraft thread and start a new conversation on the next message—same idea as the Telegram example’s `/new`.

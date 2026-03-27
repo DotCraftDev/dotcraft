@@ -61,11 +61,10 @@ async def main():
         client_version="1.0.0",
     )
 
-    # Create a thread
+    # Create a thread (omit workspace_path; AppServer uses the host workspace root)
     thread = await client.thread_start(
         channel_name="my-channel",
         user_id="user-123",
-        workspace_path="/path/to/workspace",
     )
 
     # Submit a turn and stream events
@@ -184,7 +183,6 @@ result = await client.initialize(
 thread = await client.thread_start(
     channel_name="telegram",
     user_id="12345",
-    workspace_path="/workspace",
     channel_context="group:67890",   # optional
     display_name="My Thread",        # optional
     history_mode="server",           # "server" | "client"

@@ -87,7 +87,6 @@ class TelegramAdapter(ChannelAdapter):
     def __init__(
         self,
         bot_token: str,
-        workspace_path: str = "",
         proxy: str | None = None,
     ) -> None:
         super().__init__(
@@ -104,7 +103,6 @@ class TelegramAdapter(ChannelAdapter):
                 "plan/updated",
             ],
         )
-        self.DEFAULT_WORKSPACE_PATH = workspace_path
         self._bot_token = bot_token
         self._proxy = proxy
 

@@ -223,7 +223,7 @@ public sealed class ChannelRunner : IAsyncDisposable
         {
             var nativeNames = _nativeChannels.Select(ch => ch.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var ecManager = new ExternalChannelManager(
-                _config, sessionService, nativeNames, _moduleRegistry, _externalChannelRegistry);
+                _config, sessionService, nativeNames, _moduleRegistry, _paths.WorkspacePath, _externalChannelRegistry);
 
             foreach (var extCh in ecManager.Channels)
             {

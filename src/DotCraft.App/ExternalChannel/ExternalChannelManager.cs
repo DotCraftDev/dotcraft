@@ -38,6 +38,7 @@ public sealed class ExternalChannelManager
     /// <param name="sessionService">Shared session service for all external channels.</param>
     /// <param name="nativeChannelNames">Names of native channels (for conflict detection).</param>
     /// <param name="moduleRegistry">Registered DotCraft modules (for <c>channel/list</c> discovery).</param>
+    /// <param name="hostWorkspacePath">Host workspace root; passed to wire handlers for empty <c>identity.workspacePath</c>.</param>
     /// <param name="registry">
     /// External channel registry for WebSocket routing. If null, a new instance is created.
     /// </param>
@@ -46,6 +47,7 @@ public sealed class ExternalChannelManager
         ISessionService sessionService,
         IReadOnlyCollection<string> nativeChannelNames,
         ModuleRegistry moduleRegistry,
+        string hostWorkspacePath,
         ExternalChannelRegistry? registry = null)
     {
         _registry = registry ?? new ExternalChannelRegistry();
@@ -98,7 +100,7 @@ public sealed class ExternalChannelManager
                 }
             }
 
-            var host = new ExternalChannelHost(entry, sessionService, serverVersion, moduleRegistry);
+            var host = new ExternalChannelHost(entry, sessionService, serverVersion, moduleRegistry, hostWorkspacePath);
             _hosts.Add(host);
 
             // Register WebSocket channels for connection routing

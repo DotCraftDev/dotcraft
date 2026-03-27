@@ -26,6 +26,7 @@ public sealed class AppServerRequestHandler(
     HeartbeatService? heartbeatService = null,
     SkillsLoader? skillsLoader = null,
     string? workspaceCraftPath = null,
+    string? hostWorkspacePath = null,
     IAutomationsRequestHandler? automationsHandler = null,
     Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null,
     ICommitMessageSuggestService? commitMessageSuggest = null,
@@ -42,6 +43,12 @@ public sealed class AppServerRequestHandler(
     /// <c>approvalSupport = false</c>. Sourced from the workspace's default approval policy.
     /// </summary>
     private readonly SessionApprovalDecision _defaultApprovalDecision = defaultApprovalDecision;
+
+    /// <summary>
+    /// When the wire client omits or sends an empty <c>identity.workspacePath</c>, substitute this
+    /// host workspace root (AppServer / Gateway process workspace).
+    /// </summary>
+    private readonly string? _hostWorkspacePath = hostWorkspacePath;
 
     // -------------------------------------------------------------------------
     // Main dispatch
@@ -165,16 +172,24 @@ public sealed class AppServerRequestHandler(
     // thread/* methods (spec Section 4)
     // -------------------------------------------------------------------------
 
+    private SessionIdentity NormalizeIdentityWorkspace(SessionIdentity identity)
+    {
+        if (string.IsNullOrWhiteSpace(identity.WorkspacePath) && !string.IsNullOrEmpty(_hostWorkspacePath))
+            return identity with { WorkspacePath = _hostWorkspacePath };
+        return identity;
+    }
+
     private async Task<object?> HandleThreadStartAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadStartParams>(msg);
+        var identity = NormalizeIdentityWorkspace(p.Identity);
 
         var historyMode = p.HistoryMode?.ToLowerInvariant() == "client"
             ? HistoryMode.Client
             : HistoryMode.Server;
 
         var thread = await sessionService.CreateThreadAsync(
-            p.Identity,
+            identity,
             p.Config,
             historyMode,
             displayName: p.DisplayName,
@@ -219,9 +234,10 @@ public sealed class AppServerRequestHandler(
     private async Task<object?> HandleThreadListAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         var p = GetParams<ThreadListParams>(msg);
+        var identity = NormalizeIdentityWorkspace(p.Identity);
         var crossOrigins = ResolveCrossChannelOriginsForThreadList(p);
         var threads = await sessionService.FindThreadsAsync(
-            p.Identity,
+            identity,
             p.IncludeArchived ?? false,
             crossOrigins,
             ct);
