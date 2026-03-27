@@ -184,7 +184,6 @@ public sealed record CommandLineArgs
 
             case RunMode.AppServer:
                 ApplyAppServerConfig(config);
-                config.DashBoard.Enabled = false;
                 break;
 
             case RunMode.Cli:

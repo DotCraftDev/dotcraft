@@ -104,6 +104,13 @@ public sealed class AppServerInitializeResult
     public AppServerServerInfo ServerInfo { get; set; } = new();
 
     public AppServerServerCapabilities Capabilities { get; set; } = new();
+
+    /// <summary>
+    /// DashBoard UI URL when the server hosts it (…/dashboard); omitted when disabled.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("dashboardUrl")]
+    public string? DashboardUrl { get; set; }
 }
 
 public sealed class AppServerServerInfo

@@ -4,7 +4,6 @@ using DotCraft.Commands.Custom;
 using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
-using DotCraft.DashBoard;
 using DotCraft.Tracing;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
@@ -31,7 +30,6 @@ public sealed class CliHost(
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        var traceStore = sp.GetService<TraceStore>();
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
         var hookRunner = sp.GetService<HookRunner>();
         var cliConfig = config.GetSection<CliConfig>("CLI");
@@ -41,6 +39,7 @@ public sealed class CliHost(
         ICliSession cliSession;
         CliBackendInfo backendInfo;
         AppServerWireClient wire;
+        string? dashBoardUrl = null;
 
         if (!string.IsNullOrWhiteSpace(cliConfig.AppServerUrl))
         {
@@ -63,6 +62,7 @@ public sealed class CliHost(
 
             wire = _wsConnection.Wire;
             cliSession = new WireCliSession(wire, tokenUsageStore);
+            dashBoardUrl = TryGetDashboardUrl(wsInitResponse);
             backendInfo = new CliBackendInfo
             {
                 ServerVersion = TryGetServerVersion(wsInitResponse),
@@ -92,18 +92,8 @@ public sealed class CliHost(
                 ServerVersion = _appServerProcess.ServerVersion,
                 ProcessId = _appServerProcess.ProcessId
             };
-        }
 
-        DashBoardServer? dashBoardServer = null;
-        string? dashBoardUrl = null;
-        if (config.DashBoard.Enabled && traceStore != null)
-        {
-            dashBoardServer = new DashBoardServer();
-            dashBoardServer.Start(traceStore, config, paths, tokenUsageStore,
-                configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
-                sessionHandler: new DelegateDashBoardSessionHandler(id => cliSession.DeleteThreadAsync(id)),
-                refreshTraceFromDiskBeforeRead: true);
-            dashBoardUrl = $"http://{config.DashBoard.Host}:{config.DashBoard.Port}/dashboard";
+            dashBoardUrl = _appServerProcess.DashboardUrl;
         }
 
         var cronService = sp.GetService<CronService>();
@@ -129,9 +119,6 @@ public sealed class CliHost(
 
         notifCts.Cancel();
         try { await notifTask; } catch (OperationCanceledException) { }
-
-        if (dashBoardServer != null)
-            await dashBoardServer.DisposeAsync();
 
         await cliSession.DisposeAsync();
     }
@@ -202,6 +189,21 @@ public sealed class CliHost(
                 .GetProperty("serverInfo")
                 .GetProperty("version")
                 .GetString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? TryGetDashboardUrl(JsonDocument response)
+    {
+        try
+        {
+            var result = response.RootElement.GetProperty("result");
+            if (!result.TryGetProperty("dashboardUrl", out var el))
+                return null;
+            return el.GetString();
         }
         catch
         {

@@ -42,6 +42,11 @@ public sealed class AppServerProcess : IAsyncDisposable
     public string? ServerVersion { get; private set; }
 
     /// <summary>
+    /// DashBoard URL from the <c>initialize</c> response when the AppServer hosts DashBoard.
+    /// </summary>
+    public string? DashboardUrl { get; private set; }
+
+    /// <summary>
     /// Invoked when the subprocess exits unexpectedly (i.e., not as part of a normal dispose).
     /// </summary>
     public event Action? OnCrashed;
@@ -142,6 +147,7 @@ public sealed class AppServerProcess : IAsyncDisposable
         // Extract server version from the initialize response for display in the welcome screen.
         // Response shape: { "result": { "serverInfo": { "version": "..." } } }
         appServer.ServerVersion = TryGetServerVersion(initResponse);
+        appServer.DashboardUrl = TryGetDashboardUrl(initResponse);
 
         return appServer;
     }
@@ -215,6 +221,21 @@ public sealed class AppServerProcess : IAsyncDisposable
                 .GetProperty("serverInfo")
                 .GetProperty("version")
                 .GetString();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryGetDashboardUrl(JsonDocument response)
+    {
+        try
+        {
+            var result = response.RootElement.GetProperty("result");
+            if (!result.TryGetProperty("dashboardUrl", out var el))
+                return null;
+            return el.GetString();
         }
         catch (Exception)
         {

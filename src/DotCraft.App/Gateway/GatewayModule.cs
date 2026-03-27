@@ -4,6 +4,7 @@ using DotCraft.ExternalChannel;
 using DotCraft.Hosting;
 using DotCraft.Modules;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DotCraft.Gateway;
 
@@ -25,11 +26,11 @@ public sealed partial class GatewayModule : ModuleBase
     /// <inheritdoc />
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
-        // Register MessageRouter as a singleton for cross-channel delivery
-        services.AddSingleton(_ => new MessageRouter());
+        // Register MessageRouter as a singleton for cross-channel delivery (TryAdd: app-server may register first)
+        services.TryAddSingleton(_ => new MessageRouter());
 
         // Register ExternalChannelRegistry as a singleton for WebSocket adapter routing
-        services.AddSingleton<ExternalChannelRegistry>();
+        services.TryAddSingleton<ExternalChannelRegistry>();
     }
 
     /// <inheritdoc />
