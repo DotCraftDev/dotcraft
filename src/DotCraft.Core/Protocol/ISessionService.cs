@@ -161,4 +161,11 @@ public interface ISessionService
     /// <c>thread/deleted</c> on AppServer).
     /// </summary>
     Action<string>? ThreadDeletedForBroadcast { get; set; }
+
+    /// <summary>
+    /// Optional hook invoked after a thread's display name is updated in Session Core (successful
+    /// <see cref="RenameThreadAsync"/> or first user message auto-title). Hosts broadcast
+    /// <c>thread/renamed</c> on AppServer so UIs keep thread lists in sync.
+    /// </summary>
+    Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
 }

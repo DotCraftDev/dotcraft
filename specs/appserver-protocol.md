@@ -65,6 +65,8 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
+**Multi-client thread lists**: In shared Session Core / AppServer deployments, server-broadcast notifications in [Section 6.1](#61-thread-notifications) include `thread/started`, `thread/deleted`, and `thread/renamed` (display name updates) so UIs such as DotCraft Desktop stay consistent without polling.
+
 ---
 
 ## 2. Protocol Fundamentals
@@ -516,6 +518,8 @@ Update the display name of a thread.
 
 **Result**: `{}`
 
+After the display name is persisted, the server **broadcasts** a `thread/renamed` notification to **all** connected clients (see [Section 6.1](#61-thread-notifications)). The same notification is used when Session Core sets the display name from the first user message on a turn (not only in response to this RPC).
+
 ### 4.9 `thread/config/update`
 
 Update per-thread agent configuration (MCP servers, extensions, etc.).
@@ -677,6 +681,23 @@ All notifications share the pattern:
 Emitted when a new thread is created. Sent to the initiating client after `thread/start` (see Section 4.1), and **broadcast to all connected clients** when a thread is created by any other channel in the same process (CLI, cron, etc.) so UIs such as DotCraft Desktop can refresh the thread list without polling.
 
 **Params**: `{ "thread": Thread }`
+
+#### `thread/renamed`
+
+Emitted when a thread's **display name** changes and should be reflected in thread list UIs. The server **broadcasts** this notification to **all** connected clients (same delivery model as `thread/started`). Typical triggers: successful `thread/rename` (Section 4.11); Session Core auto-setting `displayName` from the first user message when it was previously unset (see [Session Core](session-core.md) turn input and `Thread.DisplayName`).
+
+**Params**: `{ "threadId": "<id>", "displayName": "<non-empty string>" }`
+
+Clients should update the matching entry in any local thread list. Duplicate or idempotent deliveries for the same `threadId` and `displayName` are allowed.
+
+**Example**:
+
+```json
+{ "jsonrpc": "2.0", "method": "thread/renamed", "params": {
+    "threadId": "thread_20260316_x7k2m4",
+    "displayName": "Fix login bug"
+} }
+```
 
 #### `thread/deleted`
 
@@ -1452,6 +1473,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `item/agentMessage/delta` | Client does not support streaming; will wait for `item/completed`. |
 | `item/reasoning/delta` | Client does not display reasoning content. |
 | `thread/started` | Client does not need thread lifecycle events. |
+| `thread/renamed` | Client does not need server-pushed display name updates (e.g. refreshes `thread/list` on a timer only). |
 | `thread/deleted` | Client does not need thread list sync when threads are removed elsewhere (e.g. polls `thread/list` only). |
 | `thread/statusChanged` | Client manages thread status locally. |
 | `subagent/progress` | Client does not display SubAgent real-time progress. |

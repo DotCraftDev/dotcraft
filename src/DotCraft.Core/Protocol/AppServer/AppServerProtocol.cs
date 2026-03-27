@@ -749,6 +749,8 @@ public static class AppServerMethods
     public const string ThreadDeleted = "thread/deleted";
     public const string ThreadResumed = "thread/resumed";
     public const string ThreadStatusChanged = "thread/statusChanged";
+    /// <summary>Server broadcast when a thread's display name changes (rename RPC or first-message title).</summary>
+    public const string ThreadRenamed = "thread/renamed";
     public const string TurnStarted = "turn/started";
     public const string TurnCompleted = "turn/completed";
     public const string TurnFailed = "turn/failed";

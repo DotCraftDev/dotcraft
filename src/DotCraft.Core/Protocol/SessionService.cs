@@ -59,6 +59,9 @@ public sealed class SessionService(
     /// <inheritdoc />
     public Action<string>? ThreadDeletedForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
+
     // =========================================================================
     // Thread lifecycle
     // =========================================================================
@@ -376,8 +379,15 @@ public sealed class SessionService(
         thread.LastActiveAt = DateTimeOffset.UtcNow;
 
         // Set a display name from the first user message so the session list shows a preview.
+        var setTitleFromFirstUserMessage = false;
         if (string.IsNullOrEmpty(thread.DisplayName))
+        {
             thread.DisplayName = text.Length > 50 ? text[..50] + "..." : text;
+            setTitleFromFirstUserMessage = true;
+        }
+
+        if (setTitleFromFirstUserMessage)
+            ThreadRenamedForBroadcast?.Invoke(thread);
 
         // Step 3: Create event channel
         var broker = GetOrCreateBroker(threadId);
@@ -881,8 +891,11 @@ public sealed class SessionService(
     public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
+        var previous = thread.DisplayName;
         thread.DisplayName = displayName;
         await threadStore.SaveThreadAsync(thread, ct);
+        if (previous != displayName)
+            ThreadRenamedForBroadcast?.Invoke(thread);
     }
 
     // =========================================================================

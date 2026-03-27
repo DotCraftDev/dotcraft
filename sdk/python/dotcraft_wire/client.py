@@ -350,7 +350,7 @@ class DotCraftClient:
 
         # Register handlers for all relevant methods
         all_methods = [
-            "thread/started", "thread/resumed", "thread/statusChanged",
+            "thread/started", "thread/renamed", "thread/resumed", "thread/statusChanged",
             "turn/started", "turn/completed", "turn/failed", "turn/cancelled",
             "item/started", "item/completed",
             "item/agentMessage/delta", "item/reasoning/delta",

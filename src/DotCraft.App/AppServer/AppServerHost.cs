@@ -131,6 +131,7 @@ public sealed class AppServerHost(
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
         sessionService.ThreadDeletedForBroadcast = BroadcastThreadDeleted;
+        sessionService.ThreadRenamedForBroadcast = BroadcastThreadRenamed;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
 
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
@@ -814,6 +815,41 @@ public sealed class AppServerHost(
                 continue;
 
             if (skipTransport != null && ReferenceEquals(transport, skipTransport))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts <c>thread/renamed</c> to all connected transports when a thread's display name changes
+    /// (Wire <c>thread/rename</c>, first-message title, or any <see cref="ISessionService.RenameThreadAsync"/> caller).
+    /// </summary>
+    private void BroadcastThreadRenamed(SessionThread thread)
+    {
+        if (string.IsNullOrEmpty(thread.DisplayName))
+            return;
+
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadRenamed,
+            @params = new { threadId = thread.Id, displayName = thread.DisplayName }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadRenamed))
                 continue;
 
             _ = Task.Run(async () =>
