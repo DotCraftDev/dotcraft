@@ -248,9 +248,14 @@ fn json_number_to_i64(v: &Value) -> Option<i64> {
 }
 
 /// Match C# numeric format `N0` (grouped thousands, no fraction).
+/// Match C# numeric format `N0` (grouped thousands, no fraction).
 fn format_int_grouped(n: i64) -> String {
-    let s = n.to_string();
-    let rev: Vec<char> = s.chars().rev().collect();
+    let (prefix, abs_s) = if n < 0 {
+        ("-", n.unsigned_abs().to_string())
+    } else {
+        ("", n.to_string())
+    };
+    let rev: Vec<char> = abs_s.chars().rev().collect();
     let mut out = String::new();
     for (i, c) in rev.iter().enumerate() {
         if i > 0 && i % 3 == 0 {
@@ -258,7 +263,8 @@ fn format_int_grouped(n: i64) -> String {
         }
         out.push(*c);
     }
-    out.chars().rev().collect()
+    let grouped: String = out.chars().rev().collect();
+    format!("{prefix}{grouped}")
 }
 
 #[cfg(test)]
