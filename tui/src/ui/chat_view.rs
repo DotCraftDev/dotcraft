@@ -1,5 +1,5 @@
 // ChatView widget — scrollable conversation history (§8.3 of specs/tui-client.md).
-// Design: Calling/Called tool format, elapsed time, adaptive wrapping,
+// Design: Calling/Called tool format (skipped for standalone sentences e.g. WebSearch), elapsed time, adaptive wrapping,
 // default-visible result summaries, inline SubAgent block, inline Plan block.
 
 use crate::{
@@ -8,6 +8,9 @@ use crate::{
     i18n::Strings,
     theme::Theme,
     ui::markdown,
+    ui::tool_format::{
+        format_invocation_display, format_result_summary, invocation_needs_calling_called_prefix,
+    },
 };
 use ratatui::{
     buffer::Buffer,
@@ -239,26 +242,9 @@ impl ChatView<'_> {
 
     // ── Tool call rendering ────────────────────────────────────────────────
 
-    /// Format tool call arguments as a compact inline invocation.
+    /// Format tool call arguments as a compact inline invocation (aligned with CLI `ToolRegistry.FormatToolCall`).
     fn format_invocation(name: &str, args: &str) -> String {
-        if args.is_empty() {
-            return format!("{name}()");
-        }
-        // Try to extract a compact single-argument display from JSON.
-        // If args is a JSON object with a single string value, show it quoted.
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
-            if let Some(obj) = v.as_object() {
-                if obj.len() == 1 {
-                    let val = obj.values().next().unwrap();
-                    if let Some(s) = val.as_str() {
-                        return format!("{name}(\"{s}\")");
-                    }
-                }
-            }
-        }
-        // Fallback: truncated raw args.
-        let compact = truncate(args, 60);
-        format!("{name}({compact})")
+        format_invocation_display(name, args)
     }
 
     /// Render an active (in-flight) tool call.
@@ -270,9 +256,15 @@ impl ChatView<'_> {
     ) {
         let frame = SPINNER[self.state.tick_count as usize % SPINNER.len()];
         let invocation = Self::format_invocation(&tool.tool_name, &tool.arguments);
+        let need_calling_prefix =
+            invocation_needs_calling_called_prefix(&tool.tool_name, &tool.arguments);
 
-        // "⠋ Calling ToolName("arg")"
-        let prefix = format!("  {frame} {} ", self.strings.calling);
+        // "⠋ Calling ToolName("arg")" or "⠋ Searched "…"" (no second verb for standalone sentences).
+        let prefix = if need_calling_prefix {
+            format!("  {frame} {} ", self.strings.calling)
+        } else {
+            format!("  {frame} ")
+        };
         let prefix_w = display_width(&prefix);
         let available = (width as usize).saturating_sub(prefix_w);
 
@@ -284,10 +276,12 @@ impl ChatView<'_> {
             ]));
         } else {
             // Overflow: header on one line, invocation wrapped on next with └.
-            out.push(Line::from(Span::styled(
-                format!("  {frame} {}…", self.strings.calling),
-                self.theme.tool_active,
-            )));
+            let header = if need_calling_prefix {
+                format!("  {frame} {}…", self.strings.calling)
+            } else {
+                format!("  {frame} …")
+            };
+            out.push(Line::from(Span::styled(header, self.theme.tool_active)));
             out.push(Line::from(vec![
                 Span::styled("    └ ".to_string(), self.theme.dim),
                 Span::styled(
@@ -318,12 +312,17 @@ impl ChatView<'_> {
         let verb = self.strings.called;
 
         let invocation = Self::format_invocation(name, args);
+        let need_called_prefix = invocation_needs_calling_called_prefix(name, args);
         let elapsed = duration
             .map(|d| format!(" ({:.1}s)", d.as_secs_f64()))
             .unwrap_or_default();
 
-        // "• Called ToolName("arg") (0.3s)"
-        let header = format!("  {bullet} {verb} ");
+        // "• Called ToolName("arg") (0.3s)" or "• Searched "…" (0.3s)" (no "Called" for standalone).
+        let header = if need_called_prefix {
+            format!("  {bullet} {verb} ")
+        } else {
+            format!("  {bullet} ")
+        };
         let header_w = display_width(&header);
         let suffix = elapsed.clone();
         let available = (width as usize).saturating_sub(header_w + suffix.len());
@@ -334,7 +333,14 @@ impl ChatView<'_> {
             out.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(format!("{bullet} "), bullet_style),
-                Span::styled(format!("{verb} "), self.theme.dim),
+                Span::styled(
+                    if need_called_prefix {
+                        format!("{verb} ")
+                    } else {
+                        String::new()
+                    },
+                    self.theme.dim,
+                ),
                 Span::styled(invocation.clone(), self.theme.tool_completed),
                 Span::styled(elapsed, self.theme.dim),
             ]));
@@ -343,7 +349,14 @@ impl ChatView<'_> {
             out.push(Line::from(vec![
                 Span::raw("  "),
                 Span::styled(format!("{bullet} "), bullet_style),
-                Span::styled(format!("{verb}"), self.theme.dim),
+                Span::styled(
+                    if need_called_prefix {
+                        verb.to_string()
+                    } else {
+                        String::new()
+                    },
+                    self.theme.dim,
+                ),
                 Span::styled(elapsed, self.theme.dim),
             ]));
             // Wrapped invocation
@@ -359,7 +372,13 @@ impl ChatView<'_> {
         // Result summary (always visible, dimmed, max TOOL_CALL_MAX_LINES).
         if let Some(result_text) = result {
             if !result_text.is_empty() {
-                let result_lines: Vec<&str> = result_text.lines().collect();
+                let result_lines: Vec<String> = if let Some(formatted) =
+                    format_result_summary(name, result_text)
+                {
+                    formatted
+                } else {
+                    result_text.lines().map(str::to_string).collect()
+                };
                 let show_count = result_lines.len().min(TOOL_CALL_MAX_LINES);
                 let last_shown = show_count.saturating_sub(1);
                 for (i, line) in result_lines.iter().take(show_count).enumerate() {
