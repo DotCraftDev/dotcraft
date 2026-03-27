@@ -12,6 +12,8 @@ import {
   broadcastNotification,
   broadcastServerRequest,
   createServerRequestBridge,
+  sanitizeHttpOrHttpsUrl,
+  openExternalHttpUrl,
   type ConnectionStatusPayload,
   type IpcHandlerCallbacks
 } from './ipcBridge'
@@ -443,7 +445,7 @@ function buildAppMenu(locale: AppLocale): Menu {
           accelerator: 'CmdOrCtrl+Shift+D',
           enabled: Boolean(lastDashboardUrl),
           click: async () => {
-            if (lastDashboardUrl) await shell.openExternal(lastDashboardUrl)
+            if (lastDashboardUrl) await openExternalHttpUrl(lastDashboardUrl)
           }
         },
         { type: 'separator' },
@@ -483,11 +485,16 @@ function refreshAppMenu(): void {
 
 function emitConnectionStatus(win: BrowserWindow, payload: ConnectionStatusPayload): void {
   if (payload.status === 'connected') {
-    lastDashboardUrl = payload.dashboardUrl ?? null
+    const sanitized = sanitizeHttpOrHttpsUrl(payload.dashboardUrl)
+    lastDashboardUrl = sanitized
+    broadcastConnectionStatus(win, {
+      ...payload,
+      dashboardUrl: sanitized ?? undefined
+    })
   } else {
     lastDashboardUrl = null
+    broadcastConnectionStatus(win, payload)
   }
-  broadcastConnectionStatus(win, payload)
   refreshAppMenu()
 }
 

@@ -41,6 +41,44 @@ export interface ServerRequestPayload {
   params: unknown
 }
 
+/**
+ * Returns normalized http(s) URL string, or null if empty / malformed / wrong protocol.
+ * Used for DashBoard URLs from initialize and for `shell:open-external` validation.
+ */
+export function sanitizeHttpOrHttpsUrl(url: string | undefined): string | null {
+  if (url === undefined || typeof url !== 'string') return null
+  const trimmed = url.trim()
+  if (trimmed === '') return null
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+  return parsed.href
+}
+
+/**
+ * Opens an http(s) URL in the system browser. Throws the same errors as the legacy
+ * `shell:open-external` IPC handler for invalid input.
+ */
+export async function openExternalHttpUrl(url: string): Promise<void> {
+  if (typeof url !== 'string' || url.trim() === '') {
+    throw new Error('Invalid URL')
+  }
+  const safe = sanitizeHttpOrHttpsUrl(url)
+  if (safe === null) {
+    try {
+      new URL(url.trim())
+    } catch {
+      throw new Error('Invalid URL')
+    }
+    throw new Error('Only http(s) URLs are allowed')
+  }
+  await shell.openExternal(safe)
+}
+
 // ---------------------------------------------------------------------------
 // Pending server-request bridge
 //
@@ -159,19 +197,7 @@ export function registerIpcHandlers(
 
   // Renderer -> Main: open http(s) URL in the system browser (DashBoard, etc.)
   ipcMain.handle('shell:open-external', async (_event, url: string) => {
-    if (typeof url !== 'string' || url.trim() === '') {
-      throw new Error('Invalid URL')
-    }
-    let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
-      throw new Error('Invalid URL')
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error('Only http(s) URLs are allowed')
-    }
-    await shell.openExternal(url)
+    await openExternalHttpUrl(url)
   })
 
   // Renderer -> Main: write a file to disk (used for revert/re-apply)

@@ -1,5 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { createServerRequestBridge } from '../ipcBridge'
+import { describe, it, expect, vi } from 'vitest'
+import { shell } from 'electron'
+
+vi.mock('electron', () => ({
+  shell: { openExternal: vi.fn().mockResolvedValue(undefined) }
+}))
+
+import {
+  createServerRequestBridge,
+  sanitizeHttpOrHttpsUrl,
+  openExternalHttpUrl
+} from '../ipcBridge'
 
 // ---------------------------------------------------------------------------
 // ipcBridge — server-request bridge tests
@@ -34,6 +44,48 @@ describe('createServerRequestBridge', () => {
     const nums = ids.map(Number)
     expect(nums[0]).toBeLessThan(nums[1])
     expect(nums[1]).toBeLessThan(nums[2])
+  })
+})
+
+describe('sanitizeHttpOrHttpsUrl', () => {
+  it('accepts http and https URLs and returns normalized href', () => {
+    expect(sanitizeHttpOrHttpsUrl('http://127.0.0.1:8080/dashboard')).toBe(
+      'http://127.0.0.1:8080/dashboard'
+    )
+    expect(sanitizeHttpOrHttpsUrl('https://example.com/path')).toBe('https://example.com/path')
+  })
+
+  it('returns null for empty, whitespace-only, or undefined', () => {
+    expect(sanitizeHttpOrHttpsUrl(undefined)).toBeNull()
+    expect(sanitizeHttpOrHttpsUrl('')).toBeNull()
+    expect(sanitizeHttpOrHttpsUrl('   ')).toBeNull()
+  })
+
+  it('returns null for non-http(s) protocols', () => {
+    expect(sanitizeHttpOrHttpsUrl('file:///etc/passwd')).toBeNull()
+    expect(sanitizeHttpOrHttpsUrl('ms-msdt:foo')).toBeNull()
+    expect(sanitizeHttpOrHttpsUrl('custom:host')).toBeNull()
+  })
+
+  it('returns null for malformed strings', () => {
+    expect(sanitizeHttpOrHttpsUrl('not a url')).toBeNull()
+  })
+})
+
+describe('openExternalHttpUrl', () => {
+  it('throws Invalid URL for empty input', async () => {
+    await expect(openExternalHttpUrl('')).rejects.toThrow('Invalid URL')
+  })
+
+  it('throws Only http(s) URLs are allowed for disallowed protocols', async () => {
+    await expect(openExternalHttpUrl('file:///tmp/x')).rejects.toThrow('Only http(s) URLs are allowed')
+  })
+
+  it('calls shell.openExternal with sanitized href for https URL', async () => {
+    vi.mocked(shell.openExternal).mockClear()
+    await openExternalHttpUrl('https://example.com')
+    expect(shell.openExternal).toHaveBeenCalledTimes(1)
+    expect(shell.openExternal).toHaveBeenCalledWith('https://example.com/')
   })
 })
 
