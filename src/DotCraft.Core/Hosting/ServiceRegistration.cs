@@ -71,7 +71,11 @@ public static class ServiceRegistration
         services.AddSingleton(languageService);
 
         var cronStorePath = Path.Combine(botPath, config.Cron.StorePath);
-        services.AddSingleton(new CronService(cronStorePath));
+        services.AddSingleton(sp =>
+        {
+            var cronLogger = sp.GetService<ILoggerFactory>()?.CreateLogger<CronService>();
+            return new CronService(cronStorePath, cronLogger);
+        });
         services.AddSingleton<CronTools>(sp => new CronTools(sp.GetRequiredService<CronService>()));
 
         // Hooks
@@ -83,7 +87,8 @@ public static class ServiceRegistration
             services.AddSingleton(hookRunner);
         }
 
-        services.AddSingleton<McpClientManager>();
+        services.AddSingleton(sp =>
+            new McpClientManager(sp.GetService<ILoggerFactory>()?.CreateLogger<McpClientManager>()));
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
         services.AddSingleton<ActiveRunRegistry>();
         services.AddSingleton(new ThreadStore(botPath));

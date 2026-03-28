@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 using Spectre.Console;
 
@@ -5,6 +6,8 @@ namespace DotCraft.Mcp;
 
 public sealed class McpClientManager : IAsyncDisposable
 {
+    private readonly ILogger<McpClientManager>? _logger;
+
     private readonly List<McpClient> _clients = [];
     
     private readonly List<McpClientTool> _tools = [];
@@ -14,6 +17,11 @@ public sealed class McpClientManager : IAsyncDisposable
     public IReadOnlyList<McpClientTool> Tools => _tools;
 
     public IReadOnlyDictionary<string, string> ToolServerMap => _toolServerMap;
+
+    public McpClientManager(ILogger<McpClientManager>? logger = null)
+    {
+        _logger = logger;
+    }
 
     public async Task ConnectAsync(IEnumerable<McpServerConfig> servers, CancellationToken cancellationToken = default)
     {
@@ -34,11 +42,16 @@ public sealed class McpClientManager : IAsyncDisposable
                     _toolServerMap[tool.Name] = server.Name;
                 }
 
+                _logger?.LogInformation(
+                    "MCP connected to {ServerName} with {ToolCount} tools",
+                    server.Name,
+                    tools.Count);
                 AnsiConsole.MarkupLine(
                     $"[grey][[MCP]][/] [green]Connected to {Markup.Escape(server.Name)} ({tools.Count} tools)[/]");
             }
             catch (Exception ex)
             {
+                _logger?.LogError(ex, "MCP connection to {ServerName} failed", server.Name);
                 AnsiConsole.MarkupLine(
                     $"[grey][[MCP]][/] [red]Failed to connect to {Markup.Escape(server.Name)}: {Markup.Escape(ex.Message)}[/]");
             }
@@ -99,9 +112,9 @@ public sealed class McpClientManager : IAsyncDisposable
             {
                 await client.DisposeAsync();
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore disposal errors
+                _logger?.LogWarning(ex, "MCP client disposal error");
             }
         }
         _clients.Clear();

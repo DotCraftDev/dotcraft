@@ -5,6 +5,7 @@ using DotCraft.Sessions;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DotCraft.Protocol;
 
@@ -26,6 +27,7 @@ public static class SessionServiceFactory
         IServiceProvider sp,
         TimeSpan? approvalTimeout = null)
     {
+        var loggerFactory = sp.GetService<ILoggerFactory>();
         return new SessionService(
             agentFactory,
             agent,
@@ -34,6 +36,7 @@ public static class SessionServiceFactory
             sp.GetService<HookRunner>(),
             sp.GetService<TraceCollector>(),
             approvalTimeout,
+            logger: loggerFactory?.CreateLogger<SessionService>(),
             approvalStore: sp.GetService<ApprovalStore>(),
             toolProfileRegistry: sp.GetService<IToolProfileRegistry>());
     }

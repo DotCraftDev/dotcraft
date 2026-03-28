@@ -1,9 +1,15 @@
 using System.Text;
 using DotCraft.Agents;
+using Microsoft.Extensions.Logging;
 
 namespace DotCraft.Heartbeat;
 
-public sealed class HeartbeatService(string workspacePath, AgentRunSessionDelegate onHeartbeat, int intervalSeconds = 1800, bool enabled = true)
+public sealed class HeartbeatService(
+    string workspacePath,
+    AgentRunSessionDelegate onHeartbeat,
+    int intervalSeconds = 1800,
+    bool enabled = true,
+    ILogger<HeartbeatService>? logger = null)
     : IDisposable
 {
     private CancellationTokenSource? _cts;
@@ -65,7 +71,7 @@ public sealed class HeartbeatService(string workspacePath, AgentRunSessionDelega
             }
             catch (Exception ex)
             {
-                await Console.Error.WriteLineAsync($"[Heartbeat] Error: {ex.Message}");
+                logger?.LogError(ex, "Heartbeat tick failed");
             }
         }
     }
