@@ -5,6 +5,8 @@ using System.Text.Json;
 using DotCraft.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DotCraft.DashBoard;
 
@@ -45,6 +47,8 @@ public static class DashBoardAuth
     {
         if (!IsEnabled(config)) return;
 
+        var logger = app.ApplicationServices.GetService<ILoggerFactory>()?.CreateLogger("DashBoard.Auth");
+
         app.Use(async (ctx, next) =>
         {
             var path = ctx.Request.Path.Value ?? "";
@@ -68,6 +72,7 @@ public static class DashBoardAuth
 
             if (IsApiRequest(path))
             {
+                logger?.LogDebug("Unauthorized dashboard API request: {Path}", path);
                 ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 ctx.Response.ContentType = "application/json";
                 await ctx.Response.WriteAsync("""{"error":"unauthorized"}""");
@@ -85,6 +90,8 @@ public static class DashBoardAuth
     public static void MapDashBoardAuth(this IApplicationBuilder app, AppConfig config)
     {
         if (!IsEnabled(config)) return;
+
+        var logger = app.ApplicationServices.GetService<ILoggerFactory>()?.CreateLogger("DashBoard.Auth");
 
         app.Use(async (ctx, next) =>
         {
@@ -139,6 +146,7 @@ public static class DashBoardAuth
                     return;
                 }
 
+                logger?.LogWarning("Dashboard login failed for user {Username}", body?.Username ?? "(unknown)");
                 ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 ctx.Response.ContentType = "application/json";
                 await ctx.Response.WriteAsync("""{"error":"invalid username or password"}""");

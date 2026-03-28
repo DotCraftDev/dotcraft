@@ -1,11 +1,14 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace DotCraft.Cron;
 
 public sealed class CronService : IDisposable
 {
     private readonly string _storePath;
+
+    private readonly ILogger<CronService>? _logger;
 
     private readonly CronStore _store;
 
@@ -41,9 +44,10 @@ public sealed class CronService : IDisposable
     /// </summary>
     public Action<CronJob?, string, bool>? CronJobPersistedAfterExecution { get; set; }
 
-    public CronService(string storePath)
+    public CronService(string storePath, ILogger<CronService>? logger = null)
     {
         _storePath = storePath;
+        _logger = logger;
         _store = LoadStore();
     }
 
@@ -152,7 +156,7 @@ public sealed class CronService : IDisposable
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[Cron] Timer error: {ex.Message}");
+                _logger?.LogError(ex, "Cron timer error");
             }
         }
     }
@@ -240,6 +244,7 @@ public sealed class CronService : IDisposable
         }
         catch (Exception ex)
         {
+            _logger?.LogError(ex, "Cron job {JobId} ({JobName}) execution failed", jobSnapshot.Id, jobSnapshot.Name);
             lock (_storeLock)
             {
                 var current = _store.Jobs.Find(j => j.Id == jobId);
@@ -322,8 +327,9 @@ public sealed class CronService : IDisposable
             var json = File.ReadAllText(_storePath);
             return JsonSerializer.Deserialize<CronStore>(json, JsonOptions) ?? new CronStore();
         }
-        catch
+        catch (Exception ex)
         {
+            _logger?.LogWarning(ex, "Failed to load cron store from {Path}, using empty store", _storePath);
             return new CronStore();
         }
     }

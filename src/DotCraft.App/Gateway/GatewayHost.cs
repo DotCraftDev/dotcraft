@@ -16,6 +16,7 @@ using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
 namespace DotCraft.Gateway;
@@ -80,7 +81,8 @@ public sealed class GatewayHost : IDotCraftHost
             _paths.CraftPath,
             onHeartbeat: sharedAgentRunner,
             intervalSeconds: _config.Heartbeat.IntervalSeconds,
-            enabled: _config.Heartbeat.Enabled);
+            enabled: _config.Heartbeat.Enabled,
+            logger: _sp.GetService<ILoggerFactory>()?.CreateLogger<HeartbeatService>());
 
         if (_config.Heartbeat.NotifyAdmin)
         {

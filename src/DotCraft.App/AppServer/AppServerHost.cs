@@ -174,7 +174,8 @@ public sealed class AppServerHost(
                 }
             },
             intervalSeconds: config.Heartbeat.IntervalSeconds,
-            enabled: config.Heartbeat.Enabled);
+            enabled: config.Heartbeat.Enabled,
+            logger: sp.GetService<ILoggerFactory>()?.CreateLogger<HeartbeatService>());
         _heartbeatService = heartbeatService;
 
         _automationsHandler = sp.GetService<IAutomationsRequestHandler>();
