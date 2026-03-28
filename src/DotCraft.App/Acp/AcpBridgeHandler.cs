@@ -583,7 +583,18 @@ public sealed class AcpBridgeHandler(
             return new { decision = "decline" };
         }
 
-        return await HandleWireServerRequestAsync(doc, threadId, cts.Token).ConfigureAwait(false);
+        CancellationToken token;
+        try
+        {
+            token = cts.Token;
+        }
+        catch (ObjectDisposedException)
+        {
+            logger?.LogEvent($"Wire server request for disposed prompt CTS threadId={threadId}");
+            return new { decision = "decline" };
+        }
+
+        return await HandleWireServerRequestAsync(doc, threadId, token).ConfigureAwait(false);
     }
 
     private async Task<object?> HandleWireServerRequestAsync(JsonDocument doc, string sessionId, CancellationToken ct)
