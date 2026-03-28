@@ -17,8 +17,12 @@ namespace DotCraft.CLI;
 /// </summary>
 public sealed class AppServerProcess : IAsyncDisposable
 {
+    private const int MaxStderrCaptureChars = 16384;
+
     private readonly Process _process;
     private readonly Task _stderrForwarderTask;
+    private readonly StringBuilder _stderrBuffer = new();
+    private readonly Lock _stderrLock = new();
 
     /// <summary>
     /// The underlying JSON-RPC 2.0 wire client connected to the subprocess's stdio streams.
@@ -29,6 +33,25 @@ public sealed class AppServerProcess : IAsyncDisposable
     /// Whether the subprocess is still running.
     /// </summary>
     public bool IsRunning => !_process.HasExited;
+
+    /// <summary>
+    /// Exit code after the subprocess has exited; null while still running.
+    /// </summary>
+    public int? ExitCode => _process.HasExited ? _process.ExitCode : null;
+
+    /// <summary>
+    /// Recent stderr lines from the subprocess (capped), for diagnostics when the process crashes.
+    /// </summary>
+    public string RecentStderr
+    {
+        get
+        {
+            lock (_stderrLock)
+            {
+                return _stderrBuffer.ToString();
+            }
+        }
+    }
 
     /// <summary>
     /// OS process ID of the AppServer subprocess.
@@ -53,11 +76,11 @@ public sealed class AppServerProcess : IAsyncDisposable
 
     private bool _disposed;
 
-    private AppServerProcess(Process process, AppServerWireClient wire, Task stderrForwarderTask)
+    private AppServerProcess(Process process, AppServerWireClient wire)
     {
         _process = process;
         Wire = wire;
-        _stderrForwarderTask = stderrForwarderTask;
+        _stderrForwarderTask = ForwardStderrAsync();
 
         process.Exited += (_, _) =>
         {
@@ -125,17 +148,13 @@ public sealed class AppServerProcess : IAsyncDisposable
         var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {dotcraftBin} {arguments}");
 
-        // Forward subprocess stderr to the CLI process's stderr so server-side diagnostics
-        // remain visible without corrupting the stdout JSON-RPC stream.
-        var stderrForwarderTask = ForwardStderrAsync(process);
-
         var wire = new AppServerWireClient(
             process.StandardOutput.BaseStream,
             process.StandardInput.BaseStream);
 
         wire.Start();
 
-        var appServer = new AppServerProcess(process, wire, stderrForwarderTask);
+        var appServer = new AppServerProcess(process, wire);
 
         // Handshake: send initialize → wait for response → send initialized
         var initResponse = await wire.InitializeAsync(
@@ -150,6 +169,50 @@ public sealed class AppServerProcess : IAsyncDisposable
         appServer.DashboardUrl = TryGetDashboardUrl(initResponse);
 
         return appServer;
+    }
+
+    /// <summary>
+    /// Spawns <c>dotcraft app-server</c> and returns a wire client without running
+    /// <c>initialize</c>. Used by the ACP bridge, which forwards IDE capabilities on first
+    /// <c>initialize</c> from the editor.
+    /// </summary>
+    public static async Task<AppServerProcess> StartWithoutHandshakeAsync(
+        string? dotcraftBin = null,
+        string? workspacePath = null,
+        string? listenUrl = null,
+        CancellationToken ct = default)
+    {
+        dotcraftBin ??= Environment.ProcessPath
+            ?? throw new InvalidOperationException("Cannot determine dotcraft executable path.");
+
+        var arguments = "app-server";
+        if (!string.IsNullOrWhiteSpace(listenUrl))
+            arguments += $" --listen {listenUrl}";
+
+        var psi = new ProcessStartInfo(dotcraftBin, arguments)
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        if (workspacePath != null)
+            psi.WorkingDirectory = workspacePath;
+
+        var process = Process.Start(psi)
+            ?? throw new InvalidOperationException($"Failed to start AppServer subprocess: {dotcraftBin} {arguments}");
+
+        var wire = new AppServerWireClient(
+            process.StandardOutput.BaseStream,
+            process.StandardInput.BaseStream);
+
+        wire.Start();
+
+        return new AppServerProcess(process, wire);
     }
 
     // -------------------------------------------------------------------------
@@ -197,12 +260,26 @@ public sealed class AppServerProcess : IAsyncDisposable
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static async Task ForwardStderrAsync(Process process)
+    private void AppendStderrLine(string line)
+    {
+        lock (_stderrLock)
+        {
+            _stderrBuffer.AppendLine(line);
+            if (_stderrBuffer.Length > MaxStderrCaptureChars)
+            {
+                var remove = _stderrBuffer.Length - MaxStderrCaptureChars;
+                _stderrBuffer.Remove(0, remove);
+            }
+        }
+    }
+
+    private async Task ForwardStderrAsync()
     {
         try
         {
-            while (await process.StandardError.ReadLineAsync() is { } line)
+            while (await _process.StandardError.ReadLineAsync() is { } line)
             {
+                AppendStderrLine(line);
                 await Console.Error.WriteLineAsync($"[AppServer] {line}");
             }
         }

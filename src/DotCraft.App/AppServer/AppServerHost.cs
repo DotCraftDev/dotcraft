@@ -53,6 +53,11 @@ public sealed class AppServerHost(
     private AgentFactory? _agentFactory;
 
     /// <summary>
+    /// Routes <c>ext/acp/*</c> from the agent to the wire client bound per thread (spec §11.2).
+    /// </summary>
+    private WireAcpExtensionProxy? _wireAcpExtensionProxy;
+
+    /// <summary>
     /// Cron service instance owned by this AppServer process. Set during RunAsync and passed to
     /// request handlers so wire clients can manage cron jobs via the cron/* wire methods (spec §16).
     /// </summary>
@@ -100,6 +105,8 @@ public sealed class AppServerHost(
 
         var planStore = new PlanStore(paths.CraftPath);
 
+        _wireAcpExtensionProxy = new WireAcpExtensionProxy();
+
         _agentFactory = new AgentFactory(
             paths.CraftPath, paths.WorkspacePath, config,
             memoryStore, skillsLoader,
@@ -121,7 +128,8 @@ public sealed class AppServerHost(
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
-                TraceCollector = traceCollector
+                TraceCollector = traceCollector,
+                AcpExtensionProxy = _wireAcpExtensionProxy
             },
             traceCollector: traceCollector,
             planStore: planStore,
@@ -342,13 +350,14 @@ public sealed class AppServerHost(
             automationsHandler: _automationsHandler,
             broadcastCronStateChanged: BroadcastCronStateChanged,
             commitMessageSuggest: commitMessageSuggest,
-            dashboardUrl: _dashboardUrl);
+            dashboardUrl: _dashboardUrl,
+            wireAcpExtensionProxy: _wireAcpExtensionProxy);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _wireAcpExtensionProxy, cancellationToken);
         }
         finally
         {
@@ -401,13 +410,14 @@ public sealed class AppServerHost(
             automationsHandler: _automationsHandler,
             broadcastCronStateChanged: BroadcastCronStateChanged,
             commitMessageSuggest: commitMessageSuggest,
-            dashboardUrl: _dashboardUrl);
+            dashboardUrl: _dashboardUrl,
+            wireAcpExtensionProxy: _wireAcpExtensionProxy);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
         try
         {
-            await RunLoopAsync(transport, connection, handler, cancellationToken);
+            await RunLoopAsync(transport, connection, handler, _wireAcpExtensionProxy, cancellationToken);
         }
         finally
         {
@@ -482,7 +492,8 @@ public sealed class AppServerHost(
                     automationsHandler: _automationsHandler,
                     broadcastCronStateChanged: BroadcastCronStateChanged,
                     commitMessageSuggest: commitMessageSuggest,
-                    dashboardUrl: _dashboardUrl);
+                    dashboardUrl: _dashboardUrl,
+                    wireAcpExtensionProxy: _wireAcpExtensionProxy);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
@@ -548,7 +559,7 @@ public sealed class AppServerHost(
 
                         // Not a channel adapter — fall through to normal RunLoopAsync
                         // (initialize already processed, loop will handle subsequent messages)
-                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
+                        await RunLoopAsync(wsTransport, wsConnection, wsHandler, _wireAcpExtensionProxy, hostCt);
                         return;
                     }
 
@@ -563,7 +574,7 @@ public sealed class AppServerHost(
                     }
                 }
 
-                await RunLoopAsync(wsTransport, wsConnection, wsHandler, hostCt);
+                await RunLoopAsync(wsTransport, wsConnection, wsHandler, _wireAcpExtensionProxy, hostCt);
             } // end try
             finally
             {
@@ -590,6 +601,7 @@ public sealed class AppServerHost(
         IAppServerTransport transport,
         AppServerConnection connection,
         AppServerRequestHandler handler,
+        WireAcpExtensionProxy? wireAcpProxy,
         CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -642,6 +654,7 @@ public sealed class AppServerHost(
 
         // Clean up active subscriptions when the client disconnects
         connection.CancelAllSubscriptions();
+        wireAcpProxy?.UnbindTransport(transport);
     }
 
     private static async Task ProcessRequestAsync(

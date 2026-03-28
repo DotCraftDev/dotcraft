@@ -30,8 +30,11 @@ public sealed class AppServerRequestHandler(
     IAutomationsRequestHandler? automationsHandler = null,
     Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null,
     ICommitMessageSuggestService? commitMessageSuggest = null,
-    string? dashboardUrl = null)
+    string? dashboardUrl = null,
+    WireAcpExtensionProxy? wireAcpExtensionProxy = null)
 {
+    private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
+
     private readonly IAppServerChannelListContributor _channelListContributor = channelListContributor;
 
     private readonly string? _dashboardUrl = dashboardUrl;
@@ -195,6 +198,9 @@ public sealed class AppServerRequestHandler(
             displayName: p.DisplayName,
             ct: ct);
 
+        if (_wireAcpExtensionProxy != null && connection.HasAcpExtensions)
+            _wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
+
         // Fix 8: The host sends the thread/start response first, then emits the
         // thread/started notification as required by spec Section 4.1.
         await SendNotificationAfterResponseAsync(
@@ -212,6 +218,9 @@ public sealed class AppServerRequestHandler(
     {
         var p = GetParams<ThreadResumeParams>(msg);
         var thread = await sessionService.ResumeThreadAsync(p.ThreadId, ct);
+
+        if (_wireAcpExtensionProxy != null && connection.HasAcpExtensions)
+            _wireAcpExtensionProxy.BindThread(thread.Id, transport, connection);
 
         // Gap D: use the client's declared name from initialize instead of hardcoded "appserver".
         var resumedBy = connection.ClientInfo?.Name ?? "appserver";
@@ -480,7 +489,7 @@ public sealed class AppServerRequestHandler(
             }
             : new ChannelSessionInfo
             {
-                Channel = "cli",
+                Channel = connection.HasAcpExtensions ? "acp" : "cli",
                 UserId = connection.ClientInfo?.Name ?? "anonymous"
             };
 

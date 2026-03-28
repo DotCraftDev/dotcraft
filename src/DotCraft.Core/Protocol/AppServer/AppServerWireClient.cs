@@ -60,17 +60,28 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
         string clientVersion = "0.1.0",
         bool approvalSupport = true,
         bool streamingSupport = true,
-        IReadOnlyList<string>? optOutMethods = null)
+        IReadOnlyList<string>? optOutMethods = null,
+        AcpExtensionCapability? acpExtensions = null)
     {
-        var result = await SendRequestAsync(AppServerMethods.Initialize, new
-        {
-            clientInfo = new { name = clientName, version = clientVersion },
-            capabilities = new
+        object capabilities = acpExtensions is null
+            ? new
             {
                 approvalSupport,
                 streamingSupport,
                 optOutNotificationMethods = optOutMethods ?? Array.Empty<string>()
             }
+            : new
+            {
+                approvalSupport,
+                streamingSupport,
+                optOutNotificationMethods = optOutMethods ?? Array.Empty<string>(),
+                acpExtensions
+            };
+
+        var result = await SendRequestAsync(AppServerMethods.Initialize, new
+        {
+            clientInfo = new { name = clientName, version = clientVersion },
+            capabilities
         });
         await SendNotificationAsync(AppServerMethods.Initialized);
         return result;

@@ -146,11 +146,11 @@ flowchart LR
     Cli --> AppSrv
     Tui --> AppSrv
     Desktop --> AppSrv
+    Ide --> AppSrv
     AppSrv --> Workspace
     AppSrv --> Automations
     Automations --> LocalSource
     Automations --> GitHubSource
-    Ide --> Workspace
     Bots --> Workspace
     ExtCh -->|"SDK / JSON-RPC"| AppSrv
     Api --> Workspace
@@ -210,7 +210,9 @@ See the [Desktop Client README](./desktop/README.md) for details.
 
 ### Editors And ACP
 
-DotCraft supports ACP-compatible editors including Unity, Obsidian, and JetBrains IDEs. Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
+DotCraft supports ACP-compatible editors including Unity, Obsidian, and JetBrains IDEs. The ACP client acts as a protocol bridge between the editor (ACP/JSON-RPC over stdio) and an AppServer instance (wire protocol), so all session state, agent execution, and tool invocation are handled by AppServer — just like CLI, TUI, and Desktop clients. The bridge can spawn a local AppServer subprocess automatically, or connect to an already-running remote AppServer via `--remote ws://host:port/ws`.
+
+Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
 ![unity](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity.gif)
 
