@@ -40,6 +40,8 @@ public static class DashBoardMiddleware
         IDashBoardSessionHandler? sessionHandler = null,
         bool refreshTraceFromDiskBeforeRead = false)
     {
+        var logger = endpoints.ServiceProvider.GetService<ILoggerFactory>()?.CreateLogger("DashBoard");
+
         void RefreshTraceFromDiskIfEnabled()
         {
             if (refreshTraceFromDiskBeforeRead)
@@ -124,8 +126,7 @@ public static class DashBoardMiddleware
                 }
                 catch (Exception ex)
                 {
-                    var log = http.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("DashBoard");
-                    log?.LogWarning(ex, "DeleteThreadAsync failed for session {SessionKey}", sessionKey);
+                    logger?.LogWarning(ex, "DeleteThreadAsync failed for session {SessionKey}", sessionKey);
                 }
             }
 
@@ -150,8 +151,7 @@ public static class DashBoardMiddleware
                 }
                 catch (Exception ex)
                 {
-                    var log = http.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("DashBoard");
-                    log?.LogWarning(ex, "DeleteAllThreadsAsync failed after clearing traces");
+                    logger?.LogWarning(ex, "DeleteAllThreadsAsync failed after clearing traces");
                 }
             }
 
@@ -231,14 +231,14 @@ public static class DashBoardMiddleware
                     ".craft",
                     "config.json");
 
-                await SaveConfigAsync(ctx, globalConfigPath, sensitivePaths);
+                await SaveConfigAsync(ctx, globalConfigPath, sensitivePaths, logger);
             });
         }
 
         endpoints.MapPost("/dashboard/api/config/workspace", async ctx =>
         {
             var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
-            await SaveConfigAsync(ctx, workspaceConfigPath, sensitivePaths);
+            await SaveConfigAsync(ctx, workspaceConfigPath, sensitivePaths, logger);
         });
 
         if (tokenUsageStore != null)
@@ -306,6 +306,7 @@ public static class DashBoardMiddleware
             var cancellationToken = cts.Token;
             var reader = traceStore.SseReader;
 
+            logger?.LogDebug("Dashboard SSE client connected");
             try
             {
                 await foreach (var evt in reader.ReadAllAsync(cancellationToken))
@@ -318,6 +319,10 @@ public static class DashBoardMiddleware
             catch (OperationCanceledException)
             {
                 // Client disconnected or server shutting down
+            }
+            finally
+            {
+                logger?.LogDebug("Dashboard SSE client disconnected");
             }
         });
     }
@@ -339,7 +344,11 @@ public static class DashBoardMiddleware
         return overrideNode.DeepClone();
     }
 
-    private static async Task SaveConfigAsync(HttpContext ctx, string targetPath, string[][] sensitivePaths)
+    private static async Task SaveConfigAsync(
+        HttpContext ctx,
+        string targetPath,
+        string[][] sensitivePaths,
+        ILogger? logger)
     {
         var dir = Path.GetDirectoryName(targetPath);
         if (!string.IsNullOrEmpty(dir))
@@ -353,8 +362,9 @@ public static class DashBoardMiddleware
         {
             postedObj = (JsonObject)(JsonNode.Parse(body) ?? new JsonObject());
         }
-        catch
+        catch (Exception ex)
         {
+            logger?.LogWarning(ex, "Dashboard config save rejected: invalid JSON body");
             ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
             await ctx.Response.WriteAsJsonAsync(new { success = false, error = "Invalid JSON" });
             return;
@@ -368,6 +378,7 @@ public static class DashBoardMiddleware
 
         var output = postedObj.ToJsonString(RawJsonOptions);
         await File.WriteAllTextAsync(targetPath, output);
+        logger?.LogInformation("Dashboard config saved to {Path}", targetPath);
         await ctx.Response.WriteAsJsonAsync(new { success = true, path = targetPath });
     }
 

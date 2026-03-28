@@ -1,6 +1,7 @@
 using DotCraft.Abstractions;
 using DotCraft.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using ModuleRegistry = DotCraft.Modules.ModuleRegistry;
 
@@ -94,11 +95,14 @@ public sealed class HostBuilder
         // In gateway / app-server mode, also configure all enabled sub-module services so
         // their dependencies are available in the DI container. AppServer needs this because
         // it exposes sub-module functionality (e.g. Automations) via the Wire Protocol.
+        List<string>? subModuleNames = null;
         if (primaryModule.Name is "gateway" or "app-server")
         {
+            subModuleNames = [];
             foreach (var subModule in _registry.GetEnabledModules(_config)
                          .Where(m => m.Name != primaryModule.Name))
             {
+                subModuleNames.Add(subModule.Name);
                 AnsiConsole.MarkupLine($"[grey]  Configuring sub-module services: {subModule.Name}[/]");
                 ConfigureModuleServices(services, subModule);
             }
@@ -106,6 +110,14 @@ public sealed class HostBuilder
 
         // Build service provider
         var provider = services.BuildServiceProvider();
+
+        var startupLogger = provider.GetService<ILoggerFactory>()?.CreateLogger<HostBuilder>();
+        startupLogger?.LogInformation("Primary module: {ModuleName}", primaryModule.Name);
+        if (subModuleNames is { Count: > 0 })
+        {
+            foreach (var name in subModuleNames)
+                startupLogger?.LogInformation("Configured sub-module services: {SubModuleName}", name);
+        }
 
         // Create host
         var host = CreateHost(provider, primaryModule);
