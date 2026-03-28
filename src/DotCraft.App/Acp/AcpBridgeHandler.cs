@@ -582,7 +582,9 @@ public sealed class AcpBridgeHandler(
     }
 
     /// <summary>
-    /// Single permanent handler: resolves <c>threadId</c> from wire params and routes to the active prompt.
+    /// Single permanent handler: routes server-initiated requests to the active prompt.
+    /// <c>item/approval/request</c> may omit <c>threadId</c> (single active prompt fallback);
+    /// <c>ext/acp/*</c> requires <c>threadId</c> per spec.
     /// </summary>
     private async Task<object?> OnWireServerRequestAsync(JsonDocument doc)
     {
@@ -590,19 +592,72 @@ public sealed class AcpBridgeHandler(
         if (!root.TryGetProperty("params", out var wireParams))
             return new { decision = "decline" };
 
+        if (!root.TryGetProperty("method", out var methodEl))
+        {
+            logger?.LogEvent("Wire server request missing method; declining");
+            return new { decision = "decline" };
+        }
+
+        var method = methodEl.GetString() ?? "";
+
         string? threadId = null;
         if (wireParams.TryGetProperty("threadId", out var tidEl) && tidEl.ValueKind == JsonValueKind.String)
             threadId = tidEl.GetString();
 
-        if (string.IsNullOrEmpty(threadId))
+        string? sessionId = null;
+
+        if (method == AppServerMethods.ItemApprovalRequest)
         {
-            logger?.LogEvent("Wire server request missing threadId; declining");
+            if (!string.IsNullOrEmpty(threadId) && _activePrompts.ContainsKey(threadId))
+                sessionId = threadId;
+            else if (string.IsNullOrEmpty(threadId))
+            {
+                if (_activePrompts.Count == 1)
+                {
+                    foreach (var kv in _activePrompts)
+                    {
+                        sessionId = kv.Key;
+                        break;
+                    }
+                }
+                else
+                {
+                    logger?.LogEvent(
+                        $"item/approval/request without threadId; active prompts={_activePrompts.Count}, declining");
+                    return new { decision = "decline" };
+                }
+            }
+            else
+            {
+                logger?.LogEvent($"item/approval/request for inactive threadId={threadId}");
+                return new { decision = "decline" };
+            }
+        }
+        else if (method.StartsWith("ext/acp/", StringComparison.Ordinal))
+        {
+            if (string.IsNullOrEmpty(threadId))
+            {
+                logger?.LogEvent("ext/acp wire server request missing threadId; declining");
+                return new { decision = "decline" };
+            }
+
+            if (!_activePrompts.ContainsKey(threadId))
+            {
+                logger?.LogEvent($"Wire server request for inactive threadId={threadId}");
+                return new { decision = "decline" };
+            }
+
+            sessionId = threadId;
+        }
+        else
+        {
+            logger?.LogEvent($"Wire server request unknown method={method}; declining");
             return new { decision = "decline" };
         }
 
-        if (!_activePrompts.TryGetValue(threadId, out var cts))
+        if (string.IsNullOrEmpty(sessionId) || !_activePrompts.TryGetValue(sessionId, out var cts))
         {
-            logger?.LogEvent($"Wire server request for inactive threadId={threadId}");
+            logger?.LogEvent($"Wire server request could not resolve active session for method={method}");
             return new { decision = "decline" };
         }
 
@@ -613,11 +668,11 @@ public sealed class AcpBridgeHandler(
         }
         catch (ObjectDisposedException)
         {
-            logger?.LogEvent($"Wire server request for disposed prompt CTS threadId={threadId}");
+            logger?.LogEvent($"Wire server request for disposed prompt CTS sessionId={sessionId}");
             return new { decision = "decline" };
         }
 
-        return await HandleWireServerRequestAsync(doc, threadId, token).ConfigureAwait(false);
+        return await HandleWireServerRequestAsync(doc, sessionId, token).ConfigureAwait(false);
     }
 
     private async Task<object?> HandleWireServerRequestAsync(JsonDocument doc, string sessionId, CancellationToken ct)
