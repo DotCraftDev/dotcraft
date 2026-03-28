@@ -1,122 +1,109 @@
-using System.ClientModel;
-using DotCraft.Agents;
+using DotCraft.CLI;
 using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
-using DotCraft.Cron;
-using DotCraft.Tracing;
-using DotCraft.Hosting;
-using DotCraft.Mcp;
-using DotCraft.Memory;
-using DotCraft.Modules;
-using DotCraft.Security;
 using DotCraft.Hooks;
-using DotCraft.Protocol;
-using DotCraft.Skills;
-using DotCraft.Tools;
+using DotCraft.Hosting;
+using DotCraft.Memory;
+using DotCraft.Protocol.AppServer;
+using DotCraft.Tracing;
 using Microsoft.Extensions.DependencyInjection;
-using OpenAI;
 using Spectre.Console;
 
 namespace DotCraft.Acp;
 
 /// <summary>
-/// Host for ACP (Agent Client Protocol) mode.
-/// Communicates with the editor/IDE over stdio using JSON-RPC.
+/// Host for ACP mode: stdio to the IDE and AppServer Session Wire protocol for session/agent work.
 /// </summary>
 public sealed class AcpHost(
     IServiceProvider sp,
     AppConfig config,
-    DotCraftPaths paths,
-    MemoryStore memoryStore,
-    SkillsLoader skillsLoader,
-    PathBlacklist blacklist,
-    McpClientManager mcpClientManager,
-    ModuleRegistry moduleRegistry) : IDotCraftHost
+    DotCraftPaths paths) : IDotCraftHost
 {
-    private AgentFactory? _agentFactory;
+    private AppServerProcess? _appServerProcess;
+    private WebSocketClientConnection? _wsConnection;
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        var cronTools = sp.GetService<CronTools>();
-        var traceCollector = sp.GetService<TraceCollector>();
+        var acpConfig = config.GetSection<AcpConfig>("Acp");
         var tokenUsageStore = sp.GetService<TokenUsageStore>();
-        var customCommandLoader = sp.GetService<CustomCommandLoader>();
         var hookRunner = sp.GetService<HookRunner>();
-
-        ToolProviderCollector.ScanToolIcons(moduleRegistry, config);
-        var toolProviders = ToolProviderCollector.Collect(moduleRegistry, config);
+        var customCommandLoader = sp.GetService<CustomCommandLoader>();
 
         using var acpLogger = AcpLogger.Create(paths.CraftPath, config.DebugMode);
 
         await using var transport = AcpTransport.CreateStdio();
         transport.Logger = acpLogger;
         transport.StartReaderLoop();
-        var acpApprovalService = new AcpApprovalService(transport);
 
-        // Wrap in SessionScopedApprovalService so SessionService can install per-turn overrides
-        var scopedApproval = new SessionScopedApprovalService(acpApprovalService);
+        AppServerWireClient wire;
+        if (!string.IsNullOrWhiteSpace(acpConfig.AppServerUrl))
+        {
+            var wsUri = new Uri(acpConfig.AppServerUrl);
+            AnsiConsole.MarkupLine($"[grey][[ACP]][/] Connecting to AppServer at {Markup.Escape(wsUri.ToString())}...");
+            _wsConnection = await WebSocketClientConnection.ConnectAsync(
+                wsUri,
+                acpConfig.AppServerToken,
+                cancellationToken);
+            wire = _wsConnection.Wire;
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[grey][[ACP]][/] Starting AppServer subprocess...");
+            _appServerProcess = await AppServerProcess.StartWithoutHandshakeAsync(
+                dotcraftBin: acpConfig.AppServerBin,
+                workspacePath: paths.WorkspacePath,
+                ct: cancellationToken);
 
-        // Create client proxy early (capabilities will be set during initialize)
-        var clientProxy = new AcpClientProxy(transport, null);
+            acpLogger?.LogEvent($"AppServer subprocess started (PID {_appServerProcess.ProcessId})");
+
+            _appServerProcess.OnCrashed += () =>
+            {
+                AnsiConsole.MarkupLine("[red][[ACP]][/] AppServer subprocess exited unexpectedly.");
+                var stderr = _appServerProcess.RecentStderr.Trim();
+                if (!string.IsNullOrEmpty(stderr))
+                    acpLogger?.LogEvent($"AppServer stderr (tail): {stderr}");
+                acpLogger?.LogEvent(
+                    $"AppServer subprocess exited (PID {_appServerProcess.ProcessId}, code {_appServerProcess.ExitCode})");
+            };
+
+            if (!_appServerProcess.IsRunning)
+            {
+                // Allow the stderr forwarder to read any lines written before exit.
+                await Task.Delay(150, cancellationToken);
+                var stderr = _appServerProcess.RecentStderr.Trim();
+                var msg =
+                    $"AppServer subprocess exited immediately (code {_appServerProcess.ExitCode}). " +
+                    (string.IsNullOrEmpty(stderr) ? "No stderr captured." : stderr);
+                acpLogger?.LogError(msg);
+                throw new InvalidOperationException(msg);
+            }
+
+            wire = _appServerProcess.Wire;
+        }
 
         var planStore = new PlanStore(paths.CraftPath);
-
-        AcpHandler? handler = null;
-
-        _agentFactory = new AgentFactory(
-            paths.CraftPath, paths.WorkspacePath, config,
-            memoryStore, skillsLoader, scopedApproval, blacklist,
-            toolProviders: toolProviders,
-            toolProviderContext: new Abstractions.ToolProviderContext
-            {
-                Config = config,
-                ChatClient = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
-                {
-                    Endpoint = new Uri(config.EndPoint)
-                }).GetChatClient(config.Model),
-                WorkspacePath = paths.WorkspacePath,
-                BotPath = paths.CraftPath,
-                MemoryStore = memoryStore,
-                SkillsLoader = skillsLoader,
-                ApprovalService = scopedApproval,
-                PathBlacklist = blacklist,
-                CronTools = cronTools,
-                McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
-                TraceCollector = traceCollector,
-                AcpExtensionProxy = clientProxy
-            },
-            traceCollector: traceCollector,
-            customCommandLoader: customCommandLoader,
-            planStore: planStore,
-            onPlanUpdated: plan =>
-            {
-                var sessionId = TracingChatClient.CurrentSessionKey;
-                if (handler != null && !string.IsNullOrEmpty(sessionId))
-                    handler.SendPlanUpdate(sessionId, plan);
-            },
-            onConsolidatorStatus: AnsiConsole.MarkupLine,
-            hookRunner: hookRunner);
-
-        var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
-        handler = new AcpHandler(
-            transport, _agentFactory,
-            acpApprovalService, paths.WorkspacePath, sessionService,
+        var bridge = new AcpBridgeHandler(
+            transport,
+            wire,
+            paths.WorkspacePath,
             customCommandLoader,
-            tokenUsageStore: tokenUsageStore,
-            logger: acpLogger,
-            planStore: planStore,
-            clientProxy: clientProxy,
-            hookRunner: hookRunner);
+            tokenUsageStore,
+            hookRunner,
+            planStore,
+            acpLogger,
+            _appServerProcess);
 
-        AnsiConsole.MarkupLine("[green][[ACP]][/] DotCraft ACP agent started (stdio)");
-        await handler.RunAsync(cancellationToken);
-        AnsiConsole.MarkupLine("[grey][[ACP]][/] ACP agent stopped");
+        AnsiConsole.MarkupLine("[green][[ACP]][/] DotCraft ACP bridge ready (stdio → AppServer)");
+        await bridge.RunAsync(cancellationToken);
+        AnsiConsole.MarkupLine("[grey][[ACP]][/] ACP bridge stopped");
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_agentFactory != null)
-            await _agentFactory.DisposeAsync();
+        if (_appServerProcess != null)
+            await _appServerProcess.DisposeAsync();
+
+        if (_wsConnection != null)
+            await _wsConnection.DisposeAsync();
     }
 }

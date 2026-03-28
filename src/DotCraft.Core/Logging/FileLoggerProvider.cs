@@ -94,7 +94,9 @@ internal sealed class FileLogSink : IDisposable
             {
                 _writer?.Dispose();
                 var path = Path.Combine(_directory, $"dotcraft-{today}.log");
-                _writer = new StreamWriter(path, append: true, new UTF8Encoding(false))
+                // Allow another process (e.g. AppServer subprocess) to append the same daily file on Windows.
+                var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                _writer = new StreamWriter(fs, new UTF8Encoding(false))
                 {
                     AutoFlush = true
                 };

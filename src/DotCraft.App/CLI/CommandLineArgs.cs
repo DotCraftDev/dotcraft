@@ -14,7 +14,7 @@ namespace DotCraft.CLI;
 /// <item><c>dotcraft app-server</c> — AppServer in stdio mode (backward-compatible)</item>
 /// <item><c>dotcraft app-server --listen ws://host:port</c> — AppServer in pure WebSocket mode</item>
 /// <item><c>dotcraft app-server --listen ws+stdio://host:port</c> — AppServer in stdio + WebSocket mode</item>
-/// <item><c>dotcraft -acp</c> / <c>dotcraft acp</c> — ACP mode (backward-compatible)</item>
+/// <item><c>dotcraft -acp</c> / <c>dotcraft acp</c> — ACP bridge (stdio to IDE; AppServer subprocess or <c>--remote</c>)</item>
 /// </list>
 ///
 /// <para>
@@ -139,7 +139,6 @@ public sealed record CommandLineArgs
             if (TryParseKeyValue(arg, "--token", out var tokenValue))
             {
                 token = tokenValue;
-                continue;
             }
 
             // Unknown arguments are silently ignored (forward-compatible).
@@ -178,9 +177,18 @@ public sealed record CommandLineArgs
         switch (Mode)
         {
             case RunMode.Acp:
-                config.SetSection("Acp", new AcpConfig { Enabled = true });
+            {
+                var acp = new AcpConfig { Enabled = true };
+                if (!string.IsNullOrWhiteSpace(RemoteUrl))
+                {
+                    acp.AppServerUrl = RemoteUrl;
+                    acp.AppServerToken = Token;
+                }
+
+                config.SetSection("Acp", acp);
                 config.DashBoard.Enabled = false;
                 break;
+            }
 
             case RunMode.AppServer:
                 ApplyAppServerConfig(config);

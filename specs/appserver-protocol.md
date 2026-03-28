@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.0 |
+| **Version** | 0.2.1 |
 | **Status** | Living |
-| **Date** | 2026-03-18 |
+| **Date** | 2026-03-28 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 
 Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) to out-of-process clients, enabling non-C# adapters to create and resume threads, submit turns, stream events, and participate in approval flows. The protocol also covers server management operations — specifically cron job lifecycle — that are owned by the AppServer process but need to be accessible to wire clients.
@@ -30,6 +30,8 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [11. Extension Methods](#11-extension-methods)
 - [12. Versioning and Compatibility](#12-versioning-and-compatibility)
 - [13. Full Turn Example](#13-full-turn-example)
+  - [13.1 ACP client turn (extension proxy)](#131-acp-client-turn-extension-proxy)
+  - [13.2 Standard wire turn (no ACP)](#132-standard-wire-turn-no-acp)
 - [14. Relationship to Codex App Server](#14-relationship-to-codex-app-server)
 - [15. WebSocket Transport](#15-websocket-transport)
 - [16. Cron Management Methods](#16-cron-management-methods)
@@ -150,7 +152,13 @@ Client                              Server
   "capabilities": {
     "approvalSupport": true,
     "streamingSupport": true,
-    "optOutNotificationMethods": []
+    "optOutNotificationMethods": [],
+    "acpExtensions": {
+      "fsReadTextFile": true,
+      "fsWriteTextFile": true,
+      "terminalCreate": true,
+      "extensions": ["_unity"]
+    }
   }
 }
 ```
@@ -163,6 +171,16 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
+| `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
+
+**`acpExtensions` object** (when present):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fsReadTextFile` | boolean | Client can handle `ext/acp/fs/readTextFile`. |
+| `fsWriteTextFile` | boolean | Client can handle `ext/acp/fs/writeTextFile`. |
+| `terminalCreate` | boolean | Client can handle `ext/acp/terminal/*` methods. |
+| `extensions` | string[] | Custom extension families the client implements (e.g. `["_unity"]`). Server may send `ext/acp/<family>/<method>` for each advertised family. |
 
 **Result**:
 
@@ -1511,21 +1529,32 @@ The core wire protocol (Sections 3–10) covers the `ISessionService` surface. C
 - In v1, the `initialize` response may advertise available extensions only as a flat namespace array in `serverInfo.extensions`.
 - A richer structured extension registry is deferred from v1; clients must not require per-extension schema metadata to use the core Session protocol.
 
-### 11.2 ACP Tool Proxy (Reference Extension)
+### 11.2 ACP Tool Proxy
 
-ACP currently exposes bidirectional tool proxy methods (`FsReadTextFile`, `TerminalCreate`, etc.) that allow the agent's tools to access the client's filesystem and terminals. Under the wire protocol, these become extension methods:
+The ACP (Agent Client Protocol) integration allows the agent's tools to access the IDE client's filesystem, terminals, and custom extension methods. On the AppServer wire, these map to **server → client** JSON-RPC requests (same bidirectional pattern as `item/approval/request` in [Section 7](#7-approval-flow)): the server sends a request with a numeric `id`; the client responds with a `result` or `error`.
 
-| ACP Method | Wire Extension Method |
-|------------|----------------------|
-| `FsReadTextFile` | `ext/acp/fs/readTextFile` |
-| `FsWriteTextFile` | `ext/acp/fs/writeTextFile` |
-| `TerminalCreate` | `ext/acp/terminal/create` |
-| `TerminalGetOutput` | `ext/acp/terminal/getOutput` |
-| `TerminalWaitForExit` | `ext/acp/terminal/waitForExit` |
-| `TerminalKill` | `ext/acp/terminal/kill` |
-| `TerminalRelease` | `ext/acp/terminal/release` |
+**Capability negotiation**: The client declares `capabilities.acpExtensions` during `initialize` (see [Section 3.2](#32-initialize)). The server must only send `ext/acp/*` requests that the client has advertised:
 
-This extension is not normative — it documents the intended migration path for ACP's current capabilities.
+- `fsReadTextFile` → may send `ext/acp/fs/readTextFile`
+- `fsWriteTextFile` → may send `ext/acp/fs/writeTextFile`
+- `terminalCreate` → may send `ext/acp/terminal/*`
+- Each entry in `extensions` (e.g. `"_unity"`) → may send `ext/acp/<family>/<method>` for that family
+
+**Per-thread binding**: When a connection that declared `acpExtensions` successfully creates a thread via `thread/start`, the server binds that thread id to that connection. While the agent runs a turn on that thread, `ext/acp/*` calls from tools are routed to the **bound** client's transport. If that connection closes before a pending `ext/acp/*` completes, the request fails (timeout or connection error).
+
+**`threadId` in server→client params**: Every server→client `ext/acp/*` request MUST include `threadId` (string, camelCase) in `params`, equal to the Session Wire thread id for that turn. This lets clients with a single Wire connection (e.g. an ACP bridge) route concurrent server-initiated requests to the correct IDE session. Method-specific fields (e.g. `path`, `terminalId`) are in the same `params` object alongside `threadId`. ACP bridges SHOULD strip `threadId` before forwarding to the IDE when the IDE protocol does not define that field.
+
+**Custom extensions**: Method pattern `ext/acp/<family>/<method>` where `<family>` was listed in `acpExtensions.extensions` (e.g. `ext/acp/_unity/scene_query`).
+
+| ACP method (IDE) | Wire extension method |
+|------------------|----------------------|
+| `fs/readTextFile` | `ext/acp/fs/readTextFile` |
+| `fs/writeTextFile` | `ext/acp/fs/writeTextFile` |
+| `terminal/create` | `ext/acp/terminal/create` |
+| `terminal/getOutput` | `ext/acp/terminal/getOutput` |
+| `terminal/waitForExit` | `ext/acp/terminal/waitForExit` |
+| `terminal/kill` | `ext/acp/terminal/kill` |
+| `terminal/release` | `ext/acp/terminal/release` |
 
 ---
 
@@ -1550,6 +1579,39 @@ The client and server agree on the protocol version during `initialize`. If the 
 ## 13. Full Turn Example
 
 This section shows the complete message sequence for a turn where the agent reads a file, runs a test (requiring approval), and responds.
+
+### 13.1 ACP client turn (extension proxy)
+
+When the wire client is an **ACP bridge** (IDE ↔ AppServer), the agent may need to read files through the IDE. The server sends `ext/acp/*` to the bridge; the bridge forwards to the IDE and returns the result.
+
+```
+IDE (ACP)          ACP Bridge          AppServer
+  |                    |                    |
+  | session/prompt     |                    |
+  |------------------->|                    |
+  |                    | turn/start         |
+  |                    |------------------->|
+  |                    |                    | (agent runs, needs file read)
+  |                    | ext/acp/fs/readTextFile (server request)
+  |                    |<-------------------|
+  | fs/readTextFile    |                    |
+  |<-------------------|                    |
+  | (response)         |                    |
+  |------------------->|                    |
+  |                    | (response)         |
+  |                    |------------------->|
+  |                    |                    | (agent continues)
+  |                    | item/agentMessage/delta
+  |                    |<-------------------|
+  | session/update     |                    |
+  |<-------------------|                    |
+  |                    | turn/completed     |
+  |                    |<-------------------|
+  | session/prompt response (end_turn)      |
+  |<-------------------|                    |
+```
+
+### 13.2 Standard wire turn (no ACP)
 
 ```
 Client                                          Server

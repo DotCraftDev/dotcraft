@@ -73,7 +73,7 @@ tar -xzf DotCraft-linux-x64.tar.gz   # 或 DotCraft-macos-x64.tar.gz
 build.bat
 
 # Linux / macOS
-bash build-linux.bat
+bash build_linux.bat
 
 # 配置路径到环境变量（可选，Windows）
 cd Release/DotCraft
@@ -145,11 +145,11 @@ flowchart LR
     Cli --> AppSrv
     Tui --> AppSrv
     Desktop --> AppSrv
+    Ide --> AppSrv
     AppSrv --> Workspace
     AppSrv --> Automations
     Automations --> LocalSource
     Automations --> GitHubSource
-    Ide --> Workspace
     Bots --> Workspace
     ExtCh -->|"SDK / JSON-RPC"| AppSrv
     Api --> Workspace
@@ -209,7 +209,9 @@ DotCraft Desktop 是一个基于 Electron + React 的桌面应用，作为 AppSe
 
 ### 编辑器与 ACP
 
-DotCraft 支持 ACP 兼容编辑器，包括 Unity、Obsidian 和 JetBrains 系列 IDE。你可以先查看 [ACP 模式指南](./docs/acp_guide.md)；如果你主要在 Unity 中使用，再查看 [Unity 集成指南](./docs/unity_guide.md) 与 [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md)。
+DotCraft 支持 ACP 兼容编辑器，包括 Unity、Obsidian 和 JetBrains 系列 IDE。ACP 客户端作为协议桥接层，将编辑器（ACP/JSON-RPC over stdio）与 AppServer 实例（Wire Protocol）连接起来，所有会话状态、Agent 执行和工具调用均由 AppServer 处理——与 CLI、TUI、Desktop 客户端完全一致。桥接层可以自动启动本地 AppServer 子进程，也可通过 `--remote ws://host:port/ws` 连接已有的远程 AppServer。
+
+你可以先查看 [ACP 模式指南](./docs/acp_guide.md)；如果你主要在 Unity 中使用，再查看 [Unity 集成指南](./docs/unity_guide.md) 与 [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md)。
 
 ![unity](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity.gif)
 

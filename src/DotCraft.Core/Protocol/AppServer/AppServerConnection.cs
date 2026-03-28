@@ -60,6 +60,32 @@ public sealed class AppServerConnection
     /// </summary>
     public bool SupportsDelivery { get; private set; } = true;
 
+    // -------------------------------------------------------------------------
+    // ACP extension state (appserver-protocol.md §11.2)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// ACP tool proxy capabilities from <c>initialize</c>, or null when not declared.
+    /// </summary>
+    public AcpExtensionCapability? AcpExtensions => _clientCapabilities?.AcpExtensions;
+
+    /// <summary>
+    /// True when the client sent a non-null <c>acpExtensions</c> object.
+    /// </summary>
+    public bool HasAcpExtensions => AcpExtensions != null;
+
+    /// <summary>Client can receive <c>ext/acp/fs/readTextFile</c>.</summary>
+    public bool SupportsAcpFsRead => AcpExtensions?.FsReadTextFile == true;
+
+    /// <summary>Client can receive <c>ext/acp/fs/writeTextFile</c>.</summary>
+    public bool SupportsAcpFsWrite => AcpExtensions?.FsWriteTextFile == true;
+
+    /// <summary>Client can receive <c>ext/acp/terminal/*</c>.</summary>
+    public bool SupportsAcpTerminal => AcpExtensions?.TerminalCreate == true;
+
+    /// <summary>Custom extension families (e.g. <c>_unity</c>).</summary>
+    public IReadOnlyList<string> AcpCustomExtensions => AcpExtensions?.Extensions ?? [];
+
     /// <summary>
     /// Marks the connection as initialized and stores the client's identity and capabilities.
     /// Returns <c>false</c> if already initialized (caller should reject with AlreadyInitialized).

@@ -76,6 +76,28 @@ public sealed class AppServerClientCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ChannelAdapterCapability? ChannelAdapter { get; set; }
+
+    /// <summary>
+    /// ACP tool proxy capabilities (appserver-protocol.md §3.2, §11.2).
+    /// When set, the client can receive server-initiated <c>ext/acp/*</c> requests.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AcpExtensionCapability? AcpExtensions { get; set; }
+}
+
+/// <summary>
+/// Client-declared ACP extension support during <c>initialize</c>.
+/// </summary>
+public sealed class AcpExtensionCapability
+{
+    public bool? FsReadTextFile { get; set; }
+
+    public bool? FsWriteTextFile { get; set; }
+
+    public bool? TerminalCreate { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Extensions { get; set; }
 }
 
 /// <summary>
@@ -785,6 +807,15 @@ public static class AppServerMethods
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
     public const string ExtChannelDeliver = "ext/channel/deliver";
     public const string ExtChannelHeartbeat = "ext/channel/heartbeat";
+
+    // Server → Client requests (ACP tool proxy, appserver-protocol.md §11.2)
+    public const string ExtAcpFsReadTextFile = "ext/acp/fs/readTextFile";
+    public const string ExtAcpFsWriteTextFile = "ext/acp/fs/writeTextFile";
+    public const string ExtAcpTerminalCreate = "ext/acp/terminal/create";
+    public const string ExtAcpTerminalGetOutput = "ext/acp/terminal/getOutput";
+    public const string ExtAcpTerminalWaitForExit = "ext/acp/terminal/waitForExit";
+    public const string ExtAcpTerminalKill = "ext/acp/terminal/kill";
+    public const string ExtAcpTerminalRelease = "ext/acp/terminal/release";
 
     // Client → Server requests (cron management, spec Section 16)
     public const string CronList = "cron/list";

@@ -20,13 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\DotCraft.Core\DotCraft.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
-      <_Parameter1>DotCraft.App.Tests</_Parameter1>
-    </AssemblyAttribute>
+    <ProjectReference Include="..\..\src\DotCraft.App\DotCraft.App.csproj" />
+    <ProjectReference Include="..\DotCraft.Core.Tests\DotCraft.Core.Tests.csproj" />
   </ItemGroup>
 
 </Project>
