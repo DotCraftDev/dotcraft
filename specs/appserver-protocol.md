@@ -1542,6 +1542,8 @@ The ACP (Agent Client Protocol) integration allows the agent's tools to access t
 
 **Per-thread binding**: When a connection that declared `acpExtensions` successfully creates a thread via `thread/start`, the server binds that thread id to that connection. While the agent runs a turn on that thread, `ext/acp/*` calls from tools are routed to the **bound** client's transport. If that connection closes before a pending `ext/acp/*` completes, the request fails (timeout or connection error).
 
+**`threadId` in server→client params**: Every server→client `ext/acp/*` request MUST include `threadId` (string, camelCase) in `params`, equal to the Session Wire thread id for that turn. This lets clients with a single Wire connection (e.g. an ACP bridge) route concurrent server-initiated requests to the correct IDE session. Method-specific fields (e.g. `path`, `terminalId`) are in the same `params` object alongside `threadId`. ACP bridges SHOULD strip `threadId` before forwarding to the IDE when the IDE protocol does not define that field.
+
 **Custom extensions**: Method pattern `ext/acp/<family>/<method>` where `<family>` was listed in `acpExtensions.extensions` (e.g. `ext/acp/_unity/scene_query`).
 
 | ACP method (IDE) | Wire extension method |

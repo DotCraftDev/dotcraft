@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
 using DotCraft.Common;
@@ -55,29 +56,22 @@ public sealed class AcpBridgeHandler(
 
     public async Task RunAsync(CancellationToken ct)
     {
-        try
+        while (!ct.IsCancellationRequested)
         {
-            while (!ct.IsCancellationRequested)
-            {
-                var request = await acpTransport.ReadRequestAsync(ct);
-                if (request == null) break;
+            var request = await acpTransport.ReadRequestAsync(ct);
+            if (request == null) break;
 
-                try
-                {
-                    await DispatchAsync(request, ct).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    logger?.LogError($"Error handling {request.Method}", ex);
-                    AnsiConsole.MarkupLine($"[red][[ACP]] Error handling {Markup.Escape(request.Method)}: {Markup.Escape(ex.Message)}[/]");
-                    if (!request.IsNotification)
-                        acpTransport.SendError(request.Id, -32603, ex.Message);
-                }
+            try
+            {
+                await DispatchAsync(request, ct).ConfigureAwait(false);
             }
-        }
-        finally
-        {
-            wire.ServerRequestHandler = null;
+            catch (Exception ex)
+            {
+                logger?.LogError($"Error handling {request.Method}", ex);
+                AnsiConsole.MarkupLine($"[red][[ACP]] Error handling {Markup.Escape(request.Method)}: {Markup.Escape(ex.Message)}[/]");
+                if (!request.IsNotification)
+                    acpTransport.SendError(request.Id, -32603, ex.Message);
+            }
         }
     }
 
@@ -196,6 +190,7 @@ public sealed class AcpBridgeHandler(
         };
 
         _initialized = true;
+        wire.ServerRequestHandler = OnWireServerRequestAsync;
         acpTransport.SendResponse(request.Id, result);
 
         var caps = new List<string>();
@@ -417,8 +412,6 @@ public sealed class AcpBridgeHandler(
         using var promptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _activePrompts[sessionId] = promptCts;
 
-        wire.ServerRequestHandler = doc => HandleWireServerRequestAsync(doc, sessionId, promptCts.Token);
-
         try
         {
             var promptText = ExtractPromptText(p.Prompt);
@@ -536,10 +529,37 @@ public sealed class AcpBridgeHandler(
         }
         finally
         {
-            wire.ServerRequestHandler = null;
             _activePrompts.TryRemove(sessionId, out _);
             _activeTurnIds.TryRemove(sessionId, out _);
         }
+    }
+
+    /// <summary>
+    /// Single permanent handler: resolves <c>threadId</c> from wire params and routes to the active prompt.
+    /// </summary>
+    private async Task<object?> OnWireServerRequestAsync(JsonDocument doc)
+    {
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("params", out var wireParams))
+            return new { decision = "decline" };
+
+        string? threadId = null;
+        if (wireParams.TryGetProperty("threadId", out var tidEl) && tidEl.ValueKind == JsonValueKind.String)
+            threadId = tidEl.GetString();
+
+        if (string.IsNullOrEmpty(threadId))
+        {
+            logger?.LogEvent("Wire server request missing threadId; declining");
+            return new { decision = "decline" };
+        }
+
+        if (!_activePrompts.TryGetValue(threadId, out var cts))
+        {
+            logger?.LogEvent($"Wire server request for inactive threadId={threadId}");
+            return new { decision = "decline" };
+        }
+
+        return await HandleWireServerRequestAsync(doc, threadId, cts.Token).ConfigureAwait(false);
     }
 
     private async Task<object?> HandleWireServerRequestAsync(JsonDocument doc, string sessionId, CancellationToken ct)
@@ -616,7 +636,7 @@ public sealed class AcpBridgeHandler(
             var ideMethod = MapExtPathToAcpMethod(acpMethod);
             try
             {
-                object? paramObj = JsonSerializer.Deserialize<object>(wireParams.GetRawText(), JsonOptions);
+                var paramObj = ParamsForIdeExtForward(wireParams);
                 var el = await acpTransport.SendClientRequestAsync(ideMethod, paramObj, ct).ConfigureAwait(false);
                 return JsonSerializer.Deserialize<object>(el.GetRawText(), JsonOptions) ?? new { };
             }
@@ -627,6 +647,24 @@ public sealed class AcpBridgeHandler(
         }
 
         return new { decision = "decline" };
+    }
+
+    /// <summary>
+    /// Strips routing-only <c>threadId</c> from wire params before forwarding <c>ext/acp/*</c> to the IDE.
+    /// </summary>
+    internal static object? ParamsForIdeExtForward(JsonElement wireParams)
+    {
+        if (wireParams.ValueKind != JsonValueKind.Object)
+            return JsonSerializer.Deserialize<object>(wireParams.GetRawText(), JsonOptions);
+
+        if (!wireParams.TryGetProperty("threadId", out _))
+            return JsonSerializer.Deserialize<object>(wireParams.GetRawText(), JsonOptions);
+
+        if (JsonNode.Parse(wireParams.GetRawText()) is not JsonObject obj)
+            return JsonSerializer.Deserialize<object>(wireParams.GetRawText(), JsonOptions);
+
+        obj.Remove("threadId");
+        return obj;
     }
 
     /// <summary>
@@ -732,11 +770,6 @@ public sealed class AcpBridgeHandler(
                 var preview = ImageContentSanitizingChatClient.DescribeResult(resultObj);
                 if (preview.Length > 500) preview = preview[..500] + "...";
 
-                acpTransport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
-                {
-                    SessionId = sessionId,
-                    Update = new AcpSessionUpdate
-                    {
                 var success = payload.TryGetProperty("success", out var su) ? su.GetBoolean() : true;
 
                 acpTransport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
@@ -749,7 +782,6 @@ public sealed class AcpBridgeHandler(
                         Status = success ? AcpToolStatus.Completed : AcpToolStatus.Failed,
                         Content = new List<AcpContentBlock> { new() { Type = "text", Text = preview } }
                     }
-                });
                 });
                 break;
             }

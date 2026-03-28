@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Tracing;
 
@@ -209,11 +210,30 @@ public sealed class WireAcpExtensionProxy : IAcpExtensionProxy
         if (threadId == null || !_byThread.TryGetValue(threadId, out var binding))
             return null;
 
-        var response = await binding.Transport.SendClientRequestAsync(wireMethod, @params, ct,
+        var mergedParams = MergeThreadIdIntoParams(threadId, @params);
+        var response = await binding.Transport.SendClientRequestAsync(wireMethod, mergedParams, ct,
             timeout ?? TimeSpan.FromSeconds(30));
         if (!response.Result.HasValue)
             return null;
         return response.Result.Value;
+    }
+
+    /// <summary>
+    /// Ensures server→client <c>ext/acp/*</c> params include <c>threadId</c> so multi-session bridges can route.
+    /// </summary>
+    internal static object MergeThreadIdIntoParams(string threadId, object? @params)
+    {
+        if (@params == null)
+            return new { threadId };
+
+        var node = JsonSerializer.SerializeToNode(@params, JsonOptions);
+        if (node is JsonObject o)
+        {
+            o["threadId"] = threadId;
+            return o;
+        }
+
+        return new { threadId, payload = @params };
     }
 
     /// <summary>Maps an ACP IDE method name to the wire <c>ext/acp/...</c> form.</summary>
