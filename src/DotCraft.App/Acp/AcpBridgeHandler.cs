@@ -472,7 +472,7 @@ public sealed class AcpBridgeHandler(
             var turnFailed = false;
             string? turnFailMessage = null;
             var turnCancelled = false;
-            await foreach (var notif in wire.ReadTurnNotificationsAsync(ct: promptCts.Token))
+            await foreach (var notif in wire.ReadTurnNotificationsAsync(timeout: TimeSpan.FromHours(2), ct: promptCts.Token))
             {
                 if (!notif.RootElement.TryGetProperty("method", out var mEl))
                     continue;
