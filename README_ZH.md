@@ -73,7 +73,7 @@ tar -xzf DotCraft-linux-x64.tar.gz   # 或 DotCraft-macos-x64.tar.gz
 build.bat
 
 # Linux / macOS
-bash build-linux.bat
+bash build_linux.bat
 
 # 配置路径到环境变量（可选，Windows）
 cd Release/DotCraft

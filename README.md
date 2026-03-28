@@ -73,7 +73,7 @@ Requires [.NET 10 SDK](https://dotnet.microsoft.com/download).
 build.bat
 
 # Linux / macOS
-bash build-linux.bat
+bash build_linux.bat
 
 # Add to PATH (optional, Windows)
 cd Release/DotCraft

@@ -18,7 +18,7 @@ dotnet build dotcraft.sln
 build.bat
 
 # Build and package (Linux/macOS)
-bash build-linux.bat
+bash build_linux.bat
 
 # Exclude optional modules from build
 build.bat --no-qq --no-wecom --no-unity --no-github-tracker --no-agui --no-api
