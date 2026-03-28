@@ -156,6 +156,16 @@ var paths = new DotCraftPaths
 
 var moduleRegistry = new ModuleRegistry();
 ModuleRegistrations.RegisterAll(moduleRegistry);
+
+// Module config validation
+var configValidationOk = ServiceRegistration.ValidateConfigurations(config, moduleRegistry);
+if (!configValidationOk && isHeadless)
+{
+    await Console.Error.WriteLineAsync("Configuration validation failed.");
+    Environment.Exit(1);
+    return;
+}
+
 var hostBuilder = new HostBuilder(moduleRegistry, config, paths);
 
 var services = new ServiceCollection()

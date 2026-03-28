@@ -59,6 +59,6 @@ public sealed partial class WeComModule : ModuleBase
         => [new WeComToolProvider()];
 
     /// <inheritdoc />
-    public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
+    public override IChannelService CreateChannelService(IServiceProvider sp)
         => ActivatorUtilities.CreateInstance<WeComChannelService>(sp);
 }

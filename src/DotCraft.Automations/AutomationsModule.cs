@@ -47,7 +47,7 @@ public sealed partial class AutomationsModule : ModuleBase
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IOrchestratorSnapshotProvider, AutomationsDashboardSnapshotProvider>());
     }
 
-    public override IChannelService? CreateChannelService(IServiceProvider sp, ModuleContext context) =>
+    public override IChannelService CreateChannelService(IServiceProvider sp) =>
         ActivatorUtilities.CreateInstance<AutomationsChannelService>(sp);
 
     /// <inheritdoc />

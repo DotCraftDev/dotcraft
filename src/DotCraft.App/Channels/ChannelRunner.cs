@@ -74,7 +74,7 @@ public sealed class ChannelRunner : IAsyncDisposable
         ModuleRegistry registry)
     {
         var traceStore = sp.GetService<TraceStore>();
-        var native = CollectNativeChannels(sp, config, paths, registry);
+        var native = CollectNativeChannels(sp, config, registry);
         var hasExternal = ExternalChannelManager.HasEnabledChannels(config);
         var wantDashboard = config.DashBoard.Enabled && traceStore != null;
 
@@ -112,20 +112,12 @@ public sealed class ChannelRunner : IAsyncDisposable
     private static List<IChannelService> CollectNativeChannels(
         IServiceProvider sp,
         AppConfig config,
-        DotCraftPaths paths,
         ModuleRegistry registry)
     {
-        var subContext = new ModuleContext
-        {
-            Config = config,
-            Paths = paths,
-            ServiceProvider = sp
-        };
-
         return registry
             .GetEnabledModules(config)
             .Where(m => m.Name is not ("gateway" or "app-server"))
-            .Select(m => m.CreateChannelService(sp, subContext))
+            .Select(m => m.CreateChannelService(sp))
             .OfType<IChannelService>()
             .ToList();
     }
@@ -133,7 +125,7 @@ public sealed class ChannelRunner : IAsyncDisposable
     /// <summary>
     /// Ensures DashBoard / native HTTP channels do not bind the same (host, port) as the AppServer WebSocket listener.
     /// </summary>
-    public static void ValidateAppServerPortConflict(AppConfig config, IReadOnlyList<IChannelService> nativeChannels)
+    private static void ValidateAppServerPortConflict(AppConfig config, IReadOnlyList<IChannelService> nativeChannels)
     {
         var appServer = config.GetSection<AppServerConfig>("AppServer");
         if (appServer.Mode is not (AppServerMode.WebSocket or AppServerMode.StdioAndWebSocket))

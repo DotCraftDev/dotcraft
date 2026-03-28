@@ -45,6 +45,6 @@ public sealed partial class ApiModule : ModuleBase
         => [];
 
     /// <inheritdoc />
-    public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
+    public override IChannelService CreateChannelService(IServiceProvider sp)
         => ActivatorUtilities.CreateInstance<ApiChannelService>(sp);
 }
