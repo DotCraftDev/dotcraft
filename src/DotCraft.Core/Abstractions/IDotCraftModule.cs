@@ -47,9 +47,8 @@ public interface IDotCraftModule
     /// Returns null if the module does not support channel service mode.
     /// </summary>
     /// <param name="sp">The service provider with all shared DI services available.</param>
-    /// <param name="context">The module context containing configuration and paths.</param>
     /// <returns>A channel service instance, or null if not supported.</returns>
-    IChannelService? CreateChannelService(IServiceProvider sp, ModuleContext context) => null;
+    IChannelService? CreateChannelService(IServiceProvider sp) => null;
 
     /// <summary>
     /// Gets the tool providers contributed by this module.

@@ -28,7 +28,7 @@ public abstract class ModuleBase : IDotCraftModule
     public virtual IReadOnlyList<string> ValidateConfig(AppConfig config) => [];
 
     /// <inheritdoc />
-    public virtual IChannelService? CreateChannelService(IServiceProvider sp, ModuleContext context) => null;
+    public virtual IChannelService? CreateChannelService(IServiceProvider sp) => null;
 
     /// <inheritdoc />
     public virtual IEnumerable<IAgentToolProvider> GetToolProviders() => [];

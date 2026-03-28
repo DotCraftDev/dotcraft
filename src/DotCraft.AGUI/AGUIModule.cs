@@ -25,6 +25,6 @@ public sealed partial class AGUIModule : ModuleBase
     public override IEnumerable<IAgentToolProvider> GetToolProviders() => [];
 
     /// <inheritdoc />
-    public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
+    public override IChannelService CreateChannelService(IServiceProvider sp)
         => ActivatorUtilities.CreateInstance<AGUIChannelService>(sp);
 }

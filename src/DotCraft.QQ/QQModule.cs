@@ -61,6 +61,6 @@ public sealed partial class QQModule : ModuleBase
         => [new QQToolProvider()];
 
     /// <inheritdoc />
-    public override IChannelService CreateChannelService(IServiceProvider sp, ModuleContext context)
+    public override IChannelService CreateChannelService(IServiceProvider sp)
         => ActivatorUtilities.CreateInstance<QQChannelService>(sp);
 }

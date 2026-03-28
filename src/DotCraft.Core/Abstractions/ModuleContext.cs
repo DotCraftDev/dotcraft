@@ -17,9 +17,4 @@ public sealed class ModuleContext
     /// The workspace and bot paths.
     /// </summary>
     public required DotCraftPaths Paths { get; init; }
-
-    /// <summary>
-    /// The service provider for resolving dependencies.
-    /// </summary>
-    public IServiceProvider? ServiceProvider { get; init; }
 }

@@ -59,18 +59,11 @@ public sealed class GatewayHostFactory : IHostFactory
         var registry = sp.GetRequiredService<ModuleRegistry>();
         var config = sp.GetRequiredService<AppConfig>();
 
-        var subContext = new ModuleContext
-        {
-            Config = config,
-            Paths = context.Paths,
-            ServiceProvider = sp
-        };
-
         // Collect channel services from all enabled non-gateway modules
         var channelServices = registry
             .GetEnabledModules(config)
             .Where(m => m.Name != "gateway")
-            .Select(m => m.CreateChannelService(sp, subContext))
+            .Select(m => m.CreateChannelService(sp))
             .OfType<IChannelService>()
             .ToList();
 

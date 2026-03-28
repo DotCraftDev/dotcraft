@@ -20,6 +20,7 @@ public sealed class ConfigValidator(ModuleRegistry moduleRegistry)
 
         foreach (var module in moduleRegistry.Modules)
         {
+            if (!module.IsEnabled(config)) continue;
             var errors = module.ValidateConfig(config);
             if (errors.Count > 0)
                 result[module.Name] = errors;

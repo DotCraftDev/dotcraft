@@ -64,8 +64,7 @@ public sealed class HostBuilder
             var context = new ModuleContext
             {
                 Config = _config,
-                Paths = _paths,
-                ServiceProvider = serviceProvider
+                Paths = _paths
             };
             return factory.CreateHost(serviceProvider, context);
         }
