@@ -45,6 +45,19 @@ public sealed class AcpBridgeHandler(
         PropertyNameCaseInsensitive = true
     };
 
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> if the JSON-RPC document contains an <c>error</c> field.
+    /// </summary>
+    private static void ThrowIfWireError(JsonDocument doc, string context)
+    {
+        if (!doc.RootElement.TryGetProperty("error", out var error))
+            return;
+        var message = error.TryGetProperty("message", out var msg)
+            ? msg.GetString() ?? "Unknown error"
+            : "Unknown error";
+        throw new InvalidOperationException(string.IsNullOrEmpty(context) ? message : $"{context}: {message}");
+    }
+
     private ClientCapabilities? _clientCapabilities;
     private bool _initialized;
     private readonly ConcurrentDictionary<string, string?> _activeTurnIds = new();
@@ -242,6 +255,7 @@ public sealed class AcpBridgeHandler(
             historyMode = "server"
         }, ct: ct);
 
+        ThrowIfWireError(startDoc, "thread/start");
         var threadId = startDoc.RootElement.GetProperty("result").GetProperty("thread").GetProperty("id").GetString()
             ?? throw new InvalidOperationException("thread/start returned no thread id");
 
@@ -272,12 +286,15 @@ public sealed class AcpBridgeHandler(
 
         var sessionId = p.SessionId;
 
-        await wire.SendRequestAsync(AppServerMethods.ThreadResume, new { threadId = sessionId }, ct: ct);
+        var resumeDoc = await wire.SendRequestAsync(AppServerMethods.ThreadResume, new { threadId = sessionId }, ct: ct);
+        ThrowIfWireError(resumeDoc, "thread/resume");
 
         if (p.McpServers is { Count: > 0 })
         {
             var config = new ThreadConfiguration { McpServers = ConvertToMcpConfigs(p.McpServers).ToArray() };
-            await wire.SendRequestAsync(AppServerMethods.ThreadConfigUpdate, new { threadId = sessionId, config }, ct: ct);
+            var configDoc = await wire.SendRequestAsync(AppServerMethods.ThreadConfigUpdate,
+                new { threadId = sessionId, config }, ct: ct);
+            ThrowIfWireError(configDoc, "thread/configUpdate");
         }
 
         var readDoc = await wire.SendRequestAsync(AppServerMethods.ThreadRead, new
@@ -286,6 +303,7 @@ public sealed class AcpBridgeHandler(
             includeTurns = true
         }, ct: ct);
 
+        ThrowIfWireError(readDoc, "thread/read");
         var threadEl = readDoc.RootElement.GetProperty("result").GetProperty("thread");
         var thread = JsonSerializer.Deserialize<SessionWireThread>(threadEl.GetRawText(), WireReadOptions);
         if (thread?.Turns != null)
@@ -378,6 +396,7 @@ public sealed class AcpBridgeHandler(
             }
         }, ct: ct);
 
+        ThrowIfWireError(listDoc, "thread/list");
         var dataEl = listDoc.RootElement.GetProperty("result").GetProperty("data");
         var summaries = JsonSerializer.Deserialize<List<ThreadSummary>>(dataEl.GetRawText(), WireReadOptions) ?? [];
 
@@ -489,6 +508,7 @@ public sealed class AcpBridgeHandler(
                 input = inputParts
             }, timeout: TimeSpan.FromSeconds(120), ct: promptCts.Token);
 
+            ThrowIfWireError(startDoc, "turn/start");
             var turnId = startDoc.RootElement.GetProperty("result").GetProperty("turn").GetProperty("id").GetString();
             if (!string.IsNullOrEmpty(turnId))
                 _activeTurnIds[sessionId] = turnId;
