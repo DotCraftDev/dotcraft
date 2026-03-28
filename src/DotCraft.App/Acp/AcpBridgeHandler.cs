@@ -317,30 +317,50 @@ public sealed class AcpBridgeHandler(
 
     private void ReplayItemAsAcpUpdate(string sessionId, SessionWireItem item)
     {
-        if (item.Payload is UserMessagePayload userMsg)
+        string? updateKind = null;
+        if (item.Type == ItemType.UserMessage)
+            updateKind = AcpUpdateKind.UserMessageChunk;
+        else if (item.Type == ItemType.AgentMessage)
+            updateKind = AcpUpdateKind.AgentMessageChunk;
+
+        if (updateKind == null)
+            return;
+
+        var text = ExtractTextFromPayload(item.Payload);
+        if (text == null)
+            return;
+
+        acpTransport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
         {
-            acpTransport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
+            SessionId = sessionId,
+            Update = new AcpSessionUpdate
             {
-                SessionId = sessionId,
-                Update = new AcpSessionUpdate
-                {
-                    SessionUpdate = AcpUpdateKind.UserMessageChunk,
-                    Content = new AcpContentBlock { Type = "text", Text = userMsg.Text }
-                }
-            });
-        }
-        else if (item.Payload is AgentMessagePayload agentMsg)
+                SessionUpdate = updateKind,
+                Content = new AcpContentBlock { Type = "text", Text = text }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Extracts message text from wire item payload. After JSON deserialization, <paramref name="payload"/>
+    /// is typically a <see cref="JsonElement"/> rather than <see cref="UserMessagePayload"/> / <see cref="AgentMessagePayload"/>.
+    /// </summary>
+    internal static string? ExtractTextFromPayload(object? payload)
+    {
+        if (payload is JsonElement el)
         {
-            acpTransport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
-            {
-                SessionId = sessionId,
-                Update = new AcpSessionUpdate
-                {
-                    SessionUpdate = AcpUpdateKind.AgentMessageChunk,
-                    Content = new AcpContentBlock { Type = "text", Text = agentMsg.Text }
-                }
-            });
+            if (el.ValueKind == JsonValueKind.Object &&
+                el.TryGetProperty("text", out var textEl) &&
+                textEl.ValueKind == JsonValueKind.String)
+                return textEl.GetString();
+            return null;
         }
+
+        if (payload is UserMessagePayload userMsg)
+            return userMsg.Text;
+        if (payload is AgentMessagePayload agentMsg)
+            return agentMsg.Text;
+        return null;
     }
 
     private async Task HandleSessionListAsync(JsonRpcRequest request, CancellationToken ct)
