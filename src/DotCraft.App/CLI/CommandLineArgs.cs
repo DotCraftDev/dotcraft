@@ -139,7 +139,6 @@ public sealed record CommandLineArgs
             if (TryParseKeyValue(arg, "--token", out var tokenValue))
             {
                 token = tokenValue;
-                continue;
             }
 
             // Unknown arguments are silently ignored (forward-compatible).

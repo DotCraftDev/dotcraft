@@ -479,6 +479,8 @@ public sealed class AcpBridgeHandler(
             logger?.LogEvent(
                 $"Prompt start [session={sessionId}]: {(promptText.Length > 200 ? promptText[..200] + "..." : promptText)}");
 
+            // Route turn notifications to a per-session channel so concurrent prompts do not share one queue.
+            wire.RegisterThreadChannel(sessionId);
             var startDoc = await wire.SendRequestAsync(AppServerMethods.TurnStart, new
             {
                 threadId = sessionId,
@@ -492,7 +494,8 @@ public sealed class AcpBridgeHandler(
             var turnFailed = false;
             string? turnFailMessage = null;
             var turnCancelled = false;
-            await foreach (var notif in wire.ReadTurnNotificationsAsync(timeout: TimeSpan.FromHours(2), ct: promptCts.Token))
+            await foreach (var notif in wire.ReadThreadTurnNotificationsAsync(sessionId, timeout: TimeSpan.FromHours(2),
+                         ct: promptCts.Token))
             {
                 if (!notif.RootElement.TryGetProperty("method", out var mEl))
                     continue;
@@ -549,6 +552,7 @@ public sealed class AcpBridgeHandler(
         }
         finally
         {
+            wire.UnregisterThreadChannel(sessionId);
             _activePrompts.TryRemove(sessionId, out _);
             _activeTurnIds.TryRemove(sessionId, out _);
         }

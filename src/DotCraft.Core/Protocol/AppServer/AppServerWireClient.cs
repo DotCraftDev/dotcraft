@@ -27,6 +27,11 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonDocument>> _pending = new();
     private readonly Channel<JsonDocument> _notifications = Channel.CreateUnbounded<JsonDocument>();
     private readonly Channel<JsonDocument> _jobResultNotifications = Channel.CreateUnbounded<JsonDocument>();
+    /// <summary>
+    /// Per-thread notification queues when <see cref="RegisterThreadChannel"/> is active.
+    /// Routes turn/item notifications so concurrent sessions do not steal from a shared channel.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, Channel<JsonDocument>> _threadChannels = new();
 
     private Task? _readerTask;
     private readonly CancellationTokenSource _disposeCts = new();
@@ -117,6 +122,82 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                     yield break;
             }
         }
+    }
+
+    /// <summary>
+    /// Reads JSON-RPC notifications for a single thread until a terminal turn event
+    /// (<c>turn/completed</c>, <c>turn/failed</c>, or <c>turn/cancelled</c>).
+    /// Requires <see cref="RegisterThreadChannel"/> to be called for <paramref name="threadId"/>
+    /// before the turn starts.
+    /// </summary>
+    public async IAsyncEnumerable<JsonDocument> ReadThreadTurnNotificationsAsync(
+        string threadId,
+        TimeSpan? timeout = null,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromMinutes(5));
+
+        while (!ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero) yield break;
+
+            JsonDocument? notif;
+            try { notif = await WaitForThreadNotificationAsync(threadId, null, remaining, ct); }
+            catch (OperationCanceledException) { yield break; }
+
+            if (notif == null) yield break;
+
+            yield return notif;
+
+            if (notif.RootElement.TryGetProperty("method", out var m))
+            {
+                var method = m.GetString();
+                if (method is AppServerMethods.TurnCompleted or AppServerMethods.TurnFailed or AppServerMethods.TurnCancelled)
+                    yield break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Registers a dedicated notification channel for <paramref name="threadId"/>.
+    /// The reader loop routes matching notifications here instead of the global queue.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A channel is already registered for this thread.</exception>
+    public void RegisterThreadChannel(string threadId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(threadId);
+        var channel = Channel.CreateUnbounded<JsonDocument>();
+        if (!_threadChannels.TryAdd(threadId, channel))
+        {
+            channel.Writer.TryComplete();
+            throw new InvalidOperationException($"A thread notification channel is already registered for '{threadId}'.");
+        }
+    }
+
+    /// <summary>
+    /// Removes the per-thread channel and completes its writer so readers stop.
+    /// </summary>
+    public void UnregisterThreadChannel(string threadId)
+    {
+        if (string.IsNullOrEmpty(threadId)) return;
+        if (_threadChannels.TryRemove(threadId, out var channel))
+            channel.Writer.TryComplete();
+    }
+
+    /// <summary>
+    /// Extracts <c>threadId</c> from notification params (<c>params.threadId</c> or <c>params.turn.threadId</c>).
+    /// </summary>
+    private static string? ExtractThreadId(JsonDocument doc)
+    {
+        if (!doc.RootElement.TryGetProperty("params", out var p))
+            return null;
+        if (p.TryGetProperty("threadId", out var tid) && tid.ValueKind == JsonValueKind.String)
+            return tid.GetString();
+        if (p.TryGetProperty("turn", out var turn) && turn.TryGetProperty("threadId", out var ttid) &&
+            ttid.ValueKind == JsonValueKind.String)
+            return ttid.GetString();
+        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -294,6 +375,47 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
     }
 
     /// <summary>
+    /// Waits for the next notification on the per-thread channel for <paramref name="threadId"/>.
+    /// When <paramref name="method"/> is non-null, non-matching notifications are re-queued to the same channel.
+    /// Returns null if the channel is not registered, on timeout, or cancellation.
+    /// </summary>
+    public async Task<JsonDocument?> WaitForThreadNotificationAsync(
+        string threadId,
+        string? method = null,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(threadId);
+        if (!_threadChannels.TryGetValue(threadId, out var ch))
+            return null;
+
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+
+        while (!ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero) break;
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposeCts.Token);
+            cts.CancelAfter(remaining);
+
+            JsonDocument notif;
+            try { notif = await ch.Reader.ReadAsync(cts.Token); }
+            catch (OperationCanceledException) { break; }
+            catch (ChannelClosedException) { break; }
+
+            if (method == null) return notif;
+
+            if (notif.RootElement.TryGetProperty("method", out var m) && m.GetString() == method)
+                return notif;
+
+            ch.Writer.TryWrite(notif);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Waits for the next <c>system/jobResult</c> notification from the dedicated channel.
     /// Returns null on timeout or cancellation.
     /// </summary>
@@ -397,6 +519,15 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                     continue;
                 }
 
+                // Per-thread queue when a session registered before turn/start
+                var routedThreadId = ExtractThreadId(doc);
+                if (!string.IsNullOrEmpty(routedThreadId) &&
+                    _threadChannels.TryGetValue(routedThreadId, out var threadChannel))
+                {
+                    threadChannel.Writer.TryWrite(doc);
+                    continue;
+                }
+
                 // Notification or unhandled server request → notification queue
                 _notifications.Writer.TryWrite(doc);
             }
@@ -406,6 +537,8 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
         {
             _notifications.Writer.TryComplete();
             _jobResultNotifications.Writer.TryComplete();
+            foreach (var kv in _threadChannels)
+                kv.Value.Writer.TryComplete();
             foreach (var tcs in _pending.Values)
                 tcs.TrySetCanceled();
         }
