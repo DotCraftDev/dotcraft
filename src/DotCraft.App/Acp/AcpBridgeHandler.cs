@@ -737,11 +737,19 @@ public sealed class AcpBridgeHandler(
                     SessionId = sessionId,
                     Update = new AcpSessionUpdate
                     {
+                var success = payload.TryGetProperty("success", out var su) ? su.GetBoolean() : true;
+
+                acpTransport.SendNotification(AcpMethods.SessionUpdate, new SessionUpdateParams
+                {
+                    SessionId = sessionId,
+                    Update = new AcpSessionUpdate
+                    {
                         SessionUpdate = AcpUpdateKind.ToolCallUpdate,
                         ToolCallId = callId,
-                        Status = AcpToolStatus.Completed,
+                        Status = success ? AcpToolStatus.Completed : AcpToolStatus.Failed,
                         Content = new List<AcpContentBlock> { new() { Type = "text", Text = preview } }
                     }
+                });
                 });
                 break;
             }
