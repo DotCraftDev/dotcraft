@@ -432,6 +432,7 @@ public sealed class AcpBridgeHandler(
         using var promptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _activePrompts[sessionId] = promptCts;
 
+        var channelRegistered = false;
         try
         {
             var promptText = ExtractPromptText(p.Prompt);
@@ -481,6 +482,7 @@ public sealed class AcpBridgeHandler(
 
             // Route turn notifications to a per-session channel so concurrent prompts do not share one queue.
             wire.RegisterThreadChannel(sessionId);
+            channelRegistered = true;
             var startDoc = await wire.SendRequestAsync(AppServerMethods.TurnStart, new
             {
                 threadId = sessionId,
@@ -552,7 +554,8 @@ public sealed class AcpBridgeHandler(
         }
         finally
         {
-            wire.UnregisterThreadChannel(sessionId);
+            if (channelRegistered)
+                wire.UnregisterThreadChannel(sessionId);
             _activePrompts.TryRemove(sessionId, out _);
             _activeTurnIds.TryRemove(sessionId, out _);
         }
