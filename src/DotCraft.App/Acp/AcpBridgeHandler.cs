@@ -918,7 +918,10 @@ public sealed class AcpBridgeHandler(
         if (p == null) return;
 
         if (_activePrompts.TryGetValue(p.SessionId, out var cts))
-            await cts.CancelAsync();
+        {
+            try { await cts.CancelAsync(); }
+            catch (ObjectDisposedException) { /* prompt already finished and disposed its CTS */ }
+        }
 
         if (_activeTurnIds.TryGetValue(p.SessionId, out var turnId) && !string.IsNullOrEmpty(turnId))
         {
