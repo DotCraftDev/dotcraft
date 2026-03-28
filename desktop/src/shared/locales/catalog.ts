@@ -603,8 +603,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'workspaceHeader.switchWorkspace': '切换工作区',
   'workspaceHeader.recentWorkspaces': '最近的工作区',
   'composer.modeTitle': '模式：{{mode}}。点击切换。',
-  'composer.mode.agent': '智能体',
-  'composer.mode.plan': '计划',
+  'composer.mode.agent': 'Agent',
+  'composer.mode.plan': 'Plan',
   'composer.defaultModel': '默认',
 
   'commit.title': '提交更改',

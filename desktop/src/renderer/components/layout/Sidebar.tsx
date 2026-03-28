@@ -229,9 +229,21 @@ function SkillsIcon(): JSX.Element {
 
 function AutomationsIcon(): JSX.Element {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 10h18" />
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ display: 'block' }}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="12" x2="12" y2="8" />
+      <line x1="12" y1="12" x2="16" y2="12" />
     </svg>
   )
 }
