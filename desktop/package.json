@@ -80,15 +80,13 @@
       "icon": "resources/icon.ico",
       "target": [
         "nsis",
-        "portable",
-        "zip"
+        "portable"
       ]
     },
     "mac": {
       "icon": "resources/icon.png",
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "category": "public.app-category.developer-tools"
     },

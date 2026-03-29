@@ -73,7 +73,7 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
-        working-directory: tui
+        workspaces: tui
 
     - name: Build ${{ matrix.os_name }}
       run: dotnet publish src/DotCraft.App/DotCraft.App.csproj -c Release -r ${{ matrix.runtime_id }} -p:PublishProfile=ReleaseProfile -o ./publish/${{ matrix.output_name }}
@@ -148,24 +148,34 @@ jobs:
         # No code signing cert in CI; skip discovery so macOS/Windows builds do not fail.
         CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-    - name: Upload desktop artifacts - Windows
+    - name: Prepare Windows artifacts
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        mkdir -p desktop/dist/installer desktop/dist/portable
+        mv desktop/dist/*Setup*.exe desktop/dist/installer/ || true
+        mv desktop/dist/*.exe desktop/dist/portable/ || true
+
+    - name: Upload desktop installer - Windows
       if: runner.os == 'Windows'
       uses: actions/upload-artifact@v6
       with:
-        name: DotCraft-Desktop-win-x64
-        path: |
-          desktop/dist/*.exe
-          desktop/dist/*.zip
-          desktop/dist/*.blockmap
+        name: DotCraft-Desktop-Installer-win-x64
+        path: desktop/dist/installer/*.exe
+
+    - name: Upload desktop portable - Windows
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v6
+      with:
+        name: DotCraft-Desktop-Portable-win-x64
+        path: desktop/dist/portable/*.exe
 
     - name: Upload desktop artifacts - macOS
       if: runner.os == 'macOS'
       uses: actions/upload-artifact@v6
       with:
         name: DotCraft-Desktop-macos-x64
-        path: |
-          desktop/dist/*.dmg
-          desktop/dist/*.zip
+        path: desktop/dist/*.dmg
 
   release:
     needs: build
