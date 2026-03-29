@@ -121,6 +121,7 @@ jobs:
     # ── Desktop (Electron) build ──────────────────────────────────────────────
 
     - name: Setup Node.js
+      if: runner.os != 'Linux'
       uses: actions/setup-node@v6
       with:
         node-version: '20'
@@ -128,15 +129,18 @@ jobs:
         cache-dependency-path: desktop/package-lock.json
 
     - name: Install desktop dependencies
+      if: runner.os != 'Linux'
       run: npm ci
       working-directory: desktop
 
     # Match build.bat: avoid stale dist confusing electron-builder; safe on fresh checkouts too.
     - name: Clean desktop dist
+      if: runner.os != 'Linux'
       shell: bash
       run: rm -rf desktop/dist
 
     - name: Build desktop app
+      if: runner.os != 'Linux'
       run: npm run dist -- --publish never
       working-directory: desktop
       env:
@@ -162,15 +166,6 @@ jobs:
         path: |
           desktop/dist/*.dmg
           desktop/dist/*.zip
-
-    - name: Upload desktop artifacts - Linux
-      if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v6
-      with:
-        name: DotCraft-Desktop-linux-x64
-        path: |
-          desktop/dist/*.AppImage
-          desktop/dist/*.deb
 
   release:
     needs: build
