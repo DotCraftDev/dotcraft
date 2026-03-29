@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { isWorkspaceLockedSwitchError } from '../../shared/workspaceSwitchErrors'
 import { useT } from '../contexts/LocaleContext'
 import { DotCraftLogo } from './ui/DotCraftLogo'
 
@@ -13,8 +14,7 @@ interface RecentWorkspace {
  * Spec §16.1, M7-1, M7-5
  */
 function isLockError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  return msg.toLowerCase().includes('already open')
+  return isWorkspaceLockedSwitchError(err)
 }
 
 export function WelcomeScreen(): JSX.Element {
