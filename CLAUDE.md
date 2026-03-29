@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DotCraft is a workspace-centered AI agent that turns the current directory into a persistent, inspectable workspace (`.craft/`). It is a .NET 10 / C# application with a modular architecture — multiple entry points (CLI, editors, bots, APIs, GitHub workflows) connect to the same workspace sharing sessions, memory, skills, and tools.
+DotCraft is an Agent Harness crafting a persistent AI workspace around your project.
+
+From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
+
+**Key Highlights**:
+- **Project-First**: Sessions, memory, skills, and config live under `.craft/` and follow the project
+- **Unified Session Core**: Desktop, CLI, editors and bots share one session model
+- **Observable**: Built-in approvals, traces, Dashboard, and optional sandbox isolation
+
+It is a .NET 10 / C# application with a modular architecture — multiple entry points (CLI, editors, bots, APIs, GitHub workflows) connect to the same workspace sharing sessions, memory, skills, and tools.
 
 ## Build & Run
 
@@ -31,10 +40,10 @@ dotnet run --project src/DotCraft.App/DotCraft.App.csproj
 
 ```bash
 # Run all tests
-dotnet test tests/DotCraft.Core.Tests/DotCraft.Core.Tests.csproj
+dotnet test
 
 # Run a single test by name
-dotnet test tests/DotCraft.Core.Tests/DotCraft.Core.Tests.csproj --filter "FullyQualifiedName~TestClassName.TestMethodName"
+dotnet test --filter "FullyQualifiedName~TestClassName.TestMethodName"
 ```
 
 Tests use **xUnit** with `coverlet.collector` for coverage. Test namespace: `DotCraft.Tests`. Tests are primarily protocol conformance tests under `tests/DotCraft.Core.Tests/Protocol/`.
@@ -123,11 +132,15 @@ Tool names vary by source — use exact names for whitelists (`EnabledTools`, `T
 | `src/DotCraft.QQ/` | QQ channel module (good reference for full channel impl) |
 | `src/DotCraft.WeCom/` | WeCom channel module |
 | `src/DotCraft.Unity/` | Unity tool provider (good reference for tool-only module) |
+| `src/DotCraft.UnityClient/` | Unity client package for Unity-side integration |
 | `src/DotCraft.Api/` | OpenAI-compatible API channel |
 | `src/DotCraft.AGUI/` | AG-UI SSE channel |
+| `src/DotCraft.Automations/` | Automation task orchestration channel |
 | `src/DotCraft.GitHubTracker/` | GitHub issue/PR automation |
-| `tests/DotCraft.Core.Tests/` | Protocol conformance tests (xUnit) |
+| `src/DotCraft.AppServerTestClient/` | End-to-end test client for AppServer Wire Protocol |
+| `tests/` | Test projects: Core, App, GitHubTracker (xUnit) |
 | `specs/` | Session Core and AppServer Protocol specifications |
+| `sdk/` | Multi-language SDKs: Python, TypeScript for building channel adapters |
 | `docs/` | Chinese docs; `docs/en/` for English |
 | `samples/` | Sample projects (ag-ui-client, hooks, skills, workspace) |
 | `tui/` | Rust terminal UI (Ratatui), connects via Wire Protocol |
@@ -139,8 +152,8 @@ Tool names vary by source — use exact names for whitelists (`EnabledTools`, `T
 - `_camelCase` for private fields, `PascalCase` for properties/methods/constants, `camelCase` for parameters
 - `#region` for organizing large sections
 - XML doc comments (`/// <summary>`) for all public APIs
-- Code comments in English; user-facing messages via `LanguageService` for bilingual support (`lang.GetString("中文", "English")`)
-- Localized CLI strings centralized in `DotCraft.Core.Localization.Strings`
+- Code comments in English; user-facing strings via `LanguageService.Current.T("key")` from embedded JSON language packs (`zh.json`, `en.json`)
+- Type-safe string access via `DotCraft.Core.Localization.Strings` static properties
 
 ## Module Development Checklist
 
