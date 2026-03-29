@@ -9,6 +9,14 @@ import {
   formatCronRunningLabel,
   formatCronResultLines
 } from '../../utils/cronToolDisplay'
+import {
+  formatInvocationDisplay,
+  formatResultSummary,
+  getWebToolIcon,
+  getWebToolSectionLabel,
+  invocationNeedsCallingPrefix,
+  isWebToolName
+} from '../../utils/webToolDisplay'
 import { InlineDiffView } from './InlineDiffView'
 
 interface ToolCallCardProps {
@@ -52,6 +60,10 @@ function getCollapsedLabel(
   }
   if (toolName === CRON_TOOL_NAME) {
     return formatCronCollapsedLabel(args, locale)
+  }
+  if (isWebToolName(toolName)) {
+    const inv = formatInvocationDisplay(toolName, args, locale)
+    if (inv) return inv
   }
   return translate(locale, 'toolCall.called', { toolName })
 }
@@ -108,6 +120,10 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           {toolName === CRON_TOOL_NAME ? (
             <span style={{ color: 'var(--text-primary)' }}>
               {formatCronRunningLabel(args, locale)}
+            </span>
+          ) : isWebToolName(toolName) && !invocationNeedsCallingPrefix(toolName, args) ? (
+            <span style={{ color: 'var(--text-primary)' }}>
+              {formatInvocationDisplay(toolName, args, locale)}
             </span>
           ) : (
             <>
@@ -282,6 +298,114 @@ function ExpandedContent({
       )
     }
     // Unrecognized shape — fall through to general variant below
+  }
+
+  // WebSearch / WebFetch / SearchTools — structured JSON result (CoreToolDisplays / tool_format.rs)
+  if (isWebToolName(toolName)) {
+    const lines = formatResultSummary(toolName, result)
+    const inv = formatInvocationDisplay(toolName, args, locale)
+    const section = getWebToolSectionLabel(toolName, locale)
+    const icon = getWebToolIcon(toolName)
+    const errPrefix = 'Error: '
+
+    if (lines && lines.length > 0) {
+      return (
+        <div
+          className="selectable"
+          style={{
+            fontSize: '12px',
+            lineHeight: 1.5,
+            color: 'var(--text-secondary)'
+          }}
+        >
+          <div
+            style={{
+              color: 'var(--text-dimmed)',
+              marginBottom: '6px',
+              fontSize: '11px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <span aria-hidden>{icon}</span>
+            <span>{section}</span>
+          </div>
+          {inv && (
+            <div
+              style={{
+                color: 'var(--text-dimmed)',
+                marginBottom: '8px',
+                fontSize: '11px',
+                lineHeight: 1.4
+              }}
+            >
+              {inv}
+            </div>
+          )}
+          {lines.map((line, i) => (
+            <div
+              key={i}
+              style={{
+                color: line.startsWith(errPrefix) ? 'var(--error)' : 'var(--text-secondary)',
+                fontFamily: 'var(--font-mono)',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word'
+              }}
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+      )
+    }
+
+    const resultText = result ?? ''
+    const resultLines = resultText.split('\n')
+    const preview = resultLines.slice(0, 10)
+    const truncated = resultLines.length > 10
+
+    return (
+      <div
+        className="selectable"
+        style={{ fontSize: '12px', lineHeight: '1.5', color: 'var(--text-secondary)' }}
+      >
+        <div
+          style={{
+            color: 'var(--text-dimmed)',
+            marginBottom: '6px',
+            fontSize: '11px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <span aria-hidden>{icon}</span>
+          <span>{section}</span>
+        </div>
+        {inv && (
+          <div style={{ color: 'var(--text-dimmed)', marginBottom: '8px', fontSize: '11px' }}>{inv}</div>
+        )}
+        {resultText && (
+          <pre
+            style={{
+              margin: 0,
+              fontFamily: 'var(--font-mono)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+              color: success ? 'var(--text-secondary)' : 'var(--error)',
+              maxHeight: '160px',
+              overflow: 'auto'
+            }}
+          >
+            {preview.join('\n')}
+            {truncated && (
+              <span style={{ color: 'var(--text-dimmed)' }}>{'\n'}…</span>
+            )}
+          </pre>
+        )}
+      </div>
+    )
   }
 
   // Shell variant
