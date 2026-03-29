@@ -29,6 +29,7 @@ import {
   TITLE_BAR_OVERLAY_BY_THEME,
   TITLE_BAR_OVERLAY_HEIGHT
 } from '../shared/titleBarOverlay'
+import { WORKSPACE_LOCKED_IPC_PREFIX } from '../shared/workspaceSwitchErrors'
 import {
   normalizeLocale,
   translate,
@@ -260,7 +261,8 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   if (!lockResult.ok) {
     const loc = normalizeLocale(sharedSettings.locale)
     throw new Error(
-      translate(loc, 'main.error.workspaceLocked', { pid: lockResult.pid ?? 0 })
+      WORKSPACE_LOCKED_IPC_PREFIX +
+        translate(loc, 'main.error.workspaceLocked', { pid: lockResult.pid ?? 0 })
     )
   }
 

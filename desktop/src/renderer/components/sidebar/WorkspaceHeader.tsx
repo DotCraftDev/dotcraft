@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { stripWorkspaceLockedIpcPrefix } from '../../../shared/workspaceSwitchErrors'
 import { useT } from '../../contexts/LocaleContext'
 
 /** Extracts a clean user-facing message from a workspace switch error. */
@@ -6,7 +7,8 @@ function switchErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err)
   // Strip the Electron IPC prefix "Error invoking remote method '...': Error: ..."
   const match = raw.match(/Error invoking remote method '[^']+': Error: (.+)/)
-  return match ? match[1] : raw
+  const inner = match ? match[1] : raw
+  return stripWorkspaceLockedIpcPrefix(inner)
 }
 
 interface RecentWorkspace {
