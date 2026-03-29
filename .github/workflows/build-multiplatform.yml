@@ -193,6 +193,58 @@ jobs:
       with:
         path: artifacts
 
+    - name: Rename artifacts with version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "Version: $VERSION"
+        
+        # Create release directory
+        mkdir -p release
+        
+        # Rename CLI artifacts
+        for file in artifacts/DotCraft-*/DotCraft-*.tar.gz; do
+          [ -f "$file" ] || continue
+          # Extract platform from filename (e.g., DotCraft-linux-x64.tar.gz -> linux)
+          platform=$(basename "$file" | sed 's/DotCraft-\(.*\)-x64.tar.gz/\1/')
+          new_name="DotCraft-${VERSION}-${platform}-x64.tar.gz"
+          cp "$file" "release/$new_name"
+          echo "Renamed: $(basename $file) -> $new_name"
+        done
+        
+        for file in artifacts/DotCraft-*/DotCraft-*.zip; do
+          [ -f "$file" ] || continue
+          platform=$(basename "$file" | sed 's/DotCraft-\(.*\)-x64.zip/\1/')
+          new_name="DotCraft-${VERSION}-${platform}-x64.zip"
+          cp "$file" "release/$new_name"
+          echo "Renamed: $(basename $file) -> $new_name"
+        done
+        
+        # Rename Desktop artifacts - Windows
+        for file in artifacts/DotCraft-Desktop-Installer-win-x64/*.exe; do
+          [ -f "$file" ] || continue
+          new_name="DotCraft-Desktop-${VERSION}-win-x64-Setup.exe"
+          cp "$file" "release/$new_name"
+          echo "Renamed: $(basename $file) -> $new_name"
+        done
+        
+        for file in artifacts/DotCraft-Desktop-Portable-win-x64/*.exe; do
+          [ -f "$file" ] || continue
+          new_name="DotCraft-Desktop-${VERSION}-win-x64-Portable.exe"
+          cp "$file" "release/$new_name"
+          echo "Renamed: $(basename $file) -> $new_name"
+        done
+        
+        # Rename Desktop artifacts - macOS
+        for file in artifacts/DotCraft-Desktop-macos-x64/*.dmg; do
+          [ -f "$file" ] || continue
+          new_name="DotCraft-Desktop-${VERSION}-macos-x64.dmg"
+          cp "$file" "release/$new_name"
+          echo "Renamed: $(basename $file) -> $new_name"
+        done
+        
+        echo "Final release files:"
+        ls -lh release/
+
     - name: Prepare Release Notes
       id: release_notes
       run: |
@@ -213,14 +265,7 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        files: |
-          artifacts/**/*.tar.gz
-          artifacts/**/*.zip
-          artifacts/**/*.exe
-          artifacts/**/*.blockmap
-          artifacts/**/*.dmg
-          artifacts/**/*.AppImage
-          artifacts/**/*.deb
+        files: release/*
         body_path: release_notes.md
         append_body: true
         draft: false
