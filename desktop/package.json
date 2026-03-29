@@ -5,6 +5,10 @@
   "author": {
     "name": "DotCraft"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DotCraftDev/dotcraft"
+  },
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {

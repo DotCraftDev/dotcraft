@@ -137,7 +137,7 @@ jobs:
       run: rm -rf desktop/dist
 
     - name: Build desktop app
-      run: npm run dist
+      run: npm run dist -- --publish never
       working-directory: desktop
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
