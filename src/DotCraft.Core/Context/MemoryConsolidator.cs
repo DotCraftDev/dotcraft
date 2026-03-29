@@ -5,7 +5,6 @@ using OpenAI.Chat;
 using Spectre.Console;
 using AiChatMessage = Microsoft.Extensions.AI.ChatMessage;
 using AiChatRole = Microsoft.Extensions.AI.ChatRole;
-using AiTextContent = Microsoft.Extensions.AI.TextContent;
 
 namespace DotCraft.Context;
 
@@ -73,8 +72,9 @@ public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memory
 
         var options = new ChatCompletionOptions
         {
-            Tools = { SaveMemoryTool },
-            ToolChoice = ChatToolChoice.CreateFunctionChoice("save_memory")
+            Tools = { SaveMemoryTool }
+            // Notice: ToolChoice conflicts with some Reasoning models.
+            // , ToolChoice = ChatToolChoice.CreateFunctionChoice("save_memory")
         };
 
         try
@@ -153,17 +153,11 @@ public sealed class MemoryConsolidator(ChatClient chatClient, MemoryStore memory
             var role = msg.Role == AiChatRole.User ? "USER"
                 : msg.Role == AiChatRole.Assistant ? "ASSISTANT"
                 : msg.Role.ToString().ToUpperInvariant();
-
-            // Extract text content only (skip tool calls / results for readability)
-            var text = string.Join(" ", msg.Contents
-                .OfType<AiTextContent>()
-                .Select(tc => tc.Text)
-                .Where(t => !string.IsNullOrWhiteSpace(t)));
-
-            if (string.IsNullOrWhiteSpace(text))
+            
+            if (string.IsNullOrWhiteSpace(msg.Text))
                 continue;
 
-            sb.AppendLine($"[{now:yyyy-MM-dd}] {role}: {text.Trim()}");
+            sb.AppendLine($"[{now:yyyy-MM-dd}] {role}: {msg.Text.Trim()}");
         }
 
         return sb.ToString();
