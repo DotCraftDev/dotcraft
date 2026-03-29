@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Microsoft.Agents.AI;
-using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol;
 
@@ -11,8 +10,6 @@ namespace DotCraft.Protocol;
 public sealed class ThreadStore
 {
     private readonly string _threadsDir;
-
-    private const int ToolResultMaxChars = 500;
 
     public ThreadStore(string botPath)
     {
@@ -78,12 +75,9 @@ public sealed class ThreadStore
         AIAgent agent,
         AgentSession session,
         string threadId,
-        bool compact = true,
         CancellationToken ct = default)
     {
         var path = GetSessionPath(threadId);
-        if (compact)
-            CompactSession(session);
         var serialized = await agent.SerializeSessionAsync(session, JsonSerializerOptions.Web, ct);
         await File.WriteAllTextAsync(path, serialized.GetRawText(), ct);
     }
@@ -162,25 +156,5 @@ public sealed class ThreadStore
         return Path.Combine(_threadsDir, $"{safe}.session.json");
     }
 
-    private static string MakeSafe(string key) =>
-        string.Concat(key.Split(Path.GetInvalidFileNameChars()));
-
-    private static void CompactSession(AgentSession session)
-    {
-        var chatHistory = session.GetService<ChatHistoryProvider>();
-        if (chatHistory is not InMemoryChatHistoryProvider memoryProvider)
-            return;
-
-        foreach (var msg in memoryProvider)
-        {
-            if (msg.Role != ChatRole.Tool)
-                continue;
-
-            foreach (var content in msg.Contents)
-            {
-                if (content is TextContent textContent && textContent.Text?.Length > ToolResultMaxChars)
-                    textContent.Text = textContent.Text[..ToolResultMaxChars] + "\n... (truncated)";
-            }
-        }
-    }
+    private static string MakeSafe(string key) => string.Concat(key.Split(Path.GetInvalidFileNameChars()));
 }

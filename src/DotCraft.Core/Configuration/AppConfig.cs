@@ -50,11 +50,6 @@ public sealed class AppConfig
     public int MaxSessionQueueSize { get; set; } = 3;
 
     /// <summary>
-    /// Enable compact sessions to reduce context cost but may cause context cache miss.
-    /// </summary>
-    public bool CompactSessions { get; set; } = true;
-
-    /// <summary>
     /// Maximum cumulative input tokens before triggering context compaction.
     /// When the total input tokens across all turns in a session exceed this value,
     /// the conversation history will be summarized to reduce context size.
@@ -389,12 +384,6 @@ public sealed class AppConfig
     [ConfigSection("Tools.Shell", DisplayName = "Tools > Shell", Order = 21)]
     public sealed class ShellToolsConfig
     {
-        /// <summary>
-        /// If true, commands accessing paths outside workspace require user approval.
-        /// If false, commands accessing paths outside workspace are completely blocked.
-        /// </summary>
-        public bool RequireApprovalOutsideWorkspace { get; set; } = true;
-
         /// <summary>
         /// Command execution timeout in seconds.
         /// </summary>

@@ -63,7 +63,6 @@ In this case, DotCraft will use the `ApiKey` from global config, but the `Model`
 | `SubagentMaxToolCallRounds` | SubAgent max tool call rounds | `50` |
 | `SubagentMaxConcurrency` | Maximum concurrent SubAgents (excess requests are queued) | `3` |
 | `MaxSessionQueueSize` | Maximum queued requests per session. Oldest waiting request is evicted with a notification when exceeded. `0` = unlimited | `3` |
-| `CompactSessions` | Whether to compress sessions when saving (remove tool call messages) | `true` |
 | `MaxContextTokens` | Cumulative input token threshold for triggering automatic context compaction. `0` disables compaction | `160000` |
 | `MemoryWindow` | Message count threshold that triggers memory consolidation. `0` disables | `50` |
 | `ConsolidationModel` | Dedicated model for memory consolidation. Uses the main `Model` when empty. If the main model doesn't support `tool_choice` in thinking mode, specify a non-thinking model here | empty |
@@ -240,43 +239,6 @@ Quick reference:
 | `WeComBot.Robots` | Bot configuration list (Path/Token/AesKey) | `[]` |
 
 **Note**: By default (`Gateway.Enabled = false`), QQ Bot, WeCom Bot, and API mode cannot be enabled simultaneously. Priority order: QQ Bot > WeCom Bot > API > CLI. To run multiple channels at the same time, enable [Gateway mode](#gateway-multi-channel-concurrent-mode).
-
-**Permission Notes**:
-- `AdminUsers`: Has all permissions; workspace write operations require approval
-- `WhitelistedUsers`: Can only perform read operations (file reading, Web search, etc.)
-- `WhitelistedChats`: All users in that chat automatically get whitelisted permissions
-- Users not in any of the above lists cannot use Agent features
-
-**Approval Mechanism**:
-- When admins perform workspace write operations, they receive an approval request in the WeCom chat
-- Reply "approve" or "allow" to approve the operation; reply "approve all" to skip future approval for similar operations in the session
-- Reply "reject" or don't reply (timeout) to reject the operation
-- Approval timeout can be configured via `ApprovalTimeoutSeconds`
-
----
-
-## Session Compaction
-
-`CompactSessions` controls whether tool call-related messages are automatically removed when saving sessions, to reduce session file size and avoid redundant data on load.
-
-**Compaction behavior**:
-- Removes all `role: tool` messages (tool return results)
-- Removes `FunctionCallContent` from assistant messages (tool call instructions)
-- If an assistant message has no other content after removing FunctionCallContent, the entire message is removed
-- Preserves user messages and assistant text replies
-
-**When to disable**: If you need to retain the complete tool call history in session files (e.g., for debugging), set `"CompactSessions": false`.
-
----
-
-## Token Usage Statistics
-
-DotCraft automatically extracts token usage information from LLM responses and displays it.
-
-- **CLI mode**: Shows `Tokens: X in / Y out / Z total` after each reply in the console
-- **QQ mode**: Appends `[Tokens: X in / Y out / Z total]` at the end of each reply
-
-No additional configuration needed. Token statistics depend on the LLM provider returning `UsageContent` in streaming responses; some providers may not support this.
 
 ---
 

@@ -732,8 +732,7 @@ public sealed class SessionService(
                 {
                     try
                     {
-                        await threadStore.SaveSessionAsync(agent, session, threadId, compact: true,
-                            ct: CancellationToken.None);
+                        await threadStore.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
                     }
                     catch (Exception ex)
                     {

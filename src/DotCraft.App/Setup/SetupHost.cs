@@ -49,7 +49,6 @@ public sealed class SetupHost(AppConfig config, DotCraftPaths paths)
             SubagentMaxToolCallRounds = source.SubagentMaxToolCallRounds,
             SubagentMaxConcurrency = source.SubagentMaxConcurrency,
             MaxSessionQueueSize = source.MaxSessionQueueSize,
-            CompactSessions = source.CompactSessions,
             MaxContextTokens = source.MaxContextTokens,
             MemoryWindow = source.MemoryWindow,
             DebugMode = source.DebugMode,
