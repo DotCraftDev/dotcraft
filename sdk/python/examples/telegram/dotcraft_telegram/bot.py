@@ -130,6 +130,10 @@ class TelegramAdapter(ChannelAdapter):
             logger.error("Invalid delivery target: %s", target)
             return False
 
+        # Stop typing indicator when delivering any message (including slash-command
+        # replies, which bypass on_turn_completed).
+        self._stop_typing(chat_id_str)
+
         await self._send_text(chat_id, content)
         return True
 
