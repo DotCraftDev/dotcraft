@@ -894,20 +894,37 @@ public sealed class AppServerRequestHandler(
 
     private sealed class BufferedCommandResponder : ICommandResponder
     {
-        public string? Message { get; private set; }
-        public bool IsMarkdown { get; private set; }
+        private readonly List<(string Text, bool IsMarkdown)> _segments = [];
+
+        /// <summary>
+        /// All non-empty segments joined with newlines, or null if nothing was sent.
+        /// </summary>
+        public string? Message
+        {
+            get
+            {
+                var parts = _segments
+                    .Where(s => !string.IsNullOrWhiteSpace(s.Text))
+                    .Select(s => s.Text)
+                    .ToList();
+                return parts.Count == 0 ? null : string.Join(Environment.NewLine, parts);
+            }
+        }
+
+        /// <summary>
+        /// True if any segment was sent as markdown.
+        /// </summary>
+        public bool IsMarkdown => _segments.Any(s => s.IsMarkdown);
 
         public Task SendTextAsync(string message)
         {
-            Message = message;
-            IsMarkdown = false;
+            _segments.Add((message, false));
             return Task.CompletedTask;
         }
 
         public Task SendMarkdownAsync(string markdown)
         {
-            Message = markdown;
-            IsMarkdown = true;
+            _segments.Add((markdown, true));
             return Task.CompletedTask;
         }
     }
