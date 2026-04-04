@@ -769,30 +769,23 @@ public sealed class AppServerRequestHandler(
             _ => null
         };
 
-        var currentLanguage = LanguageService.Current.CurrentLanguage;
-        try
-        {
-            if (overrideLanguage.HasValue)
-                LanguageService.Current.CurrentLanguage = overrideLanguage.Value;
+        var commands = _commandRegistry.ListCommands(language: overrideLanguage)
+            .Where(c =>
+            {
+                var reg = _commandRegistry.GetRegistration(c.Name);
+                return reg == null || IsServiceAvailableForRegistration(reg);
+            })
+            .Select(c => new CommandInfoWire
+            {
+                Name = c.Name,
+                Aliases = c.Aliases,
+                Description = c.Description,
+                Category = c.Category,
+                RequiresAdmin = c.RequiresAdmin
+            })
+            .ToList();
 
-            var commands = _commandRegistry.ListCommands()
-                .Select(c => new CommandInfoWire
-                {
-                    Name = c.Name,
-                    Aliases = c.Aliases,
-                    Description = c.Description,
-                    Category = c.Category,
-                    RequiresAdmin = c.RequiresAdmin
-                })
-                .ToList();
-
-            return Task.FromResult<object?>(new CommandListResult { Commands = commands });
-        }
-        finally
-        {
-            if (overrideLanguage.HasValue)
-                LanguageService.Current.CurrentLanguage = currentLanguage;
-        }
+        return Task.FromResult<object?>(new CommandListResult { Commands = commands });
     }
 
     private async Task<object?> HandleCommandExecuteAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -829,7 +822,7 @@ public sealed class AppServerRequestHandler(
             IsAdmin = string.Equals(p.Sender?.SenderRole, "admin", StringComparison.OrdinalIgnoreCase),
             Source = source,
             GroupId = p.Sender?.GroupId,
-            ChannelContext = p.Sender?.GroupId is { Length: > 0 } ? $"group:{p.Sender.GroupId}" : $"user:{senderId}",
+            ChannelContext = thread.ChannelContext,
             WorkspacePath = thread.WorkspacePath,
             SessionService = sessionService,
             HeartbeatService = heartbeatService,

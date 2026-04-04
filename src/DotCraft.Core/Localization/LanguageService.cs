@@ -30,6 +30,9 @@ public sealed class LanguageService
     /// </summary>
     public static LanguageService Current { get; set; } = new();
 
+    private static readonly Dictionary<Language, IReadOnlyDictionary<string, string>> TranslationCache = new();
+    private static readonly object CacheLock = new();
+
     private volatile Language _currentLanguage;
     private IReadOnlyDictionary<string, string> _translations;
 
@@ -49,6 +52,29 @@ public sealed class LanguageService
                 _currentLanguage = value;
                 _translations = LoadTranslations(value);
             }
+        }
+    }
+
+    /// <summary>
+    /// Resolves a key for a specific language without mutating <see cref="Current"/> (thread-safe for concurrent callers).
+    /// </summary>
+    public static string Translate(string key, Language language)
+    {
+        var translations = GetCachedTranslations(language);
+        return translations.TryGetValue(key, out var value) ? value : key;
+    }
+
+    private static IReadOnlyDictionary<string, string> GetCachedTranslations(Language language)
+    {
+        lock (CacheLock)
+        {
+            if (!TranslationCache.TryGetValue(language, out var translations))
+            {
+                translations = LoadTranslations(language);
+                TranslationCache[language] = translations;
+            }
+
+            return translations;
         }
     }
 

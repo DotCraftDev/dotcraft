@@ -48,7 +48,9 @@ public sealed class CommandRegistry
     /// <summary>
     /// Lists command metadata for help rendering and SDK discovery.
     /// </summary>
-    public IReadOnlyList<CommandInfo> ListCommands(CommandContext? context = null)
+    /// <param name="context">When set, filters commands whose required services are unavailable.</param>
+    /// <param name="language">When set, resolves descriptions for this language without mutating global <see cref="LanguageService.Current"/>.</param>
+    public IReadOnlyList<CommandInfo> ListCommands(CommandContext? context = null, Language? language = null)
     {
         var result = new List<CommandInfo>();
         foreach (var registration in _registrations.Values.OrderBy(registration => registration.Name, StringComparer.OrdinalIgnoreCase))
@@ -60,7 +62,7 @@ public sealed class CommandRegistry
             {
                 Name = registration.Name,
                 Aliases = registration.Aliases,
-                Description = ResolveDescription(registration),
+                Description = ResolveDescription(registration, language),
                 Category = registration.Category,
                 RequiresAdmin = registration.RequiresAdmin
             });
@@ -232,12 +234,14 @@ public sealed class CommandRegistry
         };
     }
 
-    private static string ResolveDescription(CommandRegistration registration)
+    private static string ResolveDescription(CommandRegistration registration, Language? language = null)
     {
         if (string.IsNullOrWhiteSpace(registration.DescriptionKey))
             return registration.Name;
 
-        var localized = LanguageService.Current.T(registration.DescriptionKey);
+        var localized = language.HasValue
+            ? LanguageService.Translate(registration.DescriptionKey, language.Value)
+            : LanguageService.Current.T(registration.DescriptionKey);
         if (!string.Equals(localized, registration.DescriptionKey, StringComparison.Ordinal))
             return localized;
 
