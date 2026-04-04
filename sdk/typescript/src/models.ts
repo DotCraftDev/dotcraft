@@ -138,6 +138,8 @@ export class ServerCapabilities {
     public configOverride = false,
     public cronManagement = false,
     public heartbeatManagement = false,
+    public skillsManagement = false,
+    public commandManagement = false,
   ) {}
 
   static fromWire(data: Record<string, unknown>): ServerCapabilities {
@@ -149,6 +151,8 @@ export class ServerCapabilities {
       Boolean(data.configOverride),
       Boolean(data.cronManagement),
       Boolean(data.heartbeatManagement),
+      Boolean(data.skillsManagement),
+      Boolean(data.commandManagement),
     );
   }
 }

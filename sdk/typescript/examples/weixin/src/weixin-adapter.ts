@@ -233,6 +233,7 @@ export class WeixinAdapter extends ChannelAdapter {
       userName: name,
       text,
       channelContext: from,
+      senderExtra: { senderRole: "admin" },
     }).catch((e) => console.error("handleMessage error:", e));
   }
 }

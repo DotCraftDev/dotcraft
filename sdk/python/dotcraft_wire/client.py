@@ -256,6 +256,32 @@ class DotCraftClient:
             "turnId": turn_id,
         })
 
+    async def command_list(self, language: str | None = None) -> list[dict]:
+        """List commands exposed by the server command registry."""
+        params: dict = {}
+        if language:
+            params["language"] = language
+        result = await self._request("command/list", params)
+        return result.get("commands", [])
+
+    async def command_execute(
+        self,
+        thread_id: str,
+        command: str,
+        arguments: list[str] | None = None,
+        sender: dict | None = None,
+    ) -> dict:
+        """Execute a slash command via the server command pipeline."""
+        params: dict = {
+            "threadId": thread_id,
+            "command": command,
+        }
+        if arguments is not None:
+            params["arguments"] = arguments
+        if sender is not None:
+            params["sender"] = sender
+        return await self._request("command/execute", params)
+
     # ------------------------------------------------------------------
     # Event streaming
     # ------------------------------------------------------------------

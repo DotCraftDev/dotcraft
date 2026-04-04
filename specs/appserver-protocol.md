@@ -37,6 +37,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [16. Cron Management Methods](#16-cron-management-methods)
 - [17. Heartbeat Management Methods](#17-heartbeat-management-methods)
 - [18. Skills Management Methods](#18-skills-management-methods)
+- [19. Command Management Methods](#19-command-management-methods)
 
 ---
 
@@ -63,7 +64,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -200,7 +201,8 @@ Client                              Server
     "configOverride": true,
     "cronManagement": true,
     "heartbeatManagement": true,
-    "skillsManagement": true
+    "skillsManagement": true,
+    "commandManagement": true
   }
 }
 ```
@@ -219,6 +221,7 @@ Client                              Server
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). Always `true` when the server has a `SkillsLoader` configured. |
+| `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). Always `true` when CommandRegistry is available. |
 
 ### 3.3 `initialized`
 
@@ -2506,3 +2509,111 @@ When disabling: the skill name is added to `DisabledSkills`. When enabling: the 
 ### 18.7 Capability Advertisement
 
 Clients must check `capabilities.skillsManagement` before calling any `skills/*` method. The capability is present and `true` when the AppServer has a `SkillsLoader` configured (which is always the case when a workspace is active).
+
+---
+
+## 19. Command Management Methods
+
+### 19.1 Scope
+
+These methods expose the server-side command registry to wire clients so external channel adapters can share the same command semantics as built-in adapters.
+
+- `command/list` returns discoverable command metadata (including custom commands).
+- `command/execute` executes a slash command and returns a normalized `CommandResult`.
+
+Clients should treat command rendering as UX-only; command resolution and execution semantics are server-authoritative.
+
+### 19.2 `CommandInfo` Wire DTO
+
+```json
+{
+  "name": "/new",
+  "aliases": ["/clear"],
+  "description": "Create a new conversation",
+  "category": "builtin",
+  "requiresAdmin": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Canonical slash command name. |
+| `aliases` | string[] | Alternative slash names mapped to the same handler. |
+| `description` | string | Localized or source description text shown to users. |
+| `category` | string | `"builtin"` or `"custom"`. |
+| `requiresAdmin` | boolean | Whether the command requires admin permission. |
+
+### 19.3 `command/list`
+
+List all available commands for the current workspace/runtime.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `language` | string | no | Optional language override (`"zh"` or `"en"`). When omitted, server default language is used. |
+
+**Result**:
+
+```json
+{
+  "commands": [
+    {
+      "name": "/new",
+      "aliases": ["/clear"],
+      "description": "Create a new conversation",
+      "category": "builtin",
+      "requiresAdmin": false
+    },
+    {
+      "name": "/code-review",
+      "aliases": [],
+      "description": "Review changed files and report issues",
+      "category": "custom",
+      "requiresAdmin": false
+    }
+  ]
+}
+```
+
+### 19.4 `command/execute`
+
+Execute one slash command through the same server-side command pipeline used by built-in channels.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Target thread for command execution context. |
+| `command` | string | yes | Slash command string, for example `"/stop"` or `"/cron"`. |
+| `arguments` | string[] | no | Optional parsed arguments. Server also accepts empty/omitted and performs standard parsing from `command` when needed. |
+| `sender` | SenderContext | no | Optional sender identity used for permission evaluation and auditing. |
+
+**Result**:
+
+```json
+{
+  "handled": true,
+  "message": "Agent stopped.",
+  "isMarkdown": false,
+  "expandedPrompt": null
+}
+```
+
+When `expandedPrompt` is non-null, the command is a custom command expansion and the client should call `turn/start` with that expanded text as input.
+
+### 19.5 Error Codes
+
+| Code | Constant | When |
+|------|----------|------|
+| `-32060` | `CommandNotFound` | The requested command is not registered. |
+| `-32061` | `CommandPermissionDenied` | Caller lacks permission for an admin-only command. |
+| `-32062` | `CommandServiceUnavailable` | Command exists but required backing service is unavailable. |
+
+### 19.6 Capability Advertisement
+
+Clients must check `capabilities.commandManagement` before calling `command/list` or `command/execute`. The capability is present and `true` when the AppServer has the command registry enabled.

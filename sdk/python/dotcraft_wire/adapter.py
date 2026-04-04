@@ -249,6 +249,31 @@ class ChannelAdapter(ABC):
         if channel_context:
             sender["groupId"] = channel_context
 
+        trimmed_text = text.strip()
+        if trimmed_text.startswith("/"):
+            command_parts = trimmed_text.split()
+            command_name = command_parts[0]
+            command_arguments = command_parts[1:] if len(command_parts) > 1 else None
+            try:
+                command_result = await self._client.command_execute(
+                    thread_id=thread.id,
+                    command=command_name,
+                    arguments=command_arguments,
+                    sender=sender,
+                )
+            except DotCraftError as e:
+                await self.on_deliver(channel_context, e.message or str(e), {})
+                return
+
+            expanded_prompt = command_result.get("expandedPrompt")
+            if expanded_prompt:
+                text = expanded_prompt
+            elif command_result.get("handled"):
+                message = command_result.get("message")
+                if message:
+                    await self.on_deliver(channel_context, message, {})
+                return
+
         try:
             turn = await self._client.turn_start(
                 thread.id,

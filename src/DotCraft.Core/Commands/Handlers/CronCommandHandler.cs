@@ -1,6 +1,7 @@
 using System.Text;
 using DotCraft.Commands.Core;
 using DotCraft.Cron;
+using DotCraft.Localization;
 
 namespace DotCraft.Commands.Handlers;
 
@@ -17,7 +18,7 @@ public sealed class CronCommandHandler : ICommandHandler
     {
         if (context.CronService == null)
         {
-            await responder.SendTextAsync("定时任务服务未启用。");
+            await responder.SendTextAsync(Strings.CronUnavailable);
             return CommandResult.HandledResult();
         }
         
@@ -33,7 +34,7 @@ public sealed class CronCommandHandler : ICommandHandler
                 await HandleRemoveAsync(context.CronService, args, responder);
                 break;
             default:
-                await responder.SendTextAsync("用法：/cron list | /cron remove <任务ID>");
+                await responder.SendTextAsync(Strings.CronUsage);
                 break;
         }
         
@@ -45,29 +46,29 @@ public sealed class CronCommandHandler : ICommandHandler
         var jobs = cronService.ListJobs(includeDisabled: true);
         if (jobs.Count == 0)
         {
-            await responder.SendTextAsync("暂无定时任务。");
+            await responder.SendTextAsync(Strings.NoCronJobs);
             return;
         }
         
         var sb = new StringBuilder();
-        sb.AppendLine($"定时任务 ({jobs.Count})：");
+        sb.AppendLine(string.Format(Strings.CommandCronListTitle, jobs.Count));
         foreach (var job in jobs)
         {
-            var status = job.Enabled ? "已启用" : "已禁用";
+            var status = job.Enabled ? Strings.CronEnabled : Strings.CronDisabled;
             var schedDesc = job.Schedule.Kind switch
             {
                 "at" when job.Schedule.AtMs.HasValue =>
-                    $"一次性 {DateTimeOffset.FromUnixTimeMilliseconds(job.Schedule.AtMs.Value):u}",
+                    $"{Strings.CronExecuteOnce} {DateTimeOffset.FromUnixTimeMilliseconds(job.Schedule.AtMs.Value):u}",
                 "every" when job.Schedule.EveryMs.HasValue =>
-                    $"每 {TimeSpan.FromMilliseconds(job.Schedule.EveryMs.Value)}",
+                    $"{Strings.CronEvery} {TimeSpan.FromMilliseconds(job.Schedule.EveryMs.Value)}",
                 _ => job.Schedule.Kind
             };
             var next = job.State.NextRunAtMs.HasValue
                 ? DateTimeOffset.FromUnixTimeMilliseconds(job.State.NextRunAtMs.Value).ToString("u")
                 : "-";
             sb.AppendLine($"[{job.Id}] {job.Name} ({status})");
-            sb.AppendLine($"  计划：{schedDesc}");
-            sb.AppendLine($"  下次执行：{next}");
+            sb.AppendLine($"  {Strings.CronColSchedule}: {schedDesc}");
+            sb.AppendLine($"  {Strings.CronColNextRun}: {next}");
         }
         
         await responder.SendTextAsync(sb.ToString().TrimEnd());
@@ -77,14 +78,14 @@ public sealed class CronCommandHandler : ICommandHandler
     {
         if (args.Length < 2)
         {
-            await responder.SendTextAsync("用法：/cron remove <任务ID>");
+            await responder.SendTextAsync(Strings.CronRemoveUsage);
             return;
         }
         
         var jobId = args[1];
         if (cronService.RemoveJob(jobId))
-            await responder.SendTextAsync($"任务 '{jobId}' 已删除。");
+            await responder.SendTextAsync($"{Strings.CronJobDeleted} '{jobId}' {Strings.CronJobDeletedSuffix}");
         else
-            await responder.SendTextAsync($"未找到任务 '{jobId}'。");
+            await responder.SendTextAsync($"{Strings.CronJobNotFound} '{jobId}'.");
     }
 }

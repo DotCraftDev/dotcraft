@@ -186,6 +186,8 @@ class ServerCapabilities:
     config_override: bool = False
     cron_management: bool = False
     heartbeat_management: bool = False
+    skills_management: bool = False
+    command_management: bool = False
 
     @classmethod
     def from_wire(cls, data: dict) -> ServerCapabilities:
@@ -197,6 +199,8 @@ class ServerCapabilities:
             config_override=data.get("configOverride", False),
             cron_management=data.get("cronManagement", False),
             heartbeat_management=data.get("heartbeatManagement", False),
+            skills_management=data.get("skillsManagement", False),
+            command_management=data.get("commandManagement", False),
         )
 
 

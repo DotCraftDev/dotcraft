@@ -204,6 +204,28 @@ export class DotCraftClient {
     await this.request("turn/interrupt", { threadId, turnId });
   }
 
+  async commandList(language?: string): Promise<Record<string, unknown>[]> {
+    const params: Record<string, unknown> = {};
+    if (language) params.language = language;
+    const result = (await this.request("command/list", params)) as Record<string, unknown>;
+    return ((result.commands as Record<string, unknown>[]) ?? []);
+  }
+
+  async commandExecute(params: {
+    threadId: string;
+    command: string;
+    arguments?: string[];
+    sender?: Record<string, unknown> | null;
+  }): Promise<Record<string, unknown>> {
+    const payload: Record<string, unknown> = {
+      threadId: params.threadId,
+      command: params.command,
+    };
+    if (params.arguments) payload.arguments = params.arguments;
+    if (params.sender) payload.sender = params.sender;
+    return (await this.request("command/execute", payload)) as Record<string, unknown>;
+  }
+
   on(method: string, fn: NotificationHandler): void {
     const list = this.handlers.get(method) ?? [];
     list.push(fn);
