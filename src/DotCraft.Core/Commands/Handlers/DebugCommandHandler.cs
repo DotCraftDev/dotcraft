@@ -1,4 +1,5 @@
 using DotCraft.Commands.Core;
+using DotCraft.Localization;
 using Spectre.Console;
 
 namespace DotCraft.Commands.Handlers;
@@ -14,14 +15,8 @@ public sealed class DebugCommandHandler : ICommandHandler
     /// <inheritdoc />
     public async Task<CommandResult> HandleAsync(CommandContext context, ICommandResponder responder)
     {
-        if (!context.IsAdmin)
-        {
-            await responder.SendTextAsync("⚠️ 此命令仅管理员可用。");
-            return CommandResult.HandledResult();
-        }
-        
         var newState = Diagnostics.DebugModeService.Toggle();
-        var statusMsg = newState ? "✅ 调试模式已开启" : "✅ 调试模式已关闭";
+        var statusMsg = newState ? Strings.DebugEnabled : Strings.DebugDisabled;
         await responder.SendTextAsync(statusMsg);
         
         AnsiConsole.MarkupLine(

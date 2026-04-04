@@ -166,6 +166,17 @@ public static class Strings
     public static string UnknownCommand => LanguageService.Current.T("command.unknown");
     public static string DidYouMean => LanguageService.Current.T("command.did_you_mean");
     public static string ViewAllCommands => LanguageService.Current.T("command.view_all");
+    public static string CommandPermissionDenied => LanguageService.Current.T("command.permission_denied");
+    public static string CommandServiceUnavailable => LanguageService.Current.T("command.service_unavailable");
+    public static string CommandNewCleared => LanguageService.Current.T("command.new.cleared");
+    public static string CommandStopDescription => LanguageService.Current.T("command.stop.description");
+    public static string CommandStopNoActiveRun => LanguageService.Current.T("command.stop.no_active_run");
+    public static string CommandStopStopped => LanguageService.Current.T("command.stop.stopped");
+    public static string CommandHelpTitle => LanguageService.Current.T("command.help.title");
+    public static string CommandHelpCustomSection => LanguageService.Current.T("command.help.custom_section");
+    public static string CommandHelpNoCustom => LanguageService.Current.T("command.help.no_custom");
+    public static string CommandHelpAdminSuffix => LanguageService.Current.T("command.help.admin_suffix");
+    public static string CommandCronListTitle => LanguageService.Current.T("command.cron.list_title");
 
     // ── Session prompt ───────────────────────────────────────────────
     public static string NoSessionsAvailable => LanguageService.Current.T("session_prompt.no_available");

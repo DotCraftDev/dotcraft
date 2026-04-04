@@ -3,8 +3,7 @@ DotCraft Telegram Adapter.
 
 Maps each Telegram chat to a DotCraft thread. Supports:
 - Text messages → turn/start
-- /new command → archive current thread, create fresh one
-- /help command → local help text
+- Slash commands via server command pipeline (`command/execute`)
 - Agent replies streamed and sent as a single composed message
 - Approval flow via Telegram inline keyboard buttons
 - ext/channel/deliver mapped to bot.send_message()
@@ -16,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sys
 
 from telegram import (
@@ -30,7 +30,6 @@ from telegram.error import Conflict as TelegramConflict
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
-    CommandHandler,
     ContextTypes,
     MessageHandler,
     filters,
@@ -131,6 +130,10 @@ class TelegramAdapter(ChannelAdapter):
             logger.error("Invalid delivery target: %s", target)
             return False
 
+        # Stop typing indicator when delivering any message (including slash-command
+        # replies, which bypass on_turn_completed).
+        self._stop_typing(chat_id_str)
+
         await self._send_text(chat_id, content)
         return True
 
@@ -228,10 +231,8 @@ class TelegramAdapter(ChannelAdapter):
         self._app = builder.build()
 
         self._app.add_error_handler(self._on_error)
-        self._app.add_handler(CommandHandler("new", self._on_new))
-        self._app.add_handler(CommandHandler("help", self._on_help))
         self._app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_message)
+            MessageHandler(filters.TEXT, self._on_message)
         )
         self._app.add_handler(CallbackQueryHandler(self._on_callback_query))
 
@@ -243,7 +244,8 @@ class TelegramAdapter(ChannelAdapter):
         logger.info("Telegram bot @%s connected", bot_info.username)
 
         try:
-            await self._app.bot.set_my_commands(self.BOT_COMMANDS)
+            bot_commands = await self._load_registered_commands()
+            await self._app.bot.set_my_commands(bot_commands)
         except Exception as e:
             logger.warning("Failed to register bot commands: %s", e)
 
@@ -287,6 +289,30 @@ class TelegramAdapter(ChannelAdapter):
 
         await self._shutdown_bot()
 
+    async def _load_registered_commands(self) -> list[BotCommand]:
+        """Build Telegram bot command list from server command metadata."""
+        try:
+            commands = await self._client.command_list()
+        except Exception as e:
+            logger.warning("Failed to load command/list from server: %s", e)
+            return self.BOT_COMMANDS
+
+        bot_commands: list[BotCommand] = []
+        for item in commands:
+            name = str(item.get("name") or "").strip().lstrip("/").lower()
+            if not name:
+                continue
+            if len(name) > 32 or re.fullmatch(r"[a-z0-9_]+", name) is None:
+                logger.debug("Skipping unsupported Telegram command name: %s", name)
+                continue
+
+            description = str(item.get("description") or "DotCraft command").strip()
+            if not description:
+                description = "DotCraft command"
+            bot_commands.append(BotCommand(name, description[:256]))
+
+        return bot_commands if bot_commands else self.BOT_COMMANDS
+
     async def _shutdown_bot(self) -> None:
         """Stop the Telegram polling loop and clean up."""
         for chat_id in list(self._typing_tasks):
@@ -300,33 +326,6 @@ class TelegramAdapter(ChannelAdapter):
     # ------------------------------------------------------------------
     # Command / message handlers
     # ------------------------------------------------------------------
-
-    async def _on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /new: archive current thread and start fresh."""
-        if not update.effective_user or not update.message:
-            return
-        user = update.effective_user
-        chat_id = update.message.chat_id
-        self._chat_ids[str(user.id)] = chat_id
-
-        await self.new_thread(
-            user_id=str(user.id),
-            channel_context=str(chat_id),
-        )
-        await update.message.reply_text(
-            "🆕 Started a new conversation. What would you like to do?"
-        )
-
-    async def _on_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /help."""
-        if not update.message:
-            return
-        await update.message.reply_text(
-            "DotCraft commands:\n"
-            "/new — Start a new conversation\n"
-            "/help — Show available commands\n\n"
-            "Just send any message to chat with the agent."
-        )
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle incoming text messages."""
@@ -344,6 +343,7 @@ class TelegramAdapter(ChannelAdapter):
             user_name=user.full_name or user.username or str(user.id),
             text=message.text or "",
             channel_context=str(chat_id),
+            sender_extra={"senderRole": "admin"},
         )
 
     async def _on_callback_query(

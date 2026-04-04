@@ -33,7 +33,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
 
     private readonly TokenUsageStore? _tokenUsageStore;
     
-    private readonly CommandDispatcher _commandDispatcher;
+    private readonly CommandRegistry _commandRegistry;
 
     private readonly ActiveRunRegistry _activeRunRegistry;
 
@@ -72,7 +72,7 @@ public sealed class QQChannelAdapter : IAsyncDisposable
         _sessionService = sessionService;
         _workspacePath = workspacePath;
         
-        _commandDispatcher = CommandDispatcher.CreateDefault(customCommandLoader);
+        _commandRegistry = CommandRegistry.CreateDefault(customCommandLoader);
 
         _client.OnGroupMessage += HandleGroupMessageAsync;
         _client.OnPrivateMessage += HandlePrivateMessageAsync;
@@ -446,11 +446,12 @@ public sealed class QQChannelAdapter : IAsyncDisposable
             HeartbeatService = _heartbeatService,
             CronService = _cronService,
             AgentFactory = _agentFactory,
-            ActiveRunRegistry = _activeRunRegistry
+            ActiveRunRegistry = _activeRunRegistry,
+            CommandRegistry = _commandRegistry
         };
         
         var responder = new QQCommandResponder(_client, evt);
-        return await _commandDispatcher.TryDispatchAsync(text, context, responder);
+        return await _commandRegistry.TryExecuteAsync(text, context, responder);
     }
 
     private static void LogIncoming(string type, string targetId, string sender, string text)

@@ -60,6 +60,10 @@ public static class AppServerErrors
 
     public const int SkillNotFoundCode = -32040;
 
+    public const int CommandNotFoundCode = -32060;
+    public const int CommandPermissionDeniedCode = -32061;
+    public const int CommandServiceUnavailableCode = -32062;
+
     // ── Automation-specific codes (-32050 to -32059) ──
 
     public const int TaskNotFoundCode = -32051;
@@ -119,6 +123,15 @@ public static class AppServerErrors
 
     public static AppServerException SkillNotFound(string name) =>
         new(SkillNotFoundCode, $"Skill not found: {name}");
+
+    public static AppServerException CommandNotFound(string command) =>
+        new(CommandNotFoundCode, $"Command not found: {command}");
+
+    public static AppServerException CommandPermissionDenied(string command) =>
+        new(CommandPermissionDeniedCode, $"Permission denied for command: {command}");
+
+    public static AppServerException CommandServiceUnavailable(string command) =>
+        new(CommandServiceUnavailableCode, $"Service unavailable for command: {command}");
 
     public static AppServerException TaskAlreadyExists(string taskId) =>
         new(TaskAlreadyExistsCode, $"Task already exists: {taskId}");

@@ -1,4 +1,5 @@
 using DotCraft.Commands.Core;
+using DotCraft.Localization;
 using DotCraft.Protocol;
 using Spectre.Console;
 
@@ -32,7 +33,7 @@ public sealed class NewCommandHandler : ICommandHandler
         }
         context.AgentFactory?.RemoveTokenTracker(context.SessionId);
         
-        await responder.SendTextAsync("会话已清除，开始新的对话。");
+        await responder.SendTextAsync(Strings.CommandNewCleared);
         AnsiConsole.MarkupLine($"[grey][[{context.Source}]][/] [green]Session cleared:[/] {Markup.Escape(context.SessionId)}");
         
         return CommandResult.HandledResult();

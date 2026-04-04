@@ -9,6 +9,11 @@ public interface ICommandHandler
     /// Gets the command names this handler can process (e.g., "/new", "/clear").
     /// </summary>
     string[] Commands { get; }
+
+    /// <summary>
+    /// Optional metadata used by <see cref="CommandRegistry"/> for command discovery.
+    /// </summary>
+    CommandRegistration? Metadata => null;
     
     /// <summary>
     /// Handles the command.

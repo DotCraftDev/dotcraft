@@ -181,6 +181,12 @@ public sealed class AppServerServerCapabilities
     public bool SkillsManagement { get; set; }
 
     /// <summary>
+    /// Server supports command management methods (command/list, command/execute). See spec Section 19.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CommandManagement { get; set; }
+
+    /// <summary>
     /// Server supports automation task methods (automation/task/*).
     /// False when the Automations module is not loaded.
     /// </summary>
@@ -333,6 +339,58 @@ public sealed class TurnInterruptParams
     public string ThreadId { get; set; } = string.Empty;
 
     public string TurnId { get; set; } = string.Empty;
+}
+
+// ───── command/* (spec Section 19) ─────
+
+public sealed class CommandListParams
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Language { get; set; }
+}
+
+public sealed class CommandListResult
+{
+    public List<CommandInfoWire> Commands { get; set; } = [];
+}
+
+public sealed class CommandInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string[] Aliases { get; set; } = [];
+
+    public string Description { get; set; } = string.Empty;
+
+    public string Category { get; set; } = "builtin";
+
+    public bool RequiresAdmin { get; set; }
+}
+
+public sealed class CommandExecuteParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public string Command { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Arguments { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SenderContext? Sender { get; set; }
+}
+
+public sealed class CommandExecuteResult
+{
+    public bool Handled { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; set; }
+
+    public bool IsMarkdown { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ExpandedPrompt { get; set; }
 }
 
 // ───── item/approval/request (Server → Client request) ─────
@@ -829,6 +887,10 @@ public static class AppServerMethods
     public const string SkillsList = "skills/list";
     public const string SkillsRead = "skills/read";
     public const string SkillsSetEnabled = "skills/setEnabled";
+
+    // Client → Server requests (command management, spec Section 19)
+    public const string CommandList = "command/list";
+    public const string CommandExecute = "command/execute";
 
     // Client → Server requests (automations, M6)
     public const string AutomationTaskList = "automation/task/list";

@@ -221,6 +221,37 @@ export abstract class ChannelAdapter {
     };
     if (channelContext) sender.groupId = channelContext;
 
+    const trimmedText = opts.text.trim();
+    if (trimmedText.startsWith("/")) {
+      const commandParts = trimmedText.split(/\s+/);
+      const commandName = commandParts[0];
+      const commandArguments = commandParts.length > 1 ? commandParts.slice(1) : undefined;
+      try {
+        const commandResult = await this.client.commandExecute({
+          threadId: thread.id,
+          command: commandName,
+          arguments: commandArguments,
+          sender,
+        });
+        const expandedPrompt = commandResult.expandedPrompt as string | undefined;
+        if (expandedPrompt) {
+          opts.text = expandedPrompt;
+        } else if (Boolean(commandResult.handled)) {
+          const commandMessage = commandResult.message as string | undefined;
+          if (commandMessage) {
+            await this.onDeliver(channelContext, commandMessage, {});
+          }
+          return;
+        }
+      } catch (e) {
+        if (e instanceof DotCraftError) {
+          await this.onDeliver(channelContext, e.message || String(e), {});
+          return;
+        }
+        throw e;
+      }
+    }
+
     let turn: Turn;
     try {
       turn = await this.client.turnStart(thread.id, [textPart(opts.text)], sender);

@@ -1,8 +1,11 @@
 using System.Text.Json;
 using DotCraft.Abstractions;
+using DotCraft.Commands.Core;
+using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Localization;
 using DotCraft.Skills;
 using Microsoft.Extensions.AI;
 
@@ -31,9 +34,13 @@ public sealed class AppServerRequestHandler(
     Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null,
     ICommitMessageSuggestService? commitMessageSuggest = null,
     string? dashboardUrl = null,
-    WireAcpExtensionProxy? wireAcpExtensionProxy = null)
+    WireAcpExtensionProxy? wireAcpExtensionProxy = null,
+    CommandRegistry? commandRegistry = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
+    private readonly CommandRegistry _commandRegistry = commandRegistry
+        ?? CommandRegistry.CreateDefault(
+            !string.IsNullOrWhiteSpace(workspaceCraftPath) ? new CustomCommandLoader(workspaceCraftPath) : null);
 
     private readonly IAppServerChannelListContributor _channelListContributor = channelListContributor;
 
@@ -106,6 +113,8 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.SkillsList => HandleSkillsListAsync(msg, ct),
                 AppServerMethods.SkillsRead => HandleSkillsReadAsync(msg, ct),
                 AppServerMethods.SkillsSetEnabled => HandleSkillsSetEnabledAsync(msg, ct),
+                AppServerMethods.CommandList => HandleCommandListAsync(msg, ct),
+                AppServerMethods.CommandExecute => HandleCommandExecuteAsync(msg, ct),
                 AppServerMethods.AutomationTaskList => RouteAutomation(h => h.HandleTaskListAsync(msg, ct)),
                 AppServerMethods.AutomationTaskRead => RouteAutomation(h => h.HandleTaskReadAsync(msg, ct)),
                 AppServerMethods.AutomationTaskCreate => RouteAutomation(h => h.HandleTaskCreateAsync(msg, ct)),
@@ -163,6 +172,7 @@ public sealed class AppServerRequestHandler(
                 CronManagement = cronService != null,
                 HeartbeatManagement = heartbeatService != null,
                 SkillsManagement = skillsLoader != null,
+                CommandManagement = true,
                 Automations = automationsHandler != null
             },
             DashboardUrl = _dashboardUrl
@@ -747,6 +757,90 @@ public sealed class AppServerRequestHandler(
         return Task.FromResult<object?>(new SkillsSetEnabledResult { Skill = MapSkillToWire(updated) });
     }
 
+    private Task<object?> HandleCommandListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        var p = GetParams<CommandListParams>(msg);
+
+        Language? overrideLanguage = p.Language?.ToLowerInvariant() switch
+        {
+            "zh" => Language.Chinese,
+            "en" => Language.English,
+            _ => null
+        };
+
+        var commands = _commandRegistry.ListCommands(language: overrideLanguage)
+            .Where(c =>
+            {
+                var reg = _commandRegistry.GetRegistration(c.Name);
+                return reg == null || IsServiceAvailableForRegistration(reg);
+            })
+            .Select(c => new CommandInfoWire
+            {
+                Name = c.Name,
+                Aliases = c.Aliases,
+                Description = c.Description,
+                Category = c.Category,
+                RequiresAdmin = c.RequiresAdmin
+            })
+            .ToList();
+
+        return Task.FromResult<object?>(new CommandListResult { Commands = commands });
+    }
+
+    private async Task<object?> HandleCommandExecuteAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<CommandExecuteParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.ThreadId))
+            throw AppServerErrors.InvalidParams("'threadId' is required.");
+        if (string.IsNullOrWhiteSpace(p.Command))
+            throw AppServerErrors.InvalidParams("'command' is required.");
+
+        var commandName = ExtractCommandName(p.Command);
+        var registration = _commandRegistry.GetRegistration(commandName);
+
+        if (registration != null && !IsSenderAllowed(registration, p.Sender))
+            throw AppServerErrors.CommandPermissionDenied(commandName);
+
+        if (registration != null && !IsServiceAvailableForRegistration(registration))
+            throw AppServerErrors.CommandServiceUnavailable(commandName);
+
+        var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
+        var rawText = BuildRawText(p.Command, p.Arguments);
+        var senderId = p.Sender?.SenderId ?? connection.ClientInfo?.Name ?? "anonymous";
+        var senderName = p.Sender?.SenderName ?? connection.ClientInfo?.Name ?? "anonymous";
+        var source = string.IsNullOrWhiteSpace(thread.OriginChannel)
+            ? (connection.IsChannelAdapter ? connection.ChannelAdapterName ?? "external" : "appserver")
+            : thread.OriginChannel;
+
+        var context = new CommandContext
+        {
+            SessionId = p.ThreadId,
+            RawText = rawText,
+            UserId = senderId,
+            UserName = senderName,
+            IsAdmin = string.Equals(p.Sender?.SenderRole, "admin", StringComparison.OrdinalIgnoreCase),
+            Source = source,
+            GroupId = p.Sender?.GroupId,
+            ChannelContext = thread.ChannelContext,
+            WorkspacePath = thread.WorkspacePath,
+            SessionService = sessionService,
+            HeartbeatService = heartbeatService,
+            CronService = cronService,
+            CommandRegistry = _commandRegistry
+        };
+
+        var responder = new BufferedCommandResponder();
+        var result = await _commandRegistry.TryExecuteAsync(rawText, context, responder);
+        return new CommandExecuteResult
+        {
+            Handled = result.Handled,
+            Message = responder.Message ?? result.Message,
+            IsMarkdown = responder.IsMarkdown || result.IsMarkdown,
+            ExpandedPrompt = result.ExpandedPrompt
+        };
+    }
+
     private SkillInfoWire MapSkillToWire(SkillsLoader.SkillInfo s)
     {
         var metadata = skillsLoader!.GetSkillMetadata(s.Name);
@@ -761,6 +855,78 @@ public sealed class AppServerRequestHandler(
             Path = s.Path,
             Metadata = metadata
         };
+    }
+
+    private bool IsServiceAvailableForRegistration(CommandRegistration registration)
+    {
+        return registration.RequiredService?.ToLowerInvariant() switch
+        {
+            "cron" => cronService != null,
+            "heartbeat" => heartbeatService != null,
+            _ => true
+        };
+    }
+
+    private static bool IsSenderAllowed(CommandRegistration registration, SenderContext? sender)
+    {
+        if (!registration.RequiresAdmin)
+            return true;
+        return string.Equals(sender?.SenderRole, "admin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ExtractCommandName(string rawCommand)
+    {
+        var trimmed = rawCommand.Trim();
+        if (trimmed.Length == 0)
+            return rawCommand;
+
+        var whitespaceIndex = trimmed.IndexOfAny([' ', '\t', '\r', '\n']);
+        return whitespaceIndex >= 0 ? trimmed[..whitespaceIndex] : trimmed;
+    }
+
+    private static string BuildRawText(string command, List<string>? arguments)
+    {
+        var normalized = command.StartsWith('/') ? command : $"/{command}";
+        if (arguments == null || arguments.Count == 0)
+            return normalized;
+        return $"{normalized} {string.Join(" ", arguments)}";
+    }
+
+    private sealed class BufferedCommandResponder : ICommandResponder
+    {
+        private readonly List<(string Text, bool IsMarkdown)> _segments = [];
+
+        /// <summary>
+        /// All non-empty segments joined with newlines, or null if nothing was sent.
+        /// </summary>
+        public string? Message
+        {
+            get
+            {
+                var parts = _segments
+                    .Where(s => !string.IsNullOrWhiteSpace(s.Text))
+                    .Select(s => s.Text)
+                    .ToList();
+                return parts.Count == 0 ? null : string.Join(Environment.NewLine, parts);
+            }
+        }
+
+        /// <summary>
+        /// True if any segment was sent as markdown.
+        /// </summary>
+        public bool IsMarkdown => _segments.Any(s => s.IsMarkdown);
+
+        public Task SendTextAsync(string message)
+        {
+            _segments.Add((message, false));
+            return Task.CompletedTask;
+        }
+
+        public Task SendMarkdownAsync(string markdown)
+        {
+            _segments.Add((markdown, true));
+            return Task.CompletedTask;
+        }
     }
 
     // -------------------------------------------------------------------------

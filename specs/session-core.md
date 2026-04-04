@@ -1310,7 +1310,11 @@ Session Core records `SenderContext` and passes it through to approval handling.
 
 ### 17.3 Slash Commands
 
-Slash commands are adapter-level concerns. They map to `ISessionService` operations or channel-local operations:
+Slash commands are modeled as a managed subsystem with a single server-side command registry:
+
+- Built-in in-process adapters (CLI, QQ, WeCom) call the registry directly.
+- Out-of-process adapters use AppServer wire methods (`command/list`, `command/execute`).
+- Both paths resolve against the same command set and permission metadata.
 
 | Command | Maps To | Scope |
 |---------|---------|-------|
@@ -1318,13 +1322,14 @@ Slash commands are adapter-level concerns. They map to `ISessionService` operati
 | `/new` | `ISessionService.ArchiveThread(threadId)` + `CreateThread(identity)` | Session Core |
 | `/clear` | Archive current Thread, create new one | Session Core |
 | `/load`, `/sessions` | `ISessionService.FindThreads(identity)` + `ResumeThread` | Session Core |
-| `/help` | Channel-local (display help text) | Adapter only |
-| `/heartbeat` | Channel-local (trigger HeartbeatService) | Adapter + Gateway |
-| `/cron` | Channel-local (manage CronService) | Adapter + Gateway |
-| `/debug` | Channel-local (show debug info) | Adapter only |
-| Custom commands | `CustomCommandLoader.TryResolve` | Adapter only |
+| `/help` | Managed command metadata listing | Session Core + Adapter rendering |
+| `/heartbeat` | `HeartbeatService.TriggerNowAsync()` | AppServer-hosted service |
+| `/cron` | Cron management operations | AppServer-hosted service |
+| `/debug` | Debug mode toggle operation | AppServer-hosted service |
+| Custom commands | `CustomCommandLoader.TryResolve` | Session Core command pipeline |
 
-Session Core provides the operations; the adapter decides which commands to expose and how to present them.
+The registry is authoritative for command discovery, permission hints, and execution routing.
+Adapters may still provide platform-specific UX (for example native command menus), but they must not fork command semantics.
 
 ### 17.4 Active Run Cancellation
 

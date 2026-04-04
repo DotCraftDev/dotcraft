@@ -1,4 +1,5 @@
 using DotCraft.Commands.Core;
+using DotCraft.Localization;
 
 namespace DotCraft.Commands.Handlers;
 
@@ -15,7 +16,7 @@ public sealed class HeartbeatCommandHandler : ICommandHandler
     {
         if (context.HeartbeatService == null)
         {
-            await responder.SendTextAsync("心跳服务未启用。");
+            await responder.SendTextAsync(Strings.HeartbeatUnavailable);
             return CommandResult.HandledResult();
         }
         
@@ -24,16 +25,16 @@ public sealed class HeartbeatCommandHandler : ICommandHandler
         
         if (subCmd == "trigger")
         {
-            await responder.SendTextAsync("正在触发心跳检查...");
+            await responder.SendTextAsync(Strings.TriggeringHeartbeat);
             var result = await context.HeartbeatService.TriggerNowAsync();
             if (result != null)
-                await responder.SendTextAsync($"心跳结果：\n{result}");
+                await responder.SendTextAsync($"{Strings.HeartbeatResult}:\n{result}");
             else
-                await responder.SendTextAsync("无心跳响应（HEARTBEAT.md 可能不存在或为空）。");
+                await responder.SendTextAsync(Strings.HeartbeatNoResponse);
         }
         else
         {
-            await responder.SendTextAsync("用法：/heartbeat trigger");
+            await responder.SendTextAsync(Strings.HeartbeatUsage);
         }
         
         return CommandResult.HandledResult();

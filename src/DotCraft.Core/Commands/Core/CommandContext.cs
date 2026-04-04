@@ -93,4 +93,9 @@ public sealed record CommandContext
     /// Registry of active agent runs, used by /stop to cancel an in-flight run.
     /// </summary>
     public ActiveRunRegistry? ActiveRunRegistry { get; init; }
+
+    /// <summary>
+    /// Active command registry for dynamic command listing and metadata lookup.
+    /// </summary>
+    public CommandRegistry? CommandRegistry { get; init; }
 }

@@ -32,6 +32,7 @@ public sealed class ExternalChannelHost(
     private readonly ExternalChannelEntry _config = config ?? throw new ArgumentNullException(nameof(config));
     private readonly ISessionService _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
     private readonly ModuleRegistry _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
+    private readonly string _workspaceCraftPath = Path.Combine(hostWorkspacePath, ".craft");
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -249,6 +250,9 @@ public sealed class ExternalChannelHost(
             _sessionService, _connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
             serverVersion,
+            cronService: CronService,
+            heartbeatService: HeartbeatService,
+            workspaceCraftPath: _workspaceCraftPath,
             hostWorkspacePath: hostWorkspacePath);
 
         // Forward stderr to DotCraft's diagnostic log
@@ -376,6 +380,9 @@ public sealed class ExternalChannelHost(
             _sessionService, connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
             serverVersion,
+            cronService: CronService,
+            heartbeatService: HeartbeatService,
+            workspaceCraftPath: _workspaceCraftPath,
             hostWorkspacePath: hostWorkspacePath);
 
         AnsiConsole.MarkupLine(

@@ -1,4 +1,7 @@
+using System.Linq;
 using DotCraft.Commands.Core;
+using DotCraft.Localization;
+using DotCraft.Protocol;
 using Spectre.Console;
 
 namespace DotCraft.Commands.Handlers;
@@ -15,21 +18,30 @@ public sealed class StopCommandHandler : ICommandHandler
     /// <inheritdoc />
     public async Task<CommandResult> HandleAsync(CommandContext context, ICommandResponder responder)
     {
-        if (!context.IsAdmin)
+        if (context.SessionService != null && context.SessionId.StartsWith("thread_", StringComparison.Ordinal))
         {
-            await responder.SendTextAsync("权限不足，仅管理员可使用 /stop 命令。");
+            var thread = await context.SessionService.GetThreadAsync(context.SessionId);
+            var activeTurn = thread.Turns.LastOrDefault(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval);
+            if (activeTurn == null)
+            {
+                await responder.SendTextAsync(Strings.CommandStopNoActiveRun);
+                return CommandResult.HandledResult();
+            }
+
+            await context.SessionService.CancelTurnAsync(thread.Id, activeTurn.Id);
+            await responder.SendTextAsync(Strings.CommandStopStopped);
             return CommandResult.HandledResult();
         }
 
         var registry = context.ActiveRunRegistry;
         if (registry == null || !registry.TryCancelAndRemove(context.SessionId))
         {
-            await responder.SendTextAsync("当前没有正在运行的 Agent。");
+            await responder.SendTextAsync(Strings.CommandStopNoActiveRun);
             AnsiConsole.MarkupLine($"[grey][[{context.Source}]][/] /stop: no active run for {Markup.Escape(context.SessionId)}");
             return CommandResult.HandledResult();
         }
 
-        await responder.SendTextAsync("Agent 已停止。");
+        await responder.SendTextAsync(Strings.CommandStopStopped);
         AnsiConsole.MarkupLine($"[grey][[{context.Source}]][/] [yellow]/stop:[/] cancelled run for {Markup.Escape(context.SessionId)}");
         return CommandResult.HandledResult();
     }
