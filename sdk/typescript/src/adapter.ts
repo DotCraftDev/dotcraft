@@ -16,6 +16,17 @@ import {
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
 
+/** Queued inbound message; skipCommand skips slash handling for expanded prompts. */
+type ChannelAdapterMessageOpts = {
+  userId: string;
+  userName: string;
+  text: string;
+  channelContext?: string;
+  workspacePath?: string;
+  senderExtra?: Record<string, unknown>;
+  skipCommand?: boolean;
+};
+
 export abstract class ChannelAdapter {
   protected readonly client: DotCraftClient;
   protected readonly channelName: string;
@@ -126,14 +137,53 @@ export abstract class ChannelAdapter {
     console.info(`ChannelAdapter '${this.channelName}' stopped`);
   }
 
-  async handleMessage(opts: {
-    userId: string;
-    userName: string;
-    text: string;
-    channelContext?: string;
-    workspacePath?: string;
-    senderExtra?: Record<string, unknown>;
-  }): Promise<void> {
+  async handleMessage(opts: ChannelAdapterMessageOpts): Promise<void> {
+    if (opts.skipCommand) {
+      this.enqueueMessage(opts);
+      return;
+    }
+    const trimmedText = opts.text.trim();
+    if (trimmedText.startsWith("/")) {
+      const channelContext = opts.channelContext ?? "";
+      const identityKey = this.identityKey(opts.userId, channelContext);
+      const threadId = this.threadMap.get(identityKey);
+      if (threadId) {
+        const sender: Record<string, unknown> = {
+          senderId: opts.userId,
+          senderName: opts.userName,
+          ...(opts.senderExtra ?? {}),
+        };
+        if (channelContext) sender.groupId = channelContext;
+        const parts = trimmedText.split(/\s+/);
+        try {
+          const commandResult = await this.client.commandExecute({
+            threadId,
+            command: parts[0],
+            arguments: parts.length > 1 ? parts.slice(1) : undefined,
+            sender,
+          });
+          const expanded = commandResult.expandedPrompt as string | undefined;
+          if (expanded) {
+            this.enqueueMessage({ ...opts, text: expanded, skipCommand: true });
+            return;
+          } else if (Boolean(commandResult.handled)) {
+            const commandMessage = commandResult.message as string | undefined;
+            if (commandMessage) {
+              await this.onDeliver(channelContext, commandMessage, {});
+            }
+            return;
+          }
+          // RPC consumed the line; do not re-enqueue or command_execute runs twice
+          return;
+        } catch (e) {
+          if (e instanceof DotCraftError) {
+            await this.onDeliver(channelContext, e.message || String(e), {});
+            return;
+          }
+          throw e;
+        }
+      }
+    }
     this.enqueueMessage(opts);
   }
 
@@ -141,14 +191,7 @@ export abstract class ChannelAdapter {
    * Schedule a message for serial processing (one turn at a time per identity).
    * Does not wait for the turn to complete (matches Python asyncio.Queue.put).
    */
-  private enqueueMessage(opts: {
-    userId: string;
-    userName: string;
-    text: string;
-    channelContext?: string;
-    workspacePath?: string;
-    senderExtra?: Record<string, unknown>;
-  }): void {
+  private enqueueMessage(opts: ChannelAdapterMessageOpts): void {
     const channelContext = opts.channelContext ?? "";
     const identityKey = this.identityKey(opts.userId, channelContext);
 
@@ -194,14 +237,7 @@ export abstract class ChannelAdapter {
 
   private async processMessage(
     identityKey: string,
-    opts: {
-      userId: string;
-      userName: string;
-      text: string;
-      channelContext?: string;
-      workspacePath?: string;
-      senderExtra?: Record<string, unknown>;
-    },
+    opts: ChannelAdapterMessageOpts,
   ): Promise<void> {
     const channelContext = opts.channelContext ?? "";
     const workspacePath = opts.workspacePath ?? this.defaultWorkspacePath;
@@ -222,7 +258,7 @@ export abstract class ChannelAdapter {
     if (channelContext) sender.groupId = channelContext;
 
     const trimmedText = opts.text.trim();
-    if (trimmedText.startsWith("/")) {
+    if (trimmedText.startsWith("/") && !opts.skipCommand) {
       const commandParts = trimmedText.split(/\s+/);
       const commandName = commandParts[0];
       const commandArguments = commandParts.length > 1 ? commandParts.slice(1) : undefined;
