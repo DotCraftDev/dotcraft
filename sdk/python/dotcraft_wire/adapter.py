@@ -176,6 +176,7 @@ class ChannelAdapter(ABC):
         channel_context: str = "",
         workspace_path: str = "",
         sender_extra: dict | None = None,
+        skip_command: bool = False,
     ) -> None:
         """
         Route an incoming platform message to DotCraft.
@@ -192,46 +193,51 @@ class ChannelAdapter(ABC):
             channel_context: Group/chat identifier for group scenarios.
             workspace_path: Override the workspace path for thread/start.
             sender_extra: Additional fields for SenderContext.
+            skip_command: Internal: when True, skip command fast-path; queued
+                worker will not re-run command_execute (e.g. expandedPrompt text).
         """
         identity_key = self._identity_key(user_id, channel_context)
+        effective_skip_command = skip_command
 
         # Command fast-path: bypass queue when we already know the thread id
         # (mirrors built-in adapters that resolve commands before session queue).
-        trimmed = text.strip()
-        if trimmed.startswith("/"):
-            thread_id = self._thread_map.get(identity_key)
-            if thread_id:
-                sender: dict = {
-                    "senderId": user_id,
-                    "senderName": user_name,
-                    **(sender_extra or {}),
-                }
-                if channel_context:
-                    sender["groupId"] = channel_context
-                parts = trimmed.split()
-                command_name = parts[0]
-                command_arguments = parts[1:] if len(parts) > 1 else None
-                try:
-                    command_result = await self._client.command_execute(
-                        thread_id=thread_id,
-                        command=command_name,
-                        arguments=command_arguments,
-                        sender=sender,
-                    )
-                    expanded_prompt = command_result.get("expandedPrompt")
-                    if expanded_prompt:
-                        text = expanded_prompt
-                    elif command_result.get("handled"):
-                        message = command_result.get("message")
-                        if message:
-                            await self.on_deliver(channel_context, message, {})
+        if not skip_command:
+            trimmed = text.strip()
+            if trimmed.startswith("/"):
+                thread_id = self._thread_map.get(identity_key)
+                if thread_id:
+                    sender: dict = {
+                        "senderId": user_id,
+                        "senderName": user_name,
+                        **(sender_extra or {}),
+                    }
+                    if channel_context:
+                        sender["groupId"] = channel_context
+                    parts = trimmed.split()
+                    command_name = parts[0]
+                    command_arguments = parts[1:] if len(parts) > 1 else None
+                    try:
+                        command_result = await self._client.command_execute(
+                            thread_id=thread_id,
+                            command=command_name,
+                            arguments=command_arguments,
+                            sender=sender,
+                        )
+                        expanded_prompt = command_result.get("expandedPrompt")
+                        if expanded_prompt:
+                            text = expanded_prompt
+                            effective_skip_command = True
+                        elif command_result.get("handled"):
+                            message = command_result.get("message")
+                            if message:
+                                await self.on_deliver(channel_context, message, {})
+                            return
+                        else:
+                            # RPC consumed the line; do not re-enqueue or command_execute runs twice
+                            return
+                    except DotCraftError as e:
+                        await self.on_deliver(channel_context, e.message or str(e), {})
                         return
-                    else:
-                        # RPC consumed the line; do not re-enqueue or command_execute runs twice
-                        return
-                except DotCraftError as e:
-                    await self.on_deliver(channel_context, e.message or str(e), {})
-                    return
 
         # Ensure a queue and worker exist for this identity
         if identity_key not in self._thread_queues:
@@ -248,6 +254,7 @@ class ChannelAdapter(ABC):
             "channel_context": channel_context,
             "workspace_path": workspace_path or self.DEFAULT_WORKSPACE_PATH,
             "sender_extra": sender_extra or {},
+            "skip_command": effective_skip_command,
         })
 
     def _identity_key(self, user_id: str, channel_context: str) -> str:
@@ -276,6 +283,7 @@ class ChannelAdapter(ABC):
         channel_context = msg["channel_context"]
         workspace_path = msg["workspace_path"]
         sender_extra = msg["sender_extra"]
+        skip_command = msg.get("skip_command", False)
 
         thread = await self._get_or_create_thread(
             identity_key, user_id, channel_context, workspace_path
@@ -290,7 +298,7 @@ class ChannelAdapter(ABC):
             sender["groupId"] = channel_context
 
         trimmed_text = text.strip()
-        if trimmed_text.startswith("/"):
+        if trimmed_text.startswith("/") and not skip_command:
             command_parts = trimmed_text.split()
             command_name = command_parts[0]
             command_arguments = command_parts[1:] if len(command_parts) > 1 else None
@@ -333,6 +341,7 @@ class ChannelAdapter(ABC):
                     channel_context=channel_context,
                     workspace_path=workspace_path,
                     sender_extra=sender_extra,
+                    skip_command=skip_command,
                 )
                 return
             if e.code == ERR_THREAD_NOT_ACTIVE:
