@@ -67,7 +67,7 @@ public sealed class FileTools(
     private readonly IReadOnlyList<string> _trustedReadPaths = trustedReadPaths ?? [];
 
     [Description("Read the contents of a file or list the contents of a directory. If the path is a directory, lists its entries. Supports offset and limit for paginated reading of large text files. Image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) are returned as vision input for the model (full file only; offset/limit do not apply).")]
-    [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile))]
+    [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile), MaxResultChars = 0)]
     public async Task<IList<AIContent>> ReadFile(
         [Description("The workspace-relative or absolute path to read.")] string path,
         [Description("The line number to start reading from (1-indexed). Enables line-numbered output when set.")] int offset = 0,
@@ -192,12 +192,13 @@ public sealed class FileTools(
         }
     }
 
-    [Description("Replace text in a file: provide oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 3-8 lines including surrounding context) to save tokens; do not paste entire files unless rewriting. For new files or full rewrites use WriteFile. Matching tries exact text first, then fuzzy fallbacks (line trim, indentation, collapsed whitespace, Unicode punctuation). oldText must match exactly one location.")]
+    [Description("Replace text in a file: provide oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 3-8 lines including surrounding context) to save tokens; do not paste entire files unless rewriting. For new files or full rewrites use WriteFile. When replaceAll is false (default), matching tries exact text first, then fuzzy fallbacks (line trim, indentation, collapsed whitespace, Unicode punctuation); oldText must match exactly one location unless you set replaceAll to true. Use replaceAll to replace every exact occurrence at once (e.g. renaming a symbol across the file).")]
     [Tool(Icon = "🔄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.EditFile))]
     public async Task<string> EditFile(
         [Description("The workspace-relative or absolute file path to edit.")] string path,
-        [Description("The exact snippet from the file to replace. Include enough surrounding lines to be unique.")] string oldText = "",
-        [Description("The replacement text.")] string newText = "")
+        [Description("The exact snippet from the file to replace. Include enough surrounding lines to be unique when replaceAll is false.")] string oldText = "",
+        [Description("The replacement text.")] string newText = "",
+        [Description("If true, replace all exact occurrences of oldText (no fuzzy matching). Defaults to false.")] bool replaceAll = false)
     {
         try
         {
@@ -217,7 +218,7 @@ public sealed class FileTools(
                 return "Error: oldText is required. Provide the exact snippet to find and replace.";
 
             oldText = UnescapeUnicodeSequences(oldText);
-            return await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding);
+            return await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding, replaceAll);
         }
         catch (UnauthorizedAccessException)
         {
@@ -230,7 +231,7 @@ public sealed class FileTools(
     }
 
     [Description("Search file contents using a regular expression pattern. Returns matching lines with file paths and line numbers. Skips binary files and .git/node_modules directories. For open-ended searches requiring multiple rounds or broad codebase exploration, use SpawnSubagent instead.")]
-    [Tool(Icon = "🔍", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.GrepFiles))]
+    [Tool(Icon = "🔍", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.GrepFiles), MaxResultChars = 20_000)]
     public async Task<string> GrepFiles(
         [Description("The regular expression pattern to search for.")] string pattern,
         [Description("The directory to search in. Defaults to workspace root.")] string path = "",
@@ -568,7 +569,7 @@ public sealed class FileTools(
 
     private static async Task<string> ApplySearchReplaceEdit(
         string fullPath, string displayPath, string content, string oldText, string newText,
-        Encoding encoding)
+        Encoding encoding, bool replaceAll)
     {
         // Normalize all inputs to LF for consistent matching, restore on write
         var useCrLf = UsesCrLf(content);
@@ -576,12 +577,16 @@ public sealed class FileTools(
         oldText = NormalizeToLf(oldText);
         newText = NormalizeToLf(newText);
 
-        var (ok, newLfContent, error, matchKind, lineNum, oldLineCount) = FileEditSearchReplace.Apply(content, oldText, newText);
+        var (ok, newLfContent, error, matchKind, lineNum, oldLineCount, replaceCount) =
+            FileEditSearchReplace.Apply(content, oldText, newText, replaceAll);
         if (!ok)
             return error!;
 
         var newContent = RestoreLineEndings(newLfContent, useCrLf);
         await File.WriteAllTextAsync(fullPath, newContent, encoding);
+
+        if (replaceCount > 1)
+            return $"Successfully replaced {replaceCount} occurrences in {displayPath}";
 
         var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
         var suffix = matchKind != null ? $" ({matchKind})" : "";

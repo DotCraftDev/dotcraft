@@ -11,6 +11,7 @@ public static class ToolRegistry
 {
     private static readonly Dictionary<string, string> ToolIcons = new();
     private static readonly Dictionary<string, Func<IDictionary<string, object?>?, string>> DisplayFormatters = new();
+    private static readonly Dictionary<string, int> MaxResultCharsByTool = new();
 
     private static readonly Lock LockObject = new();
     private static readonly HashSet<Assembly> ScannedAssemblies = [];
@@ -44,6 +45,9 @@ public static class ToolRegistry
 
                     if (attr.DisplayType != null && !string.IsNullOrEmpty(attr.DisplayMethod))
                         TryRegisterDisplayFormatter(method.Name, attr.DisplayType, attr.DisplayMethod);
+
+                    if (attr.MaxResultChars != -1)
+                        MaxResultCharsByTool[method.Name] = attr.MaxResultChars;
                 }
             }
         }
@@ -63,6 +67,13 @@ public static class ToolRegistry
     /// </summary>
     public static string GetToolIcon(string toolName)
         => ToolIcons.GetValueOrDefault(toolName, DefaultIcon);
+
+    /// <summary>
+    /// Returns the per-tool maximum result length in characters when set on <see cref="ToolAttribute"/>,
+    /// or <see langword="null"/> to use the global default from configuration.
+    /// </summary>
+    public static int? GetMaxResultChars(string toolName)
+        => MaxResultCharsByTool.TryGetValue(toolName, out var n) ? n : null;
 
     /// <summary>
     /// Returns a human-readable description for a tool call, or null if no formatter is registered.
@@ -134,6 +145,7 @@ public static class ToolRegistry
         {
             ToolIcons.Clear();
             DisplayFormatters.Clear();
+            MaxResultCharsByTool.Clear();
             ScannedAssemblies.Clear();
         }
     }

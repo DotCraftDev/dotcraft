@@ -557,6 +557,27 @@ public sealed class AppConfig
         public SandboxConfig Sandbox { get; set; } = new();
 
         public DeferredLoadingConfig DeferredLoading { get; set; } = new();
+
+        /// <summary>
+        /// Global tool result size limits and spill-to-disk preview settings.
+        /// </summary>
+        public ToolResultLimitsConfig ResultLimits { get; set; } = new();
+    }
+
+    [ConfigSection("Tools.ResultLimits", DisplayName = "Tools > Result limits", Order = 24)]
+    public sealed class ToolResultLimitsConfig
+    {
+        /// <summary>
+        /// Default maximum tool result length in characters before spill-to-disk (per-tool overrides via ToolAttribute.MaxResultChars).
+        /// </summary>
+        [ConfigField(Min = 0, Hint = "characters; 0 disables limiting for tools that use the global default")]
+        public int MaxToolResultChars { get; set; } = 50_000;
+
+        /// <summary>
+        /// Number of head and tail lines included in the preview when a result is spilled to disk.
+        /// </summary>
+        [ConfigField(Min = 1, Max = 500)]
+        public int SpillPreviewLines { get; set; } = 40;
     }
 
     [ConfigSection("Security", DisplayName = "Security", Order = 80)]
