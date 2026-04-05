@@ -37,6 +37,28 @@ public static class ToolDisplayHelpers
         return 0;
     }
 
+    /// <summary>
+    /// Reads a boolean tool argument (JSON bool, string "true"/"false", or 0/1).
+    /// </summary>
+    public static bool GetBool(IDictionary<string, object?>? args, string key)
+    {
+        if (args == null || !args.TryGetValue(key, out var value) || value == null)
+            return false;
+
+        if (value is JsonElement je)
+        {
+            if (je.ValueKind == JsonValueKind.True) return true;
+            if (je.ValueKind == JsonValueKind.False) return false;
+            if (je.ValueKind == JsonValueKind.String && bool.TryParse(je.GetString(), out var b))
+                return b;
+            return false;
+        }
+
+        if (value is bool bVal) return bVal;
+        if (bool.TryParse(value.ToString(), out var parsed)) return parsed;
+        return false;
+    }
+
     public static string Truncate(string text, int maxLength)
     {
         if (string.IsNullOrEmpty(text) || text.Length <= maxLength)

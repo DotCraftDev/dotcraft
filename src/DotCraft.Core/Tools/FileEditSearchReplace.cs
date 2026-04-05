@@ -12,11 +12,13 @@ internal static class FileEditSearchReplace
     private static readonly Regex WhitespaceCollapseRegex = new(@"\s+", RegexOptions.Compiled);
     /// <summary>
     /// All inputs must be LF-normalized. Returns new LF-normalized content on success.
+    /// When <paramref name="replaceAll"/> is true, only exact substring matches are used (no fuzzy fallbacks).
     /// </summary>
-    internal static (bool Ok, string NewContent, string? Error, string? MatchKind, int LineNum, int OldLineCount) Apply(
+    internal static (bool Ok, string NewContent, string? Error, string? MatchKind, int LineNum, int OldLineCount, int ReplaceCount) Apply(
         string content,
         string oldText,
-        string newText)
+        string newText,
+        bool replaceAll = false)
     {
         var count = CountOccurrences(content, oldText);
         if (count == 1)
@@ -25,11 +27,32 @@ internal static class FileEditSearchReplace
             var newContent = content[..idx] + newText + content[(idx + oldText.Length)..];
             var lineNum = content[..idx].Count(c => c == '\n') + 1;
             var oldLineCount = oldText.Count(c => c == '\n') + 1;
-            return (true, newContent, null, null, lineNum, oldLineCount);
+            return (true, newContent, null, null, lineNum, oldLineCount, 1);
         }
 
         if (count > 1)
-            return (false, content, "Error: oldText appears multiple times in the file. Please provide more context to make it unique.", null, 0, 0);
+        {
+            if (!replaceAll)
+            {
+                return (false, content,
+                    $"Error: Found {count} matches of oldText. To replace all, set replaceAll to true. To replace one, provide more context to make it unique.",
+                    null, 0, 0, 0);
+            }
+
+            var replacedAll = content.Replace(oldText, newText, StringComparison.Ordinal);
+            var firstIdx = content.IndexOf(oldText, StringComparison.Ordinal);
+            var lineNumAll = content[..firstIdx].Count(c => c == '\n') + 1;
+            var oldLineCountAll = oldText.Count(c => c == '\n') + 1;
+            return (true, replacedAll, null, "replace all", lineNumAll, oldLineCountAll, count);
+        }
+
+        if (count == 0 && replaceAll)
+        {
+            var preview = content.Length > 50 ? content[..50] : content;
+            return (false, content,
+                $"Error: oldText not found in file. Make sure it matches the content. File has {content.Length} chars. First 50 chars: \"{preview}\"",
+                null, 0, 0, 0);
+        }
 
         var found = TryLineTrimmedMatch(content, oldText);
         if (found != null)
@@ -40,7 +63,7 @@ internal static class FileEditSearchReplace
                 var newContent = content[..idx] + newText + content[(idx + found.Length)..];
                 var lineNum = content[..idx].Count(c => c == '\n') + 1;
                 var oldLineCount = found.Count(c => c == '\n') + 1;
-                return (true, newContent, null, "line-trimmed fallback", lineNum, oldLineCount);
+                return (true, newContent, null, "line-trimmed fallback", lineNum, oldLineCount, 1);
             }
         }
 
@@ -53,7 +76,7 @@ internal static class FileEditSearchReplace
                 var newContent = content[..idx] + newText + content[(idx + found.Length)..];
                 var lineNum = content[..idx].Count(c => c == '\n') + 1;
                 var oldLineCount = found.Count(c => c == '\n') + 1;
-                return (true, newContent, null, "indentation-flexible fallback", lineNum, oldLineCount);
+                return (true, newContent, null, "indentation-flexible fallback", lineNum, oldLineCount, 1);
             }
         }
 
@@ -66,7 +89,7 @@ internal static class FileEditSearchReplace
                 var newContent = content[..idx] + newText + content[(idx + found.Length)..];
                 var lineNum = content[..idx].Count(c => c == '\n') + 1;
                 var oldLineCount = found.Count(c => c == '\n') + 1;
-                return (true, newContent, null, "whitespace-normalized fallback", lineNum, oldLineCount);
+                return (true, newContent, null, "whitespace-normalized fallback", lineNum, oldLineCount, 1);
             }
         }
 
@@ -79,14 +102,14 @@ internal static class FileEditSearchReplace
                 var newContent = content[..idx] + newText + content[(idx + found.Length)..];
                 var lineNum = content[..idx].Count(c => c == '\n') + 1;
                 var oldLineCount = found.Count(c => c == '\n') + 1;
-                return (true, newContent, null, "unicode-normalized fallback", lineNum, oldLineCount);
+                return (true, newContent, null, "unicode-normalized fallback", lineNum, oldLineCount, 1);
             }
         }
 
         var first50 = content.Length > 50 ? content[..50] : content;
         return (false, content,
             $"Error: oldText not found in file. Make sure it matches the content. File has {content.Length} chars. First 50 chars: \"{first50}\"",
-            null, 0, 0);
+            null, 0, 0, 0);
     }
 
     private static int CountOccurrences(string content, string searchText)

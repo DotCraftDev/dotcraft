@@ -131,12 +131,13 @@ public sealed class SandboxFileTools
         }
     }
 
-    [Description("Replace text in a file: oldText (snippet to find) and newText. Prefer a minimal unique snippet. Same fuzzy matching as workspace EditFile (exact, line trim, indentation, whitespace, Unicode).")]
+    [Description("Replace text in a file: oldText (snippet to find) and newText. When replaceAll is false, same fuzzy matching as workspace EditFile (exact, line trim, indentation, whitespace, Unicode). Set replaceAll to replace every exact occurrence at once.")]
     [Tool(Icon = "🔄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.EditFile))]
     public async Task<string> EditFile(
         [Description("Path inside the sandbox (absolute or relative to /workspace).")] string path,
         [Description("The snippet from the file to replace.")] string oldText = "",
-        [Description("The replacement text.")] string newText = "")
+        [Description("The replacement text.")] string newText = "",
+        [Description("If true, replace all exact occurrences of oldText (no fuzzy matching). Defaults to false.")] bool replaceAll = false)
     {
         if (string.IsNullOrEmpty(oldText))
             return "Error: oldText is required.";
@@ -155,7 +156,8 @@ public sealed class SandboxFileTools
             var lfOld = oldText.Replace("\r\n", "\n", StringComparison.Ordinal);
             var lfNew = newText.Replace("\r\n", "\n", StringComparison.Ordinal);
 
-            var (ok, newLfContent, error, matchKind, lineNum, oldLineCount) = FileEditSearchReplace.Apply(lfContent, lfOld, lfNew);
+            var (ok, newLfContent, error, matchKind, lineNum, oldLineCount, replaceCount) =
+                FileEditSearchReplace.Apply(lfContent, lfOld, lfNew, replaceAll);
             if (!ok)
                 return error!;
 
@@ -164,6 +166,9 @@ public sealed class SandboxFileTools
             await sandbox.Files.WriteFilesAsync([
                 new WriteEntry { Path = fullPath, Data = newContent, Mode = 644 }
             ]);
+
+            if (replaceCount > 1)
+                return $"Successfully replaced {replaceCount} occurrences in {path}";
 
             var newLineCount = string.IsNullOrEmpty(lfNew) ? 0 : lfNew.Count(c => c == '\n') + 1;
             var suffix = matchKind != null ? $" ({matchKind})" : "";

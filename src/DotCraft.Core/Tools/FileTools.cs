@@ -192,12 +192,13 @@ public sealed class FileTools(
         }
     }
 
-    [Description("Replace text in a file: provide oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 3-8 lines including surrounding context) to save tokens; do not paste entire files unless rewriting. For new files or full rewrites use WriteFile. Matching tries exact text first, then fuzzy fallbacks (line trim, indentation, collapsed whitespace, Unicode punctuation). oldText must match exactly one location.")]
+    [Description("Replace text in a file: provide oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 3-8 lines including surrounding context) to save tokens; do not paste entire files unless rewriting. For new files or full rewrites use WriteFile. When replaceAll is false (default), matching tries exact text first, then fuzzy fallbacks (line trim, indentation, collapsed whitespace, Unicode punctuation); oldText must match exactly one location unless you set replaceAll to true. Use replaceAll to replace every exact occurrence at once (e.g. renaming a symbol across the file).")]
     [Tool(Icon = "🔄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.EditFile))]
     public async Task<string> EditFile(
         [Description("The workspace-relative or absolute file path to edit.")] string path,
-        [Description("The exact snippet from the file to replace. Include enough surrounding lines to be unique.")] string oldText = "",
-        [Description("The replacement text.")] string newText = "")
+        [Description("The exact snippet from the file to replace. Include enough surrounding lines to be unique when replaceAll is false.")] string oldText = "",
+        [Description("The replacement text.")] string newText = "",
+        [Description("If true, replace all exact occurrences of oldText (no fuzzy matching). Defaults to false.")] bool replaceAll = false)
     {
         try
         {
@@ -217,7 +218,7 @@ public sealed class FileTools(
                 return "Error: oldText is required. Provide the exact snippet to find and replace.";
 
             oldText = UnescapeUnicodeSequences(oldText);
-            return await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding);
+            return await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding, replaceAll);
         }
         catch (UnauthorizedAccessException)
         {
@@ -568,7 +569,7 @@ public sealed class FileTools(
 
     private static async Task<string> ApplySearchReplaceEdit(
         string fullPath, string displayPath, string content, string oldText, string newText,
-        Encoding encoding)
+        Encoding encoding, bool replaceAll)
     {
         // Normalize all inputs to LF for consistent matching, restore on write
         var useCrLf = UsesCrLf(content);
@@ -576,12 +577,16 @@ public sealed class FileTools(
         oldText = NormalizeToLf(oldText);
         newText = NormalizeToLf(newText);
 
-        var (ok, newLfContent, error, matchKind, lineNum, oldLineCount) = FileEditSearchReplace.Apply(content, oldText, newText);
+        var (ok, newLfContent, error, matchKind, lineNum, oldLineCount, replaceCount) =
+            FileEditSearchReplace.Apply(content, oldText, newText, replaceAll);
         if (!ok)
             return error!;
 
         var newContent = RestoreLineEndings(newLfContent, useCrLf);
         await File.WriteAllTextAsync(fullPath, newContent, encoding);
+
+        if (replaceCount > 1)
+            return $"Successfully replaced {replaceCount} occurrences in {displayPath}";
 
         var newLineCount = string.IsNullOrEmpty(newText) ? 0 : newText.Count(c => c == '\n') + 1;
         var suffix = matchKind != null ? $" ({matchKind})" : "";

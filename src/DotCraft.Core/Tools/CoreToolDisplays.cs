@@ -30,6 +30,7 @@ public static class CoreToolDisplays
     public static string EditFile(IDictionary<string, object?>? args)
     {
         var path = ToolDisplayHelpers.GetString(args, "path") ?? "file";
+        var replaceAll = ToolDisplayHelpers.GetBool(args, "replaceAll");
 
         // For search/replace, show the first meaningful line of oldText as a content hint
         // so multiple edits to the same file are visually distinguishable.
@@ -39,10 +40,13 @@ public static class CoreToolDisplays
             var firstLine = oldText.Replace("\r\n", "\n").Split('\n')
                 .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim() ?? string.Empty;
             if (!string.IsNullOrEmpty(firstLine))
-                return $"Edited {path}: \"{ToolDisplayHelpers.Truncate(firstLine, 40)}\"";
+            {
+                var hint = $"Edited {path}: \"{ToolDisplayHelpers.Truncate(firstLine, 40)}\"";
+                return replaceAll ? $"{hint} (replace all)" : hint;
+            }
         }
 
-        return $"Edited {path}";
+        return replaceAll ? $"Edited {path} (replace all)" : $"Edited {path}";
     }
 
     public static string GrepFiles(IDictionary<string, object?>? args)
@@ -311,6 +315,11 @@ public static class CoreToolDisplays
 
         if (result.StartsWith("Successfully", StringComparison.OrdinalIgnoreCase))
         {
+            // Replace all: "Successfully replaced N occurrences in {path}"
+            var replaceAllMatch = Regex.Match(result, @"Successfully replaced (\d+) occurrences in ");
+            if (replaceAllMatch.Success)
+                return [$"{replaceAllMatch.Groups[1].Value} occurrences replaced"];
+
             // Search/replace: "Successfully edited {path} at line N (A -> B lines)"
             var srMatch = Regex.Match(result, @"at line (\d+) \((\d+) -> (\d+) lines\)");
             if (srMatch.Success)
