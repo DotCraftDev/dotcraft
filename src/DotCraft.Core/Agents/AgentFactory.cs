@@ -261,6 +261,8 @@ public sealed class AgentFactory : IAsyncDisposable
         // Wrap tools with hook interceptors
         tools = ApplyHooks(tools);
 
+        tools = ApplyResultLimits(tools, toolContext.WorkspacePath);
+
         return tools;
     }
 
@@ -284,6 +286,9 @@ public sealed class AgentFactory : IAsyncDisposable
         }
 
         tools = ApplyHooks(tools);
+
+        tools = ApplyResultLimits(tools, toolContext.WorkspacePath);
+
         return tools;
     }
 
@@ -318,6 +323,8 @@ public sealed class AgentFactory : IAsyncDisposable
             tools.Add(AIFunctionFactory.Create(planTools.UpdateTodos));
             tools.Add(AIFunctionFactory.Create(planTools.TodoWrite));
         }
+
+        tools = ApplyResultLimits(tools, toolContext.WorkspacePath);
 
         return tools;
     }
@@ -520,6 +527,28 @@ public sealed class AgentFactory : IAsyncDisposable
         {
             wrappedCount++;
             return new HookWrappedFunction(fn, _hookRunner);
+        }
+    }
+
+    /// <summary>
+    /// Wraps each <see cref="AIFunction"/> with <see cref="ResultSizeLimitingFunction"/> so oversized
+    /// tool outputs are spilled to disk with a preview. Skips functions already wrapped.
+    /// </summary>
+    public List<AITool> ApplyResultLimits(List<AITool> tools, string workspacePath)
+    {
+        var globalMax = _config.Tools.ResultLimits.MaxToolResultChars;
+        var previewLines = _config.Tools.ResultLimits.SpillPreviewLines;
+
+        return [.. tools.Select<AITool, AITool>(tool => tool switch
+        {
+            AIFunction fn when fn is not ResultSizeLimitingFunction => Wrap(fn),
+            _ => tool
+        })];
+
+        AITool Wrap(AIFunction fn)
+        {
+            var limit = ToolResultProcessor.ResolveMaxResultChars(fn.Name, globalMax);
+            return new ResultSizeLimitingFunction(fn, limit, workspacePath, previewLines);
         }
     }
 

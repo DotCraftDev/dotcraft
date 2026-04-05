@@ -352,11 +352,32 @@ public static class CoreToolDisplays
     }
 
     /// <summary>
+    /// When tool output was spilled to disk, returns a short CLI summary instead of a huge preview.
+    /// </summary>
+    private static IReadOnlyList<string>? TrySpillToolResultSummary(string? result)
+    {
+        if (string.IsNullOrEmpty(result)) return null;
+        if (result.Contains(ToolResultProcessor.SpillPreviewMarker, StringComparison.Ordinal))
+        {
+            var m = Regex.Match(result, @"\((\d+)\s+lines omitted");
+            if (m.Success)
+                return [$"{m.Groups[1].Value} lines (preview, full output saved)"];
+        }
+
+        if (result.Contains(".craft/tool-results/", StringComparison.OrdinalIgnoreCase))
+            return ["Large output (preview, full output saved)"];
+
+        return null;
+    }
+
+    /// <summary>
     /// Summarizes a GrepFiles result: match and file counts, or "No matches".
     /// </summary>
     public static IReadOnlyList<string>? GrepFilesResult(string? result)
     {
         if (string.IsNullOrWhiteSpace(result)) return null;
+        var spillSummary = TrySpillToolResultSummary(result);
+        if (spillSummary != null) return spillSummary;
         if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
             return [result.Split('\n')[0].Trim()];
         if (result.Equals("No matches found.", StringComparison.OrdinalIgnoreCase))
@@ -407,9 +428,12 @@ public static class CoreToolDisplays
     public static IReadOnlyList<string>? ExecResult(string? result)
     {
         if (string.IsNullOrWhiteSpace(result)) return null;
+        var spillSummary = TrySpillToolResultSummary(result);
+        if (spillSummary != null) return spillSummary;
         if (result.StartsWith("Error:", StringComparison.OrdinalIgnoreCase))
             return [result.Split('\n')[0].Trim()];
-        if (result.Equals("(no output)", StringComparison.OrdinalIgnoreCase))
+        if (result.Equals("(no output)", StringComparison.OrdinalIgnoreCase) ||
+            result.Contains("completed with no output)", StringComparison.Ordinal))
             return ["no output · exit 0"];
 
         var lines = result.Split('\n');

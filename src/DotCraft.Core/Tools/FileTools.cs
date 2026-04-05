@@ -67,7 +67,7 @@ public sealed class FileTools(
     private readonly IReadOnlyList<string> _trustedReadPaths = trustedReadPaths ?? [];
 
     [Description("Read the contents of a file or list the contents of a directory. If the path is a directory, lists its entries. Supports offset and limit for paginated reading of large text files. Image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) are returned as vision input for the model (full file only; offset/limit do not apply).")]
-    [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile))]
+    [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile), MaxResultChars = 0)]
     public async Task<IList<AIContent>> ReadFile(
         [Description("The workspace-relative or absolute path to read.")] string path,
         [Description("The line number to start reading from (1-indexed). Enables line-numbered output when set.")] int offset = 0,
@@ -231,7 +231,7 @@ public sealed class FileTools(
     }
 
     [Description("Search file contents using a regular expression pattern. Returns matching lines with file paths and line numbers. Skips binary files and .git/node_modules directories. For open-ended searches requiring multiple rounds or broad codebase exploration, use SpawnSubagent instead.")]
-    [Tool(Icon = "🔍", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.GrepFiles))]
+    [Tool(Icon = "🔍", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.GrepFiles), MaxResultChars = 20_000)]
     public async Task<string> GrepFiles(
         [Description("The regular expression pattern to search for.")] string pattern,
         [Description("The directory to search in. Defaults to workspace root.")] string path = "",

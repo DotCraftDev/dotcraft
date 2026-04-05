@@ -29,7 +29,7 @@ public sealed class SandboxFileTools
     }
 
     [Description("Read the contents of a file or list the contents of a directory. If the path is a directory, lists its entries. Supports offset and limit for paginated reading of large files.")]
-    [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile))]
+    [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile), MaxResultChars = 0)]
     public async Task<string> ReadFile(
         [Description("Path inside the sandbox (absolute or relative to /workspace).")] string path,
         [Description("Line number to start reading from (1-indexed).")] int offset = 0,
@@ -185,7 +185,7 @@ public sealed class SandboxFileTools
     }
 
     [Description("Search file contents using a regular expression pattern. Returns matching lines with file paths and line numbers. Skips binary files and .git/node_modules directories.")]
-    [Tool(Icon = "🔍", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.GrepFiles))]
+    [Tool(Icon = "🔍", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.GrepFiles), MaxResultChars = 20_000)]
     public async Task<string> GrepFiles(
         [Description("The regular expression pattern to search for.")] string pattern,
         [Description("Directory to search in (relative to /workspace).")] string path = "",
