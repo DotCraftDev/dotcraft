@@ -180,8 +180,10 @@ class ChannelAdapter(ABC):
         """
         Route an incoming platform message to DotCraft.
 
-        Finds or creates the thread for this identity, then enqueues the
-        message for serial processing (one turn at a time per thread).
+        Slash commands are executed immediately when a thread is already cached
+        for this identity (bypassing the per-identity queue) so commands like
+        /stop can cancel an in-flight turn. Otherwise finds or creates the
+        thread and enqueues the message for serial processing.
 
         Args:
             user_id: Platform user identifier.
@@ -192,6 +194,41 @@ class ChannelAdapter(ABC):
             sender_extra: Additional fields for SenderContext.
         """
         identity_key = self._identity_key(user_id, channel_context)
+
+        # Command fast-path: bypass queue when we already know the thread id
+        # (mirrors built-in adapters that resolve commands before session queue).
+        trimmed = text.strip()
+        if trimmed.startswith("/"):
+            thread_id = self._thread_map.get(identity_key)
+            if thread_id:
+                sender: dict = {
+                    "senderId": user_id,
+                    "senderName": user_name,
+                    **(sender_extra or {}),
+                }
+                if channel_context:
+                    sender["groupId"] = channel_context
+                parts = trimmed.split()
+                command_name = parts[0]
+                command_arguments = parts[1:] if len(parts) > 1 else None
+                try:
+                    command_result = await self._client.command_execute(
+                        thread_id=thread_id,
+                        command=command_name,
+                        arguments=command_arguments,
+                        sender=sender,
+                    )
+                    expanded_prompt = command_result.get("expandedPrompt")
+                    if expanded_prompt:
+                        text = expanded_prompt
+                    elif command_result.get("handled"):
+                        message = command_result.get("message")
+                        if message:
+                            await self.on_deliver(channel_context, message, {})
+                        return
+                except DotCraftError as e:
+                    await self.on_deliver(channel_context, e.message or str(e), {})
+                    return
 
         # Ensure a queue and worker exist for this identity
         if identity_key not in self._thread_queues:

@@ -134,6 +134,46 @@ export abstract class ChannelAdapter {
     workspacePath?: string;
     senderExtra?: Record<string, unknown>;
   }): Promise<void> {
+    const trimmedText = opts.text.trim();
+    if (trimmedText.startsWith("/")) {
+      const channelContext = opts.channelContext ?? "";
+      const identityKey = this.identityKey(opts.userId, channelContext);
+      const threadId = this.threadMap.get(identityKey);
+      if (threadId) {
+        const sender: Record<string, unknown> = {
+          senderId: opts.userId,
+          senderName: opts.userName,
+          ...(opts.senderExtra ?? {}),
+        };
+        if (channelContext) sender.groupId = channelContext;
+        const parts = trimmedText.split(/\s+/);
+        try {
+          const commandResult = await this.client.commandExecute({
+            threadId,
+            command: parts[0],
+            arguments: parts.length > 1 ? parts.slice(1) : undefined,
+            sender,
+          });
+          const expanded = commandResult.expandedPrompt as string | undefined;
+          if (expanded) {
+            this.enqueueMessage({ ...opts, text: expanded });
+            return;
+          } else if (Boolean(commandResult.handled)) {
+            const commandMessage = commandResult.message as string | undefined;
+            if (commandMessage) {
+              await this.onDeliver(channelContext, commandMessage, {});
+            }
+            return;
+          }
+        } catch (e) {
+          if (e instanceof DotCraftError) {
+            await this.onDeliver(channelContext, e.message || String(e), {});
+            return;
+          }
+          throw e;
+        }
+      }
+    }
     this.enqueueMessage(opts);
   }
 
