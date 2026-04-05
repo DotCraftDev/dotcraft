@@ -67,7 +67,7 @@ public static class ToolResultProcessor
             return rawResult;
 
         var relativePath = SpillToDisk(text, workspacePath, sessionId, toolName);
-        return BuildPreview(text, previewLines, relativePath);
+        return BuildPreview(text, previewLines, relativePath, maxResultChars);
     }
 
     /// <summary>
@@ -90,7 +90,14 @@ public static class ToolResultProcessor
     /// <summary>
     /// Builds a head + tail preview with a reference to the spill file path.
     /// </summary>
-    public static string BuildPreview(string text, int previewLines, string spillRelativePath)
+    /// <param name="maxPreviewChars">
+    /// Maximum characters of normalized text in the short-line preview; excess is truncated. Use <see cref="int.MaxValue"/> for no cap.
+    /// </param>
+    public static string BuildPreview(
+        string text,
+        int previewLines,
+        string spillRelativePath,
+        int maxPreviewChars = int.MaxValue)
     {
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal);
         var lines = normalized.Split('\n');
@@ -100,7 +107,10 @@ public static class ToolResultProcessor
             previewLines = 1;
 
         if (totalLines <= previewLines * 2)
-            return normalized + "\n\n" + $"... (full output at: {spillRelativePath})";
+        {
+            var body = normalized.Length > maxPreviewChars ? normalized[..maxPreviewChars] : normalized;
+            return body + "\n\n" + $"... (full output at: {spillRelativePath})";
+        }
 
         var headText = string.Join("\n", lines[..previewLines]);
         var tailText = string.Join("\n", lines[^previewLines..]);

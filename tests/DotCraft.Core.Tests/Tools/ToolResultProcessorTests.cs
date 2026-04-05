@@ -67,6 +67,32 @@ public class ToolResultProcessorTests
     }
 
     [Fact]
+    public void Process_OverLimit_FewLines_TruncatesPreviewToMaxResultChars()
+    {
+        const int limit = 1000;
+        var workspace = Path.Combine(Path.GetTempPath(), "dotcraft-trp-short-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(workspace);
+            // Two lines total: stays in BuildPreview short-line branch; body would exceed limit without truncation.
+            var text = new string('a', 5000) + "\n" + new string('b', 10);
+            var r = ToolResultProcessor.Process("Exec", text, limit, workspace, "s1", 40) as string;
+            Assert.NotNull(r);
+            Assert.Contains("full output at:", r, StringComparison.OrdinalIgnoreCase);
+            Assert.True(r.Length <= limit + 200, $"Preview length {r.Length} should not far exceed limit + footer.");
+
+            var spillDir = Path.Combine(workspace, ".craft", "tool-results", "s1");
+            var files = Directory.GetFiles(spillDir, "Exec_*.txt");
+            Assert.Single(files);
+            Assert.Equal(text, File.ReadAllText(files[0]));
+        }
+        finally
+        {
+            try { Directory.Delete(workspace, recursive: true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
     public void BuildPreview_ShortText_IncludesFullOutputReference()
     {
         var lines = string.Join("\n", Enumerable.Range(1, 5).Select(i => $"L{i}"));
