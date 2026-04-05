@@ -226,6 +226,9 @@ class ChannelAdapter(ABC):
                         if message:
                             await self.on_deliver(channel_context, message, {})
                         return
+                    else:
+                        # RPC consumed the line; do not re-enqueue or command_execute runs twice
+                        return
                 except DotCraftError as e:
                     await self.on_deliver(channel_context, e.message or str(e), {})
                     return

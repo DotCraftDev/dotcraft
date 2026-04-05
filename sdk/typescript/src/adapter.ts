@@ -165,6 +165,8 @@ export abstract class ChannelAdapter {
             }
             return;
           }
+          // RPC consumed the line; do not re-enqueue or command_execute runs twice
+          return;
         } catch (e) {
           if (e instanceof DotCraftError) {
             await this.onDeliver(channelContext, e.message || String(e), {});
