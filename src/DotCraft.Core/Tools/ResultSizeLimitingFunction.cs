@@ -32,12 +32,21 @@ internal sealed class ResultSizeLimitingFunction : DelegatingAIFunction
         var result = await base.InvokeCoreAsync(arguments, cancellationToken);
         var sessionId = TracingChatClient.CurrentSessionKey;
 
-        return ToolResultProcessor.Process(
-            InnerFunction.Name,
-            result,
-            _maxResultChars,
-            _workspacePath,
-            sessionId,
-            _previewLines);
+        try
+        {
+            return ToolResultProcessor.Process(
+                InnerFunction.Name,
+                result,
+                _maxResultChars,
+                _workspacePath,
+                sessionId,
+                _previewLines);
+        }
+        catch
+        {
+            // Spill-to-disk failed (disk full, permissions, etc.).
+            // Return the original result rather than losing a successful tool output.
+            return result;
+        }
     }
 }
