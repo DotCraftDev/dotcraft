@@ -91,7 +91,8 @@ public static class ToolResultProcessor
     /// Builds a head + tail preview with a reference to the spill file path.
     /// </summary>
     /// <param name="maxPreviewChars">
-    /// Maximum characters of normalized text in the short-line preview; excess is truncated. Use <see cref="int.MaxValue"/> for no cap.
+    /// Maximum characters of normalized body text in the preview (short form: one block; long form: head + tail excerpts combined).
+    /// Excess is truncated. Use <see cref="int.MaxValue"/> for no cap.
     /// </param>
     public static string BuildPreview(
         string text,
@@ -114,6 +115,7 @@ public static class ToolResultProcessor
 
         var headText = string.Join("\n", lines[..previewLines]);
         var tailText = string.Join("\n", lines[^previewLines..]);
+        TruncateHeadTailPreview(ref headText, ref tailText, maxPreviewChars);
         var omitted = totalLines - previewLines * 2;
 
         return headText
@@ -136,6 +138,37 @@ public static class ToolResultProcessor
         var perTool = ToolRegistry.GetMaxResultChars(toolName);
         var limit = perTool ?? globalMaxToolResultChars;
         return limit <= 0 ? 0 : limit;
+    }
+
+    /// <summary>
+    /// Caps head and tail excerpt length so their combined character count does not exceed
+    /// <paramref name="maxPreviewChars"/> (marker line is outside this budget).
+    /// </summary>
+    private static void TruncateHeadTailPreview(ref string headText, ref string tailText, int maxPreviewChars)
+    {
+        var total = headText.Length + tailText.Length;
+        if (maxPreviewChars >= int.MaxValue || total == 0 || total <= maxPreviewChars)
+            return;
+
+        var headLen = (int)((long)headText.Length * maxPreviewChars / total);
+        var tailLen = maxPreviewChars - headLen;
+
+        if (headText.Length > 0 && headLen == 0)
+        {
+            headLen = 1;
+            tailLen = maxPreviewChars - headLen;
+        }
+
+        if (tailText.Length > 0 && tailLen == 0 && maxPreviewChars > headLen)
+        {
+            tailLen = 1;
+            headLen = maxPreviewChars - tailLen;
+        }
+
+        headLen = Math.Min(headLen, headText.Length);
+        tailLen = Math.Min(maxPreviewChars - headLen, tailText.Length);
+        headText = headText[..headLen];
+        tailText = tailText[^tailLen..];
     }
 
     private static string GetSpillDirectory(string workspacePath, string? sessionId)

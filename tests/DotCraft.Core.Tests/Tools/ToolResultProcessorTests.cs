@@ -101,6 +101,57 @@ public class ToolResultProcessorTests
     }
 
     [Fact]
+    public void BuildPreview_ManyLongLines_CapsHeadAndTailExcerpts()
+    {
+        const int maxPreviewChars = 1000;
+        const string spillPath = ".craft/tool-results/s/file.txt";
+        // Long-form branch: many lines with long rows so head+tail would exceed maxPreviewChars without truncation.
+        var longLine = new string('x', 800);
+        var text = string.Join("\n", Enumerable.Range(0, 50).Select(_ => longLine));
+        var p = ToolResultProcessor.BuildPreview(text, previewLines: 2, spillRelativePath: spillPath, maxPreviewChars: maxPreviewChars);
+
+        Assert.Contains(ToolResultProcessor.SpillPreviewMarker, p, StringComparison.Ordinal);
+        Assert.Contains(spillPath, p, StringComparison.Ordinal);
+
+        const string headSep = "\n\n... (";
+        var headEnd = p.IndexOf(headSep, StringComparison.Ordinal);
+        Assert.True(headEnd >= 0);
+        var headPart = p[..headEnd];
+
+        const string tailSep = ") ...\n\n";
+        var tailStart = p.IndexOf(tailSep, StringComparison.Ordinal);
+        Assert.True(tailStart >= 0);
+        var tailPart = p[(tailStart + tailSep.Length)..];
+
+        Assert.True(headPart.Length + tailPart.Length <= maxPreviewChars,
+            $"head ({headPart.Length}) + tail ({tailPart.Length}) should be <= {maxPreviewChars}.");
+    }
+
+    [Fact]
+    public void BuildPreview_MaxPreviewCharsUnlimited_KeepsFullHeadAndTailExcerpts()
+    {
+        const string spillPath = ".craft/tool-results/s/file.txt";
+        var longLine = new string('y', 400);
+        var text = string.Join("\n", Enumerable.Range(0, 30).Select(_ => longLine));
+        var p = ToolResultProcessor.BuildPreview(text, previewLines: 2, spillRelativePath: spillPath, maxPreviewChars: int.MaxValue);
+
+        const string headSep = "\n\n... (";
+        var headEnd = p.IndexOf(headSep, StringComparison.Ordinal);
+        Assert.True(headEnd >= 0);
+        var headPart = p[..headEnd];
+
+        const string tailSep = ") ...\n\n";
+        var tailStart = p.IndexOf(tailSep, StringComparison.Ordinal);
+        Assert.True(tailStart >= 0);
+        var tailPart = p[(tailStart + tailSep.Length)..];
+
+        var expectedHead = string.Join("\n", new[] { longLine, longLine });
+        var expectedTail = string.Join("\n", new[] { longLine, longLine });
+        Assert.Equal(expectedHead, headPart);
+        Assert.Equal(expectedTail, tailPart);
+    }
+
+    [Fact]
     public void ResolveMaxResultChars_UsesGlobalWhenNoPerTool()
     {
         var n = ToolResultProcessor.ResolveMaxResultChars($"Tool_{Guid.NewGuid():N}", 42_000);
