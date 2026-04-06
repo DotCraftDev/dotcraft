@@ -27,8 +27,10 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
     sidebarCollapsed,
     sidebarWidth,
     detailPanelVisible,
-    detailPanelWidth
+    detailPanelWidth,
+    activeMainView
   } = useUIStore()
+  const effectiveDetailPanelVisible = activeMainView === 'settings' ? false : detailPanelVisible
 
   const effectiveSidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
 
@@ -80,19 +82,19 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
       {/* Detail panel */}
       <div
         style={{
-          width: detailPanelVisible ? `${detailPanelWidth}px` : '0px',
-          minWidth: detailPanelVisible ? `${DETAIL_MIN_WIDTH}px` : '0px',
+          width: effectiveDetailPanelVisible ? `${detailPanelWidth}px` : '0px',
+          minWidth: effectiveDetailPanelVisible ? `${DETAIL_MIN_WIDTH}px` : '0px',
           flexShrink: 0,
           overflow: 'hidden',
           transition: 'width 200ms ease-out, min-width 200ms ease-out',
           backgroundColor: 'var(--bg-secondary)',
           // Soft edge without a hard vertical border
-          boxShadow: detailPanelVisible ? '-1px 0 0 0 rgba(0, 0, 0, 0.12)' : 'none',
+          boxShadow: effectiveDetailPanelVisible ? '-1px 0 0 0 rgba(0, 0, 0, 0.12)' : 'none',
           display: 'flex',
           flexDirection: 'column'
         }}
       >
-        {detailPanelVisible && detail}
+        {effectiveDetailPanelVisible && detail}
       </div>
     </div>
   )

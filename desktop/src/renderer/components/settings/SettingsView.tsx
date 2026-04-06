@@ -57,6 +57,9 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
   const [serverChannels, setServerChannels] = useState<ChannelInfoWire[] | null>(null)
   const [channelListError, setChannelListError] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'connection' | 'channels'>(
+    'general'
+  )
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -252,76 +255,58 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
         </button>
       </header>
 
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          padding: '20px'
-        }}
-      >
-        <div
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <aside
           style={{
-            maxWidth: '540px',
-            margin: '0 auto',
+            width: '170px',
+            borderRight: '1px solid var(--border-default)',
             backgroundColor: 'var(--bg-secondary)',
-            border: '1px solid var(--border-default)',
-            borderRadius: '10px',
-            padding: '20px'
+            padding: '12px 0',
+            flexShrink: 0
           }}
         >
-          <div style={{ marginBottom: '16px' }}>
-            <label
-              htmlFor="settings-connection-mode"
-              style={{
-                display: 'block',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: 'var(--text-secondary)',
-                marginBottom: '6px'
-              }}
-            >
-              {t('settings.connectionMode')}
-            </label>
-            <select
-              id="settings-connection-mode"
-              value={connectionMode}
-              onChange={(e) => {
-                setConnectionMode(e.target.value as ConnectionMode)
-              }}
-              style={{
-                padding: '7px 10px',
-                fontSize: '13px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-default)',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                width: '100%'
-              }}
-            >
-              <option value="stdio">{t('settings.connectionMode.stdio')}</option>
-              <option value="websocket">{t('settings.connectionMode.websocket')}</option>
-              <option value="stdioAndWebSocket">{t('settings.connectionMode.stdioAndWebSocket')}</option>
-              <option value="remote">{t('settings.connectionMode.remote')}</option>
-            </select>
-            <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-              {t('settings.connectionModeHint')}
-            </div>
-          </div>
-
-          {(connectionMode === 'websocket' || connectionMode === 'stdioAndWebSocket') && (
-            <div style={{ marginBottom: '16px' }}>
-              <div
+          {([
+            { id: 'general', label: t('settings.tab.general') },
+            { id: 'connection', label: t('settings.tab.connection') },
+            { id: 'channels', label: t('settings.tab.channels') }
+          ] as const).map((tab) => {
+            const active = activeSettingsTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveSettingsTab(tab.id)}
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 120px',
-                  gap: '8px'
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '10px 14px',
+                  border: 'none',
+                  background: active ? 'var(--bg-tertiary)' : 'transparent',
+                  borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
+                  color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: active ? 600 : 500,
+                  cursor: 'pointer'
                 }}
               >
-                <div>
+                {tab.label}
+              </button>
+            )
+          })}
+        </aside>
+
+        <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
+          <div
+            style={{
+              maxWidth: '560px',
+              padding: '0'
+            }}
+          >
+            {activeSettingsTab === 'connection' && (
+              <>
+                <div style={{ marginBottom: '16px' }}>
                   <label
-                    htmlFor="settings-ws-host"
+                    htmlFor="settings-connection-mode"
                     style={{
                       display: 'block',
                       fontSize: '12px',
@@ -330,348 +315,406 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
                       marginBottom: '6px'
                     }}
                   >
-                    {t('settings.wsHost')}
+                    {t('settings.connectionMode')}
                   </label>
-                  <input
-                    id="settings-ws-host"
-                    type="text"
-                    value={wsHost}
-                    onChange={(e) => setWsHost(e.target.value)}
-                    placeholder={DEFAULT_WS_HOST}
+                  <select
+                    id="settings-connection-mode"
+                    value={connectionMode}
+                    onChange={(e) => {
+                      setConnectionMode(e.target.value as ConnectionMode)
+                    }}
                     style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
                       padding: '7px 10px',
                       fontSize: '13px',
                       borderRadius: '6px',
                       border: '1px solid var(--border-default)',
                       background: 'var(--bg-primary)',
                       color: 'var(--text-primary)',
-                      outline: 'none',
-                      fontFamily: 'var(--font-mono)'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="settings-ws-port"
-                    style={{
-                      display: 'block',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      color: 'var(--text-secondary)',
-                      marginBottom: '6px'
+                      cursor: 'pointer',
+                      width: '100%'
                     }}
                   >
-                    {t('settings.wsPort')}
-                  </label>
-                  <input
-                    id="settings-ws-port"
-                    type="number"
-                    value={wsPort}
-                    onChange={(e) => setWsPort(e.target.value)}
-                    placeholder={String(DEFAULT_WS_PORT)}
-                    min={1}
-                    max={65535}
-                    style={{
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      padding: '7px 10px',
-                      fontSize: '13px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border-default)',
-                      background: 'var(--bg-primary)',
-                      color: 'var(--text-primary)',
-                      outline: 'none',
-                      fontFamily: 'var(--font-mono)'
-                    }}
-                  />
+                    <option value="stdio">{t('settings.connectionMode.stdio')}</option>
+                    <option value="websocket">{t('settings.connectionMode.websocket')}</option>
+                    <option value="stdioAndWebSocket">{t('settings.connectionMode.stdioAndWebSocket')}</option>
+                    <option value="remote">{t('settings.connectionMode.remote')}</option>
+                  </select>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
+                    {t('settings.connectionModeHint')}
+                  </div>
                 </div>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                {t('settings.wsHint')}
-              </div>
-            </div>
-          )}
 
-          {connectionMode === 'remote' && (
-            <div style={{ marginBottom: '16px' }}>
-              <label
-                htmlFor="settings-remote-url"
-                style={{
-                  display: 'block',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: 'var(--text-secondary)',
-                  marginBottom: '6px'
-                }}
-              >
-                {t('settings.remoteUrl')}
-              </label>
-              <input
-                id="settings-remote-url"
-                type="text"
-                value={remoteUrl}
-                onChange={(e) => setRemoteUrl(e.target.value)}
-                placeholder="ws://127.0.0.1:9100/ws"
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '7px 10px',
-                  fontSize: '13px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-default)',
-                  background: 'var(--bg-primary)',
-                  color: 'var(--text-primary)',
-                  outline: 'none',
-                  fontFamily: 'var(--font-mono)'
-                }}
-              />
-              <label
-                htmlFor="settings-remote-token"
-                style={{
-                  display: 'block',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: 'var(--text-secondary)',
-                  marginTop: '10px',
-                  marginBottom: '6px'
-                }}
-              >
-                {t('settings.remoteToken')}
-              </label>
-              <input
-                id="settings-remote-token"
-                type="password"
-                value={remoteToken}
-                onChange={(e) => setRemoteToken(e.target.value)}
-                placeholder={t('settings.remoteTokenPlaceholder')}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '7px 10px',
-                  fontSize: '13px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-default)',
-                  background: 'var(--bg-primary)',
-                  color: 'var(--text-primary)',
-                  outline: 'none',
-                  fontFamily: 'var(--font-mono)'
-                }}
-              />
-            </div>
-          )}
-
-          <div style={{ marginBottom: '16px' }}>
-            <label
-              htmlFor="settings-binary-path"
-              style={{
-                display: 'block',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: 'var(--text-secondary)',
-                marginBottom: '6px'
-              }}
-            >
-              {t('settings.appServerBinary')}
-            </label>
-            <input
-              id="settings-binary-path"
-              ref={inputRef}
-              type="text"
-              value={binaryPath}
-              onChange={(e) => setBinaryPath(e.target.value)}
-              placeholder={t('settings.binaryPlaceholder')}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '7px 10px',
-                fontSize: '13px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-default)',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                outline: 'none',
-                fontFamily: 'var(--font-mono)'
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-active)'
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-default)'
-              }}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-              {t('settings.binaryHint')}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label
-              htmlFor="settings-language"
-              style={{
-                display: 'block',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: 'var(--text-secondary)',
-                marginBottom: '6px'
-              }}
-            >
-              {t('settings.language')}
-            </label>
-            <select
-              id="settings-language"
-              value={locale}
-              onChange={(e) => {
-                void handleLocaleChange(e.target.value as AppLocale)
-              }}
-              style={{
-                padding: '7px 10px',
-                fontSize: '13px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-default)',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                width: '180px'
-              }}
-            >
-              <option value="en">{t('settings.language.en')}</option>
-              <option value="zh-Hans">{t('settings.language.zhHans')}</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <div
-              style={{
-                display: 'block',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: 'var(--text-secondary)',
-                marginBottom: '6px'
-              }}
-            >
-              {t('settings.crossChannelVisibility')}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginBottom: '10px', lineHeight: 1.45 }}>
-              {t('settings.crossChannelHint')}
-            </div>
-            {serverChannels === null && (
-              <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
-                {t('settings.channelListLoading')}
-              </div>
-            )}
-            {serverChannels !== null && channelListError && (
-              <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
-                {t('settings.channelListUnavailable')}
-              </div>
-            )}
-            {serverChannels !== null &&
-              !channelListError &&
-              CATEGORY_ORDER.map((cat) => {
-                const items = channelsByCategory.get(cat)
-                if (!items?.length) return null
-                const labelKey = CATEGORY_LABEL_KEY[cat]
-                return (
-                  <div key={cat} style={{ marginBottom: '10px' }}>
+                {(connectionMode === 'websocket' || connectionMode === 'stdioAndWebSocket') && (
+                  <div style={{ marginBottom: '16px' }}>
                     <div
                       style={{
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                        color: 'var(--text-dimmed)',
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 120px',
+                        gap: '8px'
+                      }}
+                    >
+                      <div>
+                        <label
+                          htmlFor="settings-ws-host"
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            color: 'var(--text-secondary)',
+                            marginBottom: '6px'
+                          }}
+                        >
+                          {t('settings.wsHost')}
+                        </label>
+                        <input
+                          id="settings-ws-host"
+                          type="text"
+                          value={wsHost}
+                          onChange={(e) => setWsHost(e.target.value)}
+                          placeholder={DEFAULT_WS_HOST}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '7px 10px',
+                            fontSize: '13px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-default)',
+                            background: 'var(--bg-primary)',
+                            color: 'var(--text-primary)',
+                            outline: 'none',
+                            fontFamily: 'var(--font-mono)'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="settings-ws-port"
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 500,
+                            color: 'var(--text-secondary)',
+                            marginBottom: '6px'
+                          }}
+                        >
+                          {t('settings.wsPort')}
+                        </label>
+                        <input
+                          id="settings-ws-port"
+                          type="number"
+                          value={wsPort}
+                          onChange={(e) => setWsPort(e.target.value)}
+                          placeholder={String(DEFAULT_WS_PORT)}
+                          min={1}
+                          max={65535}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '7px 10px',
+                            fontSize: '13px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-default)',
+                            background: 'var(--bg-primary)',
+                            color: 'var(--text-primary)',
+                            outline: 'none',
+                            fontFamily: 'var(--font-mono)'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
+                      {t('settings.wsHint')}
+                    </div>
+                  </div>
+                )}
+
+                {connectionMode === 'remote' && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <label
+                      htmlFor="settings-remote-url"
+                      style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        color: 'var(--text-secondary)',
                         marginBottom: '6px'
                       }}
                     >
-                      {labelKey ? t(labelKey) : cat}
-                    </div>
-                    <div
+                      {t('settings.remoteUrl')}
+                    </label>
+                    <input
+                      id="settings-remote-url"
+                      type="text"
+                      value={remoteUrl}
+                      onChange={(e) => setRemoteUrl(e.target.value)}
+                      placeholder="ws://127.0.0.1:9100/ws"
                       style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '6px'
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '7px 10px',
+                        fontSize: '13px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-default)',
+                        background: 'var(--bg-primary)',
+                        color: 'var(--text-primary)',
+                        outline: 'none',
+                        fontFamily: 'var(--font-mono)'
+                      }}
+                    />
+                    <label
+                      htmlFor="settings-remote-token"
+                      style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        color: 'var(--text-secondary)',
+                        marginTop: '10px',
+                        marginBottom: '6px'
                       }}
                     >
-                      {items.map((ch) => {
-                        const selected = visibleChannels.includes(ch.name)
-                        return (
-                          <button
-                            key={ch.name}
-                            type="button"
-                            role="checkbox"
-                            aria-checked={selected}
-                            onClick={() => {
-                              toggleVisibleChannel(ch.name, !selected)
-                            }}
-                            style={{
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              letterSpacing: '0.02em',
-                              padding: '4px 8px',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              border: selected
-                                ? '1px solid var(--accent)'
-                                : '1px solid var(--border-default)',
-                              backgroundColor: selected ? 'var(--accent)' : 'transparent',
-                              color: selected ? 'var(--on-accent)' : 'var(--text-primary)'
-                            }}
-                          >
-                            {formatChannelChipLabel(ch.name)}
-                          </button>
-                        )
-                      })}
-                    </div>
+                      {t('settings.remoteToken')}
+                    </label>
+                    <input
+                      id="settings-remote-token"
+                      type="password"
+                      value={remoteToken}
+                      onChange={(e) => setRemoteToken(e.target.value)}
+                      placeholder={t('settings.remoteTokenPlaceholder')}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        padding: '7px 10px',
+                        fontSize: '13px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-default)',
+                        background: 'var(--bg-primary)',
+                        color: 'var(--text-primary)',
+                        outline: 'none',
+                        fontFamily: 'var(--font-mono)'
+                      }}
+                    />
                   </div>
-                )
-              })}
-          </div>
+                )}
 
-          <div style={{ marginBottom: '16px' }}>
-            <label
-              htmlFor="settings-theme"
-              style={{
-                display: 'block',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: 'var(--text-secondary)',
-                marginBottom: '6px'
-              }}
-            >
-              {t('settings.theme')}
-            </label>
-            <select
-              id="settings-theme"
-              value={theme}
-              onChange={(e) => {
-                void handleThemeChange(e.target.value as ThemeMode)
-              }}
-              style={{
-                padding: '7px 10px',
-                fontSize: '13px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-default)',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                width: '180px'
-              }}
-            >
-              <option value="dark">{t('settings.optionThemeDark')}</option>
-              <option value="light">{t('settings.optionThemeLight')}</option>
-            </select>
-          </div>
+                <div style={{ marginBottom: '16px' }}>
+                  <label
+                    htmlFor="settings-binary-path"
+                    style={{
+                      display: 'block',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: 'var(--text-secondary)',
+                      marginBottom: '6px'
+                    }}
+                  >
+                    {t('settings.appServerBinary')}
+                  </label>
+                  <input
+                    id="settings-binary-path"
+                    ref={inputRef}
+                    type="text"
+                    value={binaryPath}
+                    onChange={(e) => setBinaryPath(e.target.value)}
+                    placeholder={t('settings.binaryPlaceholder')}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '7px 10px',
+                      fontSize: '13px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-default)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      outline: 'none',
+                      fontFamily: 'var(--font-mono)'
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--border-active)'
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--border-default)'
+                    }}
+                  />
+                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
+                    {t('settings.binaryHint')}
+                  </div>
+                </div>
+              </>
+            )}
 
-          <div
-            style={{
-              fontSize: '12px',
-              color: 'var(--text-dimmed)'
-            }}
-          >
-            DotCraft Desktop {t('settings.version')} {version}
+            {activeSettingsTab === 'general' && (
+              <>
+                <div style={{ marginBottom: '16px' }}>
+                  <label
+                    htmlFor="settings-language"
+                    style={{
+                      display: 'block',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: 'var(--text-secondary)',
+                      marginBottom: '6px'
+                    }}
+                  >
+                    {t('settings.language')}
+                  </label>
+                  <select
+                    id="settings-language"
+                    value={locale}
+                    onChange={(e) => {
+                      void handleLocaleChange(e.target.value as AppLocale)
+                    }}
+                    style={{
+                      padding: '7px 10px',
+                      fontSize: '13px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-default)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      width: '180px'
+                    }}
+                  >
+                    <option value="en">{t('settings.language.en')}</option>
+                    <option value="zh-Hans">{t('settings.language.zhHans')}</option>
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label
+                    htmlFor="settings-theme"
+                    style={{
+                      display: 'block',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: 'var(--text-secondary)',
+                      marginBottom: '6px'
+                    }}
+                  >
+                    {t('settings.theme')}
+                  </label>
+                  <select
+                    id="settings-theme"
+                    value={theme}
+                    onChange={(e) => {
+                      void handleThemeChange(e.target.value as ThemeMode)
+                    }}
+                    style={{
+                      padding: '7px 10px',
+                      fontSize: '13px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-default)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      width: '180px'
+                    }}
+                  >
+                    <option value="dark">{t('settings.optionThemeDark')}</option>
+                    <option value="light">{t('settings.optionThemeLight')}</option>
+                  </select>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-dimmed)'
+                  }}
+                >
+                  DotCraft Desktop {t('settings.version')} {version}
+                </div>
+              </>
+            )}
+
+            {activeSettingsTab === 'channels' && (
+              <div style={{ marginBottom: '16px' }}>
+                <div
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
+                  {t('settings.crossChannelVisibility')}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginBottom: '10px', lineHeight: 1.45 }}>
+                  {t('settings.crossChannelHint')}
+                </div>
+                {serverChannels === null && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
+                    {t('settings.channelListLoading')}
+                  </div>
+                )}
+                {serverChannels !== null && channelListError && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
+                    {t('settings.channelListUnavailable')}
+                  </div>
+                )}
+                {serverChannels !== null &&
+                  !channelListError &&
+                  CATEGORY_ORDER.map((cat) => {
+                    const items = channelsByCategory.get(cat)
+                    if (!items?.length) return null
+                    const labelKey = CATEGORY_LABEL_KEY[cat]
+                    return (
+                      <div key={cat} style={{ marginBottom: '10px' }}>
+                        <div
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: 'var(--text-dimmed)',
+                            marginBottom: '6px'
+                          }}
+                        >
+                          {labelKey ? t(labelKey) : cat}
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '6px'
+                          }}
+                        >
+                          {items.map((ch) => {
+                            const selected = visibleChannels.includes(ch.name)
+                            return (
+                              <button
+                                key={ch.name}
+                                type="button"
+                                role="checkbox"
+                                aria-checked={selected}
+                                onClick={() => {
+                                  toggleVisibleChannel(ch.name, !selected)
+                                }}
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  letterSpacing: '0.02em',
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  border: selected
+                                    ? '1px solid var(--accent)'
+                                    : '1px solid var(--border-default)',
+                                  backgroundColor: selected ? 'var(--accent)' : 'transparent',
+                                  color: selected ? 'var(--on-accent)' : 'var(--text-primary)'
+                                }}
+                              >
+                                {formatChannelChipLabel(ch.name)}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
           </div>
-        </div>
+        </main>
       </div>
 
       <footer
