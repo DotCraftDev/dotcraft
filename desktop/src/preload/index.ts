@@ -6,6 +6,7 @@ import {
 import type { TopLevelMenuId } from '../shared/locales/types'
 
 export type UnsubscribeFn = () => void
+export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 
 export interface NotificationPayload {
   method: string
@@ -288,6 +289,15 @@ const api = {
     get(): Promise<{
       appServerBinaryPath?: string
       lastWorkspacePath?: string
+      connectionMode?: ConnectionMode
+      webSocket?: {
+        host?: string
+        port?: number
+      }
+      remote?: {
+        url?: string
+        token?: string
+      }
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
     }> {
@@ -299,6 +309,15 @@ const api = {
      */
     set(partial: {
       appServerBinaryPath?: string
+      connectionMode?: ConnectionMode
+      webSocket?: {
+        host?: string
+        port?: number
+      }
+      remote?: {
+        url?: string
+        token?: string
+      }
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
     }): Promise<void> {

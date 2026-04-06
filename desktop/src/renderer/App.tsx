@@ -22,7 +22,7 @@ import { ErrorScreen } from './components/ErrorScreen'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ConfirmDialogHost } from './components/ui/ConfirmDialog'
 import { ToastContainer } from './components/ui/ToastContainer'
-import { SettingsDialog } from './components/ui/SettingsDialog'
+import { SettingsView } from './components/settings/SettingsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
@@ -75,7 +75,6 @@ export function App(): JSX.Element {
 
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
-  const [showSettings, setShowSettings] = useState(false)
   const { status, errorType } = useConnectionStore()
   const activeMainView = useUIStore((s) => s.activeMainView)
   const {
@@ -658,7 +657,7 @@ export function App(): JSX.Element {
       // Ctrl+,: open settings
       if (ctrl && e.key === ',') {
         e.preventDefault()
-        setShowSettings(true)
+        useUIStore.getState().setActiveMainView('settings')
         return
       }
 
@@ -686,7 +685,7 @@ export function App(): JSX.Element {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showSettings])
+  }, [])
 
   // -------------------------------------------------------------------------
   // Thread selection: when activeThreadId changes, load full thread + subscribe
@@ -874,15 +873,7 @@ export function App(): JSX.Element {
         <>
           <ConfirmDialogHost />
           <ToastContainer />
-          <ErrorScreen onOpenSettings={() => setShowSettings(true)} />
-          {showSettings && (
-            <SettingsDialog
-              onClose={() => setShowSettings(false)}
-              onVisibleChannelsUpdated={() => {
-                void reloadThreadList()
-              }}
-            />
-          )}
+          <ErrorScreen onOpenSettings={() => useUIStore.getState().setActiveMainView('settings')} />
         </>
       </AppChrome>
     )
@@ -904,20 +895,16 @@ export function App(): JSX.Element {
       <>
         <ConfirmDialogHost />
         <ToastContainer />
-        {showSettings && (
-          <SettingsDialog
-            onClose={() => setShowSettings(false)}
-            onVisibleChannelsUpdated={() => {
-              void reloadThreadList()
-            }}
-          />
-        )}
         <ThreePanel
-          sidebar={
-            <Sidebar workspaceName={workspaceName} workspacePath={workspacePath} onOpenSettings={() => setShowSettings(true)} />
-          }
+          sidebar={<Sidebar workspaceName={workspaceName} workspacePath={workspacePath} />}
           conversation={
-            activeMainView === 'skills' ? (
+            activeMainView === 'settings' ? (
+              <SettingsView
+                onVisibleChannelsUpdated={() => {
+                  void reloadThreadList()
+                }}
+              />
+            ) : activeMainView === 'skills' ? (
               <SkillsView />
             ) : activeMainView === 'automations' ? (
               <AutomationsView />

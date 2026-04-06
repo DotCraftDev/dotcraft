@@ -14,17 +14,19 @@ export type AppServerManagerEvent =
 export interface AppServerManagerOptions {
   binaryPath?: string
   workspacePath: string
+  listenUrl?: string
 }
 
 /**
  * Manages the DotCraft AppServer subprocess lifecycle.
- * Spawns `dotcraft app-server --workspace <path>` with stdin/stdout piped.
+ * Spawns `dotcraft app-server` (optionally with `--listen`) and manages transport streams.
  * Emits lifecycle events for the WireProtocolClient and Main Process to consume.
  */
 export class AppServerManager extends EventEmitter {
   private process: ChildProcess | null = null
   private _workspacePath: string
   private _binaryPath: string | undefined
+  private _listenUrl: string | undefined
   private _shutdownRequested = false
   private _killTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -44,6 +46,7 @@ export class AppServerManager extends EventEmitter {
     super()
     this._workspacePath = options.workspacePath
     this._binaryPath = options.binaryPath
+    this._listenUrl = options.listenUrl
   }
 
   /**
@@ -98,10 +101,13 @@ export class AppServerManager extends EventEmitter {
     }
 
     const args = ['app-server']
-    // Pass workspace via working directory (matching C# test client pattern)
+    if (this._listenUrl) {
+      args.push('--listen', this._listenUrl)
+    }
+    const useStdio = !this._listenUrl || this._listenUrl.startsWith('ws+stdio://')
     const proc = spawn(binaryPath, args, {
       cwd: this._workspacePath,
-      stdio: ['pipe', 'pipe', 'inherit'],
+      stdio: useStdio ? ['pipe', 'pipe', 'inherit'] : ['ignore', 'inherit', 'inherit'],
       windowsHide: true
     })
 
@@ -133,7 +139,8 @@ export class AppServerManager extends EventEmitter {
 
   /**
    * Gracefully shuts down the AppServer.
-   * Closes stdin (sends EOF), AppServer should shut down upon receiving it.
+   * Closes stdin (sends EOF) when a pipe exists (stdio / ws+stdio).
+   * When stdin is not piped (pure WebSocket listen mode), sends SIGTERM instead.
    * Force-kills after 5s if still running.
    */
   shutdown(): void {
@@ -143,7 +150,15 @@ export class AppServerManager extends EventEmitter {
     this._shutdownRequested = true
 
     try {
-      this.process.stdin?.end()
+      if (this.process.stdin) {
+        this.process.stdin.end()
+      } else {
+        try {
+          this.process.kill('SIGTERM')
+        } catch {
+          // Process already gone
+        }
+      }
     } catch {
       // stdin may already be closed
     }
@@ -172,5 +187,12 @@ export class AppServerManager extends EventEmitter {
    */
   setBinaryPath(binaryPath: string): void {
     this._binaryPath = binaryPath
+  }
+
+  /**
+   * Updates the listen URL for future spawns.
+   */
+  setListenUrl(listenUrl: string | undefined): void {
+    this._listenUrl = listenUrl
   }
 }

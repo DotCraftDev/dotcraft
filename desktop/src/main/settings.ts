@@ -10,10 +10,24 @@ export interface RecentWorkspace {
 }
 
 export type UiTheme = 'dark' | 'light'
+export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+
+export interface WebSocketConnectionSettings {
+  host?: string
+  port?: number
+}
+
+export interface RemoteConnectionSettings {
+  url?: string
+  token?: string
+}
 
 export interface AppSettings {
   lastWorkspacePath?: string
   appServerBinaryPath?: string
+  connectionMode?: ConnectionMode
+  webSocket?: WebSocketConnectionSettings
+  remote?: RemoteConnectionSettings
   /** UI theme; omitted or invalid values are treated as dark by the renderer */
   theme?: UiTheme
   /** Display language (BCP 47); omitted or invalid values are treated as English */

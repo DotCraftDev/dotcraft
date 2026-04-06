@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Readable, Writable, PassThrough } from 'stream'
 import { WireProtocolClient } from '../WireProtocolClient'
 
@@ -355,5 +355,212 @@ describe('WireProtocolClient', () => {
     await new Promise((r) => setTimeout(r, 10))
 
     expect(received).toEqual(['valid/event'])
+  })
+})
+
+class MockReconnectTransport {
+  private lineHandlers: Array<(line: string) => void> = []
+  private closeHandlers: Array<() => void> = []
+  private openHandlers: Array<() => void> = []
+  /** When false, writeLine queues into pending (simulates disconnected WebSocket). */
+  private connected = false
+  private pending: string[] = []
+  readonly writes: string[] = []
+
+  onLine(handler: (line: string) => void): () => void {
+    this.lineHandlers.push(handler)
+    return () => {
+      this.lineHandlers = this.lineHandlers.filter((h) => h !== handler)
+    }
+  }
+
+  onClose(handler: () => void): () => void {
+    this.closeHandlers.push(handler)
+    return () => {
+      this.closeHandlers = this.closeHandlers.filter((h) => h !== handler)
+    }
+  }
+
+  onOpen(handler: () => void): () => void {
+    this.openHandlers.push(handler)
+    return () => {
+      this.openHandlers = this.openHandlers.filter((h) => h !== handler)
+    }
+  }
+
+  async writeLine(line: string): Promise<void> {
+    if (this.connected) {
+      this.writes.push(line)
+    } else {
+      this.pending.push(line)
+    }
+  }
+
+  flushPendingWrites(): void {
+    for (const line of this.pending) {
+      this.writes.push(line)
+    }
+    this.pending = []
+  }
+
+  dispose(): void {
+    this.close()
+  }
+
+  open(): void {
+    this.connected = true
+    for (const h of this.openHandlers) h()
+  }
+
+  close(): void {
+    this.connected = false
+    this.pending = []
+    for (const h of this.closeHandlers) h()
+  }
+
+  serverSend(message: unknown): void {
+    const line = JSON.stringify(message)
+    for (const h of this.lineHandlers) h(line)
+  }
+}
+
+describe('WireProtocolClient websocket reconnect', () => {
+  it('re-initializes automatically when websocket reconnects', async () => {
+    const transport = new MockReconnectTransport()
+    const client = new WireProtocolClient(
+      transport as unknown as Readable,
+      undefined,
+      { autoInitializeOnTransportOpen: true }
+    )
+    const ready = vi.fn()
+    const reconnected = vi.fn()
+    client.on('ready', ready)
+    client.on('reconnected', reconnected)
+
+    transport.open()
+    await new Promise((r) => setTimeout(r, 10))
+
+    const init1 = JSON.parse(transport.writes[0] ?? '{}')
+    expect(init1.method).toBe('initialize')
+    transport.serverSend({
+      jsonrpc: '2.0',
+      id: init1.id,
+      result: {
+        serverInfo: { name: 'dotcraft', version: '0.2.0' },
+        capabilities: { threadManagement: true }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(ready).toHaveBeenCalledTimes(1)
+
+    transport.close()
+    transport.open()
+    await new Promise((r) => setTimeout(r, 10))
+
+    const initLines = transport.writes
+      .map((line) => JSON.parse(line))
+      .filter((line) => line.method === 'initialize')
+    const init2 = initLines[1]
+    expect(init2).toBeTruthy()
+    transport.serverSend({
+      jsonrpc: '2.0',
+      id: init2.id,
+      result: {
+        serverInfo: { name: 'dotcraft', version: '0.2.1' },
+        capabilities: { threadManagement: true }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(reconnected).toHaveBeenCalledTimes(1)
+    client.dispose()
+  })
+
+  it('flushes queued writes only after initialize handshake on reconnect', async () => {
+    const transport = new MockReconnectTransport()
+    const client = new WireProtocolClient(
+      transport as unknown as Readable,
+      undefined,
+      { autoInitializeOnTransportOpen: true }
+    )
+
+    transport.open()
+    await new Promise((r) => setTimeout(r, 10))
+    const init1 = JSON.parse(transport.writes[0] ?? '{}')
+    expect(init1.method).toBe('initialize')
+    transport.serverSend({
+      jsonrpc: '2.0',
+      id: init1.id,
+      result: {
+        serverInfo: { name: 'dotcraft', version: '0.2.0' },
+        capabilities: { threadManagement: true }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 10))
+
+    transport.close()
+    void client.sendRequest('thread/ping', { x: 1 }, 100).catch(() => {})
+
+    transport.open()
+    await new Promise((r) => setTimeout(r, 10))
+
+    const linesBeforeResponse = transport.writes.map((l) => JSON.parse(l))
+    let initSeen = 0
+    const secondInitIdx = linesBeforeResponse.findIndex((l) => {
+      if (l.method === 'initialize') {
+        initSeen++
+        return initSeen === 2
+      }
+      return false
+    })
+    expect(secondInitIdx).toBeGreaterThanOrEqual(0)
+
+    const init2 = linesBeforeResponse[secondInitIdx] as { id?: number }
+    transport.serverSend({
+      jsonrpc: '2.0',
+      id: init2.id,
+      result: {
+        serverInfo: { name: 'dotcraft', version: '0.2.1' },
+        capabilities: { threadManagement: true }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 10))
+
+    const linesAfter = transport.writes.map((l) => JSON.parse(l))
+    const pingIdx = linesAfter.findIndex((l) => l.method === 'thread/ping')
+    expect(pingIdx).toBeGreaterThanOrEqual(0)
+    expect(secondInitIdx).toBeLessThan(pingIdx)
+
+    client.dispose()
+  })
+
+  it('handles desktop-starts-first by waiting for transport open before initialize', async () => {
+    const transport = new MockReconnectTransport()
+    const client = new WireProtocolClient(
+      transport as unknown as Readable,
+      undefined,
+      { autoInitializeOnTransportOpen: true }
+    )
+
+    expect(transport.writes).toHaveLength(0)
+    const readyPromise = new Promise<void>((resolve) => {
+      client.once('ready', () => resolve())
+    })
+
+    transport.open()
+    await new Promise((r) => setTimeout(r, 10))
+    const init = JSON.parse(transport.writes[0] ?? '{}')
+    expect(init.method).toBe('initialize')
+    transport.serverSend({
+      jsonrpc: '2.0',
+      id: init.id,
+      result: {
+        serverInfo: { name: 'dotcraft', version: '0.2.0' },
+        capabilities: {}
+      }
+    })
+
+    await readyPromise
+    client.dispose()
   })
 })
