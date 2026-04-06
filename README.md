@@ -1,6 +1,6 @@
 <div align="center">
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotCraftDev/DotCraft)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/DotHarness/DotCraft)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 **[中文](./README_ZH.md) | English**
@@ -13,7 +13,7 @@ An Agent Harness crafting a persistent AI workspace around your project.
 
 From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 
-![banner](https://github.com/DotCraftDev/resources/raw/master/dotcraft/banner.png)
+![banner](https://github.com/DotHarness/resources/raw/master/dotcraft/banner.png)
 
 </div>
 
@@ -27,7 +27,7 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 </tr>
 </table>
 
-![intro](https://github.com/DotCraftDev/resources/raw/master/dotcraft/intro.png)
+![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 
 - ⚡ **Unified Session Core**: unified execution path across all channels
 - 💻 **Rich Client Matrix**: C# CLI, Rust TUI, Electron Desktop — full coverage from terminal to desktop
@@ -46,7 +46,7 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 
 **Option 1 — Download from Releases** (no build required):
 
-Download the latest pre-built binary from [GitHub Releases](https://github.com/DotCraftDev/DotCraft/releases):
+Download the latest pre-built binary from [GitHub Releases](https://github.com/DotHarness/DotCraft/releases):
 
 | Platform | Archive |
 |----------|---------|
@@ -121,7 +121,7 @@ All entry points share one execution engine — the **Unified Session Core**. He
 | Cross-channel resume | Not supported | Server-managed threads resumable across channels |
 | Workspace persistence | Not defined at framework level | `.craft/` — sessions, memory, skills, and config scoped to the project |
 
-![entry](https://github.com/DotCraftDev/resources/raw/master/dotcraft/entry.png)
+![entry](https://github.com/DotHarness/resources/raw/master/dotcraft/entry.png)
 
 ```mermaid
 flowchart LR
@@ -188,13 +188,13 @@ flowchart LR
 
 CLI mode is the default starting point for working directly in a project directory.
 
-![repl](https://github.com/DotCraftDev/resources/raw/master/dotcraft/repl.gif)
+![repl](https://github.com/DotHarness/resources/raw/master/dotcraft/repl.gif)
 
 ### TUI
 
 TUI is a terminal interface built on Ratatui, connecting to AppServer over Wire Protocol.
 
-![tui](https://github.com/DotCraftDev/resources/raw/master/dotcraft/tui.gif)
+![tui](https://github.com/DotHarness/resources/raw/master/dotcraft/tui.gif)
 
 ### AppServer
 
@@ -206,7 +206,7 @@ DotCraft Desktop is an Electron + React application that acts as a graphical cli
 
 See the [Desktop Client README](./desktop/README.md) for details.
 
-![desktop](https://github.com/DotCraftDev/resources/raw/master/dotcraft/desktop.gif)
+![desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.gif)
 
 ### Editors And ACP
 
@@ -214,19 +214,19 @@ DotCraft supports ACP-compatible editors including Unity, Obsidian, and JetBrain
 
 Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
-![unity](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity.gif)
+![unity](https://github.com/DotHarness/resources/raw/master/dotcraft/unity.gif)
 
 ### API / AG-UI
 
 Expose DotCraft as a service or connect it to frontend experiences. See the [API Mode Guide](./docs/en/api_guide.md) and [AG-UI Mode Guide](./docs/en/agui_guide.md).
 
-![agui](https://github.com/DotCraftDev/resources/raw/master/dotcraft/agui.gif)
+![agui](https://github.com/DotHarness/resources/raw/master/dotcraft/agui.gif)
 
 ### QQ / WeCom
 
 Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
 
-![qqbot](https://github.com/DotCraftDev/resources/raw/master/dotcraft/qqbot.gif)
+![qqbot](https://github.com/DotHarness/resources/raw/master/dotcraft/qqbot.gif)
 
 ### External Channels
 
@@ -238,23 +238,23 @@ The repository includes two reference adapters:
 
 - **Telegram** (Python SDK): long polling, inline-keyboard approvals, and full end-to-end integration. See the [Python SDK](./sdk/python/README.md).
 
-    ![telegram](https://github.com/DotCraftDev/resources/raw/master/dotcraft/telegram.jpg)
+    ![telegram](https://github.com/DotHarness/resources/raw/master/dotcraft/telegram.jpg)
     
 - **WeChat** (TypeScript SDK): WebSocket transport, QR-code login, text-keyword approvals. See the [TypeScript SDK](./sdk/typescript/README.md).
 
-    ![wechat](https://github.com/DotCraftDev/resources/raw/master/dotcraft/wechat.jpg)
+    ![wechat](https://github.com/DotHarness/resources/raw/master/dotcraft/wechat.jpg)
 
 ### Automations
 
 DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. Enabling the `Automations` module runs local tasks; enabling `GitHubTracker` additionally contributes `GitHubAutomationSource`, so GitHub issues and pull requests are polled, dispatched, and reviewed through the same AppServer-hosted pipeline and appear alongside local tasks in the Desktop Automations panel. See the [Automations Guide](./docs/en/automations_guide.md).
 
-![desktop-github](https://github.com/DotCraftDev/resources/raw/master/dotcraft/desktop_github.png)
+![desktop-github](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png)
 
 <div align="center"> 
 View automated tasks using the desktop application.
 </div>
 
-![github-tracker](https://github.com/DotCraftDev/resources/raw/master/dotcraft/github-tracker.png)
+![github-tracker](https://github.com/DotHarness/resources/raw/master/dotcraft/github-tracker.png)
 
 <div align="center"> 
 PR Automatic Review.
@@ -266,13 +266,13 @@ PR Automatic Review.
 
 DotCraft includes a built-in Dashboard for inspecting sessions, traces, and configuration. When `ApiKey` is missing, it can also run in setup-only mode as the initial configuration entry point. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
 
-![dashboard](https://github.com/DotCraftDev/resources/raw/master/dotcraft/dashboard.png)
+![dashboard](https://github.com/DotHarness/resources/raw/master/dotcraft/dashboard.png)
 
 <div align="center">
 Usage and session statistics, aggregated by channel.
 </div>
 
-![trace](https://github.com/DotCraftDev/resources/raw/master/dotcraft/trace.png)
+![trace](https://github.com/DotHarness/resources/raw/master/dotcraft/trace.png)
 
 <div align="center">
 Complete record of tool calls and session history.

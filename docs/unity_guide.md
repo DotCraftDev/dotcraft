@@ -49,7 +49,7 @@ Unity 集成包含两个组件：
 2. 点击 **+ → Add package from git URL**
 3. 输入：
    ```
-   https://github.com/DotCraftDev/DotCraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
+   https://github.com/DotHarness/DotCraft.git?path=src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient
    ```
 
 **方式 B — 本地路径**：
@@ -230,7 +230,7 @@ unity-mcp 提供 30+ Unity 操作工具，包括：
 4. 打开 **Window → MCP for Unity**，点击 **Start Server**
 5. 从下拉菜单选择 MCP 客户端并点击 **Configure**
 
-![unity-mcp](https://github.com/DotCraftDev/resources/raw/master/dotcraft/unity-mcp.png)
+![unity-mcp](https://github.com/DotHarness/resources/raw/master/dotcraft/unity-mcp.png)
 
 ### 推荐使用方式
 
@@ -323,6 +323,6 @@ AI: [使用 unity_get_project_info 工具]
 
 - [配置指南](./config_guide.md) - DotCraft 配置选项
 - [ACP 模式指南](./acp_guide.md) - Agent Client Protocol 详情
-- [Unity 客户端 README](https://github.com/DotCraftDev/DotCraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - 包文档
+- [Unity 客户端 README](https://github.com/DotHarness/DotCraft/tree/master/src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient) - 包文档
 - [SkillsForUnity](https://github.com/BestyAIGC/Unity-Skills) - HTTP REST API 方式的 Unity 技能库
 - [unity-mcp](https://github.com/CoplayDev/unity-mcp) - MCP 协议方式的 Unity 集成工具

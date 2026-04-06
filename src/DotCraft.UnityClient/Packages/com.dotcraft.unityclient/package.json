@@ -4,8 +4,8 @@
     "displayName": "DotCraft Unity Client",
     "description": "DotCraft AI Agent integration for Unity Editor using Agent Client Protocol (ACP).",
     "unity": "2022.3",
-    "documentationUrl": "https://github.com/DotCraftDev/dotcraft",
-    "licensesUrl": "https://github.com/DotCraftDev/dotcraft/blob/main/LICENSE",
+    "documentationUrl": "https://github.com/DotHarness/dotcraft",
+    "licensesUrl": "https://github.com/DotHarness/dotcraft/blob/main/LICENSE",
     "keywords": [
         "ai",
         "agent",
@@ -13,8 +13,8 @@
         "acp"
     ],
     "author": {
-        "name": "DotCraftDev",
-        "url": "https://github.com/DotCraftDev"
+        "name": "DotHarness",
+        "url": "https://github.com/DotHarness"
     },
     "dependencies": {},
     "samples": []
