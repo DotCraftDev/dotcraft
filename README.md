@@ -13,7 +13,7 @@ An Agent Harness crafting a persistent AI workspace around your project.
 
 From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 
-![banner](https://github.com/DotHarness/resources/raw/master/dotcraft/banner.png)
+![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 
 </div>
 
@@ -26,8 +26,6 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 <td width="33%" align="center"><b>🛡️ Observable</b><br/>Built-in approvals, traces, Dashboard, and optional sandbox isolation</td>
 </tr>
 </table>
-
-![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 
 - ⚡ **Unified Session Core**: unified execution path across all channels
 - 💻 **Rich Client Matrix**: C# CLI, Rust TUI, Electron Desktop — full coverage from terminal to desktop
@@ -184,17 +182,19 @@ flowchart LR
 | Build a custom channel adapter | [External Channels](#external-channels) |
 | Run automations (Local / GitHub) | [Automations](#automations) |
 
+| **CLI** | **TUI** |
+|:---:|:---:|
+| ![repl](https://github.com/DotHarness/resources/raw/master/dotcraft/repl.gif) | ![tui](https://github.com/DotHarness/resources/raw/master/dotcraft/tui.gif) |
+| **Desktop** | **ACP** |
+| ![desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.gif) | ![unity](https://github.com/DotHarness/resources/raw/master/dotcraft/unity.gif) |
+
 ### CLI
 
 CLI mode is the default starting point for working directly in a project directory.
 
-![repl](https://github.com/DotHarness/resources/raw/master/dotcraft/repl.gif)
-
 ### TUI
 
 TUI is a terminal interface built on Ratatui, connecting to AppServer over Wire Protocol.
-
-![tui](https://github.com/DotHarness/resources/raw/master/dotcraft/tui.gif)
 
 ### AppServer
 
@@ -206,15 +206,11 @@ DotCraft Desktop is an Electron + React application that acts as a graphical cli
 
 See the [Desktop Client README](./desktop/README.md) for details.
 
-![desktop](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop.gif)
-
 ### Editors And ACP
 
 DotCraft supports ACP-compatible editors including Unity, Obsidian, and JetBrains IDEs. The ACP client acts as a protocol bridge between the editor (ACP/JSON-RPC over stdio) and an AppServer instance (wire protocol), so all session state, agent execution, and tool invocation are handled by AppServer — just like CLI, TUI, and Desktop clients. The bridge can spawn a local AppServer subprocess automatically, or connect to an already-running remote AppServer via `--remote ws://host:port/ws`.
 
 Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
-
-![unity](https://github.com/DotHarness/resources/raw/master/dotcraft/unity.gif)
 
 ### API / AG-UI
 
@@ -226,8 +222,6 @@ Expose DotCraft as a service or connect it to frontend experiences. See the [API
 
 Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
 
-![qqbot](https://github.com/DotHarness/resources/raw/master/dotcraft/qqbot.gif)
-
 ### External Channels
 
 DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
@@ -238,27 +232,20 @@ The repository includes two reference adapters:
 
 - **Telegram** (Python SDK): long polling, inline-keyboard approvals, and full end-to-end integration. See the [Python SDK](./sdk/python/README.md).
 
-    ![telegram](https://github.com/DotHarness/resources/raw/master/dotcraft/telegram.jpg)
-    
 - **WeChat** (TypeScript SDK): WebSocket transport, QR-code login, text-keyword approvals. See the [TypeScript SDK](./sdk/typescript/README.md).
 
-    ![wechat](https://github.com/DotHarness/resources/raw/master/dotcraft/wechat.jpg)
+| Telegram (Python SDK) | QQ / WeCom | WeChat (TypeScript SDK) |
+|:---:|:---:|:---:|
+| ![telegram](https://github.com/DotHarness/resources/raw/master/dotcraft/telegram.jpg) | ![qqbot](https://github.com/DotHarness/resources/raw/master/dotcraft/qqbot.gif) | ![wechat](https://github.com/DotHarness/resources/raw/master/dotcraft/wechat.jpg) |
 
 ### Automations
 
 DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. Enabling the `Automations` module runs local tasks; enabling `GitHubTracker` additionally contributes `GitHubAutomationSource`, so GitHub issues and pull requests are polled, dispatched, and reviewed through the same AppServer-hosted pipeline and appear alongside local tasks in the Desktop Automations panel. See the [Automations Guide](./docs/en/automations_guide.md).
 
-![desktop-github](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png)
-
-<div align="center"> 
-View automated tasks using the desktop application.
-</div>
-
-![github-tracker](https://github.com/DotHarness/resources/raw/master/dotcraft/github-tracker.png)
-
-<div align="center"> 
-PR Automatic Review.
-</div>
+| Desktop Automations | GitHub tracker |
+|:---:|:---:|
+| ![desktop-github](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png) | ![github-tracker](https://github.com/DotHarness/resources/raw/master/dotcraft/github-tracker.png) |
+| View automated tasks using the desktop application. | PR Automatic Review. |
 
 ## 🛡️ Operations And Governance
 
@@ -266,17 +253,10 @@ PR Automatic Review.
 
 DotCraft includes a built-in Dashboard for inspecting sessions, traces, and configuration. When `ApiKey` is missing, it can also run in setup-only mode as the initial configuration entry point. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
 
-![dashboard](https://github.com/DotHarness/resources/raw/master/dotcraft/dashboard.png)
-
-<div align="center">
-Usage and session statistics, aggregated by channel.
-</div>
-
-![trace](https://github.com/DotHarness/resources/raw/master/dotcraft/trace.png)
-
-<div align="center">
-Complete record of tool calls and session history.
-</div>
+| Usage overview | Session trace |
+|:---:|:---:|
+| ![dashboard](https://github.com/DotHarness/resources/raw/master/dotcraft/dashboard.png) | ![trace](https://github.com/DotHarness/resources/raw/master/dotcraft/trace.png) |
+| Usage and session statistics, aggregated by channel. | Complete record of tool calls and session history. |
 
 ### Sandbox Isolation
 
