@@ -59,7 +59,6 @@ export function TurnStatusIndicator({ threadId }: TurnStatusIndicatorProps): JSX
         alignItems: 'center',
         gap: '8px',
         padding: '6px 16px',
-        borderTop: '1px solid var(--border-default)',
         fontSize: '12px',
         color: 'var(--text-secondary)',
         flexShrink: 0

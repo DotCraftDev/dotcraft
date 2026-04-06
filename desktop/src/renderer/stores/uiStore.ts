@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ImageAttachment } from '../types/conversation'
+import type { ImageAttachment, ThreadMode } from '../types/conversation'
 
 const SIDEBAR_DEFAULT_WIDTH = 240
 const SIDEBAR_MIN_WIDTH = 200
@@ -46,6 +46,8 @@ export interface UIState {
     threadId: string
     text: string
     images?: ImageAttachment[]
+    /** Agent/plan chosen on Welcome before thread exists; applied after thread/read. */
+    mode?: ThreadMode
     createdAt: number
   } | null
 }
@@ -71,12 +73,12 @@ interface UIStore extends UIState {
   consumeComposerPrefill(): string | null
   /** Queue first turn for a thread created from the welcome composer. */
   setPendingWelcomeTurn(
-    payload: { threadId: string; text: string; images?: ImageAttachment[] } | null
+    payload: { threadId: string; text: string; images?: ImageAttachment[]; mode?: ThreadMode } | null
   ): void
   /** If pending matches threadId, return payload and clear; otherwise return null. */
   consumePendingWelcomeTurnIfMatch(
     threadId: string
-  ): { text: string; images?: ImageAttachment[] } | null
+  ): { text: string; images?: ImageAttachment[]; mode?: ThreadMode } | null
   /** Clear pending welcome turn when it targets the given thread (e.g. thread/read failed). */
   cancelPendingWelcomeTurnForThread(threadId: string): void
 }
@@ -197,8 +199,12 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         clearTimeout(timer)
       }
       set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
-      const { text, images } = p
-      return images !== undefined ? { text, images } : { text }
+      const { text, images, mode } = p
+      return {
+        text,
+        ...(images !== undefined ? { images } : {}),
+        ...(mode !== undefined ? { mode } : {})
+      }
     }
     return null
   },

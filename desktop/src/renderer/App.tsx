@@ -756,6 +756,13 @@ export function App(): JSX.Element {
             const path = workspacePathRef.current
             const pendingText = pendingWelcome.text.trim()
             const pendingImages = pendingWelcome.images
+            const welcomeMode = pendingWelcome.mode ?? 'agent'
+            useConversationStore.getState().setThreadMode(welcomeMode)
+            if (welcomeMode !== 'agent') {
+              void window.api.appServer
+                .sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
+                .catch((modeErr: unknown) => console.error('thread/mode/set (welcome) failed:', modeErr))
+            }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
             if (!threadEntry?.displayName) {
               const autoName =

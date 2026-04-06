@@ -93,6 +93,20 @@ export function MessageStream(): JSX.Element {
         <div />
       </div>
 
+      {/* Soft fade so messages blend into the input area (no hard divider line) */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '40px',
+          background: 'linear-gradient(transparent, var(--bg-primary))',
+          pointerEvents: 'none',
+          zIndex: 1
+        }}
+      />
+
       {showScrollButton && <ScrollToBottomButton onClick={scrollToBottom} />}
     </div>
   )

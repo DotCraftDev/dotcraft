@@ -304,15 +304,10 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
   )
 
   return (
-    <div
-      style={{
-        borderTop: '1px solid var(--border-default)',
-        flexShrink: 0
-      }}
-    >
+    <div style={{ flexShrink: 0 }}>
       {pendingMessage && <PendingMessageIndicator message={pendingMessage} />}
 
-      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <div style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <div
           ref={composerWrapRef}
           style={{ position: 'relative' }}
