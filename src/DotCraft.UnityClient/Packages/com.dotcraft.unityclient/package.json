@@ -1,6 +1,6 @@
 {
     "name": "com.dotcraft.unityclient",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "displayName": "DotCraft Unity Client",
     "description": "DotCraft AI Agent integration for Unity Editor using Agent Client Protocol (ACP).",
     "unity": "2022.3",
