@@ -5,7 +5,7 @@ import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
-import type { ImageAttachment } from '../../types/conversation'
+import type { ImageAttachment, ThreadMode } from '../../types/conversation'
 import { FileSearchPopover } from './FileSearchPopover'
 import { ImageStrip } from './ImageStrip'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
@@ -50,6 +50,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [starting, setStarting] = useState(false)
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [mentionDismissed, setMentionDismissed] = useState(false)
+  /** Agent/plan before a thread exists; applied when the first thread is created. */
+  const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
   const sendInFlightRef = useRef(false)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
@@ -143,6 +145,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     sendInFlightRef.current = true
     setStarting(true)
     const capturedImages = [...images]
+    const capturedMode = welcomeMode
     try {
       const res = await window.api.appServer.sendRequest('thread/start', {
         identity: {
@@ -157,7 +160,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
         text: trimmed,
-        images: capturedImages.length > 0 ? capturedImages : undefined
+        images: capturedImages.length > 0 ? capturedImages : undefined,
+        mode: capturedMode
       })
       addThread(res.thread)
       setActiveThreadId(res.thread.id)
@@ -170,7 +174,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       sendInFlightRef.current = false
       setStarting(false)
     }
-  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId])
+  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode])
 
   const onPasteImage = useCallback(
     (file: File): void => {
@@ -454,6 +458,60 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               <SendIcon />
             </button>
             </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setWelcomeMode((m) => (m === 'agent' ? 'plan' : 'agent'))
+              }}
+              title={t('composer.modeTitle', {
+                mode: t(welcomeMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')
+              })}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '2px 4px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <span
+                style={{
+                  width: 14,
+                  height: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+              >
+                <span
+                  style={{
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    backgroundColor: welcomeMode === 'agent' ? 'var(--success)' : 'var(--info)',
+                    display: 'block'
+                  }}
+                />
+              </span>
+              <span style={{ lineHeight: 1.2 }}>
+                {t(welcomeMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')}
+              </span>
+            </button>
+
+            <span style={{ color: 'var(--border-default)' }}>·</span>
+
+            <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {t('composer.defaultModel')}
+            </span>
           </div>
         </div>
       </div>
