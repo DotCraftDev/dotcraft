@@ -32,16 +32,18 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
     ).length
   }, 0)
 
-  const tabs: { id: DetailPanelTab; label: string; badge?: number }[] = [
+  const tabs: { id: DetailPanelTab; label: string; icon: JSX.Element; badge?: number }[] = [
     {
       id: 'changes',
       label: t('detailPanel.tabChanges'),
+      icon: <ChangesIcon />,
       badge: changedFileCount > 0 ? changedFileCount : undefined
     },
-    { id: 'plan', label: t('detailPanel.tabPlan') },
+    { id: 'plan', label: t('detailPanel.tabPlan'), icon: <PlanIcon /> },
     {
       id: 'terminal',
       label: t('detailPanel.tabTerminal'),
+      icon: <TerminalIcon />,
       badge: terminalCount > 0 ? terminalCount : undefined
     }
   ]
@@ -71,12 +73,14 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
           <button
             key={tab.id}
             onClick={() => setActiveDetailTab(tab.id)}
+            title={tab.label}
+            aria-label={tab.label}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '5px',
               height: '100%',
-              padding: '0 14px',
+              padding: '0 10px',
               fontSize: '13px',
               fontWeight: activeDetailTab === tab.id ? 500 : 400,
               color:
@@ -94,7 +98,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
               transition: 'color 100ms ease, box-shadow 100ms ease'
             }}
           >
-            {tab.label}
+            {tab.icon}
             {tab.badge !== undefined && (
               <span
                 style={{
@@ -159,5 +163,71 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         )}
       </div>
     </div>
+  )
+}
+
+function ChangesIcon(): JSX.Element {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ display: 'block' }}
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M10 14h4" />
+      <path d="M12 12v4" />
+    </svg>
+  )
+}
+
+function PlanIcon(): JSX.Element {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ display: 'block' }}
+    >
+      <path d="m3 17 2 2 4-4" />
+      <path d="m3 7 2 2 4-4" />
+      <path d="M13 6h8" />
+      <path d="M13 12h8" />
+      <path d="M13 18h8" />
+    </svg>
+  )
+}
+
+function TerminalIcon(): JSX.Element {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ display: 'block' }}
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 8 4 4-4 4" />
+      <path d="M13 16h4" />
+    </svg>
   )
 }

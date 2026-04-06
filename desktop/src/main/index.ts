@@ -472,7 +472,7 @@ function buildAppMenu(locale: AppLocale): Menu {
         {
           label: L('menu.documentation'),
           click: async () => {
-            await shell.openExternal('https://github.com/DotCraftDev/dotcraft')
+            await shell.openExternal('https://github.com/DotHarness/dotcraft')
           }
         }
       ]
