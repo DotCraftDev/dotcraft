@@ -172,6 +172,17 @@ The Main Process handles Wire Protocol communication (spawning AppServer, WebSoc
 | **Renderer Process** | Render the three-panel UI. Maintain application state (thread list, current thread, active turn, streaming buffers). Translate user actions (click, type, keyboard shortcut) into Wire Protocol requests sent to Main via IPC. |
 | **IPC Contract** | Main exposes a typed API to Renderer via `contextBridge`. Renderer calls methods like `appServer.sendRequest(method, params)` and listens for events via `appServer.onNotification(callback)`. The IPC layer is a thin pass-through; it does not add business logic. Additional IPC methods cover local filesystem operations needed by the composer (see §4.2.1). |
 
+### 4.2.2 Connection Modes
+
+Desktop supports four connection modes:
+
+| Mode | AppServer ownership | Transport used by Desktop | Typical use case |
+|------|----------------------|---------------------------|------------------|
+| `stdio` | Desktop spawns local AppServer | stdio JSONL | Default local single-client workflow |
+| `websocket` | Desktop spawns local AppServer (`--listen ws://HOST:PORT`) | WebSocket | Local network-like connection with reconnect semantics |
+| `stdioAndWebSocket` | Desktop spawns local AppServer (`--listen ws+stdio://HOST:PORT`) | stdio JSONL | Desktop local control while exposing WS endpoint for other clients |
+| `remote` | External process owns AppServer | WebSocket | Connect to already-running local/remote AppServer |
+
 ### 4.2.1 Additional IPC Methods
 
 Beyond the AppServer pass-through (`appServer.sendRequest`), the Main Process exposes these IPC channels for composer functionality:
@@ -221,11 +232,21 @@ Application state lives in the Renderer Process. It is the single source of trut
 
 ### 5.1 Subprocess Mode (Default)
 
-On app launch for a workspace:
+In subprocess-managed modes, Desktop owns AppServer process lifecycle and launches it when a workspace is opened.
+
+Supported subprocess variants:
+
+| Variant | Launch command | Desktop wire transport |
+|---------|----------------|------------------------|
+| `stdio` | `dotcraft app-server` | stdio JSONL over stdin/stdout |
+| `websocket` | `dotcraft app-server --listen ws://HOST:PORT` | WebSocket (`ws://HOST:PORT/ws`) |
+| `stdioAndWebSocket` | `dotcraft app-server --listen ws+stdio://HOST:PORT` | stdio JSONL over stdin/stdout |
+
+On app launch for a workspace (all variants):
 
 1. Main Process locates the `dotcraft` binary (configurable in settings; defaults to `dotcraft` on PATH or bundled binary).
-2. Spawns: `dotcraft app-server --workspace <path>` with stdin/stdout piped.
-3. Reads stdout as JSONL. Writes requests to stdin as JSONL.
+2. Spawns AppServer using the selected mode's launch command.
+3. Establishes the selected transport (`stdio` or WebSocket).
 4. Sends `initialize` request with client info:
 
 ```json
@@ -246,17 +267,45 @@ On app launch for a workspace:
 5. Receives `initialize` response → sends `initialized` notification → connection ready.
 6. Renderer is notified of connection status change; UI transitions from loading to ready.
 
-On window close: stdin is closed → AppServer receives EOF and shuts down.
+On window close: Desktop requests AppServer shutdown. For stdio variants, stdin close (EOF) remains the primary graceful shutdown path.
 
 ### 5.2 Remote Mode
 
-The Desktop client can also connect to a running AppServer via WebSocket:
+In `remote` mode, Desktop does not spawn AppServer and only connects to an already-running WebSocket endpoint.
 
-- Configured in workspace settings or via command-line flag: `dotcraft-desktop --remote ws://host:port/ws?token=xxx`
+- Configured in settings (`remote.url`, optional `remote.token`) and optionally overridden via command-line flag: `dotcraft-desktop --remote ws://host:port/ws?token=xxx`
 - Full `initialize` / `initialized` handshake over WebSocket.
 - On disconnect: reconnection with exponential backoff (1s → 2s → 4s → ... → 30s cap), per [appserver-protocol.md §15.7](appserver-protocol.md#157-reconnection).
 
-### 5.3 Connection Status Indicator
+### 5.3 Connection Settings Contract
+
+Desktop persists connection preferences in local settings:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `connectionMode` | `'stdio' \| 'websocket' \| 'stdioAndWebSocket' \| 'remote'` | `'stdio'` | How Desktop connects to AppServer |
+| `webSocket.host` | `string` | `'127.0.0.1'` | WebSocket listen host for subprocess WS-capable modes |
+| `webSocket.port` | `number` | `9100` | WebSocket listen port for subprocess WS-capable modes |
+| `remote.url` | `string` | `''` | Remote AppServer WebSocket URL |
+| `remote.token` | `string` | `''` | Optional token appended as `?token=` if missing from URL |
+
+Desktop validates settings before connecting:
+
+- `websocket` and `stdioAndWebSocket` require a valid host/port pair.
+- `remote` requires a valid `ws://` or `wss://` URL.
+- Invalid settings produce `error` connection status with a user-visible message.
+
+### 5.4 Reconnection Behavior
+
+For WebSocket transports (`websocket` and `remote` modes), Desktop follows this reconnection contract:
+
+1. On socket close/error, status transitions to `disconnected` and auto-reconnect begins.
+2. Reconnect attempts use exponential backoff with jitter (1s start, 30s cap).
+3. After each successful reconnect, Desktop performs a full handshake (`initialize` then `initialized`) before marking status as `connected`.
+4. Desktop re-subscribes to prior thread subscriptions; for active thread views, it uses `thread/subscribe` with `replayRecent = true`.
+5. If Desktop starts before AppServer is reachable, it remains in reconnect loop until server availability, then completes handshake automatically.
+
+### 5.5 Connection Status Indicator
 
 The connection state is shown in the sidebar footer:
 

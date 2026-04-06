@@ -32,6 +32,10 @@ interface SettingsDialogProps {
   onVisibleChannelsUpdated?: () => void
 }
 
+type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+const DEFAULT_WS_HOST = '127.0.0.1'
+const DEFAULT_WS_PORT = 9100
+
 /**
  * Settings modal dialog.
  * Allows configuring AppServer binary path and displays app info.
@@ -44,6 +48,11 @@ export function SettingsDialog({
   const t = useT()
   const setUiLocale = useSetUiLocale()
   const [binaryPath, setBinaryPath] = useState('')
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
+  const [wsHost, setWsHost] = useState(DEFAULT_WS_HOST)
+  const [wsPort, setWsPort] = useState(String(DEFAULT_WS_PORT))
+  const [remoteUrl, setRemoteUrl] = useState('')
+  const [remoteToken, setRemoteToken] = useState('')
   const [theme, setTheme] = useState<ThemeMode>('dark')
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
@@ -60,6 +69,11 @@ export function SettingsDialog({
       .get()
       .then(async (s) => {
         setBinaryPath(s.appServerBinaryPath ?? '')
+        setConnectionMode((s.connectionMode ?? 'stdio') as ConnectionMode)
+        setWsHost(s.webSocket?.host ?? DEFAULT_WS_HOST)
+        setWsPort(String(s.webSocket?.port ?? DEFAULT_WS_PORT))
+        setRemoteUrl(s.remote?.url ?? '')
+        setRemoteToken(s.remote?.token ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
@@ -168,7 +182,23 @@ export function SettingsDialog({
   async function handleSave(): Promise<void> {
     setSaving(true)
     try {
-      await window.api.settings.set({ appServerBinaryPath: binaryPath.trim() || undefined })
+      const parsedPort = Number.parseInt(wsPort.trim(), 10)
+      const normalizedPort =
+        Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
+          ? parsedPort
+          : DEFAULT_WS_PORT
+      await window.api.settings.set({
+        appServerBinaryPath: binaryPath.trim() || undefined,
+        connectionMode,
+        webSocket: {
+          host: wsHost.trim() || DEFAULT_WS_HOST,
+          port: normalizedPort
+        },
+        remote: {
+          url: remoteUrl.trim() || undefined,
+          token: remoteToken.trim() || undefined
+        }
+      })
       addToast(t('settings.savedToast'), 'success')
       onClose()
     } catch (err) {
@@ -224,6 +254,198 @@ export function SettingsDialog({
         >
           {t('settings.title')}
         </h2>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label
+            htmlFor="settings-connection-mode"
+            style={{
+              display: 'block',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: 'var(--text-secondary)',
+              marginBottom: '6px'
+            }}
+          >
+            {t('settings.connectionMode')}
+          </label>
+          <select
+            id="settings-connection-mode"
+            value={connectionMode}
+            onChange={(e) => {
+              setConnectionMode(e.target.value as ConnectionMode)
+            }}
+            style={{
+              padding: '7px 10px',
+              fontSize: '13px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-default)',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              width: '100%'
+            }}
+          >
+            <option value="stdio">{t('settings.connectionMode.stdio')}</option>
+            <option value="websocket">{t('settings.connectionMode.websocket')}</option>
+            <option value="stdioAndWebSocket">{t('settings.connectionMode.stdioAndWebSocket')}</option>
+            <option value="remote">{t('settings.connectionMode.remote')}</option>
+          </select>
+          <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
+            {t('settings.connectionModeHint')}
+          </div>
+        </div>
+
+        {(connectionMode === 'websocket' || connectionMode === 'stdioAndWebSocket') && (
+          <div style={{ marginBottom: '16px' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 120px',
+                gap: '8px'
+              }}
+            >
+              <div>
+                <label
+                  htmlFor="settings-ws-host"
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
+                  {t('settings.wsHost')}
+                </label>
+                <input
+                  id="settings-ws-host"
+                  type="text"
+                  value={wsHost}
+                  onChange={(e) => setWsHost(e.target.value)}
+                  placeholder={DEFAULT_WS_HOST}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '7px 10px',
+                    fontSize: '13px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-default)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    outline: 'none',
+                    fontFamily: 'var(--font-mono)'
+                  }}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="settings-ws-port"
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
+                  {t('settings.wsPort')}
+                </label>
+                <input
+                  id="settings-ws-port"
+                  type="number"
+                  value={wsPort}
+                  onChange={(e) => setWsPort(e.target.value)}
+                  placeholder={String(DEFAULT_WS_PORT)}
+                  min={1}
+                  max={65535}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    padding: '7px 10px',
+                    fontSize: '13px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-default)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    outline: 'none',
+                    fontFamily: 'var(--font-mono)'
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
+              {t('settings.wsHint')}
+            </div>
+          </div>
+        )}
+
+        {connectionMode === 'remote' && (
+          <div style={{ marginBottom: '16px' }}>
+            <label
+              htmlFor="settings-remote-url"
+              style={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: 'var(--text-secondary)',
+                marginBottom: '6px'
+              }}
+            >
+              {t('settings.remoteUrl')}
+            </label>
+            <input
+              id="settings-remote-url"
+              type="text"
+              value={remoteUrl}
+              onChange={(e) => setRemoteUrl(e.target.value)}
+              placeholder="ws://127.0.0.1:9100/ws"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '7px 10px',
+                fontSize: '13px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-default)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                fontFamily: 'var(--font-mono)'
+              }}
+            />
+            <label
+              htmlFor="settings-remote-token"
+              style={{
+                display: 'block',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: 'var(--text-secondary)',
+                marginTop: '10px',
+                marginBottom: '6px'
+              }}
+            >
+              {t('settings.remoteToken')}
+            </label>
+            <input
+              id="settings-remote-token"
+              type="password"
+              value={remoteToken}
+              onChange={(e) => setRemoteToken(e.target.value)}
+              placeholder={t('settings.remoteTokenPlaceholder')}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '7px 10px',
+                fontSize: '13px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-default)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                fontFamily: 'var(--font-mono)'
+              }}
+            />
+          </div>
+        )}
 
         {/* AppServer binary path */}
         <div style={{ marginBottom: '16px' }}>

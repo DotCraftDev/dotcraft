@@ -4,7 +4,7 @@ import { join, basename } from 'path'
 import { existsSync } from 'fs'
 import { spawn } from 'child_process'
 import { AppServerManager } from './AppServerManager'
-import { WireProtocolClient } from './WireProtocolClient'
+import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
 import {
   registerIpcHandlers,
   unregisterIpcHandlers,
@@ -22,7 +22,8 @@ import {
   saveSettings,
   addRecentWorkspace,
   getRecentWorkspaces,
-  type AppSettings
+  type AppSettings,
+  type ConnectionMode
 } from './settings'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
 import {
@@ -65,6 +66,8 @@ function resolveWindowIconPath(): string | null {
 // ─── Shared (mutable) settings ────────────────────────────────────────────────
 
 let sharedSettings: AppSettings = {}
+const DEFAULT_WS_HOST = '127.0.0.1'
+const DEFAULT_WS_PORT = 9100
 
 // ─── Workspace resolution ─────────────────────────────────────────────────────
 
@@ -79,6 +82,87 @@ function resolveWorkspacePath(settings: AppSettings): string | null {
   }
 
   return null
+}
+
+function resolveConnectionMode(settings: AppSettings): ConnectionMode {
+  const mode = settings.connectionMode
+  if (
+    mode === 'stdio' ||
+    mode === 'websocket' ||
+    mode === 'stdioAndWebSocket' ||
+    mode === 'remote'
+  ) {
+    return mode
+  }
+  return 'stdio'
+}
+
+function resolveWebSocketHostPort(settings: AppSettings): { host: string; port: number } {
+  const host = settings.webSocket?.host?.trim() || DEFAULT_WS_HOST
+  const candidatePort = settings.webSocket?.port
+  const port =
+    typeof candidatePort === 'number' && Number.isInteger(candidatePort) && candidatePort > 0 && candidatePort <= 65535
+      ? candidatePort
+      : DEFAULT_WS_PORT
+  return { host, port }
+}
+
+function buildManagedWsUrl(settings: AppSettings): string {
+  const { host, port } = resolveWebSocketHostPort(settings)
+  return `ws://${host}:${port}/ws`
+}
+
+function buildManagedListenUrl(settings: AppSettings, mode: ConnectionMode): string | undefined {
+  const { host, port } = resolveWebSocketHostPort(settings)
+  if (mode === 'websocket') return `ws://${host}:${port}`
+  if (mode === 'stdioAndWebSocket') return `ws+stdio://${host}:${port}`
+  return undefined
+}
+
+function appendTokenToWsUrlIfMissing(urlRaw: string, token: string | undefined): string {
+  const trimmed = urlRaw.trim()
+  if (!trimmed) return trimmed
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return trimmed
+  }
+  if ((parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') || !token?.trim()) return parsed.toString()
+  if (!parsed.searchParams.get('token')) {
+    parsed.searchParams.set('token', token.trim())
+  }
+  return parsed.toString()
+}
+
+function resolveRemoteWsUrl(settings: AppSettings): string | null {
+  const raw = settings.remote?.url?.trim()
+  if (!raw) return null
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    return null
+  }
+  return appendTokenToWsUrlIfMissing(parsed.toString(), settings.remote?.token)
+}
+
+async function waitForReadyz(host: string, port: number, timeoutMs = 15_000): Promise<void> {
+  const base = `http://${host}:${port}`
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(`${base}/readyz`)
+      if (res.ok) return
+    } catch {
+      // Keep polling until timeout.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  throw new Error(`AppServer WebSocket endpoint did not become ready in ${timeoutMs}ms`)
 }
 
 // ─── Window creation ──────────────────────────────────────────────────────────
@@ -195,21 +279,33 @@ async function connectViaWebSocket(
     broadcastServerRequest(mainWindow, { bridgeId, method, params })
     return promise
   })
-
-  try {
-    const result = await client.initialize()
-    emitConnectionStatus(win, {
-      status: 'connected',
-      serverInfo: result.serverInfo,
-      capabilities: result.capabilities as Record<string, unknown>,
-      dashboardUrl: result.dashboardUrl
-    })
-  } catch (err) {
+  const emitConnected = (result: InitializeResult): void => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      emitConnectionStatus(mainWindow, {
+        status: 'connected',
+        serverInfo: result.serverInfo,
+        capabilities: result.capabilities as Record<string, unknown>,
+        dashboardUrl: result.dashboardUrl
+      })
+    }
+  }
+  client.on('ready', (result: InitializeResult) => emitConnected(result))
+  client.on('reconnected', (result: InitializeResult) => emitConnected(result))
+  client.on('close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const loc = normalizeLocale(sharedSettings.locale)
+      emitConnectionStatus(mainWindow, {
+        status: 'disconnected',
+        errorMessage: translate(loc, 'main.status.reconnecting')
+      })
+    }
+  })
+  client.on('reconnect-error', (err) => {
     const message = err instanceof Error ? err.message : String(err)
     if (mainWindow && !mainWindow.isDestroyed()) {
       emitConnectionStatus(mainWindow, { status: 'error', errorMessage: message })
     }
-  }
+  })
 }
 
 // ─── AppServer connection ─────────────────────────────────────────────────────
@@ -286,12 +382,28 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     return
   }
 
+  const connectionMode = resolveConnectionMode(sharedSettings)
+  if (connectionMode === 'remote') {
+    const remoteWsUrl = resolveRemoteWsUrl(sharedSettings)
+    if (!remoteWsUrl) {
+      const win = mainWindow!
+      emitConnectionStatus(win, {
+        status: 'error',
+        errorMessage: 'Invalid remote WebSocket URL in Settings.'
+      })
+      return
+    }
+    await connectViaWebSocket(workspacePath, remoteWsUrl)
+    return
+  }
+
   const win = mainWindow!
   emitConnectionStatus(win, { status: 'connecting' })
 
   const manager = new AppServerManager({
     workspacePath,
-    binaryPath: sharedSettings.appServerBinaryPath
+    binaryPath: sharedSettings.appServerBinaryPath,
+    listenUrl: buildManagedListenUrl(sharedSettings, connectionMode)
   })
   appServerManager = manager
 
@@ -333,6 +445,20 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
 
   manager.on('started', async () => {
     crashRetries = 0
+
+    if (connectionMode === 'websocket') {
+      try {
+        const { host, port } = resolveWebSocketHostPort(sharedSettings)
+        await waitForReadyz(host, port)
+        await connectViaWebSocket(workspacePath, buildManagedWsUrl(sharedSettings))
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          emitConnectionStatus(mainWindow, { status: 'error', errorMessage: message })
+        }
+      }
+      return
+    }
 
     const { stdin, stdout } = manager
     if (!stdin || !stdout) {

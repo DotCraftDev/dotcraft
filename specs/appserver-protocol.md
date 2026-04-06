@@ -1873,7 +1873,13 @@ The WebSocket transport does not provide built-in session resumption. When a cli
 - Any turn that was in progress when the disconnect occurred continues executing on the server. The client can re-subscribe to the thread to receive subsequent notifications, but events emitted during the disconnection period are not replayed unless `replayRecent = true` is used in `thread/subscribe`.
 - Server-to-client approval requests (`item/approval/request`) that were in flight when the client disconnected will time out according to the approval timeout policy (error code `-32020`), and the turn will fail.
 
-Clients should implement reconnection with **exponential backoff with jitter** starting at 1 second, capping at 30 seconds.
+Client reconnection behavior requirements:
+
+- Clients should implement transport reconnection with **exponential backoff with jitter** starting at 1 second and capping at 30 seconds.
+- After each successful transport reconnect, clients must run a fresh protocol handshake (`initialize`, then `initialized`) before issuing normal requests.
+- Clients should track and re-register any prior thread subscriptions immediately after reconnect. Recommended default: `thread/subscribe` with `replayRecent = true` for the currently active thread.
+- Clients should surface connection lifecycle transitions clearly to users (`connected -> disconnected -> connecting -> connected`).
+- If the client process starts before the server is reachable, the client should keep retrying transport connection using the same backoff policy and complete handshake as soon as the server becomes available.
 
 ### 15.8 Native WebSocket Ping/Pong
 

@@ -1,4 +1,5 @@
 export type UnsubscribeFn = () => void
+export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 
 export interface NotificationPayload {
   method: string
@@ -81,6 +82,15 @@ declare global {
         get(): Promise<{
           appServerBinaryPath?: string
           lastWorkspacePath?: string
+          connectionMode?: ConnectionMode
+          webSocket?: {
+            host?: string
+            port?: number
+          }
+          remote?: {
+            url?: string
+            token?: string
+          }
           theme?: 'dark' | 'light'
           locale?: 'en' | 'zh-Hans'
           visibleChannels?: string[]
@@ -88,6 +98,15 @@ declare global {
         set(
           partial: {
             appServerBinaryPath?: string
+            connectionMode?: ConnectionMode
+            webSocket?: {
+              host?: string
+              port?: number
+            }
+            remote?: {
+              url?: string
+              token?: string
+            }
             theme?: 'dark' | 'light'
             locale?: 'en' | 'zh-Hans'
             visibleChannels?: string[]

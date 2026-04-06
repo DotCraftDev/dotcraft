@@ -78,6 +78,50 @@ describe('AppServerManager', () => {
     )
   })
 
+  it('passes --listen for websocket mode and disables stdio pipes', () => {
+    const { proc } = makeMockProcess()
+    mockSpawn.mockReturnValue(proc)
+    mockExistsSync.mockReturnValue(true)
+    mockExecFileSync.mockReturnValue('/usr/bin/dotcraft\n')
+    manager = new AppServerManager({
+      workspacePath: '/home/user/project',
+      listenUrl: 'ws://127.0.0.1:9100'
+    })
+
+    manager.spawn()
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.any(String),
+      ['app-server', '--listen', 'ws://127.0.0.1:9100'],
+      expect.objectContaining({
+        cwd: '/home/user/project',
+        stdio: ['ignore', 'inherit', 'inherit']
+      })
+    )
+  })
+
+  it('keeps stdio pipes enabled for ws+stdio mode', () => {
+    const { proc } = makeMockProcess()
+    mockSpawn.mockReturnValue(proc)
+    mockExistsSync.mockReturnValue(true)
+    mockExecFileSync.mockReturnValue('/usr/bin/dotcraft\n')
+    manager = new AppServerManager({
+      workspacePath: '/home/user/project',
+      listenUrl: 'ws+stdio://127.0.0.1:9100'
+    })
+
+    manager.spawn()
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.any(String),
+      ['app-server', '--listen', 'ws+stdio://127.0.0.1:9100'],
+      expect.objectContaining({
+        cwd: '/home/user/project',
+        stdio: ['pipe', 'pipe', 'inherit']
+      })
+    )
+  })
+
   it('emits "started" when the process spawns successfully', () => {
     const { proc } = makeMockProcess()
     mockSpawn.mockReturnValue(proc)
