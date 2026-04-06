@@ -139,7 +139,8 @@ export class AppServerManager extends EventEmitter {
 
   /**
    * Gracefully shuts down the AppServer.
-   * Closes stdin (sends EOF), AppServer should shut down upon receiving it.
+   * Closes stdin (sends EOF) when a pipe exists (stdio / ws+stdio).
+   * When stdin is not piped (pure WebSocket listen mode), sends SIGTERM instead.
    * Force-kills after 5s if still running.
    */
   shutdown(): void {
@@ -149,7 +150,15 @@ export class AppServerManager extends EventEmitter {
     this._shutdownRequested = true
 
     try {
-      this.process.stdin?.end()
+      if (this.process.stdin) {
+        this.process.stdin.end()
+      } else {
+        try {
+          this.process.kill('SIGTERM')
+        } catch {
+          // Process already gone
+        }
+      }
     } catch {
       // stdin may already be closed
     }

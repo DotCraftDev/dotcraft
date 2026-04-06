@@ -362,6 +362,9 @@ class MockReconnectTransport {
   private lineHandlers: Array<(line: string) => void> = []
   private closeHandlers: Array<() => void> = []
   private openHandlers: Array<() => void> = []
+  /** When false, writeLine queues into pending (simulates disconnected WebSocket). */
+  private connected = false
+  private pending: string[] = []
   readonly writes: string[] = []
 
   onLine(handler: (line: string) => void): () => void {
@@ -386,7 +389,18 @@ class MockReconnectTransport {
   }
 
   async writeLine(line: string): Promise<void> {
-    this.writes.push(line)
+    if (this.connected) {
+      this.writes.push(line)
+    } else {
+      this.pending.push(line)
+    }
+  }
+
+  flushPendingWrites(): void {
+    for (const line of this.pending) {
+      this.writes.push(line)
+    }
+    this.pending = []
   }
 
   dispose(): void {
@@ -394,10 +408,13 @@ class MockReconnectTransport {
   }
 
   open(): void {
+    this.connected = true
     for (const h of this.openHandlers) h()
   }
 
   close(): void {
+    this.connected = false
+    this.pending = []
     for (const h of this.closeHandlers) h()
   }
 
@@ -456,6 +473,64 @@ describe('WireProtocolClient websocket reconnect', () => {
     await new Promise((r) => setTimeout(r, 10))
 
     expect(reconnected).toHaveBeenCalledTimes(1)
+    client.dispose()
+  })
+
+  it('flushes queued writes only after initialize handshake on reconnect', async () => {
+    const transport = new MockReconnectTransport()
+    const client = new WireProtocolClient(
+      transport as unknown as Readable,
+      undefined,
+      { autoInitializeOnTransportOpen: true }
+    )
+
+    transport.open()
+    await new Promise((r) => setTimeout(r, 10))
+    const init1 = JSON.parse(transport.writes[0] ?? '{}')
+    expect(init1.method).toBe('initialize')
+    transport.serverSend({
+      jsonrpc: '2.0',
+      id: init1.id,
+      result: {
+        serverInfo: { name: 'dotcraft', version: '0.2.0' },
+        capabilities: { threadManagement: true }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 10))
+
+    transport.close()
+    void client.sendRequest('thread/ping', { x: 1 }, 100).catch(() => {})
+
+    transport.open()
+    await new Promise((r) => setTimeout(r, 10))
+
+    const linesBeforeResponse = transport.writes.map((l) => JSON.parse(l))
+    let initSeen = 0
+    const secondInitIdx = linesBeforeResponse.findIndex((l) => {
+      if (l.method === 'initialize') {
+        initSeen++
+        return initSeen === 2
+      }
+      return false
+    })
+    expect(secondInitIdx).toBeGreaterThanOrEqual(0)
+
+    const init2 = linesBeforeResponse[secondInitIdx] as { id?: number }
+    transport.serverSend({
+      jsonrpc: '2.0',
+      id: init2.id,
+      result: {
+        serverInfo: { name: 'dotcraft', version: '0.2.1' },
+        capabilities: { threadManagement: true }
+      }
+    })
+    await new Promise((r) => setTimeout(r, 10))
+
+    const linesAfter = transport.writes.map((l) => JSON.parse(l))
+    const pingIdx = linesAfter.findIndex((l) => l.method === 'thread/ping')
+    expect(pingIdx).toBeGreaterThanOrEqual(0)
+    expect(secondInitIdx).toBeLessThan(pingIdx)
+
     client.dispose()
   })
 

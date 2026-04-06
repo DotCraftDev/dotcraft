@@ -43,6 +43,33 @@ function makeMockProcess(): {
   return { proc }
 }
 
+function makeMockProcessNoStdin(): {
+  proc: EventEmitter & {
+    stdin: null
+    stdout: PassThrough
+    killed: boolean
+    exitCode: number | null
+    kill: ReturnType<typeof vi.fn>
+  }
+} {
+  const proc = new EventEmitter() as EventEmitter & {
+    stdin: null
+    stdout: PassThrough
+    killed: boolean
+    exitCode: number | null
+    kill: ReturnType<typeof vi.fn>
+  }
+  proc.stdin = null
+  proc.stdout = new PassThrough()
+  proc.killed = false
+  proc.exitCode = null
+  proc.kill = vi.fn(() => {
+    proc.killed = true
+    proc.emit('exit', null, 'SIGKILL')
+  })
+  return { proc }
+}
+
 describe('AppServerManager', () => {
   let manager: AppServerManager
   const mockSpawn = spawn as ReturnType<typeof vi.fn>
@@ -188,6 +215,24 @@ describe('AppServerManager', () => {
     manager.shutdown()
 
     expect(endSpy).toHaveBeenCalledOnce()
+  })
+
+  it('sends SIGTERM on shutdown when stdin is not piped (WebSocket-only mode)', () => {
+    const { proc } = makeMockProcessNoStdin()
+    mockSpawn.mockReturnValue(proc)
+    mockExistsSync.mockReturnValue(true)
+    mockExecFileSync.mockReturnValue('/usr/bin/dotcraft\n')
+    manager = new AppServerManager({
+      workspacePath: '/home/user/project',
+      listenUrl: 'ws://127.0.0.1:9100'
+    })
+
+    manager.spawn()
+    proc.emit('spawn')
+
+    manager.shutdown()
+
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM')
   })
 
   it('emits "stopped" (not "crash") after graceful shutdown', () => {

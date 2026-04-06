@@ -72,6 +72,8 @@ interface Transport {
   onClose(handler: () => void): () => void
   /** Called when the transport is opened (WebSocket only). */
   onOpen?(handler: () => void): () => void
+  /** WebSocket only: send lines queued while disconnected (after initialize/initialized). */
+  flushPendingWrites?(): void
   /** Disposes the transport. */
   dispose(): void
 }
@@ -151,14 +153,6 @@ class WebSocketTransport implements Transport {
 
     ws.on('open', () => {
       this.retryMs = WS_RECONNECT_BASE_MS
-      // Flush queued writes
-      const pending = this.pendingWrites.splice(0)
-      for (const item of pending) {
-        ws.send(item.line + '\n', (err) => {
-          if (err) item.reject(err as Error)
-          else item.resolve()
-        })
-      }
       for (const h of this.openHandlers) h()
     })
 
@@ -173,6 +167,7 @@ class WebSocketTransport implements Transport {
     })
 
     ws.on('close', () => {
+      this.rejectPendingWrites(new Error('Connection closed'))
       if (this.disposed) {
         for (const h of this.closeHandlers) h()
         return
@@ -207,6 +202,24 @@ class WebSocketTransport implements Transport {
     return () => { this.openHandlers = this.openHandlers.filter((h) => h !== handler) }
   }
 
+  flushPendingWrites(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    const pending = this.pendingWrites.splice(0)
+    for (const item of pending) {
+      this.ws.send(item.line + '\n', (err) => {
+        if (err) item.reject(err as Error)
+        else item.resolve()
+      })
+    }
+  }
+
+  private rejectPendingWrites(reason: Error): void {
+    const pending = this.pendingWrites.splice(0)
+    for (const item of pending) {
+      item.reject(reason)
+    }
+  }
+
   writeLine(line: string): Promise<void> {
     if (this.disposed) return Promise.reject(new Error('WebSocketTransport is disposed'))
 
@@ -226,11 +239,7 @@ class WebSocketTransport implements Transport {
   dispose(): void {
     this.disposed = true
     if (this.retryTimer) clearTimeout(this.retryTimer)
-    // Reject any writes queued while waiting for connection
-    const pending = this.pendingWrites.splice(0)
-    for (const item of pending) {
-      item.reject(new Error('WebSocketTransport is disposed'))
-    }
+    this.rejectPendingWrites(new Error('WebSocketTransport is disposed'))
     this.ws?.close()
     this.ws = null
   }
@@ -474,6 +483,7 @@ export class WireProtocolClient extends EventEmitter {
         this.hasInitializedWebSocket = true
         this.emit('ready', result)
       }
+      this.transport.flushPendingWrites?.()
     } catch (err) {
       this.emit('reconnect-error', err)
     } finally {
