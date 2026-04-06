@@ -1,4 +1,5 @@
 import { useT } from '../../contexts/LocaleContext'
+import { useUIStore } from '../../stores/uiStore'
 import { ConnectionStatusIndicator } from '../ConnectionStatusIndicator'
 import {
   SIDEBAR_NAV_BORDER_INACTIVE,
@@ -8,10 +9,6 @@ import {
 } from './sidebarNavRowStyles'
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
-
-interface SidebarFooterProps {
-  onOpenSettings?: () => void
-}
 
 function GearIcon(): JSX.Element {
   return (
@@ -46,8 +43,10 @@ function GearIcon(): JSX.Element {
  * Sidebar footer showing settings button, connection status and app version.
  * Spec §9.6
  */
-export function SidebarFooter({ onOpenSettings }: SidebarFooterProps): JSX.Element {
+export function SidebarFooter(): JSX.Element {
   const t = useT()
+  const { activeMainView, setActiveMainView } = useUIStore()
+  const settingsActive = activeMainView === 'settings'
   return (
     <div
       style={{
@@ -61,23 +60,27 @@ export function SidebarFooter({ onOpenSettings }: SidebarFooterProps): JSX.Eleme
     >
       <button
         type="button"
-        onClick={onOpenSettings}
+        onClick={() => setActiveMainView('settings')}
         title={t('sidebar.settingsShortcut')}
         aria-label={t('sidebar.openSettingsAria')}
         style={{
           ...SIDEBAR_NAV_ROW_OUTER,
-          ...SIDEBAR_NAV_BORDER_INACTIVE,
-          background: 'transparent',
-          color: 'var(--text-secondary)',
+          ...(settingsActive ? { borderLeft: '3px solid var(--accent)' } : SIDEBAR_NAV_BORDER_INACTIVE),
+          background: settingsActive ? 'var(--bg-tertiary)' : 'transparent',
+          color: settingsActive ? 'var(--text-primary)' : 'var(--text-secondary)',
           cursor: 'pointer'
         }}
         onMouseEnter={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
-          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+          if (!settingsActive) {
+            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+          }
         }}
         onMouseLeave={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+          if (!settingsActive) {
+            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+          }
         }}
       >
         <span style={SIDEBAR_NAV_ICON_SLOT}>

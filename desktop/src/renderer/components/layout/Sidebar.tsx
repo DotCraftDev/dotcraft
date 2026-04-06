@@ -21,7 +21,6 @@ import { DotCraftLogo } from '../ui/DotCraftLogo'
 interface SidebarProps {
   workspaceName: string
   workspacePath: string
-  onOpenSettings?: () => void
 }
 
 /**
@@ -38,7 +37,7 @@ interface SidebarProps {
  * Collapsed mode (48px): shows first-letter dots for recent threads.
  * Spec §9.8
  */
-export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: SidebarProps): JSX.Element {
+export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Element {
   const t = useT()
   const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -72,7 +71,6 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
       <CollapsedSidebar
         onExpand={toggleSidebar}
         workspacePath={workspacePath}
-        onOpenSettings={onOpenSettings}
       />
     )
   }
@@ -133,7 +131,7 @@ export function Sidebar({ workspaceName, workspacePath, onOpenSettings }: Sideba
         />
       </div>
 
-      <SidebarFooter onOpenSettings={onOpenSettings} />
+      <SidebarFooter />
     </div>
   )
 }
@@ -255,10 +253,9 @@ function AutomationsIcon(): JSX.Element {
 interface CollapsedSidebarProps {
   onExpand: () => void
   workspacePath: string
-  onOpenSettings?: () => void
 }
 
-function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: CollapsedSidebarProps): JSX.Element {
+function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): JSX.Element {
   const t = useT()
   const [logoHovered, setLogoHovered] = useState(false)
   const { status, errorMessage, capabilities: collapsedCaps, dashboardUrl: collapsedDashboardUrl } =
@@ -433,10 +430,14 @@ function CollapsedSidebar({ onExpand, workspacePath, onOpenSettings }: Collapsed
 
       {/* Settings icon button */}
       <button
-        onClick={onOpenSettings}
+        onClick={() => setActiveMainView('settings')}
         title={t('sidebar.settingsShortcut')}
         aria-label={t('sidebar.openSettingsAria')}
-        style={iconButtonStyle}
+        style={{
+          ...iconButtonStyle,
+          backgroundColor: activeMainView === 'settings' ? 'var(--bg-tertiary)' : 'transparent',
+          color: activeMainView === 'settings' ? 'var(--accent)' : 'var(--text-secondary)'
+        }}
       >
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M8 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />

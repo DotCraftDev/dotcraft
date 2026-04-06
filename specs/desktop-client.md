@@ -429,7 +429,7 @@ The application has one primary view: the **Workspace View**, which contains the
 
 - **Sidebar** controls which thread is active. Clicking a thread loads it into the Conversation Panel.
 - **Detail Panel** is contextual to the active turn. Its tabs show different aspects of the agent's work (file changes, plan, terminal output).
-- There is no routing or page navigation. The workspace view is the only view. Modal overlays (settings, approval) appear on top.
+- There is no URL routing. The workspace shell is a single process-local surface with **inline main views** switched by client state (`conversation`, `skills`, `automations`, `settings`). Approval remains a modal overlay.
 
 ### 7.2 Thread Grouping
 
@@ -1578,11 +1578,11 @@ Based on a 4px grid:
 | `Ctrl+Shift+O` | Switch workspace |
 | `Ctrl+Shift+N` | New window |
 | `Ctrl+Shift+M` | Toggle Agent/Plan mode |
-| `Ctrl+,` | Open settings |
+| `Ctrl+,` | Open Settings inline view |
 | `Ctrl+K` | Focus thread search |
 | `Ctrl+B` | Toggle sidebar |
 | `Ctrl+Shift+B` | Toggle detail panel |
-| `Escape` | Close modal / Cancel running turn (when no modal open) |
+| `Escape` | Cancel running turn (when no modal open) |
 
 ### 17.2 Conversation Shortcuts
 
