@@ -244,19 +244,29 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         overflow: 'hidden'
       }}
     >
-      {/* Upper + middle: scrollable */}
+      {/* Upper + middle: scrollable + bottom fade toward composer */}
       <div
         style={{
+          position: 'relative',
           flex: 1,
           minHeight: 0,
-          overflowY: 'auto',
+          overflow: 'hidden',
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px 24px 16px'
+          flexDirection: 'column'
         }}
       >
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px 24px 16px'
+          }}
+        >
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '20px' }}>
           <DotCraftLogo size={56} style={{ marginBottom: '16px' }} />
           <h1
@@ -327,14 +337,27 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
             ))}
           </div>
         )}
+        </div>
+
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '40px',
+            background: 'linear-gradient(transparent, var(--bg-primary))',
+            pointerEvents: 'none',
+            zIndex: 1
+          }}
+        />
       </div>
 
       {/* Bottom composer */}
       <div
         style={{
-          borderTop: '1px solid var(--border-default)',
           flexShrink: 0,
-          padding: '10px 14px',
+          padding: '14px 14px',
           opacity: starting ? 0.65 : 1
         }}
       >
