@@ -31,7 +31,12 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
     activeMainView
   } = useUIStore()
   const effectiveDetailPanelVisible =
-    activeMainView === 'settings' || activeMainView === 'channels' ? false : detailPanelVisible
+    activeMainView === 'settings' ||
+    activeMainView === 'channels' ||
+    activeMainView === 'skills' ||
+    activeMainView === 'automations'
+      ? false
+      : detailPanelVisible
 
   const effectiveSidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
 
