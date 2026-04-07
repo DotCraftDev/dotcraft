@@ -245,7 +245,8 @@ export function useChannelConfig(workspacePath: string): {
         const nextRoot = mergeChannelConfig(root, channelId, config)
         await writeRoot(workspacePath, nextRoot)
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+        // Save errors are surfaced by the caller (toast); do not set `error` here or the
+        // inline banner would show channels.loadFailed for a save failure.
         throw err
       } finally {
         setSavingChannelId(null)
