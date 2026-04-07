@@ -16,6 +16,7 @@ export function ToggleSwitch({
   disabled = false
 }: ToggleSwitchProps): JSX.Element {
   const id = useId()
+  const labelId = `${id}-label`
 
   return (
     <div
@@ -32,6 +33,7 @@ export function ToggleSwitch({
         <div style={{ flex: 1, minWidth: 0 }}>
           {label && (
             <label
+              id={labelId}
               htmlFor={id}
               style={{
                 display: 'block',
@@ -84,7 +86,7 @@ export function ToggleSwitch({
         type="button"
         role="switch"
         aria-checked={checked}
-        aria-labelledby={label ? id : undefined}
+        aria-labelledby={label ? labelId : undefined}
         onClick={() => onChange(!checked)}
         style={{
           flexShrink: 0,
