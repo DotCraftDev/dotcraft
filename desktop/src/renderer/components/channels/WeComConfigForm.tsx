@@ -145,7 +145,7 @@ export function WeComConfigForm({
                     onBlur={formStyles.inputBlur}
                   />
                   <input
-                    type="text"
+                    type="password"
                     value={robot.Token}
                     placeholder={t('channels.wecom.robotToken')}
                     onChange={(e) => {
@@ -158,7 +158,7 @@ export function WeComConfigForm({
                     onBlur={formStyles.inputBlur}
                   />
                   <input
-                    type="text"
+                    type="password"
                     value={robot.AesKey}
                     placeholder={t('channels.wecom.robotAesKey')}
                     onChange={(e) => {
