@@ -48,13 +48,38 @@ export function WeComConfigForm({
           checked={value.Enabled}
           onChange={(checked) => onChange({ ...value, Enabled: checked })}
           label={t('channels.enableChannel')}
-          description={t('channels.wecom.enableDescription')}
         />
       </FieldCard>
 
       {/* Config fields */}
       <div style={{ opacity: value.Enabled ? 1 : 0.5, pointerEvents: value.Enabled ? 'auto' : 'none' }}>
         <FieldCard>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--text-secondary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em'
+              }}
+            >
+              {t('channels.transport')}
+            </span>
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: 500,
+                color: 'var(--text-primary)',
+                backgroundColor: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '4px',
+                padding: '1px 6px'
+              }}
+            >
+              Native
+            </span>
+          </div>
           <div style={formStyles.fieldGroup}>
             <label style={formStyles.label}>{t('channels.wecom.host')}</label>
             <input

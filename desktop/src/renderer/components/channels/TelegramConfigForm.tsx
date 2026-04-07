@@ -48,7 +48,6 @@ export function TelegramConfigForm({
           checked={value.enabled}
           onChange={(checked) => onChange({ ...value, enabled: checked })}
           label={t('channels.enableChannel')}
-          description={t('channels.telegram.enableDescription')}
         />
       </FieldCard>
 

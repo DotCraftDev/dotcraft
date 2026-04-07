@@ -233,13 +233,22 @@ function SkillsIcon(): JSX.Element {
 
 function ChannelsIcon(): JSX.Element {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
-      <path d="M5 7h14" />
-      <path d="M5 12h14" />
-      <path d="M5 17h14" />
-      <circle cx="7" cy="7" r="1" fill="currentColor" stroke="none" />
-      <circle cx="7" cy="12" r="1" fill="currentColor" stroke="none" />
-      <circle cx="7" cy="17" r="1" fill="currentColor" stroke="none" />
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ display: 'block' }}
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M8 10h.01" />
+      <path d="M12 10h.01" />
+      <path d="M16 10h.01" />
     </svg>
   )
 }
