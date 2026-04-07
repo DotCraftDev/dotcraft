@@ -23,6 +23,7 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { ConfirmDialogHost } from './components/ui/ConfirmDialog'
 import { ToastContainer } from './components/ui/ToastContainer'
 import { SettingsView } from './components/settings/SettingsView'
+import { ChannelsView } from './components/channels/ChannelsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
@@ -904,6 +905,8 @@ export function App(): JSX.Element {
                   void reloadThreadList()
                 }}
               />
+            ) : activeMainView === 'channels' ? (
+              <ChannelsView />
             ) : activeMainView === 'skills' ? (
               <SkillsView />
             ) : activeMainView === 'automations' ? (

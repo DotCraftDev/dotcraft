@@ -35,7 +35,8 @@ public sealed class AppServerRequestHandler(
     ICommitMessageSuggestService? commitMessageSuggest = null,
     string? dashboardUrl = null,
     WireAcpExtensionProxy? wireAcpExtensionProxy = null,
-    CommandRegistry? commandRegistry = null)
+    CommandRegistry? commandRegistry = null,
+    IChannelStatusProvider? channelStatusProvider = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -43,6 +44,8 @@ public sealed class AppServerRequestHandler(
             !string.IsNullOrWhiteSpace(workspaceCraftPath) ? new CustomCommandLoader(workspaceCraftPath) : null);
 
     private readonly IAppServerChannelListContributor _channelListContributor = channelListContributor;
+
+    private readonly IChannelStatusProvider? _channelStatusProvider = channelStatusProvider;
 
     private readonly string? _dashboardUrl = dashboardUrl;
 
@@ -92,6 +95,7 @@ public sealed class AppServerRequestHandler(
             {
                 AppServerMethods.Initialize => HandleInitializeAsync(msg, ct),
                 AppServerMethods.ChannelList => HandleChannelListAsync(msg, ct),
+                AppServerMethods.ChannelStatus => HandleChannelStatusAsync(msg, ct),
                 AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
                 AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
                 AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
@@ -173,7 +177,8 @@ public sealed class AppServerRequestHandler(
                 HeartbeatManagement = heartbeatService != null,
                 SkillsManagement = skillsLoader != null,
                 CommandManagement = true,
-                Automations = automationsHandler != null
+                Automations = automationsHandler != null,
+                ChannelStatus = _channelStatusProvider != null
             },
             DashboardUrl = _dashboardUrl
         };
@@ -333,6 +338,22 @@ public sealed class AppServerRequestHandler(
         });
 
         return Task.FromResult<object?>(new ChannelListResult { Channels = channels });
+    }
+
+    // -------------------------------------------------------------------------
+    // channel/status (spec Section 20)
+    // -------------------------------------------------------------------------
+
+    private Task<object?> HandleChannelStatusAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = msg;
+        _ = ct;
+
+        if (_channelStatusProvider == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.ChannelStatus);
+
+        var statuses = _channelStatusProvider.GetChannelStatuses();
+        return Task.FromResult<object?>(new ChannelStatusResult { Channels = [.. statuses] });
     }
 
     private async Task<object?> HandleThreadReadAsync(AppServerIncomingMessage msg, CancellationToken ct)

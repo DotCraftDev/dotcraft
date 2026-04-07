@@ -38,6 +38,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [17. Heartbeat Management Methods](#17-heartbeat-management-methods)
 - [18. Skills Management Methods](#18-skills-management-methods)
 - [19. Command Management Methods](#19-command-management-methods)
+- [20. Channel Status Methods](#20-channel-status-methods)
 
 ---
 
@@ -64,7 +65,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -2623,3 +2624,87 @@ When `expandedPrompt` is non-null, the command is a custom command expansion and
 ### 19.6 Capability Advertisement
 
 Clients must check `capabilities.commandManagement` before calling `command/list` or `command/execute`. The capability is present and `true` when the AppServer has the command registry enabled.
+
+---
+
+## 20. Channel Status Methods
+
+### 20.1 Scope
+
+These methods expose the runtime status of social and external channels — whether each channel is configured, whether it is currently running and handling messages — to wire clients such as DotCraft Desktop.
+
+The existing `channel/list` method returns **all registered module origins** for the cross-channel thread visibility picker. It does not reflect `Enabled` config flags or whether channels are actively running. `channel/status` is a separate, orthogonal method that reports true runtime state.
+
+Clients must check `capabilities.channelStatus` in the `initialize` response before calling `channel/status`. If the capability is absent or `false`, the server does not have a channel status provider available and will return a `-32601` (Method not found) error.
+
+### 20.2 `ChannelStatusInfo` Wire DTO
+
+```json
+{
+  "name": "qq",
+  "category": "social",
+  "enabled": true,
+  "running": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Canonical channel name (matches `channel/list` names). |
+| `category` | string | `social` for native C# channels (QQ, WeCom); `external` for external adapter channels (WeChat, Telegram). |
+| `enabled` | boolean | `true` when the channel section in merged workspace config has `Enabled: true` (native) or `enabled: true` (external). |
+| `running` | boolean | `true` when the channel service was actually started by `ChannelRunner` and registered in `MessageRouter`. For external adapters, `true` when the adapter transport is connected and the handshake has completed (`IsClientReady`). |
+
+Only channels that are explicitly declared in config are included. Modules that are registered but have no config section with `Enabled` set (e.g. `cli`, `acp`) are excluded — this method is specifically for user-facing social and external channels.
+
+### 20.3 `channel/status`
+
+Returns runtime status for all configured social and external channels.
+
+**Direction**: client → server (request)
+
+**Params**: `{}` (empty object) or omitted.
+
+**Result**:
+
+```json
+{
+  "channels": [
+    {
+      "name": "qq",
+      "category": "social",
+      "enabled": true,
+      "running": true
+    },
+    {
+      "name": "wecom",
+      "category": "social",
+      "enabled": false,
+      "running": false
+    },
+    {
+      "name": "weixin",
+      "category": "external",
+      "enabled": true,
+      "running": false
+    },
+    {
+      "name": "telegram",
+      "category": "external",
+      "enabled": false,
+      "running": false
+    }
+  ]
+}
+```
+
+**Semantics**:
+
+- `enabled` is derived from the **merged workspace config** (`GetEnabledModules` for native modules, `ExternalChannels.*.enabled` for externals). This reflects what is configured, not what is running.
+- `running` is derived from the **live `ChannelRunner` state**: a native channel is `running` when its `IChannelService` is registered in `MessageRouter`; an external adapter channel is `running` when `ExternalChannelHost.IsAdapterConnected` is `true` (transport attached and client ready).
+- Results are sorted by category order (`social` → `external`), then by `name` (ordinal case-insensitive).
+- If there is no `ChannelRunner` (the AppServer was started without any configured channels), the result is an empty `channels` array.
+
+### 20.4 Capability Advertisement
+
+Clients must check `capabilities.channelStatus` before calling `channel/status`. The capability is present and `true` when the AppServer has a `IChannelStatusProvider` configured, which requires an active `ChannelRunner` instance or a workspace config with at least one social/external channel section.
