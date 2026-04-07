@@ -68,6 +68,14 @@ public sealed class ExternalChannelHost(
 
     public string Name => _config.Name;
 
+    /// <summary>
+    /// Returns <c>true</c> when an adapter transport is attached and has completed the
+    /// wire handshake (<c>initialized</c> notification received). Used by
+    /// <see cref="IChannelStatusProvider"/> to determine the <c>running</c> flag.
+    /// </summary>
+    public bool IsAdapterConnected => !_stopped && !_permanentlyFailed
+        && _connection is { IsClientReady: true };
+
     public HeartbeatService? HeartbeatService { get; set; }
 
     public CronService? CronService { get; set; }

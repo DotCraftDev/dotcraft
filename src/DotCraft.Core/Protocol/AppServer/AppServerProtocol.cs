@@ -192,6 +192,13 @@ public sealed class AppServerServerCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool Automations { get; set; }
+
+    /// <summary>
+    /// Server supports <c>channel/status</c> (spec Section 20).
+    /// True when a <see cref="IChannelStatusProvider"/> is registered with the request handler.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ChannelStatus { get; set; }
 }
 
 // ───── thread/start ─────
@@ -769,6 +776,40 @@ public sealed class WorkspaceCommitMessageSuggestResult
     public string Message { get; set; } = string.Empty;
 }
 
+// ───── channel/status (Desktop runtime status, spec Section 20) ─────
+
+/// <summary>
+/// Runtime status for one social or external channel.
+/// See <see cref="AppServerMethods.ChannelStatus"/> and spec Section 20.
+/// </summary>
+public sealed class ChannelStatusInfo
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// UI grouping: <c>social</c> for native C# channels; <c>external</c> for adapter channels.
+    /// </summary>
+    public string Category { get; set; } = "social";
+
+    /// <summary>
+    /// <c>true</c> when the channel section in merged workspace config has Enabled = true.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// <c>true</c> when the channel service was actually started and is currently registered / connected.
+    /// </summary>
+    public bool Running { get; set; }
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.ChannelStatus"/>.
+/// </summary>
+public sealed class ChannelStatusResult
+{
+    public List<ChannelStatusInfo> Channels { get; set; } = [];
+}
+
 // ───── channel/list (Desktop cross-channel picker) ─────
 
 /// <summary>
@@ -803,6 +844,12 @@ public static class AppServerMethods
     /// Lists known origin channels for cross-channel thread visibility (Desktop settings).
     /// </summary>
     public const string ChannelList = "channel/list";
+
+    /// <summary>
+    /// Returns runtime enabled/running status for all configured social and external channels (Desktop channels panel).
+    /// See spec Section 20.
+    /// </summary>
+    public const string ChannelStatus = "channel/status";
     public const string ThreadStart = "thread/start";
     public const string ThreadResume = "thread/resume";
     public const string ThreadList = "thread/list";

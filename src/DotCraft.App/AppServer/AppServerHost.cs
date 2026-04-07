@@ -351,7 +351,8 @@ public sealed class AppServerHost(
             broadcastCronStateChanged: BroadcastCronStateChanged,
             commitMessageSuggest: commitMessageSuggest,
             dashboardUrl: _dashboardUrl,
-            wireAcpExtensionProxy: _wireAcpExtensionProxy);
+            wireAcpExtensionProxy: _wireAcpExtensionProxy,
+            channelStatusProvider: _channelRunner);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -411,7 +412,8 @@ public sealed class AppServerHost(
             broadcastCronStateChanged: BroadcastCronStateChanged,
             commitMessageSuggest: commitMessageSuggest,
             dashboardUrl: _dashboardUrl,
-            wireAcpExtensionProxy: _wireAcpExtensionProxy);
+            wireAcpExtensionProxy: _wireAcpExtensionProxy,
+            channelStatusProvider: _channelRunner);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -493,7 +495,8 @@ public sealed class AppServerHost(
                     broadcastCronStateChanged: BroadcastCronStateChanged,
                     commitMessageSuggest: commitMessageSuggest,
                     dashboardUrl: _dashboardUrl,
-                    wireAcpExtensionProxy: _wireAcpExtensionProxy);
+                    wireAcpExtensionProxy: _wireAcpExtensionProxy,
+                    channelStatusProvider: _channelRunner);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //

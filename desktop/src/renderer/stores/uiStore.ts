@@ -14,7 +14,7 @@ const PENDING_WELCOME_TIMEOUT_MS = 30_000
 export type DetailPanelTab = 'changes' | 'plan' | 'terminal'
 
 /** Main content area: conversation vs auxiliary surfaces (Skills, Automations, Settings). */
-export type ActiveMainView = 'conversation' | 'skills' | 'automations' | 'settings'
+export type ActiveMainView = 'conversation' | 'skills' | 'automations' | 'settings' | 'channels'
 
 /** Automations view: Tasks (orchestrator) vs Cron (scheduled jobs). */
 export type AutomationsTab = 'tasks' | 'cron'

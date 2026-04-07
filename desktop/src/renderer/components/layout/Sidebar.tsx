@@ -116,6 +116,12 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
           externalLink
         />
         <SidebarNavRow
+          label={t('sidebar.channels')}
+          active={activeMainView === 'channels'}
+          onClick={() => setActiveMainView('channels')}
+          icon={<ChannelsIcon />}
+        />
+        <SidebarNavRow
           label={t('sidebar.automations')}
           active={activeMainView === 'automations'}
           onClick={() => setActiveMainView('automations')}
@@ -221,6 +227,19 @@ function SkillsIcon(): JSX.Element {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
       <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+function ChannelsIcon(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
+      <path d="M5 7h14" />
+      <path d="M5 12h14" />
+      <path d="M5 17h14" />
+      <circle cx="7" cy="7" r="1" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="17" r="1" fill="currentColor" stroke="none" />
     </svg>
   )
 }
@@ -394,6 +413,19 @@ function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): J
         aria-label={t('sidebar.dashboard')}
       >
         <DashboardIcon />
+      </button>
+      <button
+        type="button"
+        title={t('sidebar.channels')}
+        onClick={() => setActiveMainView('channels')}
+        style={{
+          ...iconButtonStyle,
+          backgroundColor: activeMainView === 'channels' ? 'var(--bg-tertiary)' : 'transparent',
+          color: activeMainView === 'channels' ? 'var(--accent)' : 'var(--text-secondary)'
+        }}
+        aria-label={t('sidebar.channels')}
+      >
+        <ChannelsIcon />
       </button>
       <button
         type="button"

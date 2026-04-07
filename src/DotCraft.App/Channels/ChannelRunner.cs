@@ -9,6 +9,7 @@ using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Modules;
 using DotCraft.Protocol;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Tracing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -19,8 +20,10 @@ namespace DotCraft.Channels;
 /// <summary>
 /// Manages native channels, external channels, <see cref="WebHostPool"/>, and DashBoard mounting
 /// for AppServer mode (shared session with the wire host) and for Gateway mode.
+/// Also implements <see cref="IChannelStatusProvider"/> for the <c>channel/status</c> wire method
+/// (spec Section 20).
 /// </summary>
-public sealed class ChannelRunner : IAsyncDisposable
+public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
 {
     private readonly IServiceProvider _sp;
     private readonly AppConfig _config;
@@ -343,6 +346,75 @@ public sealed class ChannelRunner : IAsyncDisposable
 
         _stopped = true;
     }
+
+    // -------------------------------------------------------------------------
+    // IChannelStatusProvider (spec Section 20 — channel/status)
+    // -------------------------------------------------------------------------
+
+    /// <inheritdoc />
+    public IReadOnlyList<ChannelStatusInfo> GetChannelStatuses()
+    {
+        var result = new List<ChannelStatusInfo>();
+
+        // Native social channels: discovered via modules with "social" category entries.
+        var nativeRunningNames = _nativeChannels
+            .Select(ch => ch.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var module in _moduleRegistry.Modules)
+        {
+            foreach (var entry in module.GetSessionChannelListEntries())
+            {
+                if (!string.Equals(entry.Category, "social", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                result.Add(new ChannelStatusInfo
+                {
+                    Name = entry.Name,
+                    Category = "social",
+                    Enabled = module.IsEnabled(_config),
+                    Running = nativeRunningNames.Contains(entry.Name)
+                });
+            }
+        }
+
+        // External adapter channels: read all entries from config (including disabled ones).
+        var externalChannelsConfig = _config.GetSection<ExternalChannelsConfig>("ExternalChannels");
+        var externalChannels = externalChannelsConfig.GetChannels();
+
+        // Build a lookup of running external hosts by name.
+        var externalHosts = _allChannels
+            .OfType<ExternalChannelHost>()
+            .ToDictionary(h => h.Name, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (name, channelEntry) in externalChannels)
+        {
+            externalHosts.TryGetValue(name, out var host);
+            result.Add(new ChannelStatusInfo
+            {
+                Name = name,
+                Category = "external",
+                Enabled = channelEntry.Enabled,
+                Running = host?.IsAdapterConnected ?? false
+            });
+        }
+
+        // Sort: social first, then external; within each group sort by name.
+        result.Sort((a, b) =>
+        {
+            var catOrder = GetCategoryOrder(a.Category).CompareTo(GetCategoryOrder(b.Category));
+            return catOrder != 0 ? catOrder : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        });
+
+        return result;
+    }
+
+    private static int GetCategoryOrder(string category) => category switch
+    {
+        "social" => 0,
+        "external" => 1,
+        _ => 2
+    };
 
     private static async Task RunChannelAsync(IChannelService channel, CancellationToken ct)
     {
