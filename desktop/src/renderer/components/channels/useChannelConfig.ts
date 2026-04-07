@@ -94,6 +94,16 @@ function parseStringArray(v: unknown): string[] {
   return v.filter((item): item is string => typeof item === 'string')
 }
 
+/** Copies only string values from a JSON env object (ExternalChannels.*.env). */
+function stringRecordFromEnv(raw: unknown): Record<string, string> {
+  const env = asRecord(raw)
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(env)) {
+    if (typeof v === 'string') out[k] = v
+  }
+  return out
+}
+
 function parseConfigs(root: Record<string, unknown>): ChannelsConfigState {
   const qq = asRecord(root.QQBot)
   const wecom = asRecord(root.WeComBot)
@@ -134,6 +144,7 @@ function parseConfigs(root: Record<string, unknown>): ChannelsConfigState {
       args: parseStringArray(telegram.args).length ? parseStringArray(telegram.args) : DEFAULT_CONFIGS.telegram.args,
       workingDirectory: asString(telegram.workingDirectory),
       env: {
+        ...stringRecordFromEnv(telegram.env),
         TELEGRAM_BOT_TOKEN: asString(
           telegramEnv.TELEGRAM_BOT_TOKEN,
           DEFAULT_CONFIGS.telegram.env.TELEGRAM_BOT_TOKEN
@@ -190,9 +201,12 @@ function mergeChannelConfig(
       transport: 'websocket'
     }
   } else if (channelId === 'telegram') {
+    const diskTelegram = asRecord(ext.telegram)
+    const diskEnvStrings = stringRecordFromEnv(diskTelegram.env)
     ext.telegram = {
-      ...asRecord(ext.telegram),
+      ...diskTelegram,
       ...config.telegram,
+      env: { ...diskEnvStrings, ...config.telegram.env },
       transport: 'subprocess'
     }
   }
