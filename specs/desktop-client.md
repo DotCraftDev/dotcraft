@@ -222,7 +222,7 @@ Application state lives in the Renderer Process. It is the single source of trut
 | **Tokens** | `inputTokens`, `outputTokens` (cumulative for current turn) | `item/usage/delta` (additive), reset on `turn/started` |
 | **Approval** | `pendingApproval` (approval request params) or null | `item/approval/request` server request |
 | **FileChanges** | `changedFiles` (Map of filePath → FileDiff), where each `FileDiff` contains: `filePath`, `turnId`, `additions`, `deletions`, `diffHunks`, `status` ('written' or 'reverted'), `isNewFile` | Extracted from completed `toolCall`/`toolResult` items where tool is `FileWrite` / `FileEdit`. Keyed by file path so that multiple edits to the same file across turns produce a single aggregated entry in the Detail Panel, while per-turn entries remain in the Turn Completion Summary. |
-| **UI** | `sidebarCollapsed`, `detailPanelTab`, `detailPanelVisible`, `inputValue`, `agentMode`, `activeMainView` ('conversation' \| 'skills' \| 'automations'), `automationsTab` ('tasks' \| 'cron') | User interactions |
+| **UI** | `sidebarCollapsed`, `detailPanelTab`, `detailPanelVisible`, `inputValue`, `agentMode`, `activeMainView` ('conversation' \| 'skills' \| 'automations'), `automationsTab` ('tasks' \| 'cron'), `pendingWelcomeTurn` ({ `threadId`, `text`, `images?`, `mode?`, `model?`, `createdAt` }) | User interactions and welcome handoff flow |
 | **CronJobs** | `cronJobs` (CronJobInfo[]), `selectedCronJobId`, `cronLoading`, `cronError` | `cron/list` response, `cron/stateChanged` notifications |
 | **ComposerAttachments** | Local to `InputComposer` component state (not global store). `images: ImageAttachment[]` for image attachments shown in the image strip. `ImageAttachment`: `{ tempPath: string, dataUrl: string, fileName: string, mimeType: string }`. File references are **not** stored as separate state — they exist as inline `<span>` elements inside the `contentEditable` div and are extracted at send time by walking the DOM. | User attachment interactions (drag-drop, paste for images; `@` selection for inline file tags). Image state cleared on send; inline tags are cleared with the div content. |
 
@@ -1175,10 +1175,15 @@ The input area is a **`contentEditable` div** rather than a plain `<textarea>`. 
 
 ### 12.3 Model Selector
 
-A dropdown button in the bottom-left of the composer:
+A dropdown control in the bottom-left of the composer:
 
 - Shows the currently selected model name (e.g., "GPT-5.3-Codex" or the configured model from workspace settings).
-- In V1, this is read-only/informational — it reflects the model configured in `.craft/config.json`. Future versions may allow per-thread model selection.
+- Uses `model/list` when the server advertises `capabilities.modelCatalogManagement === true`; options are sorted and deduplicated.
+- Supports both thread composer (`InputComposer`) and welcome composer (`ConversationWelcome`) surfaces.
+- On user selection, Desktop persists the workspace `Model` field in `.craft/config.json` immediately (without overwriting unrelated keys).
+- For an active thread, Desktop applies the selection via `thread/config/update` so subsequent turns use the new model.
+- For Welcome (no thread yet), Desktop carries the selected model in `pendingWelcomeTurn` and applies it to the newly created thread via `thread/config/update` before the first `turn/start`.
+- If `model/list` is unsupported or fails, fallback is silent (no warning toast loops). The UI continues to display the effective configured model from workspace config; `Default` is shown only when config has no model.
 
 ### 12.4 Send Button
 
@@ -1253,6 +1258,12 @@ The existing `InputComposer` sends clipboard images as `{ type: "localImage", da
 #### 12.6.6 ConversationWelcome Parity
 
 The welcome screen composer (`ConversationWelcome`) must support the same image attachment methods (paste, drag-and-drop) as `InputComposer`. The collected `ImageAttachment[]` is passed into the `pendingWelcomeTurn` store entry alongside the text, so `App.tsx` can include the image parts when it fires `turn/start` after the thread is created.
+
+The welcome flow also carries `mode` and `model` in `pendingWelcomeTurn`:
+
+- `mode` is applied (`thread/mode/set` or merged config update).
+- `model` is applied through `thread/config/update` before first `turn/start`.
+- This guarantees the first turn from Welcome uses the selected model.
 
 ---
 

@@ -740,7 +740,7 @@ export function App(): JSX.Element {
       performance.mark(`app:thread-switch-start:${requestedId}`)
       window.api.appServer
         .sendRequest('thread/read', { threadId: curr, includeTurns: true })
-        .then((result) => {
+        .then(async (result) => {
           // Stale guard: user may have switched threads while we were loading
           if (useThreadStore.getState().activeThreadId !== requestedId) {
             useUIStore.getState().cancelPendingWelcomeTurnForThread(requestedId)
@@ -791,13 +791,17 @@ export function App(): JSX.Element {
               }
               setCaseInsensitiveField(existingConfig, 'mode', welcomeMode)
               setCaseInsensitiveField(existingConfig, 'model', welcomeModel)
-              void window.api.appServer
-                .sendRequest('thread/config/update', { threadId, config: existingConfig })
-                .catch((configErr: unknown) => console.error('thread/config/update (welcome model) failed:', configErr))
+              try {
+                await window.api.appServer.sendRequest('thread/config/update', { threadId, config: existingConfig })
+              } catch (configErr: unknown) {
+                console.error('thread/config/update (welcome model) failed:', configErr)
+              }
             } else if (welcomeMode !== 'agent') {
-              void window.api.appServer
-                .sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
-                .catch((modeErr: unknown) => console.error('thread/mode/set (welcome) failed:', modeErr))
+              try {
+                await window.api.appServer.sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
+              } catch (modeErr: unknown) {
+                console.error('thread/mode/set (welcome) failed:', modeErr)
+              }
             }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
             if (!threadEntry?.displayName) {
