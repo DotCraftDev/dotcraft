@@ -153,9 +153,16 @@ export function registerIpcHandlers(
   callbacks?: IpcHandlerCallbacks
 ): void {
   invalidateFileIndex()
+  const handleSafe = (
+    channel: string,
+    listener: Parameters<typeof ipcMain.handle>[1]
+  ): void => {
+    ipcMain.removeHandler(channel)
+    ipcMain.handle(channel, listener)
+  }
 
   // Renderer -> Main: send a JSON-RPC request to AppServer
-  ipcMain.handle(
+  handleSafe(
     'appserver:send-request',
     async (_event, method: string, params?: unknown, timeoutMs?: number) => {
       const client = getWireClient()
@@ -166,12 +173,20 @@ export function registerIpcHandlers(
     }
   )
 
-  ipcMain.handle('appserver:get-connection-status', () => {
+  handleSafe('appserver:model-list', async () => {
+    const client = getWireClient()
+    if (!client) {
+      throw new Error(translate(mainLocale(callbacks), 'ipc.appServerNotConnected'))
+    }
+    return client.sendRequest('model/list', {}, 20_000)
+  })
+
+  handleSafe('appserver:get-connection-status', () => {
     return callbacks?.getConnectionStatus() ?? { status: 'disconnected' }
   })
 
   // Renderer -> Main: send back the user's decision for a server-initiated request
-  ipcMain.handle('appserver:server-response', (_event, bridgeId: string, result: unknown) => {
+  handleSafe('appserver:server-response', (_event, bridgeId: string, result: unknown) => {
     const resolve = pendingServerRequests.get(bridgeId)
     if (resolve) {
       pendingServerRequests.delete(bridgeId)
@@ -180,13 +195,13 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: set window title (targets the sender's own window)
-  ipcMain.handle('window:set-title', (event, title: string) => {
+  handleSafe('window:set-title', (event, title: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     win?.setTitle(title)
   })
 
   // Renderer -> Main: sync titleBarOverlay colors with app theme (Windows / Linux only)
-  ipcMain.handle('window:set-title-bar-overlay-theme', (event, theme: 'dark' | 'light') => {
+  handleSafe('window:set-title-bar-overlay-theme', (event, theme: 'dark' | 'light') => {
     if (process.platform === 'darwin') return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return
@@ -200,15 +215,15 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: get workspace path
-  ipcMain.handle('window:get-workspace-path', () => workspacePath)
+  handleSafe('window:get-workspace-path', () => workspacePath)
 
   // Renderer -> Main: open http(s) URL in the system browser (DashBoard, etc.)
-  ipcMain.handle('shell:open-external', async (_event, url: string) => {
+  handleSafe('shell:open-external', async (_event, url: string) => {
     await openExternalHttpUrl(url)
   })
 
   // Renderer -> Main: write a file to disk (used for revert/re-apply)
-  ipcMain.handle('file:write', async (_event, absPath: string, content: string) => {
+  handleSafe('file:write', async (_event, absPath: string, content: string) => {
     // Security: ensure path is within workspace
     const resolved = path.resolve(absPath)
     const wsResolved = path.resolve(workspacePath)
@@ -221,7 +236,7 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: read a file from disk (used for cumulative diff computation)
-  ipcMain.handle('file:read', async (_event, absPath: string): Promise<string> => {
+  handleSafe('file:read', async (_event, absPath: string): Promise<string> => {
     const resolved = path.resolve(absPath)
     const wsResolved = path.resolve(workspacePath)
     if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
@@ -239,7 +254,7 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: delete a file (used for reverting new files)
-  ipcMain.handle('file:delete', async (_event, absPath: string) => {
+  handleSafe('file:delete', async (_event, absPath: string) => {
     const resolved = path.resolve(absPath)
     const wsResolved = path.resolve(workspacePath)
     if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
@@ -251,7 +266,7 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: git add + commit
-  ipcMain.handle(
+  handleSafe(
     'git:commit',
     (_event, wsPath: string, files: string[], message: string): Promise<string> => {
       return new Promise((resolve, reject) => {
@@ -285,7 +300,7 @@ export function registerIpcHandlers(
   // ─── Workspace management ──────────────────────────────────────────────────
 
   // Renderer -> Main: open native folder picker dialog
-  ipcMain.handle('workspace:pick-folder', async (_event) => {
+  handleSafe('workspace:pick-folder', async (_event) => {
     const focusedWin = BrowserWindow.getFocusedWindow()
     const result = await dialog.showOpenDialog(
       focusedWin ?? BrowserWindow.getAllWindows()[0],
@@ -299,29 +314,29 @@ export function registerIpcHandlers(
   })
 
   // Renderer -> Main: switch to a different workspace
-  ipcMain.handle('workspace:switch', async (_event, newPath: string) => {
+  handleSafe('workspace:switch', async (_event, newPath: string) => {
     if (callbacks?.onSwitchWorkspace) {
       await callbacks.onSwitchWorkspace(newPath)
     }
   })
 
   // Renderer -> Main: get recent workspaces
-  ipcMain.handle('workspace:get-recent', () => {
+  handleSafe('workspace:get-recent', () => {
     return callbacks?.getRecentWorkspaces() ?? []
   })
 
   // Renderer -> Main: open a new independent window
-  ipcMain.handle('workspace:open-new-window', () => {
+  handleSafe('workspace:open-new-window', () => {
     callbacks?.onOpenNewWindow()
   })
 
   // Renderer -> Main: check if a workspace is already locked by another process
-  ipcMain.handle('workspace:check-lock', (_event, wsPath: string) => {
+  handleSafe('workspace:check-lock', (_event, wsPath: string) => {
     return checkWorkspaceLock(wsPath)
   })
 
   // Renderer -> Main: save clipboard/drag image bytes to .craft/tmp/images for localImage wire part
-  ipcMain.handle(
+  handleSafe(
     'workspace:save-image-to-temp',
     async (_event, params: { dataUrl: string; fileName?: string }) => {
       const ws = workspacePath
@@ -335,7 +350,7 @@ export function registerIpcHandlers(
   )
 
   // Renderer -> Main: fuzzy file name search for @ mentions
-  ipcMain.handle(
+  handleSafe(
     'workspace:search-files',
     async (
       _event,
@@ -358,12 +373,12 @@ export function registerIpcHandlers(
   // ─── Settings ──────────────────────────────────────────────────────────────
 
   // Renderer -> Main: get current settings
-  ipcMain.handle('settings:get', () => {
+  handleSafe('settings:get', () => {
     return callbacks?.getSettings() ?? {}
   })
 
   // Renderer -> Main: merge + persist partial settings update
-  ipcMain.handle(
+  handleSafe(
     'settings:set',
     (_event, partial: Partial<AppSettings>) => {
       callbacks?.updateSettings(partial)
@@ -448,6 +463,7 @@ export function broadcastServerRequest(
  */
 export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
+  ipcMain.removeHandler('appserver:model-list')
   ipcMain.removeHandler('appserver:get-connection-status')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')

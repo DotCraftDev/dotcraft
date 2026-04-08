@@ -30,13 +30,25 @@ interface InputComposerProps {
   threadId: string
   workspacePath: string
   modelName?: string
+  modelOptions?: string[]
+  modelLoading?: boolean
+  modelDisabled?: boolean
+  onModelChange?: (model: string) => void
 }
 
 /**
  * Bottom input area for the conversation panel.
  * Rich input with @ file refs, image strip (paste / drag-drop), Enter to send.
  */
-export function InputComposer({ threadId, workspacePath, modelName = 'Default' }: InputComposerProps): JSX.Element {
+export function InputComposer({
+  threadId,
+  workspacePath,
+  modelName = 'Default',
+  modelOptions = [],
+  modelLoading = false,
+  modelDisabled = false,
+  onModelChange
+}: InputComposerProps): JSX.Element {
   const t = useT()
   const [images, setImages] = useState<ImageAttachment[]>([])
   const [atQuery, setAtQuery] = useState<string | null>(null)
@@ -296,6 +308,12 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
     return (textLen > 0 || images.length > 0) && !isWaitingApproval
   }, [contentRevision, images.length, isWaitingApproval])
 
+  const effectiveModelOptions = useMemo(() => {
+    if (!modelName || modelName === 'Default') return modelOptions
+    if (modelOptions.includes(modelName)) return modelOptions
+    return [modelName, ...modelOptions]
+  }, [modelName, modelOptions])
+
   const onSelectFile = useCallback(
     (relativePath: string): void => {
       richRef.current?.insertFileTag(relativePath)
@@ -464,9 +482,36 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
 
           <span style={{ color: 'var(--border-default)' }}>·</span>
 
-          <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-            {modelName === 'Default' ? t('composer.defaultModel') : modelName}
-          </span>
+          {effectiveModelOptions.length > 0 ? (
+            <select
+              value={modelName}
+              disabled={modelLoading || modelDisabled}
+              onChange={(e) => onModelChange?.(e.target.value)}
+              title={modelLoading ? 'Loading models...' : 'Select model'}
+              style={{
+                fontSize: '12px',
+                color: modelDisabled ? 'var(--text-dimmed)' : 'var(--text-primary)',
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '6px',
+                padding: '2px 6px',
+                minHeight: '22px',
+                maxWidth: '220px',
+                outline: 'none',
+                cursor: modelDisabled ? 'default' : 'pointer'
+              }}
+            >
+              {effectiveModelOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt === 'Default' ? t('composer.defaultModel') : opt}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {modelLoading ? 'Loading models...' : modelName === 'Default' ? t('composer.defaultModel') : modelName}
+            </span>
+          )}
         </div>
       </div>
     </div>

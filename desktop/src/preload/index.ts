@@ -105,6 +105,10 @@ const api = {
       return ipcRenderer.invoke('appserver:send-request', method, params, timeoutMs)
     },
 
+    listModels(): Promise<unknown> {
+      return ipcRenderer.invoke('appserver:model-list')
+    },
+
     /**
      * Returns the latest connection status snapshot from Main Process.
      * This avoids missing early status events during renderer bootstrap.

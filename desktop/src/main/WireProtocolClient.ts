@@ -18,6 +18,7 @@ export interface ServerCapabilities {
   configOverride?: boolean
   cronManagement?: boolean
   heartbeatManagement?: boolean
+  modelCatalogManagement?: boolean
 }
 
 export interface InitializeResult {
@@ -346,6 +347,10 @@ export class WireProtocolClient extends EventEmitter {
 
   async sendNotification(method: string, params?: unknown): Promise<void> {
     await this.transport.writeLine(JSON.stringify({ jsonrpc: '2.0', method, params }))
+  }
+
+  async listModels(timeoutMs = 20_000): Promise<unknown> {
+    return this.sendRequest('model/list', {}, timeoutMs)
   }
 
   onNotification(callback: NotificationCallback): () => void {

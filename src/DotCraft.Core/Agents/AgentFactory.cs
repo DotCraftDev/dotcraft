@@ -379,7 +379,7 @@ public sealed class AgentFactory : IAsyncDisposable
 
         // Reverse middleware control:
         // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient] => FunctionInvokingChatClient => TracingChatClient
-        var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
+        var chatClientBuilder = new ChatClientBuilder(ctx.ChatClient.AsIChatClient());
         if (_traceCollector != null)
         {
             var tc = _traceCollector;

@@ -39,6 +39,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [18. Skills Management Methods](#18-skills-management-methods)
 - [19. Command Management Methods](#19-command-management-methods)
 - [20. Channel Status Methods](#20-channel-status-methods)
+- [21. Model Catalog Methods](#21-model-catalog-methods)
 
 ---
 
@@ -65,7 +66,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -203,7 +204,8 @@ Client                              Server
     "cronManagement": true,
     "heartbeatManagement": true,
     "skillsManagement": true,
-    "commandManagement": true
+    "commandManagement": true,
+    "modelCatalogManagement": true
   }
 }
 ```
@@ -223,6 +225,7 @@ Client                              Server
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). Always `true` when the server has a `SkillsLoader` configured. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). Always `true` when CommandRegistry is available. |
+| `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). Present and `true` when workspace config is available for resolving merged `ApiKey` and `EndPoint`. |
 
 ### 3.3 `initialized`
 
@@ -2708,3 +2711,67 @@ Returns runtime status for all configured social and external channels.
 ### 20.4 Capability Advertisement
 
 Clients must check `capabilities.channelStatus` before calling `channel/status`. The capability is present and `true` when the AppServer has a `IChannelStatusProvider` configured, which requires an active `ChannelRunner` instance or a workspace config with at least one social/external channel section.
+
+---
+
+## 21. Model Catalog Methods
+
+### 21.1 Scope
+
+These methods expose provider model discovery based on the server's merged workspace configuration (`ApiKey`, `EndPoint`) so wire clients can populate model selectors without hardcoding model ids.
+
+Clients must check `capabilities.modelCatalogManagement` in the `initialize` response before calling `model/list`. If absent or `false`, the server returns `-32601` (Method not found).
+
+### 21.2 `ModelCatalogItem` Wire DTO
+
+```json
+{
+  "id": "gpt-4o-mini",
+  "ownedBy": "openai",
+  "createdAt": "2025-06-12T00:00:00Z"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Model id used in `config.Model` / request payloads. |
+| `ownedBy` | string | Provider-reported owner string when available; may be empty. |
+| `createdAt` | string (ISO 8601 UTC) | Provider-reported creation time. |
+
+### 21.3 `model/list`
+
+Returns available models from the configured OpenAI-compatible endpoint.
+
+**Direction**: client → server (request)
+
+**Params**: `{}` (empty object) or omitted.
+
+**Result**:
+
+```json
+{
+  "success": true,
+  "models": [
+    {
+      "id": "gpt-4o-mini",
+      "ownedBy": "openai",
+      "createdAt": "2025-06-12T00:00:00Z"
+    }
+  ]
+}
+```
+
+On provider/config errors, the method still returns a successful JSON-RPC response with structured error fields:
+
+```json
+{
+  "success": false,
+  "models": [],
+  "errorCode": "MissingApiKey",
+  "errorMessage": "API key is not configured."
+}
+```
+
+### 21.4 Capability Advertisement
+
+`capabilities.modelCatalogManagement` is present and `true` when the AppServer has a workspace config path available and can resolve merged config values for model discovery.

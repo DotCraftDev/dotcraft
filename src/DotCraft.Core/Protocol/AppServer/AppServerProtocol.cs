@@ -199,6 +199,12 @@ public sealed class AppServerServerCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool ChannelStatus { get; set; }
+
+    /// <summary>
+    /// Server supports model catalog methods (<c>model/list</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ModelCatalogManagement { get; set; }
 }
 
 // ───── thread/start ─────
@@ -833,6 +839,43 @@ public sealed class ChannelListResult
     public List<ChannelInfo> Channels { get; set; } = [];
 }
 
+// ───── model/list (model catalog management) ─────
+
+/// <summary>
+/// Params for <see cref="AppServerMethods.ModelList"/>.
+/// </summary>
+public sealed class ModelListParams
+{
+}
+
+/// <summary>
+/// One provider model entry.
+/// </summary>
+public sealed class ModelCatalogItem
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string OwnedBy { get; set; } = string.Empty;
+
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.ModelList"/>.
+/// </summary>
+public sealed class ModelListResult
+{
+    public bool Success { get; set; }
+
+    public List<ModelCatalogItem> Models { get; set; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorMessage { get; set; }
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -850,6 +893,7 @@ public static class AppServerMethods
     /// See spec Section 20.
     /// </summary>
     public const string ChannelStatus = "channel/status";
+    public const string ModelList = "model/list";
     public const string ThreadStart = "thread/start";
     public const string ThreadResume = "thread/resume";
     public const string ThreadList = "thread/list";

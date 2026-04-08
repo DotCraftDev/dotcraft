@@ -52,6 +52,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [mentionDismissed, setMentionDismissed] = useState(false)
   /** Agent/plan before a thread exists; applied when the first thread is created. */
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
+  const [modelName, setModelName] = useState<string>('Default')
   const sendInFlightRef = useRef(false)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
@@ -60,6 +61,12 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
   const showMentionPopover = atQuery !== null && !mentionDismissed
+  const workspaceConfigPath = useMemo(() => {
+    if (!workspacePath) return ''
+    const normalized = workspacePath.replace(/[\\/]+$/, '')
+    const sep = normalized.includes('\\') ? '\\' : '/'
+    return `${normalized}${sep}.craft${sep}config.json`
+  }, [workspacePath])
 
   const suggestions: Suggestion[] = useMemo(
     () => [
@@ -105,6 +112,37 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       richRef.current?.focus()
     }
   }, [isConnected])
+
+  useEffect(() => {
+    let disposed = false
+    const loadModelName = async (): Promise<void> => {
+      if (!workspaceConfigPath) {
+        setModelName('Default')
+        return
+      }
+      try {
+        const raw = await window.api.file.readFile(workspaceConfigPath)
+        if (disposed) return
+        if (!raw.trim()) {
+          setModelName('Default')
+          return
+        }
+        const cfg = JSON.parse(raw) as Record<string, unknown>
+        const modelRaw = cfg.Model ?? cfg.model
+        const model = typeof modelRaw === 'string' && modelRaw.trim().length > 0
+          ? modelRaw
+          : 'Default'
+        setModelName(model)
+      } catch {
+        if (!disposed) setModelName('Default')
+      }
+    }
+
+    void loadModelName()
+    return () => {
+      disposed = true
+    }
+  }, [workspaceConfigPath])
 
   const saveDataUrlAsTemp = useCallback(
     async (dataUrl: string, fileName: string, mimeType: string): Promise<void> => {
@@ -510,7 +548,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
             <span style={{ color: 'var(--border-default)' }}>·</span>
 
             <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {t('composer.defaultModel')}
+              {modelName === 'Default' ? t('composer.defaultModel') : modelName}
             </span>
           </div>
         </div>
