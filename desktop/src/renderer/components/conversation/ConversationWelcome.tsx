@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { useModelCatalogStore } from '../../stores/modelCatalogStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
 import type { ImageAttachment, ThreadMode } from '../../types/conversation'
+import type { ThreadSummary } from '../../types/thread'
 import { FileSearchPopover } from './FileSearchPopover'
 import { ImageStrip } from './ImageStrip'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
@@ -53,18 +55,20 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   /** Agent/plan before a thread exists; applied when the first thread is created. */
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
   const [modelName, setModelName] = useState<string>('Default')
-  const [modelOptions, setModelOptions] = useState<string[]>([])
-  const [modelLoading, setModelLoading] = useState(false)
   const [modelApplying, setModelApplying] = useState(false)
   const sendInFlightRef = useRef(false)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const modelOptions = useModelCatalogStore((s) => s.modelOptions)
+  const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const { addThread, setActiveThreadId } = useThreadStore()
 
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
   const showMentionPopover = atQuery !== null && !mentionDismissed
+  const modelApiAvailable = isConnected && capabilities?.modelCatalogManagement === true
+  const modelLoading = modelApiAvailable && modelCatalogStatus === 'loading'
   const workspaceConfigPath = useMemo(() => {
     if (!workspacePath) return ''
     const normalized = workspacePath.replace(/[\\/]+$/, '')
@@ -144,10 +148,9 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   useEffect(() => {
     let disposed = false
-    const loadModelState = async (): Promise<void> => {
+    const loadModelName = async (): Promise<void> => {
       if (!workspaceConfigPath) {
         setModelName('Default')
-        setModelOptions([])
         return
       }
 
@@ -158,51 +161,24 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       } catch {
         if (!disposed) setModelName('Default')
       }
-
-      const canListModels =
-        isConnected &&
-        capabilities?.modelCatalogManagement === true
-      if (!canListModels) {
-        if (!disposed) setModelOptions([])
-        return
-      }
-
-      setModelLoading(true)
-      try {
-        const result = await window.api.appServer.listModels()
-        if (disposed) return
-        const typed = result as {
-          success?: boolean
-          models?: Array<{ id?: string; Id?: string }>
-        }
-        const options = typed.success && Array.isArray(typed.models)
-          ? typed.models.map((m) => String(m.id ?? m.Id ?? '').trim()).filter(Boolean)
-          : []
-        setModelOptions(Array.from(new Set(options)).sort((a, b) => a.localeCompare(b)))
-      } catch {
-        if (!disposed) setModelOptions([])
-      } finally {
-        if (!disposed) setModelLoading(false)
-      }
     }
 
-    void loadModelState()
+    void loadModelName()
     return () => {
       disposed = true
     }
   }, [
-    capabilities?.modelCatalogManagement,
-    isConnected,
     readWorkspaceConfig,
     resolveModelFromConfig,
     workspaceConfigPath
   ])
 
   const effectiveModelOptions = useMemo(() => {
-    if (!modelName || modelName === 'Default') return modelOptions
-    if (modelOptions.includes(modelName)) return modelOptions
-    return [modelName, ...modelOptions]
-  }, [modelName, modelOptions])
+    const sourceOptions = modelApiAvailable ? modelOptions : []
+    if (!modelName || modelName === 'Default') return sourceOptions
+    if (sourceOptions.includes(modelName)) return sourceOptions
+    return [modelName, ...sourceOptions]
+  }, [modelApiAvailable, modelName, modelOptions])
 
   const handleModelChange = useCallback(
     async (nextModel: string): Promise<void> => {
@@ -275,7 +251,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
           workspacePath
         },
         historyMode: 'server'
-      }) as { thread: { id: string; displayName?: string | null; status?: string; createdAt?: string } }
+      }) as { thread: ThreadSummary }
 
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
@@ -630,14 +606,14 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
             <span style={{ color: 'var(--border-default)' }}>·</span>
 
-            {effectiveModelOptions.length > 0 ? (
+            {(effectiveModelOptions.length > 0 || modelLoading) ? (
               <select
                 value={modelName}
                 disabled={modelLoading || modelApplying || starting}
                 onChange={(e) => {
                   void handleModelChange(e.target.value)
                 }}
-                title={modelLoading ? 'Loading models...' : 'Select model'}
+                title={modelLoading ? t('composer.modelListLoading') : t('composer.selectModelTitle')}
                 style={{
                   fontSize: '12px',
                   color: (modelApplying || starting) ? 'var(--text-dimmed)' : 'var(--text-primary)',
@@ -646,24 +622,41 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   borderRadius: '6px',
                   padding: '2px 6px',
                   minHeight: '22px',
-                  maxWidth: '220px',
+                  width: '170px',
+                  minWidth: '170px',
+                  maxWidth: '170px',
                   outline: 'none',
-                  cursor: (modelApplying || starting) ? 'default' : 'pointer'
+                  cursor: (modelLoading || modelApplying || starting) ? 'default' : 'pointer'
                 }}
               >
-                {effectiveModelOptions.map((opt) => (
+                {modelLoading ? (
+                  <option value={modelName}>
+                    {t('composer.modelListLoading')}
+                  </option>
+                ) : effectiveModelOptions.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt === 'Default' ? t('composer.defaultModel') : opt}
                   </option>
                 ))}
               </select>
             ) : (
-              <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                {modelLoading
-                  ? 'Loading models...'
-                  : modelName === 'Default'
-                    ? t('composer.defaultModel')
-                    : modelName}
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-dimmed)',
+                  display: 'inline-block',
+                  width: '170px',
+                  minWidth: '170px',
+                  maxWidth: '170px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+                title={modelName === 'Default' ? t('composer.defaultModel') : modelName}
+              >
+                {modelName === 'Default'
+                  ? t('composer.defaultModel')
+                  : modelName}
               </span>
             )}
           </div>

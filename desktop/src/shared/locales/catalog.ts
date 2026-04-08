@@ -269,6 +269,8 @@ const MESSAGES_EN = {
   'composer.mode.agent': 'Agent',
   'composer.mode.plan': 'Plan',
   'composer.defaultModel': 'Default',
+  'composer.modelListLoading': 'Loading model list...',
+  'composer.selectModelTitle': 'Select model',
 
   // Detail / git (Phase 2)
   'commit.title': 'Commit Changes',
@@ -737,6 +739,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'composer.mode.agent': 'Agent',
   'composer.mode.plan': 'Plan',
   'composer.defaultModel': '默认',
+  'composer.modelListLoading': '正在加载模型列表...',
+  'composer.selectModelTitle': '选择模型',
 
   'commit.title': '提交更改',
   'commit.filesHeader': '待提交文件（{{written}} / {{all}}{{reverted}}）：',

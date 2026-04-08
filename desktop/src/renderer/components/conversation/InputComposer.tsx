@@ -482,12 +482,12 @@ export function InputComposer({
 
           <span style={{ color: 'var(--border-default)' }}>·</span>
 
-          {effectiveModelOptions.length > 0 ? (
+          {(effectiveModelOptions.length > 0 || modelLoading) ? (
             <select
               value={modelName}
               disabled={modelLoading || modelDisabled}
               onChange={(e) => onModelChange?.(e.target.value)}
-              title={modelLoading ? 'Loading models...' : 'Select model'}
+              title={modelLoading ? t('composer.modelListLoading') : t('composer.selectModelTitle')}
               style={{
                 fontSize: '12px',
                 color: modelDisabled ? 'var(--text-dimmed)' : 'var(--text-primary)',
@@ -496,20 +496,39 @@ export function InputComposer({
                 borderRadius: '6px',
                 padding: '2px 6px',
                 minHeight: '22px',
-                maxWidth: '220px',
+                width: '170px',
+                minWidth: '170px',
+                maxWidth: '170px',
                 outline: 'none',
-                cursor: modelDisabled ? 'default' : 'pointer'
+                cursor: (modelDisabled || modelLoading) ? 'default' : 'pointer'
               }}
             >
-              {effectiveModelOptions.map((opt) => (
+              {modelLoading ? (
+                <option value={modelName}>
+                  {t('composer.modelListLoading')}
+                </option>
+              ) : effectiveModelOptions.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt === 'Default' ? t('composer.defaultModel') : opt}
                 </option>
               ))}
             </select>
           ) : (
-            <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {modelLoading ? 'Loading models...' : modelName === 'Default' ? t('composer.defaultModel') : modelName}
+            <span
+              style={{
+                fontSize: '12px',
+                color: 'var(--text-dimmed)',
+                display: 'inline-block',
+                width: '170px',
+                minWidth: '170px',
+                maxWidth: '170px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+              title={modelName === 'Default' ? t('composer.defaultModel') : modelName}
+            >
+              {modelName === 'Default' ? t('composer.defaultModel') : modelName}
             </span>
           )}
         </div>

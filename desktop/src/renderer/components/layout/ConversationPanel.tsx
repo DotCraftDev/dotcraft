@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useThreadStore } from '../../stores/threadStore'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { useModelCatalogStore } from '../../stores/modelCatalogStore'
 import { addToast } from '../../stores/toastStore'
 import { ThreadHeader } from '../conversation/ThreadHeader'
 import { MessageStream } from '../conversation/MessageStream'
@@ -27,9 +28,9 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
   const connectionStatus = useConnectionStore((s) => s.status)
   const connectionErrorMessage = useConnectionStore((s) => s.errorMessage)
   const capabilities = useConnectionStore((s) => s.capabilities)
-  const [modelOptions, setModelOptions] = useState<string[]>([])
+  const modelOptions = useModelCatalogStore((s) => s.modelOptions)
+  const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const [modelName, setModelName] = useState<string>('Default')
-  const [modelLoading, setModelLoading] = useState(false)
   const [modelApplying, setModelApplying] = useState(false)
 
   const showReconnectionBanner = connectionStatus === 'disconnected'
@@ -37,6 +38,7 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
     capabilities?.modelCatalogManagement === true &&
     connectionStatus === 'connected' &&
     Boolean(activeThreadId)
+  const modelLoading = modelApiAvailable && modelCatalogStatus === 'loading'
 
   const workspaceConfigPath = useMemo(() => {
     if (!workspacePath) return ''
@@ -84,54 +86,19 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
 
   useEffect(() => {
     let disposed = false
-    const loadModels = async (): Promise<void> => {
-      if (!modelApiAvailable || !activeThread) {
-        setModelOptions([])
-        try {
-          const workspaceCfg = await readWorkspaceConfig()
-          if (disposed) return
-          setModelName(resolveEffectiveModel(activeThread, workspaceCfg))
-        } catch {
-          const modelFromThread = activeThread?.configuration?.model ?? activeThread?.configuration?.Model
-          setModelName(typeof modelFromThread === 'string' && modelFromThread.trim() ? modelFromThread : 'Default')
-        }
-        return
-      }
-
-      setModelLoading(true)
+    const loadEffectiveModel = async (): Promise<void> => {
       try {
-        const [modelRes, workspaceCfg] = await Promise.all([
-          window.api.appServer.listModels(),
-          readWorkspaceConfig()
-        ])
+        const workspaceCfg = await readWorkspaceConfig()
         if (disposed) return
-        const typed = modelRes as {
-          success?: boolean
-          models?: Array<{ id?: string; Id?: string }>
-          errorMessage?: string
-        }
-        const options = typed.success && Array.isArray(typed.models)
-          ? typed.models.map((m) => String(m.id ?? m.Id ?? '').trim()).filter(Boolean)
-          : []
-        setModelOptions(Array.from(new Set(options)).sort((a, b) => a.localeCompare(b)))
         setModelName(resolveEffectiveModel(activeThread, workspaceCfg))
       } catch {
         if (disposed) return
-        setModelOptions([])
-        try {
-          const workspaceCfg = await readWorkspaceConfig()
-          if (disposed) return
-          setModelName(resolveEffectiveModel(activeThread, workspaceCfg))
-        } catch {
-          const modelFromThread = activeThread?.configuration?.model ?? activeThread?.configuration?.Model
-          setModelName(typeof modelFromThread === 'string' && modelFromThread.trim() ? modelFromThread : 'Default')
-        }
-      } finally {
-        if (!disposed) setModelLoading(false)
+        const modelFromThread = activeThread?.configuration?.model ?? activeThread?.configuration?.Model
+        setModelName(typeof modelFromThread === 'string' && modelFromThread.trim() ? modelFromThread : 'Default')
       }
     }
 
-    void loadModels()
+    void loadEffectiveModel()
     return () => {
       disposed = true
     }
@@ -139,7 +106,6 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
     activeThreadId,
     activeThread?.configuration?.Model,
     activeThread?.configuration?.model,
-    modelApiAvailable,
     readWorkspaceConfig,
     resolveEffectiveModel
   ])

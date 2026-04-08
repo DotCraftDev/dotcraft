@@ -14,6 +14,7 @@ import { useAutomationsStore } from './stores/automationsStore'
 import { useCronStore, type CronJobWire } from './stores/cronStore'
 import { useReviewPanelStore } from './stores/reviewPanelStore'
 import type { AutomationTask } from './stores/automationsStore'
+import { useModelCatalogStore } from './stores/modelCatalogStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -77,6 +78,7 @@ export function App(): JSX.Element {
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
   const { status, errorType, errorMessage } = useConnectionStore()
+  const capabilities = useConnectionStore((s) => s.capabilities)
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
   const activeMainView = useUIStore((s) => s.activeMainView)
   const {
@@ -196,6 +198,7 @@ export function App(): JSX.Element {
     if (status === 'disconnected' || status === 'error') {
       useThreadStore.getState().reset()
       useConversationStore.getState().reset()
+      useModelCatalogStore.getState().reset()
       useCronStore.getState().reset()
       useAutomationsStore.getState().selectTask(null)
       useUIStore.getState().setAutomationsTab('tasks')
@@ -217,6 +220,16 @@ export function App(): JSX.Element {
     }
     prevStatusRef.current = status
   }, [status, reloadThreadList])
+
+  useEffect(() => {
+    if (status === 'connected' && capabilities?.modelCatalogManagement === true) {
+      void useModelCatalogStore.getState().loadIfNeeded()
+      return
+    }
+    if (status === 'disconnected' || status === 'error') {
+      useModelCatalogStore.getState().reset()
+    }
+  }, [capabilities?.modelCatalogManagement, status])
 
   // -------------------------------------------------------------------------
   // Wire protocol notifications
