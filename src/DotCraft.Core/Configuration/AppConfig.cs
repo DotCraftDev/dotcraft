@@ -21,7 +21,7 @@ public sealed class AppConfig
 
     /// <summary>
     /// Controls provider reasoning/thinking behavior.
-    /// Enabled by default for providers that support reasoning.
+    /// Disabled by default; enable when you want providers that support reasoning to use it.
     /// </summary>
     [ConfigField(Ignore = true)]
     public ReasoningConfig Reasoning { get; set; } = new();
@@ -334,7 +334,7 @@ public sealed class AppConfig
         /// Unsupported providers or models may ignore this setting.
         /// </summary>
         [ConfigField(Hint = "Request provider reasoning/thinking support when available.")]
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; set; } = false;
 
         /// <summary>
         /// Requested reasoning effort level when reasoning is enabled.

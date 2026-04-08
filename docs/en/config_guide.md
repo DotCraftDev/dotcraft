@@ -77,7 +77,7 @@ Controls the Reasoning/Thinking behavior of the LLM provider. Providers or model
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
-| `Reasoning.Enabled` | Whether to request reasoning support from the provider | `true` |
+| `Reasoning.Enabled` | Whether to request reasoning support from the provider | `false` |
 | `Reasoning.Effort` | Reasoning depth: `None` / `Low` / `Medium` / `High` / `ExtraHigh` | `Medium` |
 | `Reasoning.Output` | Whether reasoning content is exposed in the response: `None` / `Summary` / `Full` | `Full` |
 
