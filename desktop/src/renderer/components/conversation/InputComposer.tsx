@@ -204,6 +204,7 @@ export function InputComposer({
     const trimmed = text.trim()
     if (!trimmed && images.length === 0) return
     if (isWaitingApproval) return
+    if (modelLoading) return
 
     if (isRunning) {
       if (images.length > 0) {
@@ -278,7 +279,7 @@ export function InputComposer({
       console.error('turn/start failed:', err)
       useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
     }
-  }, [images, isRunning, isWaitingApproval, threadId, workspacePath, setPendingMessage, t])
+  }, [images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
@@ -305,8 +306,8 @@ export function InputComposer({
 
   const canSend = useMemo(() => {
     const textLen = (richRef.current?.getText() ?? '').trim().length
-    return (textLen > 0 || images.length > 0) && !isWaitingApproval
-  }, [contentRevision, images.length, isWaitingApproval])
+    return (textLen > 0 || images.length > 0) && !isWaitingApproval && !modelLoading
+  }, [contentRevision, images.length, isWaitingApproval, modelLoading])
 
   const effectiveModelOptions = useMemo(() => {
     if (!modelName || modelName === 'Default') return modelOptions
@@ -375,7 +376,7 @@ export function InputComposer({
               <RichInputArea
                 ref={richRef}
                 disabled={isWaitingApproval}
-                suppressSubmit={showMentionPopover}
+                suppressSubmit={showMentionPopover || modelLoading}
                 placeholder={
                   isWaitingApproval ? t('composer.placeholder.approval') : t('composer.placeholder.ask')
                 }
@@ -482,12 +483,31 @@ export function InputComposer({
 
           <span style={{ color: 'var(--border-default)' }}>·</span>
 
-          {(effectiveModelOptions.length > 0 || modelLoading) ? (
+          {modelLoading ? (
+            <span
+              role="status"
+              aria-live="polite"
+              style={{
+                fontSize: '12px',
+                color: 'var(--text-dimmed)',
+                display: 'inline-block',
+                width: '170px',
+                minWidth: '170px',
+                maxWidth: '170px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+              title={t('composer.modelListLoading')}
+            >
+              {t('composer.modelListLoading')}
+            </span>
+          ) : effectiveModelOptions.length > 0 ? (
             <select
               value={modelName}
-              disabled={modelLoading || modelDisabled}
+              disabled={modelDisabled}
               onChange={(e) => onModelChange?.(e.target.value)}
-              title={modelLoading ? t('composer.modelListLoading') : t('composer.selectModelTitle')}
+              title={t('composer.selectModelTitle')}
               style={{
                 fontSize: '12px',
                 color: modelDisabled ? 'var(--text-dimmed)' : 'var(--text-primary)',
@@ -500,14 +520,10 @@ export function InputComposer({
                 minWidth: '170px',
                 maxWidth: '170px',
                 outline: 'none',
-                cursor: (modelDisabled || modelLoading) ? 'default' : 'pointer'
+                cursor: modelDisabled ? 'default' : 'pointer'
               }}
             >
-              {modelLoading ? (
-                <option value={modelName}>
-                  {t('composer.modelListLoading')}
-                </option>
-              ) : effectiveModelOptions.map((opt) => (
+              {effectiveModelOptions.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt === 'Default' ? t('composer.defaultModel') : opt}
                 </option>

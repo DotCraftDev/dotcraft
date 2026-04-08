@@ -232,7 +232,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     if (
       (!trimmed && images.length === 0) ||
       sendInFlightRef.current ||
-      connectionStatus !== 'connected'
+      connectionStatus !== 'connected' ||
+      modelLoading
     ) {
       return
     }
@@ -271,7 +272,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       sendInFlightRef.current = false
       setStarting(false)
     }
-  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode, modelName])
+  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode, modelName, modelLoading])
 
   const onPasteImage = useCallback(
     (file: File): void => {
@@ -331,8 +332,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   const canSend = useMemo(() => {
     const textLen = (richRef.current?.getText() ?? '').trim().length
-    return (textLen > 0 || images.length > 0) && isConnected && !starting
-  }, [contentRevision, images.length, isConnected, starting])
+    return (textLen > 0 || images.length > 0) && isConnected && !starting && !modelLoading
+  }, [contentRevision, images.length, isConnected, starting, modelLoading])
 
   return (
     <div
@@ -511,7 +512,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               <RichInputArea
                 ref={richRef}
                 disabled={busy}
-                suppressSubmit={showMentionPopover}
+                suppressSubmit={showMentionPopover || modelLoading}
                 placeholder={
                   isConnected
                     ? t('welcomeComposer.placeholder.ask')
@@ -608,14 +609,33 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
             <span style={{ color: 'var(--border-default)' }}>·</span>
 
-            {(effectiveModelOptions.length > 0 || modelLoading) ? (
+            {modelLoading ? (
+              <span
+                role="status"
+                aria-live="polite"
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-dimmed)',
+                  display: 'inline-block',
+                  width: '170px',
+                  minWidth: '170px',
+                  maxWidth: '170px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+                title={t('composer.modelListLoading')}
+              >
+                {t('composer.modelListLoading')}
+              </span>
+            ) : effectiveModelOptions.length > 0 ? (
               <select
                 value={modelName}
-                disabled={modelLoading || modelApplying || starting}
+                disabled={modelApplying || starting}
                 onChange={(e) => {
                   void handleModelChange(e.target.value)
                 }}
-                title={modelLoading ? t('composer.modelListLoading') : t('composer.selectModelTitle')}
+                title={t('composer.selectModelTitle')}
                 style={{
                   fontSize: '12px',
                   color: (modelApplying || starting) ? 'var(--text-dimmed)' : 'var(--text-primary)',
@@ -628,14 +648,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   minWidth: '170px',
                   maxWidth: '170px',
                   outline: 'none',
-                  cursor: (modelLoading || modelApplying || starting) ? 'default' : 'pointer'
+                  cursor: (modelApplying || starting) ? 'default' : 'pointer'
                 }}
               >
-                {modelLoading ? (
-                  <option value={modelName}>
-                    {t('composer.modelListLoading')}
-                  </option>
-                ) : effectiveModelOptions.map((opt) => (
+                {effectiveModelOptions.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt === 'Default' ? t('composer.defaultModel') : opt}
                   </option>

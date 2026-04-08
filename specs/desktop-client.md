@@ -1186,13 +1186,13 @@ A dropdown control in the bottom-left of the composer:
 - On user selection, Desktop persists the workspace `Model` field in `.craft/config.json` immediately (without overwriting unrelated keys).
 - For an active thread, Desktop applies the selection via `thread/config/update` so subsequent turns use the new model.
 - For Welcome (no thread yet), Desktop carries the selected model in `pendingWelcomeTurn` and applies it to the newly created thread via `thread/config/update` before the first `turn/start`.
-- While the shared catalog is loading, the selector is disabled and displays a localized loading label.
+- While the shared catalog is loading, the UI shows a localized loading label in the same plain-text slot used when the catalog is unavailable (not a dropdown).
 - If `model/list` is unsupported or fails, fallback is silent (no warning toast loops). The UI continues to display the effective configured model from workspace config; `Default` is shown only when config has no model.
 
 ### 12.4 Send Button
 
 - **Active state**: Accent-colored arrow icon. Clickable when input is non-empty and turn is idle.
-- **Disabled state**: Dimmed when input is empty.
+- **Disabled state**: Dimmed when input is empty. While the shared model catalog is loading (when model catalog management is enabled), Send is disabled and Enter does not submit, on both Welcome and in-thread composers.
 - **Loading state**: Shows a spinner when a turn is being submitted.
 - **Cancel state**: When a turn is running, the send button transforms into a "Stop" button (square icon) that sends `turn/interrupt`.
 
