@@ -182,9 +182,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   const effectiveModelOptions = useMemo(() => {
     const sourceOptions = modelApiAvailable ? modelOptions : []
-    if (!modelName || modelName === 'Default') return sourceOptions
-    if (sourceOptions.includes(modelName)) return sourceOptions
-    return [modelName, ...sourceOptions]
+    const withDefault = ['Default', ...sourceOptions.filter((o) => o !== 'Default')]
+    if (!modelName || modelName === 'Default') return withDefault
+    if (withDefault.includes(modelName)) return withDefault
+    return [modelName, ...withDefault]
   }, [modelApiAvailable, modelName, modelOptions])
 
   const handleModelChange = useCallback(
