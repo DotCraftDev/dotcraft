@@ -76,7 +76,8 @@ export function App(): JSX.Element {
 
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
-  const { status, errorType } = useConnectionStore()
+  const { status, errorType, errorMessage } = useConnectionStore()
+  const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
   const activeMainView = useUIStore((s) => s.activeMainView)
   const {
     setThreadList,
@@ -135,6 +136,20 @@ export function App(): JSX.Element {
       )
     }
   }, [workspacePath, workspaceName, locale])
+
+  useEffect(() => {
+    if (!workspacePath || status !== 'connecting') {
+      setShowSlowConnectingHint(false)
+      return
+    }
+    const timer = setTimeout(() => {
+      setShowSlowConnectingHint(true)
+    }, 6000)
+    return () => {
+      clearTimeout(timer)
+      setShowSlowConnectingHint(false)
+    }
+  }, [status, workspacePath])
 
   useEffect(() => {
     window.api.settings
@@ -896,6 +911,22 @@ export function App(): JSX.Element {
       <>
         <ConfirmDialogHost />
         <ToastContainer />
+        {showSlowConnectingHint && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'rgba(245, 158, 11, 0.12)',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              flexShrink: 0
+            }}
+          >
+            {errorMessage?.trim() || translate(locale, 'connection.startupTakingLong')}
+          </div>
+        )}
         <ThreePanel
           sidebar={<Sidebar workspaceName={workspaceName} workspacePath={workspacePath} />}
           conversation={

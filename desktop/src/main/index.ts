@@ -51,6 +51,11 @@ let currentWorkspacePath = ''
 let crashRetries = 0
 /** Last DashBoard URL from a successful initialize (for View menu). */
 let lastDashboardUrl: string | null = null
+let lastConnectionStatus: ConnectionStatusPayload = { status: 'disconnected' }
+let crashRetryTimer: ReturnType<typeof setTimeout> | null = null
+let isAppQuitting = false
+let ipcHandlersRegistered = false
+let finalQuitCleanupDone = false
 
 /** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
 function resolveWindowIconPath(): string | null {
@@ -68,6 +73,7 @@ function resolveWindowIconPath(): string | null {
 let sharedSettings: AppSettings = {}
 const DEFAULT_WS_HOST = '127.0.0.1'
 const DEFAULT_WS_PORT = 9100
+const WINDOW_SHOW_FALLBACK_MS = 3000
 
 // ─── Workspace resolution ─────────────────────────────────────────────────────
 
@@ -165,6 +171,93 @@ async function waitForReadyz(host: string, port: number, timeoutMs = 15_000): Pr
   throw new Error(`AppServer WebSocket endpoint did not become ready in ${timeoutMs}ms`)
 }
 
+function clearCrashRetryTimer(): boolean {
+  if (crashRetryTimer) {
+    clearTimeout(crashRetryTimer)
+    crashRetryTimer = null
+    return true
+  }
+  return false
+}
+
+function releaseCurrentWorkspaceLock(): void {
+  if (!currentWorkspacePath) return
+  releaseWorkspaceLock(currentWorkspacePath)
+  currentWorkspacePath = ''
+}
+
+function registerDesktopIpcHandlers(
+  workspacePath: string,
+  getWireClient: () => WireProtocolClient | null
+): void {
+  if (ipcHandlersRegistered) {
+    unregisterIpcHandlers()
+    ipcHandlersRegistered = false
+  }
+  registerIpcHandlers(null, getWireClient, workspacePath, buildCallbacks())
+  ipcHandlersRegistered = true
+}
+
+function unregisterDesktopIpcHandlers(): boolean {
+  if (!ipcHandlersRegistered) {
+    return false
+  }
+  unregisterIpcHandlers()
+  ipcHandlersRegistered = false
+  return true
+}
+
+function teardownRuntime(
+  reason: string,
+  options?: {
+    releaseWorkspaceLock?: boolean
+    clearMainWindow?: boolean
+    cleanupIpcHandlers?: boolean
+  }
+): void {
+  const clearedCrashRetry = clearCrashRetryTimer()
+  const cleanedIpc = options?.cleanupIpcHandlers
+    ? unregisterDesktopIpcHandlers()
+    : false
+  const hadAppServer = appServerManager !== null
+  const hadWireClient = wireClient !== null
+  appServerManager?.shutdown()
+  wireClient?.dispose()
+  appServerManager = null
+  wireClient = null
+  let releasedWorkspaceLock = false
+  if (options?.releaseWorkspaceLock) {
+    releasedWorkspaceLock = currentWorkspacePath !== ''
+    releaseCurrentWorkspaceLock()
+  }
+  let clearedMainWindow = false
+  if (options?.clearMainWindow) {
+    clearedMainWindow = mainWindow !== null
+    mainWindow = null
+  }
+  const changed =
+    clearedCrashRetry ||
+    cleanedIpc ||
+    hadAppServer ||
+    hadWireClient ||
+    releasedWorkspaceLock ||
+    clearedMainWindow
+  if (changed) {
+    console.info(`[desktop] teardown runtime: ${reason}`)
+  }
+}
+
+function showWindowSafely(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  if (win.isMinimized()) {
+    win.restore()
+  }
+  if (!win.isVisible()) {
+    win.show()
+  }
+  win.focus()
+}
+
 // ─── Window creation ──────────────────────────────────────────────────────────
 
 function createWindow(workspacePath: string | null): BrowserWindow {
@@ -205,18 +298,56 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   const loc = normalizeLocale(sharedSettings.locale)
   win.setTitle(translate(loc, 'app.titleWithWorkspace', { name: workspaceName }))
 
-  if (!isDev) {
-    win.once('ready-to-show', () => {
-      win.show()
-    })
+  let showFallbackTimer: ReturnType<typeof setTimeout> | null = null
+  const clearShowFallbackTimer = (): void => {
+    if (showFallbackTimer) {
+      clearTimeout(showFallbackTimer)
+      showFallbackTimer = null
+    }
   }
 
+  if (!isDev) {
+    win.once('ready-to-show', () => {
+      clearShowFallbackTimer()
+      showWindowSafely(win)
+    })
+    showFallbackTimer = setTimeout(() => {
+      console.warn('[desktop] ready-to-show timeout; forcing window show fallback')
+      showWindowSafely(win)
+    }, WINDOW_SHOW_FALLBACK_MS)
+  }
+
+  win.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame || errorCode === -3) {
+        return
+      }
+      const message = `Renderer failed to load (${errorCode}): ${errorDescription} (${validatedURL || 'unknown URL'})`
+      console.error('[desktop] did-fail-load', message)
+      showWindowSafely(win)
+      emitConnectionStatus(win, { status: 'error', errorMessage: message })
+    }
+  )
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    const message = `Renderer process exited (${details.reason})`
+    console.error('[desktop] render-process-gone', details)
+    showWindowSafely(win)
+    emitConnectionStatus(win, { status: 'error', errorMessage: message })
+  })
+
+  win.webContents.on('unresponsive', () => {
+    console.warn('[desktop] renderer became unresponsive')
+    showWindowSafely(win)
+  })
+
   win.on('close', () => {
-    releaseWorkspaceLock(currentWorkspacePath)
-    appServerManager?.shutdown()
-    wireClient?.dispose()
-    appServerManager = null
-    wireClient = null
+    teardownRuntime('window close', { releaseWorkspaceLock: true })
+  })
+
+  win.on('closed', () => {
+    clearShowFallbackTimer()
     mainWindow = null
   })
 
@@ -256,6 +387,9 @@ async function connectViaWebSocket(
   workspacePath: string,
   wsUrl: string
 ): Promise<void> {
+  if (isAppQuitting || !mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
   const win = mainWindow!
   emitConnectionStatus(win, { status: 'connecting' })
   reregisterIpcForWorkspace(workspacePath)
@@ -339,17 +473,20 @@ function buildCallbacks(): IpcHandlerCallbacks {
         refreshAppMenu()
       }
     },
-    getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings)
+    getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
+    getConnectionStatus: () => lastConnectionStatus
   }
 }
 
 /** Re-register IPC handlers with the current workspace path (used on workspace switch). */
 function reregisterIpcForWorkspace(workspacePath: string): void {
-  unregisterIpcHandlers()
-  registerIpcHandlers(null, () => wireClient, workspacePath, buildCallbacks())
+  registerDesktopIpcHandlers(workspacePath, () => wireClient)
 }
 
 async function connectToAppServer(workspacePath: string): Promise<void> {
+  if (isAppQuitting) {
+    return
+  }
   // Acquire the lock BEFORE tearing anything down so a failure leaves the
   // current connection intact and propagates as an exception to the caller
   // (e.g. the renderer's workspace:switch IPC).
@@ -368,10 +505,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   }
 
   // Tear down previous connection
-  appServerManager?.shutdown()
-  wireClient?.dispose()
-  wireClient = null
-  appServerManager = null
+  teardownRuntime('switch/reconnect before new connect')
 
   currentWorkspacePath = workspacePath
 
@@ -423,6 +557,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   })
 
   manager.on('crash', () => {
+    console.error('[desktop] appserver crashed')
     wireClient?.dispose()
     wireClient = null
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -435,7 +570,11 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
 
     if (crashRetries < 3) {
       crashRetries++
-      setTimeout(() => {
+      clearCrashRetryTimer()
+      crashRetryTimer = setTimeout(() => {
+        if (isAppQuitting) {
+          return
+        }
         if (mainWindow && !mainWindow.isDestroyed()) {
           void connectToAppServer(currentWorkspacePath)
         }
@@ -445,6 +584,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
 
   manager.on('started', async () => {
     crashRetries = 0
+    clearCrashRetryTimer()
 
     if (connectionMode === 'websocket') {
       try {
@@ -503,6 +643,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
         })
       }
     } catch (err) {
+      console.error('[desktop] appserver initialize failed', err)
       const message = err instanceof Error ? err.message : String(err)
       const isTimeout = message.includes('timed out')
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -614,12 +755,17 @@ function refreshAppMenu(): void {
 function emitConnectionStatus(win: BrowserWindow, payload: ConnectionStatusPayload): void {
   if (payload.status === 'connected') {
     const sanitized = sanitizeHttpOrHttpsUrl(payload.dashboardUrl)
+    lastConnectionStatus = {
+      ...payload,
+      dashboardUrl: sanitized ?? undefined
+    }
     lastDashboardUrl = sanitized
     broadcastConnectionStatus(win, {
       ...payload,
       dashboardUrl: sanitized ?? undefined
     })
   } else {
+    lastConnectionStatus = { ...payload, dashboardUrl: undefined }
     lastDashboardUrl = null
     broadcastConnectionStatus(win, payload)
   }
@@ -649,6 +795,7 @@ function registerMenuPopupIpc(): void {
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  isAppQuitting = false
   registerMenuPopupIpc()
   sharedSettings = loadSettings()
   refreshAppMenu()
@@ -684,11 +831,7 @@ app.whenReady().then(() => {
   mainWindow = win
   currentWorkspacePath = workspacePath ?? ''
 
-  if (workspacePath) {
-    registerIpcHandlers(null, () => wireClient, workspacePath, buildCallbacks())
-  } else {
-    registerIpcHandlers(null, () => null, '', buildCallbacks())
-  }
+  registerDesktopIpcHandlers(workspacePath ?? '', () => wireClient)
 
   if (import.meta.env.DEV) {
     win.loadURL('http://localhost:5173')
@@ -708,7 +851,8 @@ app.whenReady().then(() => {
   })
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length === 0) {
       sharedSettings = loadSettings()
       const wsPath = resolveWorkspacePath(sharedSettings)
       const newWin = createWindow(wsPath)
@@ -718,8 +862,7 @@ app.whenReady().then(() => {
       if (wsPath) {
         reregisterIpcForWorkspace(wsPath)
       } else {
-        unregisterIpcHandlers()
-        registerIpcHandlers(null, () => null, '', buildCallbacks())
+        registerDesktopIpcHandlers('', () => null)
       }
 
       if (import.meta.env.DEV) {
@@ -735,18 +878,36 @@ app.whenReady().then(() => {
           emitConnectionStatus(newWin, { status: 'disconnected' })
         }
       })
+    } else {
+      showWindowSafely(windows[0]!)
     }
   })
 })
 
 app.on('window-all-closed', () => {
-  releaseWorkspaceLock(currentWorkspacePath)
-  appServerManager?.shutdown()
-  wireClient?.dispose()
-  appServerManager = null
-  wireClient = null
-  mainWindow = null
-  if (process.platform !== 'darwin') {
+  if (process.platform === 'darwin') {
+    teardownRuntime('window-all-closed', {
+      releaseWorkspaceLock: true,
+      clearMainWindow: true,
+      cleanupIpcHandlers: true
+    })
+    return
+  }
+  // Non-macOS exits via app.quit() -> before-quit for final cleanup.
+  if (!isAppQuitting) {
     app.quit()
   }
+})
+
+app.on('before-quit', () => {
+  isAppQuitting = true
+  if (finalQuitCleanupDone) {
+    return
+  }
+  finalQuitCleanupDone = true
+  teardownRuntime('before-quit', {
+    releaseWorkspaceLock: true,
+    clearMainWindow: true,
+    cleanupIpcHandlers: true
+  })
 })
