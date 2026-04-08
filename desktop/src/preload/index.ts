@@ -106,6 +106,14 @@ const api = {
     },
 
     /**
+     * Returns the latest connection status snapshot from Main Process.
+     * This avoids missing early status events during renderer bootstrap.
+     */
+    getConnectionStatus(): Promise<ConnectionStatusPayload> {
+      return ipcRenderer.invoke('appserver:get-connection-status')
+    },
+
+    /**
      * Subscribes to Wire Protocol notifications forwarded from Main.
      * Returns an unsubscribe function.
      */

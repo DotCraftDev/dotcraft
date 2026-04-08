@@ -23,11 +23,15 @@ export interface AppServerManagerOptions {
  * Emits lifecycle events for the WireProtocolClient and Main Process to consume.
  */
 export class AppServerManager extends EventEmitter {
+  private static readonly STDIO_TO_TERM_GRACE_MS = 700
+  private static readonly FORCE_KILL_TIMEOUT_MS = 2200
+
   private process: ChildProcess | null = null
   private _workspacePath: string
   private _binaryPath: string | undefined
   private _listenUrl: string | undefined
   private _shutdownRequested = false
+  private _termTimer: ReturnType<typeof setTimeout> | null = null
   private _killTimer: ReturnType<typeof setTimeout> | null = null
 
   get stdin(): Writable | null {
@@ -91,6 +95,7 @@ export class AppServerManager extends EventEmitter {
    */
   spawn(): void {
     this._shutdownRequested = false
+    this.clearShutdownTimers()
 
     let binaryPath: string
     try {
@@ -125,10 +130,7 @@ export class AppServerManager extends EventEmitter {
 
     proc.on('exit', (code, signal) => {
       this.process = null
-      if (this._killTimer) {
-        clearTimeout(this._killTimer)
-        this._killTimer = null
-      }
+      this.clearShutdownTimers()
       if (this._shutdownRequested) {
         this.emit('stopped')
       } else {
@@ -137,42 +139,61 @@ export class AppServerManager extends EventEmitter {
     })
   }
 
+  private clearShutdownTimers(): void {
+    if (this._termTimer) {
+      clearTimeout(this._termTimer)
+      this._termTimer = null
+    }
+    if (this._killTimer) {
+      clearTimeout(this._killTimer)
+      this._killTimer = null
+    }
+  }
+
+  private tryKill(signal: NodeJS.Signals): void {
+    if (!this.process || this.process.killed) {
+      return
+    }
+    try {
+      this.process.kill(signal)
+    } catch {
+      // Process already gone
+    }
+  }
+
+  private scheduleForceKill(afterMs: number): void {
+    this._killTimer = setTimeout(() => {
+      this.tryKill('SIGKILL')
+    }, afterMs)
+  }
+
   /**
    * Gracefully shuts down the AppServer.
    * Closes stdin (sends EOF) when a pipe exists (stdio / ws+stdio).
    * When stdin is not piped (pure WebSocket listen mode), sends SIGTERM instead.
-   * Force-kills after 5s if still running.
+   * Escalates to SIGTERM/SIGKILL with short deadlines to avoid desktop-exit lag.
    */
   shutdown(): void {
     if (!this.process || this._shutdownRequested) {
       return
     }
     this._shutdownRequested = true
+    this.clearShutdownTimers()
 
     try {
       if (this.process.stdin) {
         this.process.stdin.end()
+        this._termTimer = setTimeout(() => {
+          this.tryKill('SIGTERM')
+        }, AppServerManager.STDIO_TO_TERM_GRACE_MS)
       } else {
-        try {
-          this.process.kill('SIGTERM')
-        } catch {
-          // Process already gone
-        }
+        this.tryKill('SIGTERM')
       }
     } catch {
       // stdin may already be closed
     }
 
-    // Force kill after 5s
-    this._killTimer = setTimeout(() => {
-      if (this.process && !this.process.killed) {
-        try {
-          this.process.kill('SIGKILL')
-        } catch {
-          // Process already gone
-        }
-      }
-    }, 5000)
+    this.scheduleForceKill(AppServerManager.FORCE_KILL_TIMEOUT_MS)
   }
 
   /**

@@ -71,7 +71,14 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
  * Returns an unsubscribe function.
  */
 export function initConnectionStore(): () => void {
-  return window.api.appServer.onConnectionStatus((payload) => {
+  const unsubscribe = window.api.appServer.onConnectionStatus((payload) => {
     useConnectionStore.getState().setStatus(payload)
   })
+  void window.api.appServer
+    .getConnectionStatus()
+    .then((payload) => {
+      useConnectionStore.getState().setStatus(payload)
+    })
+    .catch(() => {})
+  return unsubscribe
 }

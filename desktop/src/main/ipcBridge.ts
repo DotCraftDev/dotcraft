@@ -113,6 +113,8 @@ export interface IpcHandlerCallbacks {
   updateSettings: (partial: Partial<AppSettings>) => void
   /** Returns the recent workspaces list. */
   getRecentWorkspaces: () => RecentWorkspace[]
+  /** Returns the latest known connection status snapshot. */
+  getConnectionStatus: () => ConnectionStatusPayload
 }
 
 /**
@@ -124,6 +126,7 @@ export interface IpcHandlerCallbacks {
  * - `appserver:notification`      (main -> renderer, send)   -> forwarded from WireProtocolClient
  * - `appserver:server-request`    (main -> renderer, send)   -> server-initiated request
  * - `appserver:connection-status` (main -> renderer, send)   -> connection state changes
+ * - `appserver:get-connection-status` (renderer -> main, invoke) -> latest status snapshot
  * - `window:set-title`            (renderer -> main, invoke) -> sets window title
  * - `window:get-workspace-path`   (renderer -> main, invoke) -> returns workspace path
  * - `workspace:pick-folder`       (renderer -> main, invoke) -> opens native folder picker
@@ -162,6 +165,10 @@ export function registerIpcHandlers(
       return client.sendRequest(method, params, timeoutMs)
     }
   )
+
+  ipcMain.handle('appserver:get-connection-status', () => {
+    return callbacks?.getConnectionStatus() ?? { status: 'disconnected' }
+  })
 
   // Renderer -> Main: send back the user's decision for a server-initiated request
   ipcMain.handle('appserver:server-response', (_event, bridgeId: string, result: unknown) => {
@@ -441,6 +448,7 @@ export function broadcastServerRequest(
  */
 export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
+  ipcMain.removeHandler('appserver:get-connection-status')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')
   ipcMain.removeHandler('window:set-title-bar-overlay-theme')

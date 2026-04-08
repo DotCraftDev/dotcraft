@@ -40,6 +40,7 @@ declare global {
       }
       appServer: {
         sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
+        getConnectionStatus(): Promise<ConnectionStatusPayload>
         onNotification(callback: (payload: NotificationPayload) => void): UnsubscribeFn
         onConnectionStatus(
           callback: (status: ConnectionStatusPayload) => void

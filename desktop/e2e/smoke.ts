@@ -33,6 +33,7 @@ const WORKSPACE = 'F:\\dotcraft'
 const STEP_TIMEOUT = 15_000
 const RESPONSE_TIMEOUT = 60_000
 const POLL_INTERVAL = 200
+const APP_SERVER_EXIT_TIMEOUT = 4_500
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,6 +76,41 @@ function ts(): string {
 
 function log(msg: string): void {
   console.log(`[${ts()}] ${msg}`)
+}
+
+function listAppServerPids(): number[] {
+  if (process.platform !== 'win32') return []
+  try {
+    const output = execFileSync(
+      'powershell',
+      [
+        '-NoProfile',
+        '-Command',
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^dotcraft(\\.exe)?$' -and $_.CommandLine -match 'app-server' } | Select-Object -ExpandProperty ProcessId"
+      ],
+      { encoding: 'utf8' }
+    )
+    return output
+      .split(/\r?\n/)
+      .map((line) => Number.parseInt(line.trim(), 10))
+      .filter((pid) => Number.isInteger(pid) && pid > 0)
+  } catch {
+    return []
+  }
+}
+
+async function waitForPidsToExit(pids: number[], timeoutMs: number): Promise<boolean> {
+  if (pids.length === 0 || process.platform !== 'win32') return true
+  const target = new Set<number>(pids)
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() <= deadline) {
+    const alive = listAppServerPids().some((pid) => target.has(pid))
+    if (!alive) {
+      return true
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  return false
 }
 
 async function screenshot(name: string): Promise<void> {
@@ -137,6 +173,8 @@ async function readThreadListLength(): Promise<number | null> {
 
 async function run(): Promise<void> {
   if (!existsSync(SCREENSHOTS_DIR)) mkdirSync(SCREENSHOTS_DIR, { recursive: true })
+  const baselineAppServerPids = listAppServerPids()
+  let launchedAppServerPids: number[] = []
 
   // ── Step 1: Build ──────────────────────────────────────────────────────
   log('STEP 1: Building...')
@@ -185,6 +223,18 @@ async function run(): Promise<void> {
   let streamPeakText = ''
 
   try {
+    const isVisible = await page.evaluate(() => document.visibilityState !== 'hidden')
+    if (!isVisible) {
+      log('FAIL: first window is not visible after launch.')
+      process.exit(1)
+    }
+    await page.waitForSelector('#root', { timeout: STEP_TIMEOUT })
+    const rootText = (await page.textContent('#root')) ?? ''
+    if (rootText.trim().length === 0) {
+      log('FAIL: renderer root mounted but has no visible content.')
+      process.exit(1)
+    }
+
     // ── Step 3: Wait for connected ───────────────────────────────────────
     log('STEP 3: Waiting for AppServer connection...')
     await page.waitForSelector('button[title="New Thread (Ctrl+N)"]:not([disabled])', {
@@ -193,6 +243,7 @@ async function run(): Promise<void> {
     await screenshot('connected')
     await dumpStore('after-connect')
     log('Connected.')
+    launchedAppServerPids = listAppServerPids().filter((pid) => !baselineAppServerPids.includes(pid))
 
     // Wait until thread list has finished loading (avoids racing an empty list)
     await page.waitForFunction(
@@ -471,7 +522,18 @@ async function run(): Promise<void> {
     log(`Screenshots: ${SCREENSHOTS_DIR}`)
 
   } finally {
-    await app.close()
+    try {
+      await app.close()
+    } catch {
+      // Ignore close races on test failures.
+    }
+    const exited = await waitForPidsToExit(launchedAppServerPids, APP_SERVER_EXIT_TIMEOUT)
+    if (!exited) {
+      log(
+        `FAIL: dotcraft app-server is still alive after ${APP_SERVER_EXIT_TIMEOUT}ms: ${launchedAppServerPids.join(', ')}`
+      )
+      process.exit(1)
+    }
   }
 }
 
