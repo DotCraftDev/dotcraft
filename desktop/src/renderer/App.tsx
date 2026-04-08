@@ -772,8 +772,29 @@ export function App(): JSX.Element {
             const pendingText = pendingWelcome.text.trim()
             const pendingImages = pendingWelcome.images
             const welcomeMode = pendingWelcome.mode ?? 'agent'
+            const welcomeModel = typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
             useConversationStore.getState().setThreadMode(welcomeMode)
-            if (welcomeMode !== 'agent') {
+            if (welcomeModel.length > 0) {
+              const existingConfig =
+                res.thread.configuration && typeof res.thread.configuration === 'object'
+                  ? { ...(res.thread.configuration as Record<string, unknown>) }
+                  : {}
+              const setCaseInsensitiveField = (
+                target: Record<string, unknown>,
+                key: string,
+                value: unknown
+              ): void => {
+                const lower = key.toLowerCase()
+                const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+                if (existingKey) target[existingKey] = value
+                else target[key] = value
+              }
+              setCaseInsensitiveField(existingConfig, 'mode', welcomeMode)
+              setCaseInsensitiveField(existingConfig, 'model', welcomeModel)
+              void window.api.appServer
+                .sendRequest('thread/config/update', { threadId, config: existingConfig })
+                .catch((configErr: unknown) => console.error('thread/config/update (welcome model) failed:', configErr))
+            } else if (welcomeMode !== 'agent') {
               void window.api.appServer
                 .sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
                 .catch((modeErr: unknown) => console.error('thread/mode/set (welcome) failed:', modeErr))

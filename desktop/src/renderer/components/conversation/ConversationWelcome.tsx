@@ -53,9 +53,13 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   /** Agent/plan before a thread exists; applied when the first thread is created. */
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
   const [modelName, setModelName] = useState<string>('Default')
+  const [modelOptions, setModelOptions] = useState<string[]>([])
+  const [modelLoading, setModelLoading] = useState(false)
+  const [modelApplying, setModelApplying] = useState(false)
   const sendInFlightRef = useRef(false)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
+  const capabilities = useConnectionStore((s) => s.capabilities)
   const { addThread, setActiveThreadId } = useThreadStore()
 
   const isConnected = connectionStatus === 'connected'
@@ -67,6 +71,31 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     const sep = normalized.includes('\\') ? '\\' : '/'
     return `${normalized}${sep}.craft${sep}config.json`
   }, [workspacePath])
+
+  const readWorkspaceConfig = useCallback(async (): Promise<Record<string, unknown>> => {
+    if (!workspaceConfigPath) return {}
+    const raw = await window.api.file.readFile(workspaceConfigPath)
+    if (!raw.trim()) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }, [workspaceConfigPath])
+
+  const resolveModelFromConfig = useCallback((cfg: Record<string, unknown>): string => {
+    const modelRaw = cfg.Model ?? cfg.model
+    return typeof modelRaw === 'string' && modelRaw.trim().length > 0
+      ? modelRaw
+      : 'Default'
+  }, [])
+
+  const setCaseInsensitiveField = useCallback(
+    (target: Record<string, unknown>, key: string, value: unknown): void => {
+      const lower = key.toLowerCase()
+      const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+      if (existingKey) target[existingKey] = value
+      else target[key] = value
+    },
+    []
+  )
 
   const suggestions: Suggestion[] = useMemo(
     () => [
@@ -115,34 +144,86 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   useEffect(() => {
     let disposed = false
-    const loadModelName = async (): Promise<void> => {
+    const loadModelState = async (): Promise<void> => {
       if (!workspaceConfigPath) {
         setModelName('Default')
+        setModelOptions([])
         return
       }
+
       try {
-        const raw = await window.api.file.readFile(workspaceConfigPath)
+        const cfg = await readWorkspaceConfig()
         if (disposed) return
-        if (!raw.trim()) {
-          setModelName('Default')
-          return
-        }
-        const cfg = JSON.parse(raw) as Record<string, unknown>
-        const modelRaw = cfg.Model ?? cfg.model
-        const model = typeof modelRaw === 'string' && modelRaw.trim().length > 0
-          ? modelRaw
-          : 'Default'
-        setModelName(model)
+        setModelName(resolveModelFromConfig(cfg))
       } catch {
         if (!disposed) setModelName('Default')
       }
+
+      const canListModels =
+        isConnected &&
+        capabilities?.modelCatalogManagement === true
+      if (!canListModels) {
+        if (!disposed) setModelOptions([])
+        return
+      }
+
+      setModelLoading(true)
+      try {
+        const result = await window.api.appServer.listModels()
+        if (disposed) return
+        const typed = result as {
+          success?: boolean
+          models?: Array<{ id?: string; Id?: string }>
+        }
+        const options = typed.success && Array.isArray(typed.models)
+          ? typed.models.map((m) => String(m.id ?? m.Id ?? '').trim()).filter(Boolean)
+          : []
+        setModelOptions(Array.from(new Set(options)).sort((a, b) => a.localeCompare(b)))
+      } catch {
+        if (!disposed) setModelOptions([])
+      } finally {
+        if (!disposed) setModelLoading(false)
+      }
     }
 
-    void loadModelName()
+    void loadModelState()
     return () => {
       disposed = true
     }
-  }, [workspaceConfigPath])
+  }, [
+    capabilities?.modelCatalogManagement,
+    isConnected,
+    readWorkspaceConfig,
+    resolveModelFromConfig,
+    workspaceConfigPath
+  ])
+
+  const effectiveModelOptions = useMemo(() => {
+    if (!modelName || modelName === 'Default') return modelOptions
+    if (modelOptions.includes(modelName)) return modelOptions
+    return [modelName, ...modelOptions]
+  }, [modelName, modelOptions])
+
+  const handleModelChange = useCallback(
+    async (nextModel: string): Promise<void> => {
+      if (!workspaceConfigPath || !nextModel || nextModel === modelName) return
+      setModelApplying(true)
+      const previousModel = modelName
+      setModelName(nextModel)
+      try {
+        const cfg = await readWorkspaceConfig()
+        setCaseInsensitiveField(cfg, 'Model', nextModel)
+        await window.api.file.writeFile(workspaceConfigPath, `${JSON.stringify(cfg, null, 2)}\n`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setModelName(previousModel)
+        addToast(`Failed to save model: ${msg}`, 'error')
+      } finally {
+        setModelApplying(false)
+      }
+    },
+    [modelName, readWorkspaceConfig, setCaseInsensitiveField, workspaceConfigPath]
+  )
 
   const saveDataUrlAsTemp = useCallback(
     async (dataUrl: string, fileName: string, mimeType: string): Promise<void> => {
@@ -184,6 +265,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     setStarting(true)
     const capturedImages = [...images]
     const capturedMode = welcomeMode
+    const capturedModel = modelName
     try {
       const res = await window.api.appServer.sendRequest('thread/start', {
         identity: {
@@ -199,7 +281,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         threadId: res.thread.id,
         text: trimmed,
         images: capturedImages.length > 0 ? capturedImages : undefined,
-        mode: capturedMode
+        mode: capturedMode,
+        model: capturedModel
       })
       addThread(res.thread)
       setActiveThreadId(res.thread.id)
@@ -212,7 +295,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       sendInFlightRef.current = false
       setStarting(false)
     }
-  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode])
+  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode, modelName])
 
   const onPasteImage = useCallback(
     (file: File): void => {
@@ -547,9 +630,42 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
             <span style={{ color: 'var(--border-default)' }}>·</span>
 
-            <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {modelName === 'Default' ? t('composer.defaultModel') : modelName}
-            </span>
+            {effectiveModelOptions.length > 0 ? (
+              <select
+                value={modelName}
+                disabled={modelLoading || modelApplying || starting}
+                onChange={(e) => {
+                  void handleModelChange(e.target.value)
+                }}
+                title={modelLoading ? 'Loading models...' : 'Select model'}
+                style={{
+                  fontSize: '12px',
+                  color: (modelApplying || starting) ? 'var(--text-dimmed)' : 'var(--text-primary)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: '6px',
+                  padding: '2px 6px',
+                  minHeight: '22px',
+                  maxWidth: '220px',
+                  outline: 'none',
+                  cursor: (modelApplying || starting) ? 'default' : 'pointer'
+                }}
+              >
+                {effectiveModelOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt === 'Default' ? t('composer.defaultModel') : opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                {modelLoading
+                  ? 'Loading models...'
+                  : modelName === 'Default'
+                    ? t('composer.defaultModel')
+                    : modelName}
+              </span>
+            )}
           </div>
         </div>
       </div>
