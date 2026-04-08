@@ -454,15 +454,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         />
       </div>
 
-      {/* Bottom composer */}
+      {/* Bottom composer — same width/padding as InputComposer (full panel width, no max-width cap) */}
       <div
         style={{
           flexShrink: 0,
           padding: '14px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
           opacity: starting ? 0.65 : 1
         }}
       >
-        <div style={{ maxWidth: '720px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div
             style={{ position: 'relative' }}
             onDragOver={onDragOver}
@@ -495,7 +497,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                 setImages((prev) => prev.filter((_, i) => i !== idx))
               }}
             />
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
             <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
               <FileSearchPopover
                 query={atQuery ?? ''}
@@ -660,7 +662,6 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               </span>
             )}
           </div>
-        </div>
       </div>
     </div>
   )
