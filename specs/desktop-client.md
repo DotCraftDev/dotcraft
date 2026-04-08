@@ -1188,6 +1188,7 @@ A dropdown control in the bottom-left of the composer:
 - For Welcome (no thread yet), Desktop carries the selected model in `pendingWelcomeTurn` and applies it to the newly created thread via `thread/config/update` before the first `turn/start`.
 - While the shared catalog is loading, the UI shows a localized loading label in the same plain-text slot used when the catalog is unavailable (not a dropdown).
 - If `model/list` is unsupported or fails, fallback is silent (no warning toast loops). The UI continues to display the effective configured model from workspace config; `Default` is shown only when config has no model.
+- The catalog label `Default` is UI-only (meaning “no model override”); it is never written to `.craft/config.json` or sent as a thread `model` value—clearing the override removes the `Model` / `model` field instead.
 
 ### 12.4 Send Button
 

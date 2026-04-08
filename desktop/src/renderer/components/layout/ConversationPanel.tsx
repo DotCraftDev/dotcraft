@@ -68,16 +68,23 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
     []
   )
 
+  const deleteCaseInsensitiveField = useCallback((target: Record<string, unknown>, key: string): void => {
+    const lower = key.toLowerCase()
+    const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+    if (existingKey) delete target[existingKey]
+  }, [])
+
   const resolveEffectiveModel = useCallback(
     (thread: typeof activeThread, workspaceCfg: Record<string, unknown>): string => {
       const workspaceModelRaw = workspaceCfg.Model ?? workspaceCfg.model
+      const ws =
+        typeof workspaceModelRaw === 'string' ? workspaceModelRaw.trim() : ''
       const workspaceModel =
-        typeof workspaceModelRaw === 'string' && workspaceModelRaw.trim().length > 0
-          ? workspaceModelRaw
-          : null
-      const modelFromThread = thread?.configuration?.model ?? thread?.configuration?.Model
-      if (typeof modelFromThread === 'string' && modelFromThread.trim()) {
-        return modelFromThread
+        ws.length > 0 && ws !== 'Default' ? ws : null
+      const threadRaw = thread?.configuration?.model ?? thread?.configuration?.Model
+      const threadTrimmed = typeof threadRaw === 'string' ? threadRaw.trim() : ''
+      if (threadTrimmed.length > 0 && threadTrimmed !== 'Default') {
+        return threadTrimmed
       }
       return workspaceModel ?? 'Default'
     },
@@ -94,7 +101,8 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
       } catch {
         if (disposed) return
         const modelFromThread = activeThread?.configuration?.model ?? activeThread?.configuration?.Model
-        setModelName(typeof modelFromThread === 'string' && modelFromThread.trim() ? modelFromThread : 'Default')
+        const mt = typeof modelFromThread === 'string' ? modelFromThread.trim() : ''
+        setModelName(mt.length > 0 && mt !== 'Default' ? mt : 'Default')
       }
     }
 
@@ -118,7 +126,11 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
       setModelName(nextModel)
       try {
         const workspaceCfg = await readWorkspaceConfig()
-        setCaseInsensitiveField(workspaceCfg, 'Model', nextModel)
+        if (nextModel === 'Default') {
+          deleteCaseInsensitiveField(workspaceCfg, 'Model')
+        } else {
+          setCaseInsensitiveField(workspaceCfg, 'Model', nextModel)
+        }
         await window.api.file.writeFile(workspaceConfigPath, `${JSON.stringify(workspaceCfg, null, 2)}\n`)
 
         const readRes = (await window.api.appServer.sendRequest('thread/read', {
@@ -130,7 +142,11 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
             ? { ...(readRes.thread.configuration as Record<string, unknown>) }
             : {}
         setCaseInsensitiveField(existingConfig, 'mode', threadMode)
-        setCaseInsensitiveField(existingConfig, 'model', nextModel)
+        if (nextModel === 'Default') {
+          deleteCaseInsensitiveField(existingConfig, 'model')
+        } else {
+          setCaseInsensitiveField(existingConfig, 'model', nextModel)
+        }
 
         await window.api.appServer.sendRequest('thread/config/update', {
           threadId: activeThread.id,
@@ -138,15 +154,21 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
         })
         const active = useThreadStore.getState().activeThread
         if (active && active.id === activeThread.id) {
+          const mergedCfg: Record<string, unknown> = { ...(active.configuration ?? {}) }
+          if (nextModel === 'Default') {
+            deleteCaseInsensitiveField(mergedCfg, 'model')
+          } else {
+            mergedCfg.model = nextModel
+          }
           useThreadStore.getState().setActiveThread({
             ...active,
-            configuration: {
-              ...(active.configuration ?? {}),
-              model: nextModel
-            }
+            configuration: mergedCfg as typeof active.configuration
           })
         }
-        addToast(`Model switched to ${nextModel}`, 'success')
+        addToast(
+          nextModel === 'Default' ? 'Using workspace default model' : `Model switched to ${nextModel}`,
+          'success'
+        )
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         setModelName(previousModel)
@@ -157,6 +179,7 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
     },
     [
       activeThread,
+      deleteCaseInsensitiveField,
       modelName,
       readWorkspaceConfig,
       setCaseInsensitiveField,

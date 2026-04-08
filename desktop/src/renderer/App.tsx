@@ -785,7 +785,10 @@ export function App(): JSX.Element {
             const pendingText = pendingWelcome.text.trim()
             const pendingImages = pendingWelcome.images
             const welcomeMode = pendingWelcome.mode ?? 'agent'
-            const welcomeModel = typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
+            const rawWelcomeModel =
+              typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
+            const welcomeModel =
+              rawWelcomeModel !== '' && rawWelcomeModel !== 'Default' ? rawWelcomeModel : ''
             useConversationStore.getState().setThreadMode(welcomeMode)
             if (welcomeModel.length > 0) {
               const existingConfig =

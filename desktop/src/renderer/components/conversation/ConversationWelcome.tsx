@@ -86,9 +86,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   const resolveModelFromConfig = useCallback((cfg: Record<string, unknown>): string => {
     const modelRaw = cfg.Model ?? cfg.model
-    return typeof modelRaw === 'string' && modelRaw.trim().length > 0
-      ? modelRaw
-      : 'Default'
+    if (typeof modelRaw !== 'string') return 'Default'
+    const trimmed = modelRaw.trim()
+    if (trimmed.length === 0 || trimmed === 'Default') return 'Default'
+    return trimmed
   }, [])
 
   const setCaseInsensitiveField = useCallback(
@@ -100,6 +101,12 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     },
     []
   )
+
+  const deleteCaseInsensitiveField = useCallback((target: Record<string, unknown>, key: string): void => {
+    const lower = key.toLowerCase()
+    const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+    if (existingKey) delete target[existingKey]
+  }, [])
 
   const suggestions: Suggestion[] = useMemo(
     () => [
@@ -188,7 +195,11 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       setModelName(nextModel)
       try {
         const cfg = await readWorkspaceConfig()
-        setCaseInsensitiveField(cfg, 'Model', nextModel)
+        if (nextModel === 'Default') {
+          deleteCaseInsensitiveField(cfg, 'Model')
+        } else {
+          setCaseInsensitiveField(cfg, 'Model', nextModel)
+        }
         await window.api.file.writeFile(workspaceConfigPath, `${JSON.stringify(cfg, null, 2)}\n`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -198,7 +209,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         setModelApplying(false)
       }
     },
-    [modelName, readWorkspaceConfig, setCaseInsensitiveField, workspaceConfigPath]
+    [deleteCaseInsensitiveField, modelName, readWorkspaceConfig, setCaseInsensitiveField, workspaceConfigPath]
   )
 
   const saveDataUrlAsTemp = useCallback(
@@ -242,7 +253,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     setStarting(true)
     const capturedImages = [...images]
     const capturedMode = welcomeMode
-    const capturedModel = modelName
+    const capturedModel = modelName === 'Default' ? '' : modelName
     try {
       const res = await window.api.appServer.sendRequest('thread/start', {
         identity: {
