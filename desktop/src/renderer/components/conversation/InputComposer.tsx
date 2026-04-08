@@ -310,9 +310,10 @@ export function InputComposer({
   }, [contentRevision, images.length, isWaitingApproval, modelLoading])
 
   const effectiveModelOptions = useMemo(() => {
-    if (!modelName || modelName === 'Default') return modelOptions
-    if (modelOptions.includes(modelName)) return modelOptions
-    return [modelName, ...modelOptions]
+    const withDefault = ['Default', ...modelOptions.filter((o) => o !== 'Default')]
+    if (!modelName || modelName === 'Default') return withDefault
+    if (withDefault.includes(modelName)) return withDefault
+    return [modelName, ...withDefault]
   }, [modelName, modelOptions])
 
   const onSelectFile = useCallback(
