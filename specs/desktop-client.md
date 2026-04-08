@@ -1165,7 +1165,7 @@ Images are attached via **clipboard paste** or **drag-and-drop** onto the compos
 The input area is a **`contentEditable` div** rather than a plain `<textarea>`. This is required to support inline file reference tags (non-editable pill elements) embedded within the user's free-form text. Visually and functionally it behaves like a multi-line text input with the following additions:
 
 - **Multi-line**: Grows vertically as the user types (1 line minimum, 8 lines maximum before scrolling internally).
-- **Placeholder**: "Ask DotCraft anything" shown as a dimmed pseudo-element when the div is empty.
+- **Placeholder**: "Ask DotCraft anything…" shown as a dimmed pseudo-element when the div is empty.
 - **Submit**: `Enter` sends the message (calls `turn/start`). `Shift+Enter` inserts a newline.
 - **Disabled state**: When a turn is running (`turnStatus = running`), the input area shows a subtle disabled overlay. The user can still type; pressing `Enter` queues the message as a pending follow-up (sent automatically when the current turn completes).
 - **Image paste**: Pasting an image from the clipboard (Ctrl+V) attaches it to the image strip. See §12.6.

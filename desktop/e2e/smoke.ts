@@ -262,7 +262,7 @@ async function run(): Promise<void> {
     // ── Step 4: New thread ────────────────────────────────────────────────
     log('STEP 4: Creating new thread...')
     await page.click('button[title="New Thread (Ctrl+N)"]')
-    await page.waitForSelector('textarea[placeholder="Ask DotCraft anything"]', {
+    await page.waitForSelector('textarea[placeholder="Ask DotCraft anything…"]', {
       timeout: STEP_TIMEOUT
     })
     await screenshot('new-thread')
@@ -310,8 +310,8 @@ async function run(): Promise<void> {
     // ── Step 5: Type message ──────────────────────────────────────────────
     const testMessage = 'Please say exactly "E2E test OK" and nothing else.'
     log(`STEP 5: Typing: "${testMessage}"`)
-    await page.click('textarea[placeholder="Ask DotCraft anything"]')
-    await page.fill('textarea[placeholder="Ask DotCraft anything"]', testMessage)
+    await page.click('textarea[placeholder="Ask DotCraft anything…"]')
+    await page.fill('textarea[placeholder="Ask DotCraft anything…"]', testMessage)
     await screenshot('message-typed')
 
     // ── Step 6: Send ──────────────────────────────────────────────────────

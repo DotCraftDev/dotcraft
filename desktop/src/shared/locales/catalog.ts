@@ -168,7 +168,7 @@ const MESSAGES_EN = {
 
   // Conversation / input (high-traffic)
   'composer.placeholder.approval': 'Waiting for approval decision...',
-  'composer.placeholder.ask': 'Ask DotCraft anything',
+  'composer.placeholder.ask': 'Ask DotCraft anything…',
   'composer.placeholder.connecting': 'Connecting…',
   'welcomeComposer.hint.select':
     'Select a thread from the sidebar, type below, or pick a quick start.',
@@ -645,7 +645,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'main.status.reconnecting': '连接已断开，正在重新连接…',
 
   'composer.placeholder.approval': '等待审批结果…',
-  'composer.placeholder.ask': '向 DotCraft 提问',
+  'composer.placeholder.ask': '向 DotCraft 提问…',
   'composer.placeholder.connecting': '正在连接…',
   'welcomeComposer.hint.select': '在侧栏选择会话、在下方输入，或选择快速开始。',
   'welcomeComposer.hint.connecting': '正在连接工作区…',
