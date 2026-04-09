@@ -103,6 +103,7 @@ public sealed class McpServerConfig
     /// </summary>
     public double? ToolTimeoutSec { get; set; }
 
+    [JsonIgnore]
     public string NormalizedTransport =>
         Transport.Equals("streamableHttp", StringComparison.OrdinalIgnoreCase) ||
         Transport.Equals("streamable-http", StringComparison.OrdinalIgnoreCase) ||
