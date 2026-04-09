@@ -833,21 +833,28 @@ public sealed class ReplHost(
             ? null
             : trimmed;
 
-        await PersistWorkspaceModelAsync(model);
-
-        if (!string.IsNullOrEmpty(_currentThreadId) && wireClient != null)
+        try
         {
-            await UpdateThreadModelAsync(_currentThreadId, model);
-        }
-        else
-        {
-            _threadModelOverride = null;
-        }
+            await PersistWorkspaceModelAsync(model);
 
-        AnsiConsole.MarkupLine(
-            model == null
-                ? $"[green]✓[/] {Strings.ModelUpdatedDefault}"
-                : $"[green]✓[/] {Strings.ModelUpdatedTo(model).EscapeMarkup()}");
+            if (!string.IsNullOrEmpty(_currentThreadId) && wireClient != null)
+            {
+                await UpdateThreadModelAsync(_currentThreadId, model);
+            }
+            else
+            {
+                _threadModelOverride = null;
+            }
+
+            AnsiConsole.MarkupLine(
+                model == null
+                    ? $"[green]✓[/] {Strings.ModelUpdatedDefault}"
+                    : $"[green]✓[/] {Strings.ModelUpdatedTo(model).EscapeMarkup()}");
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]✗[/] {ex.Message.EscapeMarkup()}");
+        }
     }
 
     private void SaveWorkspaceModelConfig(string? model)
