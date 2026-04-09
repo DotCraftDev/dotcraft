@@ -25,10 +25,6 @@ namespace DotCraft.Agents;
 public sealed class AgentFactory : IAsyncDisposable
 {
     private readonly AppConfig _config;
-    private readonly MemoryStore _memoryStore;
-    private readonly SkillsLoader _skillsLoader;
-    private readonly string _dotcraftPath;
-    private readonly string _workspacePath;
     private readonly ChatClient _chatClient;
     private readonly ConcurrentDictionary<string, TokenTracker> _tokenTrackers = new();
     private readonly ConcurrentDictionary<string, int> _lastConsolidated = new();
@@ -63,10 +59,6 @@ public sealed class AgentFactory : IAsyncDisposable
         HookRunner? hookRunner = null)
     {
         _config = config;
-        _memoryStore = memoryStore;
-        _skillsLoader = skillsLoader;
-        _dotcraftPath = dotcraftPath;
-        _workspacePath = workspacePath;
         _traceCollector = traceCollector;
         _customCommandLoader = customCommandLoader;
         _planStore = planStore;
@@ -74,14 +66,14 @@ public sealed class AgentFactory : IAsyncDisposable
         _hookRunner = hookRunner;
         _globalEnabledToolNames = ResolveGlobalEnabledToolNames(_config);
 
-        var openAIClient = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
+        var client = new OpenAIClient(new ApiKeyCredential(config.ApiKey), new OpenAIClientOptions
         {
             Endpoint = new Uri(config.EndPoint)
         });
-        _chatClient = openAIClient.GetChatClient(_config.Model);
+        _chatClient = client.GetChatClient(_config.Model);
 
         string consolidationModel = string.IsNullOrWhiteSpace(_config.ConsolidationModel) ? _config.Model : _config.ConsolidationModel;
-        var consolidationChatClient = openAIClient.GetChatClient(consolidationModel);
+        var consolidationChatClient = client.GetChatClient(consolidationModel);
 
         Consolidator = new MemoryConsolidator(consolidationChatClient, memoryStore, onConsolidatorStatus);
 
@@ -379,7 +371,7 @@ public sealed class AgentFactory : IAsyncDisposable
 
         // Reverse middleware control:
         // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient] => FunctionInvokingChatClient => TracingChatClient
-        var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
+        var chatClientBuilder = new ChatClientBuilder(ctx.ChatClient.AsIChatClient());
         if (_traceCollector != null)
         {
             var tc = _traceCollector;

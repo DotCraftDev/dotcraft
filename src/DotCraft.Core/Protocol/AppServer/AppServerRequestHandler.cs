@@ -96,6 +96,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.Initialize => HandleInitializeAsync(msg, ct),
                 AppServerMethods.ChannelList => HandleChannelListAsync(msg, ct),
                 AppServerMethods.ChannelStatus => HandleChannelStatusAsync(msg, ct),
+                AppServerMethods.ModelList => HandleModelListAsync(msg, ct),
                 AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
                 AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
                 AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
@@ -178,7 +179,8 @@ public sealed class AppServerRequestHandler(
                 SkillsManagement = skillsLoader != null,
                 CommandManagement = true,
                 Automations = automationsHandler != null,
-                ChannelStatus = _channelStatusProvider != null
+                ChannelStatus = _channelStatusProvider != null,
+                ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath)
             },
             DashboardUrl = _dashboardUrl
         };
@@ -354,6 +356,31 @@ public sealed class AppServerRequestHandler(
 
         var statuses = _channelStatusProvider.GetChannelStatuses();
         return Task.FromResult<object?>(new ChannelStatusResult { Channels = [.. statuses] });
+    }
+
+    private async Task<object?> HandleModelListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = GetParams<ModelListParams>(msg);
+
+        if (string.IsNullOrWhiteSpace(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.ModelList);
+
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        var config = AppConfig.LoadWithGlobalFallback(configPath);
+        var result = await OpenAIModelCatalog.FetchAsync(config, ct);
+
+        return new ModelListResult
+        {
+            Success = result.Success,
+            Models = [.. result.Models.Select(m => new ModelCatalogItem
+            {
+                Id = m.Id,
+                OwnedBy = m.OwnedBy,
+                CreatedAt = m.CreatedAt
+            })],
+            ErrorCode = result.Success ? null : result.ErrorCode.ToString(),
+            ErrorMessage = result.Success ? null : result.ErrorMessage
+        };
     }
 
     private async Task<object?> HandleThreadReadAsync(AppServerIncomingMessage msg, CancellationToken ct)

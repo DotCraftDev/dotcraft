@@ -13,6 +13,8 @@ using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using OpenAI;
+using System.ClientModel;
 
 namespace DotCraft.Protocol;
 
@@ -865,11 +867,7 @@ public sealed class SessionService(
         thread.Configuration ??= new ThreadConfiguration();
         thread.Configuration.Mode = mode;
 
-        var agentMode = mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
-            ? AgentMode.Plan
-            : AgentMode.Agent;
-        var mm = GetOrCreateModeManager(threadId, agentMode);
-        _threadAgents[threadId] = agentFactory.CreateAgentForMode(agentMode, mm);
+        _threadAgents[threadId] = await BuildAgentForConfigAsync(threadId, thread.Configuration, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
     }
@@ -995,6 +993,9 @@ public sealed class SessionService(
             ? AgentMode.Plan
             : AgentMode.Agent;
         var mm = GetOrCreateModeManager(threadId, mode);
+        var baseCtx = agentFactory.ToolProviderContext;
+        var threadChatClient = ResolveThreadChatClient(baseCtx, config);
+        var threadBaseContext = CloneContextWithChatClient(baseCtx, threadChatClient);
 
         ToolProviderContext? scopedContext = null;
         if (!string.IsNullOrEmpty(config.WorkspaceOverride))
@@ -1004,12 +1005,11 @@ public sealed class SessionService(
 
             var scopedMemory = new MemoryStore(craftPath);
             var scopedSkills = new SkillsLoader(craftPath);
-            var baseCtx = agentFactory.ToolProviderContext;
 
             scopedContext = new ToolProviderContext
             {
                 Config = baseCtx.Config,
-                ChatClient = baseCtx.ChatClient,
+                ChatClient = threadChatClient,
                 WorkspacePath = config.WorkspaceOverride,
                 BotPath = craftPath,
                 MemoryStore = scopedMemory,
@@ -1036,7 +1036,7 @@ public sealed class SessionService(
                 throw new InvalidOperationException($"Tool profile '{config.ToolProfile}' is not registered.");
             }
 
-            var toolCtx = scopedContext ?? agentFactory.ToolProviderContext;
+            var toolCtx = scopedContext ?? threadBaseContext;
             profileTools = agentFactory.CreateToolsFromProviders(profileProviders, toolCtx);
         }
 
@@ -1044,7 +1044,7 @@ public sealed class SessionService(
         {
             if (profileTools is not { Count: > 0 })
                 throw new InvalidOperationException("UseToolProfileOnly requires a registered ToolProfile with at least one tool.");
-            var toolCtx2 = scopedContext ?? agentFactory.ToolProviderContext;
+            var toolCtx2 = scopedContext ?? threadBaseContext;
             return agentFactory.CreateAgentWithTools(profileTools, mm, toolCtx2, config.AgentInstructions);
         }
 
@@ -1060,12 +1060,13 @@ public sealed class SessionService(
 
             if (profileTools != null)
             {
-                var tools = agentFactory.CreateToolsForMode(mode);
+                var tools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
                 tools.AddRange(profileTools);
-                return agentFactory.CreateAgentWithTools(tools, mm, agentFactory.ToolProviderContext);
+                return agentFactory.CreateAgentWithTools(tools, mm, threadBaseContext);
             }
 
-            return agentFactory.CreateAgentForMode(mode, mm);
+            var modeTools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
+            return agentFactory.CreateAgentWithTools(modeTools, mm, threadBaseContext);
         }
 
         // Dispose previous per-thread MCP manager if replacing config
@@ -1105,10 +1106,54 @@ public sealed class SessionService(
             return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
         }
 
-        var toolsWithMcp = agentFactory.CreateToolsForMode(mode);
+        var toolsWithMcp = agentFactory.CreateToolsForMode(mode, threadBaseContext);
         if (profileTools != null)
             toolsWithMcp.AddRange(profileTools);
         toolsWithMcp.AddRange(mcpManager.Tools);
-        return agentFactory.CreateAgentWithTools(toolsWithMcp, mm);
+        return agentFactory.CreateAgentWithTools(toolsWithMcp, mm, threadBaseContext);
+    }
+
+    private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, ThreadConfiguration config)
+    {
+        if (string.IsNullOrWhiteSpace(config.Model))
+            return baseContext.ChatClient;
+
+        if (string.IsNullOrWhiteSpace(baseContext.Config.ApiKey))
+            return baseContext.ChatClient;
+
+        if (!Uri.TryCreate(baseContext.Config.EndPoint, UriKind.Absolute, out var endpoint))
+            return baseContext.ChatClient;
+
+        var client = new OpenAIClient(
+            new ApiKeyCredential(baseContext.Config.ApiKey),
+            new OpenAIClientOptions { Endpoint = endpoint });
+        return client.GetChatClient(config.Model);
+    }
+
+    private static ToolProviderContext CloneContextWithChatClient(
+        ToolProviderContext source,
+        OpenAI.Chat.ChatClient chatClient)
+    {
+        var cloned = new ToolProviderContext
+        {
+            Config = source.Config,
+            ChatClient = chatClient,
+            WorkspacePath = source.WorkspacePath,
+            BotPath = source.BotPath,
+            MemoryStore = source.MemoryStore,
+            SkillsLoader = source.SkillsLoader,
+            ApprovalService = source.ApprovalService,
+            PathBlacklist = source.PathBlacklist,
+            CronTools = source.CronTools,
+            McpClientManager = source.McpClientManager,
+            TraceCollector = source.TraceCollector,
+            ChannelClient = source.ChannelClient,
+            AcpExtensionProxy = source.AcpExtensionProxy,
+            AgentFileSystem = source.AgentFileSystem,
+            AutomationTaskDirectory = source.AutomationTaskDirectory,
+            RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace,
+            DeferredToolRegistry = source.DeferredToolRegistry
+        };
+        return cloned;
     }
 }

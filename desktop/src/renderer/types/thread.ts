@@ -30,10 +30,18 @@ export interface Turn {
   tokenUsage?: { inputTokens: number; outputTokens: number }
 }
 
+export interface ThreadConfigurationWire {
+  mode?: string
+  model?: string
+  Model?: string
+  [key: string]: unknown
+}
+
 export interface Thread extends ThreadSummary {
   workspacePath: string
   userId: string
   metadata: Record<string, unknown>
+  configuration?: ThreadConfigurationWire | null
   turns: Turn[]
 }
 

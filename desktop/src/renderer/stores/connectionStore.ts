@@ -18,6 +18,7 @@ export interface ServerCapabilities {
   configOverride?: boolean
   cronManagement?: boolean
   heartbeatManagement?: boolean
+  modelCatalogManagement?: boolean
   [key: string]: unknown
 }
 

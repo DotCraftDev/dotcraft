@@ -2288,6 +2288,8 @@ let settingsSetupMode = false;
 let settingsHasApiKey = true;
 let settingsDirty = false;
 let settingsActiveTab = 'workspace'; // 'workspace' | 'global' (setup mode only)
+let settingsDynamicModelOptions = null;
+let settingsDynamicModelError = '';
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -2314,6 +2316,37 @@ function schemaGetValue(data, section, fieldKey) {
     }
   }
   return ciGet(obj, fieldKey);
+}
+
+function isDynamicModelField(field) {
+  if (!field || typeof field.key !== 'string') return false;
+  return field.key === 'Model' || field.key === 'ConsolidationModel';
+}
+
+async function loadDynamicModelOptions() {
+  settingsDynamicModelOptions = null;
+  settingsDynamicModelError = '';
+  try {
+    const res = await fetch(API + '/config/models', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.success !== true || !Array.isArray(data.models)) {
+      settingsDynamicModelOptions = [];
+      settingsDynamicModelError = (data && data.errorMessage) ? String(data.errorMessage) : 'Model list unavailable.';
+      return;
+    }
+
+    const ids = data.models
+      .map(m => {
+        if (!m) return '';
+        const id = (m.id !== undefined && m.id !== null) ? m.id : m.Id;
+        return id !== undefined && id !== null ? String(id).trim() : '';
+      })
+      .filter(Boolean);
+    settingsDynamicModelOptions = Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
+  } catch (e) {
+    settingsDynamicModelOptions = [];
+    settingsDynamicModelError = (e && e.message) ? e.message : 'Model list unavailable.';
+  }
 }
 
 // Build a field element ID
@@ -2865,6 +2898,29 @@ function renderFormField(id, field, rawVal, scope, section, sourceBadge = '') {
     ${sourceBadge}
   </div>`;
 
+  if (isDynamicModelField(field)) {
+    const val = (rawVal !== undefined && rawVal !== null) ? String(rawVal) : '';
+    const dynamic = Array.isArray(settingsDynamicModelOptions) ? settingsDynamicModelOptions : null;
+    const dynamicAvailable = dynamic && dynamic.length > 0;
+    const dynamicHint = settingsDynamicModelError
+      ? `<div class="settings-hint">Model list unavailable: ${escapeHtml(settingsDynamicModelError)}</div>`
+      : '';
+
+    if (dynamicAvailable) {
+      const optionSet = new Set(dynamic);
+      if (val) optionSet.add(val);
+      const options = ['', ...Array.from(optionSet).sort((a, b) => a.localeCompare(b))].map(o => {
+        const label = o === '' ? emptyText : o;
+        const selected = o === val ? ' selected' : '';
+        return `<option value="${escapeHtml(o)}"${selected}>${escapeHtml(label)}</option>`;
+      }).join('');
+      return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">
+        ${headerHtml}
+        <select class="settings-select" id="${id}">${options}</select>${hint}${dynamicHint}
+      </div>`;
+    }
+  }
+
   if (field.type === 'bool') {
     let state = '';
     if (rawVal === true || rawVal === 'true') state = 'true';
@@ -3266,6 +3322,7 @@ let settingsWorkspacePath = '';
 
 // ─── REFRESH SETTINGS ─────────────────────────────────────────────────────────
 async function refreshSettings() {
+  await loadDynamicModelOptions();
   const data = await fetchJson('/config/edit');
   if (!data) {
     document.getElementById('settingsGlobalBody').innerHTML =

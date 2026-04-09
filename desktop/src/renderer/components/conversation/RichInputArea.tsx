@@ -12,7 +12,7 @@ import { serializeEditor, truncateEditorDomToSerializedLength } from './richInpu
 
 const MAX_ROWS = 8
 const MAX_TEXT_LEN = 100_000
-const PLACEHOLDER = 'Ask DotCraft anything'
+const PLACEHOLDER = 'Ask DotCraft anything…'
 
 export interface RichInputAreaHandle {
   getText: () => string

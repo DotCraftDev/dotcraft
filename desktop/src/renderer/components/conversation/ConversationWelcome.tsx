@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { useModelCatalogStore } from '../../stores/modelCatalogStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
 import type { ImageAttachment, ThreadMode } from '../../types/conversation'
+import type { ThreadSummary } from '../../types/thread'
 import { FileSearchPopover } from './FileSearchPopover'
 import { ImageStrip } from './ImageStrip'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
@@ -52,14 +54,59 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [mentionDismissed, setMentionDismissed] = useState(false)
   /** Agent/plan before a thread exists; applied when the first thread is created. */
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
+  const [modelName, setModelName] = useState<string>('Default')
+  const [modelApplying, setModelApplying] = useState(false)
   const sendInFlightRef = useRef(false)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
+  const capabilities = useConnectionStore((s) => s.capabilities)
+  const modelOptions = useModelCatalogStore((s) => s.modelOptions)
+  const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const { addThread, setActiveThreadId } = useThreadStore()
 
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
   const showMentionPopover = atQuery !== null && !mentionDismissed
+  const modelApiAvailable = isConnected && capabilities?.modelCatalogManagement === true
+  const modelLoading = modelApiAvailable && modelCatalogStatus === 'loading'
+  const workspaceConfigPath = useMemo(() => {
+    if (!workspacePath) return ''
+    const normalized = workspacePath.replace(/[\\/]+$/, '')
+    const sep = normalized.includes('\\') ? '\\' : '/'
+    return `${normalized}${sep}.craft${sep}config.json`
+  }, [workspacePath])
+
+  const readWorkspaceConfig = useCallback(async (): Promise<Record<string, unknown>> => {
+    if (!workspaceConfigPath) return {}
+    const raw = await window.api.file.readFile(workspaceConfigPath)
+    if (!raw.trim()) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }, [workspaceConfigPath])
+
+  const resolveModelFromConfig = useCallback((cfg: Record<string, unknown>): string => {
+    const modelRaw = cfg.Model ?? cfg.model
+    if (typeof modelRaw !== 'string') return 'Default'
+    const trimmed = modelRaw.trim()
+    if (trimmed.length === 0 || trimmed === 'Default') return 'Default'
+    return trimmed
+  }, [])
+
+  const setCaseInsensitiveField = useCallback(
+    (target: Record<string, unknown>, key: string, value: unknown): void => {
+      const lower = key.toLowerCase()
+      const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+      if (existingKey) target[existingKey] = value
+      else target[key] = value
+    },
+    []
+  )
+
+  const deleteCaseInsensitiveField = useCallback((target: Record<string, unknown>, key: string): void => {
+    const lower = key.toLowerCase()
+    const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+    if (existingKey) delete target[existingKey]
+  }, [])
 
   const suggestions: Suggestion[] = useMemo(
     () => [
@@ -106,6 +153,66 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     }
   }, [isConnected])
 
+  useEffect(() => {
+    let disposed = false
+    const loadModelName = async (): Promise<void> => {
+      if (!workspaceConfigPath) {
+        setModelName('Default')
+        return
+      }
+
+      try {
+        const cfg = await readWorkspaceConfig()
+        if (disposed) return
+        setModelName(resolveModelFromConfig(cfg))
+      } catch {
+        if (!disposed) setModelName('Default')
+      }
+    }
+
+    void loadModelName()
+    return () => {
+      disposed = true
+    }
+  }, [
+    readWorkspaceConfig,
+    resolveModelFromConfig,
+    workspaceConfigPath
+  ])
+
+  const effectiveModelOptions = useMemo(() => {
+    const sourceOptions = modelApiAvailable ? modelOptions : []
+    const withDefault = ['Default', ...sourceOptions.filter((o) => o !== 'Default')]
+    if (!modelName || modelName === 'Default') return withDefault
+    if (withDefault.includes(modelName)) return withDefault
+    return [modelName, ...withDefault]
+  }, [modelApiAvailable, modelName, modelOptions])
+
+  const handleModelChange = useCallback(
+    async (nextModel: string): Promise<void> => {
+      if (!workspaceConfigPath || !nextModel || nextModel === modelName) return
+      setModelApplying(true)
+      const previousModel = modelName
+      setModelName(nextModel)
+      try {
+        const cfg = await readWorkspaceConfig()
+        if (nextModel === 'Default') {
+          deleteCaseInsensitiveField(cfg, 'Model')
+        } else {
+          setCaseInsensitiveField(cfg, 'Model', nextModel)
+        }
+        await window.api.file.writeFile(workspaceConfigPath, `${JSON.stringify(cfg, null, 2)}\n`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setModelName(previousModel)
+        addToast(`Failed to save model: ${msg}`, 'error')
+      } finally {
+        setModelApplying(false)
+      }
+    },
+    [deleteCaseInsensitiveField, modelName, readWorkspaceConfig, setCaseInsensitiveField, workspaceConfigPath]
+  )
+
   const saveDataUrlAsTemp = useCallback(
     async (dataUrl: string, fileName: string, mimeType: string): Promise<void> => {
       const baseLen = dataUrl.split(',')[1]?.length ?? 0
@@ -137,7 +244,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     if (
       (!trimmed && images.length === 0) ||
       sendInFlightRef.current ||
-      connectionStatus !== 'connected'
+      connectionStatus !== 'connected' ||
+      modelLoading
     ) {
       return
     }
@@ -146,6 +254,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     setStarting(true)
     const capturedImages = [...images]
     const capturedMode = welcomeMode
+    const capturedModel = modelName === 'Default' ? '' : modelName
     try {
       const res = await window.api.appServer.sendRequest('thread/start', {
         identity: {
@@ -155,13 +264,14 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
           workspacePath
         },
         historyMode: 'server'
-      }) as { thread: { id: string; displayName?: string | null; status?: string; createdAt?: string } }
+      }) as { thread: ThreadSummary }
 
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
         text: trimmed,
         images: capturedImages.length > 0 ? capturedImages : undefined,
-        mode: capturedMode
+        mode: capturedMode,
+        model: capturedModel
       })
       addThread(res.thread)
       setActiveThreadId(res.thread.id)
@@ -174,7 +284,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       sendInFlightRef.current = false
       setStarting(false)
     }
-  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode])
+  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode, modelName, modelLoading])
 
   const onPasteImage = useCallback(
     (file: File): void => {
@@ -234,8 +344,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   const canSend = useMemo(() => {
     const textLen = (richRef.current?.getText() ?? '').trim().length
-    return (textLen > 0 || images.length > 0) && isConnected && !starting
-  }, [contentRevision, images.length, isConnected, starting])
+    return (textLen > 0 || images.length > 0) && isConnected && !starting && !modelLoading
+  }, [contentRevision, images.length, isConnected, starting, modelLoading])
 
   return (
     <div
@@ -357,15 +467,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         />
       </div>
 
-      {/* Bottom composer */}
+      {/* Bottom composer — same width/padding as InputComposer (full panel width, no max-width cap) */}
       <div
         style={{
           flexShrink: 0,
           padding: '14px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
           opacity: starting ? 0.65 : 1
         }}
       >
-        <div style={{ maxWidth: '720px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div
             style={{ position: 'relative' }}
             onDragOver={onDragOver}
@@ -398,7 +510,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                 setImages((prev) => prev.filter((_, i) => i !== idx))
               }}
             />
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
             <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
               <FileSearchPopover
                 query={atQuery ?? ''}
@@ -412,7 +524,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               <RichInputArea
                 ref={richRef}
                 disabled={busy}
-                suppressSubmit={showMentionPopover}
+                suppressSubmit={showMentionPopover || modelLoading}
                 placeholder={
                   isConnected
                     ? t('welcomeComposer.placeholder.ask')
@@ -509,11 +621,75 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
             <span style={{ color: 'var(--border-default)' }}>·</span>
 
-            <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {t('composer.defaultModel')}
-            </span>
+            {modelLoading ? (
+              <span
+                role="status"
+                aria-live="polite"
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-dimmed)',
+                  display: 'inline-block',
+                  width: '170px',
+                  minWidth: '170px',
+                  maxWidth: '170px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+                title={t('composer.modelListLoading')}
+              >
+                {t('composer.modelListLoading')}
+              </span>
+            ) : effectiveModelOptions.length > 0 ? (
+              <select
+                value={modelName}
+                disabled={modelApplying || starting}
+                onChange={(e) => {
+                  void handleModelChange(e.target.value)
+                }}
+                title={t('composer.selectModelTitle')}
+                style={{
+                  fontSize: '12px',
+                  color: (modelApplying || starting) ? 'var(--text-dimmed)' : 'var(--text-primary)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: '6px',
+                  padding: '2px 6px',
+                  minHeight: '22px',
+                  width: '170px',
+                  minWidth: '170px',
+                  maxWidth: '170px',
+                  outline: 'none',
+                  cursor: (modelApplying || starting) ? 'default' : 'pointer'
+                }}
+              >
+                {effectiveModelOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt === 'Default' ? t('composer.defaultModel') : opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-dimmed)',
+                  display: 'inline-block',
+                  width: '170px',
+                  minWidth: '170px',
+                  maxWidth: '170px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+                title={modelName === 'Default' ? t('composer.defaultModel') : modelName}
+              >
+                {modelName === 'Default'
+                  ? t('composer.defaultModel')
+                  : modelName}
+              </span>
+            )}
           </div>
-        </div>
       </div>
     </div>
   )

@@ -1,11 +1,15 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useThreadStore } from '../../stores/threadStore'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { useModelCatalogStore } from '../../stores/modelCatalogStore'
+import { addToast } from '../../stores/toastStore'
 import { ThreadHeader } from '../conversation/ThreadHeader'
 import { MessageStream } from '../conversation/MessageStream'
 import { TurnStatusIndicator } from '../conversation/TurnStatusIndicator'
 import { InputComposer } from '../conversation/InputComposer'
 import { ConversationWelcome } from '../conversation/ConversationWelcome'
+import type { ThreadConfigurationWire } from '../../types/thread'
 
 interface ConversationPanelProps {
   workspacePath?: string
@@ -22,8 +26,164 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
   const turnStatus = useConversationStore((s) => s.turnStatus)
   const connectionStatus = useConnectionStore((s) => s.status)
   const connectionErrorMessage = useConnectionStore((s) => s.errorMessage)
+  const capabilities = useConnectionStore((s) => s.capabilities)
+  const modelOptions = useModelCatalogStore((s) => s.modelOptions)
+  const modelCatalogStatus = useModelCatalogStore((s) => s.status)
+  const [modelName, setModelName] = useState<string>('Default')
+  const [modelApplying, setModelApplying] = useState(false)
 
   const showReconnectionBanner = connectionStatus === 'disconnected'
+  const modelApiAvailable =
+    capabilities?.modelCatalogManagement === true &&
+    connectionStatus === 'connected' &&
+    Boolean(activeThreadId)
+  const modelLoading = modelApiAvailable && modelCatalogStatus === 'loading'
+
+  const workspaceConfigPath = useMemo(() => {
+    if (!workspacePath) return ''
+    const normalized = workspacePath.replace(/[\\/]+$/, '')
+    const sep = normalized.includes('\\') ? '\\' : '/'
+    return `${normalized}${sep}.craft${sep}config.json`
+  }, [workspacePath])
+
+  const readWorkspaceConfig = useCallback(async (): Promise<Record<string, unknown>> => {
+    if (!workspaceConfigPath) return {}
+    const raw = await window.api.file.readFile(workspaceConfigPath)
+    if (!raw.trim()) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }, [workspaceConfigPath])
+
+  const setCaseInsensitiveField = useCallback(
+    (target: Record<string, unknown>, key: string, value: unknown): void => {
+      const lower = key.toLowerCase()
+      const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+      if (existingKey) {
+        target[existingKey] = value
+      } else {
+        target[key] = value
+      }
+    },
+    []
+  )
+
+  const deleteCaseInsensitiveField = useCallback((target: Record<string, unknown>, key: string): void => {
+    const lower = key.toLowerCase()
+    const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+    if (existingKey) delete target[existingKey]
+  }, [])
+
+  const resolveEffectiveModel = useCallback(
+    (thread: typeof activeThread, workspaceCfg: Record<string, unknown>): string => {
+      const workspaceModelRaw = workspaceCfg.Model ?? workspaceCfg.model
+      const ws =
+        typeof workspaceModelRaw === 'string' ? workspaceModelRaw.trim() : ''
+      const workspaceModel =
+        ws.length > 0 && ws !== 'Default' ? ws : null
+      const threadRaw = thread?.configuration?.model ?? thread?.configuration?.Model
+      const threadTrimmed = typeof threadRaw === 'string' ? threadRaw.trim() : ''
+      if (threadTrimmed.length > 0 && threadTrimmed !== 'Default') {
+        return threadTrimmed
+      }
+      return workspaceModel ?? 'Default'
+    },
+    []
+  )
+
+  useEffect(() => {
+    let disposed = false
+    const loadEffectiveModel = async (): Promise<void> => {
+      try {
+        const workspaceCfg = await readWorkspaceConfig()
+        if (disposed) return
+        setModelName(resolveEffectiveModel(activeThread, workspaceCfg))
+      } catch {
+        if (disposed) return
+        const modelFromThread = activeThread?.configuration?.model ?? activeThread?.configuration?.Model
+        const mt = typeof modelFromThread === 'string' ? modelFromThread.trim() : ''
+        setModelName(mt.length > 0 && mt !== 'Default' ? mt : 'Default')
+      }
+    }
+
+    void loadEffectiveModel()
+    return () => {
+      disposed = true
+    }
+  }, [
+    activeThreadId,
+    activeThread?.configuration?.Model,
+    activeThread?.configuration?.model,
+    readWorkspaceConfig,
+    resolveEffectiveModel
+  ])
+
+  const handleModelChange = useCallback(
+    async (nextModel: string): Promise<void> => {
+      if (!activeThread || !workspaceConfigPath || !nextModel || nextModel === modelName) return
+      setModelApplying(true)
+      const previousModel = modelName
+      setModelName(nextModel)
+      try {
+        const workspaceCfg = await readWorkspaceConfig()
+        if (nextModel === 'Default') {
+          deleteCaseInsensitiveField(workspaceCfg, 'Model')
+        } else {
+          setCaseInsensitiveField(workspaceCfg, 'Model', nextModel)
+        }
+        await window.api.file.writeFile(workspaceConfigPath, `${JSON.stringify(workspaceCfg, null, 2)}\n`)
+
+        const readRes = (await window.api.appServer.sendRequest('thread/read', {
+          threadId: activeThread.id,
+          includeTurns: false
+        })) as { thread?: { configuration?: ThreadConfigurationWire | null } }
+        const existingConfig =
+          readRes.thread?.configuration && typeof readRes.thread.configuration === 'object'
+            ? { ...(readRes.thread.configuration as Record<string, unknown>) }
+            : {}
+        if (nextModel === 'Default') {
+          deleteCaseInsensitiveField(existingConfig, 'model')
+        } else {
+          setCaseInsensitiveField(existingConfig, 'model', nextModel)
+        }
+
+        await window.api.appServer.sendRequest('thread/config/update', {
+          threadId: activeThread.id,
+          config: existingConfig
+        })
+        const active = useThreadStore.getState().activeThread
+        if (active && active.id === activeThread.id) {
+          const mergedCfg: Record<string, unknown> = { ...(active.configuration ?? {}) }
+          if (nextModel === 'Default') {
+            deleteCaseInsensitiveField(mergedCfg, 'model')
+          } else {
+            mergedCfg.model = nextModel
+          }
+          useThreadStore.getState().setActiveThread({
+            ...active,
+            configuration: mergedCfg as typeof active.configuration
+          })
+        }
+        addToast(
+          nextModel === 'Default' ? 'Using workspace default model' : `Model switched to ${nextModel}`,
+          'success'
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setModelName(previousModel)
+        addToast(`Failed to switch model: ${msg}`, 'error')
+      } finally {
+        setModelApplying(false)
+      }
+    },
+    [
+      activeThread,
+      deleteCaseInsensitiveField,
+      modelName,
+      readWorkspaceConfig,
+      setCaseInsensitiveField,
+      workspaceConfigPath
+    ]
+  )
 
   // Loading state: thread selected but full data not yet fetched
   if (activeThreadId && !activeThread && loading) {
@@ -114,7 +274,17 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
       <TurnStatusIndicator threadId={activeThread.id} />
 
       {/* Input composer */}
-      <InputComposer threadId={activeThread.id} workspacePath={workspacePath} />
+      <InputComposer
+        threadId={activeThread.id}
+        workspacePath={workspacePath}
+        modelName={modelName}
+        modelOptions={modelOptions}
+        modelLoading={modelLoading}
+        modelDisabled={modelApplying || !modelApiAvailable}
+        onModelChange={(m) => {
+          void handleModelChange(m)
+        }}
+      />
     </div>
   )
 }

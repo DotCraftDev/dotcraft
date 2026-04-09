@@ -241,6 +241,30 @@ public static class DashBoardMiddleware
             await SaveConfigAsync(ctx, workspaceConfigPath, sensitivePaths, logger);
         });
 
+        endpoints.MapGet("/dashboard/api/config/models", async (HttpContext ctx) =>
+        {
+            var workspaceConfigPath = Path.Combine(paths.CraftPath, "config.json");
+            var config = AppConfig.LoadWithGlobalFallback(workspaceConfigPath);
+            var result = await OpenAIModelCatalog.FetchAsync(config, ctx.RequestAborted);
+
+            if (!result.Success)
+            {
+                return Results.Json(new
+                {
+                    success = false,
+                    errorCode = result.ErrorCode.ToString(),
+                    errorMessage = result.ErrorMessage,
+                    models = Array.Empty<OpenAIModelCatalogEntry>()
+                }, RawJsonOptions, statusCode: MapModelCatalogStatusCode(result.ErrorCode));
+            }
+
+            return Results.Json(new
+            {
+                success = true,
+                models = result.Models
+            }, RawJsonOptions);
+        });
+
         if (tokenUsageStore != null)
         {
             endpoints.MapGet("/dashboard/api/token-usage", () =>
@@ -468,4 +492,16 @@ public static class DashBoardMiddleware
             });
         }
     }
+
+    private static int MapModelCatalogStatusCode(OpenAIModelCatalogErrorCode code) => code switch
+    {
+        OpenAIModelCatalogErrorCode.MissingApiKey => StatusCodes.Status400BadRequest,
+        OpenAIModelCatalogErrorCode.InvalidEndpoint => StatusCodes.Status400BadRequest,
+        OpenAIModelCatalogErrorCode.Unauthorized => StatusCodes.Status401Unauthorized,
+        OpenAIModelCatalogErrorCode.Forbidden => StatusCodes.Status403Forbidden,
+        OpenAIModelCatalogErrorCode.EndpointNotSupported => StatusCodes.Status404NotFound,
+        OpenAIModelCatalogErrorCode.Timeout => StatusCodes.Status504GatewayTimeout,
+        OpenAIModelCatalogErrorCode.Network => StatusCodes.Status502BadGateway,
+        _ => StatusCodes.Status500InternalServerError
+    };
 }

@@ -30,13 +30,25 @@ interface InputComposerProps {
   threadId: string
   workspacePath: string
   modelName?: string
+  modelOptions?: string[]
+  modelLoading?: boolean
+  modelDisabled?: boolean
+  onModelChange?: (model: string) => void
 }
 
 /**
  * Bottom input area for the conversation panel.
  * Rich input with @ file refs, image strip (paste / drag-drop), Enter to send.
  */
-export function InputComposer({ threadId, workspacePath, modelName = 'Default' }: InputComposerProps): JSX.Element {
+export function InputComposer({
+  threadId,
+  workspacePath,
+  modelName = 'Default',
+  modelOptions = [],
+  modelLoading = false,
+  modelDisabled = false,
+  onModelChange
+}: InputComposerProps): JSX.Element {
   const t = useT()
   const [images, setImages] = useState<ImageAttachment[]>([])
   const [atQuery, setAtQuery] = useState<string | null>(null)
@@ -192,6 +204,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
     const trimmed = text.trim()
     if (!trimmed && images.length === 0) return
     if (isWaitingApproval) return
+    if (modelLoading) return
 
     if (isRunning) {
       if (images.length > 0) {
@@ -266,7 +279,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
       console.error('turn/start failed:', err)
       useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
     }
-  }, [images, isRunning, isWaitingApproval, threadId, workspacePath, setPendingMessage, t])
+  }, [images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
@@ -293,8 +306,15 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
 
   const canSend = useMemo(() => {
     const textLen = (richRef.current?.getText() ?? '').trim().length
-    return (textLen > 0 || images.length > 0) && !isWaitingApproval
-  }, [contentRevision, images.length, isWaitingApproval])
+    return (textLen > 0 || images.length > 0) && !isWaitingApproval && !modelLoading
+  }, [contentRevision, images.length, isWaitingApproval, modelLoading])
+
+  const effectiveModelOptions = useMemo(() => {
+    const withDefault = ['Default', ...modelOptions.filter((o) => o !== 'Default')]
+    if (!modelName || modelName === 'Default') return withDefault
+    if (withDefault.includes(modelName)) return withDefault
+    return [modelName, ...withDefault]
+  }, [modelName, modelOptions])
 
   const onSelectFile = useCallback(
     (relativePath: string): void => {
@@ -357,7 +377,7 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
               <RichInputArea
                 ref={richRef}
                 disabled={isWaitingApproval}
-                suppressSubmit={showMentionPopover}
+                suppressSubmit={showMentionPopover || modelLoading}
                 placeholder={
                   isWaitingApproval ? t('composer.placeholder.approval') : t('composer.placeholder.ask')
                 }
@@ -464,9 +484,70 @@ export function InputComposer({ threadId, workspacePath, modelName = 'Default' }
 
           <span style={{ color: 'var(--border-default)' }}>·</span>
 
-          <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-            {modelName === 'Default' ? t('composer.defaultModel') : modelName}
-          </span>
+          {modelLoading ? (
+            <span
+              role="status"
+              aria-live="polite"
+              style={{
+                fontSize: '12px',
+                color: 'var(--text-dimmed)',
+                display: 'inline-block',
+                width: '170px',
+                minWidth: '170px',
+                maxWidth: '170px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+              title={t('composer.modelListLoading')}
+            >
+              {t('composer.modelListLoading')}
+            </span>
+          ) : effectiveModelOptions.length > 0 ? (
+            <select
+              value={modelName}
+              disabled={modelDisabled}
+              onChange={(e) => onModelChange?.(e.target.value)}
+              title={t('composer.selectModelTitle')}
+              style={{
+                fontSize: '12px',
+                color: modelDisabled ? 'var(--text-dimmed)' : 'var(--text-primary)',
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '6px',
+                padding: '2px 6px',
+                minHeight: '22px',
+                width: '170px',
+                minWidth: '170px',
+                maxWidth: '170px',
+                outline: 'none',
+                cursor: modelDisabled ? 'default' : 'pointer'
+              }}
+            >
+              {effectiveModelOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt === 'Default' ? t('composer.defaultModel') : opt}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span
+              style={{
+                fontSize: '12px',
+                color: 'var(--text-dimmed)',
+                display: 'inline-block',
+                width: '170px',
+                minWidth: '170px',
+                maxWidth: '170px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+              title={modelName === 'Default' ? t('composer.defaultModel') : modelName}
+            >
+              {modelName === 'Default' ? t('composer.defaultModel') : modelName}
+            </span>
+          )}
         </div>
       </div>
     </div>

@@ -201,6 +201,33 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
     }
 
     // -------------------------------------------------------------------------
+    // Model catalog management (model/list)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Lists provider models from the server's configured OpenAI-compatible endpoint.
+    /// Requires the server to advertise <c>modelCatalogManagement</c> capability.
+    /// </summary>
+    public async Task<ModelListResult> ModelListAsync(CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.ModelList,
+            new ModelListParams(),
+            ct: ct);
+
+        ThrowIfError(doc, "model/list");
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<ModelListResult>(result.GetRawText(), SessionWireJsonOptions.Default)
+               ?? new ModelListResult
+               {
+                   Success = false,
+                   ErrorCode = "Unknown",
+                   ErrorMessage = "Server returned an empty model list payload."
+               };
+    }
+
+    // -------------------------------------------------------------------------
     // Cron management (spec Section 16)
     // -------------------------------------------------------------------------
 

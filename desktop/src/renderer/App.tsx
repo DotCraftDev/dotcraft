@@ -14,6 +14,7 @@ import { useAutomationsStore } from './stores/automationsStore'
 import { useCronStore, type CronJobWire } from './stores/cronStore'
 import { useReviewPanelStore } from './stores/reviewPanelStore'
 import type { AutomationTask } from './stores/automationsStore'
+import { useModelCatalogStore } from './stores/modelCatalogStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -77,6 +78,7 @@ export function App(): JSX.Element {
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
   const { status, errorType, errorMessage } = useConnectionStore()
+  const capabilities = useConnectionStore((s) => s.capabilities)
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
   const activeMainView = useUIStore((s) => s.activeMainView)
   const {
@@ -196,6 +198,7 @@ export function App(): JSX.Element {
     if (status === 'disconnected' || status === 'error') {
       useThreadStore.getState().reset()
       useConversationStore.getState().reset()
+      useModelCatalogStore.getState().reset()
       useCronStore.getState().reset()
       useAutomationsStore.getState().selectTask(null)
       useUIStore.getState().setAutomationsTab('tasks')
@@ -217,6 +220,16 @@ export function App(): JSX.Element {
     }
     prevStatusRef.current = status
   }, [status, reloadThreadList])
+
+  useEffect(() => {
+    if (status === 'connected' && capabilities?.modelCatalogManagement === true) {
+      void useModelCatalogStore.getState().loadIfNeeded()
+      return
+    }
+    if (status === 'disconnected' || status === 'error') {
+      useModelCatalogStore.getState().reset()
+    }
+  }, [capabilities?.modelCatalogManagement, status])
 
   // -------------------------------------------------------------------------
   // Wire protocol notifications
@@ -740,7 +753,7 @@ export function App(): JSX.Element {
       performance.mark(`app:thread-switch-start:${requestedId}`)
       window.api.appServer
         .sendRequest('thread/read', { threadId: curr, includeTurns: true })
-        .then((result) => {
+        .then(async (result) => {
           // Stale guard: user may have switched threads while we were loading
           if (useThreadStore.getState().activeThreadId !== requestedId) {
             useUIStore.getState().cancelPendingWelcomeTurnForThread(requestedId)
@@ -772,11 +785,39 @@ export function App(): JSX.Element {
             const pendingText = pendingWelcome.text.trim()
             const pendingImages = pendingWelcome.images
             const welcomeMode = pendingWelcome.mode ?? 'agent'
+            const rawWelcomeModel =
+              typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
+            const welcomeModel =
+              rawWelcomeModel !== '' && rawWelcomeModel !== 'Default' ? rawWelcomeModel : ''
             useConversationStore.getState().setThreadMode(welcomeMode)
-            if (welcomeMode !== 'agent') {
-              void window.api.appServer
-                .sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
-                .catch((modeErr: unknown) => console.error('thread/mode/set (welcome) failed:', modeErr))
+            if (welcomeModel.length > 0) {
+              const existingConfig =
+                res.thread.configuration && typeof res.thread.configuration === 'object'
+                  ? { ...(res.thread.configuration as Record<string, unknown>) }
+                  : {}
+              const setCaseInsensitiveField = (
+                target: Record<string, unknown>,
+                key: string,
+                value: unknown
+              ): void => {
+                const lower = key.toLowerCase()
+                const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
+                if (existingKey) target[existingKey] = value
+                else target[key] = value
+              }
+              setCaseInsensitiveField(existingConfig, 'mode', welcomeMode)
+              setCaseInsensitiveField(existingConfig, 'model', welcomeModel)
+              try {
+                await window.api.appServer.sendRequest('thread/config/update', { threadId, config: existingConfig })
+              } catch (configErr: unknown) {
+                console.error('thread/config/update (welcome model) failed:', configErr)
+              }
+            } else if (welcomeMode !== 'agent') {
+              try {
+                await window.api.appServer.sendRequest('thread/mode/set', { threadId, mode: welcomeMode })
+              } catch (modeErr: unknown) {
+                console.error('thread/mode/set (welcome) failed:', modeErr)
+              }
             }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
             if (!threadEntry?.displayName) {

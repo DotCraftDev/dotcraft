@@ -194,8 +194,14 @@ function registerDesktopIpcHandlers(
     unregisterIpcHandlers()
     ipcHandlersRegistered = false
   }
-  registerIpcHandlers(null, getWireClient, workspacePath, buildCallbacks())
-  ipcHandlersRegistered = true
+  try {
+    registerIpcHandlers(null, getWireClient, workspacePath, buildCallbacks())
+    ipcHandlersRegistered = true
+  } catch (err) {
+    ipcHandlersRegistered = false
+    console.error('[desktop] failed to register IPC handlers', err)
+    throw err
+  }
 }
 
 function unregisterDesktopIpcHandlers(): boolean {

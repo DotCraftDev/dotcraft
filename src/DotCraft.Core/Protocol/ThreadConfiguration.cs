@@ -29,6 +29,11 @@ public sealed class ThreadConfiguration
     public string[]? CustomTools { get; set; }
 
     /// <summary>
+    /// Optional per-thread model override. When empty, the workspace/global <c>AppConfig.Model</c> is used.
+    /// </summary>
+    public string? Model { get; set; }
+
+    /// <summary>
     /// When set, all tools for this thread operate on this workspace path
     /// instead of the AppServer's root workspace path.
     /// The thread is still registered under the AppServer's root workspace
