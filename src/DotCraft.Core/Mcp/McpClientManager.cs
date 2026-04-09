@@ -28,6 +28,7 @@ public sealed class McpClientManager : IAsyncDisposable
         public McpServerConfig Config { get; set; } = new();
         public McpClient? Client { get; set; }
         public McpServerStatusSnapshot Status { get; set; } = new();
+        public List<McpClientTool> CachedTools { get; set; } = [];
     }
 
     private readonly ILogger<McpClientManager>? _logger;
@@ -213,7 +214,10 @@ public sealed class McpClientManager : IAsyncDisposable
         OnStatusChanged(state.Status);
 
         if (!state.Config.Enabled)
+        {
+            state.CachedTools.Clear();
             return;
+        }
 
         try
         {
@@ -221,8 +225,9 @@ public sealed class McpClientManager : IAsyncDisposable
             var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
 
             state.Client = client;
+            state.CachedTools = [.. tools];
             state.Status = CreateStatus(state.Config, "ready");
-            state.Status.ToolCount = tools.Count;
+            state.Status.ToolCount = state.CachedTools.Count;
 
             _logger?.LogInformation(
                 "MCP connected to {ServerName} with {ToolCount} tools",
@@ -233,6 +238,7 @@ public sealed class McpClientManager : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            state.CachedTools.Clear();
             state.Status = CreateStatus(state.Config, "error");
             state.Status.LastError = ex.Message;
 
@@ -250,16 +256,15 @@ public sealed class McpClientManager : IAsyncDisposable
         _toolServerMap.Clear();
 
         foreach (var state in _servers.Values
-                     .Where(s => s.Client != null && s.Status.StartupState == "ready")
+                     .Where(s => s.Status.StartupState == "ready")
                      .OrderBy(s => s.Config.Name, StringComparer.OrdinalIgnoreCase))
         {
-            var tools = state.Client!.ListToolsAsync().GetAwaiter().GetResult();
-            foreach (var tool in tools)
+            foreach (var tool in state.CachedTools)
             {
                 _tools.Add(tool);
                 _toolServerMap[tool.Name] = state.Config.Name;
             }
-            state.Status.ToolCount = tools.Count;
+            state.Status.ToolCount = state.CachedTools.Count;
         }
     }
 
@@ -313,6 +318,7 @@ public sealed class McpClientManager : IAsyncDisposable
         finally
         {
             state.Client = null;
+            state.CachedTools.Clear();
         }
     }
 
