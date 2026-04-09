@@ -24,7 +24,6 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
   const { activeThread, activeThreadId, loading } = useThreadStore()
   const turns = useConversationStore((s) => s.turns)
   const turnStatus = useConversationStore((s) => s.turnStatus)
-  const threadMode = useConversationStore((s) => s.threadMode)
   const connectionStatus = useConnectionStore((s) => s.status)
   const connectionErrorMessage = useConnectionStore((s) => s.errorMessage)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -141,7 +140,6 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
           readRes.thread?.configuration && typeof readRes.thread.configuration === 'object'
             ? { ...(readRes.thread.configuration as Record<string, unknown>) }
             : {}
-        setCaseInsensitiveField(existingConfig, 'mode', threadMode)
         if (nextModel === 'Default') {
           deleteCaseInsensitiveField(existingConfig, 'model')
         } else {
@@ -183,7 +181,6 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
       modelName,
       readWorkspaceConfig,
       setCaseInsensitiveField,
-      threadMode,
       workspaceConfigPath
     ]
   )
