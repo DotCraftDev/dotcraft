@@ -33,12 +33,13 @@ public sealed class McpClientManager : IAsyncDisposable
 
     private readonly ILogger<McpClientManager>? _logger;
     private readonly Dictionary<string, ServerRuntimeState> _servers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<McpClientTool> _tools = [];
-    private readonly Dictionary<string, string> _toolServerMap = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<McpClientTool> _toolsSnapshot = [];
+    private IReadOnlyDictionary<string, string> _toolServerMapSnapshot =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _mutex = new(1, 1);
 
-    public IReadOnlyList<McpClientTool> Tools => _tools;
-    public IReadOnlyDictionary<string, string> ToolServerMap => _toolServerMap;
+    public IReadOnlyList<McpClientTool> Tools => Volatile.Read(ref _toolsSnapshot);
+    public IReadOnlyDictionary<string, string> ToolServerMap => Volatile.Read(ref _toolServerMapSnapshot);
 
     public event EventHandler<McpServerStatusChangedEventArgs>? StatusChanged;
 
@@ -252,8 +253,8 @@ public sealed class McpClientManager : IAsyncDisposable
 
     private void RebuildToolIndexUnsafe()
     {
-        _tools.Clear();
-        _toolServerMap.Clear();
+        var nextTools = new List<McpClientTool>();
+        var nextToolServerMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var state in _servers.Values
                      .Where(s => s.Status.StartupState == "ready")
@@ -261,11 +262,14 @@ public sealed class McpClientManager : IAsyncDisposable
         {
             foreach (var tool in state.CachedTools)
             {
-                _tools.Add(tool);
-                _toolServerMap[tool.Name] = state.Config.Name;
+                nextTools.Add(tool);
+                nextToolServerMap[tool.Name] = state.Config.Name;
             }
             state.Status.ToolCount = state.CachedTools.Count;
         }
+
+        Volatile.Write(ref _toolsSnapshot, nextTools);
+        Volatile.Write(ref _toolServerMapSnapshot, nextToolServerMap);
     }
 
     private static McpServerStatusSnapshot CreateStatus(McpServerConfig config, string startupState) =>
@@ -408,8 +412,10 @@ public sealed class McpClientManager : IAsyncDisposable
         {
             await DisposeAllClientsUnsafeAsync();
             _servers.Clear();
-            _tools.Clear();
-            _toolServerMap.Clear();
+            Volatile.Write(ref _toolsSnapshot, []);
+            Volatile.Write(
+                ref _toolServerMapSnapshot,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
         }
         finally
         {

@@ -64,5 +64,9 @@ public sealed class McpClientManagerTests
         Assert.True(rebuildStart >= 0, "Could not locate RebuildToolIndexUnsafe.");
         var rebuildBody = source[rebuildStart..];
         Assert.DoesNotContain("ListToolsAsync", rebuildBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("public IReadOnlyList<McpClientTool> Tools => _tools;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("public IReadOnlyDictionary<string, string> ToolServerMap => _toolServerMap;", source, StringComparison.Ordinal);
+        Assert.Contains("Volatile.Read(ref _toolsSnapshot)", source, StringComparison.Ordinal);
+        Assert.Contains("Volatile.Read(ref _toolServerMapSnapshot)", source, StringComparison.Ordinal);
     }
 }
