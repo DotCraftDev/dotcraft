@@ -843,7 +843,9 @@ async fn handle_model_picker_action(
                 } else {
                     Some(model_label)
                 };
-                apply_model_override(wire, state, model_override).await?;
+                if let Err(e) = apply_model_override(wire, state, model_override).await {
+                    state.history.push(HistoryEntry::Error { message: e });
+                }
             }
             state.active_overlay = None;
             state.model_picker = None;
@@ -857,13 +859,14 @@ async fn apply_model_override(
     wire: &mut WireClient,
     state: &mut AppState,
     model: Option<String>,
-) -> Result<()> {
+) -> Result<(), String> {
     let workspace_update = wire
         .request::<serde_json::Value>(
             "workspace/config/update",
             serde_json::json!({ "model": model.clone() }),
         )
-        .await?;
+        .await
+        .map_err(|e| format!("Failed to update workspace model: {e}"))?;
     state.workspace_model = workspace_update
         .get("model")
         .and_then(|v| v.as_str())
@@ -875,7 +878,12 @@ async fn apply_model_override(
                 "thread/read",
                 serde_json::json!({ "threadId": thread_id, "includeTurns": false }),
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                state.current_model_override = model.clone();
+                state.pending_model_override = None;
+                format!("Workspace model updated, but failed to read thread config: {e}")
+            })?;
 
         let mut config = read
             .get("thread")
@@ -903,7 +911,12 @@ async fn apply_model_override(
             "thread/config/update",
             serde_json::json!({ "threadId": thread_id, "config": config }),
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            state.current_model_override = model.clone();
+            state.pending_model_override = None;
+            format!("Workspace model updated, but failed to apply thread override: {e}")
+        })?;
 
         state.current_model_override = model;
         state.pending_model_override = None;
@@ -1230,12 +1243,18 @@ async fn handle_slash_command(
                 } else {
                     Some(model.to_string())
                 };
-                apply_model_override(wire, state, next.clone()).await?;
-                let message = match next {
-                    Some(m) => strings.model_updated_to.replace("{}", &m),
-                    None => strings.model_updated_default.to_string(),
-                };
-                state.history.push(HistoryEntry::SystemInfo { message });
+                match apply_model_override(wire, state, next.clone()).await {
+                    Ok(()) => {
+                        let message = match next {
+                            Some(m) => strings.model_updated_to.replace("{}", &m),
+                            None => strings.model_updated_default.to_string(),
+                        };
+                        state.history.push(HistoryEntry::SystemInfo { message });
+                    }
+                    Err(e) => {
+                        state.history.push(HistoryEntry::Error { message: e });
+                    }
+                }
                 return Ok(false);
             }
 
