@@ -73,6 +73,16 @@ pub const HELP_KEYBINDINGS_HEADER: &str = "快捷键";
 pub const CRON_NO_JOBS: &str = "没有配置定时任务。";
 pub const THREAD_NOT_FOUND: &str = "未找到该会话。";
 pub const FEATURE_UNAVAILABLE: &str = "此功能在当前服务器上不可用。";
+pub const MODEL_USAGE: &str = "用法: /model [name|default]";
+pub const MODEL_UPDATED_DEFAULT: &str = "模型已重置为 Default。";
+pub const MODEL_UPDATED_TO: &str = "模型已更新为 {}。";
+pub const MODEL_DEFAULT_LABEL: &str = "Default";
+pub const MODEL_PICKER_TITLE: &str = "模型选择";
+pub const MODEL_PICKER_LOADING: &str = "正在加载模型列表...";
+pub const MODEL_PICKER_EMPTY: &str = "没有可用模型。";
+pub const MODEL_PICKER_SELECT_HINT: &str = "Enter: 应用";
+pub const MODEL_PICKER_CLOSE_HINT: &str = "Esc: 关闭";
+pub const WELCOME_MODEL_LABEL: &str = "模型";
 
 // UX polish: footer hints
 pub const MODE_CYCLE_HINT: &str = "shift+tab 切换";

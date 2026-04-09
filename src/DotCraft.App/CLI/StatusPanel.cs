@@ -13,7 +13,8 @@ public static class StatusPanel
     public static void ShowWelcome(
         string? currentSessionId = null,
         string? dashBoardUrl = null,
-        CliBackendInfo? backendInfo = null)
+        CliBackendInfo? backendInfo = null,
+        string? modelName = null)
     {
         AnsiConsole.Clear();
 
@@ -36,6 +37,10 @@ public static class StatusPanel
             var escapedUrl = dashBoardUrl.Escape();
             AnsiConsole.MarkupLine($"[blue]●[/] [bold]Dashboard[/]  [grey][link={escapedUrl}]{escapedUrl}[/][/]");
         }
+        if (!string.IsNullOrWhiteSpace(modelName))
+        {
+            AnsiConsole.MarkupLine($"[blue]●[/] [bold]{Strings.WelcomeModel}[/]  [grey]{modelName.Escape()}[/]");
+        }
         AnsiConsole.WriteLine();
 
         // Quick command tips
@@ -57,10 +62,17 @@ public static class StatusPanel
         grid.AddRow(
             new Markup("[blue]/load[/]"),
             new Markup($"[grey]{Strings.CmdLoad}[/]"),
+            new Markup("[blue]/model[/]"),
+            new Markup($"[grey]{Strings.CmdModel}[/]"),
             new Markup("[blue]/agent[/]"),
-            new Markup($"[grey]{Strings.CmdAgent}[/]"),
+            new Markup($"[grey]{Strings.CmdAgent}[/]"));
+        grid.AddRow(
             new Markup("[blue]/plan[/]"),
-            new Markup($"[grey]{Strings.CmdPlan}[/]"));
+            new Markup($"[grey]{Strings.CmdPlan}[/]"),
+            new Markup(""),
+            new Markup(""),
+            new Markup(""),
+            new Markup(""));
 
         var panel = new Panel(grid)
         {
@@ -236,6 +248,7 @@ public static class StatusPanel
         grid.AddRow("  /sessions", Strings.CmdSessions);
         grid.AddRow("  /memory", Strings.CmdMemory);
         grid.AddRow("  /lang", Strings.CmdLang);
+        grid.AddRow("  /model [name|default]", Strings.CmdModel);
         grid.AddRow("  /agent", Strings.CmdAgent);
         grid.AddRow("  /plan", Strings.CmdPlan);
         grid.AddRow("  /heartbeat trigger", Strings.CmdHeartbeat);

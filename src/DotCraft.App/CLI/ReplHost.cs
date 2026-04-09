@@ -13,6 +13,8 @@ using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Skills;
 using Spectre.Console;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace DotCraft.CLI;
 
@@ -59,6 +61,16 @@ public sealed class ReplHost(
     private LineEditor? _activeEditor;
 
     private readonly Lock _outputLock = new();
+    private readonly bool _modelCatalogSupported = backendInfo?.ModelCatalogManagement ?? false;
+    private Task<ModelCatalogSnapshot>? _modelCatalogLoadTask;
+    private ModelCatalogSnapshot? _modelCatalogCache;
+    private string _workspaceModel = "Default";
+    private string? _threadModelOverride;
+
+    private sealed record ModelCatalogSnapshot(
+        bool Success,
+        IReadOnlyList<string> Models,
+        string? ErrorMessage);
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -66,6 +78,10 @@ public sealed class ReplHost(
         // _currentThreadId stays null until RunSessionInputAsync materializes the thread.
         _currentThreadId = null;
         _currentSessionId = string.Empty;
+        _threadModelOverride = null;
+        _workspaceModel = ReadWorkspaceModelFromConfig();
+
+        StartModelCatalogPreload();
 
         ShowWelcomeScreen(_currentSessionId);
 
@@ -288,7 +304,7 @@ public sealed class ReplHost(
 
     private void ShowWelcomeScreen(string currentSessionId)
     {
-        StatusPanel.ShowWelcome(currentSessionId, dashBoardUrl, backendInfo);
+        StatusPanel.ShowWelcome(currentSessionId, dashBoardUrl, backendInfo, GetEffectiveModelDisplay());
     }
 
     private async Task SwitchToModeAsync(AgentMode mode)
@@ -320,6 +336,7 @@ public sealed class ReplHost(
             var thread = await session.ResumeThreadAsync(newSessionId, cancellationToken);
             _currentThreadId = newSessionId;
             _currentSessionId = newSessionId;
+            _threadModelOverride = thread.Configuration?.Model;
 
             // Run SessionStart hooks for loaded session
             await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
@@ -352,6 +369,7 @@ public sealed class ReplHost(
             // Lazy: reset to pending state; thread is created on first input.
             _currentThreadId = null;
             _currentSessionId = string.Empty;
+            _threadModelOverride = null;
 
             await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);
 
@@ -381,6 +399,7 @@ public sealed class ReplHost(
                 // Lazy: reset to pending state; thread is created on next input.
                 _currentThreadId = null;
                 _currentSessionId = string.Empty;
+                _threadModelOverride = null;
                 AnsiConsole.MarkupLine($"[grey]→ {Strings.SessionCreated}[/]");
             }
 
@@ -402,7 +421,7 @@ public sealed class ReplHost(
     [
         "/exit", "/help", "/clear", "/new", "/load", "/delete",
         "/init", "/skills", "/mcp", "/sessions", "/memory",
-        "/debug", "/heartbeat", "/cron", "/lang", "/commands",
+        "/debug", "/heartbeat", "/cron", "/lang", "/commands", "/model",
         "/plan", "/agent"
     ];
 
@@ -487,6 +506,10 @@ public sealed class ReplHost(
                 HandleCommandsCommand();
                 return (true, false, null);
 
+            case "/model":
+                await HandleModelCommandAsync(input);
+                return (true, false, null);
+
             case "/plan":
                 await SwitchToModeAsync(AgentMode.Plan);
                 return (true, false, null);
@@ -499,6 +522,12 @@ public sealed class ReplHost(
         if (input.StartsWith("/heartbeat", StringComparison.OrdinalIgnoreCase))
         {
             await HandleHeartbeatCommandAsync(input);
+            return (true, false, null);
+        }
+
+        if (input.StartsWith("/model ", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleModelCommandAsync(input);
             return (true, false, null);
         }
 
@@ -674,6 +703,242 @@ public sealed class ReplHost(
             ? Strings.LanguageChinese
             : Strings.LanguageEnglish;
         AnsiConsole.MarkupLine($"\n[green]✓[/] {Strings.LanguageSwitched}: [cyan]{langName}[/]\n");
+    }
+
+    private async Task HandleModelCommandAsync(string input)
+    {
+        var parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var hasArg = parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]);
+        if (hasArg)
+        {
+            await ApplyModelSelectionAsync(parts[1].Trim());
+            AnsiConsole.WriteLine();
+            return;
+        }
+
+        var snapshot = await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync(Strings.ModelLoading, async _ => await EnsureModelCatalogLoadedAsync());
+
+        if (!snapshot.Success)
+        {
+            if (!string.IsNullOrWhiteSpace(snapshot.ErrorMessage))
+            {
+                AnsiConsole.MarkupLine($"[yellow]{Strings.ModelFetchFailed}: {snapshot.ErrorMessage!.EscapeMarkup()}[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[yellow]{Strings.ModelFeatureUnavailable}[/]");
+            }
+
+            var manual = AnsiConsole.Prompt(
+                new TextPrompt<string>(Strings.ModelManualPrompt)
+                    .AllowEmpty());
+            if (!string.IsNullOrWhiteSpace(manual))
+                await ApplyModelSelectionAsync(manual.Trim());
+            AnsiConsole.WriteLine();
+            return;
+        }
+
+        var options = new List<string> { "Default" };
+        options.AddRange(snapshot.Models.Where(m => !string.Equals(m, "Default", StringComparison.OrdinalIgnoreCase)));
+        if (options.Count == 1)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Strings.ModelNoOptions}[/]");
+            var manual = AnsiConsole.Prompt(
+                new TextPrompt<string>(Strings.ModelManualPrompt)
+                    .AllowEmpty());
+            if (!string.IsNullOrWhiteSpace(manual))
+                await ApplyModelSelectionAsync(manual.Trim());
+            AnsiConsole.WriteLine();
+            return;
+        }
+
+        var selected = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title(Strings.ModelSelectTitle)
+                .PageSize(10)
+                .AddChoices(options));
+
+        await ApplyModelSelectionAsync(selected);
+        AnsiConsole.WriteLine();
+    }
+
+    private void StartModelCatalogPreload()
+    {
+        if (!_modelCatalogSupported || wireClient == null || _modelCatalogCache != null || _modelCatalogLoadTask != null)
+            return;
+        _modelCatalogLoadTask = LoadModelCatalogAsync();
+    }
+
+    private async Task<ModelCatalogSnapshot> EnsureModelCatalogLoadedAsync()
+    {
+        if (_modelCatalogCache != null)
+            return _modelCatalogCache;
+        if (!_modelCatalogSupported || wireClient == null)
+        {
+            _modelCatalogCache = new ModelCatalogSnapshot(false, [], Strings.ModelFeatureUnavailable);
+            return _modelCatalogCache;
+        }
+
+        _modelCatalogLoadTask ??= LoadModelCatalogAsync();
+        var loaded = await _modelCatalogLoadTask;
+        _modelCatalogCache ??= loaded;
+        return _modelCatalogCache;
+    }
+
+    private async Task<ModelCatalogSnapshot> LoadModelCatalogAsync()
+    {
+        try
+        {
+            var result = await wireClient!.ModelListAsync();
+            if (!result.Success)
+            {
+                return new ModelCatalogSnapshot(
+                    false,
+                    [],
+                    string.IsNullOrWhiteSpace(result.ErrorMessage) ? result.ErrorCode : result.ErrorMessage);
+            }
+
+            var options = result.Models
+                .Select(m => m.Id?.Trim())
+                .Where(m => !string.IsNullOrWhiteSpace(m))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+                .Cast<string>()
+                .ToList();
+
+            return new ModelCatalogSnapshot(true, options, null);
+        }
+        catch (Exception ex)
+        {
+            return new ModelCatalogSnapshot(false, [], ex.Message);
+        }
+    }
+
+    private async Task ApplyModelSelectionAsync(string modelInput)
+    {
+        var trimmed = modelInput.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            return;
+
+        var model = string.Equals(trimmed, "default", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : trimmed;
+
+        SaveWorkspaceModelConfig(model);
+
+        if (!string.IsNullOrEmpty(_currentThreadId) && wireClient != null)
+        {
+            await UpdateThreadModelAsync(_currentThreadId, model);
+        }
+        else
+        {
+            _threadModelOverride = null;
+        }
+
+        AnsiConsole.MarkupLine(
+            model == null
+                ? $"[green]✓[/] {Strings.ModelUpdatedDefault}"
+                : $"[green]✓[/] {Strings.ModelUpdatedTo(model).EscapeMarkup()}");
+    }
+
+    private void SaveWorkspaceModelConfig(string? model)
+    {
+        var configPath = Path.Combine(dotCraftPath, "config.json");
+        Directory.CreateDirectory(dotCraftPath);
+        var root = LoadWorkspaceConfigObject(configPath);
+        var modelKey = FindCaseInsensitiveKey(root, "Model");
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            if (modelKey != null)
+                root.Remove(modelKey);
+            _workspaceModel = "Default";
+        }
+        else
+        {
+            root[modelKey ?? "Model"] = model;
+            _workspaceModel = model;
+        }
+
+        var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(configPath, json, new UTF8Encoding(false));
+    }
+
+    private async Task UpdateThreadModelAsync(string threadId, string? model)
+    {
+        var readDoc = await wireClient!.SendRequestAsync(
+            AppServerMethods.ThreadRead,
+            new ThreadReadParams
+            {
+                ThreadId = threadId,
+                IncludeTurns = false
+            });
+
+        var config = new ThreadConfiguration();
+        if (readDoc.RootElement.TryGetProperty("result", out var resultEl) &&
+            resultEl.TryGetProperty("thread", out var threadEl) &&
+            threadEl.TryGetProperty("configuration", out var cfgEl) &&
+            cfgEl.ValueKind == JsonValueKind.Object)
+        {
+            config = JsonSerializer.Deserialize<ThreadConfiguration>(
+                         cfgEl.GetRawText(),
+                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                     ?? new ThreadConfiguration();
+        }
+
+        config.Model = model;
+        await wireClient.SendRequestAsync(
+            AppServerMethods.ThreadConfigUpdate,
+            new ThreadConfigUpdateParams
+            {
+                ThreadId = threadId,
+                Config = config
+            });
+
+        _threadModelOverride = model;
+    }
+
+    private string ReadWorkspaceModelFromConfig()
+    {
+        var configPath = Path.Combine(dotCraftPath, "config.json");
+        var root = LoadWorkspaceConfigObject(configPath);
+        var modelKey = FindCaseInsensitiveKey(root, "Model");
+        if (modelKey == null)
+            return "Default";
+        var model = root[modelKey]?.GetValue<string>()?.Trim();
+        return string.IsNullOrWhiteSpace(model) ? "Default" : model;
+    }
+
+    private static JsonObject LoadWorkspaceConfigObject(string configPath)
+    {
+        if (!File.Exists(configPath))
+            return new JsonObject();
+        try
+        {
+            var node = JsonNode.Parse(File.ReadAllText(configPath));
+            return node as JsonObject ?? new JsonObject();
+        }
+        catch
+        {
+            return new JsonObject();
+        }
+    }
+
+    private static string? FindCaseInsensitiveKey(JsonObject obj, string expectedKey)
+    {
+        foreach (var kv in obj)
+        {
+            if (string.Equals(kv.Key, expectedKey, StringComparison.OrdinalIgnoreCase))
+                return kv.Key;
+        }
+        return null;
+    }
+
+    private string GetEffectiveModelDisplay()
+    {
+        return !string.IsNullOrWhiteSpace(_threadModelOverride) ? _threadModelOverride! : _workspaceModel;
     }
 
     private async Task HandleHeartbeatCommandAsync(string input)

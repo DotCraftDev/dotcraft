@@ -17,10 +17,10 @@ use crate::{
     app::{
         commands::{self, SlashCommand},
         event_mapper,
-        input_router::{self, InputAction, ThreadPickerOp},
+        input_router::{self, InputAction, ModelPickerOp, ThreadPickerOp},
         state::{
-            AgentMode, AppState, ApprovalState, HistoryEntry, OverlayKind, ThreadEntry,
-            ThreadPickerState, TurnStatus,
+            AgentMode, AppState, ApprovalState, HistoryEntry, ModelCacheState, ModelPickerState,
+            OverlayKind, ThreadEntry, ThreadPickerState, TurnStatus,
         },
     },
     i18n::Strings,
@@ -33,7 +33,8 @@ use crate::{
         layout,
         overlays::{
             approval::ApprovalOverlay, command_popup::CommandPopup, help::HelpOverlay,
-            notification::NotificationToast, thread_picker::ThreadPicker,
+            model_picker::ModelPicker, notification::NotificationToast,
+            thread_picker::ThreadPicker,
         },
         status_indicator::StatusIndicator,
         welcome_screen::WelcomeScreen,
@@ -53,6 +54,7 @@ enum ConnectionMode {
 enum DeferredResult {
     ThreadListLoaded(Result<serde_json::Value>),
     ThreadHistoryLoaded(Result<serde_json::Value>),
+    ModelCatalogLoaded(Result<serde_json::Value>),
 }
 
 /// Signals that the WelcomeScreen has been dismissed and chat UI should show.
@@ -93,6 +95,23 @@ fn resolve_language(cli_lang: Option<&str>, workspace_path: Option<&std::path::P
 
     // 3. Default.
     "en".to_string()
+}
+
+fn read_workspace_model(workspace_path: &std::path::Path) -> Option<String> {
+    let config_path = workspace_path.join(".craft").join("config.json");
+    let content = std::fs::read_to_string(config_path).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+    let obj = value.as_object()?;
+    for (k, v) in obj {
+        if k.eq_ignore_ascii_case("model") {
+            let model = v.as_str()?.trim().to_string();
+            if model.is_empty() {
+                return None;
+            }
+            return Some(model);
+        }
+    }
+    None
 }
 
 /// Entry point called from main.rs.
@@ -170,6 +189,7 @@ pub async fn run(
     let ws_path = resolved_workspace.to_string_lossy().into_owned();
     let mut state = AppState::new(ws_path.clone());
     state.connected = true;
+    state.workspace_model = read_workspace_model(&resolved_workspace);
 
     // ── 7. Event loop (WelcomeScreen shown first, then chat UI) ─────────
     run_event_loop(
@@ -202,6 +222,13 @@ async fn run_event_loop(
 
     let (deferred_tx, mut deferred_rx) = tokio_mpsc::unbounded_channel::<DeferredResult>();
 
+    if wire.capabilities.model_catalog_management.unwrap_or(false) {
+        state.model_cache = ModelCacheState::Loading;
+        if let Err(e) = spawn_model_catalog_load(wire, &deferred_tx).await {
+            state.model_cache = ModelCacheState::Error(format!("Failed to load models: {e}"));
+        }
+    }
+
     // Show the WelcomeScreen until a key is pressed or the connection is confirmed ready.
     let mut ui_phase = UiPhase::Welcome;
 
@@ -225,6 +252,12 @@ async fn run_event_loop(
                                 Ok(new_wire) => {
                                     *wire = new_wire;
                                     state.connected = true;
+                                    if wire.capabilities.model_catalog_management.unwrap_or(false) {
+                                        state.model_cache = ModelCacheState::Loading;
+                                        let _ = spawn_model_catalog_load(wire, &deferred_tx).await;
+                                    } else {
+                                        state.model_cache = ModelCacheState::Idle;
+                                    }
                                     if let Some(ref tid) = state.current_thread_id {
                                         let _ = wire.notify("thread/subscribe", serde_json::json!({
                                             "threadId": tid,
@@ -352,6 +385,10 @@ async fn handle_terminal_event(
                         let action = input_router::handle_thread_picker(state, key);
                         handle_thread_picker_action(wire, state, deferred_tx, action).await?;
                     }
+                    OverlayKind::ModelPicker => {
+                        let action = input_router::handle_model_picker(state, key);
+                        handle_model_picker_action(wire, state, action).await?;
+                    }
                     OverlayKind::Help => {
                         let action = input_router::handle_help_overlay(key);
                         if matches!(action, InputAction::CloseOverlay) {
@@ -426,6 +463,7 @@ async fn handle_terminal_event(
                 }
                 InputAction::ApprovalDecision(_)
                 | InputAction::ThreadPickerAction(_)
+                | InputAction::ModelPickerAction(_)
                 | InputAction::CloseOverlay
                 | InputAction::None => {}
             }
@@ -452,11 +490,33 @@ fn build_identity(workspace_path: &str) -> serde_json::Value {
     })
 }
 
+async fn spawn_model_catalog_load(
+    wire: &mut WireClient,
+    deferred_tx: &tokio_mpsc::UnboundedSender<DeferredResult>,
+) -> Result<()> {
+    let (_, rx) = wire.send_request("model/list", serde_json::json!({})).await?;
+    let tx = deferred_tx.clone();
+    tokio::spawn(async move {
+        let result = rx
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
+        let _ = tx.send(DeferredResult::ModelCatalogLoaded(result));
+    });
+    Ok(())
+}
+
 async fn create_thread(wire: &mut WireClient, state: &mut AppState) -> Result<()> {
     let ws = &state.workspace_path;
-    let params = serde_json::json!({
-        "identity": build_identity(ws)
-    });
+    let params = if let Some(model) = state.pending_model_override.clone() {
+        serde_json::json!({
+            "identity": build_identity(ws),
+            "config": { "model": model }
+        })
+    } else {
+        serde_json::json!({
+            "identity": build_identity(ws)
+        })
+    };
 
     let result: serde_json::Value = wire.request("thread/start", params).await?;
     if let Some(thread) = result.get("thread") {
@@ -468,6 +528,13 @@ async fn create_thread(wire: &mut WireClient, state: &mut AppState) -> Result<()
             .get("displayName")
             .and_then(|v| v.as_str())
             .map(str::to_string);
+        state.current_model_override = thread
+            .get("configuration")
+            .and_then(|cfg| cfg.get("model"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| state.pending_model_override.clone());
+        state.pending_model_override = None;
     }
     Ok(())
 }
@@ -602,6 +669,36 @@ fn is_server_request(msg: &wire::types::JsonRpcMessage) -> bool {
 /// Process a deferred async result that arrived from a spawned task.
 fn handle_deferred_result(state: &mut AppState, strings: &Strings, result: DeferredResult) {
     match result {
+        DeferredResult::ModelCatalogLoaded(Ok(value)) => {
+            let (models, error) = parse_model_catalog(&value);
+            if let Some(err) = error {
+                state.model_cache = ModelCacheState::Error(err.clone());
+                if let Some(picker) = state.model_picker.as_mut() {
+                    picker.loading = false;
+                    picker.error = Some(err);
+                    picker.models.clear();
+                }
+            } else {
+                state.model_cache = ModelCacheState::Ready(models.clone());
+                if let Some(picker) = state.model_picker.as_mut() {
+                    picker.loading = false;
+                    picker.error = None;
+                    picker.models = models;
+                    if picker.selected >= picker.models.len() {
+                        picker.selected = 0;
+                    }
+                }
+            }
+        }
+        DeferredResult::ModelCatalogLoaded(Err(e)) => {
+            let msg = format!("Failed to load models: {e}");
+            state.model_cache = ModelCacheState::Error(msg.clone());
+            if let Some(picker) = state.model_picker.as_mut() {
+                picker.loading = false;
+                picker.error = Some(msg);
+                picker.models.clear();
+            }
+        }
         DeferredResult::ThreadListLoaded(Ok(value)) => {
             let threads = parse_thread_list(&value);
             if let Some(picker) = state.thread_picker.as_mut() {
@@ -724,6 +821,88 @@ async fn handle_thread_picker_action(
     Ok(())
 }
 
+async fn handle_model_picker_action(
+    wire: &mut WireClient,
+    state: &mut AppState,
+    action: InputAction,
+) -> Result<()> {
+    match action {
+        InputAction::ModelPickerAction(ModelPickerOp::Close) => {
+            state.active_overlay = None;
+            state.model_picker = None;
+        }
+        InputAction::ModelPickerAction(ModelPickerOp::Apply) => {
+            let selected_model = state
+                .model_picker
+                .as_ref()
+                .and_then(|p| p.models.get(p.selected))
+                .cloned();
+            if let Some(model_label) = selected_model {
+                let model_override = if model_label.eq_ignore_ascii_case("default") {
+                    None
+                } else {
+                    Some(model_label)
+                };
+                apply_model_override(wire, state, model_override).await?;
+            }
+            state.active_overlay = None;
+            state.model_picker = None;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn apply_model_override(
+    wire: &mut WireClient,
+    state: &mut AppState,
+    model: Option<String>,
+) -> Result<()> {
+    if let Some(thread_id) = state.current_thread_id.clone() {
+        let read = wire
+            .request::<serde_json::Value>(
+                "thread/read",
+                serde_json::json!({ "threadId": thread_id, "includeTurns": false }),
+            )
+            .await?;
+
+        let mut config = read
+            .get("thread")
+            .and_then(|t| t.get("configuration"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        if !config.is_object() {
+            config = serde_json::json!({});
+        }
+
+        if let Some(cfg_obj) = config.as_object_mut() {
+            let existing_model_key = cfg_obj
+                .keys()
+                .find(|k| k.eq_ignore_ascii_case("model"))
+                .cloned();
+            if let Some(next) = model.clone() {
+                let key = existing_model_key.unwrap_or_else(|| "model".to_string());
+                cfg_obj.insert(key, serde_json::Value::String(next));
+            } else if let Some(key) = existing_model_key {
+                cfg_obj.remove(&key);
+            }
+        }
+
+        wire.send_request(
+            "thread/config/update",
+            serde_json::json!({ "threadId": thread_id, "config": config }),
+        )
+        .await?;
+
+        state.current_model_override = model;
+        state.pending_model_override = None;
+    } else {
+        state.pending_model_override = model;
+        state.current_model_override = state.pending_model_override.clone();
+    }
+    Ok(())
+}
+
 /// Parse the thread/list response into a Vec of ThreadEntry.
 fn parse_thread_list(result: &serde_json::Value) -> Vec<ThreadEntry> {
     result
@@ -760,6 +939,38 @@ fn parse_thread_list(result: &serde_json::Value) -> Vec<ThreadEntry> {
         .unwrap_or_default()
 }
 
+fn parse_model_catalog(result: &serde_json::Value) -> (Vec<String>, Option<String>) {
+    let success = result
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !success {
+        let message = result
+            .get("errorMessage")
+            .and_then(|v| v.as_str())
+            .or_else(|| result.get("errorCode").and_then(|v| v.as_str()))
+            .unwrap_or("Model catalog request failed.")
+            .to_string();
+        return (vec![], Some(message));
+    }
+
+    let mut models: Vec<String> = result
+        .get("models")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.get("id").and_then(|v| v.as_str()))
+                .map(|id| id.trim().to_string())
+                .filter(|id| !id.is_empty())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    models.sort_by_key(|a| a.to_ascii_lowercase());
+    models.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    (models, None)
+}
+
 /// Parse a `thread/read` response (with `includeTurns: true`) and rebuild
 /// `state.history` from the persisted items.
 fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
@@ -771,6 +982,12 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
     {
         state.current_thread_name = Some(name.to_string());
     }
+    state.current_model_override = data
+        .get("thread")
+        .and_then(|t| t.get("configuration"))
+        .and_then(|cfg| cfg.get("model"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
 
     let turns = match data
         .get("thread")
@@ -940,6 +1157,8 @@ async fn handle_slash_command(
             state.token_tracker.reset();
             state.current_thread_id = None;
             state.current_thread_name = None;
+            state.current_model_override = None;
+            state.pending_model_override = None;
             state.history.push(HistoryEntry::SystemInfo {
                 message: strings.new_session_hint.to_string(),
             });
@@ -976,6 +1195,54 @@ async fn handle_slash_command(
                     message: "Heartbeat service is not configured on this server.".to_string(),
                 });
             }
+        }
+        SlashCommand::Model { model_name } => {
+            if !wire.capabilities.model_catalog_management.unwrap_or(false) {
+                state.history.push(HistoryEntry::Error {
+                    message: strings.feature_unavailable.to_string(),
+                });
+                return Ok(false);
+            }
+
+            if let Some(model_input) = model_name {
+                let model = model_input.trim();
+                if model.is_empty() {
+                    state.history.push(HistoryEntry::Error {
+                        message: strings.model_usage.to_string(),
+                    });
+                    return Ok(false);
+                }
+                let next = if model.eq_ignore_ascii_case("default") {
+                    None
+                } else {
+                    Some(model.to_string())
+                };
+                apply_model_override(wire, state, next.clone()).await?;
+                let message = match next {
+                    Some(m) => strings.model_updated_to.replace("{}", &m),
+                    None => strings.model_updated_default.to_string(),
+                };
+                state.history.push(HistoryEntry::SystemInfo { message });
+                return Ok(false);
+            }
+
+            let (loading, models, error) = match &state.model_cache {
+                ModelCacheState::Loading => (true, vec!["Default".to_string()], None),
+                ModelCacheState::Ready(cached) => {
+                    let mut all = vec!["Default".to_string()];
+                    all.extend(cached.iter().cloned());
+                    (false, all, None)
+                }
+                ModelCacheState::Error(err) => (false, vec![], Some(err.clone())),
+                ModelCacheState::Idle => (true, vec!["Default".to_string()], None),
+            };
+            state.model_picker = Some(ModelPickerState {
+                models,
+                selected: 0,
+                loading,
+                error,
+            });
+            state.active_overlay = Some(OverlayKind::ModelPicker);
         }
         SlashCommand::Help => {
             state.active_overlay = Some(OverlayKind::Help);
@@ -1174,6 +1441,11 @@ fn draw_welcome(
             WelcomeScreen::new(
                 version,
                 &state.workspace_path,
+                state
+                    .current_model_override
+                    .as_deref()
+                    .or(state.workspace_model.as_deref())
+                    .or(Some(strings.model_default_label)),
                 state.connected,
                 state.tick_count,
                 theme,
@@ -1265,6 +1537,14 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
             Some(OverlayKind::ThreadPicker) => {
                 if let Some(picker) = &state.thread_picker {
                     frame.render_widget(ThreadPicker::new(picker, theme, strings), area);
+                }
+            }
+            Some(OverlayKind::ModelPicker) => {
+                if let Some(picker) = &state.model_picker {
+                    frame.render_widget(
+                        ModelPicker::new(picker, state.tick_count, theme, strings),
+                        area,
+                    );
                 }
             }
             Some(OverlayKind::Help) => {

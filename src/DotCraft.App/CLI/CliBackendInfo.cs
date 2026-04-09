@@ -25,4 +25,9 @@ public sealed record CliBackendInfo
     /// Non-null only in WebSocket mode; null in subprocess mode.
     /// </summary>
     public string? ServerUrl { get; init; }
+
+    /// <summary>
+    /// Whether the connected AppServer advertises support for <c>model/list</c>.
+    /// </summary>
+    public bool ModelCatalogManagement { get; init; }
 }

@@ -28,6 +28,7 @@ pub enum FocusTarget {
 pub enum OverlayKind {
     Approval,
     ThreadPicker,
+    ModelPicker,
     Help,
 }
 
@@ -45,6 +46,22 @@ pub struct ThreadEntry {
 #[derive(Debug, Clone)]
 pub struct ThreadPickerState {
     pub threads: Vec<ThreadEntry>,
+    pub selected: usize,
+    pub loading: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ModelCacheState {
+    Idle,
+    Loading,
+    Ready(Vec<String>),
+    Error(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelPickerState {
+    pub models: Vec<String>,
     pub selected: usize,
     pub loading: bool,
     pub error: Option<String>,
@@ -186,6 +203,9 @@ pub struct AppState {
     // Thread
     pub current_thread_id: Option<String>,
     pub current_thread_name: Option<String>,
+    pub current_model_override: Option<String>,
+    pub pending_model_override: Option<String>,
+    pub workspace_model: Option<String>,
 
     // Turn
     pub turn_status: TurnStatus,
@@ -239,6 +259,10 @@ pub struct AppState {
     pub pending_approval: Option<ApprovalState>,
     // Thread-picker overlay state (/sessions command)
     pub thread_picker: Option<ThreadPickerState>,
+    // Model-picker overlay state (/model command)
+    pub model_picker: Option<ModelPickerState>,
+    // One-shot model catalog cache.
+    pub model_cache: ModelCacheState,
     // Which overlay is currently rendering on top of the base UI
     pub active_overlay: Option<OverlayKind>,
 
@@ -256,6 +280,9 @@ impl AppState {
             workspace_path,
             current_thread_id: None,
             current_thread_name: None,
+            current_model_override: None,
+            pending_model_override: None,
+            workspace_model: None,
             turn_status: TurnStatus::Idle,
             current_turn_id: None,
             turn_started_at: None,
@@ -280,6 +307,8 @@ impl AppState {
             notifications: std::collections::VecDeque::new(),
             pending_approval: None,
             thread_picker: None,
+            model_picker: None,
+            model_cache: ModelCacheState::Idle,
             active_overlay: None,
             command_popup: None,
             last_interrupt_at: None,

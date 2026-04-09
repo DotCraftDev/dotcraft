@@ -89,4 +89,5 @@ pub struct ServerCapabilities {
     pub config_override: Option<bool>,
     pub cron_management: Option<bool>,
     pub heartbeat_management: Option<bool>,
+    pub model_catalog_management: Option<bool>,
 }

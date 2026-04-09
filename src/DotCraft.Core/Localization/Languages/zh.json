@@ -19,9 +19,11 @@
   "cmd.commands": "显示自定义命令列表",
   "cmd.agent": "切换到 Agent 模式",
   "cmd.plan": "切换到 Plan 模式",
+  "cmd.model": "选择或设置模型",
 
   "welcome.current_session": "当前会话",
   "welcome.quick_commands": "快捷命令",
+  "welcome.model": "模型",
 
   "session.loaded": "已加载会话",
   "session.load_failed": "加载会话失败",
@@ -137,6 +139,15 @@
   "lang.switched": "语言已切换为",
   "lang.chinese": "中文",
   "lang.english": "英文",
+
+  "model.loading": "正在加载模型列表...",
+  "model.fetch_failed": "加载模型列表失败",
+  "model.manual_prompt": "输入模型名（留空取消）",
+  "model.select_title": "选择模型",
+  "model.updated_default": "模型已重置为 Default",
+  "model.updated_to": "模型已更新为 {0}",
+  "model.feature_unavailable": "当前服务器不支持模型目录。",
+  "model.no_options": "服务器未返回任何模型。",
 
   "command.unknown": "未知命令",
   "command.did_you_mean": "你是否想输入",
