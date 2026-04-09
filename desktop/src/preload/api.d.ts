@@ -42,6 +42,7 @@ declare global {
         sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
         listModels(): Promise<unknown>
         getConnectionStatus(): Promise<ConnectionStatusPayload>
+        restartManaged(): Promise<void>
         onNotification(callback: (payload: NotificationPayload) => void): UnsubscribeFn
         onConnectionStatus(
           callback: (status: ConnectionStatusPayload) => void

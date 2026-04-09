@@ -117,6 +117,10 @@ const api = {
       return ipcRenderer.invoke('appserver:get-connection-status')
     },
 
+    restartManaged(): Promise<void> {
+      return ipcRenderer.invoke('appserver:restart-managed')
+    },
+
     /**
      * Subscribes to Wire Protocol notifications forwarded from Main.
      * Returns an unsubscribe function.

@@ -52,6 +52,7 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
   const [saving, setSaving] = useState(false)
+  const [restartingAppServer, setRestartingAppServer] = useState(false)
   /** Mirrors machine-local `visibleChannels` (see ensureVisibleChannelsSeeded). */
   const [visibleChannels, setVisibleChannels] = useState<string[]>([])
   const [serverChannels, setServerChannels] = useState<ChannelInfoWire[] | null>(null)
@@ -114,6 +115,8 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
     }
     return map
   }, [serverChannels])
+
+  const canRestartManagedAppServer = connectionMode !== 'remote'
 
   async function handleThemeChange(next: ThemeMode): Promise<void> {
     setTheme(next)
@@ -195,8 +198,15 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
           token: remoteToken.trim() || undefined
         }
       })
-      addToast(t('settings.savedToast'), 'success')
-      closeSettings()
+      addToast(
+        activeSettingsTab === 'connection'
+          ? t('settings.restartAppServerSavedHint')
+          : t('settings.savedToast'),
+        'success'
+      )
+      if (activeSettingsTab !== 'connection') {
+        closeSettings()
+      }
     } catch (err) {
       addToast(
         t('settings.saveFailed', {
@@ -206,6 +216,23 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
       )
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleRestartManagedAppServer(): Promise<void> {
+    setRestartingAppServer(true)
+    try {
+      await window.api.appServer.restartManaged()
+      addToast(t('settings.restartAppServerSuccess'), 'success')
+    } catch (err) {
+      addToast(
+        t('settings.restartAppServerFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setRestartingAppServer(false)
     }
   }
 
@@ -539,6 +566,36 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
                     {t('settings.binaryHint')}
                   </div>
                 </div>
+
+                {canRestartManagedAppServer && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleRestartManagedAppServer()
+                      }}
+                      disabled={restartingAppServer || saving}
+                      style={{
+                        padding: '7px 16px',
+                        border: '1px solid var(--border-default)',
+                        borderRadius: '6px',
+                        backgroundColor: 'transparent',
+                        color: 'var(--text-primary)',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        cursor: restartingAppServer || saving ? 'default' : 'pointer',
+                        opacity: restartingAppServer || saving ? 0.7 : 1
+                      }}
+                    >
+                      {restartingAppServer
+                        ? t('settings.restartingAppServer')
+                        : t('settings.restartAppServer')}
+                    </button>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '6px' }}>
+                      {t('settings.restartAppServerHint')}
+                    </div>
+                  </div>
+                )}
               </>
             )}
 

@@ -1,12 +1,22 @@
-import { describe, it, expect, vi } from 'vitest'
-import { shell } from 'electron'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { ipcMain, shell } from 'electron'
 
 vi.mock('electron', () => ({
+  ipcMain: {
+    handle: vi.fn(),
+    removeHandler: vi.fn()
+  },
+  BrowserWindow: {},
+  dialog: {},
+  Notification: {
+    isSupported: vi.fn(() => false)
+  },
   shell: { openExternal: vi.fn().mockResolvedValue(undefined) }
 }))
 
 import {
   createServerRequestBridge,
+  registerIpcHandlers,
   sanitizeHttpOrHttpsUrl,
   openExternalHttpUrl
 } from '../ipcBridge'
@@ -86,6 +96,35 @@ describe('openExternalHttpUrl', () => {
     await openExternalHttpUrl('https://example.com')
     expect(shell.openExternal).toHaveBeenCalledTimes(1)
     expect(shell.openExternal).toHaveBeenCalledWith('https://example.com/')
+  })
+})
+
+describe('registerIpcHandlers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('registers appserver:restart-managed and forwards to callback', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+
+    const onRestartManagedAppServer = vi.fn().mockResolvedValue(undefined)
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer,
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' }))
+    })
+
+    expect(handlers.has('appserver:restart-managed')).toBe(true)
+    await handlers.get('appserver:restart-managed')?.({})
+    expect(onRestartManagedAppServer).toHaveBeenCalledOnce()
   })
 })
 

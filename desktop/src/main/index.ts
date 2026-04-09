@@ -466,6 +466,18 @@ function buildCallbacks(): IpcHandlerCallbacks {
     onOpenNewWindow: () => {
       openNewProcess()
     },
+    onRestartManagedAppServer: async () => {
+      if (!currentWorkspacePath) {
+        throw new Error('Open a workspace before restarting AppServer.')
+      }
+      if (process.argv.includes('--remote')) {
+        throw new Error('Cannot restart AppServer while using a remote WebSocket connection.')
+      }
+      if (resolveConnectionMode(sharedSettings) === 'remote') {
+        throw new Error('Restart is only available for Desktop-managed AppServer subprocesses.')
+      }
+      await connectToAppServer(currentWorkspacePath)
+    },
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
       const prevLocale = normalizeLocale(sharedSettings.locale)
