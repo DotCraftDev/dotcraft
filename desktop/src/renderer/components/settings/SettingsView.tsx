@@ -561,7 +561,7 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
   }
 
   async function handleMcpDelete(): Promise<void> {
-    const name = mcpDraft.name.trim()
+    const name = (editingServerName !== '__new__' ? editingServerName?.trim() : mcpDraft.name.trim()) ?? ''
     if (!name) return
     setDeletingMcp(true)
     try {
