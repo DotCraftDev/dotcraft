@@ -867,11 +867,7 @@ public sealed class SessionService(
         thread.Configuration ??= new ThreadConfiguration();
         thread.Configuration.Mode = mode;
 
-        var agentMode = mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
-            ? AgentMode.Plan
-            : AgentMode.Agent;
-        var mm = GetOrCreateModeManager(threadId, agentMode);
-        _threadAgents[threadId] = agentFactory.CreateAgentForMode(agentMode, mm);
+        _threadAgents[threadId] = await BuildAgentForConfigAsync(threadId, thread.Configuration, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
     }
@@ -1128,10 +1124,10 @@ public sealed class SessionService(
         if (!Uri.TryCreate(baseContext.Config.EndPoint, UriKind.Absolute, out var endpoint))
             return baseContext.ChatClient;
 
-        var openAIClient = new OpenAIClient(
+        var client = new OpenAIClient(
             new ApiKeyCredential(baseContext.Config.ApiKey),
             new OpenAIClientOptions { Endpoint = endpoint });
-        return openAIClient.GetChatClient(config.Model);
+        return client.GetChatClient(config.Model);
     }
 
     private static ToolProviderContext CloneContextWithChatClient(
@@ -1155,9 +1151,9 @@ public sealed class SessionService(
             AcpExtensionProxy = source.AcpExtensionProxy,
             AgentFileSystem = source.AgentFileSystem,
             AutomationTaskDirectory = source.AutomationTaskDirectory,
-            RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace
+            RequireApprovalOutsideWorkspace = source.RequireApprovalOutsideWorkspace,
+            DeferredToolRegistry = source.DeferredToolRegistry
         };
-        cloned.DeferredToolRegistry = source.DeferredToolRegistry;
         return cloned;
     }
 }
