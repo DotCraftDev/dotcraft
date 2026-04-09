@@ -12,6 +12,7 @@ pub enum SlashCommand {
     Clear,
     Cron,
     Heartbeat,
+    Model { model_name: Option<String> },
     Quit,
     Unknown { name: String },
 }
@@ -40,6 +41,13 @@ pub fn parse(input: &str) -> Option<SlashCommand> {
         "/clear" => SlashCommand::Clear,
         "/cron" => SlashCommand::Cron,
         "/heartbeat" => SlashCommand::Heartbeat,
+        "/model" => SlashCommand::Model {
+            model_name: if arg.is_empty() {
+                None
+            } else {
+                Some(arg.to_string())
+            },
+        },
         "/quit" | "/exit" => SlashCommand::Quit,
         other => SlashCommand::Unknown {
             name: other.trim_start_matches('/').to_string(),

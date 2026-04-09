@@ -13,7 +13,8 @@ public static class StatusPanel
     public static void ShowWelcome(
         string? currentSessionId = null,
         string? dashBoardUrl = null,
-        CliBackendInfo? backendInfo = null)
+        CliBackendInfo? backendInfo = null,
+        string? modelName = null)
     {
         AnsiConsole.Clear();
 
@@ -36,6 +37,10 @@ public static class StatusPanel
             var escapedUrl = dashBoardUrl.Escape();
             AnsiConsole.MarkupLine($"[blue]●[/] [bold]Dashboard[/]  [grey][link={escapedUrl}]{escapedUrl}[/][/]");
         }
+        if (!string.IsNullOrWhiteSpace(modelName))
+        {
+            AnsiConsole.MarkupLine($"[blue]●[/] [bold]{Strings.WelcomeModel}[/]  [grey]{modelName.Escape()}[/]");
+        }
         AnsiConsole.WriteLine();
 
         // Quick command tips
@@ -48,19 +53,26 @@ public static class StatusPanel
         grid.AddColumn();
 
         grid.AddRow(
-            new Markup("[blue]/exit[/]"),
-            new Markup($"[grey]{Strings.CmdExit}[/]"),
-            new Markup("[blue]/help[/]"),
-            new Markup($"[grey]{Strings.CmdHelp}[/]"),
             new Markup("[blue]/new[/]"),
-            new Markup($"[grey]{Strings.CmdNew}[/]"));
-        grid.AddRow(
+            new Markup($"[grey]{Strings.CmdNew}[/]"),
             new Markup("[blue]/load[/]"),
             new Markup($"[grey]{Strings.CmdLoad}[/]"),
+            new Markup("[blue]/model[/]"),
+            new Markup($"[grey]{Strings.CmdModel}[/]"));
+        grid.AddRow(
             new Markup("[blue]/agent[/]"),
             new Markup($"[grey]{Strings.CmdAgent}[/]"),
             new Markup("[blue]/plan[/]"),
-            new Markup($"[grey]{Strings.CmdPlan}[/]"));
+            new Markup($"[grey]{Strings.CmdPlan}[/]"),
+            new Markup("[blue]/help[/]"),
+            new Markup($"[grey]{Strings.CmdHelp}[/]"));
+        grid.AddRow(
+            new Markup("[blue]/clear[/]"),
+            new Markup($"[grey]{Strings.CmdClear}[/]"),
+            new Markup("[blue]/commands[/]"),
+            new Markup($"[grey]{Strings.CmdCommands}[/]"),
+            new Markup("[blue]/exit[/]"),
+            new Markup($"[grey]{Strings.CmdExit}[/]"));
 
         var panel = new Panel(grid)
         {
@@ -236,6 +248,7 @@ public static class StatusPanel
         grid.AddRow("  /sessions", Strings.CmdSessions);
         grid.AddRow("  /memory", Strings.CmdMemory);
         grid.AddRow("  /lang", Strings.CmdLang);
+        grid.AddRow("  /model [name|default]", Strings.CmdModel);
         grid.AddRow("  /agent", Strings.CmdAgent);
         grid.AddRow("  /plan", Strings.CmdPlan);
         grid.AddRow("  /heartbeat trigger", Strings.CmdHeartbeat);

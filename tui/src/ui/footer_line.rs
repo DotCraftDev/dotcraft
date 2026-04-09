@@ -93,6 +93,12 @@ impl Widget for FooterLine<'_> {
             AgentMode::Agent => self.strings.mode_agent,
             AgentMode::Plan => self.strings.mode_plan,
         };
+        let effective_model = self
+            .state
+            .current_model_override
+            .as_deref()
+            .or(self.state.workspace_model.as_deref())
+            .unwrap_or(self.strings.model_default_label);
 
         // Determine which left content to render based on available width.
         // Progressive collapse: full → mode-only → empty
@@ -103,8 +109,8 @@ impl Widget for FooterLine<'_> {
             format!("  {left_hint}")
         } else {
             format!(
-                "  {} · {} ({})",
-                self.strings.shortcuts_hint, mode_label, self.strings.mode_cycle_hint
+                "  {} · {} · {} ({})",
+                self.strings.shortcuts_hint, mode_label, effective_model, self.strings.mode_cycle_hint
             )
         };
 
@@ -112,14 +118,14 @@ impl Widget for FooterLine<'_> {
         let left_medium = if !left_hint.is_empty() {
             format!("  {left_hint}")
         } else {
-            format!("  {} · {}", self.strings.shortcuts_hint, mode_label)
+            format!("  {} · {} · {}", self.strings.shortcuts_hint, mode_label, effective_model)
         };
 
         // Short left: just hint or mode
         let left_short = if !left_hint.is_empty() {
             format!("  {left_hint}")
         } else {
-            format!("  {mode_label}")
+            format!("  {} · {}", mode_label, effective_model)
         };
 
         let left_full_w = left_full.width();

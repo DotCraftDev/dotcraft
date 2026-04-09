@@ -21,6 +21,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/clear", "Clear chat display"),
     ("/cron", "List cron jobs"),
     ("/heartbeat", "Trigger heartbeat"),
+    ("/model", "Select or set model"),
     ("/quit", "Exit dotcraft-tui"),
 ];
 

@@ -14,6 +14,12 @@ pub enum ThreadPickerOp {
     Close,
 }
 
+#[derive(Debug)]
+pub enum ModelPickerOp {
+    Apply,
+    Close,
+}
+
 /// Returned by key handlers to communicate the required action to the event loop.
 #[derive(Debug)]
 pub enum InputAction {
@@ -29,6 +35,8 @@ pub enum InputAction {
     ApprovalDecision(String),
     /// User performed an action in the thread-picker overlay.
     ThreadPickerAction(ThreadPickerOp),
+    /// User performed an action in the model-picker overlay.
+    ModelPickerAction(ModelPickerOp),
     /// Dismiss the current non-approval overlay (HelpOverlay, etc.).
     CloseOverlay,
     /// Open the HelpOverlay.
@@ -487,6 +495,39 @@ pub fn handle_help_overlay(key: crossterm::event::KeyEvent) -> InputAction {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::F(1) => {
             InputAction::CloseOverlay
         }
+        _ => InputAction::None,
+    }
+}
+
+/// Handle key events when the ModelPicker overlay is active.
+pub fn handle_model_picker(state: &mut AppState, key: crossterm::event::KeyEvent) -> InputAction {
+    use crossterm::event::KeyCode;
+
+    let model_count = state
+        .model_picker
+        .as_ref()
+        .map(|p| p.models.len())
+        .unwrap_or(0);
+
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(picker) = state.model_picker.as_mut() {
+                if picker.selected > 0 {
+                    picker.selected -= 1;
+                }
+            }
+            InputAction::None
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(picker) = state.model_picker.as_mut() {
+                if model_count > 0 && picker.selected + 1 < model_count {
+                    picker.selected += 1;
+                }
+            }
+            InputAction::None
+        }
+        KeyCode::Enter => InputAction::ModelPickerAction(ModelPickerOp::Apply),
+        KeyCode::Esc | KeyCode::Char('q') => InputAction::ModelPickerAction(ModelPickerOp::Close),
         _ => InputAction::None,
     }
 }

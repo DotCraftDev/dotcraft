@@ -19,9 +19,11 @@
   "cmd.commands": "Show custom commands",
   "cmd.agent": "Switch to Agent mode",
   "cmd.plan": "Switch to Plan mode",
+  "cmd.model": "Select or set model",
 
   "welcome.current_session": "Current session",
   "welcome.quick_commands": "Quick commands",
+  "welcome.model": "Model",
 
   "session.loaded": "Session loaded",
   "session.load_failed": "Failed to load session",
@@ -137,6 +139,15 @@
   "lang.switched": "Language switched to",
   "lang.chinese": "Chinese",
   "lang.english": "English",
+
+  "model.loading": "Loading models...",
+  "model.fetch_failed": "Failed to load model catalog",
+  "model.manual_prompt": "Enter model name (empty to cancel)",
+  "model.select_title": "Select model",
+  "model.updated_default": "Model reset to Default",
+  "model.updated_to": "Model updated to {0}",
+  "model.feature_unavailable": "Model catalog is not available on this server.",
+  "model.no_options": "No models returned by the server.",
 
   "command.unknown": "Unknown command",
   "command.did_you_mean": "Did you mean",

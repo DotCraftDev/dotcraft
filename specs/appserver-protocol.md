@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.1 |
+| **Version** | 0.2.2 |
 | **Status** | Living |
-| **Date** | 2026-03-28 |
+| **Date** | 2026-04-09 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 
 Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) to out-of-process clients, enabling non-C# adapters to create and resume threads, submit turns, stream events, and participate in approval flows. The protocol also covers server management operations — specifically cron job lifecycle — that are owned by the AppServer process but need to be accessible to wire clients.
@@ -40,6 +40,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [19. Command Management Methods](#19-command-management-methods)
 - [20. Channel Status Methods](#20-channel-status-methods)
 - [21. Model Catalog Methods](#21-model-catalog-methods)
+- [22. Workspace Config Methods](#22-workspace-config-methods)
 
 ---
 
@@ -66,7 +67,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. Workspace model persistence method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -205,7 +206,8 @@ Client                              Server
     "heartbeatManagement": true,
     "skillsManagement": true,
     "commandManagement": true,
-    "modelCatalogManagement": true
+    "modelCatalogManagement": true,
+    "workspaceConfigManagement": true
   }
 }
 ```
@@ -226,6 +228,7 @@ Client                              Server
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). Always `true` when the server has a `SkillsLoader` configured. |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). Always `true` when CommandRegistry is available. |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). Present and `true` when workspace config is available for resolving merged `ApiKey` and `EndPoint`. |
+| `capabilities.workspaceConfigManagement` | boolean | Server supports workspace config write methods (`workspace/config/update`). Present and `true` when workspace `.craft/config.json` is writable by the AppServer host process. |
 
 ### 3.3 `initialized`
 
@@ -1745,7 +1748,7 @@ This protocol is modeled after Codex App Server. The following table summarizes 
 | Turn failure | Encoded in `turn/completed` with `status: "failed"` | Separate `turn/failed` notification |
 | Turn cancel | Encoded in `turn/completed` with `status: "interrupted"` | Separate `turn/cancelled` notification |
 | Auth | Built-in (`account/login`, ChatGPT OAuth) | Outside wire protocol scope; handled by bearer token or channel auth |
-| Config | `config/read`, `config/value/write` | `thread/config/update`, `thread/mode/set` |
+| Config | `config/read`, `config/value/write` | `thread/config/update`, `thread/mode/set`, `workspace/config/update` |
 | Review | `review/start`, `enteredReviewMode`, `exitedReviewMode` | Not in v1 (future extension) |
 | Skills/Apps | `skills/list`, `app/list`, `plugin/list` | `skills/list`, `skills/read`, `skills/setEnabled` with `skillsManagement` capability |
 | Command exec | `command/exec` (standalone sandbox execution) | Not in v1 core; ACP extension surface |
@@ -2775,3 +2778,54 @@ On provider/config errors, the method still returns a successful JSON-RPC respon
 ### 21.4 Capability Advertisement
 
 `capabilities.modelCatalogManagement` is present and `true` when the AppServer has a workspace config path available and can resolve merged config values for model discovery.
+
+---
+
+## 22. Workspace Config Methods
+
+### 22.1 Scope
+
+These methods provide a server-authoritative write path for workspace-level configuration values stored in `.craft/config.json`.
+
+In v1, the wire surface only standardizes workspace model persistence so all clients (Desktop, CLI, TUI) can use one behavior for default model writes while keeping per-thread overrides in `thread/config/update`.
+
+Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling `workspace/config/update`. If absent or `false`, the server returns `-32601` (Method not found).
+
+### 22.2 `workspace/config/update`
+
+Update workspace-level config values. The server persists the change to `.craft/config.json` using case-insensitive key matching for `Model`.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string \| null | yes | Workspace default model. `null`, empty, or `"Default"` removes the `Model` key so runtime falls back to provider default behavior. |
+
+**Result**:
+
+```json
+{
+  "model": "gpt-4o-mini"
+}
+```
+
+If `model` is removed, the result returns:
+
+```json
+{
+  "model": null
+}
+```
+
+**Semantics**:
+
+- This method updates **workspace default** only (config file), not any active thread state.
+- Clients that need immediate effect in a running thread should additionally call `thread/config/update`.
+- Server preserves unrelated keys in `.craft/config.json`.
+- `Model` key matching is case-insensitive (`Model`, `model`, etc.) and normalized in-place.
+
+### 22.3 Capability Advertisement
+
+`capabilities.workspaceConfigManagement` is present and `true` when the AppServer has a workspace `.craft` path and can persist `.craft/config.json`.

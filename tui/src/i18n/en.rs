@@ -73,6 +73,16 @@ pub const HELP_KEYBINDINGS_HEADER: &str = "Key Bindings";
 pub const CRON_NO_JOBS: &str = "No cron jobs configured.";
 pub const THREAD_NOT_FOUND: &str = "Thread not found.";
 pub const FEATURE_UNAVAILABLE: &str = "This feature is not available on this server.";
+pub const MODEL_USAGE: &str = "Usage: /model [name|default]";
+pub const MODEL_UPDATED_DEFAULT: &str = "Model reset to Default.";
+pub const MODEL_UPDATED_TO: &str = "Model updated to {}.";
+pub const MODEL_DEFAULT_LABEL: &str = "Default";
+pub const MODEL_PICKER_TITLE: &str = "Model Selection";
+pub const MODEL_PICKER_LOADING: &str = "Loading models...";
+pub const MODEL_PICKER_EMPTY: &str = "No models available.";
+pub const MODEL_PICKER_SELECT_HINT: &str = "Enter: Apply";
+pub const MODEL_PICKER_CLOSE_HINT: &str = "Esc: Close";
+pub const WELCOME_MODEL_LABEL: &str = "Model";
 
 // UX polish: footer hints
 pub const MODE_CYCLE_HINT: &str = "shift+tab to cycle";

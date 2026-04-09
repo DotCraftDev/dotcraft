@@ -31,6 +31,7 @@ const LOGO: &[&str] = &[
 pub struct WelcomeScreen<'a> {
     pub version: &'a str,
     pub workspace: &'a str,
+    pub current_model: Option<&'a str>,
     pub connected: bool,
     pub tick_count: u64,
     pub theme: &'a Theme,
@@ -41,6 +42,7 @@ impl<'a> WelcomeScreen<'a> {
     pub fn new(
         version: &'a str,
         workspace: &'a str,
+        current_model: Option<&'a str>,
         connected: bool,
         tick_count: u64,
         theme: &'a Theme,
@@ -49,6 +51,7 @@ impl<'a> WelcomeScreen<'a> {
         Self {
             version,
             workspace,
+            current_model,
             connected,
             tick_count,
             theme,
@@ -98,6 +101,16 @@ impl Widget for WelcomeScreen<'_> {
             Span::raw("  "),
             Span::styled(format!("Workspace: {ws_display}"), self.theme.dim),
         ]));
+
+        if let Some(model) = self.current_model {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("{}: {model}", self.strings.welcome_model_label),
+                    self.theme.dim,
+                ),
+            ]));
+        }
 
         lines.push(Line::default());
 

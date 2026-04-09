@@ -66,7 +66,9 @@ public sealed class CliHost(
             backendInfo = new CliBackendInfo
             {
                 ServerVersion = TryGetServerVersion(wsInitResponse),
-                ServerUrl = wsUri.ToString()
+                ServerUrl = wsUri.ToString(),
+                ModelCatalogManagement = TryGetModelCatalogManagement(wsInitResponse),
+                WorkspaceConfigManagement = TryGetWorkspaceConfigManagement(wsInitResponse)
             };
         }
         else
@@ -90,7 +92,9 @@ public sealed class CliHost(
             backendInfo = new CliBackendInfo
             {
                 ServerVersion = _appServerProcess.ServerVersion,
-                ProcessId = _appServerProcess.ProcessId
+                ProcessId = _appServerProcess.ProcessId,
+                ModelCatalogManagement = _appServerProcess.ModelCatalogManagement,
+                WorkspaceConfigManagement = _appServerProcess.WorkspaceConfigManagement
             };
 
             dashBoardUrl = _appServerProcess.DashboardUrl;
@@ -208,6 +212,38 @@ public sealed class CliHost(
         catch
         {
             return null;
+        }
+    }
+
+    private static bool TryGetModelCatalogManagement(JsonDocument response)
+    {
+        try
+        {
+            return response.RootElement
+                .GetProperty("result")
+                .GetProperty("capabilities")
+                .GetProperty("modelCatalogManagement")
+                .GetBoolean();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetWorkspaceConfigManagement(JsonDocument response)
+    {
+        try
+        {
+            return response.RootElement
+                .GetProperty("result")
+                .GetProperty("capabilities")
+                .GetProperty("workspaceConfigManagement")
+                .GetBoolean();
+        }
+        catch
+        {
+            return false;
         }
     }
 }

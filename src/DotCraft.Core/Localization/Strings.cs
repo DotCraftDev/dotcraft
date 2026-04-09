@@ -28,10 +28,12 @@ public static class Strings
     public static string CmdCommands => LanguageService.Current.T("cmd.commands");
     public static string CmdAgent => LanguageService.Current.T("cmd.agent");
     public static string CmdPlan => LanguageService.Current.T("cmd.plan");
+    public static string CmdModel => LanguageService.Current.T("cmd.model");
 
     // ── Welcome screen ───────────────────────────────────────────────
     public static string CurrentSession => LanguageService.Current.T("welcome.current_session");
     public static string QuickCommands => LanguageService.Current.T("welcome.quick_commands");
+    public static string WelcomeModel => LanguageService.Current.T("welcome.model");
 
     // ── Session management ───────────────────────────────────────────
     public static string SessionLoaded => LanguageService.Current.T("session.loaded");
@@ -161,6 +163,16 @@ public static class Strings
     public static string LanguageSwitched => LanguageService.Current.T("lang.switched");
     public static string LanguageChinese => LanguageService.Current.T("lang.chinese");
     public static string LanguageEnglish => LanguageService.Current.T("lang.english");
+
+    // ── Model command ────────────────────────────────────────────────
+    public static string ModelLoading => LanguageService.Current.T("model.loading");
+    public static string ModelFetchFailed => LanguageService.Current.T("model.fetch_failed");
+    public static string ModelManualPrompt => LanguageService.Current.T("model.manual_prompt");
+    public static string ModelSelectTitle => LanguageService.Current.T("model.select_title");
+    public static string ModelUpdatedDefault => LanguageService.Current.T("model.updated_default");
+    public static string ModelUpdatedTo(string model) => LanguageService.Current.T("model.updated_to", model);
+    public static string ModelFeatureUnavailable => LanguageService.Current.T("model.feature_unavailable");
+    public static string ModelNoOptions => LanguageService.Current.T("model.no_options");
 
     // ── Unknown command ──────────────────────────────────────────────
     public static string UnknownCommand => LanguageService.Current.T("command.unknown");

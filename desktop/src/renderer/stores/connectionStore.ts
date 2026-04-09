@@ -19,6 +19,7 @@ export interface ServerCapabilities {
   cronManagement?: boolean
   heartbeatManagement?: boolean
   modelCatalogManagement?: boolean
+  workspaceConfigManagement?: boolean
   [key: string]: unknown
 }
 
