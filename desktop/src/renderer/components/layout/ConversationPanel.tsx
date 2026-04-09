@@ -35,6 +35,7 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
   const showReconnectionBanner = connectionStatus === 'disconnected'
   const modelApiAvailable =
     capabilities?.modelCatalogManagement === true &&
+    capabilities?.workspaceConfigManagement === true &&
     connectionStatus === 'connected' &&
     Boolean(activeThreadId)
   const modelLoading = modelApiAvailable && modelCatalogStatus === 'loading'
@@ -119,18 +120,14 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
 
   const handleModelChange = useCallback(
     async (nextModel: string): Promise<void> => {
-      if (!activeThread || !workspaceConfigPath || !nextModel || nextModel === modelName) return
+      if (!activeThread || !nextModel || nextModel === modelName) return
       setModelApplying(true)
       const previousModel = modelName
       setModelName(nextModel)
       try {
-        const workspaceCfg = await readWorkspaceConfig()
-        if (nextModel === 'Default') {
-          deleteCaseInsensitiveField(workspaceCfg, 'Model')
-        } else {
-          setCaseInsensitiveField(workspaceCfg, 'Model', nextModel)
-        }
-        await window.api.file.writeFile(workspaceConfigPath, `${JSON.stringify(workspaceCfg, null, 2)}\n`)
+        await window.api.appServer.sendRequest('workspace/config/update', {
+          model: nextModel === 'Default' ? null : nextModel
+        })
 
         const readRes = (await window.api.appServer.sendRequest('thread/read', {
           threadId: activeThread.id,
@@ -179,9 +176,7 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
       activeThread,
       deleteCaseInsensitiveField,
       modelName,
-      readWorkspaceConfig,
       setCaseInsensitiveField,
-      workspaceConfigPath
     ]
   )
 

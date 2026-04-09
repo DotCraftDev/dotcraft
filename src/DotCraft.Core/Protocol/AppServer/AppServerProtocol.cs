@@ -205,6 +205,12 @@ public sealed class AppServerServerCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool ModelCatalogManagement { get; set; }
+
+    /// <summary>
+    /// Server supports workspace config write methods (<c>workspace/config/update</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool WorkspaceConfigManagement { get; set; }
 }
 
 // ───── thread/start ─────
@@ -876,6 +882,33 @@ public sealed class ModelListResult
     public string? ErrorMessage { get; set; }
 }
 
+// ───── workspace/config/update (workspace config management) ─────
+
+/// <summary>
+/// Params for <see cref="AppServerMethods.WorkspaceConfigUpdate"/>.
+/// </summary>
+public sealed class WorkspaceConfigUpdateParams
+{
+    /// <summary>
+    /// Workspace default model. Null/empty/"Default" removes the workspace model key.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.WorkspaceConfigUpdate"/>.
+/// </summary>
+public sealed class WorkspaceConfigUpdateResult
+{
+    /// <summary>
+    /// Persisted workspace model after normalization.
+    /// Null means the model key was removed (workspace default behavior).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Model { get; set; }
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -911,6 +944,7 @@ public static class AppServerMethods
 
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
     public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
+    public const string WorkspaceConfigUpdate = "workspace/config/update";
 
     // Client → Server notification (no id)
     public const string Initialized = "initialized";

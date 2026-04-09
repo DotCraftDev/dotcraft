@@ -75,6 +75,11 @@ public sealed class AppServerProcess : IAsyncDisposable
     public bool ModelCatalogManagement { get; private set; }
 
     /// <summary>
+    /// Whether the server advertises support for workspace config updates (<c>workspace/config/update</c>).
+    /// </summary>
+    public bool WorkspaceConfigManagement { get; private set; }
+
+    /// <summary>
     /// Invoked when the subprocess exits unexpectedly (i.e., not as part of a normal dispose).
     /// </summary>
     public event Action? OnCrashed;
@@ -173,6 +178,7 @@ public sealed class AppServerProcess : IAsyncDisposable
         appServer.ServerVersion = TryGetServerVersion(initResponse);
         appServer.DashboardUrl = TryGetDashboardUrl(initResponse);
         appServer.ModelCatalogManagement = TryGetModelCatalogManagement(initResponse);
+        appServer.WorkspaceConfigManagement = TryGetWorkspaceConfigManagement(initResponse);
 
         return appServer;
     }
@@ -334,6 +340,22 @@ public sealed class AppServerProcess : IAsyncDisposable
                 .GetProperty("result")
                 .GetProperty("capabilities")
                 .GetProperty("modelCatalogManagement")
+                .GetBoolean();
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetWorkspaceConfigManagement(JsonDocument response)
+    {
+        try
+        {
+            return response.RootElement
+                .GetProperty("result")
+                .GetProperty("capabilities")
+                .GetProperty("workspaceConfigManagement")
                 .GetBoolean();
         }
         catch (Exception)

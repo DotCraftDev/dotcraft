@@ -30,4 +30,9 @@ public sealed record CliBackendInfo
     /// Whether the connected AppServer advertises support for <c>model/list</c>.
     /// </summary>
     public bool ModelCatalogManagement { get; init; }
+
+    /// <summary>
+    /// Whether the connected AppServer advertises support for <c>workspace/config/update</c>.
+    /// </summary>
+    public bool WorkspaceConfigManagement { get; init; }
 }

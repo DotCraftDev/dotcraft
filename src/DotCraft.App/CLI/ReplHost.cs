@@ -62,6 +62,7 @@ public sealed class ReplHost(
 
     private readonly Lock _outputLock = new();
     private readonly bool _modelCatalogSupported = backendInfo?.ModelCatalogManagement ?? false;
+    private readonly bool _workspaceConfigSupported = backendInfo?.WorkspaceConfigManagement ?? false;
     private Task<ModelCatalogSnapshot>? _modelCatalogLoadTask;
     private ModelCatalogSnapshot? _modelCatalogCache;
     private string _workspaceModel = "Default";
@@ -826,7 +827,7 @@ public sealed class ReplHost(
             ? null
             : trimmed;
 
-        SaveWorkspaceModelConfig(model);
+        await PersistWorkspaceModelAsync(model);
 
         if (!string.IsNullOrEmpty(_currentThreadId) && wireClient != null)
         {
@@ -864,6 +865,20 @@ public sealed class ReplHost(
 
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(configPath, json, new UTF8Encoding(false));
+    }
+
+    private async Task PersistWorkspaceModelAsync(string? model)
+    {
+        if (wireClient != null)
+        {
+            if (!_workspaceConfigSupported)
+                throw new InvalidOperationException(Strings.ModelFeatureUnavailable);
+            var response = await wireClient.WorkspaceConfigUpdateAsync(model);
+            _workspaceModel = string.IsNullOrWhiteSpace(response.Model) ? "Default" : response.Model!;
+            return;
+        }
+
+        SaveWorkspaceModelConfig(model);
     }
 
     private async Task UpdateThreadModelAsync(string threadId, string? model)

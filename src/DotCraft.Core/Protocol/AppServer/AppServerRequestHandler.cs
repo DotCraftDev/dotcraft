@@ -1,4 +1,6 @@
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
@@ -127,6 +129,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.AutomationTaskReject => RouteAutomation(h => h.HandleTaskRejectAsync(msg, ct)),
                 AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
                 AppServerMethods.WorkspaceCommitMessageSuggest => HandleWorkspaceCommitMessageSuggestAsync(msg, ct),
+                AppServerMethods.WorkspaceConfigUpdate => HandleWorkspaceConfigUpdateAsync(msg, ct),
                 _ => throw AppServerErrors.MethodNotFound(method)
             });
         }
@@ -180,7 +183,8 @@ public sealed class AppServerRequestHandler(
                 CommandManagement = true,
                 Automations = automationsHandler != null,
                 ChannelStatus = _channelStatusProvider != null,
-                ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath)
+                ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
+                WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath)
             },
             DashboardUrl = _dashboardUrl
         };
@@ -687,6 +691,32 @@ public sealed class AppServerRequestHandler(
         }
     }
 
+    private Task<object?> HandleWorkspaceConfigUpdateAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        if (string.IsNullOrWhiteSpace(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigUpdate);
+        if (!msg.Params.HasValue || msg.Params.Value.ValueKind != JsonValueKind.Object)
+            throw AppServerErrors.InvalidParams("'model' is required.");
+
+        if (!TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out var modelEl))
+            throw AppServerErrors.InvalidParams("'model' is required.");
+
+        var model = modelEl.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => modelEl.GetString(),
+            _ => throw AppServerErrors.InvalidParams("'model' must be a string or null.")
+        };
+
+        var normalizedModel = NormalizeWorkspaceModel(model);
+        SaveWorkspaceModelConfig(workspaceCraftPath, normalizedModel);
+        return Task.FromResult<object?>(new WorkspaceConfigUpdateResult
+        {
+            Model = normalizedModel
+        });
+    }
+
     // -------------------------------------------------------------------------
     // cron/* methods (spec Section 16)
     // -------------------------------------------------------------------------
@@ -1172,6 +1202,87 @@ public sealed class AppServerRequestHandler(
         if (start < 0) return string.Empty;
         var end = message.IndexOf('\'', start + 1);
         return end > start ? message[(start + 1)..end] : string.Empty;
+    }
+
+    private static string? NormalizeWorkspaceModel(string? rawModel)
+    {
+        var trimmed = rawModel?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) ||
+            string.Equals(trimmed, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return trimmed;
+    }
+
+    private static void SaveWorkspaceModelConfig(string workspaceCraftPath, string? model)
+    {
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        Directory.CreateDirectory(workspaceCraftPath);
+        var root = LoadWorkspaceConfigObject(configPath);
+        var modelKey = FindCaseInsensitiveKey(root, "Model");
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            if (modelKey != null)
+                root.Remove(modelKey);
+        }
+        else
+        {
+            root[modelKey ?? "Model"] = model;
+        }
+
+        var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
+    }
+
+    private static JsonObject LoadWorkspaceConfigObject(string configPath)
+    {
+        if (!File.Exists(configPath))
+            return new JsonObject();
+
+        try
+        {
+            var node = JsonNode.Parse(File.ReadAllText(configPath));
+            return node as JsonObject ?? new JsonObject();
+        }
+        catch
+        {
+            return new JsonObject();
+        }
+    }
+
+    private static string? FindCaseInsensitiveKey(JsonObject obj, string expectedKey)
+    {
+        foreach (var kv in obj)
+        {
+            if (string.Equals(kv.Key, expectedKey, StringComparison.OrdinalIgnoreCase))
+                return kv.Key;
+        }
+
+        return null;
+    }
+
+    private static bool TryGetCaseInsensitiveProperty(JsonElement obj, string expectedName, out JsonElement value)
+    {
+        if (obj.ValueKind != JsonValueKind.Object)
+        {
+            value = default;
+            return false;
+        }
+
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, expectedName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     private Task<object?> RouteAutomation(Func<IAutomationsRequestHandler, Task<object?>> action)

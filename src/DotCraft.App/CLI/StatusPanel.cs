@@ -53,26 +53,26 @@ public static class StatusPanel
         grid.AddColumn();
 
         grid.AddRow(
-            new Markup("[blue]/exit[/]"),
-            new Markup($"[grey]{Strings.CmdExit}[/]"),
-            new Markup("[blue]/help[/]"),
-            new Markup($"[grey]{Strings.CmdHelp}[/]"),
             new Markup("[blue]/new[/]"),
-            new Markup($"[grey]{Strings.CmdNew}[/]"));
-        grid.AddRow(
+            new Markup($"[grey]{Strings.CmdNew}[/]"),
             new Markup("[blue]/load[/]"),
             new Markup($"[grey]{Strings.CmdLoad}[/]"),
             new Markup("[blue]/model[/]"),
-            new Markup($"[grey]{Strings.CmdModel}[/]"),
-            new Markup("[blue]/agent[/]"),
-            new Markup($"[grey]{Strings.CmdAgent}[/]"));
+            new Markup($"[grey]{Strings.CmdModel}[/]"));
         grid.AddRow(
+            new Markup("[blue]/agent[/]"),
+            new Markup($"[grey]{Strings.CmdAgent}[/]"),
             new Markup("[blue]/plan[/]"),
             new Markup($"[grey]{Strings.CmdPlan}[/]"),
-            new Markup(""),
-            new Markup(""),
-            new Markup(""),
-            new Markup(""));
+            new Markup("[blue]/help[/]"),
+            new Markup($"[grey]{Strings.CmdHelp}[/]"));
+        grid.AddRow(
+            new Markup("[blue]/clear[/]"),
+            new Markup($"[grey]{Strings.CmdClear}[/]"),
+            new Markup("[blue]/commands[/]"),
+            new Markup($"[grey]{Strings.CmdCommands}[/]"),
+            new Markup("[blue]/exit[/]"),
+            new Markup($"[grey]{Strings.CmdExit}[/]"));
 
         var panel = new Panel(grid)
         {

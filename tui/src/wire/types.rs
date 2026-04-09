@@ -90,4 +90,5 @@ pub struct ServerCapabilities {
     pub cron_management: Option<bool>,
     pub heartbeat_management: Option<bool>,
     pub model_catalog_management: Option<bool>,
+    pub workspace_config_management: Option<bool>,
 }

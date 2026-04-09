@@ -227,6 +227,24 @@ public sealed class AppServerWireClient(Stream input, Stream output) : IAsyncDis
                };
     }
 
+    /// <summary>
+    /// Updates workspace-level model persistence through <c>workspace/config/update</c>.
+    /// Requires the server to advertise <c>workspaceConfigManagement</c> capability.
+    /// </summary>
+    public async Task<WorkspaceConfigUpdateResult> WorkspaceConfigUpdateAsync(string? model, CancellationToken ct = default)
+    {
+        var doc = await SendRequestAsync(
+            AppServerMethods.WorkspaceConfigUpdate,
+            new WorkspaceConfigUpdateParams { Model = model },
+            ct: ct);
+
+        ThrowIfError(doc, "workspace/config/update");
+
+        var result = doc.RootElement.GetProperty("result");
+        return JsonSerializer.Deserialize<WorkspaceConfigUpdateResult>(result.GetRawText(), SessionWireJsonOptions.Default)
+               ?? new WorkspaceConfigUpdateResult();
+    }
+
     // -------------------------------------------------------------------------
     // Cron management (spec Section 16)
     // -------------------------------------------------------------------------

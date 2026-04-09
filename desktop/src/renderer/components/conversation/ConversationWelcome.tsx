@@ -67,7 +67,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
   const showMentionPopover = atQuery !== null && !mentionDismissed
-  const modelApiAvailable = isConnected && capabilities?.modelCatalogManagement === true
+  const modelApiAvailable =
+    isConnected &&
+    capabilities?.modelCatalogManagement === true &&
+    capabilities?.workspaceConfigManagement === true
   const modelLoading = modelApiAvailable && modelCatalogStatus === 'loading'
   const workspaceConfigPath = useMemo(() => {
     if (!workspacePath) return ''
@@ -90,22 +93,6 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     const trimmed = modelRaw.trim()
     if (trimmed.length === 0 || trimmed === 'Default') return 'Default'
     return trimmed
-  }, [])
-
-  const setCaseInsensitiveField = useCallback(
-    (target: Record<string, unknown>, key: string, value: unknown): void => {
-      const lower = key.toLowerCase()
-      const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
-      if (existingKey) target[existingKey] = value
-      else target[key] = value
-    },
-    []
-  )
-
-  const deleteCaseInsensitiveField = useCallback((target: Record<string, unknown>, key: string): void => {
-    const lower = key.toLowerCase()
-    const existingKey = Object.keys(target).find((k) => k.toLowerCase() === lower)
-    if (existingKey) delete target[existingKey]
   }, [])
 
   const suggestions: Suggestion[] = useMemo(
@@ -195,13 +182,9 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       const previousModel = modelName
       setModelName(nextModel)
       try {
-        const cfg = await readWorkspaceConfig()
-        if (nextModel === 'Default') {
-          deleteCaseInsensitiveField(cfg, 'Model')
-        } else {
-          setCaseInsensitiveField(cfg, 'Model', nextModel)
-        }
-        await window.api.file.writeFile(workspaceConfigPath, `${JSON.stringify(cfg, null, 2)}\n`)
+        await window.api.appServer.sendRequest('workspace/config/update', {
+          model: nextModel === 'Default' ? null : nextModel
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         setModelName(previousModel)
@@ -210,7 +193,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         setModelApplying(false)
       }
     },
-    [deleteCaseInsensitiveField, modelName, readWorkspaceConfig, setCaseInsensitiveField, workspaceConfigPath]
+    [modelName, workspaceConfigPath]
   )
 
   const saveDataUrlAsTemp = useCallback(

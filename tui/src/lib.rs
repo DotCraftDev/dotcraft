@@ -858,6 +858,17 @@ async fn apply_model_override(
     state: &mut AppState,
     model: Option<String>,
 ) -> Result<()> {
+    let workspace_update = wire
+        .request::<serde_json::Value>(
+            "workspace/config/update",
+            serde_json::json!({ "model": model.clone() }),
+        )
+        .await?;
+    state.workspace_model = workspace_update
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+
     if let Some(thread_id) = state.current_thread_id.clone() {
         let read = wire
             .request::<serde_json::Value>(
@@ -1197,7 +1208,9 @@ async fn handle_slash_command(
             }
         }
         SlashCommand::Model { model_name } => {
-            if !wire.capabilities.model_catalog_management.unwrap_or(false) {
+            if !wire.capabilities.model_catalog_management.unwrap_or(false)
+                || !wire.capabilities.workspace_config_management.unwrap_or(false)
+            {
                 state.history.push(HistoryEntry::Error {
                     message: strings.feature_unavailable.to_string(),
                 });
