@@ -141,6 +141,7 @@ public sealed class AppServerHost(
         sessionService.ThreadDeletedForBroadcast = BroadcastThreadDeleted;
         sessionService.ThreadRenamedForBroadcast = BroadcastThreadRenamed;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
+        mcpClientManager.StatusChanged += OnMcpStatusChanged;
 
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
         // The agent stack (sessionService, agentFactory) lives here, so execution is
@@ -352,7 +353,9 @@ public sealed class AppServerHost(
             commitMessageSuggest: commitMessageSuggest,
             dashboardUrl: _dashboardUrl,
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
-            channelStatusProvider: _channelRunner);
+            channelStatusProvider: _channelRunner,
+            mcpClientManager: mcpClientManager,
+            broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -413,7 +416,9 @@ public sealed class AppServerHost(
             commitMessageSuggest: commitMessageSuggest,
             dashboardUrl: _dashboardUrl,
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
-            channelStatusProvider: _channelRunner);
+            channelStatusProvider: _channelRunner,
+            mcpClientManager: mcpClientManager,
+            broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -496,7 +501,9 @@ public sealed class AppServerHost(
                     commitMessageSuggest: commitMessageSuggest,
                     dashboardUrl: _dashboardUrl,
                     wireAcpExtensionProxy: _wireAcpExtensionProxy,
-                    channelStatusProvider: _channelRunner);
+                    channelStatusProvider: _channelRunner,
+                    mcpClientManager: mcpClientManager,
+                    broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
@@ -719,8 +726,24 @@ public sealed class AppServerHost(
 
     public async ValueTask DisposeAsync()
     {
+        mcpClientManager.StatusChanged -= OnMcpStatusChanged;
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+    }
+
+    private void OnMcpStatusChanged(object? sender, McpServerStatusChangedEventArgs e)
+    {
+        BroadcastMcpStatusChanged(new McpStatusInfoWire
+        {
+            Name = e.Status.Name,
+            Enabled = e.Status.Enabled,
+            StartupState = e.Status.StartupState,
+            ToolCount = e.Status.ToolCount,
+            ResourceCount = e.Status.ResourceCount,
+            ResourceTemplateCount = e.Status.ResourceTemplateCount,
+            LastError = e.Status.LastError,
+            Transport = e.Status.Transport
+        });
     }
 
     /// <summary>
@@ -795,6 +818,34 @@ public sealed class AppServerHost(
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.ShouldSendNotification(AppServerMethods.CronStateChanged))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    private void BroadcastMcpStatusChanged(McpStatusInfoWire server)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.McpStatusUpdated,
+            @params = new { server }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.McpStatusUpdated))
                 continue;
 
             _ = Task.Run(async () =>

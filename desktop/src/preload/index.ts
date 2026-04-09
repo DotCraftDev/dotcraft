@@ -316,6 +316,7 @@ const api = {
       }
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
+      visibleChannels?: string[]
     }> {
       return ipcRenderer.invoke('settings:get')
     },
@@ -336,6 +337,7 @@ const api = {
       }
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
+      visibleChannels?: string[]
     }): Promise<void> {
       return ipcRenderer.invoke('settings:set', partial)
     }

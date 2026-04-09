@@ -8,6 +8,7 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
 using DotCraft.Localization;
+using DotCraft.Mcp;
 using DotCraft.Skills;
 using Microsoft.Extensions.AI;
 
@@ -34,11 +35,13 @@ public sealed class AppServerRequestHandler(
     string? hostWorkspacePath = null,
     IAutomationsRequestHandler? automationsHandler = null,
     Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null,
+    Action<McpStatusInfoWire>? broadcastMcpStatusChanged = null,
     ICommitMessageSuggestService? commitMessageSuggest = null,
     string? dashboardUrl = null,
     WireAcpExtensionProxy? wireAcpExtensionProxy = null,
     CommandRegistry? commandRegistry = null,
-    IChannelStatusProvider? channelStatusProvider = null)
+    IChannelStatusProvider? channelStatusProvider = null,
+    McpClientManager? mcpClientManager = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -52,6 +55,8 @@ public sealed class AppServerRequestHandler(
     private readonly string? _dashboardUrl = dashboardUrl;
 
     private readonly Action<CronJobWireInfo, bool>? _broadcastCronStateChanged = broadcastCronStateChanged;
+    private readonly Action<McpStatusInfoWire>? _broadcastMcpStatusChanged = broadcastMcpStatusChanged;
+    private readonly McpClientManager? _mcpClientManager = mcpClientManager;
 
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -99,6 +104,12 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ChannelList => HandleChannelListAsync(msg, ct),
                 AppServerMethods.ChannelStatus => HandleChannelStatusAsync(msg, ct),
                 AppServerMethods.ModelList => HandleModelListAsync(msg, ct),
+                AppServerMethods.McpList => HandleMcpListAsync(msg, ct),
+                AppServerMethods.McpGet => HandleMcpGetAsync(msg, ct),
+                AppServerMethods.McpUpsert => HandleMcpUpsertAsync(msg, ct),
+                AppServerMethods.McpRemove => HandleMcpRemoveAsync(msg, ct),
+                AppServerMethods.McpStatusList => HandleMcpStatusListAsync(msg, ct),
+                AppServerMethods.McpTest => HandleMcpTestAsync(msg, ct),
                 AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
                 AppServerMethods.ThreadResume => HandleThreadResumeAsync(msg, ct),
                 AppServerMethods.ThreadList => HandleThreadListAsync(msg, ct),
@@ -184,7 +195,9 @@ public sealed class AppServerRequestHandler(
                 Automations = automationsHandler != null,
                 ChannelStatus = _channelStatusProvider != null,
                 ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
-                WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath)
+                WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
+                McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _mcpClientManager != null,
+                McpStatus = _mcpClientManager != null
             },
             DashboardUrl = _dashboardUrl
         };
@@ -384,6 +397,89 @@ public sealed class AppServerRequestHandler(
             })],
             ErrorCode = result.Success ? null : result.ErrorCode.ToString(),
             ErrorMessage = result.Success ? null : result.ErrorMessage
+        };
+    }
+
+    private async Task<object?> HandleMcpListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = msg;
+        EnsureMcpManagementAvailable();
+        var servers = await _mcpClientManager!.ListConfigsAsync(ct);
+        return new McpListResult { Servers = servers.Select(MapMcpConfigToWire).ToList() };
+    }
+
+    private async Task<object?> HandleMcpGetAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<McpGetParams>(msg);
+        EnsureMcpManagementAvailable();
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var server = await _mcpClientManager!.GetConfigAsync(p.Name, ct);
+        if (server == null)
+            throw AppServerErrors.McpServerNotFound(p.Name);
+
+        return new McpGetResult { Server = MapMcpConfigToWire(server) };
+    }
+
+    private async Task<object?> HandleMcpUpsertAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<McpUpsertParams>(msg);
+        EnsureMcpManagementAvailable();
+        ValidateMcpConfigWire(p.Server);
+
+        var server = MapWireToMcpConfig(p.Server);
+        await _mcpClientManager.UpsertAsync(server, ct);
+        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, _mcpClientManager, ct);
+
+        var updated = await _mcpClientManager.GetConfigAsync(server.Name, ct) ?? server;
+        var status = (await _mcpClientManager.ListStatusesAsync(ct))
+            .FirstOrDefault(s => string.Equals(s.Name, updated.Name, StringComparison.OrdinalIgnoreCase));
+        if (status != null)
+            _broadcastMcpStatusChanged?.Invoke(MapMcpStatusToWire(status));
+
+        return new McpUpsertResult { Server = MapMcpConfigToWire(updated) };
+    }
+
+    private async Task<object?> HandleMcpRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<McpRemoveParams>(msg);
+        EnsureMcpManagementAvailable();
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var removed = await _mcpClientManager!.RemoveAsync(p.Name, ct);
+        if (!removed)
+            throw AppServerErrors.McpServerNotFound(p.Name);
+
+        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, _mcpClientManager, ct);
+        return new McpRemoveResult { Removed = true };
+    }
+
+    private async Task<object?> HandleMcpStatusListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = msg;
+        if (_mcpClientManager == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.McpStatusList);
+
+        var statuses = await _mcpClientManager.ListStatusesAsync(ct);
+        return new McpStatusListResult { Servers = statuses.Select(MapMcpStatusToWire).ToList() };
+    }
+
+    private async Task<object?> HandleMcpTestAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<McpTestParams>(msg);
+        if (_mcpClientManager == null)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.McpTest);
+
+        ValidateMcpConfigWire(p.Server);
+        var status = await _mcpClientManager.TestAsync(MapWireToMcpConfig(p.Server), ct);
+        return new McpTestResult
+        {
+            Success = string.Equals(status.StartupState, "ready", StringComparison.OrdinalIgnoreCase),
+            ErrorCode = status.LastError == null ? null : "McpServerTestFailed",
+            ErrorMessage = status.LastError,
+            ToolCount = string.Equals(status.StartupState, "ready", StringComparison.OrdinalIgnoreCase) ? status.ToolCount : null
         };
     }
 
@@ -689,6 +785,130 @@ public sealed class AppServerRequestHandler(
         {
             throw AppServerErrors.InvalidRequest(ex.Message);
         }
+    }
+
+    private void EnsureMcpManagementAvailable()
+    {
+        if (_mcpClientManager == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound("mcp/*");
+    }
+
+    private static McpServerConfigWire MapMcpConfigToWire(McpServerConfig config) => new()
+    {
+        Name = config.Name,
+        Enabled = config.Enabled,
+        Transport = config.NormalizedTransport,
+        Command = string.IsNullOrWhiteSpace(config.Command) ? null : config.Command,
+        Args = config.Arguments.Count > 0 ? [.. config.Arguments] : null,
+        Env = config.EnvironmentVariables.Count > 0 ? new Dictionary<string, string>(config.EnvironmentVariables) : null,
+        EnvVars = config.EnvVars.Count > 0 ? [.. config.EnvVars] : null,
+        Cwd = config.Cwd,
+        Url = string.IsNullOrWhiteSpace(config.Url) ? null : config.Url,
+        BearerTokenEnvVar = config.BearerTokenEnvVar,
+        HttpHeaders = config.Headers.Count > 0 ? new Dictionary<string, string>(config.Headers) : null,
+        EnvHttpHeaders = config.EnvHttpHeaders.Count > 0 ? new Dictionary<string, string>(config.EnvHttpHeaders) : null,
+        StartupTimeoutSec = config.StartupTimeoutSec,
+        ToolTimeoutSec = config.ToolTimeoutSec
+    };
+
+    private static McpStatusInfoWire MapMcpStatusToWire(McpServerStatusSnapshot status) => new()
+    {
+        Name = status.Name,
+        Enabled = status.Enabled,
+        StartupState = status.StartupState,
+        ToolCount = status.ToolCount,
+        ResourceCount = status.ResourceCount,
+        ResourceTemplateCount = status.ResourceTemplateCount,
+        LastError = status.LastError,
+        Transport = status.Transport
+    };
+
+    private static McpServerConfig MapWireToMcpConfig(McpServerConfigWire wire) => new()
+    {
+        Name = wire.Name.Trim(),
+        Enabled = wire.Enabled,
+        Transport = NormalizeMcpTransport(wire.Transport),
+        Command = wire.Command?.Trim() ?? string.Empty,
+        Arguments = wire.Args ?? [],
+        EnvironmentVariables = wire.Env ?? new Dictionary<string, string>(),
+        EnvVars = wire.EnvVars ?? [],
+        Cwd = string.IsNullOrWhiteSpace(wire.Cwd) ? null : wire.Cwd.Trim(),
+        Url = wire.Url?.Trim() ?? string.Empty,
+        BearerTokenEnvVar = string.IsNullOrWhiteSpace(wire.BearerTokenEnvVar) ? null : wire.BearerTokenEnvVar.Trim(),
+        Headers = wire.HttpHeaders ?? new Dictionary<string, string>(),
+        EnvHttpHeaders = wire.EnvHttpHeaders ?? new Dictionary<string, string>(),
+        StartupTimeoutSec = wire.StartupTimeoutSec,
+        ToolTimeoutSec = wire.ToolTimeoutSec
+    };
+
+    private static string NormalizeMcpTransport(string? transport) =>
+        transport?.Equals("streamableHttp", StringComparison.OrdinalIgnoreCase) == true
+            || transport?.Equals("streamable-http", StringComparison.OrdinalIgnoreCase) == true
+            || transport?.Equals("http", StringComparison.OrdinalIgnoreCase) == true
+                ? "streamableHttp"
+                : "stdio";
+
+    private static void ValidateMcpConfigWire(McpServerConfigWire server)
+    {
+        if (string.IsNullOrWhiteSpace(server.Name))
+            throw AppServerErrors.McpServerValidationFailed("'server.name' is required.");
+
+        var transport = NormalizeMcpTransport(server.Transport);
+
+        if (transport == "stdio")
+        {
+            if (string.IsNullOrWhiteSpace(server.Command))
+                throw AppServerErrors.McpServerValidationFailed("'server.command' is required for stdio transport.");
+            if (!string.IsNullOrWhiteSpace(server.Url))
+                throw AppServerErrors.McpServerValidationFailed("'server.url' is not supported for stdio transport.");
+            if (!string.IsNullOrWhiteSpace(server.BearerTokenEnvVar))
+                throw AppServerErrors.McpServerValidationFailed("'server.bearerTokenEnvVar' is not supported for stdio transport.");
+            if (server.HttpHeaders is { Count: > 0 } || server.EnvHttpHeaders is { Count: > 0 })
+                throw AppServerErrors.McpServerValidationFailed("HTTP headers are not supported for stdio transport.");
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(server.Url))
+                throw AppServerErrors.McpServerValidationFailed("'server.url' is required for streamableHttp transport.");
+            if (!Uri.TryCreate(server.Url, UriKind.Absolute, out _))
+                throw AppServerErrors.McpServerValidationFailed("'server.url' must be an absolute URL.");
+            if (!string.IsNullOrWhiteSpace(server.Command) ||
+                server.Args is { Count: > 0 } ||
+                server.Env is { Count: > 0 } ||
+                server.EnvVars is { Count: > 0 } ||
+                !string.IsNullOrWhiteSpace(server.Cwd))
+            {
+                throw AppServerErrors.McpServerValidationFailed("stdio-only fields are not supported for streamableHttp transport.");
+            }
+        }
+    }
+
+    private static async Task SaveWorkspaceMcpServersAsync(
+        string workspaceCraftPath,
+        McpClientManager manager,
+        CancellationToken ct)
+    {
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        Directory.CreateDirectory(workspaceCraftPath);
+        var root = LoadWorkspaceConfigObject(configPath);
+
+        var key = FindCaseInsensitiveKey(root, "McpServers") ?? "McpServers";
+        var servers = await manager.ListConfigsAsync(ct);
+        var serverObject = new JsonObject();
+        foreach (var server in servers.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(server.Name))
+                continue;
+
+            var serverNode = JsonSerializer.SerializeToNode(server, AppConfig.SerializerOptions);
+            if (serverNode != null)
+                serverObject[server.Name] = serverNode;
+        }
+
+        root[key] = serverObject;
+
+        var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
     }
 
     private Task<object?> HandleWorkspaceConfigUpdateAsync(AppServerIncomingMessage msg, CancellationToken ct)

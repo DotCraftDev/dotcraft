@@ -115,6 +115,7 @@ public sealed class AppConfig
     public LoggingConfig Logging { get; set; } = new();
 
     [ConfigField(Ignore = true)]
+    [JsonConverter(typeof(McpServerConfigListConverter))]
     public List<McpServerConfig> McpServers { get; set; } = [];
 
     /// <summary>
