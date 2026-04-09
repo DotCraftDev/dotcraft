@@ -708,6 +708,12 @@ public sealed class ReplHost(
 
     private async Task HandleModelCommandAsync(string input)
     {
+        if (wireClient != null && !_workspaceConfigSupported)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Strings.ModelFeatureUnavailable}[/]");
+            AnsiConsole.WriteLine();
+            return;
+        }
         var parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
         var hasArg = parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]);
         if (hasArg)
