@@ -530,9 +530,28 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
     const payload = buildDraftPayload()
     setSavingMcp(true)
     try {
+      const originalName = editingServerName !== '__new__' ? editingServerName?.trim() ?? null : null
+      const nextName = payload.name.trim()
+      const isRename =
+        originalName !== null &&
+        originalName.localeCompare(nextName, undefined, { sensitivity: 'accent' }) !== 0
+
+      let renameCleanupFailed = false
+      if (isRename) {
+        try {
+          await window.api.appServer.sendRequest('mcp/remove', { name: originalName })
+        } catch (err) {
+          renameCleanupFailed = true
+          console.warn('Failed to remove old MCP server before rename save', err)
+        }
+      }
+
       await window.api.appServer.sendRequest('mcp/upsert', { server: payload })
       await Promise.all([reloadMcpServers(), reloadMcpStatuses()])
       addToast('MCP server saved', 'success')
+      if (renameCleanupFailed) {
+        addToast('MCP server saved, but the old server entry may still exist', 'error')
+      }
       cancelMcpEdit()
     } catch (err) {
       addToast(`Failed to save MCP server: ${err instanceof Error ? err.message : String(err)}`, 'error')
