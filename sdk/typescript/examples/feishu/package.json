@@ -1,0 +1,23 @@
+{
+  "name": "dotcraft-feishu-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DotCraft external channel adapter for Feishu/Lark using dotcraft-wire",
+  "scripts": {
+    "start": "node dist/index.js adapter_config.json",
+    "build": "tsc",
+    "dev": "tsc && node dist/index.js adapter_config.json"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0",
+    "dotcraft-wire": "file:../.."
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
