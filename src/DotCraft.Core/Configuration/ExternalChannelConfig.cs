@@ -29,7 +29,7 @@ public sealed class ExternalChannelEntry
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Whether this channel is active.</summary>
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; }
 
     /// <summary>Transport mode: "subprocess" or "websocket".</summary>
     [ConfigField(FieldType = "select", Options = new[] { "subprocess", "websocket" })]
