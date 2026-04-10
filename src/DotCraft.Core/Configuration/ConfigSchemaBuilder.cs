@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json.Serialization;
 
 namespace DotCraft.Configuration;
 
@@ -90,7 +91,7 @@ public static class ConfigSchemaBuilder
                 var fieldAttr = prop.GetCustomAttribute<ConfigFieldAttribute>();
                 if (fieldAttr?.Ignore == true) continue;
                 if (prop.PropertyType.GetCustomAttribute<ConfigSectionAttribute>() != null) continue;
-                if (prop.Name == "ExtensionData") continue;
+                if (prop.Name == "ExtensionData" || prop.GetCustomAttribute<JsonExtensionDataAttribute>() != null) continue;
                 itemFields.Add(BuildField(prop, fieldAttr, itemInstance));
             }
 
@@ -117,7 +118,7 @@ public static class ConfigSchemaBuilder
             if (prop.PropertyType.GetCustomAttribute<ConfigSectionAttribute>() != null) continue;
 
             // Skip JsonExtensionData / other infra properties
-            if (prop.Name == "ExtensionData") continue;
+            if (prop.Name == "ExtensionData" || prop.GetCustomAttribute<JsonExtensionDataAttribute>() != null) continue;
 
             fields.Add(BuildField(prop, fieldAttr, instance));
         }

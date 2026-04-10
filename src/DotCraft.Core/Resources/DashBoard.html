@@ -3195,8 +3195,46 @@ function collectForm(scope) {
     }
   });
 
+  const sourceConfig = scope === 'global' ? settingsGlobalConfig : settingsWorkspaceConfig;
+  preserveUnmanagedTopLevelKeys(result, sourceConfig);
+
   if (hasJsonError) return null; // signal validation error
   return result;
+}
+
+function preserveUnmanagedTopLevelKeys(result, sourceConfig) {
+  if (!sourceConfig || typeof sourceConfig !== 'object') return;
+
+  const managedTopLevelKeys = new Set();
+  CONFIG_SCHEMA.forEach(section => {
+    if (section.rootKey) {
+      managedTopLevelKeys.add(section.rootKey.toLowerCase());
+      return;
+    }
+
+    if (section.path && section.path.length > 0) {
+      if (section.fields && section.fields.length > 0) {
+        managedTopLevelKeys.add(section.path[0].toLowerCase());
+      }
+      return;
+    }
+
+    if (section.fields) {
+      section.fields.forEach(field => managedTopLevelKeys.add(field.key.toLowerCase()));
+    }
+  });
+
+  Object.entries(sourceConfig).forEach(([key, value]) => {
+    if (managedTopLevelKeys.has(key.toLowerCase())) return;
+    if (ciGet(result, key) !== undefined) return;
+    result[key] = cloneJsonConfigValue(value);
+  });
+}
+
+function cloneJsonConfigValue(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+  return JSON.parse(JSON.stringify(value));
 }
 
 function setNestedValue(result, section, fieldKey, value) {
