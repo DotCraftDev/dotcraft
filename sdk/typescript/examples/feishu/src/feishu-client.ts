@@ -248,6 +248,7 @@ export class FeishuClient {
     target: string,
     card: Record<string, unknown>,
   ): Promise<FeishuSendResult> {
+    assertCardPayloadShape(card);
     const { receiveId, receiveIdType } = this.resolveTarget(target);
     const response = await this.sdk.im.message.create({
       params: {
@@ -267,6 +268,7 @@ export class FeishuClient {
   }
 
   async updateInteractiveCard(messageId: string, card: Record<string, unknown>): Promise<void> {
+    assertCardPayloadShape(card);
     await (this.sdk as unknown as {
       request: (request: Record<string, unknown>) => Promise<unknown>;
     }).request({
@@ -316,6 +318,19 @@ export class FeishuClient {
       receiveIdType: "chat_id",
     };
   }
+}
+
+function assertCardPayloadShape(card: Record<string, unknown>): void {
+  const schema = String(card.schema ?? "");
+  const body = card.body as Record<string, unknown> | undefined;
+  const elements = body?.elements;
+  if (schema === "2.0" && Array.isArray(elements)) return;
+
+  logWarn("feishu.card.payload.shape_unexpected", {
+    schema,
+    hasBody: Boolean(body),
+    hasElements: Array.isArray(elements),
+  });
 }
 
 function extensionFromContentType(contentType?: string): string {

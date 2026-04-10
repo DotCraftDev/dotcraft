@@ -8,47 +8,27 @@ import { chunkMarkdown, normalizeMarkdownForFeishu, summarizeApprovalOperation }
 
 export function buildReplyCards(replyText: string): Record<string, unknown>[] {
   const chunks = chunkMarkdown(replyText);
-  return chunks.map((chunk, index) => ({
-    config: {
-      wide_screen_mode: true,
-      update_multi: true,
-    },
-    header: {
-      title: {
-        tag: "plain_text",
-        content: chunks.length > 1 ? `DotCraft Reply (${index + 1}/${chunks.length})` : "DotCraft Reply",
-      },
-      template: "blue",
-    },
-    elements: [
-      {
-        tag: "markdown",
-        content: normalizeMarkdownForFeishu(chunk),
-      },
-    ],
-  }));
+  return chunks.map((chunk, index) =>
+    buildV2Card(
+      chunks.length > 1 ? `DotCraft Reply (${index + 1}/${chunks.length})` : "DotCraft Reply",
+      "blue",
+      [
+        {
+          tag: "markdown",
+          content: normalizeMarkdownForFeishu(chunk),
+        },
+      ],
+    ),
+  );
 }
 
 export function buildProgressCard(text: string): Record<string, unknown> {
-  return {
-    config: {
-      wide_screen_mode: true,
-      update_multi: true,
+  return buildV2Card("DotCraft", "turquoise", [
+    {
+      tag: "markdown",
+      content: normalizeMarkdownForFeishu(text),
     },
-    header: {
-      title: {
-        tag: "plain_text",
-        content: "DotCraft",
-      },
-      template: "turquoise",
-    },
-    elements: [
-      {
-        tag: "markdown",
-        content: normalizeMarkdownForFeishu(text),
-      },
-    ],
-  };
+  ]);
 }
 
 export function buildApprovalCard(params: {
@@ -62,57 +42,55 @@ export function buildApprovalCard(params: {
   const summary = summarizeApprovalOperation(params.approvalType, params.operation, params.target);
   const reasonBlock = params.reason ? `\nReason: ${params.reason}` : "";
 
-  return {
-    config: {
-      wide_screen_mode: true,
-      update_multi: true,
+  return buildV2Card("Approval Required", "orange", [
+    {
+      tag: "markdown",
+      content:
+        `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}\n\n` +
+        `Timeout: ${params.timeoutSeconds}s`,
     },
-    header: {
-      title: {
-        tag: "plain_text",
-        content: "Approval Required",
-      },
-      template: "orange",
+    {
+      tag: "action",
+      actions: [
+        buildApprovalButton("Approve", "primary", params.requestId, DECISION_ACCEPT),
+        buildApprovalButton("Approve Session", "default", params.requestId, DECISION_ACCEPT_FOR_SESSION),
+        buildApprovalButton("Decline", "danger", params.requestId, DECISION_DECLINE),
+        buildApprovalButton("Cancel", "default", params.requestId, DECISION_CANCEL),
+      ],
     },
-    elements: [
-      {
-        tag: "markdown",
-        content:
-          `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}\n\n` +
-          `Timeout: ${params.timeoutSeconds}s`,
-      },
-      {
-        tag: "action",
-        actions: [
-          buildApprovalButton("Approve", "primary", params.requestId, DECISION_ACCEPT),
-          buildApprovalButton("Approve Session", "default", params.requestId, DECISION_ACCEPT_FOR_SESSION),
-          buildApprovalButton("Decline", "danger", params.requestId, DECISION_DECLINE),
-          buildApprovalButton("Cancel", "default", params.requestId, DECISION_CANCEL),
-        ],
-      },
-    ],
-  };
+  ]);
 }
 
 export function buildErrorCard(title: string, message: string): Record<string, unknown> {
+  return buildV2Card(title, "red", [
+    {
+      tag: "markdown",
+      content: normalizeMarkdownForFeishu(message),
+    },
+  ]);
+}
+
+function buildV2Card(
+  title: string,
+  template: string,
+  bodyElements: Array<Record<string, unknown>>,
+): Record<string, unknown> {
   return {
+    schema: "2.0",
     config: {
-      wide_screen_mode: true,
       update_multi: true,
+      width_mode: "fill",
     },
     header: {
       title: {
         tag: "plain_text",
         content: title,
       },
-      template: "red",
+      template,
     },
-    elements: [
-      {
-        tag: "markdown",
-        content: normalizeMarkdownForFeishu(message),
-      },
-    ],
+    body: {
+      elements: bodyElements,
+    },
   };
 }
 
