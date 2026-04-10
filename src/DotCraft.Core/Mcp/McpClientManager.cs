@@ -220,12 +220,14 @@ public sealed class McpClientManager : IAsyncDisposable
             return;
         }
 
+        McpClient? client = null;
         try
         {
-            var client = await CreateClientAsync(state.Config, cancellationToken);
+            client = await CreateClientAsync(state.Config, cancellationToken);
             var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
 
             state.Client = client;
+            client = null; // ownership transferred to state
             state.CachedTools = [.. tools];
             state.Status = CreateStatus(state.Config, "ready");
             state.Status.ToolCount = state.CachedTools.Count;
@@ -246,6 +248,14 @@ public sealed class McpClientManager : IAsyncDisposable
             _logger?.LogError(ex, "MCP connection to {ServerName} failed", state.Config.Name);
             AnsiConsole.MarkupLine(
                 $"[grey][[MCP]][/] [red]Failed to connect to {Markup.Escape(state.Config.Name)}: {Markup.Escape(ex.Message)}[/]");
+        }
+        finally
+        {
+            if (client != null)
+            {
+                try { await client.DisposeAsync(); }
+                catch { /* best-effort cleanup */ }
+            }
         }
 
         OnStatusChanged(state.Status);
