@@ -107,6 +107,8 @@ export interface IpcHandlerCallbacks {
   onSwitchWorkspace: (newPath: string) => Promise<void>
   /** Called when the renderer requests a new window. */
   onOpenNewWindow: () => void
+  /** Restarts the Desktop-managed AppServer subprocess for the current workspace. */
+  onRestartManagedAppServer: () => Promise<void>
   /** Returns the current settings object. */
   getSettings: () => AppSettings
   /** Updates and persists partial settings. */
@@ -127,6 +129,7 @@ export interface IpcHandlerCallbacks {
  * - `appserver:server-request`    (main -> renderer, send)   -> server-initiated request
  * - `appserver:connection-status` (main -> renderer, send)   -> connection state changes
  * - `appserver:get-connection-status` (renderer -> main, invoke) -> latest status snapshot
+ * - `appserver:restart-managed`   (renderer -> main, invoke) -> restarts Desktop-managed AppServer
  * - `window:set-title`            (renderer -> main, invoke) -> sets window title
  * - `window:get-workspace-path`   (renderer -> main, invoke) -> returns workspace path
  * - `workspace:pick-folder`       (renderer -> main, invoke) -> opens native folder picker
@@ -183,6 +186,10 @@ export function registerIpcHandlers(
 
   handleSafe('appserver:get-connection-status', () => {
     return callbacks?.getConnectionStatus() ?? { status: 'disconnected' }
+  })
+
+  handleSafe('appserver:restart-managed', async () => {
+    await callbacks?.onRestartManagedAppServer()
   })
 
   // Renderer -> Main: send back the user's decision for a server-initiated request
@@ -465,6 +472,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
   ipcMain.removeHandler('appserver:model-list')
   ipcMain.removeHandler('appserver:get-connection-status')
+  ipcMain.removeHandler('appserver:restart-managed')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')
   ipcMain.removeHandler('window:set-title-bar-overlay-theme')

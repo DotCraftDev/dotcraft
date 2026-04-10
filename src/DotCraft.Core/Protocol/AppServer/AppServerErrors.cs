@@ -63,6 +63,10 @@ public static class AppServerErrors
     public const int CommandNotFoundCode = -32060;
     public const int CommandPermissionDeniedCode = -32061;
     public const int CommandServiceUnavailableCode = -32062;
+    public const int McpServerNotFoundCode = -32070;
+    public const int McpServerValidationFailedCode = -32072;
+    public const int McpServerTestFailedCode = -32073;
+    public const int McpServerNameConflictCode = -32074;
 
     // ── Automation-specific codes (-32050 to -32059) ──
 
@@ -132,6 +136,18 @@ public static class AppServerErrors
 
     public static AppServerException CommandServiceUnavailable(string command) =>
         new(CommandServiceUnavailableCode, $"Service unavailable for command: {command}");
+
+    public static AppServerException McpServerNotFound(string name) =>
+        new(McpServerNotFoundCode, $"MCP server not found: {name}");
+
+    public static AppServerException McpServerValidationFailed(string detail) =>
+        new(McpServerValidationFailedCode, "MCP server validation failed", new { detail });
+
+    public static AppServerException McpServerTestFailed(string detail) =>
+        new(McpServerTestFailedCode, "MCP server test failed", new { detail });
+
+    public static AppServerException McpServerNameConflict(string detail) =>
+        new(McpServerNameConflictCode, "MCP server name conflict", new { detail });
 
     public static AppServerException TaskAlreadyExists(string taskId) =>
         new(TaskAlreadyExistsCode, $"Task already exists: {taskId}");

@@ -211,6 +211,18 @@ public sealed class AppServerServerCapabilities
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool WorkspaceConfigManagement { get; set; }
+
+    /// <summary>
+    /// Server supports MCP configuration management methods (<c>mcp/list</c>, <c>mcp/upsert</c>, etc.).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool McpManagement { get; set; }
+
+    /// <summary>
+    /// Server supports MCP runtime status methods/notifications.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool McpStatus { get; set; }
 }
 
 // ───── thread/start ─────
@@ -909,6 +921,128 @@ public sealed class WorkspaceConfigUpdateResult
     public string? Model { get; set; }
 }
 
+// ───── mcp/* (MCP server management) ─────
+
+public sealed class McpServerConfigWire
+{
+    public string Name { get; set; } = string.Empty;
+    public bool Enabled { get; set; } = true;
+    public string Transport { get; set; } = "stdio";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Command { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Args { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Env { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? EnvVars { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Cwd { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Url { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BearerTokenEnvVar { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? HttpHeaders { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? EnvHttpHeaders { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? StartupTimeoutSec { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? ToolTimeoutSec { get; set; }
+}
+
+public sealed class McpListResult
+{
+    public List<McpServerConfigWire> Servers { get; set; } = [];
+}
+
+public sealed class McpGetParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class McpGetResult
+{
+    public McpServerConfigWire Server { get; set; } = new();
+}
+
+public sealed class McpUpsertParams
+{
+    public McpServerConfigWire Server { get; set; } = new();
+}
+
+public sealed class McpUpsertResult
+{
+    public McpServerConfigWire Server { get; set; } = new();
+}
+
+public sealed class McpRemoveParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class McpRemoveResult
+{
+    public bool Removed { get; set; }
+}
+
+public sealed class McpStatusInfoWire
+{
+    public string Name { get; set; } = string.Empty;
+    public bool Enabled { get; set; }
+    public string StartupState { get; set; } = "idle";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ToolCount { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ResourceCount { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ResourceTemplateCount { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LastError { get; set; }
+
+    public string Transport { get; set; } = "stdio";
+}
+
+public sealed class McpStatusListResult
+{
+    public List<McpStatusInfoWire> Servers { get; set; } = [];
+}
+
+public sealed class McpTestParams
+{
+    public McpServerConfigWire Server { get; set; } = new();
+}
+
+public sealed class McpTestResult
+{
+    public bool Success { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorMessage { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ToolCount { get; set; }
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -945,6 +1079,12 @@ public static class AppServerMethods
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
     public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
     public const string WorkspaceConfigUpdate = "workspace/config/update";
+    public const string McpList = "mcp/list";
+    public const string McpGet = "mcp/get";
+    public const string McpUpsert = "mcp/upsert";
+    public const string McpRemove = "mcp/remove";
+    public const string McpStatusList = "mcp/status/list";
+    public const string McpTest = "mcp/test";
 
     // Client → Server notification (no id)
     public const string Initialized = "initialized";
@@ -986,6 +1126,7 @@ public static class AppServerMethods
 
     // Server → Client notification (cron job list sync, spec Section 16.7)
     public const string CronStateChanged = "cron/stateChanged";
+    public const string McpStatusUpdated = "mcp/status/updated";
 
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
     public const string ExtChannelDeliver = "ext/channel/deliver";

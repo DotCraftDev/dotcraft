@@ -40,7 +40,8 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [19. Command Management Methods](#19-command-management-methods)
 - [20. Channel Status Methods](#20-channel-status-methods)
 - [21. Model Catalog Methods](#21-model-catalog-methods)
-- [22. Workspace Config Methods](#22-workspace-config-methods)
+- [22. MCP Management Methods](#22-mcp-management-methods)
+- [23. Workspace Config Methods](#23-workspace-config-methods)
 
 ---
 
@@ -67,7 +68,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. Workspace model persistence method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. Workspace model persistence method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -207,7 +208,9 @@ Client                              Server
     "skillsManagement": true,
     "commandManagement": true,
     "modelCatalogManagement": true,
-    "workspaceConfigManagement": true
+    "workspaceConfigManagement": true,
+    "mcpManagement": true,
+    "mcpStatus": true
   }
 }
 ```
@@ -229,6 +232,8 @@ Client                              Server
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). Always `true` when CommandRegistry is available. |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). Present and `true` when workspace config is available for resolving merged `ApiKey` and `EndPoint`. |
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace config write methods (`workspace/config/update`). Present and `true` when workspace `.craft/config.json` is writable by the AppServer host process. |
+| `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). Present and `true` when workspace `.craft/config.json` is writable and the server has an MCP manager. |
+| `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). Present and `true` when the server has an MCP manager. |
 
 ### 3.3 `initialized`
 
@@ -2781,9 +2786,192 @@ On provider/config errors, the method still returns a successful JSON-RPC respon
 
 ---
 
-## 22. Workspace Config Methods
+## 22. MCP Management Methods
 
 ### 22.1 Scope
+
+These methods provide a server-authoritative write path for workspace MCP server configuration stored in `.craft/config.json`.
+
+Desktop and other clients must not write MCP config directly to Electron-local settings. The authoritative persistence target is the workspace config file under the `McpServers` top-level key.
+
+Clients must check `capabilities.mcpManagement` before calling `mcp/list`, `mcp/get`, `mcp/upsert`, or `mcp/remove`. Clients must check `capabilities.mcpStatus` before calling `mcp/status/list` or relying on `mcp/status/updated` notifications.
+
+### 22.2 `McpServerConfig` Wire DTO
+
+```json
+{
+  "name": "sqlite",
+  "enabled": true,
+  "transport": "stdio",
+  "command": "openai-dev-mcp",
+  "args": ["serve-sqlite"],
+  "env": { "DB_PATH": "./test.db" },
+  "envVars": ["OPENAI_API_KEY"],
+  "cwd": "./tools"
+}
+```
+
+Supported fields:
+
+- `name: string`
+- `enabled: boolean`
+- `transport: "stdio" | "streamableHttp"`
+- `command?: string`
+- `args?: string[]`
+- `env?: Record<string, string>`
+- `envVars?: string[]`
+- `cwd?: string | null`
+- `url?: string`
+- `bearerTokenEnvVar?: string | null`
+- `httpHeaders?: Record<string, string>`
+- `envHttpHeaders?: Record<string, string>`
+- `startupTimeoutSec?: number | null`
+- `toolTimeoutSec?: number | null`
+
+Validation rules:
+
+- `name` is the logical primary key and is compared case-insensitively.
+- `stdio` only allows `command`, `args`, `env`, `envVars`, and `cwd`.
+- `streamableHttp` only allows `url`, `bearerTokenEnvVar`, `httpHeaders`, and `envHttpHeaders`.
+- `mcp/test` validates and probes a temporary configuration but does not persist it.
+
+### 22.3 `mcp/list`
+
+Returns all configured MCP servers for the current workspace.
+
+**Result**:
+
+```json
+{
+  "servers": [
+    {
+      "name": "sqlite",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "openai-dev-mcp",
+      "args": ["serve-sqlite"]
+    }
+  ]
+}
+```
+
+### 22.4 `mcp/get`
+
+Returns one configured MCP server by name.
+
+**Params**:
+
+```json
+{ "name": "sqlite" }
+```
+
+### 22.5 `mcp/upsert`
+
+Creates or replaces one MCP server definition.
+
+**Params**:
+
+```json
+{
+  "server": {
+    "name": "docs",
+    "enabled": true,
+    "transport": "streamableHttp",
+    "url": "https://example.com/mcp",
+    "bearerTokenEnvVar": "DOCS_TOKEN"
+  }
+}
+```
+
+**Semantics**:
+
+- Upsert replaces the full logical server entry.
+- Persistence target is `.craft/config.json` under `McpServers`.
+- Config is stored as an object dictionary keyed by server name.
+
+### 22.6 `mcp/remove`
+
+Removes one MCP server definition by name.
+
+### 22.7 `McpServerStatus` Wire DTO
+
+```json
+{
+  "name": "sqlite",
+  "enabled": true,
+  "startupState": "ready",
+  "toolCount": 3,
+  "resourceCount": 0,
+  "resourceTemplateCount": 0,
+  "lastError": null,
+  "transport": "stdio"
+}
+```
+
+Runtime status is separate from config truth:
+
+- `mcp/list` describes persisted configuration.
+- `mcp/status/list` and `mcp/status/updated` describe runtime state.
+
+### 22.8 `mcp/status/list`
+
+Returns current runtime state for all known MCP servers.
+
+### 22.9 `mcp/test`
+
+Validates and probes a temporary MCP configuration without persisting it.
+
+**Result**:
+
+```json
+{
+  "success": true,
+  "toolCount": 3
+}
+```
+
+On failure, the method returns a successful JSON-RPC response with structured fields:
+
+```json
+{
+  "success": false,
+  "errorCode": "McpServerTestFailed",
+  "errorMessage": "Connection refused"
+}
+```
+
+### 22.10 `mcp/status/updated`
+
+Server notification emitted when one server's runtime status changes.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "mcp/status/updated",
+  "params": {
+    "server": {
+      "name": "sqlite",
+      "enabled": true,
+      "startupState": "ready",
+      "toolCount": 3,
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+### 22.11 Error Codes
+
+| Code | Constant | When |
+|------|----------|------|
+| `-32070` | `McpServerNotFound` | Requested MCP server name does not exist. |
+| `-32072` | `McpServerValidationFailed` | MCP config payload is invalid for the selected transport. |
+| `-32073` | `McpServerTestFailed` | Temporary test/probe failed. |
+| `-32074` | `McpServerNameConflict` | Name conflicts with an existing logical key after case-insensitive comparison. |
+
+## 23. Workspace Config Methods
+
+### 23.1 Scope
 
 These methods provide a server-authoritative write path for workspace-level configuration values stored in `.craft/config.json`.
 
@@ -2791,7 +2979,7 @@ In v1, the wire surface only standardizes workspace model persistence so all cli
 
 Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling `workspace/config/update`. If absent or `false`, the server returns `-32601` (Method not found).
 
-### 22.2 `workspace/config/update`
+### 23.2 `workspace/config/update`
 
 Update workspace-level config values. The server persists the change to `.craft/config.json` using case-insensitive key matching for `Model`.
 
@@ -2826,6 +3014,6 @@ If `model` is removed, the result returns:
 - Server preserves unrelated keys in `.craft/config.json`.
 - `Model` key matching is case-insensitive (`Model`, `model`, etc.) and normalized in-place.
 
-### 22.3 Capability Advertisement
+### 23.3 Capability Advertisement
 
 `capabilities.workspaceConfigManagement` is present and `true` when the AppServer has a workspace `.craft` path and can persist `.craft/config.json`.

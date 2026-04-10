@@ -117,6 +117,10 @@ const api = {
       return ipcRenderer.invoke('appserver:get-connection-status')
     },
 
+    restartManaged(): Promise<void> {
+      return ipcRenderer.invoke('appserver:restart-managed')
+    },
+
     /**
      * Subscribes to Wire Protocol notifications forwarded from Main.
      * Returns an unsubscribe function.
@@ -312,6 +316,7 @@ const api = {
       }
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
+      visibleChannels?: string[]
     }> {
       return ipcRenderer.invoke('settings:get')
     },
@@ -332,6 +337,7 @@ const api = {
       }
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
+      visibleChannels?: string[]
     }): Promise<void> {
       return ipcRenderer.invoke('settings:set', partial)
     }

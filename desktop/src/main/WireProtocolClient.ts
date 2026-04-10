@@ -20,6 +20,8 @@ export interface ServerCapabilities {
   heartbeatManagement?: boolean
   modelCatalogManagement?: boolean
   workspaceConfigManagement?: boolean
+  mcpManagement?: boolean
+  mcpStatus?: boolean
 }
 
 export interface InitializeResult {
