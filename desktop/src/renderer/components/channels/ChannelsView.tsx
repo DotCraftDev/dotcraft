@@ -196,7 +196,11 @@ export function ChannelsView(): JSX.Element {
     }
   }, [capabilities])
 
-  async function reloadExternalChannels(): Promise<void> {
+  /**
+   * When saving a new external channel, pass `selectedExternalNameOverride` so draft hydration
+   * does not rely on stale `selectedChannelKey` (e.g. still `external:__new__` before React re-renders).
+   */
+  async function reloadExternalChannels(selectedExternalNameOverride?: string): Promise<void> {
     if (!externalManagementEnabled) {
       setExternalChannels([])
       return
@@ -212,7 +216,11 @@ export function ChannelsView(): JSX.Element {
       setExternalChannels(list)
 
       const selectedName =
-        selectedChannelKey.startsWith('external:') ? selectedChannelKey.slice('external:'.length) : null
+        selectedExternalNameOverride !== undefined
+          ? selectedExternalNameOverride
+          : selectedChannelKey.startsWith('external:')
+            ? selectedChannelKey.slice('external:'.length)
+            : null
       if (selectedName && selectedName !== '__new__') {
         const selected = list.find((item) => item.name.toLowerCase() === selectedName.toLowerCase())
         if (selected) {
@@ -318,10 +326,17 @@ export function ChannelsView(): JSX.Element {
             : null
       }
 
-      await window.api.appServer.sendRequest('externalChannel/upsert', { channel: payload })
-      await reloadExternalChannels()
+      const upsertRes = (await window.api.appServer.sendRequest('externalChannel/upsert', {
+        channel: payload
+      })) as { channel?: ExternalChannelConfigWire }
+      const savedChannel = upsertRes.channel
+        ? cloneExternalChannel(upsertRes.channel)
+        : cloneExternalChannel(payload)
+
+      setSelectedChannelKey(`external:${savedChannel.name}`)
+      setExternalDraft(savedChannel)
+      await reloadExternalChannels(savedChannel.name)
       addToast(t('channels.savedRestart'), 'success')
-      setSelectedChannelKey(`external:${payload.name}`)
     } catch (err) {
       addToast(
         t('channels.saveFailed', {
