@@ -118,6 +118,10 @@ public sealed class AppConfig
     [JsonConverter(typeof(McpServerConfigListConverter))]
     public List<McpServerConfig> McpServers { get; set; } = [];
 
+    [ConfigField(Ignore = true)]
+    [JsonConverter(typeof(ExternalChannelConfigListConverter))]
+    public List<ExternalChannelEntry> ExternalChannels { get; set; } = [];
+
     /// <summary>
     /// Captures all module-specific config sections that are not defined in Core.
     /// Module projects (QQ, WeCom, AGUI, etc.) store their config here when they

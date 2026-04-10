@@ -379,8 +379,9 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
         }
 
         // External adapter channels: read all entries from config (including disabled ones).
-        var externalChannelsConfig = _config.GetSection<ExternalChannelsConfig>("ExternalChannels");
-        var externalChannels = externalChannelsConfig.GetChannels();
+        var externalChannels = _config.ExternalChannels
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+            .ToDictionary(c => c.Name, c => c, StringComparer.OrdinalIgnoreCase);
 
         // Build a lookup of running external hosts by name.
         var externalHosts = _allChannels

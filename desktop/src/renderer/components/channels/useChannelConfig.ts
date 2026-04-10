@@ -21,39 +21,14 @@ export interface WeComChannelConfig {
   Robots: WeComRobotConfig[]
 }
 
-export interface WeixinChannelConfig {
-  enabled: boolean
-  transport: 'websocket'
-}
-
-export interface TelegramChannelConfig {
-  enabled: boolean
-  transport: 'subprocess'
-  command: string
-  args: string[]
-  workingDirectory?: string
-  env: Record<string, string>
-}
-
 export interface ChannelsConfigState {
   qq: QQChannelConfig
   wecom: WeComChannelConfig
-  weixin: WeixinChannelConfig
-  telegram: TelegramChannelConfig
 }
 
 const DEFAULT_CONFIGS: ChannelsConfigState = {
   qq: { Enabled: false, Host: '127.0.0.1', Port: 6700, AccessToken: '' },
-  wecom: { Enabled: false, Host: '0.0.0.0', Port: 9000, Robots: [] },
-  weixin: { enabled: false, transport: 'websocket' },
-  telegram: {
-    enabled: false,
-    transport: 'subprocess',
-    command: 'python',
-    args: ['-m', 'dotcraft_telegram'],
-    workingDirectory: '',
-    env: { TELEGRAM_BOT_TOKEN: '' }
-  }
+  wecom: { Enabled: false, Host: '0.0.0.0', Port: 9000, Robots: [] }
 }
 
 function configPath(workspacePath: string): string {
@@ -89,28 +64,9 @@ function asBoolean(v: unknown, fallback = false): boolean {
   return typeof v === 'boolean' ? v : fallback
 }
 
-function parseStringArray(v: unknown): string[] {
-  if (!Array.isArray(v)) return []
-  return v.filter((item): item is string => typeof item === 'string')
-}
-
-/** Copies only string values from a JSON env object (ExternalChannels.*.env). */
-function stringRecordFromEnv(raw: unknown): Record<string, string> {
-  const env = asRecord(raw)
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(env)) {
-    if (typeof v === 'string') out[k] = v
-  }
-  return out
-}
-
 function parseConfigs(root: Record<string, unknown>): ChannelsConfigState {
   const qq = asRecord(root.QQBot)
   const wecom = asRecord(root.WeComBot)
-  const ext = asRecord(root.ExternalChannels)
-  const weixin = asRecord(ext.weixin)
-  const telegram = asRecord(ext.telegram)
-  const telegramEnv = asRecord(telegram.env)
   const robotsRaw = Array.isArray(wecom.Robots) ? wecom.Robots : []
   const robots: WeComRobotConfig[] = robotsRaw
     .map((r) => asRecord(r))
@@ -132,24 +88,6 @@ function parseConfigs(root: Record<string, unknown>): ChannelsConfigState {
       Host: asString(wecom.Host, DEFAULT_CONFIGS.wecom.Host),
       Port: asNumber(wecom.Port, DEFAULT_CONFIGS.wecom.Port),
       Robots: robots
-    },
-    weixin: {
-      enabled: asBoolean(weixin.enabled, DEFAULT_CONFIGS.weixin.enabled),
-      transport: 'websocket'
-    },
-    telegram: {
-      enabled: asBoolean(telegram.enabled, DEFAULT_CONFIGS.telegram.enabled),
-      transport: 'subprocess',
-      command: asString(telegram.command, DEFAULT_CONFIGS.telegram.command),
-      args: parseStringArray(telegram.args).length ? parseStringArray(telegram.args) : DEFAULT_CONFIGS.telegram.args,
-      workingDirectory: asString(telegram.workingDirectory),
-      env: {
-        ...stringRecordFromEnv(telegram.env),
-        TELEGRAM_BOT_TOKEN: asString(
-          telegramEnv.TELEGRAM_BOT_TOKEN,
-          DEFAULT_CONFIGS.telegram.env.TELEGRAM_BOT_TOKEN
-        )
-      }
     }
   }
 }
@@ -193,24 +131,6 @@ function mergeChannelConfig(
     return next
   }
 
-  const ext = { ...asRecord(next.ExternalChannels) }
-  if (channelId === 'weixin') {
-    ext.weixin = {
-      ...asRecord(ext.weixin),
-      ...config.weixin,
-      transport: 'websocket'
-    }
-  } else if (channelId === 'telegram') {
-    const diskTelegram = asRecord(ext.telegram)
-    const diskEnvStrings = stringRecordFromEnv(diskTelegram.env)
-    ext.telegram = {
-      ...diskTelegram,
-      ...config.telegram,
-      env: { ...diskEnvStrings, ...config.telegram.env },
-      transport: 'subprocess'
-    }
-  }
-  next.ExternalChannels = ext
   return next
 }
 

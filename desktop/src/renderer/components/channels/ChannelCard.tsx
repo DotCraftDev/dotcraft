@@ -43,13 +43,34 @@ export function ChannelCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <img
-          src={channel.logoPath}
-          alt={label}
-          width={24}
-          height={24}
-          style={{ borderRadius: '6px', flexShrink: 0, backgroundColor: 'var(--bg-secondary)' }}
-        />
+        {channel.logoPath ? (
+          <img
+            src={channel.logoPath}
+            alt={label}
+            width={24}
+            height={24}
+            style={{ borderRadius: '6px', flexShrink: 0, backgroundColor: 'var(--bg-secondary)' }}
+          />
+        ) : (
+          <div
+            aria-hidden
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: '6px',
+              flexShrink: 0,
+              backgroundColor: 'var(--bg-secondary)',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '11px',
+              fontWeight: 700
+            }}
+          >
+            {label.slice(0, 1).toUpperCase()}
+          </div>
+        )}
         <span style={{ color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600 }}>{label}</span>
       </div>
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>

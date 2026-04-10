@@ -3,13 +3,17 @@ import { useT } from '../../contexts/LocaleContext'
 
 // ─── Shared style helpers ────────────────────────────────────────────────────
 
-function inputFocusHandler(e: React.FocusEvent<HTMLInputElement>): void {
+function inputFocusHandler(
+  e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+): void {
   const el = e.currentTarget
   el.style.borderColor = 'var(--accent)'
   el.style.boxShadow = '0 0 0 2px rgba(74,127,165,0.15)'
 }
 
-function inputBlurHandler(e: React.FocusEvent<HTMLInputElement>): void {
+function inputBlurHandler(
+  e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+): void {
   const el = e.currentTarget
   el.style.borderColor = 'var(--border-default)'
   el.style.boxShadow = 'none'

@@ -4,62 +4,6 @@ using System.Text.Json.Serialization;
 namespace DotCraft.Configuration;
 
 /// <summary>
-/// Configuration for external channel adapters.
-/// Loaded via <c>AppConfig.GetSection&lt;ExternalChannelsConfig&gt;("ExternalChannels")</c>.
-/// Each key in the dictionary is the canonical channel name (e.g. "telegram").
-/// </summary>
-/// <remarks>
-/// Example JSON in config.json:
-/// <code>
-/// {
-///   "ExternalChannels": {
-///     "telegram": {
-///       "enabled": true,
-///       "transport": "subprocess",
-///       "command": "python",
-///       "args": ["-m", "dotcraft_telegram"],
-///       "env": { "TELEGRAM_BOT_TOKEN": "..." }
-///     },
-///     "discord": {
-///       "enabled": true,
-///       "transport": "websocket"
-///     }
-///   }
-/// }
-/// </code>
-/// </remarks>
-[ConfigSection("ExternalChannels", DisplayName = "External Channels", Order = 250)]
-public sealed class ExternalChannelsConfig
-{
-    /// <summary>
-    /// Channel entries keyed by canonical channel name.
-    /// </summary>
-    [JsonExtensionData]
-    public Dictionary<string, JsonElement>? Entries { get; set; }
-
-    /// <summary>
-    /// Deserializes and returns all channel entries.
-    /// </summary>
-    public Dictionary<string, ExternalChannelEntry> GetChannels()
-    {
-        if (Entries is null or { Count: 0 })
-            return [];
-
-        var result = new Dictionary<string, ExternalChannelEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, element) in Entries)
-        {
-            var entry = element.Deserialize<ExternalChannelEntry>(AppConfig.SerializerOptions);
-            if (entry is not null)
-            {
-                entry.Name = name;
-                result[name] = entry;
-            }
-        }
-        return result;
-    }
-}
-
-/// <summary>
 /// Transport mode for an external channel adapter.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ExternalChannelTransport>))]
@@ -75,42 +19,99 @@ public enum ExternalChannelTransport
 /// <summary>
 /// Configuration for a single external channel adapter.
 /// </summary>
+[ConfigSection("ExternalChannels", DisplayName = "External Channels", Order = 250, RootKey = "ExternalChannels")]
 public sealed class ExternalChannelEntry
 {
     /// <summary>
-    /// The canonical channel name. Set programmatically from the dictionary key,
-    /// not deserialized from JSON.
+    /// Canonical channel name. Persisted as the object key under <c>ExternalChannels</c>.
     /// </summary>
     [JsonIgnore]
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Whether this channel is active.</summary>
-    public bool Enabled { get; set; }
+    public bool Enabled { get; set; } = true;
 
     /// <summary>Transport mode: "subprocess" or "websocket".</summary>
+    [ConfigField(FieldType = "select", Options = new[] { "subprocess", "websocket" })]
     public ExternalChannelTransport Transport { get; set; } = ExternalChannelTransport.Subprocess;
 
     /// <summary>
     /// Command to start the adapter process. Required for subprocess mode.
     /// </summary>
+    [ConfigField(Hint = "Required for subprocess transport.")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Command { get; set; }
 
     /// <summary>
     /// Additional command-line arguments for the subprocess.
     /// </summary>
+    [ConfigField(Hint = "One argument per line in Dashboard.")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Args { get; set; }
 
     /// <summary>
     /// Working directory for the subprocess. Defaults to workspace root.
     /// </summary>
+    [ConfigField(Hint = "Optional. Empty = workspace root.")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? WorkingDirectory { get; set; }
 
     /// <summary>
     /// Additional environment variables passed to the subprocess.
     /// </summary>
+    [ConfigField(Hint = "Optional environment variables for subprocess transport.")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, string>? Env { get; set; }
+
+    public ExternalChannelEntry Clone() =>
+        new()
+        {
+            Name = Name,
+            Enabled = Enabled,
+            Transport = Transport,
+            Command = Command,
+            Args = Args != null ? [.. Args] : null,
+            WorkingDirectory = WorkingDirectory,
+            Env = Env != null ? new Dictionary<string, string>(Env, StringComparer.Ordinal) : null
+        };
+}
+
+/// <summary>
+/// Serializes <c>ExternalChannels</c> as an object dictionary keyed by channel name while exposing
+/// the in-memory model as a strongly typed list.
+/// </summary>
+public sealed class ExternalChannelConfigListConverter : JsonConverter<List<ExternalChannelEntry>>
+{
+    public override List<ExternalChannelEntry>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var root = doc.RootElement;
+        var list = new List<ExternalChannelEntry>();
+
+        if (root.ValueKind != JsonValueKind.Object)
+            return list;
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            var entry = prop.Value.Deserialize<ExternalChannelEntry>(options) ?? new ExternalChannelEntry();
+            entry.Name = prop.Name;
+            list.Add(entry);
+        }
+
+        return list;
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<ExternalChannelEntry> value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+
+        foreach (var channel in value.Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                     .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            writer.WritePropertyName(channel.Name);
+            JsonSerializer.Serialize(writer, channel, options);
+        }
+
+        writer.WriteEndObject();
+    }
 }

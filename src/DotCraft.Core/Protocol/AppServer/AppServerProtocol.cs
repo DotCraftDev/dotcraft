@@ -219,6 +219,13 @@ public sealed class AppServerServerCapabilities
     public bool McpManagement { get; set; }
 
     /// <summary>
+    /// Server supports external channel configuration management methods
+    /// (<c>externalChannel/list</c>, <c>externalChannel/upsert</c>, etc.).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ExternalChannelManagement { get; set; }
+
+    /// <summary>
     /// Server supports MCP runtime status methods/notifications.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -1043,6 +1050,62 @@ public sealed class McpTestResult
     public int? ToolCount { get; set; }
 }
 
+// ───── externalChannel/* (external channel management) ─────
+
+public sealed class ExternalChannelConfigWire
+{
+    public string Name { get; set; } = string.Empty;
+    public bool Enabled { get; set; } = true;
+    public string Transport { get; set; } = "subprocess";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Command { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Args { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WorkingDirectory { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Env { get; set; }
+}
+
+public sealed class ExternalChannelListResult
+{
+    public List<ExternalChannelConfigWire> Channels { get; set; } = [];
+}
+
+public sealed class ExternalChannelGetParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class ExternalChannelGetResult
+{
+    public ExternalChannelConfigWire Channel { get; set; } = new();
+}
+
+public sealed class ExternalChannelUpsertParams
+{
+    public ExternalChannelConfigWire Channel { get; set; } = new();
+}
+
+public sealed class ExternalChannelUpsertResult
+{
+    public ExternalChannelConfigWire Channel { get; set; } = new();
+}
+
+public sealed class ExternalChannelRemoveParams
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class ExternalChannelRemoveResult
+{
+    public bool Removed { get; set; }
+}
+
 // ───── Wire protocol method name constants ─────
 
 public static class AppServerMethods
@@ -1083,6 +1146,10 @@ public static class AppServerMethods
     public const string McpGet = "mcp/get";
     public const string McpUpsert = "mcp/upsert";
     public const string McpRemove = "mcp/remove";
+    public const string ExternalChannelList = "externalChannel/list";
+    public const string ExternalChannelGet = "externalChannel/get";
+    public const string ExternalChannelUpsert = "externalChannel/upsert";
+    public const string ExternalChannelRemove = "externalChannel/remove";
     public const string McpStatusList = "mcp/status/list";
     public const string McpTest = "mcp/test";
 
