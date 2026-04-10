@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -74,6 +75,32 @@ public sealed class ExternalChannelEntry
             WorkingDirectory = WorkingDirectory,
             Env = Env != null ? new Dictionary<string, string>(Env, StringComparer.Ordinal) : null
         };
+}
+
+/// <summary>
+/// Maps external channel entries by name with case-insensitive keys. When JSON contains keys that
+/// differ only by case, the last entry in source order wins (same semantics as legacy <c>GetChannels()</c>).
+/// <c>ToDictionary(..., StringComparer.OrdinalIgnoreCase)</c> throws on such duplicate keys in a list.
+/// </summary>
+public static class ExternalChannelEntryMap
+{
+    /// <summary>
+    /// Builds a dictionary keyed by <see cref="ExternalChannelEntry.Name"/>, skipping blank names.
+    /// Later entries overwrite earlier ones for the same case-insensitive name.
+    /// </summary>
+    public static Dictionary<string, ExternalChannelEntry> ToDictionaryByNameLastWins(
+        IEnumerable<ExternalChannelEntry> entries)
+    {
+        var result = new Dictionary<string, ExternalChannelEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Name))
+                continue;
+            result[entry.Name] = entry;
+        }
+
+        return result;
+    }
 }
 
 /// <summary>

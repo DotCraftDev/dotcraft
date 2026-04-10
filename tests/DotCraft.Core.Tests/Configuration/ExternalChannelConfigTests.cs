@@ -118,4 +118,37 @@ public class ExternalChannelConfigTests
         Assert.False(weixin.ContainsKey("Name"));
         Assert.Equal("Websocket", weixin["Transport"]?.GetValue<string>());
     }
+
+    [Fact]
+    public void ExternalChannels_CaseInsensitiveDuplicateKeys_LastEntryWinsInMap()
+    {
+        const string json = """
+        {
+          "ExternalChannels": {
+            "Telegram": {
+              "enabled": false,
+              "transport": "websocket"
+            },
+            "telegram": {
+              "enabled": true,
+              "transport": "subprocess",
+              "command": "python"
+            }
+          }
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions);
+
+        Assert.NotNull(config);
+        Assert.Equal(2, config!.ExternalChannels.Count);
+
+        var map = ExternalChannelEntryMap.ToDictionaryByNameLastWins(config.ExternalChannels);
+
+        Assert.Single(map);
+        var entry = map["telegram"];
+        Assert.True(entry.Enabled);
+        Assert.Equal(ExternalChannelTransport.Subprocess, entry.Transport);
+        Assert.Equal("python", entry.Command);
+    }
 }

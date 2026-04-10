@@ -52,9 +52,7 @@ public sealed class ExternalChannelManager
     {
         _registry = registry ?? new ExternalChannelRegistry();
 
-        var channels = config.ExternalChannels
-            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
-            .ToDictionary(c => c.Name, c => c, StringComparer.OrdinalIgnoreCase);
+        var channels = ExternalChannelEntryMap.ToDictionaryByNameLastWins(config.ExternalChannels);
 
         if (channels.Count == 0)
             return;
