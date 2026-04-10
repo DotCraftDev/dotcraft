@@ -3,11 +3,17 @@ import { addToast } from '../../stores/toastStore'
 import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
-import { CHANNEL_DEFS, type ChannelDefinition, type ChannelId } from './channelDefs'
+import { CHANNEL_DEFS, type ChannelId } from './channelDefs'
 import { ChannelCard, type ChannelConnectionState } from './ChannelCard'
 import { QQConfigForm } from './QQConfigForm'
 import { WeComConfigForm } from './WeComConfigForm'
 import { useChannelConfig } from './useChannelConfig'
+import {
+  PRESET_EXTERNAL_CHANNELS,
+  PRESET_EXTERNAL_CHANNELS_BY_NAME,
+  createPresetExternalDraft,
+  type PresetExternalChannel
+} from './presetExternalChannels'
 import {
   ExternalChannelConfigForm,
   type ExternalChannelConfigWire
@@ -26,10 +32,17 @@ interface ChannelInfoWire {
 
 type SelectedChannelKey = `native:${ChannelId}` | `external:${string}`
 
+interface ExternalChannelViewModel {
+  name: string
+  draft: ExternalChannelConfigWire
+  configured: boolean
+  preset?: PresetExternalChannel
+}
+
 function createEmptyExternalChannel(): ExternalChannelConfigWire {
   return {
     name: '',
-    enabled: true,
+    enabled: false,
     transport: 'subprocess',
     command: '',
     args: [],
@@ -81,12 +94,13 @@ function deriveNativeStatus(
 function deriveExternalStatus(
   name: string,
   enabled: boolean,
+  configured: boolean,
   statusMap: Map<string, ChannelStatusWire> | null,
   fallbackConnected: Set<string> | null
 ): ChannelConnectionState {
   if (statusMap !== null) {
     const s = statusMap.get(name.toLowerCase())
-    if (!s) return enabled ? 'enabledNotConnected' : 'notConfigured'
+    if (!s) return configured && enabled ? 'enabledNotConnected' : 'notConfigured'
     if (s.running) return 'connected'
     if (s.enabled) return 'enabledNotConnected'
     return 'notConfigured'
@@ -94,15 +108,7 @@ function deriveExternalStatus(
 
   const connected = fallbackConnected?.has(name.toLowerCase()) ?? false
   if (connected) return 'connected'
-  return enabled ? 'enabledNotConnected' : 'notConfigured'
-}
-
-function makeExternalChannelDef(name: string): ChannelDefinition {
-  return {
-    id: 'qq',
-    nameKey: '',
-    channelListName: name
-  }
+  return configured && enabled ? 'enabledNotConnected' : 'notConfigured'
 }
 
 export function ChannelsView(): JSX.Element {
@@ -212,8 +218,13 @@ export function ChannelsView(): JSX.Element {
         if (selected) {
           setExternalDraft(cloneExternalChannel(selected))
         } else {
-          setSelectedChannelKey('native:qq')
-          setExternalDraft(createEmptyExternalChannel())
+          const preset = PRESET_EXTERNAL_CHANNELS_BY_NAME.get(selectedName.toLowerCase())
+          if (preset) {
+            setExternalDraft(createPresetExternalDraft(preset.name))
+          } else {
+            setSelectedChannelKey('native:qq')
+            setExternalDraft(createEmptyExternalChannel())
+          }
         }
       }
     } catch (err) {
@@ -223,6 +234,46 @@ export function ChannelsView(): JSX.Element {
       setExternalLoading(false)
     }
   }
+
+  const externalChannelCards = useMemo<ExternalChannelViewModel[]>(() => {
+    if (!externalManagementEnabled) return []
+
+    const persistedByName = new Map<string, ExternalChannelConfigWire>()
+    for (const channel of externalChannels) {
+      persistedByName.set(channel.name.toLowerCase(), channel)
+    }
+
+    const merged: ExternalChannelViewModel[] = []
+    for (const preset of PRESET_EXTERNAL_CHANNELS) {
+      const persisted = persistedByName.get(preset.name.toLowerCase())
+      if (persisted) {
+        merged.push({
+          name: persisted.name,
+          draft: cloneExternalChannel(persisted),
+          configured: true,
+          preset
+        })
+      } else {
+        merged.push({
+          name: preset.name,
+          draft: createPresetExternalDraft(preset.name),
+          configured: false,
+          preset
+        })
+      }
+    }
+
+    for (const channel of externalChannels) {
+      if (PRESET_EXTERNAL_CHANNELS_BY_NAME.has(channel.name.toLowerCase())) continue
+      merged.push({
+        name: channel.name,
+        draft: cloneExternalChannel(channel),
+        configured: true
+      })
+    }
+
+    return merged
+  }, [externalChannels, externalManagementEnabled])
 
   useEffect(() => {
     void reloadExternalChannels()
@@ -290,8 +341,10 @@ export function ChannelsView(): JSX.Element {
     try {
       await window.api.appServer.sendRequest('externalChannel/remove', { name })
       await reloadExternalChannels()
-      setSelectedChannelKey('native:qq')
-      setExternalDraft(createEmptyExternalChannel())
+      if (!PRESET_EXTERNAL_CHANNELS_BY_NAME.has(name.toLowerCase())) {
+        setSelectedChannelKey('native:qq')
+        setExternalDraft(createEmptyExternalChannel())
+      }
       addToast(t('channels.external.removed'), 'success')
     } catch (err) {
       addToast(
@@ -315,17 +368,26 @@ export function ChannelsView(): JSX.Element {
 
   const externalStatusByName = useMemo(() => {
     const map = new Map<string, ChannelConnectionState>()
-    for (const channel of externalChannels) {
+    for (const channel of externalChannelCards) {
       map.set(
         channel.name.toLowerCase(),
-        deriveExternalStatus(channel.name, channel.enabled, channelStatusMap, fallbackConnected)
+        deriveExternalStatus(
+          channel.name,
+          channel.draft.enabled,
+          channel.configured,
+          channelStatusMap,
+          fallbackConnected
+        )
       )
     }
     if (selectedChannelKey === 'external:__new__') {
-      map.set('__new__', deriveExternalStatus('__new__', externalDraft.enabled, channelStatusMap, fallbackConnected))
+      map.set(
+        '__new__',
+        deriveExternalStatus('__new__', externalDraft.enabled, false, channelStatusMap, fallbackConnected)
+      )
     }
     return map
-  }, [externalChannels, externalDraft.enabled, channelStatusMap, fallbackConnected, selectedChannelKey])
+  }, [externalChannelCards, externalDraft.enabled, channelStatusMap, fallbackConnected, selectedChannelKey])
 
   const selectedNativeId = selectedChannelKey.startsWith('native:')
     ? (selectedChannelKey.slice('native:'.length) as ChannelId)
@@ -334,6 +396,9 @@ export function ChannelsView(): JSX.Element {
     ? selectedChannelKey.slice('external:'.length)
     : null
   const selectedDef = selectedNativeId ? CHANNEL_DEFS.find((d) => d.id === selectedNativeId) : null
+  const selectedExternalCard = selectedExternalName
+    ? externalChannelCards.find((item) => item.name.toLowerCase() === selectedExternalName.toLowerCase())
+    : null
 
   return (
     <div
@@ -397,7 +462,7 @@ export function ChannelsView(): JSX.Element {
               return (
                 <ChannelCard
                   key={channel.id}
-                  channel={channel}
+                  logoPath={channel.logoPath}
                   label={t(channel.nameKey)}
                   status={status}
                   statusLabel={t(statusLabelKey(status))}
@@ -443,18 +508,19 @@ export function ChannelsView(): JSX.Element {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {externalChannels.map((channel) => {
+              {externalChannelCards.map((channel) => {
                 const status = externalStatusByName.get(channel.name.toLowerCase()) ?? 'notConfigured'
+                const label = channel.preset ? t(channel.preset.nameKey) : channel.name
                 return (
                   <ChannelCard
                     key={channel.name}
-                    channel={makeExternalChannelDef(channel.name)}
-                    label={channel.name}
+                    logoPath={channel.preset?.logoPath}
+                    label={label}
                     status={status}
                     statusLabel={t(statusLabelKey(status))}
                     active={selectedChannelKey === `external:${channel.name}`}
                     onClick={() => {
-                      setExternalDraft(cloneExternalChannel(channel))
+                      setExternalDraft(cloneExternalChannel(channel.draft))
                       setSelectedChannelKey(`external:${channel.name}`)
                     }}
                   />
@@ -462,7 +528,7 @@ export function ChannelsView(): JSX.Element {
               })}
             </div>
 
-            {!externalLoading && externalManagementEnabled && externalChannels.length === 0 && (
+            {!externalLoading && externalManagementEnabled && externalChannelCards.length === 0 && (
               <div style={{ marginTop: 10, fontSize: '12px', color: 'var(--text-dimmed)' }}>
                 {t('channels.external.empty')}
               </div>
@@ -515,15 +581,31 @@ export function ChannelsView(): JSX.Element {
                   saving={savingExternal}
                   deleting={deletingExternal}
                   isNew={selectedExternalName === '__new__'}
+                  logoPath={selectedExternalCard?.preset?.logoPath}
+                  headerTitle={
+                    selectedExternalCard?.preset ? t(selectedExternalCard.preset.titleKey) : undefined
+                  }
                   status={
                     selectedExternalName === '__new__'
-                      ? deriveExternalStatus('__new__', externalDraft.enabled, channelStatusMap, fallbackConnected)
+                      ? deriveExternalStatus(
+                          '__new__',
+                          externalDraft.enabled,
+                          false,
+                          channelStatusMap,
+                          fallbackConnected
+                        )
                       : externalStatusByName.get(selectedExternalName.toLowerCase()) ?? 'notConfigured'
                   }
                   statusLabel={t(
                     statusLabelKey(
                       selectedExternalName === '__new__'
-                        ? deriveExternalStatus('__new__', externalDraft.enabled, channelStatusMap, fallbackConnected)
+                        ? deriveExternalStatus(
+                            '__new__',
+                            externalDraft.enabled,
+                            false,
+                            channelStatusMap,
+                            fallbackConnected
+                          )
                         : externalStatusByName.get(selectedExternalName.toLowerCase()) ?? 'notConfigured'
                     )
                   )}

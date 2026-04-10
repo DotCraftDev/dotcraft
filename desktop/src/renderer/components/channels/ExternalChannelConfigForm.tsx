@@ -19,6 +19,8 @@ interface ExternalChannelConfigFormProps {
   saving: boolean
   deleting: boolean
   isNew: boolean
+  logoPath?: string
+  headerTitle?: string
   status: ChannelConnectionState
   statusLabel: string
   onChange: (next: ExternalChannelConfigWire) => void
@@ -55,6 +57,8 @@ export function ExternalChannelConfigForm({
   saving,
   deleting,
   isNew,
+  logoPath,
+  headerTitle,
   status,
   statusLabel,
   onChange,
@@ -64,31 +68,40 @@ export function ExternalChannelConfigForm({
   const t = useT()
   const envText = useMemo(() => envToText(value.env), [value.env])
   const isSubprocess = value.transport === 'subprocess'
+  const title = isNew ? t('channels.external.new') : headerTitle || value.name || t('channels.external.title')
 
   return (
     <div>
       <div style={formStyles.header}>
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            backgroundColor: 'var(--bg-secondary)',
-            color: 'var(--text-secondary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 14,
-            fontWeight: 700,
-            flexShrink: 0
-          }}
-        >
-          {value.name.trim().slice(0, 1).toUpperCase() || 'E'}
-        </div>
-        <div>
-          <div style={formStyles.headerTitle}>
-            {isNew ? t('channels.external.new') : value.name || t('channels.external.title')}
+        {logoPath ? (
+          <img
+            src={logoPath}
+            alt={title}
+            width={32}
+            height={32}
+            style={formStyles.headerLogo}
+          />
+        ) : (
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              backgroundColor: 'var(--bg-secondary)',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 14,
+              fontWeight: 700,
+              flexShrink: 0
+            }}
+          >
+            {value.name.trim().slice(0, 1).toUpperCase() || 'E'}
           </div>
+        )}
+        <div>
+          <div style={formStyles.headerTitle}>{title}</div>
           <StatusPill status={status} label={statusLabel} />
         </div>
       </div>

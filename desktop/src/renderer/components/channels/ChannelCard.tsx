@@ -1,9 +1,7 @@
-import type { ChannelDefinition } from './channelDefs'
-
 export type ChannelConnectionState = 'connected' | 'enabledNotConnected' | 'notConfigured'
 
 interface ChannelCardProps {
-  channel: ChannelDefinition
+  logoPath?: string
   label: string
   statusLabel: string
   status: ChannelConnectionState
@@ -18,7 +16,7 @@ function stateColor(status: ChannelConnectionState): string {
 }
 
 export function ChannelCard({
-  channel,
+  logoPath,
   label,
   status,
   statusLabel,
@@ -43,9 +41,9 @@ export function ChannelCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {channel.logoPath ? (
+        {logoPath ? (
           <img
-            src={channel.logoPath}
+            src={logoPath}
             alt={label}
             width={24}
             height={24}
