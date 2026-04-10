@@ -13,6 +13,7 @@ import {
 import { Transport } from "./transport.js";
 import {
   extractAgentReplyTextFromTurnCompletedParams,
+  extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
 
@@ -75,6 +76,16 @@ export abstract class ChannelAdapter {
 
   protected async onTurnCancelled(threadId: string, turnId: string): Promise<void> {
     console.info(`Turn ${turnId} cancelled on thread ${threadId}`);
+  }
+
+  protected async onSegmentCompleted(
+    _threadId: string,
+    _turnId: string,
+    _segmentText: string,
+    _isFinal: boolean,
+    _channelContext: string,
+  ): Promise<void> {
+    // Default no-op; adapters can override for progressive delivery.
   }
 
   async start(): Promise<void> {
@@ -305,15 +316,51 @@ export abstract class ChannelAdapter {
       }
     }
 
-    const replyParts: string[] = [];
+    const allDeltaParts: string[] = [];
+    const currentSegmentParts: string[] = [];
     for await (const event of this.client.streamEvents(thread.id)) {
       if (event.method === "item/agentMessage/delta") {
         const delta = String((event.params as Record<string, unknown>)?.delta ?? "");
-        replyParts.push(delta);
+        allDeltaParts.push(delta);
+        currentSegmentParts.push(delta);
+      } else if (event.method === "item/started") {
+        const params = (event.params as Record<string, unknown>) ?? {};
+        const item = (params.item as Record<string, unknown>) ?? {};
+        const itemType = String(item.type ?? "");
+        if (itemType === "toolCall") {
+          const segmentText = currentSegmentParts.join("");
+          currentSegmentParts.length = 0;
+          if (segmentText.trim()) {
+            await this.onSegmentCompleted(
+              thread.id,
+              turn.id,
+              segmentText,
+              false,
+              channelContext,
+            );
+          }
+        }
       } else if (event.method === "turn/completed") {
         const params = (event.params as Record<string, unknown>) ?? {};
+        const segmentTextFromDelta = currentSegmentParts.join("");
+        const segmentText =
+          segmentTextFromDelta.trim().length > 0
+            ? segmentTextFromDelta
+            : (() => {
+                const snapshots = extractAgentReplyTextsFromTurnCompletedParams(params);
+                return snapshots.length > 0 ? snapshots[snapshots.length - 1] : "";
+              })();
+        if (segmentText.trim()) {
+          await this.onSegmentCompleted(
+            thread.id,
+            turn.id,
+            segmentText,
+            true,
+            channelContext,
+          );
+        }
         const snapshotText = extractAgentReplyTextFromTurnCompletedParams(params);
-        const deltaText = replyParts.join("");
+        const deltaText = allDeltaParts.join("");
         const fullReply = mergeReplyTextFromDeltaAndSnapshot(deltaText, snapshotText);
         await this.onTurnCompleted(thread.id, turn.id, fullReply, channelContext);
         break;

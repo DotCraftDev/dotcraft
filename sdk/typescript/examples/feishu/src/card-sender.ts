@@ -1,4 +1,4 @@
-import { buildReplyCards } from "./card-builder.js";
+import { buildProgressCard, buildReplyCards } from "./card-builder.js";
 import type { FeishuClient } from "./feishu-client.js";
 
 export async function sendReplyCards(
@@ -18,6 +18,14 @@ export async function sendSingleCard(
   card: Record<string, unknown>,
 ): Promise<void> {
   await client.sendInteractiveCard(target, card);
+}
+
+export async function sendProgressCard(
+  client: FeishuClient,
+  target: string,
+  text: string,
+): Promise<void> {
+  await sendSingleCard(client, target, buildProgressCard(text));
 }
 
 export async function updateCard(

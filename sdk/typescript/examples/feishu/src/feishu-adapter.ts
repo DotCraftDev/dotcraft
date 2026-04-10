@@ -9,11 +9,12 @@ import {
   Turn,
   WebSocketTransport,
   extractAgentReplyTextFromTurnCompletedParams,
+  extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
   textPart,
 } from "dotcraft-wire";
 import { buildApprovalCard, buildErrorCard } from "./card-builder.js";
-import { sendReplyCards, sendSingleCard } from "./card-sender.js";
+import { sendProgressCard, sendReplyCards, sendSingleCard } from "./card-sender.js";
 import type { FeishuCardActionEvent, ParsedInboundMessage } from "./feishu-types.js";
 import type { FeishuClient } from "./feishu-client.js";
 import { errorMessage, logError, logInfo, logWarn, shortId } from "./logging.js";
@@ -146,6 +147,16 @@ export class FeishuAdapter extends ChannelAdapter {
       replyChars: replyText.length,
     });
     await sendReplyCards(this.feishu, channelContext, replyText);
+  }
+
+  async onProgressMessage(threadId: string, turnId: string, replyText: string, channelContext: string): Promise<void> {
+    if (!replyText.trim()) return;
+    logInfo("turn.progress", {
+      threadId: shortId(threadId),
+      turnId: shortId(turnId),
+      replyChars: replyText.length,
+    });
+    await sendProgressCard(this.feishu, channelContext, replyText);
   }
 
   async handleInboundMessage(message: ParsedInboundMessage): Promise<void> {
@@ -355,16 +366,35 @@ export class FeishuAdapter extends ChannelAdapter {
       }
     }
 
-    const replyParts: string[] = [];
+    const allDeltaParts: string[] = [];
+    const currentSegmentParts: string[] = [];
     for await (const event of this.client.streamEvents(thread.id)) {
       if (event.method === "item/agentMessage/delta") {
         const delta = String((event.params as Record<string, unknown>)?.delta ?? "");
-        replyParts.push(delta);
+        allDeltaParts.push(delta);
+        currentSegmentParts.push(delta);
+      } else if (event.method === "item/started") {
+        const params = (event.params as Record<string, unknown>) ?? {};
+        const item = (params.item as Record<string, unknown>) ?? {};
+        const itemType = String(item.type ?? "");
+        if (itemType === "toolCall") {
+          const segmentText = currentSegmentParts.join("");
+          currentSegmentParts.length = 0;
+          await this.onProgressMessage(thread.id, turn.id, segmentText, job.channelContext);
+        }
       } else if (event.method === "turn/completed") {
         const params = (event.params as Record<string, unknown>) ?? {};
+        const snapshotParts = extractAgentReplyTextsFromTurnCompletedParams(params);
         const snapshotText = extractAgentReplyTextFromTurnCompletedParams(params);
-        const fullReply = mergeReplyTextFromDeltaAndSnapshot(replyParts.join(""), snapshotText);
-        await this.onTurnCompleted(thread.id, turn.id, fullReply, job.channelContext);
+        const mergedFullReply = mergeReplyTextFromDeltaAndSnapshot(allDeltaParts.join(""), snapshotText);
+        const deltaFinalSegment = currentSegmentParts.join("");
+        const finalSegment =
+          deltaFinalSegment.trim().length > 0
+            ? deltaFinalSegment
+            : snapshotParts.length > 0
+              ? snapshotParts[snapshotParts.length - 1]
+              : mergedFullReply;
+        await this.onTurnCompleted(thread.id, turn.id, finalSegment, job.channelContext);
         return;
       } else if (event.method === "turn/failed") {
         const errorMessage = String(

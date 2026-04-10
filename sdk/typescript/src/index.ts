@@ -41,6 +41,7 @@ export {
 export type { Transport, WebSocketTransportOptions } from "./transport.js";
 export {
   extractAgentReplyTextFromTurnCompletedParams,
+  extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
 

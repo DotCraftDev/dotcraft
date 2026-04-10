@@ -22,14 +22,33 @@ export function buildReplyCards(replyText: string): Record<string, unknown>[] {
     },
     elements: [
       {
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content: normalizeMarkdownForFeishu(chunk),
-        },
+        tag: "markdown",
+        content: normalizeMarkdownForFeishu(chunk),
       },
     ],
   }));
+}
+
+export function buildProgressCard(text: string): Record<string, unknown> {
+  return {
+    config: {
+      wide_screen_mode: true,
+      update_multi: true,
+    },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: "DotCraft",
+      },
+      template: "turquoise",
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: normalizeMarkdownForFeishu(text),
+      },
+    ],
+  };
 }
 
 export function buildApprovalCard(params: {
@@ -57,13 +76,10 @@ export function buildApprovalCard(params: {
     },
     elements: [
       {
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content:
-            `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}\n\n` +
-            `Timeout: ${params.timeoutSeconds}s`,
-        },
+        tag: "markdown",
+        content:
+          `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}\n\n` +
+          `Timeout: ${params.timeoutSeconds}s`,
       },
       {
         tag: "action",
@@ -93,11 +109,8 @@ export function buildErrorCard(title: string, message: string): Record<string, u
     },
     elements: [
       {
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content: normalizeMarkdownForFeishu(message),
-        },
+        tag: "markdown",
+        content: normalizeMarkdownForFeishu(message),
       },
     ],
   };
