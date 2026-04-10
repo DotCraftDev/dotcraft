@@ -176,11 +176,9 @@ export function ExternalChannelConfigForm({
                   onChange={(e) =>
                     onChange({
                       ...value,
-                      args: e.target.value
-                        .split(/\r?\n/)
-                        .map((line) => line.trim())
-                        .filter(Boolean)
+                      args: e.target.value.split(/\r?\n/)
                     })
+                  }
                   }
                   style={{ ...formStyles.input, minHeight: 90, padding: '8px 10px' }}
                 />
