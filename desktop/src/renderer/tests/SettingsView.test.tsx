@@ -72,6 +72,66 @@ describe('SettingsView restart AppServer', () => {
     })
   })
 
+  it('keeps restart button visible when saved mode is stdio but form switches to remote without saving', async () => {
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
+    const connectionModeSelect = await screen.findByLabelText('Connection mode')
+    fireEvent.change(connectionModeSelect, { target: { value: 'remote' } })
+
+    expect(screen.getByRole('button', { name: 'Restart AppServer' })).toBeInTheDocument()
+  })
+
+  it('keeps restart button hidden when saved mode is remote but form switches to stdio without saving', async () => {
+    settingsGet.mockResolvedValue({
+      connectionMode: 'remote',
+      remote: { url: 'ws://127.0.0.1:9100/ws' },
+      locale: 'en'
+    })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
+    const connectionModeSelect = await screen.findByLabelText('Connection mode')
+    fireEvent.change(connectionModeSelect, { target: { value: 'stdio' } })
+
+    expect(screen.queryByRole('button', { name: 'Restart AppServer' })).not.toBeInTheDocument()
+  })
+
+  it('hides restart button after saving a switch from stdio to remote', async () => {
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
+    const connectionModeSelect = await screen.findByLabelText('Connection mode')
+    fireEvent.change(connectionModeSelect, { target: { value: 'remote' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(settingsSet).toHaveBeenCalled()
+      expect(screen.queryByRole('button', { name: 'Restart AppServer' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows restart button after saving a switch from remote to stdio', async () => {
+    settingsGet.mockResolvedValue({
+      connectionMode: 'remote',
+      remote: { url: 'ws://127.0.0.1:9100/ws' },
+      locale: 'en'
+    })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
+    const connectionModeSelect = await screen.findByLabelText('Connection mode')
+    fireEvent.change(connectionModeSelect, { target: { value: 'stdio' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(settingsSet).toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Restart AppServer' })).toBeInTheDocument()
+    })
+  })
+
   it('restarts managed AppServer and adds a success toast', async () => {
     renderSettingsView()
 

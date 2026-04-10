@@ -306,6 +306,7 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
   const setMcpStatuses = useMcpStore((s) => s.setStatuses)
   const [binaryPath, setBinaryPath] = useState('')
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
+  const [savedConnectionMode, setSavedConnectionMode] = useState<ConnectionMode>('stdio')
   const [wsHost, setWsHost] = useState(DEFAULT_WS_HOST)
   const [wsPort, setWsPort] = useState(String(DEFAULT_WS_PORT))
   const [remoteUrl, setRemoteUrl] = useState('')
@@ -337,15 +338,17 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
   const [mcpTestResult, setMcpTestResult] = useState<McpTestResultWire | null>(null)
 
   const mcpEnabled = capabilities?.mcpManagement === true
-  const canRestartManagedAppServer = connectionMode !== 'remote'
+  const canRestartManagedAppServer = savedConnectionMode !== 'remote'
 
   useEffect(() => {
     inputRef.current?.focus()
     window.api.settings
       .get()
       .then(async (s) => {
+        const loadedMode = (s.connectionMode ?? 'stdio') as ConnectionMode
         setBinaryPath(s.appServerBinaryPath ?? '')
-        setConnectionMode((s.connectionMode ?? 'stdio') as ConnectionMode)
+        setConnectionMode(loadedMode)
+        setSavedConnectionMode(loadedMode)
         setWsHost(s.webSocket?.host ?? DEFAULT_WS_HOST)
         setWsPort(String(s.webSocket?.port ?? DEFAULT_WS_PORT))
         setRemoteUrl(s.remote?.url ?? '')
@@ -651,6 +654,7 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
           token: remoteToken.trim() || undefined
         }
       })
+      setSavedConnectionMode(connectionMode)
       addToast(
         activeSettingsTab === 'connection'
           ? t('settings.restartAppServerSavedHint')
