@@ -68,7 +68,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. Workspace model persistence method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. Workspace model persistence method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -210,6 +210,7 @@ Client                              Server
     "modelCatalogManagement": true,
     "workspaceConfigManagement": true,
     "mcpManagement": true,
+    "externalChannelManagement": true,
     "mcpStatus": true
   }
 }
@@ -233,6 +234,7 @@ Client                              Server
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). Present and `true` when workspace config is available for resolving merged `ApiKey` and `EndPoint`. |
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace config write methods (`workspace/config/update`). Present and `true` when workspace `.craft/config.json` is writable by the AppServer host process. |
 | `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). Present and `true` when workspace `.craft/config.json` is writable and the server has an MCP manager. |
+| `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). Present and `true` when workspace `.craft/config.json` is writable. |
 | `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). Present and `true` when the server has an MCP manager. |
 
 ### 3.3 `initialized`
@@ -2969,9 +2971,117 @@ Server notification emitted when one server's runtime status changes.
 | `-32073` | `McpServerTestFailed` | Temporary test/probe failed. |
 | `-32074` | `McpServerNameConflict` | Name conflicts with an existing logical key after case-insensitive comparison. |
 
-## 23. Workspace Config Methods
+## 23. External Channel Management Methods
 
 ### 23.1 Scope
+
+These methods provide a server-authoritative write path for workspace external channel configuration stored in `.craft/config.json`.
+
+Desktop, Dashboard, and other clients must not write `ExternalChannels` directly. The authoritative persistence target is the workspace config file under the `ExternalChannels` top-level key.
+
+Clients must check `capabilities.externalChannelManagement` before calling `externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, or `externalChannel/remove`. If absent or `false`, the server returns `-32601` (Method not found).
+
+### 23.2 `ExternalChannelConfig` Wire DTO
+
+```json
+{
+  "name": "telegram",
+  "enabled": true,
+  "transport": "subprocess",
+  "command": "python",
+  "args": ["-m", "dotcraft_telegram"],
+  "workingDirectory": "./adapters/telegram",
+  "env": { "TELEGRAM_BOT_TOKEN": "..." }
+}
+```
+
+Supported fields:
+
+- `name: string`
+- `enabled: boolean`
+- `transport: "subprocess" | "websocket"`
+- `command?: string`
+- `args?: string[]`
+- `workingDirectory?: string | null`
+- `env?: Record<string, string>`
+
+Validation rules:
+
+- `name` is the logical primary key and is compared case-insensitively.
+- `name` must not conflict with a native channel name contributed by loaded modules (for example `qq`, `wecom`, `cli`, `acp`).
+- `subprocess` requires `command`.
+- `subprocess` allows `command`, `args`, `workingDirectory`, and `env`.
+- `websocket` does not allow subprocess-only fields (`command`, `args`, `workingDirectory`, `env`).
+- Persistence target is `.craft/config.json` under `ExternalChannels`.
+- Config is stored as an object dictionary keyed by channel name.
+
+### 23.3 `externalChannel/list`
+
+Returns all configured external channels for the current workspace.
+
+**Result**:
+
+```json
+{
+  "channels": [
+    {
+      "name": "telegram",
+      "enabled": true,
+      "transport": "subprocess",
+      "command": "python",
+      "args": ["-m", "dotcraft_telegram"]
+    }
+  ]
+}
+```
+
+### 23.4 `externalChannel/get`
+
+Returns one configured external channel by name.
+
+**Params**:
+
+```json
+{ "name": "telegram" }
+```
+
+### 23.5 `externalChannel/upsert`
+
+Creates or replaces one external channel definition.
+
+**Params**:
+
+```json
+{
+  "channel": {
+    "name": "weixin",
+    "enabled": true,
+    "transport": "websocket"
+  }
+}
+```
+
+**Semantics**:
+
+- Upsert replaces the full logical channel entry.
+- Persistence target is `.craft/config.json` under `ExternalChannels`.
+- Config is stored as an object dictionary keyed by channel name.
+
+### 23.6 `externalChannel/remove`
+
+Removes one external channel definition by name.
+
+### 23.7 Error Codes
+
+| Code | Constant | When |
+|------|----------|------|
+| `-32080` | `ExternalChannelNotFound` | Requested external channel name does not exist. |
+| `-32081` | `ExternalChannelValidationFailed` | External channel config payload is invalid for the selected transport. |
+| `-32082` | `ExternalChannelNameConflict` | Name conflicts with an existing logical key or a native channel name after case-insensitive comparison. |
+
+## 24. Workspace Config Methods
+
+### 24.1 Scope
 
 These methods provide a server-authoritative write path for workspace-level configuration values stored in `.craft/config.json`.
 
@@ -2979,7 +3089,7 @@ In v1, the wire surface only standardizes workspace model persistence so all cli
 
 Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling `workspace/config/update`. If absent or `false`, the server returns `-32601` (Method not found).
 
-### 23.2 `workspace/config/update`
+### 24.2 `workspace/config/update`
 
 Update workspace-level config values. The server persists the change to `.craft/config.json` using case-insensitive key matching for `Model`.
 
@@ -3014,6 +3124,6 @@ If `model` is removed, the result returns:
 - Server preserves unrelated keys in `.craft/config.json`.
 - `Model` key matching is case-insensitive (`Model`, `model`, etc.) and normalized in-place.
 
-### 23.3 Capability Advertisement
+### 24.3 Capability Advertisement
 
 `capabilities.workspaceConfigManagement` is present and `true` when the AppServer has a workspace `.craft` path and can persist `.craft/config.json`.

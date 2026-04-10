@@ -67,6 +67,9 @@ public static class AppServerErrors
     public const int McpServerValidationFailedCode = -32072;
     public const int McpServerTestFailedCode = -32073;
     public const int McpServerNameConflictCode = -32074;
+    public const int ExternalChannelNotFoundCode = -32080;
+    public const int ExternalChannelValidationFailedCode = -32081;
+    public const int ExternalChannelNameConflictCode = -32082;
 
     // ── Automation-specific codes (-32050 to -32059) ──
 
@@ -148,6 +151,15 @@ public static class AppServerErrors
 
     public static AppServerException McpServerNameConflict(string detail) =>
         new(McpServerNameConflictCode, "MCP server name conflict", new { detail });
+
+    public static AppServerException ExternalChannelNotFound(string name) =>
+        new(ExternalChannelNotFoundCode, $"External channel not found: {name}");
+
+    public static AppServerException ExternalChannelValidationFailed(string detail) =>
+        new(ExternalChannelValidationFailedCode, "External channel validation failed", new { detail });
+
+    public static AppServerException ExternalChannelNameConflict(string detail) =>
+        new(ExternalChannelNameConflictCode, "External channel name conflict", new { detail });
 
     public static AppServerException TaskAlreadyExists(string taskId) =>
         new(TaskAlreadyExistsCode, $"Task already exists: {taskId}");

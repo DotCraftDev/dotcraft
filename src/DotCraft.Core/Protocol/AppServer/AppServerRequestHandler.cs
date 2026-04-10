@@ -108,6 +108,10 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.McpGet => HandleMcpGetAsync(msg, ct),
                 AppServerMethods.McpUpsert => HandleMcpUpsertAsync(msg, ct),
                 AppServerMethods.McpRemove => HandleMcpRemoveAsync(msg, ct),
+                AppServerMethods.ExternalChannelList => HandleExternalChannelListAsync(msg, ct),
+                AppServerMethods.ExternalChannelGet => HandleExternalChannelGetAsync(msg, ct),
+                AppServerMethods.ExternalChannelUpsert => HandleExternalChannelUpsertAsync(msg, ct),
+                AppServerMethods.ExternalChannelRemove => HandleExternalChannelRemoveAsync(msg, ct),
                 AppServerMethods.McpStatusList => HandleMcpStatusListAsync(msg, ct),
                 AppServerMethods.McpTest => HandleMcpTestAsync(msg, ct),
                 AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
@@ -197,6 +201,7 @@ public sealed class AppServerRequestHandler(
                 ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
                 WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
                 McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _mcpClientManager != null,
+                ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
                 McpStatus = _mcpClientManager != null
             },
             DashboardUrl = _dashboardUrl
@@ -326,12 +331,11 @@ public sealed class AppServerRequestHandler(
                 try
                 {
                     var cfg = AppConfig.LoadWithGlobalFallback(configPath);
-                    var ext = cfg.GetSection<ExternalChannelsConfig>("ExternalChannels");
-                    foreach (var (name, entry) in ext.GetChannels())
+                    foreach (var entry in cfg.ExternalChannels)
                     {
-                        if (!entry.Enabled)
+                        if (!entry.Enabled || string.IsNullOrWhiteSpace(entry.Name))
                             continue;
-                        Add(name, "external");
+                        Add(entry.Name, "external");
                     }
                 }
                 catch
@@ -426,14 +430,15 @@ public sealed class AppServerRequestHandler(
     {
         var p = GetParams<McpUpsertParams>(msg);
         EnsureMcpManagementAvailable();
+        var mcpManager = _mcpClientManager!;
         ValidateMcpConfigWire(p.Server);
 
         var server = MapWireToMcpConfig(p.Server);
-        await _mcpClientManager.UpsertAsync(server, ct);
-        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, _mcpClientManager, ct);
+        await mcpManager.UpsertAsync(server, ct);
+        await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, mcpManager, ct);
 
-        var updated = await _mcpClientManager.GetConfigAsync(server.Name, ct) ?? server;
-        var status = (await _mcpClientManager.ListStatusesAsync(ct))
+        var updated = await mcpManager.GetConfigAsync(server.Name, ct) ?? server;
+        var status = (await mcpManager.ListStatusesAsync(ct))
             .FirstOrDefault(s => string.Equals(s.Name, updated.Name, StringComparison.OrdinalIgnoreCase));
         if (status != null)
             _broadcastMcpStatusChanged?.Invoke(MapMcpStatusToWire(status));
@@ -454,6 +459,78 @@ public sealed class AppServerRequestHandler(
 
         await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, _mcpClientManager, ct);
         return new McpRemoveResult { Removed = true };
+    }
+
+    private Task<object?> HandleExternalChannelListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = msg;
+        _ = ct;
+        EnsureExternalChannelManagementAvailable();
+        var channels = LoadWorkspaceExternalChannels(workspaceCraftPath!);
+        return Task.FromResult<object?>(new ExternalChannelListResult
+        {
+            Channels = channels.Select(MapExternalChannelToWire).ToList()
+        });
+    }
+
+    private Task<object?> HandleExternalChannelGetAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        var p = GetParams<ExternalChannelGetParams>(msg);
+        EnsureExternalChannelManagementAvailable();
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var channel = LoadWorkspaceExternalChannels(workspaceCraftPath!)
+            .FirstOrDefault(c => string.Equals(c.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        if (channel == null)
+            throw AppServerErrors.ExternalChannelNotFound(p.Name);
+
+        return Task.FromResult<object?>(new ExternalChannelGetResult
+        {
+            Channel = MapExternalChannelToWire(channel)
+        });
+    }
+
+    private Task<object?> HandleExternalChannelUpsertAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        var p = GetParams<ExternalChannelUpsertParams>(msg);
+        EnsureExternalChannelManagementAvailable();
+        ValidateExternalChannelConfigWire(p.Channel);
+
+        var channel = MapWireToExternalChannelConfig(p.Channel);
+        EnsureExternalChannelNameAvailable(channel.Name);
+
+        var channels = LoadWorkspaceExternalChannels(workspaceCraftPath!);
+        var existingIndex = channels.FindIndex(c => string.Equals(c.Name, channel.Name, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+            channels[existingIndex] = channel;
+        else
+            channels.Add(channel);
+
+        SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
+        return Task.FromResult<object?>(new ExternalChannelUpsertResult
+        {
+            Channel = MapExternalChannelToWire(channel)
+        });
+    }
+
+    private Task<object?> HandleExternalChannelRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        var p = GetParams<ExternalChannelRemoveParams>(msg);
+        EnsureExternalChannelManagementAvailable();
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var channels = LoadWorkspaceExternalChannels(workspaceCraftPath!);
+        var removed = channels.RemoveAll(c => string.Equals(c.Name, p.Name, StringComparison.OrdinalIgnoreCase)) > 0;
+        if (!removed)
+            throw AppServerErrors.ExternalChannelNotFound(p.Name);
+
+        SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
+        return Task.FromResult<object?>(new ExternalChannelRemoveResult { Removed = true });
     }
 
     private async Task<object?> HandleMcpStatusListAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -793,6 +870,12 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.MethodNotFound("mcp/*");
     }
 
+    private void EnsureExternalChannelManagementAvailable()
+    {
+        if (string.IsNullOrWhiteSpace(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound("externalChannel/*");
+    }
+
     private static McpServerConfigWire MapMcpConfigToWire(McpServerConfig config) => new()
     {
         Name = config.Name,
@@ -848,6 +931,33 @@ public sealed class AppServerRequestHandler(
                 ? "streamableHttp"
                 : "stdio";
 
+    private static ExternalChannelConfigWire MapExternalChannelToWire(ExternalChannelEntry config) => new()
+    {
+        Name = config.Name,
+        Enabled = config.Enabled,
+        Transport = config.Transport == ExternalChannelTransport.Websocket ? "websocket" : "subprocess",
+        Command = string.IsNullOrWhiteSpace(config.Command) ? null : config.Command,
+        Args = config.Args is { Count: > 0 } ? [.. config.Args] : null,
+        WorkingDirectory = string.IsNullOrWhiteSpace(config.WorkingDirectory) ? null : config.WorkingDirectory,
+        Env = config.Env is { Count: > 0 } ? new Dictionary<string, string>(config.Env, StringComparer.Ordinal) : null
+    };
+
+    private static ExternalChannelEntry MapWireToExternalChannelConfig(ExternalChannelConfigWire wire) => new()
+    {
+        Name = wire.Name.Trim(),
+        Enabled = wire.Enabled,
+        Transport = NormalizeExternalChannelTransport(wire.Transport),
+        Command = string.IsNullOrWhiteSpace(wire.Command) ? null : wire.Command.Trim(),
+        Args = wire.Args is { Count: > 0 } ? [.. wire.Args.Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())] : null,
+        WorkingDirectory = string.IsNullOrWhiteSpace(wire.WorkingDirectory) ? null : wire.WorkingDirectory.Trim(),
+        Env = wire.Env is { Count: > 0 } ? new Dictionary<string, string>(wire.Env, StringComparer.Ordinal) : null
+    };
+
+    private static ExternalChannelTransport NormalizeExternalChannelTransport(string? transport) =>
+        transport?.Equals("websocket", StringComparison.OrdinalIgnoreCase) == true
+            ? ExternalChannelTransport.Websocket
+            : ExternalChannelTransport.Subprocess;
+
     private static void ValidateMcpConfigWire(McpServerConfigWire server)
     {
         if (string.IsNullOrWhiteSpace(server.Name))
@@ -883,6 +993,30 @@ public sealed class AppServerRequestHandler(
         }
     }
 
+    private static void ValidateExternalChannelConfigWire(ExternalChannelConfigWire channel)
+    {
+        if (string.IsNullOrWhiteSpace(channel.Name))
+            throw AppServerErrors.ExternalChannelValidationFailed("'channel.name' is required.");
+
+        var transport = NormalizeExternalChannelTransport(channel.Transport);
+
+        if (transport == ExternalChannelTransport.Subprocess)
+        {
+            if (string.IsNullOrWhiteSpace(channel.Command))
+                throw AppServerErrors.ExternalChannelValidationFailed("'channel.command' is required for subprocess transport.");
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(channel.Command) ||
+                channel.Args is { Count: > 0 } ||
+                !string.IsNullOrWhiteSpace(channel.WorkingDirectory) ||
+                channel.Env is { Count: > 0 })
+            {
+                throw AppServerErrors.ExternalChannelValidationFailed("subprocess-only fields are not supported for websocket transport.");
+            }
+        }
+    }
+
     private static async Task SaveWorkspaceMcpServersAsync(
         string workspaceCraftPath,
         McpClientManager manager,
@@ -909,6 +1043,66 @@ public sealed class AppServerRequestHandler(
 
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
+    }
+
+    private static List<ExternalChannelEntry> LoadWorkspaceExternalChannels(string workspaceCraftPath)
+    {
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        return AppConfig.Load(configPath).ExternalChannels.Select(c => c.Clone()).ToList();
+    }
+
+    private static void SaveWorkspaceExternalChannels(string workspaceCraftPath, IReadOnlyCollection<ExternalChannelEntry> channels)
+    {
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        Directory.CreateDirectory(workspaceCraftPath);
+        var root = LoadWorkspaceConfigObject(configPath);
+
+        var key = FindCaseInsensitiveKey(root, "ExternalChannels") ?? "ExternalChannels";
+        var channelObject = new JsonObject();
+        foreach (var channel in channels.Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                     .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            channelObject[channel.Name] = BuildExternalChannelNode(channel);
+        }
+
+        root[key] = channelObject;
+
+        var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
+    }
+
+    private void EnsureExternalChannelNameAvailable(string name)
+    {
+        var nativeChannels = new List<ChannelInfo>();
+        _channelListContributor.AppendBaseChannels(nativeChannels, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        if (nativeChannels.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw AppServerErrors.ExternalChannelNameConflict(
+                $"'{name}' conflicts with a native channel name.");
+        }
+    }
+
+    private static JsonObject BuildExternalChannelNode(ExternalChannelEntry channel)
+    {
+        var node = new JsonObject
+        {
+            ["enabled"] = channel.Enabled,
+            ["transport"] = channel.Transport == ExternalChannelTransport.Websocket ? "websocket" : "subprocess"
+        };
+
+        if (channel.Transport == ExternalChannelTransport.Subprocess)
+        {
+            if (!string.IsNullOrWhiteSpace(channel.Command))
+                node["command"] = channel.Command;
+            if (channel.Args is { Count: > 0 })
+                node["args"] = JsonSerializer.SerializeToNode(channel.Args);
+            if (!string.IsNullOrWhiteSpace(channel.WorkingDirectory))
+                node["workingDirectory"] = channel.WorkingDirectory;
+            if (channel.Env is { Count: > 0 })
+                node["env"] = JsonSerializer.SerializeToNode(channel.Env);
+        }
+
+        return node;
     }
 
     private Task<object?> HandleWorkspaceConfigUpdateAsync(AppServerIncomingMessage msg, CancellationToken ct)

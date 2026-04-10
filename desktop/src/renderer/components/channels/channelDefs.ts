@@ -1,9 +1,9 @@
-export type ChannelId = 'qq' | 'wecom' | 'weixin' | 'telegram'
+export type ChannelId = 'qq' | 'wecom'
 
 export interface ChannelDefinition {
   id: ChannelId
   nameKey: string
-  logoPath: string
+  logoPath?: string
   channelListName: string
 }
 
@@ -19,17 +19,5 @@ export const CHANNEL_DEFS: ChannelDefinition[] = [
     nameKey: 'channels.channel.wecom',
     logoPath: new URL('../../assets/channels/wecom.svg', import.meta.url).toString(),
     channelListName: 'wecom'
-  },
-  {
-    id: 'weixin',
-    nameKey: 'channels.channel.weixin',
-    logoPath: new URL('../../assets/channels/weixin.svg', import.meta.url).toString(),
-    channelListName: 'weixin'
-  },
-  {
-    id: 'telegram',
-    nameKey: 'channels.channel.telegram',
-    logoPath: new URL('../../assets/channels/telegram.svg', import.meta.url).toString(),
-    channelListName: 'telegram'
   }
 ]

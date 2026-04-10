@@ -52,8 +52,7 @@ public sealed class ExternalChannelManager
     {
         _registry = registry ?? new ExternalChannelRegistry();
 
-        var externalChannelsConfig = config.GetSection<ExternalChannelsConfig>("ExternalChannels");
-        var channels = externalChannelsConfig.GetChannels();
+        var channels = ExternalChannelEntryMap.ToDictionaryByNameLastWins(config.ExternalChannels);
 
         if (channels.Count == 0)
             return;
@@ -121,8 +120,6 @@ public sealed class ExternalChannelManager
     /// </summary>
     public static bool HasEnabledChannels(AppConfig config)
     {
-        var externalChannelsConfig = config.GetSection<ExternalChannelsConfig>("ExternalChannels");
-        var channels = externalChannelsConfig.GetChannels();
-        return channels.Values.Any(e => e.Enabled);
+        return config.ExternalChannels.Any(c => !string.IsNullOrWhiteSpace(c.Name) && c.Enabled);
     }
 }

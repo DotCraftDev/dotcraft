@@ -10,11 +10,20 @@
 export function extractAgentReplyTextFromTurnCompletedParams(
   params: Record<string, unknown> | null | undefined,
 ): string {
-  if (!params) return "";
+  return extractAgentReplyTextsFromTurnCompletedParams(params).join("");
+}
+
+/**
+ * Extracts text from each agentMessage item in turn/completed params (wire order).
+ */
+export function extractAgentReplyTextsFromTurnCompletedParams(
+  params: Record<string, unknown> | null | undefined,
+): string[] {
+  if (!params) return [];
   const turn = params.turn as Record<string, unknown> | undefined;
-  if (!turn) return "";
+  if (!turn) return [];
   const items = turn.items;
-  if (!Array.isArray(items)) return "";
+  if (!Array.isArray(items)) return [];
   const parts: string[] = [];
   for (const raw of items) {
     if (!raw || typeof raw !== "object") continue;
@@ -25,7 +34,7 @@ export function extractAgentReplyTextFromTurnCompletedParams(
     const text = payload.text;
     if (typeof text === "string" && text.length > 0) parts.push(text);
   }
-  return parts.join("");
+  return parts;
 }
 
 /**

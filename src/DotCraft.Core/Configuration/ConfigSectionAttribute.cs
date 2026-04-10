@@ -28,9 +28,9 @@ public sealed class ConfigSectionAttribute : Attribute
     public int Order { get; set; } = 100;
 
     /// <summary>
-    /// When set, this section is treated as a top-level JSON array/object key in config.json,
-    /// and the dashboard renders the entire value as a single JSON textarea.
-    /// Use this for array sections like McpServers.
+    /// When set, this section is treated as a top-level JSON collection key in config.json.
+    /// The Dashboard may render it as a structured object list when item fields are available.
+    /// Use this for collection sections like McpServers or ExternalChannels.
     /// When set, <see cref="Key"/> and dot-separated paths are ignored.
     /// </summary>
     public string? RootKey { get; set; }

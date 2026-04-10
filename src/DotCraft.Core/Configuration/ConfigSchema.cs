@@ -25,13 +25,13 @@ public sealed class ConfigSchemaSection
     public string[]? Path { get; init; }
 
     /// <summary>
-    /// For array-type top-level keys (e.g. McpServers), the root key name.
+    /// For top-level collection keys (e.g. McpServers, ExternalChannels), the root key name.
     /// When set, <see cref="Path"/> is ignored.
     /// </summary>
     public string? RootKey { get; init; }
 
     /// <summary>
-    /// When non-null, this section is a homogeneous JSON array at <see cref="RootKey"/>;
+    /// When non-null, this section is a homogeneous object-list collection at <see cref="RootKey"/>;
     /// each element's shape is described by these fields (structured list editor in the Dashboard).
     /// </summary>
     public List<ConfigSchemaField>? ItemFields { get; init; }

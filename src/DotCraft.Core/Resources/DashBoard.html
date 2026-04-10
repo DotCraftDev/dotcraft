@@ -2354,11 +2354,18 @@ function sfId(scope, sectionIdx, fieldKey) {
   return `sf-${scope}-${sectionIdx}-${fieldKey.toLowerCase()}`;
 }
 
-// Homogeneous array at section.rootKey (MCP servers, etc.)
+// Homogeneous object-list collection at section.rootKey (MCP servers, external channels, etc.)
 function getObjectListArray(data, section) {
   if (!data || !section.rootKey) return [];
   const v = ciGet(data, section.rootKey);
-  return Array.isArray(v) ? v : [];
+  if (Array.isArray(v)) return v;
+  if (v && typeof v === 'object') {
+    return Object.entries(v).map(([name, item]) => {
+      const obj = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
+      return { Name: name, ...obj };
+    });
+  }
+  return [];
 }
 
 function isObjectListSection(section) {
@@ -2385,6 +2392,53 @@ function oliId(scope, sectionIdx, itemIdx, fieldKey) {
 
 const _olStdioKeys = new Set(['Command', 'Arguments', 'EnvironmentVariables']);
 const _olHttpKeys = new Set(['Url', 'Headers']);
+const _olSubprocessKeys = new Set(['Command', 'Args', 'WorkingDirectory', 'Env']);
+
+function getObjectListFieldGroup(fieldKey) {
+  if (_olHttpKeys.has(fieldKey)) return 'http';
+  if (_olSubprocessKeys.has(fieldKey)) return 'subprocess';
+  if (_olStdioKeys.has(fieldKey)) return 'stdio';
+  return null;
+}
+
+function isObjectListGroupVisible(group, transport) {
+  if (group === 'http') return transport === 'http';
+  if (group === 'stdio') return transport === 'stdio' || transport === '';
+  if (group === 'subprocess') return transport === 'subprocess' || transport === '';
+  return true;
+}
+
+function createEmptyObjectListItem(section) {
+  const empty = {};
+  (section.itemFields || []).forEach(field => {
+    if (field.key === 'Name') {
+      empty[field.key] = '';
+      return;
+    }
+    if (field.defaultValue !== undefined && field.defaultValue !== null) {
+      empty[field.key] = cloneJsonConfigValue(field.defaultValue);
+      return;
+    }
+    if (field.type === 'bool') empty[field.key] = false;
+    else if (field.type === 'stringList') empty[field.key] = [];
+    else if (field.type === 'keyValueMap') empty[field.key] = {};
+    else if (field.key === 'Transport') empty[field.key] = (field.options && field.options[0]) || '';
+    else empty[field.key] = '';
+  });
+  return empty;
+}
+
+function serializeObjectListForSection(section, items) {
+  const obj = {};
+  (items || []).forEach(item => {
+    const name = String(ciGet(item, 'Name') || '').trim();
+    if (!name) return;
+    const copy = cloneJsonConfigValue(item);
+    delete copy.Name;
+    obj[name] = copy;
+  });
+  return obj;
+}
 
 // ─── UNIFIED SETTINGS FORM RENDERING ─────────────────────────────────────────
 
@@ -2448,7 +2502,7 @@ function renderReadonlyObjectListSection(section, data) {
   }
   let html = '<div class="ol-wrap">';
   arr.forEach((item, i) => {
-    const name = String(ciGet(item, 'Name') || `Server ${i + 1}`);
+    const name = String(ciGet(item, 'Name') || `Entry ${i + 1}`);
     const transport = String(ciGet(item, 'Transport') || 'stdio');
     const en = ciGet(item, 'Enabled');
     const enabled = en !== false && en !== 'false';
@@ -2468,7 +2522,8 @@ function renderReadonlyObjectListSection(section, data) {
 }
 
 function renderObjectListRawToggle(sectionIdx, scope, arr) {
-  const json = JSON.stringify(arr.length ? arr : [], null, 2);
+  const section = CONFIG_SCHEMA[sectionIdx];
+  const json = JSON.stringify(serializeObjectListForSection(section, arr), null, 2);
   const tid = `ol-raw-${scope}-${sectionIdx}`;
   return `<div class="ol-raw-section">
     <button type="button" class="ol-raw-toggle" onclick="document.getElementById('${tid}').classList.toggle('open')">Raw JSON (advanced)</button>
@@ -2479,7 +2534,7 @@ function renderObjectListRawToggle(sectionIdx, scope, arr) {
 function renderObjectListSection(section, sectionIdx, formData, scope, isWorkspace) {
   const arr = getObjectListArray(formData, section);
   let html = `<div class="ol-wrap" data-section-idx="${sectionIdx}" data-scope="${scope}">`;
-  html += `<button type="button" class="btn btn-accent ol-add" onclick="olAddObjectListCard(this)">Add server</button>`;
+  html += `<button type="button" class="btn btn-accent ol-add" onclick="olAddObjectListCard(this)">Add entry</button>`;
   (arr.length ? arr : []).forEach((item, itemIdx) => {
     html += renderObjectListCard(section, sectionIdx, itemIdx, item, scope, isWorkspace);
   });
@@ -2488,40 +2543,30 @@ function renderObjectListSection(section, sectionIdx, formData, scope, isWorkspa
 }
 
 function renderObjectListCard(section, sectionIdx, itemIdx, item, scope, isWorkspace) {
-  const title = String(ciGet(item, 'Name') || 'New server');
-  const transport = String(ciGet(item, 'Transport') || 'stdio');
-  const showStd = transport === 'stdio' || transport === '';
-  const showHttp = transport === 'http';
+  const title = String(ciGet(item, 'Name') || 'New entry');
+  const transportField = (section.itemFields || []).find(f => f.key === 'Transport');
+  const defaultTransport = transportField?.defaultValue || (transportField?.options && transportField.options[0]) || '';
+  const transport = String(ciGet(item, 'Transport') || defaultTransport);
 
   let body = '';
-  let stdioOpen = false;
-  let httpOpen = false;
+  let openGroup = null;
 
   for (const field of section.itemFields) {
     const k = field.key;
-    if (_olStdioKeys.has(k)) {
-      if (!stdioOpen) {
-        body += '<div class="ol-group-stdio ol-group-transport" style="display:' + (showStd ? '' : 'none') + '"><div class="ol-group-label">stdio</div>';
-        stdioOpen = true;
+    const group = getObjectListFieldGroup(k);
+    if (group) {
+      if (openGroup !== group) {
+        if (openGroup) body += '</div>';
+        body += `<div class="ol-group-${group} ol-group-transport" data-group="${group}" style="display:${isObjectListGroupVisible(group, transport) ? '' : 'none'}"><div class="ol-group-label">${group}</div>`;
+        openGroup = group;
       }
       body += renderObjectListField(section, sectionIdx, itemIdx, field, item, scope, isWorkspace);
       continue;
     }
-    if (_olHttpKeys.has(k)) {
-      if (stdioOpen) { body += '</div>'; stdioOpen = false; }
-      if (!httpOpen) {
-        body += '<div class="ol-group-http ol-group-transport" style="display:' + (showHttp ? '' : 'none') + '"><div class="ol-group-label">http</div>';
-        httpOpen = true;
-      }
-      body += renderObjectListField(section, sectionIdx, itemIdx, field, item, scope, isWorkspace);
-      continue;
-    }
-    if (stdioOpen) { body += '</div>'; stdioOpen = false; }
-    if (httpOpen) { body += '</div>'; httpOpen = false; }
+    if (openGroup) { body += '</div>'; openGroup = null; }
     body += renderObjectListField(section, sectionIdx, itemIdx, field, item, scope, isWorkspace);
   }
-  if (stdioOpen) body += '</div>';
-  if (httpOpen) body += '</div>';
+  if (openGroup) body += '</div>';
 
   return `<div class="ol-card" data-oli-idx="${itemIdx}">
     <div class="ol-card-header">
@@ -2544,9 +2589,10 @@ function renderObjectListField(section, sectionIdx, itemIdx, field, item, scope,
   </div>`;
 
   if (field.key === 'Transport') {
-    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : 'stdio';
+    const fallback = field.defaultValue || (field.options && field.options[0]) || '';
+    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : String(fallback);
     const opt = (field.options || ['stdio', 'http']).map(o =>
-      `<option value="${escapeHtml(o)}"${o === val ? ' selected' : ''}>${escapeHtml(o)}</option>`
+      `<option value="${escapeHtml(o)}"${o.toLowerCase() === val.toLowerCase() ? ' selected' : ''}>${escapeHtml(o)}</option>`
     ).join('');
     return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
       <select class="settings-select ol-transport-select" id="${id}" onchange="olOnTransportChange(this)">${opt}</select>${hint}</div>`;
@@ -2599,10 +2645,11 @@ function renderObjectListField(section, sectionIdx, itemIdx, field, item, scope,
   }
 
   if (field.type === 'select') {
-    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : '';
+    const fallback = field.defaultValue !== undefined && field.defaultValue !== null ? String(field.defaultValue) : '';
+    const val = rawVal !== undefined && rawVal !== null ? String(rawVal) : fallback;
     const opts = ['', ...(field.options || [])].map(o => {
       const lab = o === '' ? '(default)' : o;
-      return `<option value="${escapeHtml(o)}"${o === val ? ' selected' : ''}>${escapeHtml(lab)}</option>`;
+      return `<option value="${escapeHtml(o)}"${o.toLowerCase() === val.toLowerCase() ? ' selected' : ''}>${escapeHtml(lab)}</option>`;
     }).join('');
     return `<div class="settings-field" data-field-key="${escapeHtml(field.key)}">${headerHtml}
       <select class="settings-select" id="${id}">${opts}</select>${hint}</div>`;
@@ -2642,9 +2689,11 @@ function olKvAddRow(editorId) {
 function olOnTransportChange(selectEl) {
   const card = selectEl.closest('.ol-card');
   if (!card) return;
-  const v = selectEl.value;
-  card.querySelectorAll('.ol-group-stdio').forEach(g => { g.style.display = v === 'stdio' ? '' : 'none'; });
-  card.querySelectorAll('.ol-group-http').forEach(g => { g.style.display = v === 'http' ? '' : 'none'; });
+  const v = selectEl.value.toLowerCase();
+  card.querySelectorAll('.ol-group-transport').forEach(g => {
+    const group = g.dataset.group;
+    g.style.display = isObjectListGroupVisible(group, v) ? '' : 'none';
+  });
 }
 
 function olApplyTransportToCard(card) {
@@ -2663,7 +2712,7 @@ function olAddObjectListCard(btn) {
     maxIdx = Math.max(maxIdx, Number(c.dataset.oliIdx));
   });
   const newIdx = maxIdx + 1;
-  const empty = { Name: '', Enabled: true, Transport: 'stdio', Command: '', Arguments: [], EnvironmentVariables: {}, Url: '', Headers: {} };
+  const empty = createEmptyObjectListItem(section);
   const html = renderObjectListCard(section, sectionIdx, newIdx, empty, scope, scope === 'workspace');
   btn.insertAdjacentHTML('afterend', html);
   const cards = wrap.querySelectorAll('.ol-card');
@@ -3135,14 +3184,15 @@ function collectForm(scope) {
   CONFIG_SCHEMA.forEach((section, sectionIdx) => {
     if (isObjectListSection(section) && section.rootKey) {
       const arr = collectObjectListForSection(section, sectionIdx, scope);
+      const serialized = serializeObjectListForSection(section, arr);
       if (scope === 'global') {
-        result[section.rootKey] = arr;
+        result[section.rootKey] = serialized;
       } else {
         // Workspace file replaces its JSON entirely; omit rootKey when empty and the workspace
         // never defined it so global servers are not accidentally cleared on save.
         const hadWorkspaceKey = ciGet(settingsWorkspaceConfig, section.rootKey) !== undefined;
-        if (arr.length > 0 || hadWorkspaceKey) {
-          result[section.rootKey] = arr;
+        if (Object.keys(serialized).length > 0 || hadWorkspaceKey) {
+          result[section.rootKey] = serialized;
         }
       }
       return;
@@ -3195,8 +3245,46 @@ function collectForm(scope) {
     }
   });
 
+  const sourceConfig = scope === 'global' ? settingsGlobalConfig : settingsWorkspaceConfig;
+  preserveUnmanagedTopLevelKeys(result, sourceConfig);
+
   if (hasJsonError) return null; // signal validation error
   return result;
+}
+
+function preserveUnmanagedTopLevelKeys(result, sourceConfig) {
+  if (!sourceConfig || typeof sourceConfig !== 'object') return;
+
+  const managedTopLevelKeys = new Set();
+  CONFIG_SCHEMA.forEach(section => {
+    if (section.rootKey) {
+      managedTopLevelKeys.add(section.rootKey.toLowerCase());
+      return;
+    }
+
+    if (section.path && section.path.length > 0) {
+      if (section.fields && section.fields.length > 0) {
+        managedTopLevelKeys.add(section.path[0].toLowerCase());
+      }
+      return;
+    }
+
+    if (section.fields) {
+      section.fields.forEach(field => managedTopLevelKeys.add(field.key.toLowerCase()));
+    }
+  });
+
+  Object.entries(sourceConfig).forEach(([key, value]) => {
+    if (managedTopLevelKeys.has(key.toLowerCase())) return;
+    if (ciGet(result, key) !== undefined) return;
+    result[key] = cloneJsonConfigValue(value);
+  });
+}
+
+function cloneJsonConfigValue(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+  return JSON.parse(JSON.stringify(value));
 }
 
 function setNestedValue(result, section, fieldKey, value) {
@@ -3248,7 +3336,7 @@ function updateSettingsPreview() {
           }).join(', ')
         : '(none)';
 
-      const display = `${effectiveArr.length} server(s): ${summarize(effectiveArr)}`;
+      const display = `${effectiveArr.length} entr${effectiveArr.length === 1 ? 'y' : 'ies'}: ${summarize(effectiveArr)}`;
       const workspaceOverridesRoot = ciGet(workspacePartial, rk) !== undefined;
       let source = '<span class="preview-source">\u2190 global</span>';
       if (workspaceOverridesRoot) source = '<span class="preview-source">\u2190 workspace</span>';

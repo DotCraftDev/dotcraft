@@ -60,6 +60,7 @@ public sealed class SetupHost(AppConfig config, DotCraftPaths paths)
             Hooks = source.Hooks,
             Logging = source.Logging,
             McpServers = [.. source.McpServers],
+            ExternalChannels = source.ExternalChannels.Select(c => c.Clone()).ToList(),
             // Copy module extension data (QQBot, WeCom, WeComBot, Api, AgUi, Acp, GitHubTracker, etc.)
             ExtensionData = source.ExtensionData != null
                 ? new Dictionary<string, System.Text.Json.JsonElement>(source.ExtensionData)

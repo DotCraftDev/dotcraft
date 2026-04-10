@@ -1,0 +1,16 @@
+{
+  "AppServer": {
+    "Mode": "stdioAndWebSocket",
+    "WebSocket": {
+      "Host": "127.0.0.1",
+      "Port": 9100,
+      "Token": ""
+    }
+  },
+  "ExternalChannels": {
+    "feishu": {
+      "enabled": true,
+      "transport": "websocket"
+    }
+  }
+}
