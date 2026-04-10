@@ -179,7 +179,6 @@ export function ExternalChannelConfigForm({
                       args: e.target.value.split(/\r?\n/)
                     })
                   }
-                  }
                   style={{ ...formStyles.input, minHeight: 90, padding: '8px 10px' }}
                 />
               </div>
