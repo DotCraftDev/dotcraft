@@ -2,12 +2,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.2 |
+| **Version** | 0.2.3 |
 | **Status** | Living |
-| **Date** | 2026-04-09 |
+| **Date** | 2026-04-11 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 
-Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) to out-of-process clients, enabling non-C# adapters to create and resume threads, submit turns, stream events, and participate in approval flows. The protocol also covers server management operations — specifically cron job lifecycle — that are owned by the AppServer process but need to be accessible to wire clients.
+Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) and related AppServer capabilities to out-of-process clients, enabling them to create and resume threads, submit turns, stream events, participate in approval flows, and call server-level management methods through one transport-stable contract.
 
 ## Table of Contents
 
@@ -41,7 +41,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [20. Channel Status Methods](#20-channel-status-methods)
 - [21. Model Catalog Methods](#21-model-catalog-methods)
 - [22. MCP Management Methods](#22-mcp-management-methods)
-- [23. Workspace Config Methods](#23-workspace-config-methods)
+- [24. Workspace Config Methods](#24-workspace-config-methods)
 - [25. GitHub Tracker Config Methods](#25-github-tracker-config-methods)
 
 ---
@@ -50,14 +50,14 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 
 ### 1.1 What This Spec Defines
 
-This specification defines the wire protocol — message formats, methods, notifications, and transport rules — that a DotCraft server exposes to external clients over stdio or WebSocket. It is primarily the network-facing projection of the Session Core `ISessionService` API, and additionally covers server management operations (cron job lifecycle) that the AppServer process owns and executes independently of any session.
+This specification defines the wire protocol — message formats, methods, notifications, and transport rules — that a DotCraft server exposes to external clients over stdio or WebSocket. It is primarily the network-facing projection of the Session Core `ISessionService` API, and additionally covers server-level management operations that are exposed on the same JSON-RPC surface.
 
 ### 1.2 What This Spec Does Not Define
 
 - **Domain model semantics**: Thread, Turn, and Item lifecycle rules, persistence layout, and state machine invariants are defined in the [Session Core Specification](session-core.md). This spec references them but does not redefine them.
-- **Agent execution internals**: The Microsoft.Extensions.AI pipeline, tool invocation, and hook execution are unchanged and invisible to the wire client.
-- **Channel-specific UX**: How a client renders events (streaming text, diffs, approval dialogs) is a client concern.
-- **In-process adapter patterns**: `SessionEventHandler`, `SessionEventChannel`, and the adapter pattern for in-process channels (CLI, QQ, WeCom) are internal to the C# codebase and not part of this wire protocol.
+- **Agent execution internals**: Model orchestration, tool invocation internals, hook execution, and other host-side implementation details are not part of this wire protocol.
+- **Channel-specific UX**: How a client renders events, approvals, or status is a client concern.
+- **Host implementation patterns**: In-process adapter wiring, dependency injection structure, persistence layout, and runtime service composition are internal to the server and not part of this wire protocol.
 
 ### 1.3 Design Reference
 
@@ -73,7 +73,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
-**Multi-client thread lists**: In shared Session Core / AppServer deployments, server-broadcast notifications in [Section 6.1](#61-thread-notifications) include `thread/started`, `thread/deleted`, and `thread/renamed` (display name updates) so UIs such as DotCraft Desktop stay consistent without polling.
+**Multi-client thread lists**: In deployments with multiple concurrent connections, server-broadcast notifications in [Section 6.1](#61-thread-notifications) include `thread/started`, `thread/deleted`, and `thread/renamed` so clients can keep thread lists synchronized without polling.
 
 ---
 
@@ -103,7 +103,7 @@ Three message kinds:
 | stdio | Newline-delimited JSON (JSONL): one complete JSON-RPC message per line, UTF-8 encoded, over stdin (client→server) and stdout (server→client). | Primary |
 | WebSocket | One JSON-RPC message per WebSocket text frame. | Experimental |
 
-**stdio transport**: The server reads JSON-RPC requests from `stdin` and writes responses/notifications to `stdout`. Diagnostic and log output goes to `stderr`. This matches the transport used by ACP and Codex App Server. Stdio is a 1:1 transport — exactly one client per server process.
+**stdio transport**: The server reads JSON-RPC requests from `stdin` and writes responses/notifications to `stdout`. Diagnostic and log output goes to `stderr`. Stdio is a 1:1 transport — exactly one client per server process.
 
 **WebSocket transport**: When listening on `ws://HOST:PORT/ws`, the server supports multiple concurrent client connections. Each connection is fully independent and maintains its own initialization state and thread subscriptions. Full behavior is specified in [Section 15](#15-websocket-transport).
 
@@ -151,8 +151,8 @@ Client                              Server
 ```json
 {
   "clientInfo": {
-    "name": "dotcraft-vscode",
-    "title": "DotCraft VS Code Extension",
+    "name": "dotcraft-client",
+    "title": "DotCraft Client",
     "version": "1.0.0"
   },
   "capabilities": {
@@ -230,13 +230,13 @@ Client                              Server
 | `capabilities.configOverride` | boolean | Server supports `thread/config/update`. |
 | `capabilities.cronManagement` | boolean | Server supports cron job management methods (`cron/list`, `cron/remove`, `cron/enable`). Absent or `false` when the cron service is not configured. |
 | `capabilities.heartbeatManagement` | boolean | Server supports heartbeat management methods (`heartbeat/trigger`). Absent or `false` when the heartbeat service is not configured. |
-| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). Always `true` when the server has a `SkillsLoader` configured. |
-| `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). Always `true` when CommandRegistry is available. |
-| `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). Present and `true` when workspace config is available for resolving merged `ApiKey` and `EndPoint`. |
-| `capabilities.workspaceConfigManagement` | boolean | Server supports workspace config write methods (`workspace/config/update`). Present and `true` when workspace `.craft/config.json` is writable by the AppServer host process. |
-| `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). Present and `true` when workspace `.craft/config.json` is writable and the server has an MCP manager. |
-| `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). Present and `true` when workspace `.craft/config.json` is writable. |
-| `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). Present and `true` when the server has an MCP manager. |
+| `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
+| `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
+| `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
+| `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration write methods (`workspace/config/update`). |
+| `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). |
+| `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
+| `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). |
 
 ### 3.3 `initialized`
 
@@ -370,7 +370,7 @@ List threads matching a given identity.
 |-------|------|----------|-------------|
 | `identity` | SessionIdentity | yes | Identity to filter by. |
 | `includeArchived` | boolean | no | Default `false`. When `true`, archived threads are included in the result set. |
-| `crossChannelOrigins` | string[] \| null | no | When **omitted** or JSON `null`, no cross-channel origin list is applied (only threads matching the identity path in Session Core). When present as an array (possibly empty), that list is passed to Session Core `FindThreadsAsync` as `crossChannelOrigins`: non-empty values additionally return threads whose `originChannel` is in the list (same `workspacePath` and `userId` as identity, **ignoring** `channelContext`). DotCraft Desktop always sends an explicit array once machine-local defaults have been resolved. See [Session Core §9.5](session-core.md#95-cross-channel-resume-protocol). |
+| `crossChannelOrigins` | string[] \| null | no | When **omitted** or JSON `null`, no cross-channel origin list is applied. When present as an array (possibly empty), non-empty values additionally return threads whose `originChannel` is in the list with the same `workspacePath` and `userId` as `identity`, ignoring `channelContext`. See [Session Core §9.5](session-core.md#95-cross-channel-resume-protocol). |
 | `channelName` | string | no | When set, post-filters results to threads whose persisted `originChannel` matches (case-insensitive). Same as existing filter. |
 
 **Result**:
@@ -394,7 +394,7 @@ Results are ordered by `lastActiveAt` descending. Cursor pagination is deferred 
 
 ### 4.3.1 `channel/list`
 
-Lists discoverable **origin channel** names for UI such as DotCraft Desktop’s cross-channel thread visibility picker. No Session Core query; this is configuration-derived metadata.
+Lists discoverable **origin channel** names that may appear in thread metadata. No Session Core query is required; this is server-derived discovery metadata.
 
 **Direction**: client → server (request)
 
@@ -415,13 +415,13 @@ Lists discoverable **origin channel** names for UI such as DotCraft Desktop’s 
 | Field | Description |
 |-------|-------------|
 | `name` | Canonical `originChannel` string (case as stored). |
-| `category` | `builtin` (CLI, ACP), `social` (QQ, WeCom), `system` (cron, heartbeat, automations), or `external` (enabled entries under `ExternalChannels` in merged workspace config). |
+| `category` | `builtin`, `social`, `system`, or `external`. |
 
 **Semantics**:
 
-- Base channels come from **loaded DotCraft modules** that contribute session origins (`cli`, `acp`, `qq`, `wecom`, `automations`, etc., depending on which assemblies are registered). Modules that do not own DotCraft-managed threads (for example HTTP API-only or AG-UI hosting) contribute nothing. There is no separate fixed fallback list: discovery is entirely module-driven plus optional Core services. The AppServer process also appends `cron` and `heartbeat` (category `system`) when the corresponding services are present.
-- Adds each **enabled** key from `ExternalChannels` in `.craft/config.json` (merged with global config) with `category: "external"`.
-- Does **not** include `dotcraft-desktop` or `commit-suggest` (not intended as cross-channel visibility sources).
+- The result contains server-known origin channels that may appear on persisted threads or be accepted by related APIs.
+- Server-defined channels may be categorized as `builtin`, `social`, or `system`; externally configured channels may be categorized as `external`.
+- Internal-only origins that are not intended for cross-channel discovery may be omitted.
 - Results are sorted by category order (builtin → social → system → external), then by `name` (ordinal case-insensitive).
 
 ### 4.4 `thread/read`
@@ -439,7 +439,7 @@ Read a thread by ID without resuming it. Optionally includes turn history.
 
 **Result**: `{ "thread": Thread }` — the thread object, with `turns` populated if requested.
 
-**Semantics**: `thread/read` may load the thread into the server’s in-memory cache for discovery UX, but it is a **read-only** operation: it does not connect MCP servers or rebuild the execution-time agent from `thread.configuration`. Per [Session Core](session-core.md), that hydration happens when a turn is executed — the server runs an ensure-loaded step inside `turn/start` before agent work begins.
+**Semantics**: `thread/read` is a **read-only** operation. It does not by itself resume execution, start background services, or apply execution-time thread configuration.
 
 ### 4.5 `thread/subscribe`
 
@@ -520,7 +520,7 @@ Permanently delete a thread and its associated session data.
 
 **Result**: `{}`
 
-After the thread is permanently removed from Session Core, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). This applies whether deletion was requested via this Wire method, another channel, or an out-of-band surface such as the **DashBoard** HTTP API that calls the same `DeleteThreadPermanentlyAsync` path. Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent (dedupe by `threadId`).
+After the thread is permanently removed, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent.
 
 ### 4.10 `thread/mode/set`
 
@@ -537,7 +537,7 @@ Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
 **Result**: `{}`
 
-**Behavior**: The server recreates the agent for the specified thread with the new mode's tool set. The resulting agent must have the same mode-specific tools as an equivalent in-process agent (see Session Core spec §16.3.1). In particular, the AppServer process must supply `PlanStore` to `AgentFactory` so that plan-mode tools (`CreatePlan`) and agent-mode plan tools (`UpdateTodos`, `TodoWrite`) are correctly injected.
+**Behavior**: The server recreates the execution context for the specified thread using the tool set associated with the requested mode.
 
 ### 4.11 `thread/rename`
 
@@ -714,17 +714,17 @@ All notifications share the pattern:
 
 #### `thread/started`
 
-Emitted when a new thread is created. Sent to the initiating client after `thread/start` (see Section 4.1), and **broadcast to all connected clients** when a thread is created by any other channel in the same process (CLI, cron, etc.) so UIs such as DotCraft Desktop can refresh the thread list without polling.
+Emitted when a new thread is created. Sent to the initiating client after `thread/start` (see Section 4.1), and **broadcast to all connected clients** when a thread is created by any other channel in the same process.
 
 **Params**: `{ "thread": Thread }`
 
 #### `thread/renamed`
 
-Emitted when a thread's **display name** changes and should be reflected in thread list UIs. The server **broadcasts** this notification to **all** connected clients (same delivery model as `thread/started`). Typical triggers: successful `thread/rename` (Section 4.11); Session Core auto-setting `displayName` from the first user message when it was previously unset (see [Session Core](session-core.md) turn input and `Thread.DisplayName`).
+Emitted when a thread's **display name** changes. The server **broadcasts** this notification to **all** connected clients (same delivery model as `thread/started`). Typical triggers include successful `thread/rename` (Section 4.11) and automatic display-name assignment from turn input.
 
 **Params**: `{ "threadId": "<id>", "displayName": "<non-empty string>" }`
 
-Clients should update the matching entry in any local thread list. Duplicate or idempotent deliveries for the same `threadId` and `displayName` are allowed.
+Duplicate or idempotent deliveries for the same `threadId` and `displayName` are allowed.
 
 **Example**:
 
@@ -737,11 +737,11 @@ Clients should update the matching entry in any local thread list. Duplicate or 
 
 #### `thread/deleted`
 
-Emitted when a thread is **permanently** deleted (irreversible removal of thread and session files). The server **broadcasts** this notification to **all** connected clients after `DeleteThreadPermanentlyAsync` completes, regardless of whether deletion was triggered by Wire `thread/delete`, DashBoard, or any other host integration that uses the same Session Core API.
+Emitted when a thread is **permanently** deleted. The server **broadcasts** this notification to **all** connected clients after deletion completes, regardless of which protocol entry point or host integration triggered the removal.
 
 **Params**: `{ "threadId": "<id>" }`
 
-Clients should remove the thread from any local thread list and clear selection if the active thread was deleted. Duplicate notifications for the same `threadId` should be ignored.
+Duplicate notifications for the same `threadId` should be ignored.
 
 **Example**:
 
@@ -939,7 +939,7 @@ Emitted after the client responds to an approval request and the server processe
 
 Emitted periodically (~200ms) when one or more SubAgent tool calls (`SpawnSubagent`) are active during a Turn. Each notification carries a **complete snapshot** of all tracked SubAgents' progress, allowing clients to replace their local state on each receipt.
 
-This notification is a sideband signal — it may interleave with `item/*` and `turn/*` notifications. Clients should use it to update SubAgent progress displays (e.g., Live Tables showing per-SubAgent activity and token consumption).
+This notification is a sideband signal — it may interleave with `item/*` and `turn/*` notifications.
 
 **Params**:
 
@@ -1031,7 +1031,7 @@ Server                                          Client
 
 #### `item/usage/delta`
 
-Emitted each time the agent completes an LLM iteration and produces a `UsageContent` with non-zero token counts. Carries the **incremental** token consumption for that single iteration, allowing clients to maintain a running total for real-time display (e.g., Thinking/Tool spinner token counters).
+Emitted each time the agent completes an LLM iteration and produces a `UsageContent` with non-zero token counts. Carries the **incremental** token consumption for that single iteration.
 
 **Params**:
 
@@ -1155,9 +1155,9 @@ Server                                          Client
 
 #### `plan/updated`
 
-Emitted when the agent creates or updates a structured plan via the `CreatePlan`, `UpdateTodos`, or `TodoWrite` tools. The notification carries the complete plan snapshot, allowing the client to render a Todolist progress panel.
+Emitted when the agent creates or updates a structured plan via plan-management tools. The notification carries the complete plan snapshot.
 
-This notification is independent of the Turn event stream — it is sent directly by the server host when the `onPlanUpdated` callback fires in `AgentFactory`. Clients that do not need plan progress display can opt out via `optOutNotificationMethods: ["plan/updated"]` during `initialize`.
+This notification is independent of the Turn event stream. Clients that do not need plan progress display can opt out via `optOutNotificationMethods: ["plan/updated"]` during `initialize`.
 
 **Params**:
 
@@ -1260,7 +1260,7 @@ The turn enters `"waitingApproval"` status while the server waits for the client
 | `approvalType` | string | `"shell"` or `"file"`. |
 | `operation` | string | For shell: the command. For file: `"read"`, `"write"`, `"edit"`, `"list"`. |
 | `target` | string | For shell: working directory. For file: the file path. |
-| `scopeKey` | string | Session-scoped cache key used when the client returns `acceptForSession`. In v1, DotCraft Core uses coarse scopes such as `file:write` and `shell:*`. |
+| `scopeKey` | string | Session-scoped cache key used when the client returns `acceptForSession`. |
 | `reason` | string | Human-readable explanation of why approval is needed. |
 
 **Example**:
@@ -1398,9 +1398,7 @@ The server uses bounded internal queues between transport ingress, request proce
 
 #### `system/jobResult`
 
-Emitted by the AppServer after a server-managed cron or heartbeat job completes. This allows connected wire clients (e.g. the CLI) to receive the agent's response as an out-of-band notification, without the client initiating a turn.
-
-This notification is **only emitted in standalone AppServer mode** (the CLI subprocess/WebSocket scenario). In Gateway mode the result is delivered through the social channel that originally created the job (e.g. `MessageRouter.DeliverAsync` → `IChannelService.DeliverMessageAsync` → `ext/channel/deliver` for external channel adapters). The delivery channel is determined by `CronPayload.Channel` captured at job creation time from `ChannelSessionScope`.
+Emitted after a server-managed cron or heartbeat job completes. This allows connected wire clients to receive the agent's response as an out-of-band notification, without the client initiating a turn.
 
 Clients can opt out via `optOutNotificationMethods: ["system/jobResult"]` during `initialize`.
 
@@ -1430,15 +1428,15 @@ Clients can opt out via `optOutNotificationMethods: ["system/jobResult"]` during
 
 **Targeting rules**:
 
-- Emitted via the broadcast mechanism (`_activeTransports`) used by `plan/updated`. In stdio mode there is exactly one connected client; in WebSocket mode all initialized clients receive it.
-- Only emitted when the job's `CronPayload.Channel` is `"cli"` or null (i.e. no social channel delivery target). Jobs created from QQ, WeCom, or ExternalChannel adapters deliver their result through the respective channel's delivery mechanism and do **not** emit `system/jobResult`.
-- Clients that do not wish to display cron/heartbeat results can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
+- Emitted to initialized protocol connections that are eligible to receive job-result notifications.
+- Server hosts that route job results through another delivery surface may omit `system/jobResult`.
+- Clients that do not wish to receive cron/heartbeat results can opt out via `optOutNotificationMethods: ["system/jobResult"]`.
 
 **Behavior notes**:
 
-- The `result` field carries the agent's **full text output** from the turn (no truncation in `system/jobResult`). The truncated version (≤ 500 chars) is stored separately in `CronJobInfo.state.lastResult` for quick display in list UIs.
-- The `threadId` field allows clients to call `thread/read` for the full conversation and tool call history of the completed job.
-- The `cron/stateChanged` notification (Section 16.7) is emitted at the same time as `system/jobResult` when a job completes, providing updated `CronJobInfo` to keep job list UIs in sync.
+- The `result` field carries the agent's full text output from the completed run.
+- The `threadId` field may be used with `thread/read` to retrieve the associated conversation history.
+- `cron/stateChanged` may also be emitted for the same completion when the source is a cron job.
 
 **Example sequence**:
 
@@ -1487,9 +1485,9 @@ This rule applies to all turn-scoped notifications:
 | `subagent/progress` | yes |
 | `system/event` | yes |
 
-**Rationale**: The turn channel (`SubmitInputAsync`) and the broker (`SubscribeThreadAsync`) both receive every session event from `SessionEventChannel.Write()`. Without this rule, a client that both subscribes and originates a turn would receive every notification twice, producing duplicate streaming output.
+**Rationale**: Without this rule, a connection that both subscribes to a thread and starts a turn on that thread could receive duplicate notifications through multiple delivery paths.
 
-**Ordering guarantee**: The at-most-once rule does not relax the ordering guarantee. The `turn/start` response still arrives at the client before the first `turn/started` notification, because the server synchronously emits `TurnStarted` into the turn channel (and by extension the broker), reads it, sends the `turn/start` response, and only then does the background subscription dispatcher forward the broker event.
+**Ordering guarantee**: The at-most-once rule does not relax the ordering guarantee. The `turn/start` response still arrives before the first `turn/started` notification.
 
 ---
 
@@ -1765,9 +1763,9 @@ This protocol is modeled after Codex App Server. The following table summarizes 
 
 ### 14.1 Design Rationale for Key Differences
 
-**Unified approval request**: Codex uses separate request methods per item type (`commandExecution/requestApproval`, `fileChange/requestApproval`). DotCraft uses a single `item/approval/request` with an `approvalType` discriminator. This matches the Session Protocol's unified `ApprovalRequest` Item type and reduces the number of methods clients need to implement.
+**Unified approval request**: Codex uses separate request methods per item type (`commandExecution/requestApproval`, `fileChange/requestApproval`). DotCraft uses a single `item/approval/request` with an `approvalType` discriminator. This aligns approval handling across item types.
 
-**Separate failure/cancel notifications**: Codex encodes turn failure and interruption as `turn/completed` with different status values. DotCraft uses distinct `turn/failed` and `turn/cancelled` notifications. This matches the Session Protocol's `SessionEventType` enum, which has separate `TurnFailed` and `TurnCancelled` event types, making it easier for clients to switch on the notification method without inspecting the payload.
+**Separate failure/cancel notifications**: Codex encodes turn failure and interruption as `turn/completed` with different status values. DotCraft uses distinct `turn/failed` and `turn/cancelled` notifications, so callers do not need to inspect `turn/completed.status` to distinguish outcomes.
 
 **No `turn/steer`**: Codex supports `turn/steer` to inject additional user input into a running turn. DotCraft's Session Protocol does not currently model mid-turn user input injection. This may be added as a future extension.
 
@@ -1892,8 +1890,7 @@ Client reconnection behavior requirements:
 
 - Clients should implement transport reconnection with **exponential backoff with jitter** starting at 1 second and capping at 30 seconds.
 - After each successful transport reconnect, clients must run a fresh protocol handshake (`initialize`, then `initialized`) before issuing normal requests.
-- Clients should track and re-register any prior thread subscriptions immediately after reconnect. Recommended default: `thread/subscribe` with `replayRecent = true` for the currently active thread.
-- Clients should surface connection lifecycle transitions clearly to users (`connected -> disconnected -> connecting -> connected`).
+- Clients should track and re-register any prior thread subscriptions immediately after reconnect.
 - If the client process starts before the server is reachable, the client should keep retrying transport connection using the same backoff policy and complete handshake as soon as the server becomes available.
 
 ### 15.8 Native WebSocket Ping/Pong
@@ -1917,7 +1914,7 @@ The server sends native WebSocket ping frames every 30 seconds to detect stale c
 
 ### 16.1 Scope
 
-These methods extend the protocol beyond `ISessionService` to cover server-managed cron job lifecycle. The AppServer process owns a `CronService` that fires jobs on a timer — independently of any session or wire client. Cron management methods allow wire clients (e.g. the CLI) to inspect and mutate that service's in-memory state directly, so changes take effect immediately without relying on the client writing to disk and the server eventually reloading.
+These methods extend the protocol beyond `ISessionService` to cover server-managed cron job lifecycle. They operate on shared server state that is independent of any session or thread.
 
 Unlike thread/turn methods, cron methods are not scoped to a session, thread, or channel identity. They operate on the server's shared `CronService` singleton. All connections on the same server process observe the same cron state.
 
@@ -1925,7 +1922,7 @@ Clients must check `capabilities.cronManagement` in the `initialize` response be
 
 ### 16.2 `CronJobInfo` Wire DTO
 
-All cron methods that return job data use the following `CronJobInfo` wire object. It is a transport-safe projection of the internal `CronJob` domain model.
+All cron methods that return job data use the following `CronJobInfo` wire object.
 
 ```json
 {
@@ -1972,7 +1969,7 @@ All cron methods that return job data use the following `CronJobInfo` wire objec
 | `state.lastRunAtMs` | integer? | Unix timestamp (ms) of the last execution. `null` if never run. |
 | `state.lastStatus` | string? | `"ok"` or `"error"`. `null` if never run. |
 | `state.lastError` | string? | Error message from the last failed run. `null` when `lastStatus` is `"ok"` or never run. |
-| `state.lastThreadId` | string? | Thread ID used for the most recent execution. `null` if the job has never run. Clients can pass this to `thread/read` to retrieve the full conversation and tool call history of the last run. |
+| `state.lastThreadId` | string? | Thread ID used for the most recent execution. `null` if the job has never run. |
 | `state.lastResult` | string? | Agent's text response from the most recent execution, truncated to 500 characters. `null` if the job has never run or the last run produced no text output. |
 
 ### 16.3 `cron/list`
@@ -2010,7 +2007,7 @@ List cron jobs managed by the server.
 }
 ```
 
-**Behavior**: Returns the server's current in-memory job list. When `includeDisabled` is `false` (default), only jobs with `enabled: true` are returned.
+**Behavior**: Returns the server's current job list. When `includeDisabled` is `false` (default), only jobs with `enabled: true` are returned.
 
 **Example**:
 
@@ -2058,7 +2055,7 @@ Permanently remove a cron job from the server.
 |------|------|
 | `-32031` | The specified `jobId` does not exist. |
 
-**Behavior**: Removes the job from the server's in-memory `CronService` and persists the change to disk (`cron/jobs.json`) immediately. If the job's timer fires concurrently, the removal is applied after the current execution completes.
+**Behavior**: Removes the job from the server-managed cron set. If the job fires concurrently, removal is applied after the current execution completes.
 
 **Example**:
 
@@ -2128,14 +2125,14 @@ Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) are request/
 
 | Method | When to opt out |
 |--------|-----------------|
-| `cron/stateChanged` | Client polls `cron/list` instead of reacting to push updates (e.g. CLI). |
-| `system/jobResult` | Client does not need cron/heartbeat result notifications (e.g. batch or headless client). |
+| `cron/stateChanged` | Client polls `cron/list` instead of reacting to push updates. |
+| `system/jobResult` | Client does not need cron/heartbeat result notifications. |
 
 ### 16.7 `cron/stateChanged` Notification
 
 **Direction**: server → client (notification)
 
-Emitted by the AppServer when a cron job's state changes. This allows clients to maintain an up-to-date job list without polling `cron/list` repeatedly.
+Emitted when a cron job's state changes.
 
 **Triggers**:
 
@@ -2172,7 +2169,7 @@ Emitted by the AppServer when a cron job's state changes. This allows clients to
 | Field | Type | Description |
 |-------|------|-------------|
 | `job` | CronJobInfo | The updated job state. Contains the full `CronJobInfo` DTO reflecting the new state. |
-| `removed` | boolean | `true` when the notification is triggered by `cron/remove`. Clients should remove this job from their local list. When `true`, only `job.id` is guaranteed to be present. |
+| `removed` | boolean | `true` when the notification is triggered by `cron/remove`. When `true`, only `job.id` is guaranteed to be present. |
 
 **Delivery**: Broadcast to all initialized connections that have not opted out of `cron/stateChanged`.
 
@@ -2210,9 +2207,9 @@ Server                                          Client
 
 ### 17.1 Scope
 
-Like cron management (Section 16), these methods cover a server-managed background service. The AppServer owns a `HeartbeatService` that periodically reads `HEARTBEAT.md` and runs the agent. The `heartbeat/trigger` method lets wire clients trigger a heartbeat run on demand.
+Like cron management (Section 16), these methods cover a server-managed background service. The `heartbeat/trigger` method lets clients trigger a heartbeat run on demand.
 
-Clients must check `capabilities.heartbeatManagement` before calling any method in this section. If the capability is absent or `false`, the server does not have a heartbeat service configured and will return a `-32601` (Method not found) error.
+Clients must check `capabilities.heartbeatManagement` before calling any method in this section. If the capability is absent or `false`, the server returns `-32601` (Method not found).
 
 ### 17.2 `heartbeat/trigger`
 
@@ -2242,7 +2239,7 @@ Trigger an immediate heartbeat run on the server.
 |------|------|
 | `-32601` | The heartbeat service is not configured on this server. |
 
-**Timeout note**: This is a **long-running request** — the agent may take tens of seconds to complete. Clients should use a generous timeout (e.g. 120 s). The result is also separately broadcast via `system/jobResult` with `source: "heartbeat"` to all subscribed clients.
+**Timeout note**: This is a **long-running request**. Clients should use a generous timeout. The result is also separately broadcast via `system/jobResult` with `source: "heartbeat"` to subscribed clients.
 
 **Example**:
 
@@ -2257,7 +2254,7 @@ Trigger an immediate heartbeat run on the server.
 
 ### 17.3 Capability Advertisement
 
-Clients must check `capabilities.heartbeatManagement` before calling `heartbeat/trigger`. The capability is present and `true` only when the AppServer has a `HeartbeatService` configured.
+Clients must check `capabilities.heartbeatManagement` before calling `heartbeat/trigger`.
 
 ---
 
@@ -2265,15 +2262,15 @@ Clients must check `capabilities.heartbeatManagement` before calling `heartbeat/
 
 ### 18.1 Scope
 
-These methods expose the `SkillsLoader` surface to wire clients, enabling them to list installed skills, read skill content, and toggle skill availability. Skills are markdown files (`SKILL.md`) that teach the agent specific capabilities. They are loaded from up to three sources with a defined priority order:
+These methods expose skill discovery and control to wire clients. Skills are markdown files (`SKILL.md`) that teach the agent specific capabilities. The server may load them from multiple sources with a defined priority order:
 
 | Priority | Source | Location | Description |
 |----------|--------|----------|-------------|
-| 1 (highest) | `builtin` | `<workspace>/skills/<name>/` with `.builtin` marker | Default skills deployed from the assembly by `DeployBuiltInSkills()`. |
-| 2 | `workspace` | `<workspace>/skills/<name>/` without `.builtin` marker | User-created skills in the current workspace. |
-| 3 (lowest) | `user` | `~/.craft/skills/<name>/` | User-level skills shared across all workspaces. |
+| 1 (highest) | `builtin` | Server-defined | Server-provided built-in skill. |
+| 2 | `workspace` | Server-defined | Workspace-scoped skill. |
+| 3 (lowest) | `user` | Server-defined | User-scoped skill. |
 
-When a skill name exists in both workspace and user directories, the workspace version takes precedence and the user version is hidden.
+When the same skill name exists in multiple sources, the higher-priority source takes precedence.
 
 Skills may declare requirements (executables, environment variables) in their frontmatter. A skill whose requirements are not met is reported as `available: false` with a diagnostic reason.
 
@@ -2281,7 +2278,7 @@ Clients must check `capabilities.skillsManagement` in the `initialize` response 
 
 ### 18.2 `SkillInfo` Wire DTO
 
-All skills methods that return skill data use the following `SkillInfo` wire object. It is a transport-safe projection of the internal `SkillsLoader.SkillInfo` domain model.
+All skills methods that return skill data use the following `SkillInfo` wire object.
 
 ```json
 {
@@ -2371,7 +2368,7 @@ List all installed skills across all sources.
 }
 ```
 
-**Behavior**: Returns skills from all three sources (builtin, workspace, user) merged by the standard priority rules — workspace skills shadow user skills with the same name. Skills are sorted by source priority (builtin first, then workspace, then user), then alphabetically within each source group. The `enabled` field reflects the current config state: skills listed in the `Skills.DisabledSkills` config array are reported as `enabled: false`.
+**Behavior**: Returns skills from all sources merged by the standard priority rules. Skills are sorted by source priority (`builtin`, then `workspace`, then `user`), then alphabetically within each source group.
 
 **Example**:
 
@@ -2431,7 +2428,7 @@ Read the full content of a skill's `SKILL.md` file.
 |------|------|
 | `-32040` | The specified skill name does not exist in any source. |
 
-**Behavior**: Loads the skill using the standard priority order (workspace first, then user). Returns the raw markdown content of the `SKILL.md` file and its parsed frontmatter metadata.
+**Behavior**: Loads the resolved skill content according to the server's source-priority rules. Returns the raw markdown content of the `SKILL.md` file and its parsed frontmatter metadata.
 
 **Example**:
 
@@ -2485,19 +2482,9 @@ The `skill` field contains the updated `SkillInfo` object reflecting the new `en
 |------|------|
 | `-32040` | The specified skill name does not exist in any source. |
 
-**Behavior**: Toggles a skill's enabled state by adding or removing its name from the `Skills.DisabledSkills` array in the workspace-level config (`.craft/config.json`). Workspace-level config is used so that skill preferences are per-workspace, consistent with DotCraft's two-level config model. The change is persisted immediately.
+**Behavior**: Toggles a skill's enabled state in the server's persisted skill-preference store.
 
-When disabling: the skill name is added to `DisabledSkills`. When enabling: the skill name is removed from `DisabledSkills`. If the skill is already in the requested state, the operation is a no-op and returns the current `SkillInfo`.
-
-**Config structure**:
-
-```json
-{
-  "Skills": {
-    "DisabledSkills": ["browser", "memory"]
-  }
-}
-```
+When disabling, the skill is marked unavailable for future agent context resolution. When enabling, that exclusion is removed. If the skill is already in the requested state, the operation is a no-op and returns the current `SkillInfo`.
 
 **Example**:
 
@@ -2529,7 +2516,7 @@ When disabling: the skill name is added to `DisabledSkills`. When enabling: the 
 
 ### 18.7 Capability Advertisement
 
-Clients must check `capabilities.skillsManagement` before calling any `skills/*` method. The capability is present and `true` when the AppServer has a `SkillsLoader` configured (which is always the case when a workspace is active).
+Clients must check `capabilities.skillsManagement` before calling any `skills/*` method.
 
 ---
 
@@ -2537,12 +2524,12 @@ Clients must check `capabilities.skillsManagement` before calling any `skills/*`
 
 ### 19.1 Scope
 
-These methods expose the server-side command registry to wire clients so external channel adapters can share the same command semantics as built-in adapters.
+These methods expose the server-side command registry to wire clients.
 
 - `command/list` returns discoverable command metadata (including custom commands).
 - `command/execute` executes a slash command and returns a normalized `CommandResult`.
 
-Clients should treat command rendering as UX-only; command resolution and execution semantics are server-authoritative.
+Command resolution and execution semantics are server-authoritative.
 
 ### 19.2 `CommandInfo` Wire DTO
 
@@ -2601,7 +2588,7 @@ List all available commands for the current workspace/runtime.
 
 ### 19.4 `command/execute`
 
-Execute one slash command through the same server-side command pipeline used by built-in channels.
+Execute one slash command through the server-side command pipeline.
 
 **Direction**: client → server (request)
 
@@ -2625,7 +2612,7 @@ Execute one slash command through the same server-side command pipeline used by 
 }
 ```
 
-When `expandedPrompt` is non-null, the command is a custom command expansion and the client should call `turn/start` with that expanded text as input.
+When `expandedPrompt` is non-null, the command resolved to a prompt expansion and the caller may submit that text with `turn/start`.
 
 ### 19.5 Error Codes
 
@@ -2637,7 +2624,7 @@ When `expandedPrompt` is non-null, the command is a custom command expansion and
 
 ### 19.6 Capability Advertisement
 
-Clients must check `capabilities.commandManagement` before calling `command/list` or `command/execute`. The capability is present and `true` when the AppServer has the command registry enabled.
+Clients must check `capabilities.commandManagement` before calling `command/list` or `command/execute`.
 
 ---
 
@@ -2645,11 +2632,11 @@ Clients must check `capabilities.commandManagement` before calling `command/list
 
 ### 20.1 Scope
 
-These methods expose the runtime status of social and external channels — whether each channel is configured, whether it is currently running and handling messages — to wire clients such as DotCraft Desktop.
+These methods expose runtime status of social and external channels — whether each channel is configured and whether it is currently active.
 
-The existing `channel/list` method returns **all registered module origins** for the cross-channel thread visibility picker. It does not reflect `Enabled` config flags or whether channels are actively running. `channel/status` is a separate, orthogonal method that reports true runtime state.
+The existing `channel/list` method returns discoverable origin names. It does not reflect configuration state or runtime activity. `channel/status` is a separate method that reports runtime status.
 
-Clients must check `capabilities.channelStatus` in the `initialize` response before calling `channel/status`. If the capability is absent or `false`, the server does not have a channel status provider available and will return a `-32601` (Method not found) error.
+Clients must check `capabilities.channelStatus` in the `initialize` response before calling `channel/status`. If the capability is absent or `false`, the server returns `-32601` (Method not found).
 
 ### 20.2 `ChannelStatusInfo` Wire DTO
 
@@ -2665,11 +2652,11 @@ Clients must check `capabilities.channelStatus` in the `initialize` response bef
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | string | Canonical channel name (matches `channel/list` names). |
-| `category` | string | `social` for native C# channels (QQ, WeCom); `external` for external adapter channels (WeChat, Telegram). |
-| `enabled` | boolean | `true` when the channel section in merged workspace config has `Enabled: true` (native) or `enabled: true` (external). |
-| `running` | boolean | `true` when the channel service was actually started by `ChannelRunner` and registered in `MessageRouter`. For external adapters, `true` when the adapter transport is connected and the handshake has completed (`IsClientReady`). |
+| `category` | string | `social` or `external`. |
+| `enabled` | boolean | `true` when the channel is configured as enabled. |
+| `running` | boolean | `true` when the server currently considers the channel active. |
 
-Only channels that are explicitly declared in config are included. Modules that are registered but have no config section with `Enabled` set (e.g. `cli`, `acp`) are excluded — this method is specifically for user-facing social and external channels.
+Only channels that are explicitly configured for status reporting are included.
 
 ### 20.3 `channel/status`
 
@@ -2714,14 +2701,14 @@ Returns runtime status for all configured social and external channels.
 
 **Semantics**:
 
-- `enabled` is derived from the **merged workspace config** (`GetEnabledModules` for native modules, `ExternalChannels.*.enabled` for externals). This reflects what is configured, not what is running.
-- `running` is derived from the **live `ChannelRunner` state**: a native channel is `running` when its `IChannelService` is registered in `MessageRouter`; an external adapter channel is `running` when `ExternalChannelHost.IsAdapterConnected` is `true` (transport attached and client ready).
+- `enabled` reflects configuration state, not runtime activity.
+- `running` reflects current server-observed activity state.
 - Results are sorted by category order (`social` → `external`), then by `name` (ordinal case-insensitive).
-- If there is no `ChannelRunner` (the AppServer was started without any configured channels), the result is an empty `channels` array.
+- If the server has no channel status data, the result is an empty `channels` array.
 
 ### 20.4 Capability Advertisement
 
-Clients must check `capabilities.channelStatus` before calling `channel/status`. The capability is present and `true` when the AppServer has a `IChannelStatusProvider` configured, which requires an active `ChannelRunner` instance or a workspace config with at least one social/external channel section.
+Clients must check `capabilities.channelStatus` before calling `channel/status`.
 
 ---
 
@@ -2729,7 +2716,7 @@ Clients must check `capabilities.channelStatus` before calling `channel/status`.
 
 ### 21.1 Scope
 
-These methods expose provider model discovery based on the server's merged workspace configuration (`ApiKey`, `EndPoint`) so wire clients can populate model selectors without hardcoding model ids.
+These methods expose provider model discovery so clients can populate model selectors without hardcoding model ids.
 
 Clients must check `capabilities.modelCatalogManagement` in the `initialize` response before calling `model/list`. If absent or `false`, the server returns `-32601` (Method not found).
 
@@ -2785,7 +2772,7 @@ On provider/config errors, the method still returns a successful JSON-RPC respon
 
 ### 21.4 Capability Advertisement
 
-`capabilities.modelCatalogManagement` is present and `true` when the AppServer has a workspace config path available and can resolve merged config values for model discovery.
+Clients must check `capabilities.modelCatalogManagement` before calling `model/list`.
 
 ---
 
@@ -2793,9 +2780,7 @@ On provider/config errors, the method still returns a successful JSON-RPC respon
 
 ### 22.1 Scope
 
-These methods provide a server-authoritative write path for workspace MCP server configuration stored in `.craft/config.json`.
-
-Desktop and other clients must not write MCP config directly to Electron-local settings. The authoritative persistence target is the workspace config file under the `McpServers` top-level key.
+These methods provide a server-authoritative read/write path for MCP server configuration.
 
 Clients must check `capabilities.mcpManagement` before calling `mcp/list`, `mcp/get`, `mcp/upsert`, or `mcp/remove`. Clients must check `capabilities.mcpStatus` before calling `mcp/status/list` or relying on `mcp/status/updated` notifications.
 
@@ -2889,8 +2874,7 @@ Creates or replaces one MCP server definition.
 **Semantics**:
 
 - Upsert replaces the full logical server entry.
-- Persistence target is `.craft/config.json` under `McpServers`.
-- Config is stored as an object dictionary keyed by server name.
+- Persistence shape and storage location are server-defined.
 
 ### 22.6 `mcp/remove`
 
@@ -2976,9 +2960,7 @@ Server notification emitted when one server's runtime status changes.
 
 ### 23.1 Scope
 
-These methods provide a server-authoritative write path for workspace external channel configuration stored in `.craft/config.json`.
-
-Desktop, Dashboard, and other clients must not write `ExternalChannels` directly. The authoritative persistence target is the workspace config file under the `ExternalChannels` top-level key.
+These methods provide a server-authoritative read/write path for external channel configuration.
 
 Clients must check `capabilities.externalChannelManagement` before calling `externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, or `externalChannel/remove`. If absent or `false`, the server returns `-32601` (Method not found).
 
@@ -3009,12 +2991,11 @@ Supported fields:
 Validation rules:
 
 - `name` is the logical primary key and is compared case-insensitively.
-- `name` must not conflict with a native channel name contributed by loaded modules (for example `qq`, `wecom`, `cli`, `acp`).
+- `name` must not conflict with a reserved or existing channel name.
 - `subprocess` requires `command`.
 - `subprocess` allows `command`, `args`, `workingDirectory`, and `env`.
 - `websocket` does not allow subprocess-only fields (`command`, `args`, `workingDirectory`, `env`).
-- Persistence target is `.craft/config.json` under `ExternalChannels`.
-- Config is stored as an object dictionary keyed by channel name.
+- Persistence shape and storage location are server-defined.
 
 ### 23.3 `externalChannel/list`
 
@@ -3065,8 +3046,7 @@ Creates or replaces one external channel definition.
 **Semantics**:
 
 - Upsert replaces the full logical channel entry.
-- Persistence target is `.craft/config.json` under `ExternalChannels`.
-- Config is stored as an object dictionary keyed by channel name.
+- Persistence shape and storage location are server-defined.
 
 ### 23.6 `externalChannel/remove`
 
@@ -3084,15 +3064,15 @@ Removes one external channel definition by name.
 
 ### 24.1 Scope
 
-These methods provide a server-authoritative write path for workspace-level configuration values stored in `.craft/config.json`.
+These methods provide a server-authoritative write path for workspace-level configuration values.
 
-In v1, the wire surface only standardizes workspace model persistence so all clients (Desktop, CLI, TUI) can use one behavior for default model writes while keeping per-thread overrides in `thread/config/update`.
+In v1, the wire surface standardizes workspace model persistence while keeping per-thread overrides in `thread/config/update`.
 
 Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling `workspace/config/update`. If absent or `false`, the server returns `-32601` (Method not found).
 
 ### 24.2 `workspace/config/update`
 
-Update workspace-level config values. The server persists the change to `.craft/config.json` using case-insensitive key matching for `Model`.
+Update workspace-level config values.
 
 **Direction**: client → server (request)
 
@@ -3120,28 +3100,24 @@ If `model` is removed, the result returns:
 
 **Semantics**:
 
-- This method updates **workspace default** only (config file), not any active thread state.
+- This method updates **workspace default** only, not any active thread state.
 - Clients that need immediate effect in a running thread should additionally call `thread/config/update`.
-- Server preserves unrelated keys in `.craft/config.json`.
+- Server preserves unrelated configuration state.
 - `Model` key matching is case-insensitive (`Model`, `model`, etc.) and normalized in-place.
 
 ### 24.3 Capability Advertisement
 
-`capabilities.workspaceConfigManagement` is present and `true` when the AppServer has a workspace `.craft` path and can persist `.craft/config.json`.
+Clients must check `capabilities.workspaceConfigManagement` before calling `workspace/config/update`.
 
 ## 25. GitHub Tracker Config Methods
 
 ### 25.1 Scope
 
-These methods provide a server-authoritative read/write path for the workspace `GitHubTracker` configuration stored in `.craft/config.json`.
-
-Desktop and other clients must not write the `GitHubTracker` section directly. The authoritative persistence target is the workspace config file under the `GitHubTracker` top-level key.
+These methods provide a server-authoritative read/write path for `GitHubTracker` configuration.
 
 Clients must check `capabilities.gitHubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. If absent or `false`, the server returns `-32601` (Method not found).
 
-Capability availability is based on workspace config persistence support, not on whether the `GitHubTracker.Enabled` runtime module flag is currently true. This allows clients to configure and enable the module for the next restart.
-
-Desktop clients are expected to expose a simplified subset of the config (for example: `enabled`, `tracker.repository`, `tracker.apiKey`, `issuesWorkflowPath`, `pullRequestWorkflowPath`). Advanced fields may be configured in the dashboard or by editing config directly; clients should preserve these fields unchanged when round-tripping updates.
+Capability availability is based on whether the server supports persisted GitHub tracker configuration.
 
 ### 25.2 `GitHubTrackerConfig` Wire DTO
 
@@ -3186,7 +3162,7 @@ Desktop clients are expected to expose a simplified subset of the config (for ex
 }
 ```
 
-Supported fields mirror the runtime `GitHubTracker` config classes:
+Supported fields:
 
 - `enabled: boolean`
 - `issuesWorkflowPath: string`
@@ -3221,7 +3197,7 @@ Validation rules:
 - `tracker.activeStates` and `tracker.terminalStates` must not overlap, case-insensitively.
 - `tracker.pullRequestActiveStates` and `tracker.pullRequestTerminalStates` must not overlap, case-insensitively.
 - Numeric fields follow the same lower bounds enforced by the runtime config metadata (`intervalMs >= 1`, concurrency values `>= 0` or `>= 1` depending on the field).
-- `tracker.apiKey` is masked as `"***"` by `githubTracker/get` when a non-empty value exists in workspace config. Sending `"***"` back to `githubTracker/update` preserves the existing stored value instead of overwriting it.
+- `tracker.apiKey` is masked as `"***"` by `githubTracker/get` when a non-empty value exists. Sending `"***"` back to `githubTracker/update` preserves the existing stored value instead of overwriting it.
 
 ### 25.3 `githubTracker/get`
 
@@ -3295,8 +3271,8 @@ Creates or replaces the workspace `GitHubTracker` section.
 
 **Semantics**:
 
-- The payload replaces the full logical `GitHubTracker` section in workspace config.
-- The server preserves unrelated keys in `.craft/config.json`.
+- The payload replaces the full logical `GitHubTracker` section.
+- The server preserves unrelated configuration state.
 - The server preserves the existing `tracker.apiKey` when the incoming value is `"***"`.
 - Changes are persisted for future runs; clients should assume a restart may be required before module behavior reflects the new values.
 
@@ -3321,7 +3297,7 @@ Creates or replaces the workspace `GitHubTracker` section.
 
 ### 25.5 Capability Advertisement
 
-`capabilities.gitHubTrackerConfig` is present and `true` when the AppServer has a workspace `.craft` path and can persist workspace config updates.
+Clients must check `capabilities.gitHubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`.
 
 ### 25.6 Error Codes
 
