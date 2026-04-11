@@ -52,6 +52,13 @@ internal sealed class ReviewStateStore(string craftPath, ILogger<ReviewStateStor
     {
         lock (_gate)
         {
+            if (string.IsNullOrWhiteSpace(pullRequestId) || pullRequestId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+                || pullRequestId.Contains("..") || pullRequestId.Contains('/') || pullRequestId.Contains('\\'))
+            {
+                logger.LogWarning("Rejected invalid pullRequestId for review state deletion: {PullRequestId}", pullRequestId);
+                return;
+            }
+
             var path = Path.Combine(_rootDirectory, $"{pullRequestId}.json");
             if (!File.Exists(path))
                 return;
