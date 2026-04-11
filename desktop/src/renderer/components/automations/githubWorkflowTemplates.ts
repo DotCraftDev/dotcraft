@@ -128,9 +128,9 @@ When you have finished your analysis, call \`SubmitReview\` with:
 Use this format for material findings:
 
 \`\`\`markdown
-> AI-generated review - for reference only. Please verify findings independently.
+> 🤖 **AI-generated review** - for reference only. Please verify findings independently.
 
-🔶 Short issue title
+🔴 Short issue title
 
 <One compact paragraph explaining the problem, where it is, why it is wrong, and what runtime or behavioral consequence it causes. Include file and line references inline when possible.>
 
@@ -142,7 +142,7 @@ Use this format for material findings:
 If there are no material issues, use:
 
 \`\`\`markdown
-> AI-generated review - for reference only. Please verify findings independently.
+> 🤖 **AI-generated review** - for reference only. Please verify findings independently.
 
 No material correctness, regression, or security issues found in the reviewed changes.
 \`\`\`

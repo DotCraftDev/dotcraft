@@ -294,6 +294,8 @@ const MESSAGES_EN = {
   'composer.defaultModel': 'Default',
   'composer.modelListLoading': 'Loading model list...',
   'composer.selectModelTitle': 'Select model',
+  'composer.modelListUnsupportedTitle':
+    'The current API does not support listing models. Model switching is unavailable.',
 
   // Detail / git (Phase 2)
   'commit.title': 'Commit Changes',
@@ -833,6 +835,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'composer.defaultModel': '默认',
   'composer.modelListLoading': '正在加载模型列表...',
   'composer.selectModelTitle': '选择模型',
+  'composer.modelListUnsupportedTitle': '当前 API 不支持拉取模型列表，无法在此切换模型。',
 
   'commit.title': '提交更改',
   'commit.filesHeader': '待提交文件（{{written}} / {{all}}{{reverted}}）：',
