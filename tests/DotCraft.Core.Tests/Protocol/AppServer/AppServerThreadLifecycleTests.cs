@@ -312,6 +312,76 @@ public sealed class AppServerThreadLifecycleTests : IDisposable
         Assert.Null(_h.Transport.TryReadSent());
     }
 
+    [Fact]
+    public async Task ThreadUnarchive_EmitsStatusChangedNotification()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        await _h.Service.ArchiveThreadAsync(thread.Id);
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadUnarchive, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        var notification = await _h.Transport.ReadNextSentAsync();
+
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        AppServerTestHarness.AssertIsNotification(notification, AppServerMethods.ThreadStatusChanged);
+        Assert.Equal("active",
+            notification.RootElement.GetProperty("params").GetProperty("newStatus").GetString());
+    }
+
+    [Fact]
+    public async Task ThreadUnarchive_NotificationIncludesPreviousStatus()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        await _h.Service.ArchiveThreadAsync(thread.Id);
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadUnarchive, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(msg);
+
+        await _h.Transport.ReadNextSentAsync(); // response
+        var notification = await _h.Transport.ReadNextSentAsync();
+
+        var @params = notification.RootElement.GetProperty("params");
+        Assert.Equal("archived", @params.GetProperty("previousStatus").GetString());
+        Assert.Equal("active", @params.GetProperty("newStatus").GetString());
+    }
+
+    [Fact]
+    public async Task ThreadUnarchive_WhenSubscribed_SendsOnlyResponse_NoDuplicateNotification()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        await _h.Service.ArchiveThreadAsync(thread.Id);
+
+        var subscribeMsg = _h.BuildRequest(AppServerMethods.ThreadSubscribe, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(subscribeMsg);
+        await _h.Transport.ReadNextSentAsync(); // drain subscribe response
+
+        var unarchiveMsg = _h.BuildRequest(AppServerMethods.ThreadUnarchive, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(unarchiveMsg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        await Task.Delay(20);
+        Assert.Null(_h.Transport.TryReadSent());
+    }
+
+    [Fact]
+    public async Task ThreadUnarchive_AlreadyActive_SendsOnlyResponse_NoNotification()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.ThreadUnarchive, new { threadId = thread.Id });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        await Task.Delay(20);
+        Assert.Null(_h.Transport.TryReadSent());
+    }
+
     // -------------------------------------------------------------------------
     // thread/resume — resumedBy (Gap D)
     // -------------------------------------------------------------------------

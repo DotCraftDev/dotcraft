@@ -202,6 +202,33 @@ public sealed class SessionServiceLifecycleTests : IDisposable
     }
 
     // -------------------------------------------------------------------------
+    // UnarchiveThread
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task UnarchiveThread_SetsStatusActive()
+    {
+        var thread = await _svc.CreateThreadAsync(MakeIdentity());
+        await _svc.ArchiveThreadAsync(thread.Id);
+        await _svc.UnarchiveThreadAsync(thread.Id);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal(ThreadStatus.Active, loaded.Status);
+    }
+
+    [Fact]
+    public async Task UnarchiveThread_IsIdempotent_WhenAlreadyActive()
+    {
+        var thread = await _svc.CreateThreadAsync(MakeIdentity());
+        await _svc.UnarchiveThreadAsync(thread.Id);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal(ThreadStatus.Active, loaded.Status);
+    }
+
+    // -------------------------------------------------------------------------
     // FindThreads
     // -------------------------------------------------------------------------
 
@@ -529,6 +556,15 @@ internal sealed class FakeSessionService : ISessionService
         var thread = await GetOrLoadAsync(threadId, ct);
         if (thread.Status == ThreadStatus.Archived) return;
         thread.Status = ThreadStatus.Archived;
+        await _store.SaveThreadAsync(thread, ct);
+    }
+
+    public async Task UnarchiveThreadAsync(string threadId, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadAsync(threadId, ct);
+        if (thread.Status == ThreadStatus.Active) return;
+        thread.Status = ThreadStatus.Active;
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
         await _store.SaveThreadAsync(thread, ct);
     }
 

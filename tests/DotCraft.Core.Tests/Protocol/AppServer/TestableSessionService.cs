@@ -111,6 +111,15 @@ internal sealed class TestableSessionService : ISessionService
         await _store.SaveThreadAsync(t, ct);
     }
 
+    public async Task UnarchiveThreadAsync(string threadId, CancellationToken ct = default)
+    {
+        var t = await GetOrLoadAsync(threadId, ct);
+        if (t.Status == ThreadStatus.Active) return;
+        t.Status = ThreadStatus.Active;
+        t.LastActiveAt = DateTimeOffset.UtcNow;
+        await _store.SaveThreadAsync(t, ct);
+    }
+
     public async Task RenameThreadAsync(string threadId, string displayName, CancellationToken ct = default)
     {
         var t = await GetOrLoadAsync(threadId, ct);
