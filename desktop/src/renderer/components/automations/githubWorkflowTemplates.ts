@@ -123,7 +123,7 @@ When you have finished your analysis, call \`SubmitStructuredReview\` with:
 Each inline comment object must include:
 
 - \`severity\`: \`RED\` or \`YELLOW\`
-- \`title\`: short issue title
+- \`title\`: short issue title prefixed with \`🔴\` for \`RED\` findings or \`🟡\` for \`YELLOW\` findings
 - \`body\`: one compact paragraph explaining the concrete problem and impact
 - \`path\`: changed file path
 - \`line\`: ending line number for the inline comment
@@ -146,11 +146,21 @@ Submission rules:
 If there are material issues, make the summary body a short overview like:
 
 \`\`\`markdown
-> AI-generated review summary. Please verify findings independently.
+> 🤖 **AI-generated review** - for reference only. Please verify findings independently.
 
 Found 2 major issue(s) and 1 minor issue(s).
 Added inline comments for each finding.
 1 inline comment(s) include a suggested change that can be applied directly in GitHub.
+\`\`\`
+
+Use inline comment titles like:
+
+\`\`\`text
+title: "🔴 Missing null guard"
+body: "A null payload will throw before validation can run."
+
+title: "🟡 Prefer explicit guard"
+body: "This edge case should be handled before the loop runs."
 \`\`\`
 
 If there are no material issues, use this exact payload shape:
@@ -160,7 +170,7 @@ summaryJson = {
   "majorCount": 0,
   "minorCount": 0,
   "suggestionCount": 0,
-  "body": "No issues found."
+  "body": "> 🤖 **AI-generated review** - for reference only. Please verify findings independently.\n\nNo issues found."
 }
 
 commentsJson = []
