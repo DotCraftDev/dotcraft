@@ -169,7 +169,7 @@ export function GitHubWorkflowTemplateDialog({
       },
       hooks: {
         ...config.hooks,
-        beforeRun: beforeRunHookEnabled ? beforeRun.trim() : ''
+        beforeRun: beforeRunHookEnabled ? beforeRunHook.trim() : ''
       }
     }
 
