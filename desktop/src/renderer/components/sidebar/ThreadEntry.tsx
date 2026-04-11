@@ -314,6 +314,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             )}
             <button
               type="button"
+              tabIndex={showArchiveConfirm ? 0 : -1}
               title={t('threadEntry.archiveConfirm')}
               aria-label={t('threadEntry.archiveConfirm')}
               onClick={(e) => {
