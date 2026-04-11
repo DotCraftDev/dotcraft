@@ -3,9 +3,11 @@ using DotCraft.Automations.Abstractions;
 using DotCraft.Configuration;
 using DotCraft.Modules;
 using DotCraft.GitHubTracker.GitHub;
+using DotCraft.GitHubTracker.Protocol.AppServer;
 using DotCraft.GitHubTracker.Tracker;
 using DotCraft.GitHubTracker.Workflow;
 using DotCraft.GitHubTracker.Workspace;
+using DotCraft.Protocol.AppServer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -57,6 +59,8 @@ public sealed partial class GitHubTrackerModule : ModuleBase
             config,
             sp.GetRequiredService<ILogger<WorkItemWorkspaceManager>>()));
         services.AddSingleton<IWorkItemTracker>(sp => CreateTracker(config, workspacePath, sp));
+        services.AddSingleton<GitHubTrackerConfigProtocolService>();
+        services.AddSingleton<IAppServerProtocolExtension, GitHubTrackerAppServerExtension>();
 
         services.AddSingleton<IAutomationSource>(sp =>
         {

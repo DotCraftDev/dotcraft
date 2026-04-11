@@ -212,7 +212,10 @@ Client                              Server
     "workspaceConfigManagement": true,
     "mcpManagement": true,
     "externalChannelManagement": true,
-    "mcpStatus": true
+    "mcpStatus": true,
+    "extensions": {
+      "githubTrackerConfig": true
+    }
   }
 }
 ```
@@ -236,7 +239,9 @@ Client                              Server
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration write methods (`workspace/config/update`). |
 | `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). |
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
+| `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
 | `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). |
+| `capabilities.extensions` | object | Optional module capability registry keyed by extension name. Each value is extension-defined metadata; boolean `true` means the extension methods are available. |
 
 ### 3.3 `initialized`
 
@@ -1536,14 +1541,16 @@ Clients can suppress specific notification methods per connection by listing exa
 
 ## 11. Extension Methods
 
-The core wire protocol (Sections 3–10) covers the `ISessionService` surface. Channels or integrations that need additional capabilities can expose **extension methods** under a channel-specific namespace.
+The core wire protocol (Sections 3–10) covers the `ISessionService` surface. Modules may expose **extension methods** for capabilities that are not intrinsic to the session core.
 
 ### 11.1 Design Rules
 
-- Extension methods must use a namespace prefix that does not collide with core methods: `ext/<namespace>/...` (e.g., `ext/acp/fs/readFile`, `ext/acp/terminal/create`).
-- Extension methods are not part of the core protocol and not covered by the versioning guarantee in Section 12.
-- In v1, the `initialize` response may advertise available extensions only as a flat namespace array in `serverInfo.extensions`.
-- A richer structured extension registry is deferred from v1; clients must not require per-extension schema metadata to use the core Session protocol.
+- Core methods are owned by the AppServer protocol runtime. Module methods are contributed by loaded modules and routed by method name at runtime.
+- Module methods must not reuse a Core method name. If a module method is unavailable because the contributing module is not loaded or cannot operate in the current workspace, the server returns `-32601` (`Method not found`).
+- Server-to-client extension families continue to use the `ext/<namespace>/...` prefix (for example `ext/acp/...`).
+- Client-to-server module methods may use stable product namespaces such as `githubTracker/...`; they are standard protocol extensions even when implemented by a module instead of Core.
+- `initialize` may advertise extension availability in `capabilities.extensions`. Compatibility top-level capability fields may coexist during migration.
+- Clients must treat the spec as the source of truth for a documented extension's method names and payloads; implementation location inside the server is not wire-visible.
 
 ### 11.2 ACP Tool Proxy
 
@@ -3115,7 +3122,9 @@ Clients must check `capabilities.workspaceConfigManagement` before calling `work
 
 These methods provide a server-authoritative read/write path for `GitHubTracker` configuration.
 
-Clients must check `capabilities.gitHubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. If absent or `false`, the server returns `-32601` (Method not found).
+Although the runtime implementation may be provided by the `DotCraft.GitHubTracker` module instead of AppServer Core, the wire contract in this section remains part of the documented AppServer protocol extension surface.
+
+Clients should check `capabilities.extensions.githubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. For compatibility, servers may also expose `capabilities.gitHubTrackerConfig`. If both are present, `capabilities.extensions.githubTrackerConfig` is authoritative. If the capability is absent or `false`, the server returns `-32601` (Method not found).
 
 Capability availability is based on whether the server supports persisted GitHub tracker configuration.
 
@@ -3297,7 +3306,7 @@ Creates or replaces the workspace `GitHubTracker` section.
 
 ### 25.5 Capability Advertisement
 
-Clients must check `capabilities.gitHubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`.
+Clients should check `capabilities.extensions.githubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. The legacy `capabilities.gitHubTrackerConfig` field may still be present for compatibility.
 
 ### 25.6 Error Codes
 
