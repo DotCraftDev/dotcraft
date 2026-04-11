@@ -9,7 +9,7 @@ import { useConnectionStore } from '../../stores/connectionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { TaskCard } from './TaskCard'
 import { NewTaskDialog } from './NewTaskDialog'
-import { GitHubTrackerConfigDialog } from './GitHubTrackerConfigDialog'
+import { GitHubTrackerConfigPanel } from './GitHubTrackerConfigPanel'
 import { TaskReviewPanel } from './TaskReviewPanel'
 import { CronJobCard } from './CronJobCard'
 import { CronReviewPanel } from './CronReviewPanel'
@@ -195,17 +195,19 @@ export function AutomationsView(): JSX.Element {
               {hasGitHubTrackerConfig && (
                 <button
                   type="button"
-                  onClick={() => setShowGitHubConfig(true)}
+                  onClick={() => setShowGitHubConfig((v) => !v)}
                   aria-label={t('auto.githubConfig.open')}
                   title={t('auto.githubConfig.open')}
+                  aria-pressed={showGitHubConfig}
                   style={{
+                    display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     width: '32px',
-                    height: '30px',
+                    height: '32px',
                     borderRadius: '6px',
-                    border: '1px solid var(--border-default)',
-                    backgroundColor: 'transparent',
+                    border: showGitHubConfig ? '1px solid var(--accent)' : '1px solid var(--border-default)',
+                    backgroundColor: showGitHubConfig ? 'var(--bg-tertiary)' : 'transparent',
                     color: 'var(--text-secondary)',
                     cursor: 'pointer'
                   }}
@@ -371,7 +373,24 @@ export function AutomationsView(): JSX.Element {
           )}
         </div>
 
-        {activePanel === 'tasks' && (
+        {showGitHubConfig && hasGitHubTrackerConfig && (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              padding: '20px'
+            }}
+          >
+            <div style={{ width: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <GitHubTrackerConfigPanel onBack={() => setShowGitHubConfig(false)} />
+            </div>
+          </div>
+        )}
+
+        {!showGitHubConfig && activePanel === 'tasks' && (
           <div
             id="automations-task-list"
             role="tabpanel"
@@ -446,7 +465,7 @@ export function AutomationsView(): JSX.Element {
           </div>
         )}
 
-        {activePanel === 'cron' && hasCron && (
+        {!showGitHubConfig && activePanel === 'cron' && hasCron && (
           <div
             id="automations-cron-list"
             role="tabpanel"
@@ -516,7 +535,6 @@ export function AutomationsView(): JSX.Element {
       </div>
 
       {showNewTask && <NewTaskDialog onClose={() => setShowNewTask(false)} />}
-      {showGitHubConfig && <GitHubTrackerConfigDialog onClose={() => setShowGitHubConfig(false)} />}
 
       {selectedTaskId && <TaskReviewPanel />}
       {selectedCronJobId && <CronReviewPanel />}
