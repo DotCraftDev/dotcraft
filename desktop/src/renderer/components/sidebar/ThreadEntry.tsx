@@ -404,6 +404,7 @@ function ThreadEntryContextMenu({
   threadId
 }: ThreadEntryContextMenuProps): JSX.Element {
   const t = useT()
+  const confirm = useConfirmDialog()
   const { removeThread, activeThreadId, setActiveThreadId } = useThreadStore()
 
   async function handleDelete(): Promise<void> {

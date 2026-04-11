@@ -162,6 +162,24 @@ describe('ThreadEntry', () => {
     })
   })
 
+  it('shows the custom confirm dialog before deleting from the context menu', async () => {
+    const thread = makeThread()
+    useThreadStore.setState({ threadList: [thread] })
+    renderThreadEntry(thread)
+
+    fireEvent.contextMenu(await screen.findByTestId('thread-entry-thread-1'), {
+      clientX: 20,
+      clientY: 20
+    })
+
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText('Delete conversation?')).toBeInTheDocument()
+    expect(appServerSendRequest).not.toHaveBeenCalledWith('thread/delete', { threadId: 'thread-1' })
+  })
+
   it('hides time and archive action while renaming', async () => {
     renderThreadEntry(makeThread())
 
