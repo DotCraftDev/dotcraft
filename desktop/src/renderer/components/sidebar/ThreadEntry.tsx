@@ -270,48 +270,46 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             >
               {relativeTime}
             </span>
-            {!showArchiveConfirm && (
-              <button
-                type="button"
-                title={t('threadEntry.archive')}
-                aria-label={t('threadEntry.archive')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  beginInlineArchiveConfirm()
-                }}
-                onFocus={() => setArchiveButtonFocused(true)}
-                style={{
-                  width: '28px',
-                  height: '28px',
-                  padding: 0,
-                  border: 'none',
-                  borderRadius: '6px',
-                  backgroundColor: 'transparent',
-                  color: isActive ? 'var(--text-secondary)' : 'var(--text-dimmed)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: showArchiveAction ? 'pointer' : 'default',
-                  position: 'absolute',
-                  right: 0,
-                  opacity: showArchiveAction ? 1 : 0,
-                  pointerEvents: showArchiveAction ? 'auto' : 'none',
-                  transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'
-                  e.currentTarget.style.color = 'var(--error)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent'
-                  e.currentTarget.style.color = isActive
-                    ? 'var(--text-secondary)'
-                    : 'var(--text-dimmed)'
-                }}
-              >
-                <ArchiveIcon />
-              </button>
-            )}
+            <button
+              type="button"
+              title={t('threadEntry.archive')}
+              aria-label={t('threadEntry.archive')}
+              onClick={(e) => {
+                e.stopPropagation()
+                beginInlineArchiveConfirm()
+              }}
+              onFocus={() => setArchiveButtonFocused(true)}
+              style={{
+                width: '28px',
+                height: '28px',
+                padding: 0,
+                border: 'none',
+                borderRadius: '6px',
+                backgroundColor: 'transparent',
+                color: isActive ? 'var(--text-secondary)' : 'var(--text-dimmed)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: showArchiveAction && !showArchiveConfirm ? 'pointer' : 'default',
+                position: 'absolute',
+                right: 0,
+                opacity: showArchiveAction && !showArchiveConfirm ? 1 : 0,
+                pointerEvents: showArchiveAction && !showArchiveConfirm ? 'auto' : 'none',
+                transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'
+                e.currentTarget.style.color = 'var(--error)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent'
+                e.currentTarget.style.color = isActive
+                  ? 'var(--text-secondary)'
+                  : 'var(--text-dimmed)'
+              }}
+            >
+              <ArchiveIcon />
+            </button>
             <button
               type="button"
               tabIndex={showArchiveConfirm ? 0 : -1}
