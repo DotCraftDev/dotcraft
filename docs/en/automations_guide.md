@@ -23,7 +23,9 @@ config.json
 
 ## Quick Start: Local Tasks
 
-### Step 1: Enable Automations
+### Step 1: Configure Automations
+
+`Automations.Enabled` defaults to `true`. Add this block when you want to tune Automations settings explicitly:
 
 Add to `.craft/config.json`:
 
@@ -102,7 +104,7 @@ The orchestrator discovers `pending` tasks and dispatches agents. When the agent
 
 ## Quick Start: GitHub Source
 
-GitHub source requires **both** `Automations` and `GitHubTracker` to be enabled.
+GitHub source runs through the Automations orchestrator. `Automations.Enabled` is `true` by default; GitHub dispatch only stops if you explicitly turn Automations off or leave `GitHubTracker.Enabled` disabled.
 
 ### Step 1: Configure
 
@@ -415,7 +417,7 @@ The GitHub workspace root is configured via `Automations.WorkspaceRoot`. `GitHub
 }
 ```
 
-> `Automations.Enabled` starts the orchestrator. `GitHubTracker.Enabled` registers the GitHub source. Both must be `true` for GitHub tasks to be scheduled.
+> `Automations.Enabled` starts the orchestrator and defaults to `true`. `GitHubTracker.Enabled` registers the GitHub source. GitHub tasks are scheduled when `GitHubTracker.Enabled` is `true` and `Automations.Enabled` has not been explicitly set to `false`.
 >
 > Relative paths in `IssuesWorkflowPath` and `PullRequestWorkflowPath` are resolved relative to the workspace root.
 >
@@ -468,13 +470,13 @@ A [Fine-grained Personal Access Token](https://docs.github.com/en/authentication
 
 ### Local tasks never appear
 
-- Confirm `Automations.Enabled` is `true`.
+- Confirm `Automations.Enabled` has not been explicitly set to `false`.
 - Confirm the task directory is under the tasks root (default `.craft/tasks/<task-id>/`) and contains both `task.md` and `workflow.md`.
 - Confirm `task.md` has `status: pending`.
 
 ### GitHub issues/PRs not being picked up
 
-- Confirm **both** `Automations.Enabled` and `GitHubTracker.Enabled` are `true`.
+- Confirm `GitHubTracker.Enabled` is `true`, and `Automations.Enabled` has not been explicitly set to `false`.
 - Issues: confirm the issue has a label matching an active state (e.g. `status:todo`).
 - PRs: confirm the PR is open and not a draft, and its review state is in `PullRequestActiveStates`.
 - Confirm the workflow file exists at the configured path.

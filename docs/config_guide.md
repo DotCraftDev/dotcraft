@@ -260,7 +260,7 @@ Automations 提供统一的自动化任务管线，支持本地任务和 GitHub 
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `Automations.Enabled` | 是否启用 Automations 编排器 | `false` |
+| `Automations.Enabled` | 是否启用 Automations 编排器 | `true` |
 | `Automations.LocalTasksRoot` | 本地任务根目录，留空使用 `.craft/tasks/` | 空 |
 | `Automations.WorkspaceRoot` | 任务工作区根目录，留空使用系统临时目录 | 空 |
 | `Automations.PollingInterval` | 轮询间隔 | `00:00:30` |

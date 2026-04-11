@@ -260,7 +260,7 @@ Automations provides a unified task automation pipeline supporting local tasks a
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|
-| `Automations.Enabled` | Enable the Automations orchestrator | `false` |
+| `Automations.Enabled` | Enable the Automations orchestrator | `true` |
 | `Automations.LocalTasksRoot` | Local task root directory; empty uses `.craft/tasks/` | empty |
 | `Automations.WorkspaceRoot` | Task workspace root; empty uses system temp directory | empty |
 | `Automations.PollingInterval` | Polling interval | `00:00:30` |

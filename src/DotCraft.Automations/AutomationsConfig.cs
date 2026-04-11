@@ -8,8 +8,8 @@ namespace DotCraft.Automations;
 [ConfigSection("Automations", DisplayName = "Automations", Order = 45)]
 public sealed class AutomationsConfig
 {
-    /// <summary>When true, the Automations channel service is enabled (Gateway mode).</summary>
-    public bool Enabled { get; set; }
+    /// <summary>When true, the Automations channel service is enabled (Gateway mode). Enabled by default.</summary>
+    public bool Enabled { get; set; } = true;
 
     /// <summary>Root directory under which per-task workspace directories are created.</summary>
     public string WorkspaceRoot { get; set; } = Path.Combine(
