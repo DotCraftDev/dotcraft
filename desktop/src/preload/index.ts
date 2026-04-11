@@ -226,6 +226,13 @@ const api = {
      */
     deleteFile(absPath: string): Promise<void> {
       return ipcRenderer.invoke('file:delete', absPath)
+    },
+
+    /**
+     * Returns true when the given absolute path exists within the workspace.
+     */
+    exists(absPath: string): Promise<boolean> {
+      return ipcRenderer.invoke('file:exists', absPath)
     }
   },
 

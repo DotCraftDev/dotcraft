@@ -14,6 +14,8 @@ public class FakeWorkItemTracker : IWorkItemTracker
     public Dictionary<string, string> StateSnapshots { get; set; } = [];
 
     public List<(string PullNumber, string Body, string Event)> SubmittedReviews { get; } = [];
+    public Dictionary<string, IReadOnlyList<PullRequestChangedFile>> PullRequestFiles { get; set; } = [];
+    public Dictionary<string, IReadOnlyList<PullRequestReviewFinding>> PullRequestFindings { get; set; } = [];
 
     /// <summary>Optional callback invoked at the start of FetchWorkItemStatesByIdsAsync for observation in tests.</summary>
     public Action<IReadOnlyList<string>>? OnFetchWorkItemStatesByIds { get; set; }
@@ -47,4 +49,18 @@ public class FakeWorkItemTracker : IWorkItemTracker
 
     public Task<string> FetchPullRequestDiffAsync(string pullNumber, CancellationToken ct = default)
         => Task.FromResult(string.Empty);
+
+    public Task<IReadOnlyList<PullRequestChangedFile>> FetchPullRequestFilesAsync(
+        string pullNumber, CancellationToken ct = default)
+    {
+        PullRequestFiles.TryGetValue(pullNumber, out var files);
+        return Task.FromResult(files ?? (IReadOnlyList<PullRequestChangedFile>)[]);
+    }
+
+    public Task<IReadOnlyList<PullRequestReviewFinding>> FetchBotReviewsAsync(
+        string pullNumber, CancellationToken ct = default)
+    {
+        PullRequestFindings.TryGetValue(pullNumber, out var findings);
+        return Task.FromResult(findings ?? (IReadOnlyList<PullRequestReviewFinding>)[]);
+    }
 }

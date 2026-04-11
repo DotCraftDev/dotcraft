@@ -325,7 +325,7 @@ public sealed class AppConfig
         return overrideNode.DeepClone();
     }
 
-    internal static readonly JsonSerializerOptions SerializerOptions = new()
+    public static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter() }

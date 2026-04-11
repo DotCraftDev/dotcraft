@@ -23,6 +23,12 @@ public sealed class DotCraftModuleAttribute : Attribute
     public string? Description { get; set; }
 
     /// <summary>
+    /// Gets or sets whether the module can be selected as the primary startup host.
+    /// Background capability modules should leave this as <see langword="false"/>.
+    /// </summary>
+    public bool CanBePrimaryHost { get; set; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="DotCraftModuleAttribute"/> class.
     /// </summary>
     /// <param name="name">The unique name of the module.</param>
@@ -30,5 +36,6 @@ public sealed class DotCraftModuleAttribute : Attribute
     {
         Name = name;
         Priority = 0;
+        CanBePrimaryHost = false;
     }
 }

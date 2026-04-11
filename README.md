@@ -87,6 +87,10 @@ dotcraft
 
 On the first run, DotCraft initializes `.craft/` for the workspace. If no `ApiKey` is configured, it opens a local Dashboard to guide setup. After saving, run `dotcraft` again to enter the CLI.
 
+- `dotcraft` starts the CLI.
+- `dotcraft app-server [--listen ...]` starts AppServer.
+- `dotcraft gateway` starts the Gateway host.
+
 **Example session**:
 
 ```
@@ -200,6 +204,8 @@ TUI is a terminal interface built on Ratatui, connecting to AppServer over Wire 
 
 AppServer exposes DotCraft's Agent capabilities as a wire protocol (JSON-RPC) server over stdio or WebSocket, enabling remote CLI connections, multi-client access, and custom integrations in any language. See the [AppServer Guide](./docs/en/appserver_guide.md).
 
+Start it explicitly with `dotcraft app-server`.
+
 ### Desktop
 
 DotCraft Desktop is an Electron + React application that acts as a graphical client for AppServer. Over the Wire Protocol it consumes server-side session, approval, plan, cron, and automation capabilities, providing a three-panel workspace with multi-session management, real-time streaming conversation, and inline diff review with one-click revert.
@@ -240,7 +246,7 @@ The repository includes two reference adapters:
 
 ### Automations
 
-DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. Enabling the `Automations` module runs local tasks; enabling `GitHubTracker` additionally contributes `GitHubAutomationSource`, so GitHub issues and pull requests are polled, dispatched, and reviewed through the same AppServer-hosted pipeline and appear alongside local tasks in the Desktop Automations panel. See the [Automations Guide](./docs/en/automations_guide.md).
+DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. `Automations.Enabled` defaults to `true`, while `GitHubTracker.Enabled` stays `false` until you opt in. Bare `dotcraft` still starts the CLI; use `dotcraft gateway` when you want a dedicated host process for concurrent channels and automations. See the [Automations Guide](./docs/en/automations_guide.md).
 
 | Desktop Automations | GitHub tracker |
 |:---:|:---:|
@@ -276,7 +282,7 @@ You can customize agent behavior through files such as `.craft/AGENTS.md`, `.cra
 
 **Setup and operations**
 
-- [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, Gateway
+- [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, startup modes, Gateway
 - [Dashboard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
 - [Automations Guide](./docs/en/automations_guide.md): local tasks and GitHub issue/PR orchestration, agent dispatch, and human review flow
 

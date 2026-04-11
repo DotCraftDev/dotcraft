@@ -8,8 +8,8 @@ namespace DotCraft.Automations;
 [ConfigSection("Automations", DisplayName = "Automations", Order = 45)]
 public sealed class AutomationsConfig
 {
-    /// <summary>When true, the Automations channel service is enabled (Gateway mode).</summary>
-    public bool Enabled { get; set; }
+    /// <summary>When true, the Automations channel service is enabled (Gateway mode). Enabled by default.</summary>
+    public bool Enabled { get; set; } = true;
 
     /// <summary>Root directory under which per-task workspace directories are created.</summary>
     public string WorkspaceRoot { get; set; } = Path.Combine(
@@ -26,9 +26,9 @@ public sealed class AutomationsConfig
     public int MaxConcurrentTasks { get; set; } = 3;
 
     /// <summary>
-    /// Root directory for local task files. When empty, uses <c>{workspaceRoot}/.craft/tasks/</c>.
+    /// Root directory for local task files. When empty, uses <c>{CraftPath}/tasks/</c>.
     /// </summary>
-    [ConfigField(Hint = "Root directory for local task files. Leave blank for {workspaceRoot}/.craft/tasks/.")]
+    [ConfigField(Hint = "Root directory for local task files. Leave blank for {CraftPath}/tasks/.")]
     public string LocalTasksRoot { get; set; } = "";
 
     /// <summary>

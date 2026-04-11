@@ -62,6 +62,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
+  const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
   const { addThread, setActiveThreadId } = useThreadStore()
 
   const isConnected = connectionStatus === 'connected'
@@ -622,6 +623,23 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                 title={t('composer.modelListLoading')}
               >
                 {t('composer.modelListLoading')}
+              </span>
+            ) : modelListUnsupportedEndpoint ? (
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-dimmed)',
+                  display: 'inline-block',
+                  width: '170px',
+                  minWidth: '170px',
+                  maxWidth: '170px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+                title={t('composer.modelListUnsupportedTitle')}
+              >
+                {modelName === 'Default' ? t('composer.defaultModel') : modelName}
               </span>
             ) : effectiveModelOptions.length > 0 ? (
               <select

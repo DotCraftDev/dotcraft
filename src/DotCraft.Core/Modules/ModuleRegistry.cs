@@ -41,11 +41,28 @@ public sealed class ModuleRegistry
     }
 
     /// <summary>
+    /// Gets enabled modules that can act as the primary host, sorted by priority (highest first).
+    /// </summary>
+    public List<IDotCraftModule> GetEnabledPrimaryHostModules(AppConfig config)
+    {
+        return GetEnabledModules(config)
+            .Where(m => m.CanBePrimaryHost)
+            .ToList();
+    }
+
+    /// <summary>
     /// Selects the primary module (highest priority among enabled modules).
     /// </summary>
-    public IDotCraftModule? SelectPrimaryModule(AppConfig config)
+    public IDotCraftModule? SelectPrimaryModule(AppConfig config, string? preferredModuleName = null)
     {
-        return GetEnabledModules(config).FirstOrDefault();
+        var candidates = GetEnabledPrimaryHostModules(config);
+        if (!string.IsNullOrWhiteSpace(preferredModuleName))
+        {
+            return candidates.FirstOrDefault(m =>
+                string.Equals(m.Name, preferredModuleName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return candidates.FirstOrDefault();
     }
 
     /// <summary>

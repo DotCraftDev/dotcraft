@@ -30,7 +30,9 @@ internal sealed class AppServerTestHarness : IDisposable
     private int _requestIdCounter;
 
     public AppServerTestHarness(
-        SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce)
+        SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
+        IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
+        string? workspaceCraftPath = null)
     {
         _tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -46,7 +48,9 @@ internal sealed class AppServerTestHarness : IDisposable
             new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
             serverVersion: "0.0.1-test",
             defaultApprovalDecision: defaultApprovalDecision,
-            hostWorkspacePath: _tempDir);
+            workspaceCraftPath: workspaceCraftPath,
+            hostWorkspacePath: _tempDir,
+            protocolExtensions: protocolExtensions);
 
         Identity = new SessionIdentity
         {

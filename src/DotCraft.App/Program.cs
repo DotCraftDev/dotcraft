@@ -18,7 +18,7 @@ Console.OutputEncoding = Encoding.UTF8;
 var cliArgs = CommandLineArgs.Parse(args);
 var isRemoteCli = cliArgs.Mode == CommandLineArgs.RunMode.Cli
                && !string.IsNullOrWhiteSpace(cliArgs.RemoteUrl);
-var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer
+var isHeadless = cliArgs.Mode is CommandLineArgs.RunMode.Acp or CommandLineArgs.RunMode.AppServer or CommandLineArgs.RunMode.Gateway
               || isRemoteCli;
 
 // -------------------------------------------------------------------------
@@ -166,7 +166,16 @@ if (!configValidationOk && isHeadless)
     return;
 }
 
-var hostBuilder = new HostBuilder(moduleRegistry, config, paths);
+var preferredPrimaryModuleName = cliArgs.Mode switch
+{
+    CommandLineArgs.RunMode.Cli => "cli",
+    CommandLineArgs.RunMode.AppServer => "app-server",
+    CommandLineArgs.RunMode.Gateway => "gateway",
+    CommandLineArgs.RunMode.Acp => "acp",
+    _ => null
+};
+
+var hostBuilder = new HostBuilder(moduleRegistry, config, paths, preferredPrimaryModuleName);
 
 var services = new ServiceCollection()
     .AddSingleton(moduleRegistry)

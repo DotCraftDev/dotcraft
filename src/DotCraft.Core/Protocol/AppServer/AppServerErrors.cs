@@ -70,6 +70,7 @@ public static class AppServerErrors
     public const int ExternalChannelNotFoundCode = -32080;
     public const int ExternalChannelValidationFailedCode = -32081;
     public const int ExternalChannelNameConflictCode = -32082;
+    public const int GitHubTrackerConfigValidationFailedCode = -32090;
 
     // ── Automation-specific codes (-32050 to -32059) ──
 
@@ -160,6 +161,9 @@ public static class AppServerErrors
 
     public static AppServerException ExternalChannelNameConflict(string detail) =>
         new(ExternalChannelNameConflictCode, "External channel name conflict", new { detail });
+
+    public static AppServerException GitHubTrackerConfigValidationFailed(string detail) =>
+        new(GitHubTrackerConfigValidationFailedCode, "GitHub tracker config validation failed", new { detail });
 
     public static AppServerException TaskAlreadyExists(string taskId) =>
         new(TaskAlreadyExistsCode, $"Task already exists: {taskId}");

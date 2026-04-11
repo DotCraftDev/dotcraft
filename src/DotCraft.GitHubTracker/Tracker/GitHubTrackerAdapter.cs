@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -360,6 +361,76 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         return await response.Content.ReadAsStringAsync(ct);
     }
 
+    public async Task<IReadOnlyList<PullRequestChangedFile>> FetchPullRequestFilesAsync(
+        string pullNumber, CancellationToken ct = default)
+    {
+        var changedFiles = new List<PullRequestChangedFile>();
+        var page = 1;
+
+        while (true)
+        {
+            var url = $"/repos/{_owner}/{_repo}/pulls/{pullNumber}/files?per_page=100&page={page}";
+            var response = await _httpClient.GetAsync(url, ct);
+            await EnsureGitHubSuccessAsync(response, $"GET changed files for PR #{pullNumber} for {_owner}/{_repo}", ct);
+
+            var files = await response.Content.ReadFromJsonAsync<List<GitHubPullFile>>(JsonOptions, ct) ?? [];
+            if (files.Count == 0)
+                break;
+
+            changedFiles.AddRange(files.Select(f => new PullRequestChangedFile
+            {
+                Filename = f.Filename ?? "(unknown)",
+                Status = f.Status ?? "modified",
+                Additions = f.Additions ?? 0,
+                Deletions = f.Deletions ?? 0,
+            }));
+
+            if (files.Count < 100)
+                break;
+
+            page++;
+        }
+
+        return changedFiles;
+    }
+
+    public async Task<IReadOnlyList<PullRequestReviewFinding>> FetchBotReviewsAsync(
+        string pullNumber, CancellationToken ct = default)
+    {
+        var findings = new Dictionary<string, PullRequestReviewFinding>(StringComparer.OrdinalIgnoreCase);
+        var page = 1;
+
+        while (true)
+        {
+            var url = $"/repos/{_owner}/{_repo}/pulls/{pullNumber}/reviews?per_page=100&page={page}";
+            var response = await _httpClient.GetAsync(url, ct);
+            await EnsureGitHubSuccessAsync(response, $"GET reviews for PR #{pullNumber} for {_owner}/{_repo}", ct);
+
+            var reviews = await response.Content.ReadFromJsonAsync<List<GitHubReview>>(JsonOptions, ct) ?? [];
+            if (reviews.Count == 0)
+                break;
+
+            foreach (var review in reviews)
+            {
+                if (string.IsNullOrWhiteSpace(review.Body) || !IsBotReviewBody(review.Body))
+                    continue;
+
+                foreach (var finding in ParseFindingsFromReviewBody(review.Body))
+                {
+                    var key = $"{finding.Severity}|{finding.Title}|{finding.Summary}";
+                    findings[key] = finding;
+                }
+            }
+
+            if (reviews.Count < 100)
+                break;
+
+            page++;
+        }
+
+        return findings.Values.ToList();
+    }
+
     #endregion
 
     #region Pull-request helpers
@@ -468,6 +539,67 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 
     #region Issue helpers
 
+    private static bool IsBotReviewBody(string body) =>
+        body.Contains("AI-generated review", StringComparison.OrdinalIgnoreCase)
+        || body.Contains("No material correctness, regression, or security issues found", StringComparison.OrdinalIgnoreCase);
+
+    private static IReadOnlyList<PullRequestReviewFinding> ParseFindingsFromReviewBody(string body)
+    {
+        var findings = new List<PullRequestReviewFinding>();
+
+        var headingMatches = FindingHeadingRegex.Matches(body);
+        for (var i = 0; i < headingMatches.Count; i++)
+        {
+            var current = headingMatches[i];
+            var nextIndex = i + 1 < headingMatches.Count ? headingMatches[i + 1].Index : body.Length;
+            var summary = body.Substring(current.Index + current.Length, nextIndex - (current.Index + current.Length)).Trim();
+            if (string.IsNullOrWhiteSpace(summary))
+                continue;
+
+            var severity = current.Groups["icon"].Value == "🔴"
+                ? ReviewFindingSeverity.Red
+                : ReviewFindingSeverity.Yellow;
+            var title = current.Groups["title"].Value.Trim();
+            findings.Add(new PullRequestReviewFinding
+            {
+                Severity = severity,
+                Title = title,
+                Summary = summary,
+                FilePath = ExtractFilePath(summary),
+                IsResolved = false,
+            });
+        }
+
+        if (findings.Count > 0)
+            return findings;
+
+        var lineBased = LegacyFindingLineRegex.Matches(body);
+        foreach (Match match in lineBased)
+        {
+            var severity = string.Equals(match.Groups["severity"].Value, "RED", StringComparison.OrdinalIgnoreCase)
+                ? ReviewFindingSeverity.Red
+                : ReviewFindingSeverity.Yellow;
+
+            var summary = match.Groups["summary"].Value.Trim();
+            findings.Add(new PullRequestReviewFinding
+            {
+                Severity = severity,
+                Title = match.Groups["title"].Value.Trim(),
+                Summary = summary,
+                FilePath = ExtractFilePath(summary),
+                IsResolved = false,
+            });
+        }
+
+        return findings;
+    }
+
+    private static string? ExtractFilePath(string summary)
+    {
+        var match = FilePathRegex.Match(summary);
+        return match.Success ? match.Value : null;
+    }
+
     private TrackedWorkItem NormalizeIssue(GitHubIssue gh)
     {
         var labels = gh.Labels?.Select(l => l.Name?.ToLowerInvariant() ?? "").Where(l => l.Length > 0).ToList()
@@ -494,6 +626,18 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
     private static readonly Regex BlockedByPattern = new(
         @"(?:blocked\s+by|depends\s+on)\s+#(\d+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex FindingHeadingRegex = new(
+        @"(?m)^(?<icon>🔴|🟡)\s+(?<title>.+?)\s*$",
+        RegexOptions.Compiled);
+
+    private static readonly Regex LegacyFindingLineRegex = new(
+        @"(?m)^-\s+\[(?<severity>RED|YELLOW)\]\s+(?<title>.+?)\s+--\s+(?<summary>.+?)\s*$",
+        RegexOptions.Compiled);
+
+    private static readonly Regex FilePathRegex = new(
+        @"[A-Za-z0-9_\-./]+\.([A-Za-z0-9]+)",
+        RegexOptions.Compiled);
 
     private static IReadOnlyList<BlockerRef> ParseBlockedBy(string? body)
     {
@@ -676,6 +820,15 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
     {
         public string? State { get; set; }
         public GitHubUser? User { get; set; }
+        public string? Body { get; set; }
+    }
+
+    private sealed class GitHubPullFile
+    {
+        public string? Filename { get; set; }
+        public string? Status { get; set; }
+        public int? Additions { get; set; }
+        public int? Deletions { get; set; }
     }
 
     private sealed class GitHubUser

@@ -226,10 +226,24 @@ public sealed class AppServerServerCapabilities
     public bool ExternalChannelManagement { get; set; }
 
     /// <summary>
+    /// Compatibility field for GitHub tracker configuration management methods
+    /// (<c>githubTracker/get</c>, <c>githubTracker/update</c>).
+    /// New clients should prefer <see cref="Extensions"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool GitHubTrackerConfig { get; set; }
+
+    /// <summary>
     /// Server supports MCP runtime status methods/notifications.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool McpStatus { get; set; }
+
+    /// <summary>
+    /// Module-provided capabilities keyed by extension name.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, object>? Extensions { get; set; }
 }
 
 // ───── thread/start ─────
@@ -927,6 +941,8 @@ public sealed class WorkspaceConfigUpdateResult
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? Model { get; set; }
 }
+
+// ───── githubTracker/* (GitHub tracker config management) ─────
 
 // ───── mcp/* (MCP server management) ─────
 

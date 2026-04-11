@@ -33,6 +33,8 @@ interface InputComposerProps {
   modelOptions?: string[]
   modelLoading?: boolean
   modelDisabled?: boolean
+  /** When true, model/list reported that the upstream API does not support listing; show a read-only label. */
+  modelListUnsupportedEndpoint?: boolean
   onModelChange?: (model: string) => void
 }
 
@@ -47,6 +49,7 @@ export function InputComposer({
   modelOptions = [],
   modelLoading = false,
   modelDisabled = false,
+  modelListUnsupportedEndpoint = false,
   onModelChange
 }: InputComposerProps): JSX.Element {
   const t = useT()
@@ -502,6 +505,23 @@ export function InputComposer({
               title={t('composer.modelListLoading')}
             >
               {t('composer.modelListLoading')}
+            </span>
+          ) : modelListUnsupportedEndpoint ? (
+            <span
+              style={{
+                fontSize: '12px',
+                color: 'var(--text-dimmed)',
+                display: 'inline-block',
+                width: '170px',
+                minWidth: '170px',
+                maxWidth: '170px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+              title={t('composer.modelListUnsupportedTitle')}
+            >
+              {modelName === 'Default' ? t('composer.defaultModel') : modelName}
             </span>
           ) : effectiveModelOptions.length > 0 ? (
             <select

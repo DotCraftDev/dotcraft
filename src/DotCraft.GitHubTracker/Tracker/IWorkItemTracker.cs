@@ -45,4 +45,16 @@ public interface IWorkItemTracker
     /// Fetch the diff content for a pull request.
     /// </summary>
     Task<string> FetchPullRequestDiffAsync(string pullNumber, CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetch changed files metadata for a pull request.
+    /// </summary>
+    Task<IReadOnlyList<PullRequestChangedFile>> FetchPullRequestFilesAsync(
+        string pullNumber, CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetch previously submitted bot findings for a pull request.
+    /// </summary>
+    Task<IReadOnlyList<PullRequestReviewFinding>> FetchBotReviewsAsync(
+        string pullNumber, CancellationToken ct = default);
 }

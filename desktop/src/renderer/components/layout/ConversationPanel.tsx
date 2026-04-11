@@ -29,6 +29,7 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
   const capabilities = useConnectionStore((s) => s.capabilities)
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
+  const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
   const [modelName, setModelName] = useState<string>('Default')
   const [modelApplying, setModelApplying] = useState(false)
 
@@ -276,6 +277,7 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
         modelOptions={modelOptions}
         modelLoading={modelLoading}
         modelDisabled={modelApplying || !modelApiAvailable}
+        modelListUnsupportedEndpoint={modelListUnsupportedEndpoint}
         onModelChange={(m) => {
           void handleModelChange(m)
         }}

@@ -13,7 +13,7 @@ namespace DotCraft.AppServer;
 /// AppServer module: exposes the DotCraft Session Wire Protocol over stdio (JSON-RPC 2.0 JSONL).
 /// Enabled via the <c>app-server</c> subcommand or <c>AppServer.Enabled = true</c> in config.
 /// </summary>
-[DotCraftModule("app-server", Priority = 250, Description = "AppServer: JSON-RPC 2.0 Session Wire Protocol over stdio for multi-language client integration")]
+[DotCraftModule("app-server", Priority = 250, Description = "AppServer: JSON-RPC 2.0 Session Wire Protocol over stdio for multi-language client integration", CanBePrimaryHost = true)]
 public sealed partial class AppServerModule : ModuleBase
 {
     /// <inheritdoc />

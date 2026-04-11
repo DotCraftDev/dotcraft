@@ -41,7 +41,8 @@ public sealed class AppServerRequestHandler(
     WireAcpExtensionProxy? wireAcpExtensionProxy = null,
     CommandRegistry? commandRegistry = null,
     IChannelStatusProvider? channelStatusProvider = null,
-    McpClientManager? mcpClientManager = null)
+    McpClientManager? mcpClientManager = null,
+    IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -69,6 +70,62 @@ public sealed class AppServerRequestHandler(
     /// host workspace root (AppServer / Gateway process workspace).
     /// </summary>
     private readonly string? _hostWorkspacePath = hostWorkspacePath;
+
+    private readonly IReadOnlyDictionary<string, IAppServerMethodHandler> _extensionMethods =
+        BuildExtensionMethodMap(protocolExtensions);
+
+    private readonly IReadOnlyList<IAppServerCapabilityContributor> _capabilityContributors =
+        protocolExtensions?.Cast<IAppServerCapabilityContributor>().ToArray()
+        ?? [];
+
+    private static readonly HashSet<string> ReservedMethodNames =
+    [
+        AppServerMethods.Initialize,
+        AppServerMethods.ChannelList,
+        AppServerMethods.ChannelStatus,
+        AppServerMethods.ModelList,
+        AppServerMethods.ThreadStart,
+        AppServerMethods.ThreadResume,
+        AppServerMethods.ThreadList,
+        AppServerMethods.ThreadRead,
+        AppServerMethods.ThreadSubscribe,
+        AppServerMethods.ThreadUnsubscribe,
+        AppServerMethods.ThreadPause,
+        AppServerMethods.ThreadArchive,
+        AppServerMethods.ThreadDelete,
+        AppServerMethods.ThreadRename,
+        AppServerMethods.ThreadModeSet,
+        AppServerMethods.ThreadConfigUpdate,
+        AppServerMethods.TurnStart,
+        AppServerMethods.TurnInterrupt,
+        AppServerMethods.WorkspaceCommitMessageSuggest,
+        AppServerMethods.WorkspaceConfigUpdate,
+        AppServerMethods.CronList,
+        AppServerMethods.CronRemove,
+        AppServerMethods.CronEnable,
+        AppServerMethods.HeartbeatTrigger,
+        AppServerMethods.SkillsList,
+        AppServerMethods.SkillsRead,
+        AppServerMethods.SkillsSetEnabled,
+        AppServerMethods.CommandList,
+        AppServerMethods.CommandExecute,
+        AppServerMethods.AutomationTaskList,
+        AppServerMethods.AutomationTaskRead,
+        AppServerMethods.AutomationTaskCreate,
+        AppServerMethods.AutomationTaskApprove,
+        AppServerMethods.AutomationTaskReject,
+        AppServerMethods.AutomationTaskDelete,
+        AppServerMethods.McpList,
+        AppServerMethods.McpGet,
+        AppServerMethods.McpUpsert,
+        AppServerMethods.McpRemove,
+        AppServerMethods.McpStatusList,
+        AppServerMethods.McpTest,
+        AppServerMethods.ExternalChannelList,
+        AppServerMethods.ExternalChannelGet,
+        AppServerMethods.ExternalChannelUpsert,
+        AppServerMethods.ExternalChannelRemove
+    ];
 
     // -------------------------------------------------------------------------
     // Main dispatch
@@ -145,7 +202,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
                 AppServerMethods.WorkspaceCommitMessageSuggest => HandleWorkspaceCommitMessageSuggestAsync(msg, ct),
                 AppServerMethods.WorkspaceConfigUpdate => HandleWorkspaceConfigUpdateAsync(msg, ct),
-                _ => throw AppServerErrors.MethodNotFound(method)
+                _ => TryHandleExtensionAsync(method, msg, ct)
             });
         }
         catch (KeyNotFoundException ex)
@@ -177,6 +234,30 @@ public sealed class AppServerRequestHandler(
         if (!connection.TryMarkInitialized(p.ClientInfo, p.Capabilities))
             throw AppServerErrors.AlreadyInitialized();
 
+        var capabilities = new AppServerServerCapabilities
+        {
+            ThreadManagement = true,
+            ThreadSubscriptions = true,
+            ApprovalFlow = true,
+            ModeSwitch = true,
+            ConfigOverride = true,
+            CronManagement = cronService != null,
+            HeartbeatManagement = heartbeatService != null,
+            SkillsManagement = skillsLoader != null,
+            CommandManagement = true,
+            Automations = automationsHandler != null,
+            ChannelStatus = _channelStatusProvider != null,
+            ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
+            WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
+            McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _mcpClientManager != null,
+            ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
+            McpStatus = _mcpClientManager != null
+        };
+
+        var capabilityBuilder = new AppServerCapabilityBuilder(capabilities, workspaceCraftPath);
+        foreach (var contributor in _capabilityContributors)
+            contributor.ContributeCapabilities(capabilityBuilder);
+
         var result = new AppServerInitializeResult
         {
             ServerInfo = new AppServerServerInfo
@@ -185,25 +266,7 @@ public sealed class AppServerRequestHandler(
                 Version = serverVersion,
                 ProtocolVersion = "1"
             },
-            Capabilities = new AppServerServerCapabilities
-            {
-                ThreadManagement = true,
-                ThreadSubscriptions = true,
-                ApprovalFlow = true,
-                ModeSwitch = true,
-                ConfigOverride = true,
-                CronManagement = cronService != null,
-                HeartbeatManagement = heartbeatService != null,
-                SkillsManagement = skillsLoader != null,
-                CommandManagement = true,
-                Automations = automationsHandler != null,
-                ChannelStatus = _channelStatusProvider != null,
-                ModelCatalogManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
-                WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
-                McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _mcpClientManager != null,
-                ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
-                McpStatus = _mcpClientManager != null
-            },
+            Capabilities = capabilities,
             DashboardUrl = _dashboardUrl
         };
 
@@ -1618,6 +1681,12 @@ public sealed class AppServerRequestHandler(
         return end > start ? message[(start + 1)..end] : string.Empty;
     }
 
+    private static string? NormalizeOptionalString(string? value)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
     private static string? NormalizeWorkspaceModel(string? rawModel)
     {
         var trimmed = rawModel?.Trim();
@@ -1697,6 +1766,44 @@ public sealed class AppServerRequestHandler(
 
         value = default;
         return false;
+    }
+
+    private Task<object?> TryHandleExtensionAsync(string method, AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (!_extensionMethods.TryGetValue(method, out var handler))
+            throw AppServerErrors.MethodNotFound(method);
+
+        return handler.HandleAsync(
+            msg,
+            new AppServerExtensionContext(
+                connection,
+                transport,
+                workspaceCraftPath,
+                _hostWorkspacePath,
+                ct));
+    }
+
+    private static IReadOnlyDictionary<string, IAppServerMethodHandler> BuildExtensionMethodMap(
+        IEnumerable<IAppServerProtocolExtension>? protocolExtensions)
+    {
+        if (protocolExtensions == null)
+            return new Dictionary<string, IAppServerMethodHandler>(StringComparer.Ordinal);
+
+        var methods = new Dictionary<string, IAppServerMethodHandler>(StringComparer.Ordinal);
+        foreach (var extension in protocolExtensions)
+        {
+            foreach (var method in extension.Methods)
+            {
+                if (string.IsNullOrWhiteSpace(method))
+                    throw new InvalidOperationException("AppServer extension method names must be non-empty.");
+                if (ReservedMethodNames.Contains(method))
+                    throw new InvalidOperationException($"AppServer extension method '{method}' conflicts with a Core protocol method.");
+                if (!methods.TryAdd(method, extension))
+                    throw new InvalidOperationException($"Duplicate AppServer extension method registration: '{method}'.");
+            }
+        }
+
+        return methods;
     }
 
     private Task<object?> RouteAutomation(Func<IAutomationsRequestHandler, Task<object?>> action)

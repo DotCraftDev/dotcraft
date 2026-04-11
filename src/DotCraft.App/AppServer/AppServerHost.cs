@@ -84,6 +84,9 @@ public sealed class AppServerHost(
     /// </summary>
     private readonly ConcurrentDictionary<IAppServerTransport, AppServerConnection> _activeTransports = new();
 
+    private IReadOnlyList<IAppServerProtocolExtension> ProtocolExtensions =>
+        sp.GetServices<IAppServerProtocolExtension>().ToArray();
+
     private ModuleRegistryChannelListContributor CreateChannelListContributor() =>
         new(moduleRegistry, _cronService, _heartbeatService);
 
@@ -355,7 +358,8 @@ public sealed class AppServerHost(
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
             channelStatusProvider: _channelRunner,
             mcpClientManager: mcpClientManager,
-            broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
+            broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
+            protocolExtensions: ProtocolExtensions);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -418,7 +422,8 @@ public sealed class AppServerHost(
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
             channelStatusProvider: _channelRunner,
             mcpClientManager: mcpClientManager,
-            broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
+            broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
+            protocolExtensions: ProtocolExtensions);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -503,7 +508,8 @@ public sealed class AppServerHost(
                     wireAcpExtensionProxy: _wireAcpExtensionProxy,
                     channelStatusProvider: _channelRunner,
                     mcpClientManager: mcpClientManager,
-                    broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
+                    broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
+                    protocolExtensions: ProtocolExtensions);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
