@@ -201,6 +201,108 @@ public sealed class StructuredReviewSubmissionTests
             r => r.Path.EndsWith("/pulls/123/comments", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task SubmitStructuredReviewAsync_DeletedFileLeftAnchor_IsAcceptedAndSubmitted()
+    {
+        const string deletedPath = "src/Deleted.cs";
+
+        var handler = new RecordingHttpMessageHandler();
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestJson("head-sha-123"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123/files", HttpStatusCode.OK, BuildPullRequestFilesJson(deletedPath, status: "removed", additions: 0, deletions: 3));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildDeletedFileDiff(deletedPath, 40, 42));
+        handler.Enqueue(HttpMethod.Post, "/pulls/123/reviews", HttpStatusCode.OK, "{}");
+
+        var adapter = CreateAdapter(handler);
+        var summary = new PullRequestReviewSummary
+        {
+            MajorCount = 1,
+            MinorCount = 0,
+            SuggestionCount = 0,
+            Body = "Found issue in deleted file.",
+        };
+        var comments = new[]
+        {
+            new PullRequestInlineComment
+            {
+                Severity = ReviewFindingSeverity.Red,
+                Title = "Deletion review note",
+                Body = "This removed line needs additional migration context.",
+                Path = deletedPath,
+                Line = 41,
+                Side = PullRequestReviewCommentSide.Left,
+            },
+        };
+
+        var result = await adapter.SubmitStructuredReviewAsync("123", summary, comments);
+
+        Assert.True(result.SummaryPosted);
+        Assert.Equal(1, result.InlineRequestedCount);
+        Assert.Equal(1, result.InlinePostedCount);
+        Assert.Equal(0, result.InlineFailedCount);
+        Assert.DoesNotContain(result.Warnings, w => w.Contains("has no commentable diff hunks", StringComparison.OrdinalIgnoreCase));
+
+        var reviewRequest = Assert.Single(
+            handler.Requests,
+            r => r.Method == HttpMethod.Post &&
+                r.Path.EndsWith("/pulls/123/reviews", StringComparison.Ordinal));
+
+        using var payload = JsonDocument.Parse(reviewRequest.Body);
+        var inline = Assert.Single(payload.RootElement.GetProperty("comments").EnumerateArray());
+        Assert.Equal(deletedPath, inline.GetProperty("path").GetString());
+        Assert.Equal(41, inline.GetProperty("line").GetInt32());
+        Assert.Equal("LEFT", inline.GetProperty("side").GetString());
+    }
+
+    [Fact]
+    public async Task SubmitStructuredReviewAsync_DeletedFileRightAnchor_IsRejectedWithWarning()
+    {
+        const string deletedPath = "src/Deleted.cs";
+
+        var handler = new RecordingHttpMessageHandler();
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestJson("head-sha-123"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123/files", HttpStatusCode.OK, BuildPullRequestFilesJson(deletedPath, status: "removed", additions: 0, deletions: 3));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildDeletedFileDiff(deletedPath, 40, 42));
+        handler.Enqueue(HttpMethod.Post, "/pulls/123/reviews", HttpStatusCode.OK, "{}");
+
+        var adapter = CreateAdapter(handler);
+        var summary = new PullRequestReviewSummary
+        {
+            MajorCount = 0,
+            MinorCount = 1,
+            SuggestionCount = 0,
+            Body = "Found review notes.",
+        };
+        var comments = new[]
+        {
+            new PullRequestInlineComment
+            {
+                Severity = ReviewFindingSeverity.Yellow,
+                Title = "Wrong side",
+                Body = "RIGHT side should not be commentable for deleted lines.",
+                Path = deletedPath,
+                Line = 41,
+                Side = PullRequestReviewCommentSide.Right,
+            },
+        };
+
+        var result = await adapter.SubmitStructuredReviewAsync("123", summary, comments);
+
+        Assert.True(result.SummaryPosted);
+        Assert.Equal(1, result.InlineRequestedCount);
+        Assert.Equal(0, result.InlinePostedCount);
+        Assert.Equal(1, result.InlineFailedCount);
+        Assert.Contains(
+            result.Warnings,
+            warning => warning.Contains("not commentable on the RIGHT side", StringComparison.OrdinalIgnoreCase));
+
+        var reviewRequest = Assert.Single(
+            handler.Requests,
+            r => r.Method == HttpMethod.Post &&
+                r.Path.EndsWith("/pulls/123/reviews", StringComparison.Ordinal));
+        using var payload = JsonDocument.Parse(reviewRequest.Body);
+        Assert.False(payload.RootElement.TryGetProperty("comments", out _));
+    }
+
     private static GitHubTrackerAdapter CreateAdapter(HttpMessageHandler handler)
     {
         var config = new GitHubTrackerConfig
@@ -242,15 +344,19 @@ public sealed class StructuredReviewSubmissionTests
             },
         });
 
-    private static string BuildPullRequestFilesJson(string path) =>
+    private static string BuildPullRequestFilesJson(
+        string path,
+        string status = "modified",
+        int additions = 3,
+        int deletions = 1) =>
         JsonSerializer.Serialize(new[]
         {
             new
             {
                 filename = path,
-                status = "modified",
-                additions = 3,
-                deletions = 1,
+                status,
+                additions,
+                deletions,
             },
         });
 
@@ -266,6 +372,22 @@ public sealed class StructuredReviewSubmissionTests
 
         for (var line = startLine; line <= endLine; line++)
             lines.Add($"+line {line}");
+
+        return string.Join("\n", lines);
+    }
+
+    private static string BuildDeletedFileDiff(string path, int startLine, int endLine)
+    {
+        var lines = new List<string>
+        {
+            $"diff --git a/{path} b/{path}",
+            $"--- a/{path}",
+            "+++ /dev/null",
+            $"@@ -{startLine},{Math.Max(1, endLine - startLine + 1)} +0,0 @@",
+        };
+
+        for (var line = startLine; line <= endLine; line++)
+            lines.Add($"-line {line}");
 
         return string.Join("\n", lines);
     }

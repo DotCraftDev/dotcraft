@@ -784,6 +784,7 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
     {
         var result = new Dictionary<string, FileDiffAnchors>(StringComparer.Ordinal);
         FileDiffAnchors? currentAnchors = null;
+        string? lastLeftPath = null;
         int? leftLine = null;
         int? rightLine = null;
 
@@ -793,8 +794,15 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
             if (line.StartsWith("diff --git ", StringComparison.Ordinal))
             {
                 currentAnchors = null;
+                lastLeftPath = null;
                 leftLine = null;
                 rightLine = null;
+                continue;
+            }
+
+            if (line.StartsWith("--- a/", StringComparison.Ordinal))
+            {
+                lastLeftPath = line["--- a/".Length..];
                 continue;
             }
 
@@ -805,6 +813,26 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
                 {
                     currentAnchors = new FileDiffAnchors();
                     result[path] = currentAnchors;
+                }
+
+                leftLine = null;
+                rightLine = null;
+                continue;
+            }
+
+            if (line.StartsWith("+++ /dev/null", StringComparison.Ordinal))
+            {
+                if (!string.IsNullOrWhiteSpace(lastLeftPath))
+                {
+                    if (!result.TryGetValue(lastLeftPath, out currentAnchors))
+                    {
+                        currentAnchors = new FileDiffAnchors();
+                        result[lastLeftPath] = currentAnchors;
+                    }
+                }
+                else
+                {
+                    currentAnchors = null;
                 }
 
                 leftLine = null;
