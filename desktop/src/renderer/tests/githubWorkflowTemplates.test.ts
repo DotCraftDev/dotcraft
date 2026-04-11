@@ -21,7 +21,8 @@ describe('github workflow templates', () => {
     expect(output).toContain('max_turns: 12')
     expect(output).toContain('max_concurrent_pull_request_agents: 3')
     expect(output).toContain('Use a strict bar.')
-    expect(output).toContain('always use `COMMENT`')
+    expect(output).toContain('SubmitStructuredReview')
+    expect(output).toContain('No issues found.')
   })
 
   it('builds an issue workflow in plan-only mode', () => {

@@ -14,6 +14,7 @@ public class FakeWorkItemTracker : IWorkItemTracker
     public Dictionary<string, string> StateSnapshots { get; set; } = [];
 
     public List<(string PullNumber, string Body, string Event)> SubmittedReviews { get; } = [];
+    public List<(string PullNumber, PullRequestReviewSummary Summary, IReadOnlyList<PullRequestInlineComment> Comments)> SubmittedStructuredReviews { get; } = [];
     public Dictionary<string, IReadOnlyList<PullRequestChangedFile>> PullRequestFiles { get; set; } = [];
     public Dictionary<string, IReadOnlyList<PullRequestReviewFinding>> PullRequestFindings { get; set; } = [];
 
@@ -44,6 +45,16 @@ public class FakeWorkItemTracker : IWorkItemTracker
     public virtual Task SubmitReviewAsync(string pullNumber, string body, string @event, CancellationToken ct = default)
     {
         SubmittedReviews.Add((pullNumber, body, @event));
+        return Task.CompletedTask;
+    }
+
+    public virtual Task SubmitStructuredReviewAsync(
+        string pullNumber,
+        PullRequestReviewSummary summary,
+        IReadOnlyList<PullRequestInlineComment> comments,
+        CancellationToken ct = default)
+    {
+        SubmittedStructuredReviews.Add((pullNumber, summary, comments));
         return Task.CompletedTask;
     }
 

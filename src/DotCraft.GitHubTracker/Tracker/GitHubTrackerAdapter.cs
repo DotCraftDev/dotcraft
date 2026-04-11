@@ -348,6 +348,38 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
             await EnsureGitHubSuccessAsync(response, $"POST review ({@event}) on PR #{pullNumber} for {_owner}/{_repo}", ct);
     }
 
+    public async Task SubmitStructuredReviewAsync(
+        string pullNumber,
+        PullRequestReviewSummary summary,
+        IReadOnlyList<PullRequestInlineComment> comments,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(summary);
+        ArgumentNullException.ThrowIfNull(comments);
+
+        if (comments.Count == 0)
+        {
+            await SubmitReviewAsync(pullNumber, summary.Body, "COMMENT", ct);
+            return;
+        }
+
+        var commitId = await FetchPullRequestHeadShaAsync(pullNumber, ct);
+        try
+        {
+            await SubmitStructuredReviewBatchAsync(pullNumber, summary, comments, commitId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to submit batched structured review on PR #{Number}; falling back to summary plus inline comments",
+                pullNumber);
+
+            await SubmitReviewAsync(pullNumber, summary.Body, "COMMENT", ct);
+            await SubmitInlineCommentsFallbackAsync(pullNumber, comments, commitId, ct);
+        }
+    }
+
     public async Task<string> FetchPullRequestDiffAsync(string pullNumber, CancellationToken ct = default)
     {
         var request = new HttpRequestMessage(HttpMethod.Get,
@@ -434,6 +466,168 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
     #endregion
 
     #region Pull-request helpers
+
+    private async Task SubmitStructuredReviewBatchAsync(
+        string pullNumber,
+        PullRequestReviewSummary summary,
+        IReadOnlyList<PullRequestInlineComment> comments,
+        string commitId,
+        CancellationToken ct)
+    {
+        var url = $"/repos/{_owner}/{_repo}/pulls/{pullNumber}/reviews";
+        var payload = JsonSerializer.Serialize(new
+        {
+            commit_id = commitId,
+            body = summary.Body,
+            @event = "COMMENT",
+            comments = comments.Select(comment => new Dictionary<string, object?>
+            {
+                ["path"] = comment.Path,
+                ["body"] = BuildInlineCommentBody(comment, includeSuggestion: true),
+                ["line"] = comment.Line,
+                ["side"] = ToGitHubSide(comment.Side),
+                ["start_line"] = comment.StartLine,
+                ["start_side"] = comment.StartLine.HasValue
+                    ? ToGitHubSide(comment.StartSide ?? comment.Side)
+                    : null,
+            }).ToArray(),
+        }, JsonOptions);
+
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync(url, content, ct);
+        await EnsureGitHubSuccessAsync(
+            response,
+            $"POST structured review (COMMENT) on PR #{pullNumber} for {_owner}/{_repo}",
+            ct);
+
+        _logger.LogInformation(
+            "Submitted structured COMMENT review on PR #{Number} with {Count} inline comments",
+            pullNumber,
+            comments.Count);
+    }
+
+    private async Task SubmitInlineCommentsFallbackAsync(
+        string pullNumber,
+        IReadOnlyList<PullRequestInlineComment> comments,
+        string commitId,
+        CancellationToken ct)
+    {
+        foreach (var comment in comments)
+        {
+            try
+            {
+                await SubmitInlineCommentAsync(
+                    pullNumber,
+                    comment,
+                    commitId,
+                    includeSuggestion: true,
+                    ct);
+            }
+            catch (Exception ex) when (comment.Suggestion != null)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to submit inline suggestion on PR #{Number} for {Path}:{Line}; retrying without suggestion",
+                    pullNumber,
+                    comment.Path,
+                    comment.Line);
+
+                try
+                {
+                    await SubmitInlineCommentAsync(
+                        pullNumber,
+                        comment,
+                        commitId,
+                        includeSuggestion: false,
+                        ct);
+                }
+                catch (Exception innerEx)
+                {
+                    _logger.LogWarning(
+                        innerEx,
+                        "Failed to submit inline fallback comment on PR #{Number} for {Path}:{Line}",
+                        pullNumber,
+                        comment.Path,
+                        comment.Line);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to submit inline fallback comment on PR #{Number} for {Path}:{Line}",
+                    pullNumber,
+                    comment.Path,
+                    comment.Line);
+            }
+        }
+    }
+
+    private async Task SubmitInlineCommentAsync(
+        string pullNumber,
+        PullRequestInlineComment comment,
+        string commitId,
+        bool includeSuggestion,
+        CancellationToken ct)
+    {
+        var url = $"/repos/{_owner}/{_repo}/pulls/{pullNumber}/comments";
+        var payload = JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["body"] = BuildInlineCommentBody(comment, includeSuggestion),
+            ["commit_id"] = commitId,
+            ["path"] = comment.Path,
+            ["line"] = comment.Line,
+            ["side"] = ToGitHubSide(comment.Side),
+            ["start_line"] = comment.StartLine,
+            ["start_side"] = comment.StartLine.HasValue
+                ? ToGitHubSide(comment.StartSide ?? comment.Side)
+                : null,
+        }, JsonOptions);
+
+        var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync(url, content, ct);
+        await EnsureGitHubSuccessAsync(
+            response,
+            $"POST inline review comment on PR #{pullNumber} for {_owner}/{_repo}",
+            ct);
+    }
+
+    private async Task<string> FetchPullRequestHeadShaAsync(string pullNumber, CancellationToken ct)
+    {
+        var url = $"/repos/{_owner}/{_repo}/pulls/{pullNumber}";
+        var response = await _httpClient.GetAsync(url, ct);
+        await EnsureGitHubSuccessAsync(response, $"GET PR #{pullNumber} for {_owner}/{_repo}", ct);
+
+        var pr = await response.Content.ReadFromJsonAsync<GitHubPull>(JsonOptions, ct);
+        if (string.IsNullOrWhiteSpace(pr?.Head?.Sha))
+            throw new InvalidOperationException($"PR #{pullNumber} did not return a head SHA.");
+
+        return pr.Head.Sha;
+    }
+
+    private static string BuildInlineCommentBody(PullRequestInlineComment comment, bool includeSuggestion)
+    {
+        var sections = new List<string>
+        {
+            $"**{comment.Title.Trim()}**",
+            comment.Body.Trim(),
+        };
+
+        if (includeSuggestion && comment.Suggestion != null)
+        {
+            sections.Add(
+                string.Join(
+                    "\n",
+                    "```suggestion",
+                    comment.Suggestion.Replacement.TrimEnd(),
+                    "```"));
+        }
+
+        return string.Join("\n\n", sections.Where(s => !string.IsNullOrWhiteSpace(s)));
+    }
+
+    private static string ToGitHubSide(PullRequestReviewCommentSide side) =>
+        side.ToString().ToUpperInvariant();
 
     private async Task<PullRequestReviewState> FetchAggregatedReviewStateAsync(int prNumber, CancellationToken ct)
     {
@@ -541,7 +735,8 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 
     private static bool IsBotReviewBody(string body) =>
         body.Contains("AI-generated review", StringComparison.OrdinalIgnoreCase)
-        || body.Contains("No material correctness, regression, or security issues found", StringComparison.OrdinalIgnoreCase);
+        || body.Contains("No material correctness, regression, or security issues found", StringComparison.OrdinalIgnoreCase)
+        || body.Contains("No issues found.", StringComparison.OrdinalIgnoreCase);
 
     private static IReadOnlyList<PullRequestReviewFinding> ParseFindingsFromReviewBody(string body)
     {

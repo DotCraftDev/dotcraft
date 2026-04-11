@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -558,6 +559,48 @@ public sealed class GitHubAutomationSource : IAutomationSource
 
                 yield return AIFunctionFactory.Create(
                     async (
+                        [Description("JSON object with majorCount, minorCount, suggestionCount, and body. Use body 'No issues found.' when there are no issues.")] string summaryJson,
+                        [Description("JSON array of inline comments. Use [] when there are no inline comments. Each item must include severity, title, body, path, line, and optional side, startLine, startSide, and suggestionReplacement.")] string commentsJson) =>
+                    {
+                        logger.LogInformation("Agent submitting structured COMMENT review on PR #{Number}", pullNumber);
+                        try
+                        {
+                            var summary = ParseStructuredReviewSummary(summaryJson);
+                            var comments = ParseStructuredInlineComments(commentsJson);
+                            var currentFindings = ConvertInlineCommentsToFindings(comments);
+                            submittedFindings[capturedTaskId] = [.. currentFindings];
+
+                            if (currentFindings.Count > 0 &&
+                                previousFindings.TryGetValue(capturedTaskId, out var historicalFindings) &&
+                                historicalFindings.Count > 0)
+                            {
+                                var duplicateCount = CountLikelyDuplicates(currentFindings, historicalFindings);
+                                if (duplicateCount > 0)
+                                {
+                                    logger.LogWarning(
+                                        "PR #{Number} structured review has {Count} likely duplicate finding(s) compared with previous reviews",
+                                        pullNumber,
+                                        duplicateCount);
+                                }
+                            }
+
+                            await tracker.SubmitStructuredReviewAsync(pullNumber, summary, comments);
+                            reviewCompleted[capturedTaskId] = true;
+                            return $"Structured review (COMMENT) submitted on PR #{pullNumber}. The review is complete.";
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogWarning(ex, "Failed to submit structured review on PR #{Number}", pullNumber);
+                            return $"Warning: could not submit structured review ({ex.Message}).";
+                        }
+                    },
+                    "SubmitStructuredReview",
+                    "Submit a COMMENT review with a summary plus inline review comments. " +
+                    "Use this for the GitHub PR workflow whenever you can anchor findings to changed lines. " +
+                    "Each inline comment may optionally include a single-file, single-range suggestion.");
+
+                yield return AIFunctionFactory.Create(
+                    async (
                         [Description("Review event type. Accepted for compatibility but always submitted as COMMENT.")] string reviewEvent,
                         [Description("Review body summarizing your findings.")] string body) =>
                     {
@@ -671,6 +714,95 @@ public sealed class GitHubAutomationSource : IAutomationSource
             return findings;
         }
 
+        private static PullRequestReviewSummary ParseStructuredReviewSummary(string summaryJson)
+        {
+            var summary = JsonSerializer.Deserialize<StructuredReviewSummaryInput>(summaryJson, StructuredReviewJsonOptions)
+                ?? throw new InvalidOperationException("Structured review summary JSON was empty.");
+
+            if (string.IsNullOrWhiteSpace(summary.Body))
+                throw new InvalidOperationException("Structured review summary must include a non-empty body.");
+
+            return new PullRequestReviewSummary
+            {
+                MajorCount = Math.Max(0, summary.MajorCount),
+                MinorCount = Math.Max(0, summary.MinorCount),
+                SuggestionCount = Math.Max(0, summary.SuggestionCount),
+                Body = summary.Body.Trim(),
+            };
+        }
+
+        private static IReadOnlyList<PullRequestInlineComment> ParseStructuredInlineComments(string commentsJson)
+        {
+            var items = JsonSerializer.Deserialize<List<StructuredInlineCommentInput>>(commentsJson, StructuredReviewJsonOptions) ?? [];
+            return items.Select(item =>
+            {
+                if (string.IsNullOrWhiteSpace(item.Title))
+                    throw new InvalidOperationException("Each inline comment must include a title.");
+                if (string.IsNullOrWhiteSpace(item.Body))
+                    throw new InvalidOperationException("Each inline comment must include a body.");
+                if (string.IsNullOrWhiteSpace(item.Path))
+                    throw new InvalidOperationException("Each inline comment must include a path.");
+                if (item.Line <= 0)
+                    throw new InvalidOperationException("Each inline comment must include a positive line number.");
+
+                return new PullRequestInlineComment
+                {
+                    Severity = ParseSeverity(item.Severity),
+                    Title = item.Title.Trim(),
+                    Body = item.Body.Trim(),
+                    Path = item.Path.Trim(),
+                    Line = item.Line,
+                    Side = ParseSide(item.Side, PullRequestReviewCommentSide.Right),
+                    StartLine = item.StartLine,
+                    StartSide = item.StartLine.HasValue
+                        ? ParseOptionalSide(item.StartSide) ?? ParseSide(item.Side, PullRequestReviewCommentSide.Right)
+                        : null,
+                    Suggestion = string.IsNullOrWhiteSpace(item.SuggestionReplacement)
+                        ? null
+                        : new PullRequestSuggestion
+                        {
+                            Replacement = item.SuggestionReplacement.TrimEnd(),
+                        },
+                };
+            }).ToList();
+        }
+
+        private static List<PullRequestReviewFinding> ConvertInlineCommentsToFindings(
+            IReadOnlyList<PullRequestInlineComment> comments) =>
+            comments.Select(comment => new PullRequestReviewFinding
+            {
+                Severity = comment.Severity,
+                Title = comment.Title,
+                Summary = comment.Body,
+                FilePath = comment.Path,
+                IsResolved = false,
+            }).ToList();
+
+        private static ReviewFindingSeverity ParseSeverity(string? severity) =>
+            string.Equals(severity?.Trim(), "RED", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(severity?.Trim(), "MAJOR", StringComparison.OrdinalIgnoreCase)
+                ? ReviewFindingSeverity.Red
+                : ReviewFindingSeverity.Yellow;
+
+        private static PullRequestReviewCommentSide ParseSide(string? side, PullRequestReviewCommentSide defaultValue)
+        {
+            var parsed = ParseOptionalSide(side);
+            return parsed ?? defaultValue;
+        }
+
+        private static PullRequestReviewCommentSide? ParseOptionalSide(string? side)
+        {
+            if (string.IsNullOrWhiteSpace(side))
+                return null;
+
+            return side.Trim().ToUpperInvariant() switch
+            {
+                "LEFT" => PullRequestReviewCommentSide.Left,
+                "RIGHT" => PullRequestReviewCommentSide.Right,
+                _ => throw new InvalidOperationException($"Unsupported review comment side '{side}'."),
+            };
+        }
+
         private static string Normalize(string input) =>
             WhitespaceRegex.Replace(input.Trim().ToLowerInvariant(), " ");
 
@@ -679,6 +811,43 @@ public sealed class GitHubAutomationSource : IAutomationSource
             RegexOptions.Compiled);
 
         private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+
+        private static readonly JsonSerializerOptions StructuredReviewJsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+        };
+
+        private sealed class StructuredReviewSummaryInput
+        {
+            public int MajorCount { get; set; }
+
+            public int MinorCount { get; set; }
+
+            public int SuggestionCount { get; set; }
+
+            public string? Body { get; set; }
+        }
+
+        private sealed class StructuredInlineCommentInput
+        {
+            public string? Severity { get; set; }
+
+            public string? Title { get; set; }
+
+            public string? Body { get; set; }
+
+            public string? Path { get; set; }
+
+            public int Line { get; set; }
+
+            public string? Side { get; set; }
+
+            public int? StartLine { get; set; }
+
+            public string? StartSide { get; set; }
+
+            public string? SuggestionReplacement { get; set; }
+        }
     }
 
     #endregion
