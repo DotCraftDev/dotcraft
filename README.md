@@ -7,11 +7,11 @@
 
 # DotCraft
 
-**Craft around your project.**
+A project-scoped agent harness for persistent AI workspaces.
 
-An Agent Harness crafting a persistent AI workspace around your project.
+*Craft a persistent AI workspace around your project.*
 
-From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
+Powered by .NET 10 and a Unified Session Core, DotCraft delivers observable AI orchestration across CLI, Desktop, IDEs, APIs, and external channels.
 
 ![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 
@@ -21,9 +21,9 @@ From Desktop, CLI, editors, chatbots, APIs — everywhere you work.
 
 <table>
 <tr>
-<td width="33%" align="center"><b>📁 Project-First</b><br/>Sessions, memory, skills, and config live under <code>.craft/</code> and follow the project</td>
-<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>Desktop, CLI, editors and bots share one session model</td>
-<td width="33%" align="center"><b>🛡️ Observable</b><br/>Built-in approvals, traces, Dashboard, and optional sandbox isolation</td>
+<td width="33%" align="center"><b>📁 Project-Scoped</b><br/>Sessions, memory, skills, and config live in <code>.craft/</code> and follow the repo</td>
+<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>One harness across CLI, Desktop, IDEs, bots, and automations</td>
+<td width="33%" align="center"><b>🛡️ Observable Orchestration</b><br/>Built-in approvals, traces, dashboard, and optional sandboxing</td>
 </tr>
 </table>
 

@@ -7,11 +7,11 @@
 
 # DotCraft
 
-**Craft around your project.**
+面向项目的 Agent Harness，打造持久的 AI 工作空间。
 
-一款 Agent Harness，围绕你的项目，打造一个持久的 AI 工作空间。
+*围绕你的项目，打造一个持久的 AI 工作空间。*
 
-无论您使用桌面应用、命令行界面 (CLI)、编辑器（IDE）、聊天机器人还是 API，它都能满足您的需求。
+由 .NET 10 与 Unified Session Core 驱动，DotCraft 在 CLI、Desktop、IDE、API 与外部渠道之间提供可观测的 AI 编排体验。
 
 ![intro](https://github.com/DotHarness/resources/raw/master/dotcraft/intro.png)
 
@@ -21,9 +21,9 @@
 
 <table>
 <tr>
-<td width="33%" align="center"><b>📁 项目为先</b><br/>会话、记忆、技能与配置保存在 <code>.craft/</code> 下，跟着项目走</td>
-<td width="33%" align="center"><b>⚡ 统一会话核心</b><br/>桌面应用、CLI、编辑器与机器人共享同一套会话模型</td>
-<td width="33%" align="center"><b>🛡️ 可观察可治理</b><br/>审批、追踪、Dashboard 与可选沙箱隔离内建</td>
+<td width="33%" align="center"><b>📁 项目级工作空间</b><br/>会话、记忆、技能与配置存放在 <code>.craft/</code> 中，并随仓库一起演进</td>
+<td width="33%" align="center"><b>⚡ Unified Session Core</b><br/>同一套 harness 贯穿 CLI、Desktop、IDE、机器人与自动化</td>
+<td width="33%" align="center"><b>🛡️ 可观测编排</b><br/>内置审批、Trace、Dashboard 与可选沙箱隔离</td>
 </tr>
 </table>
 
