@@ -348,6 +348,76 @@ public sealed class GitHubAutomationSource : IAutomationSource
     }
 
     /// <inheritdoc />
+    public async Task ReconcileExpiredResourcesAsync(CancellationToken ct)
+    {
+        var taskIds = _workspacePathByTaskId.Keys.ToArray();
+        if (taskIds.Length == 0)
+            return;
+
+        IReadOnlyList<WorkItemStateSnapshot> states;
+        try
+        {
+            states = await _tracker.FetchWorkItemStatesByIdsAsync(taskIds, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch GitHub work item states for workspace reconciliation");
+            return;
+        }
+
+        var stateById = states.ToDictionary(s => s.Id, StringComparer.Ordinal);
+        var expiredTaskIds = new List<string>();
+
+        foreach (var taskId in taskIds)
+        {
+            if (_activeTasks.ContainsKey(taskId))
+                continue;
+
+            if (!TryGetTrackedTask(taskId, out var task))
+                continue;
+
+            if (!stateById.TryGetValue(taskId, out var snapshot))
+                continue;
+
+            if (IsTerminalState(task.Kind, snapshot.State))
+                expiredTaskIds.Add(taskId);
+        }
+
+        if (expiredTaskIds.Count == 0)
+            return;
+
+        var cleaned = 0;
+        var failed = 0;
+
+        foreach (var taskId in expiredTaskIds)
+        {
+            try
+            {
+                var workspaceRemoved = await TryCleanupTaskWorkspaceAsync(taskId, ct);
+                if (!workspaceRemoved)
+                {
+                    failed++;
+                    continue;
+                }
+
+                RemoveTaskResources(taskId);
+                cleaned++;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _logger.LogWarning(ex, "Failed to clean expired GitHub automation resources for task {TaskId}", taskId);
+            }
+        }
+
+        _logger.LogInformation(
+            "GitHub workspace reconciliation completed. Expired={Expired} Cleaned={Cleaned} Failed={Failed}",
+            expiredTaskIds.Count,
+            cleaned,
+            failed);
+    }
+
+    /// <inheritdoc />
     public Task ApproveTaskAsync(string taskId, CancellationToken ct)
     {
         _logger.LogInformation("GitHub task {TaskId} approved (no-op: human reviews via Desktop)", taskId);
@@ -366,25 +436,19 @@ public sealed class GitHubAutomationSource : IAutomationSource
     }
 
     /// <inheritdoc />
-    public Task DeleteTaskAsync(string taskId, CancellationToken ct)
+    public async Task DeleteTaskAsync(string taskId, CancellationToken ct)
     {
-        _logger.LogInformation("GitHub task {TaskId} removed from local automation cache", taskId);
-        _completedTasks.TryRemove(taskId, out _);
-        _activeTasks.TryRemove(taskId, out _);
-        _reviewedSha.TryRemove(taskId, out _);
-        _persistedFindings.TryRemove(taskId, out _);
-        _submittedFindings.TryRemove(taskId, out _);
-        _workspacePathByTaskId.TryRemove(taskId, out _);
-        _reviewStateStore.Delete(taskId);
-        var workspaceKeys = new List<string>(_workspaceNameToTaskId.Keys);
-        foreach (var key in workspaceKeys)
+        try
         {
-            if (_workspaceNameToTaskId.TryGetValue(key, out var tid) &&
-                string.Equals(tid, taskId, StringComparison.Ordinal))
-                _workspaceNameToTaskId.TryRemove(key, out _);
+            await TryCleanupTaskWorkspaceAsync(taskId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove GitHub task workspace for task {TaskId}", taskId);
         }
 
-        return Task.CompletedTask;
+        RemoveTaskResources(taskId);
+        _logger.LogInformation("GitHub task {TaskId} removed from local automation cache", taskId);
     }
 
     /// <inheritdoc />
@@ -411,6 +475,66 @@ public sealed class GitHubAutomationSource : IAutomationSource
     {
         var path = kind == WorkItemKind.PullRequest ? _prWorkflowPath : _issuesWorkflowPath;
         return !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+    }
+
+    private bool TryGetTrackedTask(string taskId, out GitHubAutomationTask task)
+    {
+        if (_activeTasks.TryGetValue(taskId, out task!))
+            return true;
+
+        if (_completedTasks.TryGetValue(taskId, out task!))
+            return true;
+
+        task = null!;
+        return false;
+    }
+
+    private bool IsTerminalState(WorkItemKind kind, string state)
+    {
+        var terminalStates = kind == WorkItemKind.PullRequest
+            ? _config.Tracker.PullRequestTerminalStates
+            : _config.Tracker.TerminalStates;
+
+        return terminalStates.Any(terminal =>
+            string.Equals(terminal.Trim(), state.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<bool> TryCleanupTaskWorkspaceAsync(string taskId, CancellationToken ct)
+    {
+        GitHubAutomationTask? task = null;
+        if (TryGetTrackedTask(taskId, out var trackedTask))
+            task = trackedTask;
+
+        if (!_workspacePathByTaskId.TryGetValue(taskId, out var workspacePath))
+            return true;
+
+        if (task == null)
+            return false;
+
+        await _workItemWorkspaceManager.CleanWorkspaceAsync(task.WorkItem.Identifier, ct);
+        return !Directory.Exists(workspacePath);
+    }
+
+    private void RemoveTaskResources(string taskId)
+    {
+        _completedTasks.TryRemove(taskId, out _);
+        _activeTasks.TryRemove(taskId, out _);
+        _reviewCompleted.TryRemove(taskId, out _);
+        _reviewedSha.TryRemove(taskId, out _);
+        _persistedFindings.TryRemove(taskId, out _);
+        _submittedFindings.TryRemove(taskId, out _);
+        _workspacePathByTaskId.TryRemove(taskId, out _);
+        _reviewStateStore.Delete(taskId);
+
+        var workspaceKeys = new List<string>(_workspaceNameToTaskId.Keys);
+        foreach (var key in workspaceKeys)
+        {
+            if (_workspaceNameToTaskId.TryGetValue(key, out var tid) &&
+                string.Equals(tid, taskId, StringComparison.Ordinal))
+            {
+                _workspaceNameToTaskId.TryRemove(key, out _);
+            }
+        }
     }
 
     private List<string> GetActiveStatesForKind(WorkItemKind kind) =>
