@@ -85,48 +85,6 @@ export function ArchivedThreadsSettingsView({
     void loadArchivedThreads()
   }, [loadArchivedThreads])
 
-  useEffect(() => {
-    const unsubscribe = window.api.appServer.onNotification((payload: { method: string; params: unknown }) => {
-      const params = (payload.params ?? {}) as Record<string, unknown>
-
-      switch (payload.method) {
-        case 'thread/statusChanged': {
-          const threadId = params.threadId as string | undefined
-          const newStatus = params.newStatus as string | undefined
-          if (!threadId) return
-
-          if (newStatus === 'active') {
-            setThreads((current) => current.filter((thread) => thread.id !== threadId))
-            useThreadStore.getState().updateThreadStatus(threadId, 'active')
-            onThreadListRefreshRequested?.()
-          } else if (newStatus === 'archived') {
-            void loadArchivedThreads()
-          }
-          break
-        }
-        case 'thread/deleted': {
-          const threadId = params.threadId as string | undefined
-          if (threadId) {
-            setThreads((current) => current.filter((thread) => thread.id !== threadId))
-          }
-          break
-        }
-        case 'thread/renamed': {
-          const threadId = params.threadId as string | undefined
-          const displayName = params.displayName as string | undefined
-          if (threadId && displayName) {
-            setThreads((current) =>
-              current.map((thread) => (thread.id === threadId ? { ...thread, displayName } : thread))
-            )
-          }
-          break
-        }
-      }
-    })
-
-    return unsubscribe
-  }, [loadArchivedThreads, onThreadListRefreshRequested])
-
   async function handleRestore(threadId: string): Promise<void> {
     setRestoringIds((current) => {
       const next = new Set(current)
