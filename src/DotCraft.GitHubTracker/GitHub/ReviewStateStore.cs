@@ -4,9 +4,9 @@ using Microsoft.Extensions.Logging;
 
 namespace DotCraft.GitHubTracker.GitHub;
 
-internal sealed class ReviewStateStore(string workspacePath, ILogger<ReviewStateStore> logger)
+internal sealed class ReviewStateStore(string craftPath, ILogger<ReviewStateStore> logger)
 {
-    private readonly string _rootDirectory = Path.Combine(workspacePath, ".craft", "review-state");
+    private readonly string _rootDirectory = Path.Combine(craftPath, "review-state");
     private readonly Lock _gate = new();
 
     public IReadOnlyDictionary<string, StoredReviewState> LoadAll()

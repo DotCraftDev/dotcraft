@@ -47,6 +47,7 @@ public sealed partial class GitHubTrackerModule : ModuleBase
     {
         var config = context.Config.GetSection<GitHubTrackerConfig>("GitHubTracker");
         var workspacePath = context.Paths.WorkspacePath;
+        var craftPath = context.Paths.CraftPath;
 
         services.AddSingleton(config);
         services.AddSingleton(sp => new WorkflowLoader(
@@ -71,6 +72,7 @@ public sealed partial class GitHubTrackerModule : ModuleBase
                 prWorkflowLoader,
                 config,
                 workspacePath,
+                craftPath,
                 sp.GetRequiredService<ILoggerFactory>());
         });
     }

@@ -49,6 +49,7 @@ public sealed class GitHubAutomationSource : IAutomationSource
         WorkflowLoader prWorkflowLoader,
         GitHubTrackerConfig config,
         string workspacePath,
+        string craftPath,
         ILoggerFactory loggerFactory)
     {
         _tracker = tracker;
@@ -59,7 +60,7 @@ public sealed class GitHubAutomationSource : IAutomationSource
         _workspacePath = workspacePath;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GitHubAutomationSource>();
-        _reviewStateStore = new ReviewStateStore(workspacePath, loggerFactory.CreateLogger<ReviewStateStore>());
+        _reviewStateStore = new ReviewStateStore(craftPath, loggerFactory.CreateLogger<ReviewStateStore>());
 
         _issuesWorkflowPath = ResolveWorkflowPath(config.IssuesWorkflowPath);
         _prWorkflowPath = ResolveWorkflowPath(config.PullRequestWorkflowPath);

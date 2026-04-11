@@ -19,7 +19,7 @@ public sealed partial class LocalTaskFileStore(
 
     /// <summary>Resolved absolute path to the tasks root directory.</summary>
     public string TasksRoot { get; } = string.IsNullOrWhiteSpace(config.LocalTasksRoot)
-        ? Path.Combine(paths.WorkspacePath, ".craft", "tasks")
+        ? Path.Combine(paths.CraftPath, "tasks")
         : Path.GetFullPath(config.LocalTasksRoot);
 
     /// <inheritdoc cref="LoadAllAsync"/>
