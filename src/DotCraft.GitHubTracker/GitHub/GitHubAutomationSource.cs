@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Automations.Abstractions;
@@ -26,12 +28,16 @@ public sealed class GitHubAutomationSource : IAutomationSource
     private readonly string _workspacePath;
     private readonly ILogger<GitHubAutomationSource> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly ReviewStateStore _reviewStateStore;
 
     private readonly ConcurrentDictionary<string, GitHubAutomationTask> _activeTasks = new();
     private readonly ConcurrentDictionary<string, string> _reviewedSha = new();
     private readonly ConcurrentDictionary<string, bool> _reviewCompleted = new();
     private readonly ConcurrentDictionary<string, GitHubAutomationTask> _completedTasks = new();
     private readonly ConcurrentDictionary<string, string> _workspaceNameToTaskId = new();
+    private readonly ConcurrentDictionary<string, string> _workspacePathByTaskId = new();
+    private readonly ConcurrentDictionary<string, List<PullRequestReviewFinding>> _persistedFindings = new();
+    private readonly ConcurrentDictionary<string, List<PullRequestReviewFinding>> _submittedFindings = new();
 
     private readonly string? _issuesWorkflowPath;
     private readonly string? _prWorkflowPath;
@@ -53,9 +59,20 @@ public sealed class GitHubAutomationSource : IAutomationSource
         _workspacePath = workspacePath;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GitHubAutomationSource>();
+        _reviewStateStore = new ReviewStateStore(workspacePath, loggerFactory.CreateLogger<ReviewStateStore>());
 
         _issuesWorkflowPath = ResolveWorkflowPath(config.IssuesWorkflowPath);
         _prWorkflowPath = ResolveWorkflowPath(config.PullRequestWorkflowPath);
+
+        var persistedStates = _reviewStateStore.LoadAll();
+        foreach (var state in persistedStates.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(state.LastReviewedSha))
+                _reviewedSha[state.PullRequestId] = state.LastReviewedSha;
+
+            if (state.Findings.Count > 0)
+                _persistedFindings[state.PullRequestId] = [.. state.Findings];
+        }
     }
 
     /// <inheritdoc />
@@ -69,11 +86,11 @@ public sealed class GitHubAutomationSource : IAutomationSource
     {
         var issueProvider = new GitHubTaskToolProvider(
             WorkItemKind.Issue, _activeTasks, _workspaceNameToTaskId, _tracker, _reviewCompleted,
-            _loggerFactory.CreateLogger<GitHubTaskToolProvider>());
+            _submittedFindings, _persistedFindings, _loggerFactory.CreateLogger<GitHubTaskToolProvider>());
 
         var prProvider = new GitHubTaskToolProvider(
             WorkItemKind.PullRequest, _activeTasks, _workspaceNameToTaskId, _tracker, _reviewCompleted,
-            _loggerFactory.CreateLogger<GitHubTaskToolProvider>());
+            _submittedFindings, _persistedFindings, _loggerFactory.CreateLogger<GitHubTaskToolProvider>());
 
         registry.Register("github-issue", [issueProvider]);
         registry.Register("github-pr", [prProvider]);
@@ -141,20 +158,71 @@ public sealed class GitHubAutomationSource : IAutomationSource
 
         var workflow = loader.Load(path);
 
-        string? prDiff = null;
+        IReadOnlyList<PullRequestChangedFile> changedFiles = [];
+        IReadOnlyList<PullRequestReviewFinding> previousFindings =
+            _persistedFindings.TryGetValue(task.Id, out var persisted) ? [.. persisted] : [];
+        string? lastReviewedSha = null;
+        string? incrementalBaseSha = null;
+        var isIncrementalReview = false;
+
         if (gh.Kind == WorkItemKind.PullRequest)
         {
+            _reviewedSha.TryGetValue(task.Id, out lastReviewedSha);
+            incrementalBaseSha = lastReviewedSha;
+
             try
             {
-                prDiff = await _tracker.FetchPullRequestDiffAsync(gh.WorkItem.Id, ct);
+                changedFiles = await _tracker.FetchPullRequestFilesAsync(gh.WorkItem.Id, ct);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch diff for PR {Identifier}", gh.WorkItem.Identifier);
+                _logger.LogWarning(ex, "Failed to fetch changed files for PR {Identifier}", gh.WorkItem.Identifier);
+            }
+
+            try
+            {
+                var fetchedFindings = await _tracker.FetchBotReviewsAsync(gh.WorkItem.Id, ct);
+                if (fetchedFindings.Count > 0)
+                {
+                    previousFindings = fetchedFindings;
+                    _persistedFindings[task.Id] = [.. fetchedFindings];
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch prior reviews for PR {Identifier}", gh.WorkItem.Identifier);
+            }
+
+            if (!string.IsNullOrWhiteSpace(lastReviewedSha) && !string.IsNullOrWhiteSpace(gh.WorkItem.HeadSha))
+            {
+                if (_workspacePathByTaskId.TryGetValue(task.Id, out var workspacePath))
+                {
+                    isIncrementalReview = await IsAncestorCommitAsync(
+                        workspacePath, lastReviewedSha!, gh.WorkItem.HeadSha!, ct);
+                    if (!isIncrementalReview)
+                    {
+                        incrementalBaseSha = null;
+                        _logger.LogInformation(
+                            "Falling back to full-scope review for PR {Identifier} because {Sha} is not an ancestor of HEAD {HeadSha}",
+                            gh.WorkItem.Identifier,
+                            lastReviewedSha,
+                            gh.WorkItem.HeadSha);
+                    }
+                }
+                else
+                {
+                    incrementalBaseSha = null;
+                }
             }
         }
 
-        var workItemData = BuildWorkItemData(gh.WorkItem, prDiff);
+        var workItemData = BuildWorkItemData(
+            gh.WorkItem,
+            changedFiles,
+            previousFindings,
+            lastReviewedSha,
+            incrementalBaseSha,
+            isIncrementalReview);
         var prompt = loader.RenderPrompt(workflow.PromptTemplate, workItemData, attempt: null);
 
         return new AutomationWorkflowDefinition
@@ -202,8 +270,21 @@ public sealed class GitHubAutomationSource : IAutomationSource
 
         if (gh.Kind == WorkItemKind.PullRequest && gh.WorkItem.HeadSha != null)
         {
+            var findings = _submittedFindings.TryRemove(task.Id, out var submittedFindings)
+                ? submittedFindings
+                : (_persistedFindings.TryGetValue(task.Id, out var previousFindings) ? previousFindings : []);
+
             _reviewedSha[task.Id] = gh.WorkItem.HeadSha;
             gh.ReviewedAtSha = gh.WorkItem.HeadSha;
+            _persistedFindings[task.Id] = [.. findings];
+            _reviewStateStore.Save(new StoredReviewState
+            {
+                PullRequestId = task.Id,
+                LastReviewedSha = gh.WorkItem.HeadSha,
+                ReviewedAtUtc = DateTimeOffset.UtcNow,
+                Findings = [.. findings],
+            });
+
             _logger.LogInformation(
                 "Recorded ReviewedSha for PR {Identifier} at {Sha}",
                 gh.WorkItem.Identifier, gh.WorkItem.HeadSha);
@@ -260,6 +341,7 @@ public sealed class GitHubAutomationSource : IAutomationSource
         var dirName = Path.GetFileName(workspace.Path);
         if (dirName != null)
             _workspaceNameToTaskId[dirName] = task.Id;
+        _workspacePathByTaskId[task.Id] = workspace.Path;
         return workspace.Path;
     }
 
@@ -287,6 +369,11 @@ public sealed class GitHubAutomationSource : IAutomationSource
         _logger.LogInformation("GitHub task {TaskId} removed from local automation cache", taskId);
         _completedTasks.TryRemove(taskId, out _);
         _activeTasks.TryRemove(taskId, out _);
+        _reviewedSha.TryRemove(taskId, out _);
+        _persistedFindings.TryRemove(taskId, out _);
+        _submittedFindings.TryRemove(taskId, out _);
+        _workspacePathByTaskId.TryRemove(taskId, out _);
+        _reviewStateStore.Delete(taskId);
         var workspaceKeys = new List<string>(_workspaceNameToTaskId.Keys);
         foreach (var key in workspaceKeys)
         {
@@ -334,27 +421,104 @@ public sealed class GitHubAutomationSource : IAutomationSource
             ? null
             : Path.GetFullPath(configuredPath, _workspacePath);
 
-    private static Dictionary<string, object?> BuildWorkItemData(TrackedWorkItem workItem, string? prDiff) => new()
+    private static Dictionary<string, object?> BuildWorkItemData(
+        TrackedWorkItem workItem,
+        IReadOnlyList<PullRequestChangedFile> changedFiles,
+        IReadOnlyList<PullRequestReviewFinding> previousFindings,
+        string? lastReviewedSha,
+        string? incrementalBaseSha,
+        bool isIncrementalReview)
     {
-        ["id"] = workItem.Id,
-        ["identifier"] = workItem.Identifier,
-        ["title"] = workItem.Title,
-        ["description"] = workItem.Description,
-        ["priority"] = workItem.Priority,
-        ["state"] = workItem.State,
-        ["kind"] = workItem.Kind.ToString(),
-        ["branch_name"] = workItem.BranchName,
-        ["url"] = workItem.Url,
-        ["labels"] = workItem.Labels.ToList(),
-        ["created_at"] = workItem.CreatedAt?.ToString("o"),
-        ["updated_at"] = workItem.UpdatedAt?.ToString("o"),
-        ["head_branch"] = workItem.HeadBranch,
-        ["base_branch"] = workItem.BaseBranch,
-        ["diff_url"] = workItem.DiffUrl,
-        ["review_state"] = workItem.ReviewState.ToString(),
-        ["is_draft"] = workItem.IsDraft,
-        ["diff"] = prDiff,
-    };
+        var changedFileRows = changedFiles.Select(f => new Dictionary<string, object?>
+        {
+            ["filename"] = f.Filename,
+            ["status"] = f.Status,
+            ["additions"] = f.Additions,
+            ["deletions"] = f.Deletions,
+        }).ToList();
+
+        var previousFindingRows = previousFindings.Select(f => new Dictionary<string, object?>
+        {
+            ["severity"] = f.Severity == ReviewFindingSeverity.Red ? "RED" : "YELLOW",
+            ["title"] = f.Title,
+            ["summary"] = f.Summary,
+            ["file"] = f.FilePath,
+            ["resolved"] = f.IsResolved,
+        }).ToList();
+
+        var diffStats = new Dictionary<string, object?>
+        {
+            ["files_changed"] = changedFiles.Count,
+            ["additions"] = changedFiles.Sum(f => f.Additions),
+            ["deletions"] = changedFiles.Sum(f => f.Deletions),
+        };
+
+        return new Dictionary<string, object?>
+        {
+            ["id"] = workItem.Id,
+            ["identifier"] = workItem.Identifier,
+            ["title"] = workItem.Title,
+            ["description"] = workItem.Description,
+            ["priority"] = workItem.Priority,
+            ["state"] = workItem.State,
+            ["kind"] = workItem.Kind.ToString(),
+            ["branch_name"] = workItem.BranchName,
+            ["url"] = workItem.Url,
+            ["labels"] = workItem.Labels.ToList(),
+            ["created_at"] = workItem.CreatedAt?.ToString("o"),
+            ["updated_at"] = workItem.UpdatedAt?.ToString("o"),
+            ["head_branch"] = workItem.HeadBranch,
+            ["base_branch"] = workItem.BaseBranch,
+            ["head_sha"] = workItem.HeadSha,
+            ["diff_url"] = workItem.DiffUrl,
+            ["review_state"] = workItem.ReviewState.ToString(),
+            ["is_draft"] = workItem.IsDraft,
+            ["changed_files"] = changedFileRows,
+            ["diff_stats"] = diffStats,
+            ["previous_findings"] = previousFindingRows,
+            ["last_reviewed_sha"] = lastReviewedSha,
+            ["incremental_base_sha"] = incrementalBaseSha,
+            ["is_incremental_review"] = isIncrementalReview,
+        };
+    }
+
+    private async Task<bool> IsAncestorCommitAsync(
+        string workspacePath,
+        string ancestorSha,
+        string headSha,
+        CancellationToken ct)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo("git", $"merge-base --is-ancestor {ancestorSha} {headSha}")
+            {
+                WorkingDirectory = workspacePath,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            using var process = new Process { StartInfo = startInfo };
+            process.Start();
+            await process.WaitForExitAsync(ct);
+
+            return process.ExitCode switch
+            {
+                0 => true,
+                1 => false,
+                _ => false,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to determine incremental range in {WorkspacePath}; defaulting to full-scope review",
+                workspacePath);
+            return false;
+        }
+    }
 
     #endregion
 
@@ -370,6 +534,8 @@ public sealed class GitHubAutomationSource : IAutomationSource
         ConcurrentDictionary<string, string> workspaceNameToTaskId,
         IWorkItemTracker tracker,
         ConcurrentDictionary<string, bool> reviewCompleted,
+        ConcurrentDictionary<string, List<PullRequestReviewFinding>> submittedFindings,
+        ConcurrentDictionary<string, List<PullRequestReviewFinding>> previousFindings,
         ILogger<GitHubTaskToolProvider> logger) : IAgentToolProvider
     {
         public int Priority => 95;
@@ -397,6 +563,23 @@ public sealed class GitHubAutomationSource : IAutomationSource
                         logger.LogInformation("Agent submitting COMMENT review on PR #{Number}", pullNumber);
                         try
                         {
+                            var currentFindings = ParseFindingsFromReviewBody(body);
+                            submittedFindings[capturedTaskId] = [.. currentFindings];
+
+                            if (currentFindings.Count > 0 &&
+                                previousFindings.TryGetValue(capturedTaskId, out var historicalFindings) &&
+                                historicalFindings.Count > 0)
+                            {
+                                var duplicateCount = CountLikelyDuplicates(currentFindings, historicalFindings);
+                                if (duplicateCount > 0)
+                                {
+                                    logger.LogWarning(
+                                        "PR #{Number} review has {Count} likely duplicate finding(s) compared with previous reviews",
+                                        pullNumber,
+                                        duplicateCount);
+                                }
+                            }
+
                             await tracker.SubmitReviewAsync(pullNumber, body, "COMMENT");
                             reviewCompleted[capturedTaskId] = true;
                             return $"Review (COMMENT) submitted on PR #{pullNumber}. The review is complete.";
@@ -409,7 +592,8 @@ public sealed class GitHubAutomationSource : IAutomationSource
                     },
                     "SubmitReview",
                     "Submit a COMMENT review on the pull request with your findings. " +
-                    "Call this once you have finished reviewing all changed files.");
+                    "Before calling this, verify your findings do not repeat issues listed in Previous Review Findings. " +
+                    "Only submit new or materially updated findings, then call once you have finished reviewing all changed files.");
             }
             else
             {
@@ -441,6 +625,59 @@ public sealed class GitHubAutomationSource : IAutomationSource
                 return null;
             return Path.GetFileName(workspacePath);
         }
+
+        private static int CountLikelyDuplicates(
+            IReadOnlyList<PullRequestReviewFinding> current,
+            IReadOnlyList<PullRequestReviewFinding> previous)
+        {
+            var duplicateCount = 0;
+            foreach (var finding in current)
+            {
+                var isDuplicate = previous.Any(p =>
+                    p.Severity == finding.Severity &&
+                    string.Equals(Normalize(p.Title), Normalize(finding.Title), StringComparison.Ordinal) &&
+                    string.Equals(Normalize(p.Summary), Normalize(finding.Summary), StringComparison.Ordinal));
+
+                if (isDuplicate)
+                    duplicateCount++;
+            }
+
+            return duplicateCount;
+        }
+
+        private static IReadOnlyList<PullRequestReviewFinding> ParseFindingsFromReviewBody(string body)
+        {
+            var findings = new List<PullRequestReviewFinding>();
+            var headingMatches = ReviewHeadingRegex.Matches(body);
+            for (var i = 0; i < headingMatches.Count; i++)
+            {
+                var current = headingMatches[i];
+                var nextIndex = i + 1 < headingMatches.Count ? headingMatches[i + 1].Index : body.Length;
+                var summary = body.Substring(current.Index + current.Length, nextIndex - (current.Index + current.Length)).Trim();
+                if (string.IsNullOrWhiteSpace(summary))
+                    continue;
+
+                findings.Add(new PullRequestReviewFinding
+                {
+                    Severity = current.Groups["icon"].Value == "🔴" ? ReviewFindingSeverity.Red : ReviewFindingSeverity.Yellow,
+                    Title = current.Groups["title"].Value.Trim(),
+                    Summary = summary,
+                    FilePath = null,
+                    IsResolved = false,
+                });
+            }
+
+            return findings;
+        }
+
+        private static string Normalize(string input) =>
+            WhitespaceRegex.Replace(input.Trim().ToLowerInvariant(), " ");
+
+        private static readonly Regex ReviewHeadingRegex = new(
+            @"(?m)^(?<icon>🔴|🟡)\s+(?<title>.+?)\s*$",
+            RegexOptions.Compiled);
+
+        private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
     }
 
     #endregion
