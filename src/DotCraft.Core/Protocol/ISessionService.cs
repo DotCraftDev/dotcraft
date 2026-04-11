@@ -51,6 +51,11 @@ public interface ISessionService
     Task ArchiveThreadAsync(string threadId, CancellationToken ct = default);
 
     /// <summary>
+    /// Restores an Archived Thread to Active status.
+    /// </summary>
+    Task UnarchiveThreadAsync(string threadId, CancellationToken ct = default);
+
+    /// <summary>
     /// Discovers Threads matching the given identity (workspace + user + channel context).
     /// Returns summaries ordered by LastActiveAt descending.
     /// </summary>

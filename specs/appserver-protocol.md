@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.3 |
+| **Version** | 0.2.4 |
 | **Status** | Living |
 | **Date** | 2026-04-11 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
@@ -374,7 +374,7 @@ List threads matching a given identity.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `identity` | SessionIdentity | yes | Identity to filter by. |
-| `includeArchived` | boolean | no | Default `false`. When `true`, archived threads are included in the result set. |
+| `includeArchived` | boolean | no | Default `false`. When `true`, archived threads are included in the result set alongside non-archived threads. |
 | `crossChannelOrigins` | string[] \| null | no | When **omitted** or JSON `null`, no cross-channel origin list is applied. When present as an array (possibly empty), non-empty values additionally return threads whose `originChannel` is in the list with the same `workspacePath` and `userId` as `identity`, ignoring `channelContext`. See [Session Core §9.5](session-core.md#95-cross-channel-resume-protocol). |
 | `channelName` | string | no | When set, post-filters results to threads whose persisted `originChannel` matches (case-insensitive). Same as existing filter. |
 
@@ -511,7 +511,23 @@ Archive a thread. Archived threads are read-only — they can be listed and read
 
 The server emits a `thread/statusChanged` notification.
 
-### 4.9 `thread/delete`
+### 4.9 `thread/unarchive`
+
+Restore an archived thread to Active status so it can appear in the normal active thread list again.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `threadId` | string | yes | Thread ID to restore. |
+
+**Result**: `{}`
+
+The server emits a `thread/statusChanged` notification with `newStatus: "active"`.
+
+### 4.10 `thread/delete`
 
 Permanently delete a thread and its associated session data.
 
@@ -527,7 +543,7 @@ Permanently delete a thread and its associated session data.
 
 After the thread is permanently removed, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent.
 
-### 4.10 `thread/mode/set`
+### 4.11 `thread/mode/set`
 
 Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
@@ -544,7 +560,7 @@ Set the agent mode for a thread (e.g., `"plan"`, `"agent"`).
 
 **Behavior**: The server recreates the execution context for the specified thread using the tool set associated with the requested mode.
 
-### 4.11 `thread/rename`
+### 4.12 `thread/rename`
 
 Update the display name of a thread.
 
@@ -561,7 +577,7 @@ Update the display name of a thread.
 
 After the display name is persisted, the server **broadcasts** a `thread/renamed` notification to **all** connected clients (see [Section 6.1](#61-thread-notifications)). The same notification is used when Session Core sets the display name from the first user message on a turn (not only in response to this RPC).
 
-### 4.9 `thread/config/update`
+### 4.13 `thread/config/update`
 
 Update per-thread agent configuration (MCP servers, extensions, etc.).
 

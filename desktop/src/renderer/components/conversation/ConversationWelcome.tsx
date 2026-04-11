@@ -321,6 +321,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     [saveDataUrlAsTemp, t]
   )
 
+  const toggleWelcomeMode = useCallback((): void => {
+    setWelcomeMode((m) => (m === 'agent' ? 'plan' : 'agent'))
+  }, [])
+
   function fillSuggestion(prompt: string): void {
     richRef.current?.setPlainText(prompt)
     setTimeout(() => richRef.current?.focus(), 0)
@@ -509,6 +513,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                 ref={richRef}
                 disabled={busy}
                 suppressSubmit={showMentionPopover || modelLoading}
+                onToggleModeShortcut={toggleWelcomeMode}
                 placeholder={
                   isConnected
                     ? t('welcomeComposer.placeholder.ask')
@@ -559,9 +564,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               type="button"
-              onClick={() => {
-                setWelcomeMode((m) => (m === 'agent' ? 'plan' : 'agent'))
-              }}
+              onClick={toggleWelcomeMode}
               title={t('composer.modeTitle', {
                 mode: t(welcomeMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')
               })}

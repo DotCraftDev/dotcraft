@@ -333,6 +333,11 @@ public sealed class ThreadArchiveParams
     public string ThreadId { get; set; } = string.Empty;
 }
 
+public sealed class ThreadUnarchiveParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+}
+
 public sealed class ThreadDeleteParams
 {
     public string ThreadId { get; set; } = string.Empty;
@@ -1148,6 +1153,7 @@ public static class AppServerMethods
     public const string ThreadUnsubscribe = "thread/unsubscribe";
     public const string ThreadPause = "thread/pause";
     public const string ThreadArchive = "thread/archive";
+    public const string ThreadUnarchive = "thread/unarchive";
     public const string ThreadDelete = "thread/delete";
     public const string ThreadRename = "thread/rename";
     public const string ThreadModeSet = "thread/mode/set";
