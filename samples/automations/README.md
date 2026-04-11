@@ -110,7 +110,7 @@ Run `dotcraft`. The bot picks up all open, non-draft PRs automatically.
 ```
 PR opened (or new commits pushed)
   → Bot dispatched on next poll (SHA differs from last reviewed)
-  → Bot reviews diff, calls SubmitReview COMMENT
+  → Bot reviews diff, calls SubmitReview(summaryJson, commentsJson)
   → Review posted on PR
   → Orchestrator records reviewed SHA
   → Next poll: SHA unchanged → PR skipped
@@ -118,7 +118,7 @@ PR opened (or new commits pushed)
 New commits pushed → SHA changes → bot runs again automatically
 ```
 
-The bot only submits `COMMENT` reviews — it never approves, requests changes, or merges.
+The bot only submits structured `COMMENT` reviews — it never approves, requests changes, or merges.
 
 ### Required token permissions
 

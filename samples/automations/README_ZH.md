@@ -110,7 +110,7 @@ export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 ```
 PR 打开（或推送新提交）
   → 下一次轮询时分发机器人（SHA 与上次审查不同）
-  → 机器人审查 diff，调用 SubmitReview COMMENT
+  → 机器人审查 diff，调用 SubmitReview(summaryJson, commentsJson)
   → 审查发布到 PR
   → 编排器记录已审查的 SHA
   → 下次轮询：SHA 未变 → 跳过该 PR
@@ -118,7 +118,7 @@ PR 打开（或推送新提交）
 推送新提交 → SHA 变化 → 机器人自动再次运行
 ```
 
-机器人仅提交 `COMMENT` 审查 — 不会批准、请求更改或合并。
+机器人仅提交结构化 `COMMENT` 审查 — 不会批准、请求更改或合并。
 
 ### 所需令牌权限
 

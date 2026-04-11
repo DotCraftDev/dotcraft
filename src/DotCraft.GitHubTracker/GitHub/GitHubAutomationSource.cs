@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
@@ -347,6 +348,76 @@ public sealed class GitHubAutomationSource : IAutomationSource
     }
 
     /// <inheritdoc />
+    public async Task ReconcileExpiredResourcesAsync(CancellationToken ct)
+    {
+        var taskIds = _workspacePathByTaskId.Keys.ToArray();
+        if (taskIds.Length == 0)
+            return;
+
+        IReadOnlyList<WorkItemStateSnapshot> states;
+        try
+        {
+            states = await _tracker.FetchWorkItemStatesByIdsAsync(taskIds, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch GitHub work item states for workspace reconciliation");
+            return;
+        }
+
+        var stateById = states.ToDictionary(s => s.Id, StringComparer.Ordinal);
+        var expiredTaskIds = new List<string>();
+
+        foreach (var taskId in taskIds)
+        {
+            if (_activeTasks.ContainsKey(taskId))
+                continue;
+
+            if (!TryGetTrackedTask(taskId, out var task))
+                continue;
+
+            if (!stateById.TryGetValue(taskId, out var snapshot))
+                continue;
+
+            if (IsTerminalState(task.Kind, snapshot.State))
+                expiredTaskIds.Add(taskId);
+        }
+
+        if (expiredTaskIds.Count == 0)
+            return;
+
+        var cleaned = 0;
+        var failed = 0;
+
+        foreach (var taskId in expiredTaskIds)
+        {
+            try
+            {
+                var workspaceRemoved = await TryCleanupTaskWorkspaceAsync(taskId, ct);
+                if (!workspaceRemoved)
+                {
+                    failed++;
+                    continue;
+                }
+
+                RemoveTaskResources(taskId);
+                cleaned++;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _logger.LogWarning(ex, "Failed to clean expired GitHub automation resources for task {TaskId}", taskId);
+            }
+        }
+
+        _logger.LogInformation(
+            "GitHub workspace reconciliation completed. Expired={Expired} Cleaned={Cleaned} Failed={Failed}",
+            expiredTaskIds.Count,
+            cleaned,
+            failed);
+    }
+
+    /// <inheritdoc />
     public Task ApproveTaskAsync(string taskId, CancellationToken ct)
     {
         _logger.LogInformation("GitHub task {TaskId} approved (no-op: human reviews via Desktop)", taskId);
@@ -365,25 +436,19 @@ public sealed class GitHubAutomationSource : IAutomationSource
     }
 
     /// <inheritdoc />
-    public Task DeleteTaskAsync(string taskId, CancellationToken ct)
+    public async Task DeleteTaskAsync(string taskId, CancellationToken ct)
     {
-        _logger.LogInformation("GitHub task {TaskId} removed from local automation cache", taskId);
-        _completedTasks.TryRemove(taskId, out _);
-        _activeTasks.TryRemove(taskId, out _);
-        _reviewedSha.TryRemove(taskId, out _);
-        _persistedFindings.TryRemove(taskId, out _);
-        _submittedFindings.TryRemove(taskId, out _);
-        _workspacePathByTaskId.TryRemove(taskId, out _);
-        _reviewStateStore.Delete(taskId);
-        var workspaceKeys = new List<string>(_workspaceNameToTaskId.Keys);
-        foreach (var key in workspaceKeys)
+        try
         {
-            if (_workspaceNameToTaskId.TryGetValue(key, out var tid) &&
-                string.Equals(tid, taskId, StringComparison.Ordinal))
-                _workspaceNameToTaskId.TryRemove(key, out _);
+            await TryCleanupTaskWorkspaceAsync(taskId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to remove GitHub task workspace for task {TaskId}", taskId);
         }
 
-        return Task.CompletedTask;
+        RemoveTaskResources(taskId);
+        _logger.LogInformation("GitHub task {TaskId} removed from local automation cache", taskId);
     }
 
     /// <inheritdoc />
@@ -410,6 +475,66 @@ public sealed class GitHubAutomationSource : IAutomationSource
     {
         var path = kind == WorkItemKind.PullRequest ? _prWorkflowPath : _issuesWorkflowPath;
         return !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+    }
+
+    private bool TryGetTrackedTask(string taskId, out GitHubAutomationTask task)
+    {
+        if (_activeTasks.TryGetValue(taskId, out task!))
+            return true;
+
+        if (_completedTasks.TryGetValue(taskId, out task!))
+            return true;
+
+        task = null!;
+        return false;
+    }
+
+    private bool IsTerminalState(WorkItemKind kind, string state)
+    {
+        var terminalStates = kind == WorkItemKind.PullRequest
+            ? _config.Tracker.PullRequestTerminalStates
+            : _config.Tracker.TerminalStates;
+
+        return terminalStates.Any(terminal =>
+            string.Equals(terminal.Trim(), state.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<bool> TryCleanupTaskWorkspaceAsync(string taskId, CancellationToken ct)
+    {
+        GitHubAutomationTask? task = null;
+        if (TryGetTrackedTask(taskId, out var trackedTask))
+            task = trackedTask;
+
+        if (!_workspacePathByTaskId.TryGetValue(taskId, out var workspacePath))
+            return true;
+
+        if (task == null)
+            return false;
+
+        await _workItemWorkspaceManager.CleanWorkspaceAsync(task.WorkItem.Identifier, ct);
+        return !Directory.Exists(workspacePath);
+    }
+
+    private void RemoveTaskResources(string taskId)
+    {
+        _completedTasks.TryRemove(taskId, out _);
+        _activeTasks.TryRemove(taskId, out _);
+        _reviewCompleted.TryRemove(taskId, out _);
+        _reviewedSha.TryRemove(taskId, out _);
+        _persistedFindings.TryRemove(taskId, out _);
+        _submittedFindings.TryRemove(taskId, out _);
+        _workspacePathByTaskId.TryRemove(taskId, out _);
+        _reviewStateStore.Delete(taskId);
+
+        var workspaceKeys = new List<string>(_workspaceNameToTaskId.Keys);
+        foreach (var key in workspaceKeys)
+        {
+            if (_workspaceNameToTaskId.TryGetValue(key, out var tid) &&
+                string.Equals(tid, taskId, StringComparison.Ordinal))
+            {
+                _workspaceNameToTaskId.TryRemove(key, out _);
+            }
+        }
     }
 
     private List<string> GetActiveStatesForKind(WorkItemKind kind) =>
@@ -558,13 +683,15 @@ public sealed class GitHubAutomationSource : IAutomationSource
 
                 yield return AIFunctionFactory.Create(
                     async (
-                        [Description("Review event type. Accepted for compatibility but always submitted as COMMENT.")] string reviewEvent,
-                        [Description("Review body summarizing your findings.")] string body) =>
+                        [Description("JSON object with majorCount, minorCount, suggestionCount, and body. Use body 'No issues found.' when there are no issues.")] string summaryJson,
+                        [Description("JSON array of inline comments. Use [] when there are no inline comments. Each item must include severity, title, body, path, line, and optional side, startLine, startSide, and suggestionReplacement.")] string commentsJson) =>
                     {
-                        logger.LogInformation("Agent submitting COMMENT review on PR #{Number}", pullNumber);
+                        logger.LogInformation("Agent submitting structured COMMENT review on PR #{Number}", pullNumber);
                         try
                         {
-                            var currentFindings = ParseFindingsFromReviewBody(body);
+                            var summary = ParseStructuredReviewSummary(summaryJson);
+                            var comments = ParseStructuredInlineComments(commentsJson);
+                            var currentFindings = ConvertInlineCommentsToFindings(comments);
                             submittedFindings[capturedTaskId] = [.. currentFindings];
 
                             if (currentFindings.Count > 0 &&
@@ -575,26 +702,47 @@ public sealed class GitHubAutomationSource : IAutomationSource
                                 if (duplicateCount > 0)
                                 {
                                     logger.LogWarning(
-                                        "PR #{Number} review has {Count} likely duplicate finding(s) compared with previous reviews",
+                                        "PR #{Number} structured review has {Count} likely duplicate finding(s) compared with previous reviews",
                                         pullNumber,
                                         duplicateCount);
                                 }
                             }
 
-                            await tracker.SubmitReviewAsync(pullNumber, body, "COMMENT");
-                            reviewCompleted[capturedTaskId] = true;
-                            return $"Review (COMMENT) submitted on PR #{pullNumber}. The review is complete.";
+                            var submitResult = await tracker.SubmitStructuredReviewAsync(pullNumber, summary, comments);
+                            if (submitResult.SummaryPosted)
+                                reviewCompleted[capturedTaskId] = true;
+
+                            if (!submitResult.SummaryPosted)
+                                return $"Warning: structured review on PR #{pullNumber} did not submit any summary comment.";
+
+                            if (submitResult.InlineRequestedCount > 0 && submitResult.InlinePostedCount == 0)
+                            {
+                                var details = submitResult.Warnings.Count > 0
+                                    ? $" Warnings: {string.Join(" | ", submitResult.Warnings)}"
+                                    : string.Empty;
+                                return $"Review summary submitted on PR #{pullNumber}, but no inline comments were posted.{details}";
+                            }
+
+                            if (submitResult.InlineFailedCount > 0 || submitResult.Warnings.Count > 0)
+                            {
+                                var details = submitResult.Warnings.Count > 0
+                                    ? $" Warnings: {string.Join(" | ", submitResult.Warnings)}"
+                                    : string.Empty;
+                                return $"Review summary submitted on PR #{pullNumber} with {submitResult.InlinePostedCount}/{submitResult.InlineRequestedCount} inline comments posted.{details}";
+                            }
+
+                            return $"Structured review (COMMENT) submitted on PR #{pullNumber} with {submitResult.InlinePostedCount} inline comments. The review is complete.";
                         }
                         catch (Exception ex)
                         {
-                            logger.LogWarning(ex, "Failed to submit review on PR #{Number}", pullNumber);
-                            return $"Warning: could not submit review ({ex.Message}).";
+                            logger.LogWarning(ex, "Failed to submit structured review on PR #{Number}", pullNumber);
+                            return $"Warning: could not submit structured review ({ex.Message}).";
                         }
                     },
                     "SubmitReview",
-                    "Submit a COMMENT review on the pull request with your findings. " +
-                    "Before calling this, verify your findings do not repeat issues listed in Previous Review Findings. " +
-                    "Only submit new or materially updated findings, then call once you have finished reviewing all changed files.");
+                    "Submit a COMMENT review with a summary plus inline review comments. " +
+                    "Use this for the GitHub PR workflow whenever you can anchor findings to changed lines. " +
+                    "Each inline comment may optionally include a single-file, single-range suggestion.");
             }
             else
             {
@@ -671,6 +819,140 @@ public sealed class GitHubAutomationSource : IAutomationSource
             return findings;
         }
 
+        private static PullRequestReviewSummary ParseStructuredReviewSummary(string summaryJson)
+        {
+            var summary = JsonSerializer.Deserialize<StructuredReviewSummaryInput>(summaryJson, StructuredReviewJsonOptions)
+                ?? throw new InvalidOperationException("Structured review summary JSON was empty.");
+
+            if (string.IsNullOrWhiteSpace(summary.Body))
+                throw new InvalidOperationException("Structured review summary must include a non-empty body.");
+
+            return new PullRequestReviewSummary
+            {
+                MajorCount = Math.Max(0, summary.MajorCount),
+                MinorCount = Math.Max(0, summary.MinorCount),
+                SuggestionCount = Math.Max(0, summary.SuggestionCount),
+                Body = summary.Body.Trim(),
+            };
+        }
+
+        internal static IReadOnlyList<PullRequestInlineComment> ParseStructuredInlineComments(string commentsJson)
+        {
+            var items = JsonSerializer.Deserialize<List<StructuredInlineCommentInput>>(commentsJson, StructuredReviewJsonOptions) ?? [];
+            return items.Select(item =>
+            {
+                if (string.IsNullOrWhiteSpace(item.Title))
+                    throw new InvalidOperationException("Each inline comment must include a title.");
+                if (string.IsNullOrWhiteSpace(item.Body))
+                    throw new InvalidOperationException("Each inline comment must include a body.");
+                if (string.IsNullOrWhiteSpace(item.Path))
+                    throw new InvalidOperationException("Each inline comment must include a path.");
+                if (item.Line <= 0)
+                    throw new InvalidOperationException("Each inline comment must include a positive line number.");
+                if (item.StartLine.HasValue && item.StartLine.Value <= 0)
+                    throw new InvalidOperationException("StartLine must be a positive line number when provided.");
+                if (item.StartLine.HasValue && item.StartLine.Value > item.Line)
+                    throw new InvalidOperationException("StartLine must be less than or equal to Line.");
+
+                var normalizedPath = NormalizeCommentPath(item.Path);
+                var side = ParseSide(item.Side, PullRequestReviewCommentSide.Right);
+                var normalizedStartLine = item.StartLine == item.Line ? null : item.StartLine;
+                var normalizedStartSide = normalizedStartLine.HasValue
+                    ? (ParseOptionalSide(item.StartSide) ?? side)
+                    : (PullRequestReviewCommentSide?)null;
+
+                if (normalizedStartLine.HasValue && normalizedStartSide != side)
+                    throw new InvalidOperationException("Multi-line inline comments must stay on a single diff side.");
+
+                PullRequestSuggestion? suggestion = null;
+                if (!string.IsNullOrWhiteSpace(item.SuggestionReplacement))
+                {
+                    if (side != PullRequestReviewCommentSide.Right ||
+                        (normalizedStartSide.HasValue && normalizedStartSide.Value != PullRequestReviewCommentSide.Right))
+                    {
+                        throw new InvalidOperationException("Suggestions are only supported on RIGHT-side diff anchors.");
+                    }
+
+                    suggestion = new PullRequestSuggestion
+                    {
+                        Replacement = item.SuggestionReplacement.TrimEnd(),
+                    };
+                }
+
+                return new PullRequestInlineComment
+                {
+                    Severity = ParseSeverity(item.Severity),
+                    Title = item.Title.Trim(),
+                    Body = item.Body.Trim(),
+                    Path = normalizedPath,
+                    Line = item.Line,
+                    Side = side,
+                    StartLine = normalizedStartLine,
+                    StartSide = normalizedStartSide,
+                    Suggestion = suggestion,
+                };
+            }).ToList();
+        }
+
+        private static string NormalizeCommentPath(string path)
+        {
+            var normalized = path.Trim().Replace('\\', '/');
+            while (normalized.StartsWith("./", StringComparison.Ordinal))
+                normalized = normalized[2..];
+
+            if (string.IsNullOrWhiteSpace(normalized))
+                throw new InvalidOperationException("Each inline comment must include a non-empty relative path.");
+            if (Path.IsPathRooted(normalized))
+                throw new InvalidOperationException("Inline comment path must be relative to the repository root.");
+            if (normalized.StartsWith("/", StringComparison.Ordinal))
+                throw new InvalidOperationException("Inline comment path must not start with '/'.");
+            if (normalized.Contains("/../", StringComparison.Ordinal) ||
+                normalized.StartsWith("../", StringComparison.Ordinal) ||
+                normalized.EndsWith("/..", StringComparison.Ordinal) ||
+                normalized.Contains("/./", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Inline comment path must not contain path traversal segments.");
+            }
+
+            return normalized;
+        }
+
+        private static List<PullRequestReviewFinding> ConvertInlineCommentsToFindings(
+            IReadOnlyList<PullRequestInlineComment> comments) =>
+            comments.Select(comment => new PullRequestReviewFinding
+            {
+                Severity = comment.Severity,
+                Title = comment.Title,
+                Summary = comment.Body,
+                FilePath = comment.Path,
+                IsResolved = false,
+            }).ToList();
+
+        private static ReviewFindingSeverity ParseSeverity(string? severity) =>
+            string.Equals(severity?.Trim(), "RED", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(severity?.Trim(), "MAJOR", StringComparison.OrdinalIgnoreCase)
+                ? ReviewFindingSeverity.Red
+                : ReviewFindingSeverity.Yellow;
+
+        private static PullRequestReviewCommentSide ParseSide(string? side, PullRequestReviewCommentSide defaultValue)
+        {
+            var parsed = ParseOptionalSide(side);
+            return parsed ?? defaultValue;
+        }
+
+        private static PullRequestReviewCommentSide? ParseOptionalSide(string? side)
+        {
+            if (string.IsNullOrWhiteSpace(side))
+                return null;
+
+            return side.Trim().ToUpperInvariant() switch
+            {
+                "LEFT" => PullRequestReviewCommentSide.Left,
+                "RIGHT" => PullRequestReviewCommentSide.Right,
+                _ => throw new InvalidOperationException($"Unsupported review comment side '{side}'."),
+            };
+        }
+
         private static string Normalize(string input) =>
             WhitespaceRegex.Replace(input.Trim().ToLowerInvariant(), " ");
 
@@ -679,6 +961,43 @@ public sealed class GitHubAutomationSource : IAutomationSource
             RegexOptions.Compiled);
 
         private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+
+        private static readonly JsonSerializerOptions StructuredReviewJsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+        };
+
+        private sealed class StructuredReviewSummaryInput
+        {
+            public int MajorCount { get; set; }
+
+            public int MinorCount { get; set; }
+
+            public int SuggestionCount { get; set; }
+
+            public string? Body { get; set; }
+        }
+
+        private sealed class StructuredInlineCommentInput
+        {
+            public string? Severity { get; set; }
+
+            public string? Title { get; set; }
+
+            public string? Body { get; set; }
+
+            public string? Path { get; set; }
+
+            public int Line { get; set; }
+
+            public string? Side { get; set; }
+
+            public int? StartLine { get; set; }
+
+            public string? StartSide { get; set; }
+
+            public string? SuggestionReplacement { get; set; }
+        }
     }
 
     #endregion

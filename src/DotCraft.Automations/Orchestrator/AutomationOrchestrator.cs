@@ -262,6 +262,18 @@ public sealed class AutomationOrchestrator
 
             foreach (var source in _sources.Values)
             {
+                try
+                {
+                    await source.ReconcileExpiredResourcesAsync(ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "ReconcileExpiredResourcesAsync failed for source {Source}",
+                        source.Name);
+                }
+
                 IReadOnlyList<AutomationTask> pending;
                 try
                 {

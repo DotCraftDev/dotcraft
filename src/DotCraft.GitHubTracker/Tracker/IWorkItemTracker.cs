@@ -42,6 +42,16 @@ public interface IWorkItemTracker
     Task SubmitReviewAsync(string pullNumber, string body, string @event, CancellationToken ct = default);
 
     /// <summary>
+    /// Submit a structured COMMENT review on a pull request, including
+    /// a top-level summary and zero or more inline review comments.
+    /// </summary>
+    Task<StructuredReviewSubmitResult> SubmitStructuredReviewAsync(
+        string pullNumber,
+        PullRequestReviewSummary summary,
+        IReadOnlyList<PullRequestInlineComment> comments,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Fetch the diff content for a pull request.
     /// </summary>
     Task<string> FetchPullRequestDiffAsync(string pullNumber, CancellationToken ct = default);

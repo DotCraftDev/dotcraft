@@ -54,6 +54,15 @@ public interface IAutomationSource
     Task<string?> ProvisionWorkspaceAsync(AutomationTask task, CancellationToken ct) =>
         Task.FromResult<string?>(null);
 
+    /// <summary>
+    /// Gives the source a chance to clean up expired external resources (for example,
+    /// task-specific workspaces whose backing item is now terminal).
+    /// Failures should be handled internally when possible; the orchestrator treats this
+    /// as best-effort maintenance and continues polling on errors.
+    /// </summary>
+    Task ReconcileExpiredResourcesAsync(CancellationToken ct) =>
+        Task.CompletedTask;
+
     /// <summary>Called before the agent workflow loop starts. Sources may run setup hooks (e.g. git identity).</summary>
     Task OnBeforeAgentRunAsync(AutomationTask task, string workspacePath, CancellationToken ct) =>
         Task.CompletedTask;

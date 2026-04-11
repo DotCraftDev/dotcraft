@@ -117,47 +117,79 @@ You may run build or test commands in your workspace if they help verify a suspe
 
 When you have finished your analysis, call \`SubmitReview\` with:
 
-- \`reviewEvent\`: always use \`COMMENT\` - this bot provides feedback only and does not cast an approving or blocking vote.
-- \`body\`: an issue-focused review comment
+- \`summaryJson\`: a JSON object with \`majorCount\`, \`minorCount\`, \`suggestionCount\`, and \`body\`
+- \`commentsJson\`: a JSON array of inline comments. Use \`[]\` when there are no inline comments.
 
-**Review body format**:
+Each inline comment object must include:
 
-- If you found one or more material issues, output only those findings.
-- If you found no material issues, submit a short no-issues comment instead of padding the review.
+- \`severity\`: \`RED\` or \`YELLOW\`
+- \`title\`: short issue title prefixed with \`🔴\` for \`RED\` findings or \`🟡\` for \`YELLOW\` findings
+- \`body\`: one compact paragraph explaining the concrete problem and impact
+- \`path\`: changed file path
+- \`line\`: ending line number for the inline comment
 
-Use this format for material findings:
+Optional inline comment fields:
+
+- \`side\`: \`RIGHT\` by default; use \`LEFT\` only when the comment anchors to deleted lines
+- \`startLine\`: starting line number for a multi-line inline comment
+- \`startSide\`: starting side for a multi-line inline comment
+- \`suggestionReplacement\`: replacement text only, with no markdown fences
+
+Submission rules:
+
+- Submit exactly one summary review for the PR.
+- For each material finding, prefer one inline comment anchored to changed lines in the current PR diff.
+- If a fix is small, high-confidence, single-file, and a single contiguous replacement range, include \`suggestionReplacement\`.
+- If a problem spans multiple files or cannot be expressed as one contiguous replacement, omit \`suggestionReplacement\` but still submit the inline comment.
+- \`path\`, \`line\`, and \`startLine\` must refer to commentable lines from the current PR head diff, not arbitrary source file line numbers.
+- If you cannot reliably anchor a finding to changed diff lines, mention it in the summary body instead of inventing a bad inline location.
+
+If there are material issues, make the summary body a short overview like:
 
 \`\`\`markdown
 > 🤖 **AI-generated review** - for reference only. Please verify findings independently.
 
-🔴 Short issue title
-
-<One compact paragraph explaining the problem, where it is, why it is wrong, and what runtime or behavioral consequence it causes. Include file and line references inline when possible.>
-
-🟡 Short issue title
-
-<One compact paragraph explaining the lower-severity risk, when it may break, and what should be verified or changed.>
+Found 2 major issue(s) and 1 minor issue(s).
+Added inline comments for each finding.
+1 inline comment(s) include a suggested change that can be applied directly in GitHub.
 \`\`\`
 
-If there are no material issues, use:
+Use inline comment titles like:
 
-\`\`\`markdown
-> 🤖 **AI-generated review** - for reference only. Please verify findings independently.
+\`\`\`text
+title: "🔴 Missing null guard"
+body: "A null payload will throw before validation can run."
 
-No material correctness, regression, or security issues found in the reviewed changes.
+title: "🟡 Prefer explicit guard"
+body: "This edge case should be handled before the loop runs."
+\`\`\`
+
+If there are no material issues, use this exact payload shape:
+
+\`\`\`json
+summaryJson = {
+  "majorCount": 0,
+  "minorCount": 0,
+  "suggestionCount": 0,
+  "body": "> 🤖 **AI-generated review** - for reference only. Please verify findings independently.\n\nNo issues found."
+}
+
+commentsJson = []
 \`\`\`
 
 ## Notes
 
 - Do not push any code. Your role is read-and-review only.
 - Do not merge the PR. Never call \`gh pr merge\` or any merge command.
-- Always use \`COMMENT\` as the \`reviewEvent\`. Do not use \`APPROVE\` or \`REQUEST_CHANGES\`.
+- Use \`SubmitReview(summaryJson, commentsJson)\` as the only PR review submission tool.
 - Do not repeat previously reported findings unless there is a material change in impact or behavior.
 - Use the workspace and shell tools to inspect diffs and files instead of asking for the full patch in prompt.
 - Only report actionable, non-trivial issues tied to the changed code.
 - Each finding must explain the impact, not just name a smell.
 - Prefer a single strong finding over a long list of weak suggestions.
 - If you are unsure and cannot explain a concrete failure mode or risk, do not include the finding.
+- Do not guess source line numbers for inline comments. Only use locations you can verify from the current PR diff.
+- Do not include markdown suggestion fences in \`suggestionReplacement\`; provide only the replacement text.
 `
 
 const ISSUE_TEMPLATE = `---
