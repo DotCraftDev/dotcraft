@@ -42,6 +42,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [21. Model Catalog Methods](#21-model-catalog-methods)
 - [22. MCP Management Methods](#22-mcp-management-methods)
 - [23. Workspace Config Methods](#23-workspace-config-methods)
+- [25. GitHub Tracker Config Methods](#25-github-tracker-config-methods)
 
 ---
 
@@ -3127,3 +3128,199 @@ If `model` is removed, the result returns:
 ### 24.3 Capability Advertisement
 
 `capabilities.workspaceConfigManagement` is present and `true` when the AppServer has a workspace `.craft` path and can persist `.craft/config.json`.
+
+## 25. GitHub Tracker Config Methods
+
+### 25.1 Scope
+
+These methods provide a server-authoritative read/write path for the workspace `GitHubTracker` configuration stored in `.craft/config.json`.
+
+Desktop and other clients must not write the `GitHubTracker` section directly. The authoritative persistence target is the workspace config file under the `GitHubTracker` top-level key.
+
+Clients must check `capabilities.gitHubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. If absent or `false`, the server returns `-32601` (Method not found).
+
+### 25.2 `GitHubTrackerConfig` Wire DTO
+
+```json
+{
+  "enabled": true,
+  "issuesWorkflowPath": "WORKFLOW.md",
+  "pullRequestWorkflowPath": "PR_WORKFLOW.md",
+  "tracker": {
+    "endpoint": null,
+    "apiKey": "***",
+    "repository": "owner/repo",
+    "activeStates": ["Todo", "In Progress"],
+    "terminalStates": ["Done", "Closed", "Cancelled"],
+    "gitHubStateLabelPrefix": "status:",
+    "assigneeFilter": null,
+    "pullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
+    "pullRequestTerminalStates": ["Merged", "Closed", "Approved"]
+  },
+  "polling": {
+    "intervalMs": 30000
+  },
+  "workspace": {
+    "root": null
+  },
+  "agent": {
+    "maxConcurrentAgents": 3,
+    "maxTurns": 20,
+    "maxRetryBackoffMs": 300000,
+    "turnTimeoutMs": 3600000,
+    "stallTimeoutMs": 300000,
+    "maxConcurrentByState": {},
+    "maxConcurrentPullRequestAgents": 0
+  },
+  "hooks": {
+    "afterCreate": null,
+    "beforeRun": null,
+    "afterRun": null,
+    "beforeRemove": null,
+    "timeoutMs": 60000
+  }
+}
+```
+
+Supported fields mirror the runtime `GitHubTracker` config classes:
+
+- `enabled: boolean`
+- `issuesWorkflowPath: string`
+- `pullRequestWorkflowPath: string`
+- `tracker.endpoint?: string | null`
+- `tracker.apiKey?: string | null`
+- `tracker.repository?: string | null`
+- `tracker.activeStates: string[]`
+- `tracker.terminalStates: string[]`
+- `tracker.gitHubStateLabelPrefix: string`
+- `tracker.assigneeFilter?: string | null`
+- `tracker.pullRequestActiveStates: string[]`
+- `tracker.pullRequestTerminalStates: string[]`
+- `polling.intervalMs: number`
+- `workspace.root?: string | null`
+- `agent.maxConcurrentAgents: number`
+- `agent.maxTurns: number`
+- `agent.maxRetryBackoffMs: number`
+- `agent.turnTimeoutMs: number`
+- `agent.stallTimeoutMs: number`
+- `agent.maxConcurrentByState: Record<string, number>`
+- `agent.maxConcurrentPullRequestAgents: number`
+- `hooks.afterCreate?: string | null`
+- `hooks.beforeRun?: string | null`
+- `hooks.afterRun?: string | null`
+- `hooks.beforeRemove?: string | null`
+- `hooks.timeoutMs: number`
+
+Validation rules:
+
+- When `enabled` is `true`, `tracker.repository` is required.
+- `tracker.activeStates` and `tracker.terminalStates` must not overlap, case-insensitively.
+- `tracker.pullRequestActiveStates` and `tracker.pullRequestTerminalStates` must not overlap, case-insensitively.
+- Numeric fields follow the same lower bounds enforced by the runtime config metadata (`intervalMs >= 1`, concurrency values `>= 0` or `>= 1` depending on the field).
+- `tracker.apiKey` is masked as `"***"` by `githubTracker/get` when a non-empty value exists in workspace config. Sending `"***"` back to `githubTracker/update` preserves the existing stored value instead of overwriting it.
+
+### 25.3 `githubTracker/get`
+
+Returns the current workspace `GitHubTracker` configuration.
+
+**Direction**: client → server (request)
+
+**Result**:
+
+```json
+{
+  "config": {
+    "enabled": true,
+    "issuesWorkflowPath": "WORKFLOW.md",
+    "pullRequestWorkflowPath": "PR_WORKFLOW.md",
+    "tracker": {
+      "apiKey": "***",
+      "repository": "owner/repo",
+      "activeStates": ["Todo", "In Progress"],
+      "terminalStates": ["Done", "Closed", "Cancelled"],
+      "gitHubStateLabelPrefix": "status:",
+      "pullRequestActiveStates": ["Pending Review", "Review Requested", "Changes Requested"],
+      "pullRequestTerminalStates": ["Merged", "Closed", "Approved"]
+    },
+    "polling": { "intervalMs": 30000 },
+    "workspace": { "root": null },
+    "agent": {
+      "maxConcurrentAgents": 3,
+      "maxTurns": 20,
+      "maxRetryBackoffMs": 300000,
+      "turnTimeoutMs": 3600000,
+      "stallTimeoutMs": 300000,
+      "maxConcurrentByState": {},
+      "maxConcurrentPullRequestAgents": 0
+    },
+    "hooks": {
+      "afterCreate": null,
+      "beforeRun": null,
+      "afterRun": null,
+      "beforeRemove": null,
+      "timeoutMs": 60000
+    }
+  }
+}
+```
+
+### 25.4 `githubTracker/update`
+
+Creates or replaces the workspace `GitHubTracker` section.
+
+**Direction**: client → server (request)
+
+**Params**:
+
+```json
+{
+  "config": {
+    "enabled": true,
+    "issuesWorkflowPath": "WORKFLOW.md",
+    "pullRequestWorkflowPath": "PR_WORKFLOW.md",
+    "tracker": {
+      "apiKey": "***",
+      "repository": "owner/repo",
+      "activeStates": ["Todo", "In Progress"],
+      "terminalStates": ["Done", "Closed", "Cancelled"],
+      "gitHubStateLabelPrefix": "status:"
+    }
+  }
+}
+```
+
+**Semantics**:
+
+- The payload replaces the full logical `GitHubTracker` section in workspace config.
+- The server preserves unrelated keys in `.craft/config.json`.
+- The server preserves the existing `tracker.apiKey` when the incoming value is `"***"`.
+- Changes are persisted for future runs; clients should assume a restart may be required before module behavior reflects the new values.
+
+**Result**:
+
+```json
+{
+  "config": {
+    "enabled": true,
+    "issuesWorkflowPath": "WORKFLOW.md",
+    "pullRequestWorkflowPath": "PR_WORKFLOW.md",
+    "tracker": {
+      "apiKey": "***",
+      "repository": "owner/repo",
+      "activeStates": ["Todo", "In Progress"],
+      "terminalStates": ["Done", "Closed", "Cancelled"],
+      "gitHubStateLabelPrefix": "status:"
+    }
+  }
+}
+```
+
+### 25.5 Capability Advertisement
+
+`capabilities.gitHubTrackerConfig` is present and `true` when the AppServer has a workspace `.craft` path and the `github-tracker` module is enabled for the current runtime configuration.
+
+### 25.6 Error Codes
+
+| Code | Constant | When |
+|------|----------|------|
+| `-32090` | `GitHubTrackerConfigValidationFailed` | The payload violates GitHub tracker config validation rules. |

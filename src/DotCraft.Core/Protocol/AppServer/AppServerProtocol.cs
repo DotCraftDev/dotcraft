@@ -226,6 +226,13 @@ public sealed class AppServerServerCapabilities
     public bool ExternalChannelManagement { get; set; }
 
     /// <summary>
+    /// Server supports GitHub tracker configuration management methods
+    /// (<c>githubTracker/get</c>, <c>githubTracker/update</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool GitHubTrackerConfig { get; set; }
+
+    /// <summary>
     /// Server supports MCP runtime status methods/notifications.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -928,6 +935,112 @@ public sealed class WorkspaceConfigUpdateResult
     public string? Model { get; set; }
 }
 
+// ───── githubTracker/* (GitHub tracker config management) ─────
+
+public sealed class GitHubTrackerConfigWire
+{
+    public bool Enabled { get; set; }
+
+    public string IssuesWorkflowPath { get; set; } = "WORKFLOW.md";
+
+    public string PullRequestWorkflowPath { get; set; } = "PR_WORKFLOW.md";
+
+    public GitHubTrackerTrackerConfigWire Tracker { get; set; } = new();
+
+    public GitHubTrackerPollingConfigWire Polling { get; set; } = new();
+
+    public GitHubTrackerWorkspaceConfigWire Workspace { get; set; } = new();
+
+    public GitHubTrackerAgentConfigWire Agent { get; set; } = new();
+
+    public GitHubTrackerHooksConfigWire Hooks { get; set; } = new();
+}
+
+public sealed class GitHubTrackerTrackerConfigWire
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Endpoint { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ApiKey { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Repository { get; set; }
+
+    public List<string> ActiveStates { get; set; } = ["Todo", "In Progress"];
+
+    public List<string> TerminalStates { get; set; } = ["Done", "Closed", "Cancelled"];
+
+    public string GitHubStateLabelPrefix { get; set; } = "status:";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AssigneeFilter { get; set; }
+
+    public List<string> PullRequestActiveStates { get; set; } = ["Pending Review", "Review Requested", "Changes Requested"];
+
+    public List<string> PullRequestTerminalStates { get; set; } = ["Merged", "Closed", "Approved"];
+}
+
+public sealed class GitHubTrackerPollingConfigWire
+{
+    public int IntervalMs { get; set; } = 30_000;
+}
+
+public sealed class GitHubTrackerWorkspaceConfigWire
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Root { get; set; }
+}
+
+public sealed class GitHubTrackerAgentConfigWire
+{
+    public int MaxConcurrentAgents { get; set; } = 3;
+
+    public int MaxTurns { get; set; } = 20;
+
+    public int MaxRetryBackoffMs { get; set; } = 300_000;
+
+    public int TurnTimeoutMs { get; set; } = 3_600_000;
+
+    public int StallTimeoutMs { get; set; } = 300_000;
+
+    public Dictionary<string, int> MaxConcurrentByState { get; set; } = [];
+
+    public int MaxConcurrentPullRequestAgents { get; set; }
+}
+
+public sealed class GitHubTrackerHooksConfigWire
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AfterCreate { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BeforeRun { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AfterRun { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BeforeRemove { get; set; }
+
+    public int TimeoutMs { get; set; } = 60_000;
+}
+
+public sealed class GitHubTrackerGetResult
+{
+    public GitHubTrackerConfigWire Config { get; set; } = new();
+}
+
+public sealed class GitHubTrackerUpdateParams
+{
+    public GitHubTrackerConfigWire Config { get; set; } = new();
+}
+
+public sealed class GitHubTrackerUpdateResult
+{
+    public GitHubTrackerConfigWire Config { get; set; } = new();
+}
+
 // ───── mcp/* (MCP server management) ─────
 
 public sealed class McpServerConfigWire
@@ -1142,6 +1255,8 @@ public static class AppServerMethods
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
     public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
     public const string WorkspaceConfigUpdate = "workspace/config/update";
+    public const string GitHubTrackerGet = "githubTracker/get";
+    public const string GitHubTrackerUpdate = "githubTracker/update";
     public const string McpList = "mcp/list";
     public const string McpGet = "mcp/get";
     public const string McpUpsert = "mcp/upsert";

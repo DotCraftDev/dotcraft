@@ -9,6 +9,7 @@ import { useConnectionStore } from '../../stores/connectionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { TaskCard } from './TaskCard'
 import { NewTaskDialog } from './NewTaskDialog'
+import { GitHubTrackerConfigDialog } from './GitHubTrackerConfigDialog'
 import { TaskReviewPanel } from './TaskReviewPanel'
 import { CronJobCard } from './CronJobCard'
 import { CronReviewPanel } from './CronReviewPanel'
@@ -63,6 +64,7 @@ export function AutomationsView(): JSX.Element {
   const capabilities = useConnectionStore((s) => s.capabilities)
   const hasTasks = capabilities?.automations === true
   const hasCron = capabilities?.cronManagement === true
+  const hasGitHubTrackerConfig = capabilities?.gitHubTrackerConfig === true
   const automationsTab = useUIStore((s) => s.automationsTab)
   const setAutomationsTab = useUIStore((s) => s.setAutomationsTab)
 
@@ -81,6 +83,7 @@ export function AutomationsView(): JSX.Element {
   const selectedCronJobId = useCronStore((s) => s.selectedCronJobId)
 
   const [showNewTask, setShowNewTask] = useState(false)
+  const [showGitHubConfig, setShowGitHubConfig] = useState(false)
 
   const filterTabs: { key: SourceFilter; label: string }[] = useMemo(
     () => [
@@ -189,6 +192,36 @@ export function AutomationsView(): JSX.Element {
               {t('auto.viewTitle')}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              {activePanel === 'tasks' && (
+                <button
+                  type="button"
+                  onClick={() => setShowGitHubConfig(true)}
+                  aria-label={t('auto.githubConfig.open')}
+                  title={t('auto.githubConfig.open')}
+                  style={{
+                    display: hasGitHubTrackerConfig ? 'inline-flex' : 'none',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '32px',
+                    height: '30px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-default)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="16"
+                    height="16"
+                    aria-hidden="true"
+                    fill="currentColor"
+                  >
+                    <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
+                  </svg>
+                </button>
+              )}
               {activePanel === 'tasks' && (
                 <button
                   type="button"
@@ -484,6 +517,7 @@ export function AutomationsView(): JSX.Element {
       </div>
 
       {showNewTask && <NewTaskDialog onClose={() => setShowNewTask(false)} />}
+      {showGitHubConfig && <GitHubTrackerConfigDialog onClose={() => setShowGitHubConfig(false)} />}
 
       {selectedTaskId && <TaskReviewPanel />}
       {selectedCronJobId && <CronReviewPanel />}

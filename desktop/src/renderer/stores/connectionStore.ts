@@ -22,6 +22,7 @@ export interface ServerCapabilities {
   workspaceConfigManagement?: boolean
   mcpManagement?: boolean
   externalChannelManagement?: boolean
+  gitHubTrackerConfig?: boolean
   mcpStatus?: boolean
   [key: string]: unknown
 }
