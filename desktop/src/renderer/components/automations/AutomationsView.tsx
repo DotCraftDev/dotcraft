@@ -192,14 +192,13 @@ export function AutomationsView(): JSX.Element {
               {t('auto.viewTitle')}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-              {activePanel === 'tasks' && (
+              {hasGitHubTrackerConfig && (
                 <button
                   type="button"
                   onClick={() => setShowGitHubConfig(true)}
                   aria-label={t('auto.githubConfig.open')}
                   title={t('auto.githubConfig.open')}
                   style={{
-                    display: hasGitHubTrackerConfig ? 'inline-flex' : 'none',
                     alignItems: 'center',
                     justifyContent: 'center',
                     width: '32px',

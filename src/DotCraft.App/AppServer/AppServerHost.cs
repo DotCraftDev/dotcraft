@@ -84,9 +84,6 @@ public sealed class AppServerHost(
     /// </summary>
     private readonly ConcurrentDictionary<IAppServerTransport, AppServerConnection> _activeTransports = new();
 
-    private readonly bool _gitHubTrackerConfigEnabled = moduleRegistry.GetEnabledModules(config)
-        .Any(m => string.Equals(m.Name, "github-tracker", StringComparison.OrdinalIgnoreCase));
-
     private ModuleRegistryChannelListContributor CreateChannelListContributor() =>
         new(moduleRegistry, _cronService, _heartbeatService);
 
@@ -358,8 +355,7 @@ public sealed class AppServerHost(
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
             channelStatusProvider: _channelRunner,
             mcpClientManager: mcpClientManager,
-            broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-            gitHubTrackerConfigEnabled: _gitHubTrackerConfigEnabled);
+            broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -422,8 +418,7 @@ public sealed class AppServerHost(
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
             channelStatusProvider: _channelRunner,
             mcpClientManager: mcpClientManager,
-            broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-            gitHubTrackerConfigEnabled: _gitHubTrackerConfigEnabled);
+            broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -508,8 +503,7 @@ public sealed class AppServerHost(
                     wireAcpExtensionProxy: _wireAcpExtensionProxy,
                     channelStatusProvider: _channelRunner,
                     mcpClientManager: mcpClientManager,
-                    broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-                    gitHubTrackerConfigEnabled: _gitHubTrackerConfigEnabled);
+                    broadcastMcpStatusChanged: BroadcastMcpStatusChanged);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //

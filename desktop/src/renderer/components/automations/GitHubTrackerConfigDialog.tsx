@@ -1,5 +1,8 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import { useT } from '../../contexts/LocaleContext'
+import { addToast } from '../../stores/toastStore'
+import { ToggleSwitch } from '../channels/ToggleSwitch'
+import { FieldCard, FormActions, formStyles } from '../channels/FormShared'
 
 interface Props {
   onClose(): void
@@ -85,219 +88,9 @@ function createDefaultConfig(): GitHubTrackerConfig {
   }
 }
 
-function cardStyle(): CSSProperties {
-  return {
-    border: '1px solid var(--border-default)',
-    borderRadius: '10px',
-    background: 'var(--bg-secondary)',
-    padding: '14px'
-  }
-}
-
-function sectionLabelStyle(): CSSProperties {
-  return {
-    display: 'block',
-    fontSize: '12px',
-    fontWeight: 600,
-    color: 'var(--text-secondary)',
-    marginBottom: '6px'
-  }
-}
-
-function inputStyle(mono = false): CSSProperties {
-  return {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '8px 10px',
-    fontSize: '13px',
-    borderRadius: '8px',
-    border: '1px solid var(--border-default)',
-    background: 'var(--bg-primary)',
-    color: 'var(--text-primary)',
-    outline: 'none',
-    fontFamily: mono ? 'var(--font-mono)' : undefined
-  }
-}
-
-function secondaryButtonStyle(): CSSProperties {
-  return {
-    padding: '8px 14px',
-    border: '1px solid var(--border-default)',
-    borderRadius: '8px',
-    background: 'transparent',
-    color: 'var(--text-primary)',
-    fontSize: '13px',
-    fontWeight: 500,
-    cursor: 'pointer'
-  }
-}
-
-function primaryButtonStyle(disabled = false): CSSProperties {
-  return {
-    padding: '8px 14px',
-    border: 'none',
-    borderRadius: '8px',
-    background: 'var(--accent)',
-    color: 'var(--on-accent)',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: disabled ? 'default' : 'pointer',
-    opacity: disabled ? 0.7 : 1
-  }
-}
-
-function sectionSummaryStyle(): CSSProperties {
-  return {
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: 700,
-    color: 'var(--text-primary)'
-  }
-}
-
 function normalizeOptionalString(value: string): string | null {
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
-}
-
-function parseInteger(value: string, fallback: number): number {
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
-
-function StringListEditor({
-  values,
-  onChange,
-  placeholder,
-  addLabel,
-  removeLabel
-}: {
-  values: string[]
-  onChange(values: string[]): void
-  placeholder: string
-  addLabel: string
-  removeLabel: string
-}): JSX.Element {
-  const rows = values.length > 0 ? values : ['']
-
-  function updateRow(index: number, nextValue: string): void {
-    onChange(rows.map((row, rowIndex) => (rowIndex === index ? nextValue : row)))
-  }
-
-  function removeRow(index: number): void {
-    const nextRows = rows.filter((_, rowIndex) => rowIndex !== index)
-    onChange(nextRows.length > 0 ? nextRows : [''])
-  }
-
-  function addRow(): void {
-    onChange([...rows, ''])
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {rows.map((value, index) => (
-        <div key={`${index}-${value}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => updateRow(index, e.target.value)}
-            placeholder={placeholder}
-            style={inputStyle(true)}
-          />
-          <button type="button" onClick={() => removeRow(index)} style={secondaryButtonStyle()}>
-            {removeLabel}
-          </button>
-        </div>
-      ))}
-      <button type="button" onClick={addRow} style={secondaryButtonStyle()}>
-        {addLabel}
-      </button>
-    </div>
-  )
-}
-
-function NumberMapEditor({
-  values,
-  onChange,
-  keyPlaceholder,
-  valuePlaceholder,
-  addLabel,
-  removeLabel
-}: {
-  values: Record<string, number>
-  onChange(values: Record<string, number>): void
-  keyPlaceholder: string
-  valuePlaceholder: string
-  addLabel: string
-  removeLabel: string
-}): JSX.Element {
-  const [rows, setRows] = useState<Array<{ id: string; key: string; value: string }>>([])
-  const valueSignature = JSON.stringify(
-    Object.entries(values).sort(([left], [right]) => left.localeCompare(right))
-  )
-
-  useEffect(() => {
-    const entries = Object.entries(values)
-    setRows(
-      entries.length > 0
-        ? entries.map(([key, value], index) => ({ id: `${index}-${key}`, key, value: String(value) }))
-        : [{ id: 'empty-0', key: '', value: '' }]
-    )
-  }, [valueSignature])
-
-  function pushRows(nextRows: Array<{ id: string; key: string; value: string }>): void {
-    setRows(nextRows)
-    const nextMap: Record<string, number> = {}
-    for (const row of nextRows) {
-      const key = row.key.trim()
-      const value = Number.parseInt(row.value, 10)
-      if (!key || !Number.isFinite(value)) continue
-      nextMap[key] = value
-    }
-    onChange(nextMap)
-  }
-
-  function updateRow(index: number, patch: Partial<{ key: string; value: string }>): void {
-    pushRows(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)))
-  }
-
-  function removeRow(index: number): void {
-    const nextRows = rows.filter((_, rowIndex) => rowIndex !== index)
-    pushRows(nextRows.length > 0 ? nextRows : [{ id: 'empty-0', key: '', value: '' }])
-  }
-
-  function addRow(): void {
-    pushRows([...rows, { id: `new-${rows.length}-${Date.now()}`, key: '', value: '' }])
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {rows.map((row, index) => (
-        <div key={`${index}-${row.key}-${row.value}`} style={{ display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: '8px' }}>
-          <input
-            type="text"
-            value={row.key}
-            onChange={(e) => updateRow(index, { key: e.target.value })}
-            placeholder={keyPlaceholder}
-            style={inputStyle(true)}
-          />
-          <input
-            type="number"
-            value={row.value}
-            onChange={(e) => updateRow(index, { value: e.target.value })}
-            placeholder={valuePlaceholder}
-            style={inputStyle(true)}
-          />
-          <button type="button" onClick={() => removeRow(index)} style={secondaryButtonStyle()}>
-            {removeLabel}
-          </button>
-        </div>
-      ))}
-      <button type="button" onClick={addRow} style={secondaryButtonStyle()}>
-        {addLabel}
-      </button>
-    </div>
-  )
 }
 
 export function GitHubTrackerConfigDialog({ onClose }: Props): JSX.Element {
@@ -341,6 +134,7 @@ export function GitHubTrackerConfigDialog({ onClose }: Props): JSX.Element {
         config
       })) as { config?: GitHubTrackerConfig }
       setConfig(result.config ?? config)
+      addToast(t('channels.savedRestart'), 'success')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -350,44 +144,6 @@ export function GitHubTrackerConfigDialog({ onClose }: Props): JSX.Element {
 
   function updateConfig(updater: (current: GitHubTrackerConfig) => GitHubTrackerConfig): void {
     setConfig((current) => updater(current))
-  }
-
-  function renderTextField(
-    label: string,
-    value: string | null,
-    onChange: (value: string) => void,
-    options?: { mono?: boolean; password?: boolean; placeholder?: string }
-  ): JSX.Element {
-    return (
-      <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <span style={sectionLabelStyle()}>{label}</span>
-        <input
-          type={options?.password ? 'password' : 'text'}
-          value={value ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={options?.placeholder}
-          style={inputStyle(options?.mono)}
-        />
-      </label>
-    )
-  }
-
-  function renderNumberField(
-    label: string,
-    value: number,
-    onChange: (value: number) => void
-  ): JSX.Element {
-    return (
-      <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <span style={sectionLabelStyle()}>{label}</span>
-        <input
-          type="number"
-          value={String(value)}
-          onChange={(e) => onChange(parseInteger(e.target.value, value))}
-          style={inputStyle(true)}
-        />
-      </label>
-    )
   }
 
   return (
@@ -417,264 +173,137 @@ export function GitHubTrackerConfigDialog({ onClose }: Props): JSX.Element {
           boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
         }}
       >
-        <div
-          style={{
-            padding: '16px 20px',
-            borderBottom: '1px solid var(--border-default)',
-            fontSize: '15px',
-            fontWeight: 600,
-            color: 'var(--text-primary)'
-          }}
-        >
-          {t('auto.githubConfig.title')}
-        </div>
-
         <div style={{ padding: '16px 20px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {loading && (
-            <div style={cardStyle()}>
-              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('auto.githubConfig.loading')}</div>
+          <div style={formStyles.header}>
+            <div
+              aria-hidden="true"
+              style={{
+                ...formStyles.headerLogo,
+                width: 32,
+                height: 32,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-primary)'
+              }}
+            >
+              <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
+                <path d="M8 0C3.58 0 0 3.73 0 8.333c0 3.684 2.292 6.81 5.47 7.913.4.077.547-.179.547-.4 0-.197-.007-.845-.01-1.533-2.226.498-2.695-.98-2.695-.98-.364-.955-.89-1.209-.89-1.209-.727-.514.055-.504.055-.504.803.059 1.225.85 1.225.85.714 1.27 1.872.903 2.328.69.072-.533.279-.903.508-1.11-1.777-.209-3.644-.914-3.644-4.068 0-.899.31-1.635.818-2.211-.082-.209-.354-1.05.078-2.189 0 0 .668-.219 2.188.845A7.34 7.34 0 0 1 8 4.64c.68.003 1.366.095 2.006.279 1.52-1.064 2.186-.845 2.186-.845.434 1.139.162 1.98.08 2.189.51.576.818 1.312.818 2.211 0 3.162-1.87 3.857-3.652 4.062.287.256.543.759.543 1.53 0 1.104-.01 1.993-.01 2.264 0 .223.145.481.553.399C13.71 15.14 16 12.015 16 8.333 16 3.73 12.42 0 8 0Z" />
+              </svg>
             </div>
+            <div>
+              <div style={formStyles.headerTitle}>{t('auto.githubConfig.title')}</div>
+            </div>
+          </div>
+
+          {loading && (
+            <FieldCard>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{t('auto.githubConfig.loading')}</div>
+            </FieldCard>
           )}
 
           {!loading && (
             <>
-              <div
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  backgroundColor: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-default)',
-                  fontSize: '12px',
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.5
-                }}
-              >
-                {t('auto.githubConfig.restartHint')}
+              <FieldCard>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.5
+                  }}
+                >
+                  {t('auto.githubConfig.restartHint')}
+                </div>
+              </FieldCard>
+
+              <FieldCard>
+                <ToggleSwitch
+                  checked={config.enabled}
+                  onChange={(checked) => updateConfig((current) => ({ ...current, enabled: checked }))}
+                  label={t('auto.githubConfig.enableGitHub')}
+                />
+              </FieldCard>
+
+              <div style={{ opacity: config.enabled ? 1 : 0.5, pointerEvents: config.enabled ? 'auto' : 'none' }}>
+                <FieldCard>
+                  <div style={formStyles.fieldGroup}>
+                    <label style={formStyles.label}>{t('auto.githubConfig.repository')}</label>
+                    <input
+                      type="text"
+                      value={config.tracker.repository ?? ''}
+                      onChange={(e) =>
+                        updateConfig((current) => ({
+                          ...current,
+                          tracker: { ...current.tracker, repository: normalizeOptionalString(e.target.value) }
+                        }))}
+                      placeholder="owner/repo"
+                      style={formStyles.input}
+                      onFocus={formStyles.inputFocus}
+                      onBlur={formStyles.inputBlur}
+                    />
+                  </div>
+
+                  <div style={formStyles.fieldGroup}>
+                    <label style={formStyles.label}>{t('auto.githubConfig.apiKey')}</label>
+                    <input
+                      type="password"
+                      value={config.tracker.apiKey ?? ''}
+                      onChange={(e) =>
+                        updateConfig((current) => ({
+                          ...current,
+                          tracker: { ...current.tracker, apiKey: normalizeOptionalString(e.target.value) }
+                        }))}
+                      style={formStyles.input}
+                      onFocus={formStyles.inputFocus}
+                      onBlur={formStyles.inputBlur}
+                    />
+                  </div>
+
+                  <div style={formStyles.fieldGroup}>
+                    <label style={formStyles.label}>{t('auto.githubConfig.issuesWorkflowPath')}</label>
+                    <input
+                      type="text"
+                      value={config.issuesWorkflowPath}
+                      onChange={(e) =>
+                        updateConfig((current) => ({
+                          ...current,
+                          issuesWorkflowPath: e.target.value
+                        }))}
+                      style={formStyles.input}
+                      onFocus={formStyles.inputFocus}
+                      onBlur={formStyles.inputBlur}
+                    />
+                  </div>
+
+                  <div style={{ ...formStyles.fieldGroup, marginBottom: 0 }}>
+                    <label style={formStyles.label}>{t('auto.githubConfig.pullRequestWorkflowPath')}</label>
+                    <input
+                      type="text"
+                      value={config.pullRequestWorkflowPath}
+                      onChange={(e) =>
+                        updateConfig((current) => ({
+                          ...current,
+                          pullRequestWorkflowPath: e.target.value
+                        }))}
+                      style={formStyles.input}
+                      onFocus={formStyles.inputFocus}
+                      onBlur={formStyles.inputBlur}
+                    />
+                  </div>
+                </FieldCard>
               </div>
 
-              <details open style={cardStyle()}>
-                <summary style={sectionSummaryStyle()}>{t('auto.githubConfig.section.general')}</summary>
-                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      color: 'var(--text-primary)',
-                      fontSize: '13px'
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={config.enabled}
-                      onChange={(e) => updateConfig((current) => ({ ...current, enabled: e.target.checked }))}
-                    />
-                    {t('auto.githubConfig.enabled')}
-                  </label>
-                  <div />
-                  {renderTextField(t('auto.githubConfig.issuesWorkflowPath'), config.issuesWorkflowPath, (value) =>
-                    updateConfig((current) => ({ ...current, issuesWorkflowPath: value })), { mono: true })}
-                  {renderTextField(t('auto.githubConfig.pullRequestWorkflowPath'), config.pullRequestWorkflowPath, (value) =>
-                    updateConfig((current) => ({ ...current, pullRequestWorkflowPath: value })), { mono: true })}
+              <FieldCard>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.5
+                  }}
+                >
+                  {t('auto.githubConfig.dashboardHint')}
                 </div>
-              </details>
-
-              <details open style={cardStyle()}>
-                <summary style={sectionSummaryStyle()}>{t('auto.githubConfig.section.tracker')}</summary>
-                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  {renderTextField(t('auto.githubConfig.endpoint'), config.tracker.endpoint, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      tracker: { ...current.tracker, endpoint: normalizeOptionalString(value) }
-                    })), { mono: true })}
-                  {renderTextField(t('auto.githubConfig.apiKey'), config.tracker.apiKey, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      tracker: { ...current.tracker, apiKey: normalizeOptionalString(value) }
-                    })), { mono: true, password: true })}
-                  {renderTextField(t('auto.githubConfig.repository'), config.tracker.repository, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      tracker: { ...current.tracker, repository: normalizeOptionalString(value) }
-                    })), { mono: true, placeholder: 'owner/repo' })}
-                  {renderTextField(t('auto.githubConfig.gitHubStateLabelPrefix'), config.tracker.gitHubStateLabelPrefix, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      tracker: { ...current.tracker, gitHubStateLabelPrefix: value }
-                    })), { mono: true })}
-                  {renderTextField(t('auto.githubConfig.assigneeFilter'), config.tracker.assigneeFilter, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      tracker: { ...current.tracker, assigneeFilter: normalizeOptionalString(value) }
-                    })), { mono: true })}
-                </div>
-                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <div style={sectionLabelStyle()}>{t('auto.githubConfig.activeStates')}</div>
-                    <StringListEditor
-                      values={config.tracker.activeStates}
-                      onChange={(values) =>
-                        updateConfig((current) => ({
-                          ...current,
-                          tracker: { ...current.tracker, activeStates: values }
-                        }))}
-                      placeholder={t('auto.githubConfig.stringValuePlaceholder')}
-                      addLabel={t('auto.githubConfig.addValue')}
-                      removeLabel={t('auto.githubConfig.removeValue')}
-                    />
-                  </div>
-                  <div>
-                    <div style={sectionLabelStyle()}>{t('auto.githubConfig.terminalStates')}</div>
-                    <StringListEditor
-                      values={config.tracker.terminalStates}
-                      onChange={(values) =>
-                        updateConfig((current) => ({
-                          ...current,
-                          tracker: { ...current.tracker, terminalStates: values }
-                        }))}
-                      placeholder={t('auto.githubConfig.stringValuePlaceholder')}
-                      addLabel={t('auto.githubConfig.addValue')}
-                      removeLabel={t('auto.githubConfig.removeValue')}
-                    />
-                  </div>
-                  <div>
-                    <div style={sectionLabelStyle()}>{t('auto.githubConfig.pullRequestActiveStates')}</div>
-                    <StringListEditor
-                      values={config.tracker.pullRequestActiveStates}
-                      onChange={(values) =>
-                        updateConfig((current) => ({
-                          ...current,
-                          tracker: { ...current.tracker, pullRequestActiveStates: values }
-                        }))}
-                      placeholder={t('auto.githubConfig.stringValuePlaceholder')}
-                      addLabel={t('auto.githubConfig.addValue')}
-                      removeLabel={t('auto.githubConfig.removeValue')}
-                    />
-                  </div>
-                  <div>
-                    <div style={sectionLabelStyle()}>{t('auto.githubConfig.pullRequestTerminalStates')}</div>
-                    <StringListEditor
-                      values={config.tracker.pullRequestTerminalStates}
-                      onChange={(values) =>
-                        updateConfig((current) => ({
-                          ...current,
-                          tracker: { ...current.tracker, pullRequestTerminalStates: values }
-                        }))}
-                      placeholder={t('auto.githubConfig.stringValuePlaceholder')}
-                      addLabel={t('auto.githubConfig.addValue')}
-                      removeLabel={t('auto.githubConfig.removeValue')}
-                    />
-                  </div>
-                </div>
-              </details>
-
-              <details open style={cardStyle()}>
-                <summary style={sectionSummaryStyle()}>{t('auto.githubConfig.section.polling')}</summary>
-                <div style={{ marginTop: '12px' }}>
-                  {renderNumberField(t('auto.githubConfig.intervalMs'), config.polling.intervalMs, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      polling: { ...current.polling, intervalMs: value }
-                    })))}
-                </div>
-              </details>
-
-              <details open style={cardStyle()}>
-                <summary style={sectionSummaryStyle()}>{t('auto.githubConfig.section.workspace')}</summary>
-                <div style={{ marginTop: '12px' }}>
-                  {renderTextField(t('auto.githubConfig.workspaceRoot'), config.workspace.root, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      workspace: { ...current.workspace, root: normalizeOptionalString(value) }
-                    })), { mono: true })}
-                </div>
-              </details>
-
-              <details open style={cardStyle()}>
-                <summary style={sectionSummaryStyle()}>{t('auto.githubConfig.section.agent')}</summary>
-                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  {renderNumberField(t('auto.githubConfig.maxConcurrentAgents'), config.agent.maxConcurrentAgents, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      agent: { ...current.agent, maxConcurrentAgents: value }
-                    })))}
-                  {renderNumberField(t('auto.githubConfig.maxTurns'), config.agent.maxTurns, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      agent: { ...current.agent, maxTurns: value }
-                    })))}
-                  {renderNumberField(t('auto.githubConfig.maxRetryBackoffMs'), config.agent.maxRetryBackoffMs, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      agent: { ...current.agent, maxRetryBackoffMs: value }
-                    })))}
-                  {renderNumberField(t('auto.githubConfig.turnTimeoutMs'), config.agent.turnTimeoutMs, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      agent: { ...current.agent, turnTimeoutMs: value }
-                    })))}
-                  {renderNumberField(t('auto.githubConfig.stallTimeoutMs'), config.agent.stallTimeoutMs, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      agent: { ...current.agent, stallTimeoutMs: value }
-                    })))}
-                  {renderNumberField(
-                    t('auto.githubConfig.maxConcurrentPullRequestAgents'),
-                    config.agent.maxConcurrentPullRequestAgents,
-                    (value) =>
-                      updateConfig((current) => ({
-                        ...current,
-                        agent: { ...current.agent, maxConcurrentPullRequestAgents: value }
-                      }))
-                  )}
-                </div>
-                <div style={{ marginTop: '12px' }}>
-                  <div style={sectionLabelStyle()}>{t('auto.githubConfig.maxConcurrentByState')}</div>
-                  <NumberMapEditor
-                    values={config.agent.maxConcurrentByState}
-                    onChange={(values) =>
-                      updateConfig((current) => ({
-                        ...current,
-                        agent: { ...current.agent, maxConcurrentByState: values }
-                      }))}
-                    keyPlaceholder={t('auto.githubConfig.stateNamePlaceholder')}
-                    valuePlaceholder={t('auto.githubConfig.numberValuePlaceholder')}
-                    addLabel={t('auto.githubConfig.addMapping')}
-                    removeLabel={t('auto.githubConfig.removeMapping')}
-                  />
-                </div>
-              </details>
-
-              <details open style={cardStyle()}>
-                <summary style={sectionSummaryStyle()}>{t('auto.githubConfig.section.hooks')}</summary>
-                <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  {renderTextField(t('auto.githubConfig.afterCreate'), config.hooks.afterCreate, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      hooks: { ...current.hooks, afterCreate: normalizeOptionalString(value) }
-                    })), { mono: true })}
-                  {renderTextField(t('auto.githubConfig.beforeRun'), config.hooks.beforeRun, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      hooks: { ...current.hooks, beforeRun: normalizeOptionalString(value) }
-                    })), { mono: true })}
-                  {renderTextField(t('auto.githubConfig.afterRun'), config.hooks.afterRun, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      hooks: { ...current.hooks, afterRun: normalizeOptionalString(value) }
-                    })), { mono: true })}
-                  {renderTextField(t('auto.githubConfig.beforeRemove'), config.hooks.beforeRemove, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      hooks: { ...current.hooks, beforeRemove: normalizeOptionalString(value) }
-                    })), { mono: true })}
-                  {renderNumberField(t('auto.githubConfig.timeoutMs'), config.hooks.timeoutMs, (value) =>
-                    updateConfig((current) => ({
-                      ...current,
-                      hooks: { ...current.hooks, timeoutMs: value }
-                    })))}
-                </div>
-              </details>
+              </FieldCard>
             </>
           )}
 
@@ -694,21 +323,28 @@ export function GitHubTrackerConfigDialog({ onClose }: Props): JSX.Element {
           )}
         </div>
 
-        <div
-          style={{
-            padding: '12px 20px',
-            borderTop: '1px solid var(--border-default)',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '8px'
-          }}
-        >
-          <button type="button" onClick={onClose} style={secondaryButtonStyle()}>
-            {t('common.cancel')}
-          </button>
-          <button type="button" onClick={() => void handleSave()} disabled={loading || saving} style={primaryButtonStyle(loading || saving)}>
-            {saving ? t('settings.saving') : t('settings.save')}
-          </button>
+        <div style={{ padding: '0 20px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '8px 14px',
+                border: '1px solid var(--border-default)',
+                borderRadius: '8px',
+                background: 'transparent',
+                color: 'var(--text-primary)',
+                fontSize: '13px',
+                fontWeight: 500,
+                cursor: 'pointer'
+              }}
+            >
+              {t('common.cancel')}
+            </button>
+          </div>
+          <div style={{ opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
+            <FormActions saving={saving} onSave={() => void handleSave()} />
+          </div>
         </div>
       </div>
     </div>

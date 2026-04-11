@@ -3139,6 +3139,10 @@ Desktop and other clients must not write the `GitHubTracker` section directly. T
 
 Clients must check `capabilities.gitHubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. If absent or `false`, the server returns `-32601` (Method not found).
 
+Capability availability is based on workspace config persistence support, not on whether the `GitHubTracker.Enabled` runtime module flag is currently true. This allows clients to configure and enable the module for the next restart.
+
+Desktop clients are expected to expose a simplified subset of the config (for example: `enabled`, `tracker.repository`, `tracker.apiKey`, `issuesWorkflowPath`, `pullRequestWorkflowPath`). Advanced fields may be configured in the dashboard or by editing config directly; clients should preserve these fields unchanged when round-tripping updates.
+
 ### 25.2 `GitHubTrackerConfig` Wire DTO
 
 ```json
@@ -3317,7 +3321,7 @@ Creates or replaces the workspace `GitHubTracker` section.
 
 ### 25.5 Capability Advertisement
 
-`capabilities.gitHubTrackerConfig` is present and `true` when the AppServer has a workspace `.craft` path and the `github-tracker` module is enabled for the current runtime configuration.
+`capabilities.gitHubTrackerConfig` is present and `true` when the AppServer has a workspace `.craft` path and can persist workspace config updates.
 
 ### 25.6 Error Codes
 

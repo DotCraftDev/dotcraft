@@ -41,8 +41,7 @@ public sealed class AppServerRequestHandler(
     WireAcpExtensionProxy? wireAcpExtensionProxy = null,
     CommandRegistry? commandRegistry = null,
     IChannelStatusProvider? channelStatusProvider = null,
-    McpClientManager? mcpClientManager = null,
-    bool gitHubTrackerConfigEnabled = false)
+    McpClientManager? mcpClientManager = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -58,7 +57,6 @@ public sealed class AppServerRequestHandler(
     private readonly Action<CronJobWireInfo, bool>? _broadcastCronStateChanged = broadcastCronStateChanged;
     private readonly Action<McpStatusInfoWire>? _broadcastMcpStatusChanged = broadcastMcpStatusChanged;
     private readonly McpClientManager? _mcpClientManager = mcpClientManager;
-    private readonly bool _gitHubTrackerConfigEnabled = gitHubTrackerConfigEnabled;
 
     /// <summary>
     /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
@@ -206,7 +204,7 @@ public sealed class AppServerRequestHandler(
                 WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
                 McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _mcpClientManager != null,
                 ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
-                GitHubTrackerConfig = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _gitHubTrackerConfigEnabled,
+                GitHubTrackerConfig = !string.IsNullOrWhiteSpace(workspaceCraftPath),
                 McpStatus = _mcpClientManager != null
             },
             DashboardUrl = _dashboardUrl
@@ -883,7 +881,7 @@ public sealed class AppServerRequestHandler(
 
     private void EnsureGitHubTrackerConfigAvailable()
     {
-        if (!_gitHubTrackerConfigEnabled || string.IsNullOrWhiteSpace(workspaceCraftPath))
+        if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound("githubTracker/*");
     }
 
@@ -1032,37 +1030,12 @@ public sealed class AppServerRequestHandler(
 
     private static void ValidateGitHubTrackerConfigWire(GitHubTrackerConfigWire config)
     {
-        if (config.Enabled && string.IsNullOrWhiteSpace(config.Tracker.Repository))
+        // Align with GitHubTrackerModule.ValidateConfig behavior when enabling.
+        if (!config.Enabled)
+            return;
+
+        if (string.IsNullOrWhiteSpace(config.Tracker.Repository))
             throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.tracker.repository' is required when GitHub tracker is enabled.");
-
-        if (config.Polling.IntervalMs < 1)
-            throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.polling.intervalMs' must be greater than or equal to 1.");
-
-        if (config.Agent.MaxConcurrentAgents < 1)
-            throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.agent.maxConcurrentAgents' must be greater than or equal to 1.");
-
-        if (config.Agent.MaxTurns < 1)
-            throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.agent.maxTurns' must be greater than or equal to 1.");
-
-        if (config.Agent.MaxRetryBackoffMs < 0)
-            throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.agent.maxRetryBackoffMs' must be greater than or equal to 0.");
-
-        if (config.Agent.TurnTimeoutMs < 0)
-            throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.agent.turnTimeoutMs' must be greater than or equal to 0.");
-
-        if (config.Agent.MaxConcurrentPullRequestAgents < 0)
-            throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.agent.maxConcurrentPullRequestAgents' must be greater than or equal to 0.");
-
-        foreach (var (state, maxConcurrent) in config.Agent.MaxConcurrentByState)
-        {
-            if (string.IsNullOrWhiteSpace(state))
-                throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.agent.maxConcurrentByState' must not contain empty state names.");
-            if (maxConcurrent < 0)
-                throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.agent.maxConcurrentByState' values must be greater than or equal to 0.");
-        }
-
-        if (config.Hooks.TimeoutMs < 0)
-            throw AppServerErrors.GitHubTrackerConfigValidationFailed("'config.hooks.timeoutMs' must be greater than or equal to 0.");
 
         var issueOverlap = config.Tracker.ActiveStates
             .Intersect(config.Tracker.TerminalStates, StringComparer.OrdinalIgnoreCase)
