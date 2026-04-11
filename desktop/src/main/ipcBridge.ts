@@ -142,6 +142,7 @@ export interface IpcHandlerCallbacks {
  * - `file:write`                  (renderer -> main, invoke) -> writes file within workspace
  * - `file:read`                   (renderer -> main, invoke) -> reads UTF-8 file within workspace
  * - `file:delete`                 (renderer -> main, invoke) -> deletes file within workspace
+ * - `file:exists`                 (renderer -> main, invoke) -> checks whether file exists within workspace
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
  * - `shell:open-external`         (renderer -> main, invoke) -> opens http(s) URL in system browser
  */
@@ -239,6 +240,7 @@ export function registerIpcHandlers(
         translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
       )
     }
+    await fs.mkdir(path.dirname(resolved), { recursive: true })
     await fs.writeFile(resolved, content, 'utf-8')
   })
 
@@ -270,6 +272,22 @@ export function registerIpcHandlers(
       )
     }
     await fs.unlink(resolved)
+  })
+
+  handleSafe('file:exists', async (_event, absPath: string): Promise<boolean> => {
+    const resolved = path.resolve(absPath)
+    const wsResolved = path.resolve(workspacePath)
+    if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
+      throw new Error(
+        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
+      )
+    }
+    try {
+      await fs.access(resolved)
+      return true
+    } catch {
+      return false
+    }
   })
 
   // Renderer -> Main: git add + commit
@@ -481,6 +499,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('file:write')
   ipcMain.removeHandler('file:read')
   ipcMain.removeHandler('file:delete')
+  ipcMain.removeHandler('file:exists')
   ipcMain.removeHandler('git:commit')
   ipcMain.removeHandler('workspace:pick-folder')
   ipcMain.removeHandler('workspace:switch')

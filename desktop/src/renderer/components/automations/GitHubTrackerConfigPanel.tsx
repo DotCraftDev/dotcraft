@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { addToast } from '../../stores/toastStore'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { FieldCard, FormActions, formStyles } from '../channels/FormShared'
+import { GitHubWorkflowTemplateDialog } from './GitHubWorkflowTemplateDialog'
 
 interface Props {
   onBack(): void
@@ -99,6 +100,10 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [workspacePath, setWorkspacePath] = useState('')
+  const [showTemplateDialog, setShowTemplateDialog] = useState<null | 'issue' | 'pullRequest'>(null)
+  const [issueWorkflowExists, setIssueWorkflowExists] = useState(false)
+  const [pullRequestWorkflowExists, setPullRequestWorkflowExists] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -107,10 +112,12 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
       setLoading(true)
       setError(null)
       try {
+        const wsPath = await window.api.window.getWorkspacePath()
         const result = (await window.api.appServer.sendRequest('githubTracker/get', {})) as {
           config?: GitHubTrackerConfig
         }
         if (!cancelled) {
+          setWorkspacePath(wsPath)
           setConfig(result.config ?? createDefaultConfig())
         }
       } catch (e: unknown) {
@@ -125,6 +132,36 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function refreshWorkflowState(): Promise<void> {
+      if (!workspacePath) return
+      try {
+        const issuePath = resolveWorkflowPath(workspacePath, config.issuesWorkflowPath)
+        const prPath = resolveWorkflowPath(workspacePath, config.pullRequestWorkflowPath)
+        const [issueExists, prExists] = await Promise.all([
+          issuePath ? window.api.file.exists(issuePath) : Promise.resolve(false),
+          prPath ? window.api.file.exists(prPath) : Promise.resolve(false)
+        ])
+        if (!cancelled) {
+          setIssueWorkflowExists(issueExists)
+          setPullRequestWorkflowExists(prExists)
+        }
+      } catch {
+        if (!cancelled) {
+          setIssueWorkflowExists(false)
+          setPullRequestWorkflowExists(false)
+        }
+      }
+    }
+
+    void refreshWorkflowState()
+    return () => {
+      cancelled = true
+    }
+  }, [config.issuesWorkflowPath, config.pullRequestWorkflowPath, workspacePath])
 
   async function handleSave(): Promise<void> {
     setSaving(true)
@@ -145,6 +182,18 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
   function updateConfig(updater: (current: GitHubTrackerConfig) => GitHubTrackerConfig): void {
     setConfig((current) => updater(current))
   }
+
+  async function handleOpenWorkflowFile(kind: 'issue' | 'pullRequest'): Promise<void> {
+    const relativePath = kind === 'issue' ? config.issuesWorkflowPath : config.pullRequestWorkflowPath
+    const absPath = resolveWorkflowPath(workspacePath, relativePath)
+    if (!absPath) return
+    const result = await window.api.shell.openPath(absPath)
+    if (result) {
+      addToast(result, 'error')
+    }
+  }
+
+  const showWorkflowEmptyState = config.enabled && !issueWorkflowExists && !pullRequestWorkflowExists
 
   return (
     <div
@@ -297,6 +346,13 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
                     onFocus={formStyles.inputFocus}
                     onBlur={formStyles.inputBlur}
                   />
+                  <WorkflowTemplateActions
+                    path={config.issuesWorkflowPath}
+                    exists={issueWorkflowExists}
+                    onCreate={() => setShowTemplateDialog('issue')}
+                    onOpen={() => void handleOpenWorkflowFile('issue')}
+                    createLabel={getCreateLabel(config.issuesWorkflowPath)}
+                  />
                 </div>
 
                 <div style={{ ...formStyles.fieldGroup, marginBottom: 0 }}>
@@ -313,9 +369,39 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
                     onFocus={formStyles.inputFocus}
                     onBlur={formStyles.inputBlur}
                   />
+                  <WorkflowTemplateActions
+                    path={config.pullRequestWorkflowPath}
+                    exists={pullRequestWorkflowExists}
+                    onCreate={() => setShowTemplateDialog('pullRequest')}
+                    onOpen={() => void handleOpenWorkflowFile('pullRequest')}
+                    createLabel={getCreateLabel(config.pullRequestWorkflowPath)}
+                  />
                 </div>
               </FieldCard>
             </div>
+
+            {showWorkflowEmptyState && (
+              <FieldCard>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      GitHub integration is configured, but no workflow template exists yet.
+                    </div>
+                    <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Create a PR review workflow or an issue workflow to tell the agent how GitHub automation should behave.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => setShowTemplateDialog('pullRequest')} style={emptyStateButtonStyle(true)}>
+                      Create PR review workflow
+                    </button>
+                    <button type="button" onClick={() => setShowTemplateDialog('issue')} style={emptyStateButtonStyle(false)}>
+                      Create issue workflow
+                    </button>
+                  </div>
+                </div>
+              </FieldCard>
+            )}
           </>
         )}
 
@@ -340,6 +426,94 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
           <FormActions saving={saving} onSave={() => void handleSave()} />
         </div>
       </div>
+
+      {showTemplateDialog && workspacePath && (
+        <GitHubWorkflowTemplateDialog
+          config={config}
+          workspacePath={workspacePath}
+          initialKind={showTemplateDialog}
+          onClose={() => setShowTemplateDialog(null)}
+          onConfigSaved={(nextConfig) => {
+            setConfig(nextConfig)
+            setShowTemplateDialog(null)
+          }}
+        />
+      )}
     </div>
   )
+}
+
+function resolveWorkflowPath(workspacePath: string, relativePath: string): string {
+  const trimmed = relativePath.trim()
+  if (!workspacePath || trimmed.length === 0) return ''
+  return `${workspacePath.replace(/[\\/]+$/, '')}/${trimmed.replace(/^[\\/]+/, '').replace(/[\\/]+/g, '/')}`
+}
+
+function getCreateLabel(path: string): string {
+  const trimmed = path.trim()
+  return trimmed ? `Create template at ${trimmed}` : 'Create template'
+}
+
+function WorkflowTemplateActions({
+  path,
+  exists,
+  onCreate,
+  onOpen,
+  createLabel
+}: {
+  path: string
+  exists: boolean
+  onCreate: () => void
+  onOpen: () => void
+  createLabel: string
+}): JSX.Element {
+  return (
+    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+      {exists ? (
+        <>
+          <button type="button" onClick={onOpen} style={inlineButtonStyle(false)}>
+            View / Edit
+          </button>
+          <button type="button" onClick={onCreate} style={inlineButtonStyle(false)}>
+            Replace with template
+          </button>
+        </>
+      ) : (
+        <button type="button" onClick={onCreate} style={inlineButtonStyle(false)}>
+          {createLabel}
+        </button>
+      )}
+      {path.trim().length === 0 && (
+        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', alignSelf: 'center' }}>
+          It will only run after the matching workflow path is enabled.
+        </span>
+      )}
+    </div>
+  )
+}
+
+function inlineButtonStyle(primary: boolean): CSSProperties {
+  return {
+    padding: '6px 10px',
+    borderRadius: '6px',
+    border: primary ? 'none' : '1px solid var(--border-default)',
+    backgroundColor: primary ? 'var(--accent)' : 'transparent',
+    color: primary ? 'var(--on-accent)' : 'var(--text-secondary)',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer'
+  }
+}
+
+function emptyStateButtonStyle(primary: boolean): CSSProperties {
+  return {
+    padding: '8px 12px',
+    borderRadius: '8px',
+    border: primary ? 'none' : '1px solid var(--border-default)',
+    backgroundColor: primary ? 'var(--accent)' : 'transparent',
+    color: primary ? 'var(--on-accent)' : 'var(--text-primary)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer'
+  }
 }

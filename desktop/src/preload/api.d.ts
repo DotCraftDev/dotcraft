@@ -64,6 +64,7 @@ declare global {
         writeFile(absPath: string, content: string): Promise<void>
         readFile(absPath: string): Promise<string>
         deleteFile(absPath: string): Promise<void>
+        exists(absPath: string): Promise<boolean>
       }
       git: {
         commit(workspacePath: string, files: string[], message: string): Promise<string>
