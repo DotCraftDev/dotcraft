@@ -19,6 +19,8 @@ public sealed class HostBuilder
     
     private readonly DotCraftPaths _paths;
 
+    private readonly string? _preferredPrimaryModuleName;
+
     /// <summary>
     /// Creates a new bot launcher.
     /// </summary>
@@ -28,11 +30,13 @@ public sealed class HostBuilder
     public HostBuilder(
         ModuleRegistry registry,
         AppConfig config,
-        DotCraftPaths paths)
+        DotCraftPaths paths,
+        string? preferredPrimaryModuleName = null)
     {
         _registry = registry;
         _config = config;
         _paths = paths;
+        _preferredPrimaryModuleName = preferredPrimaryModuleName;
     }
 
     /// <summary>
@@ -81,10 +85,19 @@ public sealed class HostBuilder
     public (IServiceProvider Provider, IDotCraftHost Host) Build(IServiceCollection services)
     {
         // Select primary module
-        var primaryModule = _registry.SelectPrimaryModule(_config);
+        var primaryModule = _registry.SelectPrimaryModule(_config, _preferredPrimaryModuleName);
         if (primaryModule == null)
         {
-            throw new InvalidOperationException("No modules are enabled. Please enable at least one module in the configuration.");
+            var enabledHosts = _registry.GetEnabledPrimaryHostModules(_config)
+                .Select(m => m.Name)
+                .ToArray();
+            var preferredText = string.IsNullOrWhiteSpace(_preferredPrimaryModuleName)
+                ? string.Empty
+                : $" Preferred host: '{_preferredPrimaryModuleName}'.";
+            var availableText = enabledHosts.Length == 0
+                ? " No primary host modules are enabled."
+                : $" Enabled primary hosts: {string.Join(", ", enabledHosts)}.";
+            throw new InvalidOperationException($"No primary host module is enabled.{preferredText}{availableText}");
         }
 
         AnsiConsole.MarkupLine($"[green][[Startup]][/] Using module: {primaryModule.Name}");

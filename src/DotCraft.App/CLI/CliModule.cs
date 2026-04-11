@@ -11,7 +11,7 @@ namespace DotCraft.CLI;
 /// This is the default module when no other modules are enabled.
 /// Priority: 0 (lowest - used as fallback)
 /// </summary>
-[DotCraftModule("cli", Priority = 0, Description = "CLI module for interactive console-based interaction (default fallback)")]
+[DotCraftModule("cli", Priority = 0, Description = "CLI module for interactive console-based interaction (default fallback)", CanBePrimaryHost = true)]
 public sealed partial class CliModule : ModuleBase
 {
     /// <inheritdoc />

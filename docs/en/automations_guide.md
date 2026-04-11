@@ -27,6 +27,8 @@ config.json
 
 `Automations.Enabled` defaults to `true`. Add this block when you want to tune Automations settings explicitly:
 
+This default does not change the main entry point: bare `dotcraft` still starts the CLI. Use `dotcraft gateway` when you want a dedicated background host for concurrent automations and channels.
+
 Add to `.craft/config.json`:
 
 ```json
@@ -417,7 +419,7 @@ The GitHub workspace root is configured via `Automations.WorkspaceRoot`. `GitHub
 }
 ```
 
-> `Automations.Enabled` starts the orchestrator and defaults to `true`. `GitHubTracker.Enabled` registers the GitHub source. GitHub tasks are scheduled when `GitHubTracker.Enabled` is `true` and `Automations.Enabled` has not been explicitly set to `false`.
+> `Automations.Enabled` starts the orchestrator and defaults to `true`. `GitHubTracker.Enabled` registers the GitHub source and remains `false` by default. Bare `dotcraft` still launches the CLI; use `dotcraft gateway` for a dedicated concurrent host.
 >
 > Relative paths in `IssuesWorkflowPath` and `PullRequestWorkflowPath` are resolved relative to the workspace root.
 >

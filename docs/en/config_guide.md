@@ -238,7 +238,7 @@ Quick reference:
 | `WeComBot.ApprovalTimeoutSeconds` | Operation approval timeout (seconds) | `60` |
 | `WeComBot.Robots` | Bot configuration list (Path/Token/AesKey) | `[]` |
 
-**Note**: By default (`Gateway.Enabled = false`), QQ Bot, WeCom Bot, and API mode cannot be enabled simultaneously. Priority order: QQ Bot > WeCom Bot > API > CLI. To run multiple channels at the same time, enable [Gateway mode](#gateway-multi-channel-concurrent-mode).
+**Note**: `dotcraft` always starts the CLI. To run multiple channels at the same time, start the dedicated Gateway host with `dotcraft gateway`.
 
 ---
 
@@ -317,7 +317,7 @@ ACP ([Agent Client Protocol](https://agentclientprotocol.com/)) mode allows DotC
 |-------------|-------------|---------|
 | `Acp.Enabled` | Enable ACP mode | `false` |
 
-ACP mode communicates via stdin/stdout using JSON-RPC 2.0 protocol, with higher priority than API mode. In Gateway mode, it can run concurrently with QQ Bot, WeCom Bot, and API.
+ACP mode communicates via stdin/stdout using JSON-RPC 2.0 protocol. Start it explicitly with `dotcraft acp`. In Gateway mode, QQ Bot, WeCom Bot, API, AG-UI, Automations, and other enabled channel services can run concurrently.
 
 ---
 
@@ -429,7 +429,14 @@ Built-in commands: `/code-review`, `/explain`, `/summarize`.
 
 Gateway mode allows QQ Bot, WeCom Bot, API, AG-UI, Automations, and other services to run concurrently in the same process.
 
-**Auto-enable**: When any channel is enabled in config (`QQBot`/`WeComBot`/`Api`/`AgUi`/`Automations`/`GitHubTracker`, etc.), Gateway mode activates automatically — no manual configuration needed.
+**Explicit start**: Gateway no longer auto-takes over startup. Use `dotcraft gateway` when you want a dedicated host for concurrent channels and automations.
+
+**Default entry point**: `dotcraft` still starts the CLI even when `Automations.Enabled = true`.
+
+**Background defaults**:
+
+- `Automations.Enabled` defaults to `true`
+- `GitHubTracker.Enabled` defaults to `false`
 
 **Enable example**:
 ```json

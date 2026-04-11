@@ -22,6 +22,13 @@ public interface IDotCraftModule
     int Priority => 0;
 
     /// <summary>
+    /// Gets whether this module can act as the primary host selected at startup.
+    /// Background capability modules should return <see langword="false"/> so they
+    /// can be attached to a host without taking over the main entry point.
+    /// </summary>
+    bool CanBePrimaryHost => false;
+
+    /// <summary>
     /// Determines whether this module is enabled based on the current configuration.
     /// </summary>
     /// <param name="config">The application configuration.</param>

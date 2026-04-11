@@ -15,6 +15,9 @@ public abstract class ModuleBase : IDotCraftModule
     public virtual int Priority => 0;
 
     /// <inheritdoc />
+    public virtual bool CanBePrimaryHost => false;
+
+    /// <inheritdoc />
     public abstract bool IsEnabled(AppConfig config);
 
     /// <inheritdoc />

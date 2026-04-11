@@ -151,6 +151,7 @@ public sealed class ModuleDiscoveryGenerator : IIncrementalGenerator
 
         int priority = 0;
         string? description = null;
+        bool canBePrimaryHost = false;
 
         foreach (var namedArg in attr.NamedArguments)
         {
@@ -158,6 +159,8 @@ public sealed class ModuleDiscoveryGenerator : IIncrementalGenerator
                 priority = namedArg.Value.Value as int? ?? 0;
             else if (namedArg.Key == "Description")
                 description = namedArg.Value.Value?.ToString();
+            else if (namedArg.Key == "CanBePrimaryHost")
+                canBePrimaryHost = namedArg.Value.Value as bool? ?? false;
         }
 
         return new ModuleInfo(
@@ -166,7 +169,8 @@ public sealed class ModuleDiscoveryGenerator : IIncrementalGenerator
             ClassNameOnly: symbol.Name,
             ModuleName: moduleName,
             Priority: priority,
-            Description: description);
+            Description: description,
+            CanBePrimaryHost: canBePrimaryHost);
     }
 
     private static HostFactoryInfo ExtractHostFactoryInfo(INamedTypeSymbol symbol, AttributeData attr)
@@ -211,6 +215,11 @@ partial class {{module.ClassNameOnly}}
     /// Gets the priority of the module for host selection.
     /// </summary>
     public override int Priority => {{module.Priority}};
+
+    /// <summary>
+    /// Gets whether this module can be selected as the primary startup host.
+    /// </summary>
+    public override bool CanBePrimaryHost => {{module.CanBePrimaryHost.ToString().ToLowerInvariant()}};
 }
 """);
 
@@ -415,8 +424,9 @@ partial class {{module.ClassNameOnly}}
         public string ModuleName { get; }
         public int Priority { get; }
         public string? Description { get; }
+        public bool CanBePrimaryHost { get; }
 
-        public ModuleInfo(string ClassName, string ClassNamespace, string ClassNameOnly, string ModuleName, int Priority, string? Description)
+        public ModuleInfo(string ClassName, string ClassNamespace, string ClassNameOnly, string ModuleName, int Priority, string? Description, bool CanBePrimaryHost)
         {
             this.ClassName = ClassName;
             this.ClassNamespace = ClassNamespace;
@@ -424,6 +434,7 @@ partial class {{module.ClassNameOnly}}
             this.ModuleName = ModuleName;
             this.Priority = Priority;
             this.Description = Description;
+            this.CanBePrimaryHost = CanBePrimaryHost;
         }
     }
 

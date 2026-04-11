@@ -9,7 +9,7 @@ namespace DotCraft.Acp;
 /// <summary>
 /// ACP module for Agent Client Protocol interaction with code editors/IDEs.
 /// </summary>
-[DotCraftModule("acp", Priority = 200, Description = "ACP module for Agent Client Protocol (stdio) interaction with code editors")]
+[DotCraftModule("acp", Priority = 200, Description = "ACP module for Agent Client Protocol (stdio) interaction with code editors", CanBePrimaryHost = true)]
 public sealed partial class AcpModule : ModuleBase
 {
     /// <inheritdoc />
