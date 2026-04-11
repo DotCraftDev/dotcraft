@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ThreadEntry } from '../components/sidebar/ThreadEntry'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ConfirmDialogHost } from '../components/ui/ConfirmDialog'
@@ -86,7 +86,7 @@ describe('ThreadEntry', () => {
     })
   })
 
-  it('archives from the hover action without selecting the thread first', async () => {
+  it('enters inline confirm on first archive click and archives on second click', async () => {
     const thread = makeThread()
     useThreadStore.setState({ threadList: [thread] })
     renderThreadEntry(thread)
@@ -95,14 +95,48 @@ describe('ThreadEntry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Archive' }))
 
     expect(useThreadStore.getState().activeThreadId).toBeNull()
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(appServerSendRequest).not.toHaveBeenCalledWith('thread/archive', { threadId: 'thread-1' })
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeVisible()
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Archive' }).at(-1)!)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => {
       expect(appServerSendRequest).toHaveBeenCalledWith('thread/archive', { threadId: 'thread-1' })
       expect(useThreadStore.getState().threadList).toEqual([])
       expect(useThreadStore.getState().activeThreadId).toBeNull()
+    })
+  })
+
+  it('cancels inline confirm when the pointer leaves the row', async () => {
+    renderThreadEntry(makeThread())
+
+    const row = await screen.findByTestId('thread-entry-thread-1')
+    fireEvent.mouseEnter(row)
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeVisible()
+
+    fireEvent.mouseLeave(row)
+
+    await waitFor(() => {
+      expect(screen.getByText('1h')).toBeVisible()
+      expect(screen.getByRole('button', { name: 'Confirm' })).not.toBeVisible()
+    })
+  })
+
+  it('supports keyboard focus for inline confirm and cancels when focus leaves', async () => {
+    renderThreadEntry(makeThread())
+
+    const archiveButton = screen.getByRole('button', { name: 'Archive' })
+    fireEvent.focus(archiveButton)
+    fireEvent.click(archiveButton)
+
+    const confirmButton = await screen.findByRole('button', { name: 'Confirm' })
+    expect(confirmButton).toBeVisible()
+
+    fireEvent.blur(confirmButton, { relatedTarget: null })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Confirm' })).not.toBeVisible()
     })
   })
 
@@ -117,9 +151,10 @@ describe('ThreadEntry', () => {
     })
 
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Archive' }))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toBeInTheDocument()
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Archive' }).at(-1)!)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => {
       expect(appServerSendRequest).toHaveBeenCalledWith('thread/archive', { threadId: 'thread-1' })

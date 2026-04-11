@@ -5,6 +5,8 @@ import { useUIStore } from '../../stores/uiStore'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { formatRelativeTime } from '../../utils/relativeTime'
 import type { ContextMenuPosition } from '../ui/ContextMenu'
+import { ContextMenu } from '../ui/ContextMenu'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 interface ThreadEntryProps {
   thread: ThreadSummary
@@ -29,7 +31,9 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const [renameValue, setRenameValue] = useState(thread.displayName ?? '')
   const [hovered, setHovered] = useState(false)
   const [archiveButtonFocused, setArchiveButtonFocused] = useState(false)
+  const [archiveConfirming, setArchiveConfirming] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const actionSlotRef = useRef<HTMLDivElement>(null)
 
   const displayName = thread.displayName ?? t('sidebar.newConversation')
   const relativeTime = formatRelativeTime(thread.lastActiveAt, new Date(), locale)
@@ -37,15 +41,10 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
     thread.originChannel.length > 0 &&
     thread.originChannel.toLowerCase() !== 'dotcraft-desktop'
   const showArchiveAction = !renaming && (isActive || hovered || archiveButtonFocused)
+  const showArchiveConfirm = showArchiveAction && archiveConfirming
   const confirm = useConfirmDialog()
 
-  const archiveThread = useCallback(async (): Promise<void> => {
-    const ok = await confirm({
-      title: t('threadEntry.archiveTitle'),
-      message: t('threadEntry.archiveMessage'),
-      confirmLabel: t('threadEntry.archiveConfirm')
-    })
-    if (!ok) return
+  const performArchiveThread = useCallback(async (): Promise<void> => {
     try {
       await window.api.appServer.sendRequest('thread/archive', { threadId: thread.id })
     } catch {
@@ -55,6 +54,25 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
     useThreadStore.getState().removeThread(thread.id)
   }, [activeThreadId, confirm, setActiveThreadId, t, thread.id])
 
+  const archiveThreadWithDialog = useCallback(async (): Promise<void> => {
+    const ok = await confirm({
+      title: t('threadEntry.archiveTitle'),
+      message: t('threadEntry.archiveMessage'),
+      confirmLabel: t('threadEntry.archiveConfirm')
+    })
+    if (!ok) return
+    await performArchiveThread()
+  }, [confirm, performArchiveThread, t])
+
+  const beginInlineArchiveConfirm = useCallback((): void => {
+    setArchiveConfirming(true)
+  }, [])
+
+  const resetArchiveActionState = useCallback((): void => {
+    setArchiveButtonFocused(false)
+    setArchiveConfirming(false)
+  }, [])
+
   function handleClick(): void {
     if (renaming) return
     setActiveThreadId(thread.id)
@@ -63,12 +81,14 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
 
   function handleContextMenu(e: React.MouseEvent): void {
     e.preventDefault()
+    setArchiveConfirming(false)
     setContextMenu({ x: e.clientX, y: e.clientY })
   }
 
   function startRename(): void {
     setRenameValue(thread.displayName ?? '')
     setRenaming(true)
+    setArchiveConfirming(false)
     setContextMenu(null)
     // Focus after render
     setTimeout(() => renameInputRef.current?.select(), 0)
@@ -124,6 +144,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
         }}
         onMouseLeave={(e) => {
           setHovered(false)
+          setArchiveConfirming(false)
           if (!isActive) {
             ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'
           }
@@ -219,15 +240,21 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
         {/* Relative time */}
         {!renaming && (
           <div
+            ref={actionSlotRef}
             style={{
-              width: '52px',
-              minWidth: '52px',
+              width: '72px',
+              minWidth: '72px',
               marginLeft: '4px',
               flexShrink: 0,
               position: 'relative',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end'
+            }}
+            onBlurCapture={(e) => {
+              const nextTarget = e.relatedTarget as Node | null
+              if (nextTarget && actionSlotRef.current?.contains(nextTarget)) return
+              resetArchiveActionState()
             }}
           >
             <span
@@ -243,46 +270,84 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             >
               {relativeTime}
             </span>
+            {!showArchiveConfirm && (
+              <button
+                type="button"
+                title={t('threadEntry.archive')}
+                aria-label={t('threadEntry.archive')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  beginInlineArchiveConfirm()
+                }}
+                onFocus={() => setArchiveButtonFocused(true)}
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: '6px',
+                  backgroundColor: 'transparent',
+                  color: isActive ? 'var(--text-secondary)' : 'var(--text-dimmed)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: showArchiveAction ? 'pointer' : 'default',
+                  position: 'absolute',
+                  right: 0,
+                  opacity: showArchiveAction ? 1 : 0,
+                  pointerEvents: showArchiveAction ? 'auto' : 'none',
+                  transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'
+                  e.currentTarget.style.color = 'var(--error)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                  e.currentTarget.style.color = isActive
+                    ? 'var(--text-secondary)'
+                    : 'var(--text-dimmed)'
+                }}
+              >
+                <ArchiveIcon />
+              </button>
+            )}
             <button
               type="button"
-              title={t('threadEntry.archive')}
-              aria-label={t('threadEntry.archive')}
+              title={t('threadEntry.archiveConfirm')}
+              aria-label={t('threadEntry.archiveConfirm')}
               onClick={(e) => {
                 e.stopPropagation()
-                void archiveThread()
+                void performArchiveThread()
               }}
               onFocus={() => setArchiveButtonFocused(true)}
-              onBlur={() => setArchiveButtonFocused(false)}
               style={{
-                width: '28px',
-                height: '28px',
-                padding: 0,
-                border: 'none',
-                borderRadius: '6px',
-                backgroundColor: 'transparent',
-                color: isActive ? 'var(--text-secondary)' : 'var(--text-dimmed)',
+                height: '24px',
+                padding: '0 8px',
+                border: '1px solid rgba(248,81,73,0.35)',
+                borderRadius: '999px',
+                backgroundColor: 'rgba(248,81,73,0.10)',
+                color: 'var(--error)',
+                fontSize: '11px',
+                fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: showArchiveAction ? 'pointer' : 'default',
+                cursor: showArchiveConfirm ? 'pointer' : 'default',
                 position: 'absolute',
                 right: 0,
-                opacity: showArchiveAction ? 1 : 0,
-                pointerEvents: showArchiveAction ? 'auto' : 'none',
-                transition: 'opacity 120ms ease, background-color 120ms ease, color 120ms ease'
+                opacity: showArchiveConfirm ? 1 : 0,
+                pointerEvents: showArchiveConfirm ? 'auto' : 'none',
+                transition: 'opacity 120ms ease, background-color 120ms ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'
-                e.currentTarget.style.color = 'var(--error)'
+                e.currentTarget.style.backgroundColor = 'rgba(248,81,73,0.18)'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent'
-                e.currentTarget.style.color = isActive
-                  ? 'var(--text-secondary)'
-                  : 'var(--text-dimmed)'
+                e.currentTarget.style.backgroundColor = 'rgba(248,81,73,0.10)'
               }}
             >
-              <ArchiveIcon />
+              {t('threadEntry.archiveConfirm')}
             </button>
           </div>
         )}
@@ -294,7 +359,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           position={contextMenu}
           onClose={() => setContextMenu(null)}
           onRename={startRename}
-          onArchive={archiveThread}
+          onArchive={archiveThreadWithDialog}
           threadId={thread.id}
         />
       )}
@@ -321,11 +386,6 @@ function ArchiveIcon(): JSX.Element {
     </svg>
   )
 }
-
-// Deferred import to avoid circular dependency with ContextMenu/ConfirmDialog
-// These are injected via the ThreadEntryContextMenu local component below
-import { ContextMenu } from '../ui/ContextMenu'
-import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 interface ThreadEntryContextMenuProps {
   position: ContextMenuPosition
