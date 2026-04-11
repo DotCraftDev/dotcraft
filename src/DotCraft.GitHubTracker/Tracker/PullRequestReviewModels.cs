@@ -55,6 +55,23 @@ public sealed class PullRequestSuggestion
     public required string Replacement { get; init; }
 }
 
+public sealed class StructuredReviewSubmitResult
+{
+    public bool SummaryPosted { get; init; }
+
+    public bool UsedFallback { get; init; }
+
+    public int InlineRequestedCount { get; init; }
+
+    public int InlinePostedCount { get; init; }
+
+    public int InlineFailedCount { get; init; }
+
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+
+    public IReadOnlyList<PullRequestInlineComment> PostedComments { get; init; } = [];
+}
+
 public sealed class PullRequestInlineComment
 {
     public required ReviewFindingSeverity Severity { get; init; }

@@ -96,7 +96,7 @@ You may run build or test commands in your workspace if they help verify a suspe
 
 ### Step 3 – Submit your review
 
-When you have finished your analysis, call `SubmitStructuredReview` with:
+When you have finished your analysis, call `SubmitReview` with:
 
 - `summaryJson`: a JSON object with `majorCount`, `minorCount`, `suggestionCount`, and `body`
 - `commentsJson`: a JSON array of inline comments. Use `[]` when there are no inline comments.
@@ -119,10 +119,11 @@ Optional inline comment fields:
 Submission rules:
 
 - Submit exactly one summary review for the PR.
-- For each material finding, prefer one inline comment anchored to changed lines.
+- For each material finding, prefer one inline comment anchored to changed lines in the current PR diff.
 - If a fix is small, high-confidence, single-file, and a single contiguous replacement range, include `suggestionReplacement`.
 - If a problem spans multiple files or cannot be expressed as one contiguous replacement, omit `suggestionReplacement` but still submit the inline comment.
-- If you cannot reliably anchor a finding to a changed line, mention it in the summary body instead of inventing a bad inline location.
+- `path`, `line`, and `startLine` must refer to commentable lines from the current PR head diff, not arbitrary source file line numbers.
+- If you cannot reliably anchor a finding to changed diff lines, mention it in the summary body instead of inventing a bad inline location.
 
 If there are material issues, make the summary body a short overview like:
 
@@ -161,11 +162,12 @@ commentsJson = []
 
 - Do not push any code. Your role is read-and-review only.
 - Do not merge the PR. Never call `gh pr merge` or any merge command.
-- Do not call `SubmitReview` unless you are intentionally using the legacy fallback format. Prefer `SubmitStructuredReview`.
+- Use `SubmitReview(summaryJson, commentsJson)` as the only PR review submission tool.
 - Do not repeat previously reported findings unless there is a material change in impact or behavior.
 - Use the workspace and shell tools to inspect diffs and files instead of asking for the full patch in prompt.
 - Only report actionable, non-trivial issues tied to the changed code.
 - Each finding must explain the impact, not just name a smell.
 - Prefer a single strong finding over a long list of weak suggestions.
 - If you are unsure and cannot explain a concrete failure mode or risk, do not include the finding.
+- Do not guess source line numbers for inline comments. Only use locations you can verify from the current PR diff.
 - Do not include markdown suggestion fences in `suggestionReplacement`; provide only the replacement text.

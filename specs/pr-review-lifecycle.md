@@ -167,7 +167,7 @@ The following orchestrator behaviors are not affected and remain as defined in t
 
 ### 6.1 COMMENT-Only Policy
 
-The `SubmitReview` tool always submits reviews with the `COMMENT` event type, regardless of what the agent passes as the `reviewEvent` argument. The tool description reflects this constraint.
+The `SubmitReview` tool always submits reviews with the `COMMENT` event type. The tool now accepts structured payloads (`summaryJson`, `commentsJson`) and no longer exposes the legacy `reviewEvent/body` tool shape.
 
 Automated bot reviews must not affect a PR's approval or rejection status on GitHub. Using `COMMENT` provides feedback without interfering with the team's human code review process or triggering auto-merge rules.
 

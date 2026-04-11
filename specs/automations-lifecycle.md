@@ -52,7 +52,7 @@ Defines the architecture and lifecycle of the DotCraft Automations module — a 
 
 ### 1.2 What This Spec Does Not Define
 
-- The GitHub-specific PR review lifecycle (HEAD SHA tracking, COMMENT-only policy, re-review triggers). Those are governed by the [PR Review Lifecycle Spec](pr-review-lifecycle.md) and remain unchanged.
+- The GitHub-specific PR review lifecycle (HEAD SHA tracking, COMMENT-only policy, re-review triggers). Those are governed by the [PR Review Lifecycle Spec](pr-review-lifecycle.md), where `SubmitReview` is defined as the structured `summaryJson/commentsJson` contract.
 - The general orchestrator reconciliation loop, poll tick mechanics, retry queue, or stall detection. Those are governed by the Symphony SPEC (§7–8). This spec references but does not redefine them.
 - The internal Session Core execution pipeline (agent streaming, tool invocation, memory management). Those are Session Core implementation details defined in [Session Core](session-core.md).
 - Desktop visual design tokens, typography, or animations. Those are governed by the [Desktop Client Spec](desktop-client.md) §15.

@@ -45,7 +45,7 @@ public interface IWorkItemTracker
     /// Submit a structured COMMENT review on a pull request, including
     /// a top-level summary and zero or more inline review comments.
     /// </summary>
-    Task SubmitStructuredReviewAsync(
+    Task<StructuredReviewSubmitResult> SubmitStructuredReviewAsync(
         string pullNumber,
         PullRequestReviewSummary summary,
         IReadOnlyList<PullRequestInlineComment> comments,

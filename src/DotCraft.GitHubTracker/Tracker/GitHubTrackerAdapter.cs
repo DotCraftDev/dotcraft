@@ -348,7 +348,7 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
             await EnsureGitHubSuccessAsync(response, $"POST review ({@event}) on PR #{pullNumber} for {_owner}/{_repo}", ct);
     }
 
-    public async Task SubmitStructuredReviewAsync(
+    public async Task<StructuredReviewSubmitResult> SubmitStructuredReviewAsync(
         string pullNumber,
         PullRequestReviewSummary summary,
         IReadOnlyList<PullRequestInlineComment> comments,
@@ -356,17 +356,52 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
     {
         ArgumentNullException.ThrowIfNull(summary);
         ArgumentNullException.ThrowIfNull(comments);
+        var warnings = new List<string>();
 
         if (comments.Count == 0)
         {
             await SubmitReviewAsync(pullNumber, summary.Body, "COMMENT", ct);
-            return;
+            return new StructuredReviewSubmitResult
+            {
+                SummaryPosted = true,
+                InlineRequestedCount = 0,
+                InlinePostedCount = 0,
+                InlineFailedCount = 0,
+            };
         }
 
         var commitId = await FetchPullRequestHeadShaAsync(pullNumber, ct);
+        var changedFiles = await FetchPullRequestFilesAsync(pullNumber, ct);
+        var diff = await FetchPullRequestDiffAsync(pullNumber, ct);
+        var validation = ValidateInlineCommentsAgainstPullRequest(comments, changedFiles, diff);
+        warnings.AddRange(validation.Warnings);
+
+        if (validation.ValidComments.Count == 0)
+        {
+            await SubmitReviewAsync(pullNumber, summary.Body, "COMMENT", ct);
+            warnings.Add("No inline comments were eligible for submission after diff validation.");
+            return new StructuredReviewSubmitResult
+            {
+                SummaryPosted = true,
+                InlineRequestedCount = comments.Count,
+                InlinePostedCount = 0,
+                InlineFailedCount = comments.Count,
+                Warnings = warnings,
+            };
+        }
+
         try
         {
-            await SubmitStructuredReviewBatchAsync(pullNumber, summary, comments, commitId, ct);
+            await SubmitStructuredReviewBatchAsync(pullNumber, summary, validation.ValidComments, commitId, ct);
+            return new StructuredReviewSubmitResult
+            {
+                SummaryPosted = true,
+                InlineRequestedCount = comments.Count,
+                InlinePostedCount = validation.ValidComments.Count,
+                InlineFailedCount = comments.Count - validation.ValidComments.Count,
+                Warnings = warnings,
+                PostedComments = validation.ValidComments,
+            };
         }
         catch (Exception ex)
         {
@@ -376,7 +411,22 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
                 pullNumber);
 
             await SubmitReviewAsync(pullNumber, summary.Body, "COMMENT", ct);
-            await SubmitInlineCommentsFallbackAsync(pullNumber, comments, commitId, ct);
+            warnings.Add("Batch inline review submission failed; falling back to individual inline comments.");
+            var fallbackResult = await SubmitInlineCommentsFallbackAsync(pullNumber, validation.ValidComments, commitId, ct);
+            warnings.AddRange(fallbackResult.Warnings);
+            if (fallbackResult.InlinePostedCount == 0)
+                warnings.Add("No inline comments were posted after fallback.");
+
+            return new StructuredReviewSubmitResult
+            {
+                SummaryPosted = true,
+                UsedFallback = true,
+                InlineRequestedCount = comments.Count,
+                InlinePostedCount = fallbackResult.InlinePostedCount,
+                InlineFailedCount = comments.Count - fallbackResult.InlinePostedCount,
+                Warnings = warnings,
+                PostedComments = fallbackResult.PostedComments,
+            };
         }
     }
 
@@ -506,12 +556,15 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
             comments.Count);
     }
 
-    private async Task SubmitInlineCommentsFallbackAsync(
+    private async Task<InlineFallbackResult> SubmitInlineCommentsFallbackAsync(
         string pullNumber,
         IReadOnlyList<PullRequestInlineComment> comments,
         string commitId,
         CancellationToken ct)
     {
+        var warnings = new List<string>();
+        var postedComments = new List<PullRequestInlineComment>();
+
         foreach (var comment in comments)
         {
             try
@@ -522,9 +575,11 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
                     commitId,
                     includeSuggestion: true,
                     ct);
+                postedComments.Add(comment);
             }
             catch (Exception ex) when (comment.Suggestion != null)
             {
+                warnings.Add($"Inline suggestion failed for {comment.Path}:{comment.Line}; retrying without suggestion.");
                 _logger.LogWarning(
                     ex,
                     "Failed to submit inline suggestion on PR #{Number} for {Path}:{Line}; retrying without suggestion",
@@ -540,9 +595,11 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
                         commitId,
                         includeSuggestion: false,
                         ct);
+                    postedComments.Add(comment);
                 }
                 catch (Exception innerEx)
                 {
+                    warnings.Add($"Inline comment failed for {comment.Path}:{comment.Line}.");
                     _logger.LogWarning(
                         innerEx,
                         "Failed to submit inline fallback comment on PR #{Number} for {Path}:{Line}",
@@ -553,6 +610,7 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
             }
             catch (Exception ex)
             {
+                warnings.Add($"Inline comment failed for {comment.Path}:{comment.Line}.");
                 _logger.LogWarning(
                     ex,
                     "Failed to submit inline fallback comment on PR #{Number} for {Path}:{Line}",
@@ -561,6 +619,13 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
                     comment.Line);
             }
         }
+
+        return new InlineFallbackResult
+        {
+            InlinePostedCount = postedComments.Count,
+            Warnings = warnings,
+            PostedComments = postedComments,
+        };
     }
 
     private async Task SubmitInlineCommentAsync(
@@ -628,6 +693,162 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
 
     private static string ToGitHubSide(PullRequestReviewCommentSide side) =>
         side.ToString().ToUpperInvariant();
+
+    private static InlineValidationResult ValidateInlineCommentsAgainstPullRequest(
+        IReadOnlyList<PullRequestInlineComment> comments,
+        IReadOnlyList<PullRequestChangedFile> changedFiles,
+        string diff)
+    {
+        var changedFileSet = changedFiles
+            .Select(f => f.Filename)
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .ToHashSet(StringComparer.Ordinal);
+        var diffAnchors = BuildDiffAnchorMap(diff);
+        var validComments = new List<PullRequestInlineComment>();
+        var warnings = new List<string>();
+
+        foreach (var comment in comments)
+        {
+            if (!changedFileSet.Contains(comment.Path))
+            {
+                warnings.Add($"Skipped inline comment for {comment.Path}:{comment.Line} because the file is not part of the PR diff.");
+                continue;
+            }
+
+            if (!diffAnchors.TryGetValue(comment.Path, out var fileAnchors))
+            {
+                warnings.Add($"Skipped inline comment for {comment.Path}:{comment.Line} because the file has no commentable diff hunks.");
+                continue;
+            }
+
+            if (!IsValidCommentAnchor(comment, fileAnchors, out var reason))
+            {
+                warnings.Add($"Skipped inline comment for {comment.Path}:{comment.Line}: {reason}");
+                continue;
+            }
+
+            validComments.Add(comment);
+        }
+
+        return new InlineValidationResult
+        {
+            ValidComments = validComments,
+            Warnings = warnings,
+        };
+    }
+
+    private static bool IsValidCommentAnchor(
+        PullRequestInlineComment comment,
+        FileDiffAnchors fileAnchors,
+        out string reason)
+    {
+        var startLine = comment.StartLine ?? comment.Line;
+        var endLine = comment.Line;
+        if (startLine <= 0 || endLine <= 0)
+        {
+            reason = "line numbers must be positive.";
+            return false;
+        }
+
+        var side = comment.Side;
+        var startSide = comment.StartSide ?? side;
+        if (startSide != side)
+        {
+            reason = "multi-line comments must stay on a single diff side.";
+            return false;
+        }
+
+        if (startLine > endLine)
+        {
+            reason = "startLine must be less than or equal to line.";
+            return false;
+        }
+
+        var candidateLines = side == PullRequestReviewCommentSide.Right
+            ? fileAnchors.RightLines
+            : fileAnchors.LeftLines;
+        for (var line = startLine; line <= endLine; line++)
+        {
+            if (!candidateLines.Contains(line))
+            {
+                reason = $"line {line} is not commentable on the {ToGitHubSide(side)} side of the PR diff.";
+                return false;
+            }
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static Dictionary<string, FileDiffAnchors> BuildDiffAnchorMap(string diff)
+    {
+        var result = new Dictionary<string, FileDiffAnchors>(StringComparer.Ordinal);
+        FileDiffAnchors? currentAnchors = null;
+        int? leftLine = null;
+        int? rightLine = null;
+
+        foreach (var rawLine in diff.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (line.StartsWith("diff --git ", StringComparison.Ordinal))
+            {
+                currentAnchors = null;
+                leftLine = null;
+                rightLine = null;
+                continue;
+            }
+
+            if (line.StartsWith("+++ b/", StringComparison.Ordinal))
+            {
+                var path = line["+++ b/".Length..];
+                if (!result.TryGetValue(path, out currentAnchors))
+                {
+                    currentAnchors = new FileDiffAnchors();
+                    result[path] = currentAnchors;
+                }
+
+                leftLine = null;
+                rightLine = null;
+                continue;
+            }
+
+            var hunkMatch = DiffHunkHeaderRegex.Match(line);
+            if (hunkMatch.Success)
+            {
+                leftLine = int.Parse(hunkMatch.Groups["leftStart"].Value);
+                rightLine = int.Parse(hunkMatch.Groups["rightStart"].Value);
+                continue;
+            }
+
+            if (currentAnchors == null || !leftLine.HasValue || !rightLine.HasValue)
+                continue;
+
+            if (line.StartsWith("\\ No newline", StringComparison.Ordinal))
+                continue;
+            if (line.Length == 0)
+                continue;
+
+            switch (line[0])
+            {
+                case ' ':
+                    currentAnchors.LeftLines.Add(leftLine.Value);
+                    currentAnchors.RightLines.Add(rightLine.Value);
+                    leftLine++;
+                    rightLine++;
+                    break;
+                case '-':
+                    currentAnchors.LeftLines.Add(leftLine.Value);
+                    leftLine++;
+                    break;
+                case '+':
+                    currentAnchors.RightLines.Add(rightLine.Value);
+                    rightLine++;
+                    break;
+            }
+        }
+
+        return result;
+    }
 
     private async Task<PullRequestReviewState> FetchAggregatedReviewStateAsync(int prNumber, CancellationToken ct)
     {
@@ -930,6 +1151,33 @@ public sealed class GitHubTrackerAdapter : IWorkItemTracker, IDisposable
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
+
+    private static readonly Regex DiffHunkHeaderRegex = new(
+        @"^@@\s+\-(?<leftStart>\d+)(?:,\d+)?\s+\+(?<rightStart>\d+)(?:,\d+)?\s+@@",
+        RegexOptions.Compiled);
+
+    private sealed class FileDiffAnchors
+    {
+        public HashSet<int> LeftLines { get; } = [];
+
+        public HashSet<int> RightLines { get; } = [];
+    }
+
+    private sealed class InlineValidationResult
+    {
+        public IReadOnlyList<PullRequestInlineComment> ValidComments { get; init; } = [];
+
+        public IReadOnlyList<string> Warnings { get; init; } = [];
+    }
+
+    private sealed class InlineFallbackResult
+    {
+        public int InlinePostedCount { get; init; }
+
+        public IReadOnlyList<string> Warnings { get; init; } = [];
+
+        public IReadOnlyList<PullRequestInlineComment> PostedComments { get; init; } = [];
+    }
 
     private static string? ResolveWorkflowPath(string? configuredPath, string workspacePath) =>
         string.IsNullOrWhiteSpace(configuredPath)

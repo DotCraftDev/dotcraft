@@ -271,12 +271,13 @@ CompleteIssue(reason: string)
 ### `SubmitReview` (GitHub PRs only)
 
 ```
-SubmitReview(reviewEvent: string, body: string)
+SubmitReview(summaryJson: string, commentsJson: string)
 ```
 
-- Submits a `COMMENT` review on the PR via the GitHub Reviews API.
-- Signals the orchestrator that the review is complete; the reviewed HEAD SHA is recorded.
-- The `reviewEvent` parameter is accepted for prompt compatibility but is always normalized to `COMMENT`.
+- Submits a structured `COMMENT` review on the PR via the GitHub Reviews API.
+- `summaryJson` includes review summary fields such as major/minor/suggestion counts and body.
+- `commentsJson` includes inline review comments (with optional suggestion replacements) anchored to PR diff lines.
+- Signals the orchestrator that the review is complete when the summary is posted; reviewed HEAD SHA is then recorded.
 
 > Automated bot reviews always use `COMMENT` to avoid affecting the PR's approval status on GitHub.
 

@@ -13,6 +13,8 @@ public sealed class StructuredReviewSubmissionTests
     {
         var handler = new RecordingHttpMessageHandler();
         handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestJson("head-sha-123"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123/files", HttpStatusCode.OK, BuildPullRequestFilesJson("src/Example.cs"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestDiff("src/Example.cs", 40, 42));
         handler.Enqueue(HttpMethod.Post, "/pulls/123/reviews", HttpStatusCode.OK, "{}");
 
         var adapter = CreateAdapter(handler);
@@ -40,7 +42,13 @@ public sealed class StructuredReviewSubmissionTests
             },
         };
 
-        await adapter.SubmitStructuredReviewAsync("123", summary, comments);
+        var result = await adapter.SubmitStructuredReviewAsync("123", summary, comments);
+
+        Assert.True(result.SummaryPosted);
+        Assert.Equal(1, result.InlineRequestedCount);
+        Assert.Equal(1, result.InlinePostedCount);
+        Assert.Equal(0, result.InlineFailedCount);
+        Assert.False(result.UsedFallback);
 
         var reviewRequest = Assert.Single(
             handler.Requests,
@@ -75,6 +83,8 @@ public sealed class StructuredReviewSubmissionTests
     {
         var handler = new RecordingHttpMessageHandler();
         handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestJson("head-sha-123"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123/files", HttpStatusCode.OK, BuildPullRequestFilesJson("src/Example.cs"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestDiff("src/Example.cs", 12, 12));
         handler.Enqueue(HttpMethod.Post, "/pulls/123/reviews", HttpStatusCode.UnprocessableEntity, "{\"message\":\"bad inline\"}");
         handler.Enqueue(HttpMethod.Post, "/pulls/123/reviews", HttpStatusCode.OK, "{}");
         handler.Enqueue(HttpMethod.Post, "/pulls/123/comments", HttpStatusCode.UnprocessableEntity, "{\"message\":\"bad suggestion\"}");
@@ -104,7 +114,14 @@ public sealed class StructuredReviewSubmissionTests
             },
         };
 
-        await adapter.SubmitStructuredReviewAsync("123", summary, comments);
+        var result = await adapter.SubmitStructuredReviewAsync("123", summary, comments);
+
+        Assert.True(result.SummaryPosted);
+        Assert.True(result.UsedFallback);
+        Assert.Equal(1, result.InlineRequestedCount);
+        Assert.Equal(1, result.InlinePostedCount);
+        Assert.Equal(0, result.InlineFailedCount);
+        Assert.NotEmpty(result.Warnings);
 
         var reviewRequests = handler.Requests
             .Where(r => r.Method == HttpMethod.Post && r.Path.EndsWith("/pulls/123/reviews", StringComparison.Ordinal))
@@ -131,6 +148,57 @@ public sealed class StructuredReviewSubmissionTests
         Assert.Contains("```suggestion", firstInlineBody);
         Assert.DoesNotContain("```suggestion", secondInlineBody);
         Assert.Contains("**Prefer explicit guard**", secondInlineBody);
+    }
+
+    [Fact]
+    public async Task SubmitStructuredReviewAsync_WhenAnchorIsNotInDiff_PostsSummaryOnlyAndReportsWarning()
+    {
+        var handler = new RecordingHttpMessageHandler();
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestJson("head-sha-123"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123/files", HttpStatusCode.OK, BuildPullRequestFilesJson("src/Example.cs"));
+        handler.Enqueue(HttpMethod.Get, "/pulls/123", HttpStatusCode.OK, BuildPullRequestDiff("src/Example.cs", 10, 12));
+        handler.Enqueue(HttpMethod.Post, "/pulls/123/reviews", HttpStatusCode.OK, "{}");
+
+        var adapter = CreateAdapter(handler);
+        var summary = new PullRequestReviewSummary
+        {
+            MajorCount = 0,
+            MinorCount = 1,
+            SuggestionCount = 0,
+            Body = "Found 1 minor issue.",
+        };
+        var comments = new[]
+        {
+            new PullRequestInlineComment
+            {
+                Severity = ReviewFindingSeverity.Yellow,
+                Title = "Outside diff",
+                Body = "This line is not commentable in the current PR diff.",
+                Path = "src/Example.cs",
+                Line = 99,
+            },
+        };
+
+        var result = await adapter.SubmitStructuredReviewAsync("123", summary, comments);
+
+        Assert.True(result.SummaryPosted);
+        Assert.False(result.UsedFallback);
+        Assert.Equal(1, result.InlineRequestedCount);
+        Assert.Equal(0, result.InlinePostedCount);
+        Assert.Equal(1, result.InlineFailedCount);
+        Assert.NotEmpty(result.Warnings);
+
+        var reviewRequests = handler.Requests
+            .Where(r => r.Method == HttpMethod.Post && r.Path.EndsWith("/pulls/123/reviews", StringComparison.Ordinal))
+            .ToList();
+        Assert.Single(reviewRequests);
+
+        using var payload = JsonDocument.Parse(reviewRequests[0].Body);
+        Assert.False(payload.RootElement.TryGetProperty("comments", out _));
+
+        Assert.DoesNotContain(
+            handler.Requests,
+            r => r.Path.EndsWith("/pulls/123/comments", StringComparison.Ordinal));
     }
 
     private static GitHubTrackerAdapter CreateAdapter(HttpMessageHandler handler)
@@ -173,6 +241,34 @@ public sealed class StructuredReviewSubmissionTests
                 @ref = "main",
             },
         });
+
+    private static string BuildPullRequestFilesJson(string path) =>
+        JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                filename = path,
+                status = "modified",
+                additions = 3,
+                deletions = 1,
+            },
+        });
+
+    private static string BuildPullRequestDiff(string path, int startLine, int endLine)
+    {
+        var lines = new List<string>
+        {
+            $"diff --git a/{path} b/{path}",
+            $"--- a/{path}",
+            $"+++ b/{path}",
+            $"@@ -{startLine},0 +{startLine},{Math.Max(1, endLine - startLine + 1)} @@",
+        };
+
+        for (var line = startLine; line <= endLine; line++)
+            lines.Add($"+line {line}");
+
+        return string.Join("\n", lines);
+    }
 
     private sealed class RecordingHttpMessageHandler : HttpMessageHandler
     {

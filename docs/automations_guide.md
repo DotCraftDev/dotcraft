@@ -271,12 +271,13 @@ CompleteIssue(reason: string)
 ### `SubmitReview`（GitHub PR 专用）
 
 ```
-SubmitReview(reviewEvent: string, body: string)
+SubmitReview(summaryJson: string, commentsJson: string)
 ```
 
-- 通过 GitHub Reviews API 在 PR 上提交一条 `COMMENT` 类型的 Review。
-- 通知编排器 Review 已完成，记录当前 HEAD SHA；下次推送新提交时自动触发重新审查。
-- `reviewEvent` 参数保留以兼容 Prompt，但始终以 `COMMENT` 提交。
+- 通过 GitHub Reviews API 在 PR 上提交结构化 `COMMENT` 审查。
+- `summaryJson` 包含审查摘要（如 major/minor/suggestion 计数和 body）。
+- `commentsJson` 包含锚定到 PR diff 行的 inline comments（可选 suggestionReplacement）。
+- 当 summary 成功提交后通知编排器审查完成并记录当前 HEAD SHA；下次推送新提交时自动触发重新审查。
 
 > 自动化 Bot 审查始终使用 `COMMENT`，不会影响 PR 在 GitHub 上的 Approve/Reject 状态。
 

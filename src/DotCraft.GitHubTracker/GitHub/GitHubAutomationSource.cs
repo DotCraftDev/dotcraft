@@ -584,9 +584,30 @@ public sealed class GitHubAutomationSource : IAutomationSource
                                 }
                             }
 
-                            await tracker.SubmitStructuredReviewAsync(pullNumber, summary, comments);
-                            reviewCompleted[capturedTaskId] = true;
-                            return $"Structured review (COMMENT) submitted on PR #{pullNumber}. The review is complete.";
+                            var submitResult = await tracker.SubmitStructuredReviewAsync(pullNumber, summary, comments);
+                            if (submitResult.SummaryPosted)
+                                reviewCompleted[capturedTaskId] = true;
+
+                            if (!submitResult.SummaryPosted)
+                                return $"Warning: structured review on PR #{pullNumber} did not submit any summary comment.";
+
+                            if (submitResult.InlineRequestedCount > 0 && submitResult.InlinePostedCount == 0)
+                            {
+                                var details = submitResult.Warnings.Count > 0
+                                    ? $" Warnings: {string.Join(" | ", submitResult.Warnings)}"
+                                    : string.Empty;
+                                return $"Review summary submitted on PR #{pullNumber}, but no inline comments were posted.{details}";
+                            }
+
+                            if (submitResult.InlineFailedCount > 0 || submitResult.Warnings.Count > 0)
+                            {
+                                var details = submitResult.Warnings.Count > 0
+                                    ? $" Warnings: {string.Join(" | ", submitResult.Warnings)}"
+                                    : string.Empty;
+                                return $"Review summary submitted on PR #{pullNumber} with {submitResult.InlinePostedCount}/{submitResult.InlineRequestedCount} inline comments posted.{details}";
+                            }
+
+                            return $"Structured review (COMMENT) submitted on PR #{pullNumber} with {submitResult.InlinePostedCount} inline comments. The review is complete.";
                         }
                         catch (Exception ex)
                         {
@@ -594,50 +615,10 @@ public sealed class GitHubAutomationSource : IAutomationSource
                             return $"Warning: could not submit structured review ({ex.Message}).";
                         }
                     },
-                    "SubmitStructuredReview",
+                    "SubmitReview",
                     "Submit a COMMENT review with a summary plus inline review comments. " +
                     "Use this for the GitHub PR workflow whenever you can anchor findings to changed lines. " +
                     "Each inline comment may optionally include a single-file, single-range suggestion.");
-
-                yield return AIFunctionFactory.Create(
-                    async (
-                        [Description("Review event type. Accepted for compatibility but always submitted as COMMENT.")] string reviewEvent,
-                        [Description("Review body summarizing your findings.")] string body) =>
-                    {
-                        logger.LogInformation("Agent submitting COMMENT review on PR #{Number}", pullNumber);
-                        try
-                        {
-                            var currentFindings = ParseFindingsFromReviewBody(body);
-                            submittedFindings[capturedTaskId] = [.. currentFindings];
-
-                            if (currentFindings.Count > 0 &&
-                                previousFindings.TryGetValue(capturedTaskId, out var historicalFindings) &&
-                                historicalFindings.Count > 0)
-                            {
-                                var duplicateCount = CountLikelyDuplicates(currentFindings, historicalFindings);
-                                if (duplicateCount > 0)
-                                {
-                                    logger.LogWarning(
-                                        "PR #{Number} review has {Count} likely duplicate finding(s) compared with previous reviews",
-                                        pullNumber,
-                                        duplicateCount);
-                                }
-                            }
-
-                            await tracker.SubmitReviewAsync(pullNumber, body, "COMMENT");
-                            reviewCompleted[capturedTaskId] = true;
-                            return $"Review (COMMENT) submitted on PR #{pullNumber}. The review is complete.";
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogWarning(ex, "Failed to submit review on PR #{Number}", pullNumber);
-                            return $"Warning: could not submit review ({ex.Message}).";
-                        }
-                    },
-                    "SubmitReview",
-                    "Submit a COMMENT review on the pull request with your findings. " +
-                    "Before calling this, verify your findings do not repeat issues listed in Previous Review Findings. " +
-                    "Only submit new or materially updated findings, then call once you have finished reviewing all changed files.");
             }
             else
             {
@@ -731,7 +712,7 @@ public sealed class GitHubAutomationSource : IAutomationSource
             };
         }
 
-        private static IReadOnlyList<PullRequestInlineComment> ParseStructuredInlineComments(string commentsJson)
+        internal static IReadOnlyList<PullRequestInlineComment> ParseStructuredInlineComments(string commentsJson)
         {
             var items = JsonSerializer.Deserialize<List<StructuredInlineCommentInput>>(commentsJson, StructuredReviewJsonOptions) ?? [];
             return items.Select(item =>
@@ -744,27 +725,72 @@ public sealed class GitHubAutomationSource : IAutomationSource
                     throw new InvalidOperationException("Each inline comment must include a path.");
                 if (item.Line <= 0)
                     throw new InvalidOperationException("Each inline comment must include a positive line number.");
+                if (item.StartLine.HasValue && item.StartLine.Value <= 0)
+                    throw new InvalidOperationException("StartLine must be a positive line number when provided.");
+                if (item.StartLine.HasValue && item.StartLine.Value > item.Line)
+                    throw new InvalidOperationException("StartLine must be less than or equal to Line.");
+
+                var normalizedPath = NormalizeCommentPath(item.Path);
+                var side = ParseSide(item.Side, PullRequestReviewCommentSide.Right);
+                var normalizedStartLine = item.StartLine == item.Line ? null : item.StartLine;
+                var normalizedStartSide = normalizedStartLine.HasValue
+                    ? (ParseOptionalSide(item.StartSide) ?? side)
+                    : (PullRequestReviewCommentSide?)null;
+
+                if (normalizedStartLine.HasValue && normalizedStartSide != side)
+                    throw new InvalidOperationException("Multi-line inline comments must stay on a single diff side.");
+
+                PullRequestSuggestion? suggestion = null;
+                if (!string.IsNullOrWhiteSpace(item.SuggestionReplacement))
+                {
+                    if (side != PullRequestReviewCommentSide.Right ||
+                        (normalizedStartSide.HasValue && normalizedStartSide.Value != PullRequestReviewCommentSide.Right))
+                    {
+                        throw new InvalidOperationException("Suggestions are only supported on RIGHT-side diff anchors.");
+                    }
+
+                    suggestion = new PullRequestSuggestion
+                    {
+                        Replacement = item.SuggestionReplacement.TrimEnd(),
+                    };
+                }
 
                 return new PullRequestInlineComment
                 {
                     Severity = ParseSeverity(item.Severity),
                     Title = item.Title.Trim(),
                     Body = item.Body.Trim(),
-                    Path = item.Path.Trim(),
+                    Path = normalizedPath,
                     Line = item.Line,
-                    Side = ParseSide(item.Side, PullRequestReviewCommentSide.Right),
-                    StartLine = item.StartLine,
-                    StartSide = item.StartLine.HasValue
-                        ? ParseOptionalSide(item.StartSide) ?? ParseSide(item.Side, PullRequestReviewCommentSide.Right)
-                        : null,
-                    Suggestion = string.IsNullOrWhiteSpace(item.SuggestionReplacement)
-                        ? null
-                        : new PullRequestSuggestion
-                        {
-                            Replacement = item.SuggestionReplacement.TrimEnd(),
-                        },
+                    Side = side,
+                    StartLine = normalizedStartLine,
+                    StartSide = normalizedStartSide,
+                    Suggestion = suggestion,
                 };
             }).ToList();
+        }
+
+        private static string NormalizeCommentPath(string path)
+        {
+            var normalized = path.Trim().Replace('\\', '/');
+            while (normalized.StartsWith("./", StringComparison.Ordinal))
+                normalized = normalized[2..];
+
+            if (string.IsNullOrWhiteSpace(normalized))
+                throw new InvalidOperationException("Each inline comment must include a non-empty relative path.");
+            if (Path.IsPathRooted(normalized))
+                throw new InvalidOperationException("Inline comment path must be relative to the repository root.");
+            if (normalized.StartsWith("/", StringComparison.Ordinal))
+                throw new InvalidOperationException("Inline comment path must not start with '/'.");
+            if (normalized.Contains("/../", StringComparison.Ordinal) ||
+                normalized.StartsWith("../", StringComparison.Ordinal) ||
+                normalized.EndsWith("/..", StringComparison.Ordinal) ||
+                normalized.Contains("/./", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Inline comment path must not contain path traversal segments.");
+            }
+
+            return normalized;
         }
 
         private static List<PullRequestReviewFinding> ConvertInlineCommentsToFindings(

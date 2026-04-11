@@ -21,11 +21,13 @@ describe('github workflow templates', () => {
     expect(output).toContain('max_turns: 12')
     expect(output).toContain('max_concurrent_pull_request_agents: 3')
     expect(output).toContain('Use a strict bar.')
-    expect(output).toContain('SubmitStructuredReview')
+    expect(output).toContain('SubmitReview')
+    expect(output).not.toContain('SubmitStructuredReview')
     expect(output).toContain('🤖 **AI-generated review**')
     expect(output).toContain('🔴 Missing null guard')
     expect(output).toContain('🟡 Prefer explicit guard')
     expect(output).toContain('No issues found.')
+    expect(output).toContain('commentable lines from the current PR head diff')
   })
 
   it('builds an issue workflow in plan-only mode', () => {

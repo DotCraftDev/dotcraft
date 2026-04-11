@@ -15,6 +15,13 @@ public class FakeWorkItemTracker : IWorkItemTracker
 
     public List<(string PullNumber, string Body, string Event)> SubmittedReviews { get; } = [];
     public List<(string PullNumber, PullRequestReviewSummary Summary, IReadOnlyList<PullRequestInlineComment> Comments)> SubmittedStructuredReviews { get; } = [];
+    public StructuredReviewSubmitResult StructuredReviewResult { get; set; } = new()
+    {
+        SummaryPosted = true,
+        InlineRequestedCount = 0,
+        InlinePostedCount = 0,
+        InlineFailedCount = 0,
+    };
     public Dictionary<string, IReadOnlyList<PullRequestChangedFile>> PullRequestFiles { get; set; } = [];
     public Dictionary<string, IReadOnlyList<PullRequestReviewFinding>> PullRequestFindings { get; set; } = [];
 
@@ -48,14 +55,23 @@ public class FakeWorkItemTracker : IWorkItemTracker
         return Task.CompletedTask;
     }
 
-    public virtual Task SubmitStructuredReviewAsync(
+    public virtual Task<StructuredReviewSubmitResult> SubmitStructuredReviewAsync(
         string pullNumber,
         PullRequestReviewSummary summary,
         IReadOnlyList<PullRequestInlineComment> comments,
         CancellationToken ct = default)
     {
         SubmittedStructuredReviews.Add((pullNumber, summary, comments));
-        return Task.CompletedTask;
+        return Task.FromResult(new StructuredReviewSubmitResult
+        {
+            SummaryPosted = StructuredReviewResult.SummaryPosted,
+            UsedFallback = StructuredReviewResult.UsedFallback,
+            InlineRequestedCount = comments.Count,
+            InlinePostedCount = StructuredReviewResult.InlinePostedCount,
+            InlineFailedCount = StructuredReviewResult.InlineFailedCount,
+            Warnings = StructuredReviewResult.Warnings,
+            PostedComments = StructuredReviewResult.PostedComments,
+        });
     }
 
     public Task<string> FetchPullRequestDiffAsync(string pullNumber, CancellationToken ct = default)
