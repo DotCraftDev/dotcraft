@@ -92,6 +92,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.ThreadUnsubscribe,
         AppServerMethods.ThreadPause,
         AppServerMethods.ThreadArchive,
+        AppServerMethods.ThreadUnarchive,
         AppServerMethods.ThreadDelete,
         AppServerMethods.ThreadRename,
         AppServerMethods.ThreadModeSet,
@@ -179,6 +180,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ThreadUnsubscribe => HandleThreadUnsubscribeAsync(msg, ct),
                 AppServerMethods.ThreadPause => HandleThreadPauseAsync(msg, ct),
                 AppServerMethods.ThreadArchive => HandleThreadArchiveAsync(msg, ct),
+                AppServerMethods.ThreadUnarchive => HandleThreadUnarchiveAsync(msg, ct),
                 AppServerMethods.ThreadDelete => HandleThreadDeleteAsync(msg, ct),
                 AppServerMethods.ThreadRename => HandleThreadRenameAsync(msg, ct),
                 AppServerMethods.ThreadModeSet => HandleThreadModeSetAsync(msg, ct),
@@ -724,6 +726,32 @@ public sealed class AppServerRequestHandler(
             msg.Id, new { },
             AppServerMethods.ThreadStatusChanged,
             new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Archived },
+            ct);
+        return null;
+    }
+
+    private async Task<object?> HandleThreadUnarchiveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        var p = GetParams<ThreadUnarchiveParams>(msg);
+
+        var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
+        var previousStatus = thread.Status;
+
+        await sessionService.UnarchiveThreadAsync(p.ThreadId, ct);
+
+        if (previousStatus == ThreadStatus.Active)
+            return new { };
+
+        if (connection.HasSubscription(p.ThreadId))
+        {
+            await transport.WriteMessageAsync(BuildResponse(msg.Id, new { }), ct);
+            return null;
+        }
+
+        await SendNotificationAfterResponseAsync(
+            msg.Id, new { },
+            AppServerMethods.ThreadStatusChanged,
+            new { threadId = p.ThreadId, previousStatus, newStatus = ThreadStatus.Active },
             ct);
         return null;
     }

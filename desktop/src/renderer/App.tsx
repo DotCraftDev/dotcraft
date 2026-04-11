@@ -68,7 +68,7 @@ function AppChrome({ children }: { children: ReactNode }): JSX.Element {
  * - Initializes connection store and thread store
  * - Loads thread list when connected
  * - Wires thread/started + thread/statusChanged notifications
- * - Registers Ctrl+N (new thread) and Ctrl+K (focus search) global shortcuts
+ * - Registers global shortcuts for navigation and thread actions
  * - Spec §9, §12
  */
 export function App(): JSX.Element {
@@ -617,20 +617,6 @@ export function App(): JSX.Element {
         return
       }
 
-      // Ctrl+Shift+M: toggle agent/plan mode
-      if (ctrl && e.shiftKey && e.key === 'M') {
-        e.preventDefault()
-        const activeId = useThreadStore.getState().activeThreadId
-        if (!activeId) return
-        const convState = useConversationStore.getState()
-        const newMode = convState.threadMode === 'agent' ? 'plan' : 'agent'
-        convState.setThreadMode(newMode)
-        void window.api.appServer
-          .sendRequest('thread/mode/set', { threadId: activeId, mode: newMode })
-          .catch((err: unknown) => console.error('thread/mode/set failed:', err))
-        return
-      }
-
       // Ctrl+N: new thread
       if (ctrl && e.key === 'n') {
         e.preventDefault()
@@ -983,7 +969,8 @@ export function App(): JSX.Element {
           conversation={
             activeMainView === 'settings' ? (
               <SettingsView
-                onVisibleChannelsUpdated={() => {
+                workspacePath={workspacePath}
+                onThreadListRefreshRequested={() => {
                   void reloadThreadList()
                 }}
               />

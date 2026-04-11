@@ -9,11 +9,12 @@ const settingsGet = vi.fn()
 const settingsSet = vi.fn()
 const appServerSendRequest = vi.fn()
 const appServerRestartManaged = vi.fn()
+const appServerOnNotification = vi.fn()
 
 function renderSettingsView(): void {
   render(
     <LocaleProvider>
-      <SettingsView />
+      <SettingsView workspacePath="F:\\dotcraft" />
     </LocaleProvider>
   )
 }
@@ -27,11 +28,13 @@ describe('SettingsView restart AppServer', () => {
     settingsGet.mockResolvedValue({
       connectionMode: 'stdio',
       webSocket: { host: '127.0.0.1', port: 9100 },
-      locale: 'en'
+      locale: 'en',
+      visibleChannels: []
     })
     settingsSet.mockResolvedValue(undefined)
     appServerSendRequest.mockResolvedValue({ channels: [] })
     appServerRestartManaged.mockResolvedValue(undefined)
+    appServerOnNotification.mockReturnValue(() => {})
 
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -42,7 +45,8 @@ describe('SettingsView restart AppServer', () => {
         },
         appServer: {
           sendRequest: appServerSendRequest,
-          restartManaged: appServerRestartManaged
+          restartManaged: appServerRestartManaged,
+          onNotification: appServerOnNotification
         }
       }
     })
@@ -161,5 +165,145 @@ describe('SettingsView restart AppServer', () => {
           .toasts.some((toast) => toast.message === 'Failed to restart AppServer: boom')
       ).toBe(true)
     })
+  })
+
+  it('shows archived threads tab and hides Save there', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'thread/list') return { data: [] }
+      return { channels: [] }
+    })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived Threads' }))
+
+    expect(
+      await screen.findByText('Browse archived conversations for this workspace and restore them when needed.')
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+  })
+
+  it('loads archived threads with includeArchived and only renders archived rows', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'thread/list') {
+        return {
+          data: [
+            {
+              id: 'archived-1',
+              displayName: 'Archived thread',
+              status: 'archived',
+              originChannel: 'dotcraft',
+              createdAt: '2026-04-11T06:00:00Z',
+              lastActiveAt: '2026-04-11T08:00:00Z'
+            },
+            {
+              id: 'active-1',
+              displayName: 'Active thread',
+              status: 'active',
+              originChannel: 'dotcraft',
+              createdAt: '2026-04-11T06:00:00Z',
+              lastActiveAt: '2026-04-11T08:00:00Z'
+            }
+          ]
+        }
+      }
+      return { channels: [] }
+    })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived Threads' }))
+
+    await waitFor(() => {
+      const threadListCall = appServerSendRequest.mock.calls.find(([method]) => method === 'thread/list')
+      expect(threadListCall).toBeTruthy()
+      const params = threadListCall?.[1] as {
+        includeArchived?: boolean
+        crossChannelOrigins?: string[]
+        identity?: { workspacePath?: string; channelContext?: string }
+      }
+      expect(params.includeArchived).toBe(true)
+      expect(params.crossChannelOrigins).toEqual([])
+      expect(params.identity?.workspacePath).toContain('dotcraft')
+      expect(params.identity?.channelContext).toContain('workspace:')
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Archived thread')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Active thread')).not.toBeInTheDocument()
+    })
+  })
+
+  it('restores an archived thread and removes it from the list', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'thread/list') {
+        return {
+          data: [
+            {
+              id: 'archived-1',
+              displayName: 'Archived thread',
+              status: 'archived',
+              originChannel: 'dotcraft',
+              createdAt: '2026-04-11T06:00:00Z',
+              lastActiveAt: '2026-04-11T08:00:00Z'
+            }
+          ]
+        }
+      }
+      if (method === 'thread/unarchive') {
+        return {}
+      }
+      return { channels: [] }
+    })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived Threads' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('thread/unarchive', { threadId: 'archived-1' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Archived thread')).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps archived row visible and shows error toast when restore fails', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'thread/list') {
+        return {
+          data: [
+            {
+              id: 'archived-1',
+              displayName: 'Archived thread',
+              status: 'archived',
+              originChannel: 'dotcraft',
+              createdAt: '2026-04-11T06:00:00Z',
+              lastActiveAt: '2026-04-11T08:00:00Z'
+            }
+          ]
+        }
+      }
+      if (method === 'thread/unarchive') {
+        throw new Error('boom')
+      }
+      return { channels: [] }
+    })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Archived Threads' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))
+
+    await waitFor(() => {
+      expect(
+        useToastStore
+          .getState()
+          .toasts.some((toast) => toast.message === 'Failed to restore conversation: boom')
+      ).toBe(true)
+    })
+    expect(screen.getByText('Archived thread')).toBeInTheDocument()
   })
 })

@@ -381,6 +381,9 @@ export function InputComposer({
                 ref={richRef}
                 disabled={isWaitingApproval}
                 suppressSubmit={showMentionPopover || modelLoading}
+                onToggleModeShortcut={() => {
+                  void toggleMode()
+                }}
                 placeholder={
                   isWaitingApproval ? t('composer.placeholder.approval') : t('composer.placeholder.ask')
                 }

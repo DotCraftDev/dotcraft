@@ -7,6 +7,7 @@ import type { MessageKey } from '../../../shared/locales'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
 import {
   useMcpStore,
   type McpServerConfigWire,
@@ -22,7 +23,8 @@ interface ChannelInfoWire {
 }
 
 interface SettingsViewProps {
-  onVisibleChannelsUpdated?: () => void
+  workspacePath?: string
+  onThreadListRefreshRequested?: () => void
 }
 
 interface KeyValueRow {
@@ -44,7 +46,7 @@ interface McpTestResultWire {
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
-type SettingsTab = 'general' | 'connection' | 'channels' | 'mcp'
+type SettingsTab = 'general' | 'connection' | 'channels' | 'archivedThreads' | 'mcp'
 
 const CATEGORY_ORDER = ['builtin', 'social', 'system', 'external'] as const
 const DEFAULT_WS_HOST = '127.0.0.1'
@@ -297,7 +299,10 @@ function EditableKeyValueList({
   )
 }
 
-export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): JSX.Element {
+export function SettingsView({
+  workspacePath,
+  onThreadListRefreshRequested
+}: SettingsViewProps): JSX.Element {
   const t = useT()
   const setUiLocale = useSetUiLocale()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
@@ -616,7 +621,7 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
     setVisibleChannels(next)
     try {
       await window.api.settings.set({ visibleChannels: next })
-      onVisibleChannelsUpdated?.()
+      onThreadListRefreshRequested?.()
     } catch (err) {
       addToast(
         t('settings.saveFailed', {
@@ -696,7 +701,8 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: t('settings.tab.general') },
     { id: 'connection', label: t('settings.tab.connection') },
-    { id: 'channels', label: t('settings.tab.channels') }
+    { id: 'channels', label: t('settings.tab.channels') },
+    { id: 'archivedThreads', label: t('settings.tab.archivedThreads') }
   ]
   if (mcpEnabled) {
     tabs.push({ id: 'mcp', label: 'MCP' })
@@ -1358,6 +1364,13 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
                 )}
               </div>
             )}
+
+            {activeSettingsTab === 'archivedThreads' && (
+              <ArchivedThreadsSettingsView
+                workspacePath={workspacePath}
+                onThreadListRefreshRequested={onThreadListRefreshRequested}
+              />
+            )}
           </div>
         </main>
       </div>
@@ -1375,7 +1388,7 @@ export function SettingsView({ onVisibleChannelsUpdated }: SettingsViewProps): J
         <button type="button" onClick={closeSettings} style={secondaryButtonStyle(false)}>
           {t('common.cancel')}
         </button>
-        {activeSettingsTab !== 'mcp' && (
+        {activeSettingsTab !== 'mcp' && activeSettingsTab !== 'archivedThreads' && (
           <button
             type="button"
             onClick={() => {

@@ -184,6 +184,18 @@ public sealed class SessionService(
     }
 
     /// <inheritdoc/>
+    public async Task UnarchiveThreadAsync(string threadId, CancellationToken ct = default)
+    {
+        var thread = await GetOrLoadThreadAsync(threadId, ct);
+        if (thread.Status == ThreadStatus.Active) return;
+        var previousStatus = thread.Status;
+        thread.Status = ThreadStatus.Active;
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+        await PersistThreadStatusAsync(thread, ct);
+        GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
+    }
+
+    /// <inheritdoc/>
     public async Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
     {
         // Cancel any running or approval-pending turns for this thread

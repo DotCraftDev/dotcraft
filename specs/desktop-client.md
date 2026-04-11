@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.0 |
+| **Version** | 0.2.1 |
 | **Status** | Living |
 | **Date** | 2026-04-11 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) |
@@ -243,6 +243,8 @@ This section defines how protocol messages affect user-visible behavior. It inte
 ### 5.9 Archive and Delete
 
 - Archived threads remain readable but not turn-capable.
+- The client may expose a dedicated archived-thread management surface for browsing and restore actions.
+- Restoring an archived thread returns it to the active thread set without forcing automatic navigation into that conversation.
 - Deleted threads disappear from the client once deletion is confirmed.
 - If a thread is archived or deleted elsewhere while open locally, the user must see the updated state immediately and lose only the actions that are no longer valid.
 
@@ -304,6 +306,16 @@ Required behavior:
 - If model catalog capability is available, the client may offer model selection using server-provided values.
 - If model catalog capability is absent or temporarily fails, the conversation workflow remains usable.
 - Updating workspace default model and updating active-thread model must remain distinct actions when both are supported.
+
+### 6.6 Archived Threads
+
+Required behavior:
+
+- Users can enter an archived-thread management surface from Settings when thread-management capability is available.
+- The archived-thread list follows the same workspace identity and cross-channel visibility rules as the main thread list, but queries with archived inclusion enabled.
+- The archived-thread surface is read-only apart from restore actions; it does not provide message sending.
+- Restoring a thread removes it from the archived list immediately and makes it eligible to reappear in the main thread list after local refresh or status synchronization.
+- If a thread is restored or deleted elsewhere while the archived-thread surface is open, the visible list reconciles automatically without requiring a full app restart.
 
 ---
 

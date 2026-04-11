@@ -27,6 +27,7 @@ interface RichInputAreaProps {
   disabled?: boolean
   placeholder?: string
   suppressSubmit?: boolean
+  onToggleModeShortcut?: () => void
   onSubmit: () => void
   /** Omitted on welcome screen (no @ popover). */
   onAtQuery?: (query: string | null) => void
@@ -133,6 +134,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
     disabled,
     placeholder = PLACEHOLDER,
     suppressSubmit,
+    onToggleModeShortcut,
     onSubmit,
     onAtQuery,
     onContentChange,
@@ -293,6 +295,13 @@ export const RichInputArea = forwardRef(function RichInputArea(
 
     const onKeyDown = useCallback(
       (e: React.KeyboardEvent<HTMLDivElement>): void => {
+        if (e.key === 'Tab' && e.shiftKey) {
+          if (onToggleModeShortcut) {
+            e.preventDefault()
+            onToggleModeShortcut()
+          }
+          return
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
           if (suppressSubmit) {
             e.preventDefault()
@@ -333,7 +342,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
           }
         }
       },
-      [disabled, onInput, onSubmit, suppressSubmit]
+      [disabled, onInput, onSubmit, onToggleModeShortcut, suppressSubmit]
     )
 
     const onPaste = useCallback(
