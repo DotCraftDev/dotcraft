@@ -202,7 +202,19 @@ External channel adapters extend the standard `initialize` params with a `channe
     "streamingSupport": true,
     "channelAdapter": {
       "channelName": "telegram",
-      "deliverySupport": true
+      "deliverySupport": true,
+      "deliveryCapabilities": {
+        "structuredDelivery": true,
+        "media": {
+          "file": {
+            "supportsHostPath": false,
+            "supportsUrl": false,
+            "supportsBase64": true,
+            "supportsCaption": true,
+            "allowedMimeTypes": ["application/pdf"]
+          }
+        }
+      }
     }
   }
 }
@@ -213,6 +225,7 @@ External channel adapters extend the standard `initialize` params with a `channe
 | `capabilities.channelAdapter` | object | yes (for channel adapters) | Identifies this connection as a channel adapter. Omit for regular clients. |
 | `channelAdapter.channelName` | string | yes | The canonical channel name (e.g., `"telegram"`). Must match the name declared in server-side configuration. |
 | `channelAdapter.deliverySupport` | boolean | no | Whether this adapter can receive `ext/channel/deliver` server requests. Default `true`. |
+| `channelAdapter.deliveryCapabilities` | object | no | Structured delivery capability descriptor. Omit for text-only adapters. |
 
 When `channelAdapter` is present, the server records the channel name on the connection. The server responds with the standard `initialize` result (see appserver-protocol.md §3.2). No additional fields are added to the response in v1.
 
@@ -258,11 +271,77 @@ Delivers a message to a specific target on the channel. Used by the Cron service
 { "delivered": true }
 ```
 
-If delivery fails, the adapter returns `{ "delivered": false, "error": "..." }`. A failed delivery logs a warning on the server but does not fail the originating cron job.
+If delivery fails, the adapter returns `{ "delivered": false, "errorCode": "...", "errorMessage": "..." }`. A failed delivery logs a warning on the server but does not fail the originating cron job.
 
 If the adapter declared `deliverySupport: false` during `initialize`, the server must not send `ext/channel/deliver` to that adapter.
 
-### 6.2 `ext/channel/heartbeat`
+### 6.2 `ext/channel/send`
+
+Structured delivery request for text and media payloads.
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `target` | string | Platform-specific delivery target. |
+| `message` | object | Structured outbound payload. |
+| `metadata` | object? | Optional channel-specific hints. |
+
+`message.kind` values standardized in M1:
+
+- `text`
+- `file`
+- `audio`
+- `image`
+- `video`
+
+Shared `message` fields:
+
+- `kind: string`
+- `text?: string`
+- `caption?: string`
+- `fileName?: string`
+- `mediaType?: string`
+- `source?: object`
+
+`source.kind` may be:
+
+- `hostPath`
+- `url`
+- `dataBase64`
+- `artifactId`
+
+Each media capability entry under `channelAdapter.deliveryCapabilities.media` supports:
+
+- `maxBytes?: number`
+- `allowedMimeTypes?: string[]`
+- `allowedExtensions?: string[]`
+- `supportsHostPath: boolean`
+- `supportsUrl: boolean`
+- `supportsBase64: boolean`
+- `supportsCaption: boolean`
+
+**Result**:
+
+```json
+{
+  "delivered": true,
+  "remoteMessageId": "abc123",
+  "remoteMediaId": "media_xyz",
+  "errorCode": null,
+  "errorMessage": null
+}
+```
+
+Compatibility rules:
+
+- Text-only adapters may keep implementing only `ext/channel/deliver`.
+- The server may route `message.kind = "text"` through either `ext/channel/deliver` or `ext/channel/send`.
+- The server must never silently downgrade `file`, `audio`, `image`, or `video` to `ext/channel/deliver`.
+
+### 6.3 `ext/channel/heartbeat`
 
 A JSON-RPC level health probe sent by DotCraft to verify the adapter's full message-processing pipeline is responsive. This is distinct from the transport-layer WebSocket ping/pong frames.
 
@@ -284,8 +363,8 @@ If the adapter does not respond within the configured timeout, `ExternalChannelH
 
 - Establishing and maintaining the transport connection to the adapter.
 - Running the `AppServerRequestHandler` message loop for the adapter's connection, giving the adapter full access to `ISessionService`.
-- Implementing `DeliverMessageAsync` by sending `ext/channel/deliver` requests to the adapter.
-- Forwarding injected `HeartbeatService` and `CronService` delivery events to the adapter as `ext/channel/deliver` requests.
+- Implementing text delivery via `ext/channel/deliver` and structured delivery via `ext/channel/send`.
+- Forwarding injected `HeartbeatService` and `CronService` delivery events to the adapter through the negotiated delivery path.
 - Monitoring adapter responsiveness via `ext/channel/heartbeat` and triggering restarts when the adapter becomes unresponsive.
 - Subprocess lifecycle management (subprocess mode only): spawning, monitoring exit, and restarting with backoff.
 
@@ -315,11 +394,12 @@ If the adapter process exits unexpectedly, `ExternalChannelHost` logs the exit c
 | `Name` | Channel name from `channelAdapter.channelName` in `initialize`. |
 | `StartAsync()` | Establishes transport, performs handshake, starts message loop. |
 | `StopAsync()` | Closes transport, stops message loop. |
-| `DeliverMessageAsync(target, content)` | Sends `ext/channel/deliver` request to adapter. |
+| `DeliverMessageAsync(target, content)` | Legacy text helper; may route to `ext/channel/deliver` or structured `text` delivery. |
+| `DeliverAsync(target, message, metadata)` | Structured delivery entry point used for text and media. |
 | `ApprovalService` | `null` — approval is handled end-to-end by the adapter via Wire Protocol. |
 | `ChannelClient` | `null` — platform client is out-of-process. |
-| `HeartbeatService` | Injected by `GatewayHost`; delivery results forwarded as `ext/channel/deliver`. |
-| `CronService` | Injected by `GatewayHost`; job results forwarded as `ext/channel/deliver`. |
+| `HeartbeatService` | Injected by `GatewayHost`; delivery results forwarded through the negotiated delivery path. |
+| `CronService` | Injected by `GatewayHost`; job results forwarded through the negotiated delivery path. |
 
 ---
 
@@ -429,6 +509,7 @@ The adapter **must** handle the following server-initiated requests:
 |--------|-------------------|
 | `item/approval/request` | Present platform-native approval UI; respond with `{ "decision": "..." }`. See §11. |
 | `ext/channel/deliver` | Deliver `content` to `target` on the platform; respond with `{ "delivered": true/false }`. |
+| `ext/channel/send` | Deliver a structured `message` payload to `target`; validate `message.kind` and source forms against the adapter's advertised capabilities. |
 | `ext/channel/heartbeat` | Respond immediately with `{}`. |
 
 The adapter **must not** ignore these requests. Failure to respond causes the server to time out (approval: `-32020` turn failure; heartbeat: connection marked unhealthy).

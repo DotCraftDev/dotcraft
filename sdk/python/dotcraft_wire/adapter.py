@@ -80,6 +80,24 @@ class ChannelAdapter(ABC):
             True if delivered successfully, False otherwise.
         """
 
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict:
+        """
+        Called when DotCraft asks the adapter to send a structured payload.
+
+        Default behavior preserves text-only compatibility by forwarding text
+        messages to on_deliver() and rejecting non-text messages.
+        """
+        kind = str(message.get("kind", ""))
+        if kind == "text":
+            ok = await self.on_deliver(target, str(message.get("text", "")), metadata)
+            return {"delivered": ok}
+
+        return {
+            "delivered": False,
+            "errorCode": "UnsupportedDeliveryKind",
+            "errorMessage": f"Adapter does not implement structured '{kind}' delivery.",
+        }
+
     @abstractmethod
     async def on_approval_request(self, request: dict) -> str:
         """
@@ -122,6 +140,10 @@ class ChannelAdapter(ABC):
         """Called when a turn is cancelled."""
         logger.info("Turn %s cancelled on thread %s", turn_id, thread_id)
 
+    def get_delivery_capabilities(self) -> dict | None:
+        """Return channelAdapter.deliveryCapabilities for initialize, or None for text-only adapters."""
+        return None
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -139,6 +161,7 @@ class ChannelAdapter(ABC):
             opt_out_notifications=self._opt_out,
             channel_name=self._channel_name,
             delivery_support=True,
+            delivery_capabilities=self.get_delivery_capabilities(),
         )
         self._running = True
 
@@ -149,6 +172,7 @@ class ChannelAdapter(ABC):
             self._handle_deliver_notification,
         )
         self._client._request_handlers["ext/channel/deliver"] = self._handle_deliver_request
+        self._client._request_handlers["ext/channel/send"] = self._handle_send_request
         self._client._request_handlers["ext/channel/heartbeat"] = self._handle_heartbeat
 
         logger.info(
@@ -483,6 +507,21 @@ class ChannelAdapter(ABC):
     async def _handle_deliver_notification(self, params: dict) -> None:
         """Handle ext/channel/deliver if sent as a notification (shouldn't happen per spec)."""
         await self._handle_deliver_request(None, params)
+
+    async def _handle_send_request(self, request_id, params: dict) -> dict:
+        """Route ext/channel/send to the subclass or default structured handler."""
+        target = params.get("target", "")
+        message = params.get("message") or {}
+        metadata = params.get("metadata") or {}
+        try:
+            return await self.on_send(str(target), message, metadata)
+        except Exception as e:
+            logger.error("on_send raised: %s", e)
+            return {
+                "delivered": False,
+                "errorCode": "AdapterDeliveryFailed",
+                "errorMessage": str(e),
+            }
 
     async def _handle_heartbeat(self, request_id, params: dict) -> dict:
         """Respond to ext/channel/heartbeat immediately."""

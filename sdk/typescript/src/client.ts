@@ -73,6 +73,7 @@ export class DotCraftClient {
     optOutNotifications?: string[] | null;
     channelName?: string | null;
     deliverySupport?: boolean;
+    deliveryCapabilities?: Record<string, unknown> | null;
   }): Promise<InitializeResult> {
     if (!this.readerPromise) await this.start();
 
@@ -87,6 +88,10 @@ export class DotCraftClient {
         channelName: opts.channelName,
         deliverySupport: opts.deliverySupport ?? true,
       };
+      if (opts.deliveryCapabilities) {
+        (capabilities.channelAdapter as Record<string, unknown>).deliveryCapabilities =
+          opts.deliveryCapabilities;
+      }
     }
 
     const clientInfo: Record<string, unknown> = {

@@ -61,6 +61,28 @@ export abstract class ChannelAdapter {
 
   abstract onApprovalRequest(request: Record<string, unknown>): Promise<string>;
 
+  protected async onSend(
+    target: string,
+    message: Record<string, unknown>,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const kind = String(message.kind ?? "");
+    if (kind === "text") {
+      const ok = await this.onDeliver(target, String(message.text ?? ""), metadata);
+      return { delivered: ok };
+    }
+
+    return {
+      delivered: false,
+      errorCode: "UnsupportedDeliveryKind",
+      errorMessage: `Adapter does not implement structured '${kind}' delivery.`,
+    };
+  }
+
+  protected getDeliveryCapabilities(): Record<string, unknown> | null {
+    return null;
+  }
+
   protected async onTurnCompleted(
     threadId: string,
     turnId: string,
@@ -99,6 +121,7 @@ export abstract class ChannelAdapter {
       optOutNotifications: this.optOutNotifications,
       channelName: this.channelName,
       deliverySupport: true,
+      deliveryCapabilities: this.getDeliveryCapabilities(),
     });
     this.running = true;
 
@@ -124,6 +147,21 @@ export abstract class ChannelAdapter {
       } catch (e) {
         console.error("onDeliver raised:", e);
         return { delivered: false, error: String(e) };
+      }
+    });
+    this.client.registerServerRequestHandler("ext/channel/send", async (_id, params) => {
+      const target = String(params.target ?? "");
+      const message = (params.message as Record<string, unknown>) ?? {};
+      const metadata = (params.metadata as Record<string, unknown>) ?? {};
+      try {
+        return await this.onSend(target, message, metadata);
+      } catch (e) {
+        console.error("onSend raised:", e);
+        return {
+          delivered: false,
+          errorCode: "AdapterDeliveryFailed",
+          errorMessage: String(e),
+        };
       }
     });
     this.client.registerServerRequestHandler("ext/channel/heartbeat", async () => ({}));

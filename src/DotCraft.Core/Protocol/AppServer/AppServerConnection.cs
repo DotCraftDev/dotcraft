@@ -60,6 +60,16 @@ public sealed class AppServerConnection
     /// </summary>
     public bool SupportsDelivery { get; private set; } = true;
 
+    /// <summary>
+    /// Structured delivery descriptor declared by the adapter during initialize, if any.
+    /// </summary>
+    public ChannelDeliveryCapabilities? DeliveryCapabilities { get; private set; }
+
+    /// <summary>
+    /// Whether the adapter supports <c>ext/channel/send</c>.
+    /// </summary>
+    public bool SupportsStructuredDelivery => DeliveryCapabilities?.StructuredDelivery == true;
+
     // -------------------------------------------------------------------------
     // ACP extension state (appserver-protocol.md §11.2)
     // -------------------------------------------------------------------------
@@ -106,6 +116,7 @@ public sealed class AppServerConnection
         {
             ChannelAdapterName = ca.ChannelName;
             SupportsDelivery = ca.DeliverySupport != false;
+            DeliveryCapabilities = ca.DeliveryCapabilities;
         }
 
         _isInitialized = true;

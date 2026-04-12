@@ -164,6 +164,22 @@ Client                              Server
       "fsWriteTextFile": true,
       "terminalCreate": true,
       "extensions": ["_unity"]
+    },
+    "channelAdapter": {
+      "channelName": "telegram",
+      "deliverySupport": true,
+      "deliveryCapabilities": {
+        "structuredDelivery": true,
+        "media": {
+          "file": {
+            "supportsHostPath": false,
+            "supportsUrl": false,
+            "supportsBase64": true,
+            "supportsCaption": true,
+            "allowedMimeTypes": ["application/pdf"]
+          }
+        }
+      }
     }
   }
 }
@@ -177,6 +193,7 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
+| `capabilities.channelAdapter` | object | no | External channel adapter capability metadata. When present, the connection is treated as a channel adapter. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
 
 **`acpExtensions` object** (when present):
@@ -187,6 +204,31 @@ Client                              Server
 | `fsWriteTextFile` | boolean | Client can handle `ext/acp/fs/writeTextFile`. |
 | `terminalCreate` | boolean | Client can handle `ext/acp/terminal/*` methods. |
 | `extensions` | string[] | Custom extension families the client implements (e.g. `["_unity"]`). Server may send `ext/acp/<family>/<method>` for each advertised family. |
+
+**`channelAdapter` object** (when present):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `channelName` | string | Canonical external channel name (for example `telegram`, `feishu`). |
+| `deliverySupport` | boolean | Whether the adapter can receive legacy text `ext/channel/deliver` requests. Default `true`. |
+| `deliveryCapabilities` | object | Optional structured delivery capability descriptor. When omitted, the adapter is treated as text-only. |
+
+**`deliveryCapabilities` object**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `structuredDelivery` | boolean | Whether the adapter can receive `ext/channel/send`. |
+| `media` | object | Optional media capability map keyed by delivery kind (`file`, `audio`, `image`, `video`). |
+
+Each media capability entry supports:
+
+- `maxBytes?: number`
+- `allowedMimeTypes?: string[]`
+- `allowedExtensions?: string[]`
+- `supportsHostPath: boolean`
+- `supportsUrl: boolean`
+- `supportsBase64: boolean`
+- `supportsCaption: boolean`
 
 **Result**:
 
@@ -1568,7 +1610,124 @@ The core wire protocol (Sections 3–10) covers the `ISessionService` surface. M
 - `initialize` may advertise extension availability in `capabilities.extensions`. Compatibility top-level capability fields may coexist during migration.
 - Clients must treat the spec as the source of truth for a documented extension's method names and payloads; implementation location inside the server is not wire-visible.
 
-### 11.2 ACP Tool Proxy
+### 11.2 External Channel Delivery
+
+The external channel adapter integration uses **server → client** JSON-RPC requests under the `ext/channel/*` namespace. These methods are bidirectional protocol extensions in the same sense as `item/approval/request`: the server sends a request with an `id`, and the adapter returns a structured `result`.
+
+Capability negotiation happens during `initialize` via `capabilities.channelAdapter`:
+
+- `deliverySupport = true` means the adapter may receive legacy text `ext/channel/deliver`.
+- `deliveryCapabilities.structuredDelivery = true` means the adapter may receive `ext/channel/send`.
+- media entries under `deliveryCapabilities.media` describe which non-text `message.kind` values the adapter accepts and which source forms are allowed.
+
+#### 11.2.1 `ext/channel/deliver`
+
+Legacy text-only delivery path used for adapters that have not upgraded to structured delivery.
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+```json
+{
+  "target": "group:12345",
+  "content": "Scheduled report: build passed.",
+  "metadata": {
+    "format": "markdown"
+  }
+}
+```
+
+**Result**:
+
+```json
+{
+  "delivered": true,
+  "errorCode": null,
+  "errorMessage": null
+}
+```
+
+The server may continue using `ext/channel/deliver` for `text` payloads when the adapter does not advertise structured delivery. It must not silently downgrade non-text payloads onto this method.
+
+#### 11.2.2 `ext/channel/send`
+
+Structured delivery path for text and media payloads.
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+```json
+{
+  "target": "group:12345",
+  "message": {
+    "kind": "file",
+    "caption": "Latest report",
+    "fileName": "report.pdf",
+    "mediaType": "application/pdf",
+    "source": {
+      "kind": "artifactId",
+      "artifactId": "artifact_001"
+    }
+  },
+  "metadata": {
+    "origin": "cron"
+  }
+}
+```
+
+`message.kind` values standardized in v1:
+
+- `text`
+- `file`
+- `audio`
+- `image`
+- `video`
+
+`message` fields:
+
+- `kind: string`
+- `text?: string`
+- `caption?: string`
+- `fileName?: string`
+- `mediaType?: string`
+- `source?: ChannelMediaSource`
+
+`ChannelMediaSource` fields:
+
+- `kind: "hostPath" | "url" | "dataBase64" | "artifactId"`
+- `hostPath?: string`
+- `url?: string`
+- `dataBase64?: string`
+- `artifactId?: string`
+
+Adapters must treat `source.kind` as authoritative and ignore unrelated source fields.
+
+**Result**:
+
+```json
+{
+  "delivered": true,
+  "remoteMessageId": "msg_123",
+  "remoteMediaId": "media_456",
+  "errorCode": null,
+  "errorMessage": null
+}
+```
+
+When `delivered` is `false`, `errorCode` should use a stable string when possible. Standard protocol-level values:
+
+- `UnsupportedDeliveryKind`
+- `UnsupportedMediaSource`
+- `MediaTooLarge`
+- `MediaTypeNotAllowed`
+- `MediaArtifactNotFound`
+- `MediaResolutionFailed`
+- `AdapterDeliveryFailed`
+- `AdapterProtocolViolation`
+
+### 11.3 ACP Tool Proxy
 
 The ACP (Agent Client Protocol) integration allows the agent's tools to access the IDE client's filesystem, terminals, and custom extension methods. On the AppServer wire, these map to **server → client** JSON-RPC requests (same bidirectional pattern as `item/approval/request` in [Section 7](#7-approval-flow)): the server sends a request with a numeric `id`; the client responds with a `result` or `error`.
 

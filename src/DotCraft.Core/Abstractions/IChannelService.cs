@@ -1,5 +1,6 @@
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 
 namespace DotCraft.Abstractions;
@@ -57,6 +58,33 @@ public interface IChannelService : IAsyncDisposable
     /// <param name="target">The target identifier (e.g., user ID, group ID, chat ID).</param>
     /// <param name="content">The message content to deliver.</param>
     Task DeliverMessageAsync(string target, string content);
+
+    /// <summary>
+    /// Delivers a structured outbound message to a specific target within this channel.
+    /// The default implementation preserves compatibility for text-only channels.
+    /// </summary>
+    async Task<ExtChannelSendResult> DeliverAsync(
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default)
+    {
+        _ = metadata;
+        _ = cancellationToken;
+
+        if (string.Equals(message.Kind, "text", StringComparison.OrdinalIgnoreCase))
+        {
+            await DeliverMessageAsync(target, message.Text ?? string.Empty);
+            return new ExtChannelSendResult { Delivered = true };
+        }
+
+        return new ExtChannelSendResult
+        {
+            Delivered = false,
+            ErrorCode = "UnsupportedDeliveryKind",
+            ErrorMessage = $"Channel '{Name}' does not support structured '{message.Kind}' delivery."
+        };
+    }
 
     /// <summary>
     /// Returns the list of delivery targets for admin notifications (e.g. Heartbeat results).

@@ -33,6 +33,7 @@ public sealed class ExternalChannelHost(
     private readonly ISessionService _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
     private readonly ModuleRegistry _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
     private readonly string _workspaceCraftPath = Path.Combine(hostWorkspacePath, ".craft");
+    private readonly ChannelDeliveryDependencies _delivery = CreateDeliveryDependencies(hostWorkspacePath);
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -182,41 +183,53 @@ public sealed class ExternalChannelHost(
     }
 
     /// <summary>
-    /// Delivers a message to the adapter via <c>ext/channel/deliver</c>.
+    /// Delivers a legacy text message to the adapter.
     /// Best-effort: returns silently if the adapter is disconnected.
     /// </summary>
     public async Task DeliverMessageAsync(string target, string content)
     {
-        if (_stopped || _permanentlyFailed || _transport == null || _connection is not { IsClientReady: true })
-            return;
-
-        if (_connection is { SupportsDelivery: false })
-            return;
-
-        try
-        {
-            var response = await _transport.SendClientRequestAsync(
-                AppServerMethods.ExtChannelDeliver,
-                new { target, content },
-                timeout: TimeSpan.FromSeconds(10));
-
-            // The response.Result is a JsonElement? containing the adapter's reply
-            if (response.Result is { } resultElement &&
-                resultElement.TryGetProperty("delivered", out var delivered) &&
-                delivered.ValueKind == JsonValueKind.False)
+        _ = await DeliverAsync(
+            target,
+            new ChannelOutboundMessage
             {
-                var errorMsg = resultElement.TryGetProperty("error", out var err) ? err.GetString() : "unknown";
-                AnsiConsole.MarkupLine(
-                    $"[yellow][[ExternalChannel]][/] Delivery to [yellow]{Name}[/] target '{target}' " +
-                    $"failed: {errorMsg}");
-            }
-        }
-        catch (Exception ex)
+                Kind = "text",
+                Text = content
+            });
+    }
+
+    public async Task<ExtChannelSendResult> DeliverAsync(
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_stopped || _permanentlyFailed || _transport == null || _connection is not { IsClientReady: true } connection)
         {
-            // Best-effort delivery — log but don't throw
-            AnsiConsole.MarkupLine(
-                $"[yellow][[ExternalChannel]][/] Delivery to [yellow]{Name}[/] failed: {ex.Message}");
+            return new ExtChannelSendResult
+            {
+                Delivered = false,
+                ErrorCode = "AdapterDeliveryFailed",
+                ErrorMessage = "Adapter is not connected."
+            };
         }
+
+        var result = await _delivery.MessageDispatcher.DeliverAsync(
+            _transport,
+            connection,
+            Name,
+            target,
+            message,
+            metadata,
+            cancellationToken);
+
+        if (!result.Delivered)
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow][[ExternalChannel]][/] Delivery to [yellow]{Name}[/] target '{target}' failed: " +
+                $"{result.ErrorCode ?? "AdapterDeliveryFailed"} {result.ErrorMessage}");
+        }
+
+        return result;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -603,6 +616,15 @@ public sealed class ExternalChannelHost(
         return TimeSpan.FromSeconds(seconds);
     }
 
+    private static ChannelDeliveryDependencies CreateDeliveryDependencies(string hostWorkspacePath)
+    {
+        var mediaRoot = Path.Combine(hostWorkspacePath, ".craft", "external-channel-media");
+        var artifactStore = new FileSystemChannelMediaArtifactStore(mediaRoot);
+        var resolver = new ChannelMediaResolver(artifactStore, Path.Combine(mediaRoot, "tmp"));
+        var dispatcher = new ExternalChannelMessageDispatcher(resolver, artifactStore);
+        return new ChannelDeliveryDependencies(artifactStore, resolver, dispatcher);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // IAsyncDisposable
     // ─────────────────────────────────────────────────────────────────────────
@@ -612,4 +634,9 @@ public sealed class ExternalChannelHost(
         await StopAsync();
         _runCts?.Dispose();
     }
+
+    private sealed record ChannelDeliveryDependencies(
+        IChannelMediaArtifactStore ArtifactStore,
+        IChannelMediaResolver MediaResolver,
+        IChannelMessageDispatcher MessageDispatcher);
 }

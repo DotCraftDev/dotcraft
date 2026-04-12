@@ -119,6 +119,125 @@ public sealed class ChannelAdapterCapability
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? DeliverySupport { get; set; }
+
+    /// <summary>
+    /// Optional structured delivery capability descriptor for <c>ext/channel/send</c>.
+    /// When omitted, the adapter is treated as text-only.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelDeliveryCapabilities? DeliveryCapabilities { get; set; }
+}
+
+public sealed class ChannelDeliveryCapabilities
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? StructuredDelivery { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelMediaCapabilitySet? Media { get; set; }
+}
+
+public sealed class ChannelMediaCapabilitySet
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelMediaConstraints? File { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelMediaConstraints? Audio { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelMediaConstraints? Image { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelMediaConstraints? Video { get; set; }
+}
+
+public sealed class ChannelMediaConstraints
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? MaxBytes { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? AllowedMimeTypes { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? AllowedExtensions { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SupportsHostPath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SupportsUrl { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SupportsBase64 { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SupportsCaption { get; set; }
+}
+
+public sealed class ChannelMediaSource
+{
+    public string Kind { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? HostPath { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Url { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DataBase64 { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ArtifactId { get; set; }
+}
+
+public sealed class ChannelOutboundMessage
+{
+    public string Kind { get; set; } = "text";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Caption { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FileName { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MediaType { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelMediaSource? Source { get; set; }
+}
+
+public sealed class ExtChannelSendParams
+{
+    public string Target { get; set; } = string.Empty;
+
+    public ChannelOutboundMessage Message { get; set; } = new();
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Metadata { get; set; }
+}
+
+public sealed class ExtChannelSendResult
+{
+    public bool Delivered { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RemoteMessageId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RemoteMediaId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorMessage { get; set; }
 }
 
 public sealed class AppServerInitializeResult
@@ -1219,6 +1338,7 @@ public static class AppServerMethods
 
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
     public const string ExtChannelDeliver = "ext/channel/deliver";
+    public const string ExtChannelSend = "ext/channel/send";
     public const string ExtChannelHeartbeat = "ext/channel/heartbeat";
 
     // Server → Client requests (ACP tool proxy, appserver-protocol.md §11.2)
