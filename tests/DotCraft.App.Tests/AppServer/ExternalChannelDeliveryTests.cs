@@ -9,6 +9,9 @@ using DotCraft.Processes;
 using DotCraft.Protocol;
 using DotCraft.Modules;
 using DotCraft.Protocol.AppServer;
+using DotCraft.QQ;
+using DotCraft.Tools;
+using DotCraft.WeCom;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.AppServer;
@@ -426,7 +429,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             [
                 new ChannelToolDescriptor
                 {
-                    Name = "telegramSendDocument",
+                    Name = "TelegramSendDocumentToCurrentChat",
                     Description = "Send a document to the current Telegram chat.",
                     RequiresChatContext = true,
                     InputSchema = new JsonObject
@@ -500,13 +503,58 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
         Assert.Equal(AppServerMethods.ExtChannelToolCall, transport.LastMethod);
         var toolParams = Assert.IsType<ExtChannelToolCallParams>(transport.LastParams);
-        Assert.Equal("telegramSendDocument", toolParams.Tool);
+        Assert.Equal("TelegramSendDocumentToCurrentChat", toolParams.Tool);
         Assert.Equal("chat_123", toolParams.Context.ChannelContext);
         Assert.Equal("user_42", toolParams.Context.SenderId);
         Assert.Single(turn.Items);
         Assert.Equal(ItemType.ExternalChannelToolCall, turn.Items[0].Type);
         Assert.Equal(["started", "completed"], lifecycle);
         Assert.NotNull(result);
+    }
+
+    [Fact]
+    public void ExternalChannelToolProvider_RegistersDescriptorDisplayMetadata()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        AttachFakeAdapter(host, new StubTransport(), CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "TelegramSendDocumentToCurrentChat",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    Display = new ChannelToolDisplay
+                    {
+                        Icon = "📎",
+                        Title = "Send document to current Telegram chat"
+                    },
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject()
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        var tools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_011",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Single(tools);
+        Assert.Equal("📎", ToolRegistry.GetToolIcon("TelegramSendDocumentToCurrentChat"));
+        Assert.Equal(
+            "Send document to current Telegram chat",
+            ToolRegistry.FormatToolCall("TelegramSendDocumentToCurrentChat", (IDictionary<string, object?>?)null));
     }
 
     [Fact]
@@ -571,7 +619,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             [
                 new ChannelToolDescriptor
                 {
-                    Name = "telegramSendDocument",
+                    Name = "TelegramSendDocumentToCurrentChat",
                     Description = "Send a document to the current Telegram chat.",
                     RequiresChatContext = true,
                     InputSchema = new JsonObject
@@ -644,7 +692,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             [
                 new ChannelToolDescriptor
                 {
-                    Name = "telegramSendDocument",
+                    Name = "TelegramSendDocumentToCurrentChat",
                     Description = "Send a document to the current Telegram chat.",
                     RequiresChatContext = true,
                     InputSchema = new JsonObject
@@ -705,6 +753,63 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         var payload = Assert.IsType<ExternalChannelToolCallPayload>(turn.Items[0].Payload);
         Assert.False(payload.Success);
         Assert.Equal("ExternalChannelToolTimeout", payload.ErrorCode);
+    }
+
+    [Fact]
+    public void QQChannelService_ChannelTools_RestoreLegacyNames_AndCrossTargetSemantics()
+    {
+        var tools = GetStaticChannelTools(typeof(QQChannelService));
+
+        Assert.Equal(
+            [
+                "QQSendGroupVoice",
+                "QQSendPrivateVoice",
+                "QQSendGroupVideo",
+                "QQSendPrivateVideo",
+                "QQUploadGroupFile",
+                "QQUploadPrivateFile"
+            ],
+            tools.Select(t => t.Name).ToArray());
+        Assert.All(tools, t => Assert.False(t.RequiresChatContext));
+        Assert.Equal("🎤", tools[0].Display?.Icon);
+        Assert.Equal("📁", tools[4].Display?.Icon);
+
+        var method = typeof(QQChannelService).GetMethod("TryCreateToolRequest", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        object?[] args =
+        [
+            "QQSendGroupVoice",
+            new JsonObject
+            {
+                ["groupId"] = 123456,
+                ["file"] = "base64://aGVsbG8="
+            },
+            null,
+            null
+        ];
+
+        var ok = Assert.IsType<bool>(method!.Invoke(null, args));
+        Assert.True(ok);
+        Assert.Equal("group:123456", Assert.IsType<string>(args[2]));
+
+        var message = Assert.IsType<ChannelOutboundMessage>(args[3]);
+        Assert.Equal("audio", message.Kind);
+        Assert.Equal("dataBase64", message.Source?.Kind);
+        Assert.Equal("aGVsbG8=", message.Source?.DataBase64);
+    }
+
+    [Fact]
+    public void WeComChannelService_ChannelTools_RestoreLegacyNames_AndCurrentChatRequirement()
+    {
+        var tools = GetStaticChannelTools(typeof(WeComChannelService));
+
+        Assert.Equal(
+            ["WeComSendVoice", "WeComSendFile"],
+            tools.Select(t => t.Name).ToArray());
+        Assert.All(tools, t => Assert.True(t.RequiresChatContext));
+        Assert.Equal("🎤", tools[0].Display?.Icon);
+        Assert.Equal("📁", tools[1].Display?.Icon);
     }
 
     [Fact]
@@ -904,6 +1009,13 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         typeof(ExternalChannelHost)
             .GetField("_connection", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(host, connection);
+    }
+
+    private static IReadOnlyList<ChannelToolDescriptor> GetStaticChannelTools(Type channelServiceType)
+    {
+        var field = channelServiceType.GetField("ChannelTools", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return Assert.IsAssignableFrom<IReadOnlyList<ChannelToolDescriptor>>(field!.GetValue(null));
     }
 
     private sealed class StubTransport(object? result = null, Exception? exception = null) : IAppServerTransport

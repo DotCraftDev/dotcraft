@@ -43,6 +43,13 @@ public sealed class QQChannelService(
     ModuleRegistry moduleRegistry)
     : IChannelService
 {
+    private const string QQSendGroupVoiceTool = "QQSendGroupVoice";
+    private const string QQSendPrivateVoiceTool = "QQSendPrivateVoice";
+    private const string QQSendGroupVideoTool = "QQSendGroupVideo";
+    private const string QQSendPrivateVideoTool = "QQSendPrivateVideo";
+    private const string QQUploadGroupFileTool = "QQUploadGroupFile";
+    private const string QQUploadPrivateFileTool = "QQUploadPrivateFile";
+
     private QQChannelAdapter? _adapter;
     private static readonly ChannelDeliveryCapabilities DeliveryCapabilities = new()
     {
@@ -72,53 +79,120 @@ public sealed class QQChannelService(
     [
         new()
         {
-            Name = "qqSendVoiceToCurrentChat",
-            Description = "Send a voice/audio message to the current QQ chat.",
-            RequiresChatContext = true,
+            Name = QQSendGroupVoiceTool,
+            Description = "Send a voice/audio message to a QQ group chat. The file can be a local absolute path, an HTTP URL, or a base64-encoded string (prefix with 'base64://'). Supported formats depend on the OneBot implementation (typically mp3, amr, silk).",
+            RequiresChatContext = false,
             InputSchema = new JsonObject
             {
                 ["type"] = "object",
                 ["properties"] = new JsonObject
                 {
-                    ["filePath"] = new JsonObject { ["type"] = "string" },
-                    ["fileUrl"] = new JsonObject { ["type"] = "string" },
-                    ["fileBase64"] = new JsonObject { ["type"] = "string" }
-                }
-            }
+                    ["groupId"] = new JsonObject { ["type"] = "integer" },
+                    ["file"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("groupId", "file")
+            },
+            Display = new ChannelToolDisplay { Icon = "🎤", Title = "Send voice to QQ group" }
         },
         new()
         {
-            Name = "qqSendVideoToCurrentChat",
-            Description = "Send a video message to the current QQ chat.",
-            RequiresChatContext = true,
+            Name = QQSendPrivateVoiceTool,
+            Description = "Send a voice/audio message to a QQ private chat. The file can be a local absolute path, an HTTP URL, or a base64-encoded string (prefix with 'base64://').",
+            RequiresChatContext = false,
             InputSchema = new JsonObject
             {
                 ["type"] = "object",
                 ["properties"] = new JsonObject
                 {
-                    ["filePath"] = new JsonObject { ["type"] = "string" },
-                    ["fileUrl"] = new JsonObject { ["type"] = "string" }
-                }
-            }
+                    ["userId"] = new JsonObject { ["type"] = "integer" },
+                    ["file"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("userId", "file")
+            },
+            Display = new ChannelToolDisplay { Icon = "🎤", Title = "Send voice to QQ user" }
         },
         new()
         {
-            Name = "qqSendFileToCurrentChat",
-            Description = "Upload a file to the current QQ chat.",
-            RequiresChatContext = true,
+            Name = QQSendGroupVideoTool,
+            Description = "Send a video message to a QQ group chat. The file can be a local absolute path or an HTTP URL.",
+            RequiresChatContext = false,
             InputSchema = new JsonObject
             {
                 ["type"] = "object",
                 ["properties"] = new JsonObject
                 {
+                    ["groupId"] = new JsonObject { ["type"] = "integer" },
+                    ["file"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("groupId", "file")
+            },
+            Display = new ChannelToolDisplay { Icon = "🎬", Title = "Send video to QQ group" }
+        },
+        new()
+        {
+            Name = QQSendPrivateVideoTool,
+            Description = "Send a video message to a QQ private chat. The file can be a local absolute path or an HTTP URL.",
+            RequiresChatContext = false,
+            InputSchema = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["userId"] = new JsonObject { ["type"] = "integer" },
+                    ["file"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("userId", "file")
+            },
+            Display = new ChannelToolDisplay { Icon = "🎬", Title = "Send video to QQ user" }
+        },
+        new()
+        {
+            Name = QQUploadGroupFileTool,
+            Description = "Upload a file to a QQ group. This uses the extended OneBot API (upload_group_file). The file must be a local absolute path on the server.",
+            RequiresChatContext = false,
+            InputSchema = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["groupId"] = new JsonObject { ["type"] = "integer" },
                     ["filePath"] = new JsonObject { ["type"] = "string" },
-                    ["fileBase64"] = new JsonObject { ["type"] = "string" },
                     ["fileName"] = new JsonObject { ["type"] = "string" },
                     ["folder"] = new JsonObject { ["type"] = "string" }
-                }
-            }
+                },
+                ["required"] = new JsonArray("groupId", "filePath", "fileName")
+            },
+            Display = new ChannelToolDisplay { Icon = "📁", Title = "Upload file to QQ group" }
+        },
+        new()
+        {
+            Name = QQUploadPrivateFileTool,
+            Description = "Upload a file to a QQ private chat. This uses the extended OneBot API (upload_private_file). The file must be a local absolute path on the server.",
+            RequiresChatContext = false,
+            InputSchema = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["userId"] = new JsonObject { ["type"] = "integer" },
+                    ["filePath"] = new JsonObject { ["type"] = "string" },
+                    ["fileName"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("userId", "filePath", "fileName")
+            },
+            Display = new ChannelToolDisplay { Icon = "📁", Title = "Upload file to QQ user" }
         }
     ];
+
+    static QQChannelService()
+    {
+        ToolRegistry.RegisterDisplayFormatter(QQSendGroupVoiceTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendGroupVoice));
+        ToolRegistry.RegisterDisplayFormatter(QQSendPrivateVoiceTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendPrivateVoice));
+        ToolRegistry.RegisterDisplayFormatter(QQSendGroupVideoTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendGroupVideo));
+        ToolRegistry.RegisterDisplayFormatter(QQSendPrivateVideoTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendPrivateVideo));
+        ToolRegistry.RegisterDisplayFormatter(QQUploadGroupFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadGroupFile));
+        ToolRegistry.RegisterDisplayFormatter(QQUploadPrivateFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadPrivateFile));
+    }
 
     public string Name => "qq";
 
@@ -131,7 +205,7 @@ public sealed class QQChannelService(
     /// <inheritdoc />
     public IApprovalService ApprovalService => qqApprovalService;
 
-    public ChannelDeliveryCapabilities? GetDeliveryCapabilities() => DeliveryCapabilities;
+    public ChannelDeliveryCapabilities GetDeliveryCapabilities() => DeliveryCapabilities;
 
     public IReadOnlyList<ChannelToolDescriptor> GetChannelTools() => ChannelTools;
 
@@ -276,26 +350,7 @@ public sealed class QQChannelService(
     {
         try
         {
-            var target = ResolveCurrentChatTarget(request.Context);
-            if (target == null)
-            {
-                return new ExtChannelToolCallResult
-                {
-                    Success = false,
-                    ErrorCode = "MissingChatContext",
-                    ErrorMessage = "QQ tool execution requires a current chat context."
-                };
-            }
-
-            var message = request.Tool switch
-            {
-                "qqSendVoiceToCurrentChat" => CreateMessageFromArgs("audio", request.Arguments),
-                "qqSendVideoToCurrentChat" => CreateMessageFromArgs("video", request.Arguments),
-                "qqSendFileToCurrentChat" => CreateMessageFromArgs("file", request.Arguments),
-                _ => null
-            };
-
-            if (message == null)
+            if (!TryCreateToolRequest(request.Tool, request.Arguments, out var target, out var message))
             {
                 return new ExtChannelToolCallResult
                 {
@@ -431,47 +486,116 @@ public sealed class QQChannelService(
         throw new InvalidOperationException($"Invalid QQ target '{target}'.");
     }
 
-    private static string? ResolveCurrentChatTarget(ExtChannelToolCallContext context)
+    private static bool TryCreateToolRequest(
+        string toolName,
+        JsonObject args,
+        out string target,
+        out ChannelOutboundMessage message)
     {
-        if (!string.IsNullOrWhiteSpace(context.GroupId))
-            return $"group:{context.GroupId}";
-
-        if (!string.IsNullOrWhiteSpace(context.SenderId))
-            return context.SenderId;
-
-        return null;
+        switch (toolName)
+        {
+            case QQSendGroupVoiceTool:
+                target = $"group:{GetRequiredId(args, "groupId")}";
+                message = CreateMediaMessage("audio", ParseLegacyFileSource(args, "file"));
+                return true;
+            case QQSendPrivateVoiceTool:
+                target = GetRequiredId(args, "userId");
+                message = CreateMediaMessage("audio", ParseLegacyFileSource(args, "file"));
+                return true;
+            case QQSendGroupVideoTool:
+                target = $"group:{GetRequiredId(args, "groupId")}";
+                message = CreateMediaMessage("video", ParseLegacyFileSource(args, "file"));
+                return true;
+            case QQSendPrivateVideoTool:
+                target = GetRequiredId(args, "userId");
+                message = CreateMediaMessage("video", ParseLegacyFileSource(args, "file"));
+                return true;
+            case QQUploadGroupFileTool:
+                target = $"group:{GetRequiredId(args, "groupId")}";
+                message = new ChannelOutboundMessage
+                {
+                    Kind = "file",
+                    FileName = GetRequiredString(args, "fileName"),
+                    Source = new ChannelMediaSource
+                    {
+                        Kind = "hostPath",
+                        HostPath = GetRequiredString(args, "filePath")
+                    }
+                };
+                return true;
+            case QQUploadPrivateFileTool:
+                target = GetRequiredId(args, "userId");
+                message = new ChannelOutboundMessage
+                {
+                    Kind = "file",
+                    FileName = GetRequiredString(args, "fileName"),
+                    Source = new ChannelMediaSource
+                    {
+                        Kind = "hostPath",
+                        HostPath = GetRequiredString(args, "filePath")
+                    }
+                };
+                return true;
+            default:
+                target = string.Empty;
+                message = new ChannelOutboundMessage();
+                return false;
+        }
     }
 
-    private static ChannelOutboundMessage? CreateMessageFromArgs(string kind, JsonObject args)
-    {
-        var filePath = args["filePath"]?.GetValue<string>();
-        var fileUrl = args["fileUrl"]?.GetValue<string>();
-        var fileBase64 = args["fileBase64"]?.GetValue<string>();
-        var count = 0;
-        if (!string.IsNullOrWhiteSpace(filePath)) count++;
-        if (!string.IsNullOrWhiteSpace(fileUrl)) count++;
-        if (!string.IsNullOrWhiteSpace(fileBase64)) count++;
-        if (count != 1)
-            throw new InvalidOperationException("Exactly one of filePath, fileUrl, or fileBase64 must be provided.");
-
-        var source = new ChannelMediaSource
-        {
-            Kind = !string.IsNullOrWhiteSpace(filePath)
-                ? "hostPath"
-                : !string.IsNullOrWhiteSpace(fileUrl)
-                    ? "url"
-                    : "dataBase64",
-            HostPath = filePath,
-            Url = fileUrl,
-            DataBase64 = fileBase64
-        };
-
-        return new ChannelOutboundMessage
+    private static ChannelOutboundMessage CreateMediaMessage(string kind, ChannelMediaSource source)
+        => new()
         {
             Kind = kind,
-            FileName = args["fileName"]?.GetValue<string>(),
             Source = source
         };
+
+    private static ChannelMediaSource ParseLegacyFileSource(JsonObject args, string fieldName)
+    {
+        var file = GetRequiredString(args, fieldName);
+        if (file.StartsWith("base64://", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ChannelMediaSource
+            {
+                Kind = "dataBase64",
+                DataBase64 = file["base64://".Length..]
+            };
+        }
+
+        if (file.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || file.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ChannelMediaSource
+            {
+                Kind = "url",
+                Url = file
+            };
+        }
+
+        return new ChannelMediaSource
+        {
+            Kind = "hostPath",
+            HostPath = file
+        };
+    }
+
+    private static string GetRequiredId(JsonObject args, string fieldName)
+    {
+        if (!args.TryGetPropertyValue(fieldName, out var value) || value == null)
+            throw new InvalidOperationException($"{fieldName} is required.");
+
+        if (long.TryParse(value.ToString(), out var parsed))
+            return parsed.ToString();
+
+        throw new InvalidOperationException($"{fieldName} must be an integer.");
+    }
+
+    private static string GetRequiredString(JsonObject args, string fieldName)
+    {
+        var value = args[fieldName]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException($"{fieldName} is required.");
+        return value;
     }
 
     private static ExtChannelSendResult ToSendResult(OneBot.OneBotActionResponse response)

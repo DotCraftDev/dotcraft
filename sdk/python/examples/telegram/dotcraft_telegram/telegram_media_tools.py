@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 
 
-DOCUMENT_TOOL_NAME = "telegramSendDocumentToCurrentChat"
-VOICE_TOOL_NAME = "telegramSendVoiceToCurrentChat"
+DOCUMENT_TOOL_NAME = "TelegramSendDocumentToCurrentChat"
+VOICE_TOOL_NAME = "TelegramSendVoiceToCurrentChat"
 
 _DOCUMENT_URL_EXTENSIONS = {".pdf", ".zip"}
 _VOICE_EXTENSIONS = {".ogg", ".oga"}
@@ -74,6 +74,10 @@ class TelegramMediaTools:
                 "name": DOCUMENT_TOOL_NAME,
                 "description": "Send a document to the current Telegram chat using the official sendDocument API.",
                 "requiresChatContext": True,
+                "display": {
+                    "icon": "📎",
+                    "title": "Send document to current Telegram chat",
+                },
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -88,6 +92,10 @@ class TelegramMediaTools:
                 "name": VOICE_TOOL_NAME,
                 "description": "Send a voice note to the current Telegram chat using the official sendVoice API.",
                 "requiresChatContext": True,
+                "display": {
+                    "icon": "🎤",
+                    "title": "Send voice to current Telegram chat",
+                },
                 "inputSchema": {
                     "type": "object",
                     "properties": {

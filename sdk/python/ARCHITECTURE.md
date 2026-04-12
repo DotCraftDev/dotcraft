@@ -79,9 +79,13 @@ Adapter                              DotCraft (AppServer)
         },
         "channelTools": [
           {
-            "name": "telegramSendDocument",
+            "name": "TelegramSendDocumentToCurrentChat",
             "description": "Send a document to the current Telegram chat.",
             "requiresChatContext": true,
+            "display": {
+              "icon": "📎",
+              "title": "Send document to current Telegram chat"
+            },
             "inputSchema": {
               "type": "object",
               "properties": {
@@ -97,6 +101,7 @@ Adapter                              DotCraft (AppServer)
   ```
 - The server routes the connection to `ExternalChannelHost` instead of a regular session client.
 - `ext/channel/deliver`, `ext/channel/send`, `ext/channel/toolCall`, and `ext/channel/heartbeat` are server-to-adapter requests (the server sends them, the adapter must respond).
+- Channel tool names should use PascalCase, and adapters should prefer declaring icons via `channelTools[].display.icon`.
 
 ---
 

@@ -102,7 +102,7 @@ public sealed class ExternalChannelManager
             var host = new ExternalChannelHost(entry, sessionService, serverVersion, moduleRegistry, hostWorkspacePath);
             _hosts.Add(host);
 
-            // Register all hosts for tool discovery (IExternalChannelToolProvider) and WebSocket routing.
+            // Register all hosts for unified channel runtime tool discovery and WebSocket routing.
             // AppServerHost only attaches WebSocket clients to hosts with Transport == Websocket.
             _registry.Register(name, host);
 

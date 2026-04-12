@@ -46,6 +46,9 @@ public sealed class WeComChannelService(
     ModuleRegistry moduleRegistry)
     : IChannelService, IWebHostingChannel
 {
+    private const string WeComSendVoiceTool = "WeComSendVoice";
+    private const string WeComSendFileTool = "WeComSendFile";
+
     private WebApplication? _webApp;
     private WeComChannelAdapter? _adapter;
     private AgentFactory? _agentFactory;
@@ -72,37 +75,43 @@ public sealed class WeComChannelService(
     [
         new()
         {
-            Name = "wecomSendVoiceToCurrentChat",
-            Description = "Send a voice message to the current WeCom chat. Voice files must be AMR.",
+            Name = WeComSendVoiceTool,
+            Description = "Send a voice message in the current WeCom chat (WeCom Bot mode only). ONLY supports AMR format. For other audio formats (mp3/wav/etc.), use WeComSendFile instead.",
             RequiresChatContext = true,
             InputSchema = new JsonObject
             {
                 ["type"] = "object",
                 ["properties"] = new JsonObject
                 {
-                    ["filePath"] = new JsonObject { ["type"] = "string" },
-                    ["fileBase64"] = new JsonObject { ["type"] = "string" },
-                    ["fileName"] = new JsonObject { ["type"] = "string" }
-                }
-            }
+                    ["filePath"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("filePath")
+            },
+            Display = new ChannelToolDisplay { Icon = "🎤", Title = "Send voice in current WeCom chat" }
         },
         new()
         {
-            Name = "wecomSendFileToCurrentChat",
-            Description = "Send a file to the current WeCom chat.",
+            Name = WeComSendFileTool,
+            Description = "Send a file in the current WeCom chat (WeCom Bot mode only). The file must be a local absolute path.",
             RequiresChatContext = true,
             InputSchema = new JsonObject
             {
                 ["type"] = "object",
                 ["properties"] = new JsonObject
                 {
-                    ["filePath"] = new JsonObject { ["type"] = "string" },
-                    ["fileBase64"] = new JsonObject { ["type"] = "string" },
-                    ["fileName"] = new JsonObject { ["type"] = "string" }
-                }
-            }
+                    ["filePath"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("filePath")
+            },
+            Display = new ChannelToolDisplay { Icon = "📁", Title = "Send file in current WeCom chat" }
         }
     ];
+
+    static WeComChannelService()
+    {
+        ToolRegistry.RegisterDisplayFormatter(WeComSendVoiceTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendVoice));
+        ToolRegistry.RegisterDisplayFormatter(WeComSendFileTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendFile));
+    }
 
     public string Name => "wecom";
 
@@ -325,8 +334,8 @@ public sealed class WeComChannelService(
 
             var message = request.Tool switch
             {
-                "wecomSendVoiceToCurrentChat" => CreateMessageFromArgs("audio", request.Arguments),
-                "wecomSendFileToCurrentChat" => CreateMessageFromArgs("file", request.Arguments),
+                WeComSendVoiceTool => CreateMessageFromArgs("audio", request.Arguments),
+                WeComSendFileTool => CreateMessageFromArgs("file", request.Arguments),
                 _ => null
             };
 
@@ -430,22 +439,16 @@ public sealed class WeComChannelService(
     private static ChannelOutboundMessage? CreateMessageFromArgs(string kind, JsonObject args)
     {
         var filePath = args["filePath"]?.GetValue<string>();
-        var fileBase64 = args["fileBase64"]?.GetValue<string>();
-        var count = 0;
-        if (!string.IsNullOrWhiteSpace(filePath)) count++;
-        if (!string.IsNullOrWhiteSpace(fileBase64)) count++;
-        if (count != 1)
-            throw new InvalidOperationException("Exactly one of filePath or fileBase64 must be provided.");
+        if (string.IsNullOrWhiteSpace(filePath))
+            throw new InvalidOperationException("filePath is required.");
 
         return new ChannelOutboundMessage
         {
             Kind = kind,
-            FileName = args["fileName"]?.GetValue<string>(),
             Source = new ChannelMediaSource
             {
-                Kind = !string.IsNullOrWhiteSpace(filePath) ? "hostPath" : "dataBase64",
+                Kind = "hostPath",
                 HostPath = filePath,
-                DataBase64 = fileBase64
             }
         };
     }

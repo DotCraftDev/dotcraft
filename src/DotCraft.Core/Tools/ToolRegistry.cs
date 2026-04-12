@@ -11,6 +11,8 @@ public static class ToolRegistry
 {
     private static readonly Dictionary<string, string> ToolIcons = new();
     private static readonly Dictionary<string, Func<IDictionary<string, object?>?, string>> DisplayFormatters = new();
+    private static readonly Dictionary<string, string> DisplayTitles = new();
+    private static readonly Dictionary<string, string> DisplaySubtitles = new();
     private static readonly Dictionary<string, int> MaxResultCharsByTool = new();
 
     private static readonly Lock LockObject = new();
@@ -87,6 +89,12 @@ public static class ToolRegistry
             catch { /* ignore formatter errors; caller uses fallback */ }
         }
 
+        if (DisplayTitles.TryGetValue(toolName, out var title) && !string.IsNullOrWhiteSpace(title))
+            return title;
+
+        if (DisplaySubtitles.TryGetValue(toolName, out var subtitle) && !string.IsNullOrWhiteSpace(subtitle))
+            return subtitle;
+
         return null;
     }
 
@@ -130,6 +138,31 @@ public static class ToolRegistry
     public static void RegisterIcon(string toolName, string icon)
         => ToolIcons[toolName] = icon;
 
+    public static void RegisterDisplay(string toolName, string? title = null, string? subtitle = null, string? icon = null)
+    {
+        if (!string.IsNullOrWhiteSpace(icon))
+            ToolIcons[toolName] = icon;
+
+        if (!string.IsNullOrWhiteSpace(title))
+            DisplayTitles[toolName] = title;
+        else
+            DisplayTitles.Remove(toolName);
+
+        if (!string.IsNullOrWhiteSpace(subtitle))
+            DisplaySubtitles[toolName] = subtitle;
+        else
+            DisplaySubtitles.Remove(toolName);
+    }
+
+    public static void RegisterDisplayFormatter(string toolName, Func<IDictionary<string, object?>?, string> formatter)
+        => DisplayFormatters[toolName] = formatter;
+
+    public static void RegisterDisplayFormatter(string toolName, Type displayType, string methodName)
+        => TryRegisterDisplayFormatter(toolName, displayType, methodName);
+
+    public static void RegisterMaxResultChars(string toolName, int maxResultChars)
+        => MaxResultCharsByTool[toolName] = maxResultChars;
+
     public static bool IsToolIconRegistered(string toolName)
         => ToolIcons.ContainsKey(toolName);
 
@@ -145,6 +178,8 @@ public static class ToolRegistry
         {
             ToolIcons.Clear();
             DisplayFormatters.Clear();
+            DisplayTitles.Clear();
+            DisplaySubtitles.Clear();
             MaxResultCharsByTool.Clear();
             ScannedAssemblies.Clear();
         }

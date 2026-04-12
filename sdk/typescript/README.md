@@ -89,9 +89,13 @@ class MyAdapter extends ChannelAdapter {
   protected override getChannelTools(): Record<string, unknown>[] | null {
     return [
       {
-        name: "sendFileToCurrentChat",
+        name: "SendFileToCurrentChat",
         description: "Send a file to the current chat.",
         requiresChatContext: true,
+        display: {
+          icon: "📎",
+          title: "Send file to current chat",
+        },
         inputSchema: {
           type: "object",
           properties: {
@@ -133,6 +137,8 @@ class MyAdapter extends ChannelAdapter {
 - `onToolCall()` -> `ext/channel/toolCall`
 
 `channelTools` are runtime declarations sent by the adapter during `initialize`. They are not configured statically in DotCraft's `ExternalChannels` config.
+
+Use PascalCase for channel tool names. For display metadata, prefer setting `channelTools[].display.icon` to an emoji string; `display.title` and `display.subtitle` are optional UI hints.
 
 ## DotCraft Config
 

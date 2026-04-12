@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
+using DotCraft.Tools;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.ExternalChannel;
@@ -27,7 +28,7 @@ internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry regist
         return CreateRuntimeTools(runtime, descriptors);
     }
 
-    private static IReadOnlyList<ChannelToolDescriptor> FinalizeRuntimeRegistration(
+    private static List<ChannelToolDescriptor> FinalizeRuntimeRegistration(
         IChannelRuntime runtime,
         IReadOnlySet<string> reservedToolNames)
     {
@@ -58,6 +59,7 @@ internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry regist
                 continue;
             }
 
+            RegisterToolDisplay(descriptor);
             registered.Add(descriptor);
         }
 
@@ -65,6 +67,18 @@ internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry regist
             host.AdapterConnection.SetChannelToolRegistration(registered, diagnostics);
 
         return registered;
+    }
+
+    private static void RegisterToolDisplay(ChannelToolDescriptor descriptor)
+    {
+        if (descriptor.Display != null)
+        {
+            ToolRegistry.RegisterDisplay(
+                descriptor.Name,
+                title: descriptor.Display.Title,
+                subtitle: descriptor.Display.Subtitle,
+                icon: descriptor.Display.Icon);
+        }
     }
 
     private static IReadOnlyList<AITool> CreateRuntimeTools(

@@ -25,7 +25,8 @@ You are currently in **QQ Bot** mode.
 - Chat type: Group
 - Group ID: {ctx.GroupId}
 
-You can use qqSendVoiceToCurrentChat / qqSendVideoToCurrentChat / qqSendFileToCurrentChat for this group.
+You can use QQSendGroupVoice / QQSendPrivateVoice / QQSendGroupVideo / QQSendPrivateVideo / QQUploadGroupFile / QQUploadPrivateFile.
+QQ tools support explicit targets, so provide groupId or userId directly when sending across chats.
 """;
         }
 
@@ -38,7 +39,8 @@ You are currently in **QQ Bot** mode.
 - Sender QQ: {ctx.UserId}
 - Sender name: {ctx.SenderName}
 
-You can use qqSendVoiceToCurrentChat / qqSendVideoToCurrentChat / qqSendFileToCurrentChat in this private chat.
+You can use QQSendGroupVoice / QQSendPrivateVoice / QQSendGroupVideo / QQSendPrivateVideo / QQUploadGroupFile / QQUploadPrivateFile.
+QQ tools support explicit targets, so provide groupId or userId directly when sending across chats.
 """;
     }
 

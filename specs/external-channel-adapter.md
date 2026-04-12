@@ -217,7 +217,7 @@ External channel adapters extend the standard `initialize` params with a `channe
       },
       "channelTools": [
         {
-          "name": "telegramSendDocument",
+          "name": "TelegramSendDocumentToCurrentChat",
           "description": "Send a document to the current Telegram chat.",
           "requiresChatContext": true,
           "inputSchema": {

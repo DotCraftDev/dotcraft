@@ -145,9 +145,13 @@ class MyAdapter(ChannelAdapter):
     def get_channel_tools(self) -> list[dict] | None:
         return [
             {
-                "name": "sendFileToCurrentChat",
+                "name": "SendFileToCurrentChat",
                 "description": "Send a file to the current chat.",
                 "requiresChatContext": True,
+                "display": {
+                    "icon": "📎",
+                    "title": "Send file to current chat",
+                },
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -365,6 +369,8 @@ Add an `ExternalChannels` section to DotCraft's `config.json`:
 DotCraft will spawn `python -m my_adapter`, communicate over stdin/stdout, and restart the process if it crashes.
 
 The `ExternalChannels` section only tells DotCraft how to launch or accept the adapter connection. Structured delivery capabilities and `channelTools` are declared by the adapter itself during `initialize`, not in `config.json`.
+
+Use PascalCase for channel tool names. For display metadata, prefer declaring `channelTools[].display.icon` with an emoji string; `display.title` and `display.subtitle` are optional UI hints.
 
 ### WebSocket mode (adapter connects independently)
 

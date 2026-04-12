@@ -24,7 +24,7 @@ You are currently in **WeCom Bot** mode.
 - Sender User ID: {ctx.UserId}
 - Sender name: {ctx.UserName}
 
-You can use wecomSendVoiceToCurrentChat / wecomSendFileToCurrentChat in the current chat.
+You can use WeComSendVoice / WeComSendFile in the current chat.
 """;
     }
 

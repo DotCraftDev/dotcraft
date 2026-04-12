@@ -181,9 +181,13 @@ Client                              Server
       },
       "channelTools": [
         {
-          "name": "telegramSendDocument",
+          "name": "TelegramSendDocumentToCurrentChat",
           "description": "Send a document to the current Telegram chat.",
           "requiresChatContext": true,
+          "display": {
+            "icon": "📎",
+            "title": "Send document to current Telegram chat"
+          },
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -250,9 +254,11 @@ Each `channelTools` descriptor supports:
 - `description: string`
 - `inputSchema: object`
 - `outputSchema?: object`
-- `display?: object`
+- `display?: { icon?: string, title?: string, subtitle?: string }`
 - `requiresChatContext: boolean`
 - `deferLoading?: boolean`
+
+Channel tool names should use PascalCase. For cross-runtime icon support, adapters should prefer declaring emoji icons via `channelTools[].display.icon`.
 
 `deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior in this milestone.
 
@@ -1781,7 +1787,7 @@ Structured runtime tool invocation for adapter-declared channel tools.
   "threadId": "thread_001",
   "turnId": "turn_002",
   "callId": "exttool_001",
-  "tool": "telegramSendDocument",
+  "tool": "TelegramSendDocumentToCurrentChat",
   "arguments": {
     "fileName": "report.pdf"
   },

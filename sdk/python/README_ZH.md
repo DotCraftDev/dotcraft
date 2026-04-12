@@ -145,7 +145,7 @@ class MyAdapter(ChannelAdapter):
     def get_channel_tools(self) -> list[dict] | None:
         return [
             {
-                "name": "sendFileToCurrentChat",
+                "name": "SendFileToCurrentChat",
                 "description": "向当前聊天发送文件。",
                 "requiresChatContext": True,
                 "inputSchema": {

@@ -126,7 +126,7 @@ Extend `capabilities.channelAdapter` with an optional `channelTools` array:
     "deliverySupport": true,
     "channelTools": [
       {
-        "name": "telegramSendDocument",
+        "name": "TelegramSendDocumentToCurrentChat",
         "description": "Send a document to the current Telegram chat.",
         "requiresChatContext": true,
         "inputSchema": {
@@ -156,7 +156,7 @@ Request shape:
   "threadId": "thread_001",
   "turnId": "turn_001",
   "callId": "call_001",
-  "tool": "telegramSendDocument",
+  "tool": "TelegramSendDocumentToCurrentChat",
   "arguments": {
     "filePath": "/tmp/report.pdf",
     "caption": "Latest report"

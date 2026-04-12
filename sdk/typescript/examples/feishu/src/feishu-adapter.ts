@@ -96,9 +96,13 @@ export class FeishuAdapter extends ChannelAdapter {
   protected override getChannelTools(): Record<string, unknown>[] | null {
     return [
       {
-        name: "feishuSendFileToCurrentChat",
+        name: "FeishuSendFileToCurrentChat",
         description: "Send a file-like notification to the current Feishu chat.",
         requiresChatContext: true,
+        display: {
+          icon: "📎",
+          title: "Send file to current Feishu chat",
+        },
         inputSchema: {
           type: "object",
           properties: {
@@ -149,7 +153,7 @@ export class FeishuAdapter extends ChannelAdapter {
     const args = (request.arguments as Record<string, unknown>) ?? {};
     const context = (request.context as Record<string, unknown>) ?? {};
     const target = String(context.channelContext ?? context.groupId ?? "");
-    if (tool !== "feishuSendFileToCurrentChat") {
+    if (tool !== "FeishuSendFileToCurrentChat") {
       return {
         success: false,
         errorCode: "UnsupportedTool",

@@ -136,7 +136,7 @@ public sealed class ExternalChannelProtocolTests : IDisposable
                     {
                         new
                         {
-                            name = "telegramSendDocument",
+                            name = "TelegramSendDocumentToCurrentChat",
                             description = "Send a document to the current chat.",
                             requiresChatContext = true,
                             inputSchema = new
@@ -159,7 +159,7 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         var response = await _h.Transport.ReadNextSentAsync();
         AppServerTestHarness.AssertIsSuccessResponse(response);
         Assert.Single(_h.Connection.DeclaredChannelTools);
-        Assert.Equal("telegramSendDocument", _h.Connection.DeclaredChannelTools[0].Name);
+        Assert.Equal("TelegramSendDocumentToCurrentChat", _h.Connection.DeclaredChannelTools[0].Name);
         Assert.Empty(_h.Connection.RegisteredChannelTools);
     }
 
