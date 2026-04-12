@@ -24,11 +24,12 @@ public sealed partial class GatewayModule : ModuleBase
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
         // Register MessageRouter as a singleton for cross-channel delivery (TryAdd: app-server may register first)
-        services.TryAddSingleton(_ => new MessageRouter());
+        services.TryAddSingleton<IChannelRuntimeRegistry, ChannelRuntimeRegistry>();
+        services.TryAddSingleton(sp => new MessageRouter(sp.GetRequiredService<IChannelRuntimeRegistry>()));
 
         // Register ExternalChannelRegistry as a singleton (all external hosts + WebSocket routing)
         services.TryAddSingleton<ExternalChannelRegistry>();
-        services.TryAddSingleton<IExternalChannelToolProvider, ExternalChannelToolProvider>();
+        services.TryAddSingleton<IChannelRuntimeToolProvider, ExternalChannelToolProvider>();
     }
 
     /// <inheritdoc />

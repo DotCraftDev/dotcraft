@@ -57,8 +57,7 @@ public sealed partial class QQModule : ModuleBase
     }
 
     /// <inheritdoc />
-    public override IEnumerable<IAgentToolProvider> GetToolProviders()
-        => [new QQToolProvider()];
+    public override IEnumerable<IAgentToolProvider> GetToolProviders() => [];
 
     /// <inheritdoc />
     public override IChannelService CreateChannelService(IServiceProvider sp)

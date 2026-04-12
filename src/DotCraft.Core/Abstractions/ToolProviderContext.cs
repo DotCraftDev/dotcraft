@@ -91,12 +91,6 @@ public sealed class ToolProviderContext
     public TraceCollector? TraceCollector { get; init; }
 
     /// <summary>
-    /// Optional channel-specific client (e.g., QQBotClient).
-    /// Used by channel-specific tool providers.
-    /// </summary>
-    public object? ChannelClient { get; init; }
-
-    /// <summary>
     /// Optional ACP extension proxy for extension method calls.
     /// Available when running in ACP mode (connected to Unity/IDE client).
     /// </summary>

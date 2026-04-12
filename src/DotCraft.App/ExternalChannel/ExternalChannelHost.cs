@@ -139,10 +139,13 @@ public sealed class ExternalChannelHost : IChannelService
     /// </summary>
     public IApprovalService? ApprovalService => null;
 
-    /// <summary>
-    /// Platform client lives out-of-process, so this is always null.
-    /// </summary>
-    public object? ChannelClient => null;
+    public ChannelDeliveryCapabilities? GetDeliveryCapabilities()
+        => _connection?.DeliveryCapabilities;
+
+    public IReadOnlyList<ChannelToolDescriptor> GetChannelTools()
+        => _connection is { IsClientReady: true } connection
+            ? connection.DeclaredChannelTools
+            : [];
 
     /// <summary>
     /// Starts the external channel adapter.
@@ -232,21 +235,6 @@ public sealed class ExternalChannelHost : IChannelService
         // Dispose transport
         if (_transport is IAsyncDisposable disposable)
             await disposable.DisposeAsync();
-    }
-
-    /// <summary>
-    /// Delivers a legacy text message to the adapter.
-    /// Best-effort: returns silently if the adapter is disconnected.
-    /// </summary>
-    public async Task DeliverMessageAsync(string target, string content)
-    {
-        _ = await DeliverAsync(
-            target,
-            new ChannelOutboundMessage
-            {
-                Kind = "text",
-                Text = content
-            });
     }
 
     public async Task<ExtChannelSendResult> DeliverAsync(

@@ -25,7 +25,7 @@ You are currently in **QQ Bot** mode.
 - Chat type: Group
 - Group ID: {ctx.GroupId}
 
-When using QQ tools (voice, video, file), use group_id = {ctx.GroupId} for group operations.
+You can use qqSendVoiceToCurrentChat / qqSendVideoToCurrentChat / qqSendFileToCurrentChat for this group.
 """;
         }
 
@@ -38,7 +38,7 @@ You are currently in **QQ Bot** mode.
 - Sender QQ: {ctx.UserId}
 - Sender name: {ctx.SenderName}
 
-When using QQ tools (voice, video, file), use user_id = {ctx.UserId} for private operations.
+You can use qqSendVoiceToCurrentChat / qqSendVideoToCurrentChat / qqSendFileToCurrentChat in this private chat.
 """;
     }
 

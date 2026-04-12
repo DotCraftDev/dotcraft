@@ -34,7 +34,7 @@ public static class SessionServiceFactory
             agent,
             sp.GetRequiredService<ThreadStore>(),
             sp.GetRequiredService<SessionGate>(),
-            sp.GetService<IExternalChannelToolProvider>(),
+            sp.GetService<IChannelRuntimeToolProvider>(),
             sp.GetService<HookRunner>(),
             sp.GetService<TraceCollector>(),
             approvalTimeout,

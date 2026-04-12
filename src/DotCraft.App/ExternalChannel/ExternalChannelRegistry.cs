@@ -1,3 +1,4 @@
+using DotCraft.Abstractions;
 using System.Collections.Concurrent;
 
 namespace DotCraft.ExternalChannel;
@@ -13,7 +14,7 @@ namespace DotCraft.ExternalChannel;
 /// channel tool injection (including subprocess adapters).
 /// </para>
 /// </summary>
-public sealed class ExternalChannelRegistry
+public sealed class ExternalChannelRegistry : IChannelRuntimeRegistry
 {
     private readonly ConcurrentDictionary<string, ExternalChannelHost> _hosts = new(StringComparer.OrdinalIgnoreCase);
 
@@ -44,6 +45,24 @@ public sealed class ExternalChannelRegistry
     /// </summary>
     public IReadOnlyList<ExternalChannelHost> SnapshotHosts()
         => _hosts.Values.ToArray();
+
+    void IChannelRuntimeRegistry.Register(IChannelRuntime runtime)
+    {
+        if (runtime is not ExternalChannelHost host)
+            throw new InvalidOperationException("ExternalChannelRegistry only accepts ExternalChannelHost runtimes.");
+
+        Register(host.Name, host);
+    }
+
+    bool IChannelRuntimeRegistry.TryGet(string channelName, out IChannelRuntime? runtime)
+    {
+        var found = _hosts.TryGetValue(channelName, out var host);
+        runtime = host;
+        return found;
+    }
+
+    IReadOnlyList<IChannelRuntime> IChannelRuntimeRegistry.Snapshot()
+        => _hosts.Values.Cast<IChannelRuntime>().ToArray();
 
     /// <summary>
     /// Removes a channel from the registry (e.g. on shutdown).

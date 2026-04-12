@@ -13,22 +13,5 @@ public sealed class QQToolProvider : IAgentToolProvider
     public int Priority => 50; // Channel tools have medium priority
 
     /// <inheritdoc />
-    public IEnumerable<AITool> CreateTools(ToolProviderContext context)
-    {
-        // Only create tools if QQ client is available
-        if (context.ChannelClient is not QQBotClient qqClient)
-            return [];
-
-        var qqTools = new QQTools(qqClient, context.AgentFileSystem);
-        
-        return
-        [
-            AIFunctionFactory.Create(qqTools.QQSendGroupVoice),
-            AIFunctionFactory.Create(qqTools.QQSendPrivateVoice),
-            AIFunctionFactory.Create(qqTools.QQSendGroupVideo),
-            AIFunctionFactory.Create(qqTools.QQSendPrivateVideo),
-            AIFunctionFactory.Create(qqTools.QQUploadGroupFile),
-            AIFunctionFactory.Create(qqTools.QQUploadPrivateFile)
-        ];
-    }
+    public IEnumerable<AITool> CreateTools(ToolProviderContext context) => [];
 }

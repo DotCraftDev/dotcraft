@@ -249,7 +249,14 @@ public sealed class AppServerHost(
                     ? (run?.Result ?? "")
                     : $"[Cron] {job.Name}\n{run.Error}";
                 if (!string.IsNullOrEmpty(content) || run?.Error != null)
-                    await messageRouter.DeliverAsync(channel, target, content);
+                    await messageRouter.DeliverAsync(
+                        channel,
+                        target,
+                        new ChannelOutboundMessage
+                        {
+                            Kind = "text",
+                            Text = content
+                        });
             }
 
             var ok = run != null && run.Error == null;

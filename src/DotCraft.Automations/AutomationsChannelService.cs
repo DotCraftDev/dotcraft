@@ -6,6 +6,7 @@ using DotCraft.Cron;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Protocol;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using Microsoft.Extensions.Logging;
 
@@ -29,8 +30,6 @@ public sealed class AutomationsChannelService(
     public CronService? CronService { get; set; }
 
     public IApprovalService? ApprovalService => null;
-
-    public object? ChannelClient => null;
 
     /// <inheritdoc />
     public void SetSessionService(ISessionService service) => _sessionService = service;
@@ -59,11 +58,16 @@ public sealed class AutomationsChannelService(
 
     public Task StopAsync() => orchestrator.StopAsync();
 
-    public Task DeliverMessageAsync(string target, string content)
+    public Task<ExtChannelSendResult> DeliverAsync(
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default)
     {
+        var content = message.Text ?? message.Caption ?? message.FileName ?? message.Kind;
         var preview = string.IsNullOrEmpty(content) ? "" : content[..Math.Min(content.Length, 200)];
         logger.LogInformation("[Automations -> {Target}] {Content}", target, preview);
-        return Task.CompletedTask;
+        return Task.FromResult(new ExtChannelSendResult { Delivered = true });
     }
 
     public async ValueTask DisposeAsync()

@@ -12,6 +12,7 @@ using DotCraft.Hosting;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Protocol;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
@@ -113,7 +114,14 @@ public sealed class GatewayHost : IDotCraftHost
                 var target = job.Payload.To ?? job.Payload.CreatorId ?? "";
                 try
                 {
-                    await _router.DeliverAsync(channel, target, deliverText);
+                    await _router.DeliverAsync(
+                        channel,
+                        target,
+                        new ChannelOutboundMessage
+                        {
+                            Kind = "text",
+                            Text = deliverText
+                        });
                 }
                 catch (Exception ex)
                 {
@@ -189,9 +197,6 @@ public sealed class GatewayHost : IDotCraftHost
         // Collect tool providers from modules
         var toolProviders = ToolProviderCollector.Collect(_moduleRegistry, _config);
 
-        // Prefer the QQ channel client so channel-specific tools (voice, file) are available in cron/heartbeat
-        var channelClient = _channels.FirstOrDefault(ch => ch.ChannelClient != null)?.ChannelClient;
-
         var planStore = new PlanStore(_paths.CraftPath);
 
         _sharedAgentFactory = new AgentFactory(
@@ -213,8 +218,7 @@ public sealed class GatewayHost : IDotCraftHost
                 PathBlacklist = pathBlacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
-                TraceCollector = traceCollector,
-                ChannelClient = channelClient
+                TraceCollector = traceCollector
             },
             traceCollector: traceCollector,
             customCommandLoader: _sp.GetService<CustomCommandLoader>(),

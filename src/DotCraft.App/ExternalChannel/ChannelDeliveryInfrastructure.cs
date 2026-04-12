@@ -359,14 +359,33 @@ internal sealed class ExternalChannelMessageDispatcher(
         object? metadata,
         CancellationToken cancellationToken = default)
     {
-        if (string.Equals(message.Kind, "text", StringComparison.OrdinalIgnoreCase))
-            return await DeliverTextAsync(transport, connection, target, message, metadata, cancellationToken);
-
         if (!connection.SupportsStructuredDelivery)
         {
             return Failure(
                 "UnsupportedDeliveryKind",
                 $"Channel '{channelName}' does not advertise structured delivery for '{message.Kind}'.");
+        }
+
+        if (string.Equals(message.Kind, "text", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var response = await transport.SendClientRequestAsync(
+                    AppServerMethods.ExtChannelSend,
+                    new ExtChannelSendParams
+                    {
+                        Target = target,
+                        Message = message,
+                        Metadata = metadata
+                    },
+                    cancellationToken,
+                    TimeSpan.FromSeconds(10));
+                return ParseResult(response);
+            }
+            catch (Exception ex)
+            {
+                return Failure("AdapterDeliveryFailed", ex.Message);
+            }
         }
 
         var constraints = GetConstraints(connection.DeliveryCapabilities, message.Kind);
@@ -431,48 +450,6 @@ internal sealed class ExternalChannelMessageDispatcher(
         {
             if (resolution?.CleanupOnCompletion == true)
                 await artifactStore.DeleteAsync(resolution.Artifact.Id, cancellationToken);
-        }
-    }
-
-    private static async Task<ExtChannelSendResult> DeliverTextAsync(
-        IAppServerTransport transport,
-        AppServerConnection connection,
-        string target,
-        ChannelOutboundMessage message,
-        object? metadata,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (connection.SupportsStructuredDelivery)
-            {
-                var response = await transport.SendClientRequestAsync(
-                    AppServerMethods.ExtChannelSend,
-                    new ExtChannelSendParams
-                    {
-                        Target = target,
-                        Message = message,
-                        Metadata = metadata
-                    },
-                    cancellationToken,
-                    TimeSpan.FromSeconds(10));
-                return ParseResult(response);
-            }
-
-            if (!connection.SupportsDelivery)
-                return Failure("UnsupportedDeliveryKind", "Adapter does not accept delivery requests.");
-
-            var legacyResponse = await transport.SendClientRequestAsync(
-                AppServerMethods.ExtChannelDeliver,
-                new { target, content = message.Text ?? string.Empty, metadata },
-                cancellationToken,
-                TimeSpan.FromSeconds(10));
-
-            return ParseResult(legacyResponse);
-        }
-        catch (Exception ex)
-        {
-            return Failure("AdapterDeliveryFailed", ex.Message);
         }
     }
 

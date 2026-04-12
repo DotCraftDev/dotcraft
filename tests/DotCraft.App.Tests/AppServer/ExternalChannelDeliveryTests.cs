@@ -207,7 +207,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task ExternalChannelMessageDispatcher_MapsLegacyErrorResponse()
+    public async Task ExternalChannelMessageDispatcher_TextDelivery_RequiresStructuredSend()
     {
         var transport = new StubTransport(new { delivered = false, error = "legacy failed" });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
@@ -228,12 +228,12 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             metadata: null);
 
         Assert.False(result.Delivered);
-        Assert.Equal("AdapterDeliveryFailed", result.ErrorCode);
-        Assert.Equal("legacy failed", result.ErrorMessage);
+        Assert.Equal("UnsupportedDeliveryKind", result.ErrorCode);
+        Assert.Null(transport.LastMethod);
     }
 
     [Fact]
-    public async Task ExternalChannelMessageDispatcher_TextOnlyAdapter_UsesLegacyDeliver()
+    public async Task ExternalChannelMessageDispatcher_TextOnlyAdapter_IsRejectedBeforeDispatch()
     {
         var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
@@ -253,8 +253,9 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             },
             metadata: null);
 
-        Assert.True(result.Delivered);
-        Assert.Equal(AppServerMethods.ExtChannelDeliver, transport.LastMethod);
+        Assert.False(result.Delivered);
+        Assert.Equal("UnsupportedDeliveryKind", result.ErrorCode);
+        Assert.Null(transport.LastMethod);
     }
 
     [Fact]
@@ -513,8 +514,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     {
         var registry = new ExternalChannelRegistry();
         var firstHost = CreateHost("telegram");
-        var secondHost = CreateHost("feishu");
-
         AttachFakeAdapter(firstHost, new StubTransport(), CreateToolAdapterConnection(
             "telegram",
             [
@@ -539,23 +538,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 }
             ]));
 
-        AttachFakeAdapter(secondHost, new StubTransport(), CreateToolAdapterConnection(
-            "feishu",
-            [
-                new ChannelToolDescriptor
-                {
-                    Name = "sharedTool",
-                    Description = "Conflicts with telegram.",
-                    InputSchema = new JsonObject
-                    {
-                        ["type"] = "object",
-                        ["properties"] = new JsonObject()
-                    }
-                }
-            ]));
-
         registry.Register("telegram", firstHost);
-        registry.Register("feishu", secondHost);
 
         var provider = new ExternalChannelToolProvider(registry);
         _ = provider.CreateToolsForThread(
@@ -566,12 +549,11 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 OriginChannel = "telegram",
                 Status = ThreadStatus.Active
             },
-            new HashSet<string>(["BuiltInConflict"], StringComparer.Ordinal));
+            new HashSet<string>(["sharedTool"], StringComparer.Ordinal));
 
         Assert.Empty(firstHost.AdapterConnection!.RegisteredChannelTools);
         Assert.Contains(firstHost.AdapterConnection.ChannelToolDiagnostics, d => d.ToolName == "invalidTool");
         Assert.Contains(firstHost.AdapterConnection.ChannelToolDiagnostics, d => d.ToolName == "sharedTool");
-        Assert.Contains(secondHost.AdapterConnection!.ChannelToolDiagnostics, d => d.ToolName == "sharedTool");
     }
 
     [Fact]

@@ -9,12 +9,12 @@ namespace DotCraft.Abstractions;
 /// Represents a channel service that handles communication for a specific platform.
 /// Used by GatewayHost to run multiple channels concurrently.
 /// </summary>
-public interface IChannelService : IAsyncDisposable
+public interface IChannelService : IAsyncDisposable, IChannelRuntime
 {
     /// <summary>
     /// Gets the unique name of this channel.
     /// </summary>
-    string Name { get; }
+    new string Name { get; }
 
     /// <summary>
     /// The shared HeartbeatService injected by GatewayHost before the channel starts.
@@ -35,12 +35,6 @@ public interface IChannelService : IAsyncDisposable
     IApprovalService? ApprovalService { get; }
 
     /// <summary>
-    /// The underlying channel client, if any.
-    /// Used by GatewayHost to pass channel-specific tools (voice, file) to the shared agent runner.
-    /// </summary>
-    object? ChannelClient { get; }
-
-    /// <summary>
     /// Starts the channel service. This is a long-running task that completes
     /// only when the channel is stopped or the cancellation token is triggered.
     /// </summary>
@@ -52,43 +46,9 @@ public interface IChannelService : IAsyncDisposable
     Task StopAsync();
 
     /// <summary>
-    /// Delivers a message to a specific target within this channel.
-    /// Used by GatewayHost for cross-channel routing (Cron results, Heartbeat notifications).
-    /// </summary>
-    /// <param name="target">The target identifier (e.g., user ID, group ID, chat ID).</param>
-    /// <param name="content">The message content to deliver.</param>
-    Task DeliverMessageAsync(string target, string content);
-
-    /// <summary>
-    /// Delivers a structured outbound message to a specific target within this channel.
-    /// The default implementation preserves compatibility for text-only channels.
-    /// </summary>
-    async Task<ExtChannelSendResult> DeliverAsync(
-        string target,
-        ChannelOutboundMessage message,
-        object? metadata = null,
-        CancellationToken cancellationToken = default)
-    {
-        _ = metadata;
-        _ = cancellationToken;
-
-        if (string.Equals(message.Kind, "text", StringComparison.OrdinalIgnoreCase))
-        {
-            await DeliverMessageAsync(target, message.Text ?? string.Empty);
-            return new ExtChannelSendResult { Delivered = true };
-        }
-
-        return new ExtChannelSendResult
-        {
-            Delivered = false,
-            ErrorCode = "UnsupportedDeliveryKind",
-            ErrorMessage = $"Channel '{Name}' does not support structured '{message.Kind}' delivery."
-        };
-    }
-
-    /// <summary>
     /// Returns the list of delivery targets for admin notifications (e.g. Heartbeat results).
-    /// Each target is passed to <see cref="DeliverMessageAsync"/> when broadcasting to admins.
+    /// Each target is passed to <see cref="IChannelRuntime.DeliverAsync(string,ChannelOutboundMessage,object?,CancellationToken)"/>
+    /// with a text message when broadcasting to admins.
     /// Return an empty list if this channel does not support admin notifications.
     /// </summary>
     IReadOnlyList<string> GetAdminTargets() => [];

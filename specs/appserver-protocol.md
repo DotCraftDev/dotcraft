@@ -167,7 +167,6 @@ Client                              Server
     },
     "channelAdapter": {
       "channelName": "telegram",
-      "deliverySupport": true,
       "deliveryCapabilities": {
         "structuredDelivery": true,
         "media": {
@@ -208,7 +207,7 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
-| `capabilities.channelAdapter` | object | no | External channel adapter capability metadata. When present, the connection is treated as a channel adapter. See [external-channel-adapter.md](external-channel-adapter.md). |
+| `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
 
 **`acpExtensions` object** (when present):
@@ -225,9 +224,8 @@ Client                              Server
 | Field | Type | Description |
 |-------|------|-------------|
 | `channelName` | string | Canonical external channel name (for example `telegram`, `feishu`). |
-| `deliverySupport` | boolean | Whether the adapter can receive legacy text `ext/channel/deliver` requests. Default `true`. |
-| `deliveryCapabilities` | object | Optional structured delivery capability descriptor. When omitted, the adapter is treated as text-only. |
-| `channelTools` | array | Optional channel tool descriptors declared by the adapter during `initialize`. |
+| `deliveryCapabilities` | object | Structured delivery capability descriptor for the remote backend. |
+| `channelTools` | array | Optional channel tool descriptors declared by the adapter during `initialize`. These descriptors are the wire projection of the unified channel tool model. |
 
 **`deliveryCapabilities` object**:
 
@@ -257,6 +255,18 @@ Each `channelTools` descriptor supports:
 - `deferLoading?: boolean`
 
 `deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior in this milestone.
+
+### 3.2.1 Unified Channel Model
+
+DotCraft internally models built-in channels and external adapters through the same runtime concepts:
+
+- `ChannelDeliveryCapabilities`
+- `ChannelToolDescriptor`
+- `ChannelOutboundMessage`
+- `ExtChannelToolCallContext` (unified channel execution context)
+- `ExtChannelToolCallResult` (unified channel tool result)
+
+Built-in channels do not negotiate these capabilities over `initialize`; they provide equivalent runtime objects in-process. External adapters expose the same model through `capabilities.channelAdapter`, `ext/channel/send`, and `ext/channel/toolCall`.
 
 **Result**:
 
@@ -1639,20 +1649,21 @@ The core wire protocol (Sections 3–10) covers the `ISessionService` surface. M
 - `initialize` may advertise extension availability in `capabilities.extensions`. Compatibility top-level capability fields may coexist during migration.
 - Clients must treat the spec as the source of truth for a documented extension's method names and payloads; implementation location inside the server is not wire-visible.
 
-### 11.2 External Channel Delivery
+### 11.2 Unified Channel Runtime (Remote Projection)
 
 The external channel adapter integration uses **server → client** JSON-RPC requests under the `ext/channel/*` namespace. These methods are bidirectional protocol extensions in the same sense as `item/approval/request`: the server sends a request with an `id`, and the adapter returns a structured `result`.
 
 Capability negotiation happens during `initialize` via `capabilities.channelAdapter`:
 
-- `deliverySupport = true` means the adapter may receive legacy text `ext/channel/deliver`.
-- `deliveryCapabilities.structuredDelivery = true` means the adapter may receive `ext/channel/send`.
-- media entries under `deliveryCapabilities.media` describe which non-text `message.kind` values the adapter accepts and which source forms are allowed.
+- `deliveryCapabilities.structuredDelivery = true` means the adapter implements the unified delivery contract through `ext/channel/send`.
+- media entries under `deliveryCapabilities.media` describe which `message.kind` values the remote backend accepts and which source forms are allowed.
 - `channelTools` declares the channel-scoped tools that may be injected into matching-origin threads for the lifetime of the connection.
 
-#### 11.2.1 `ext/channel/deliver`
+`ext/channel/deliver` remains reserved only as a legacy name. M3 runtime implementations must not depend on it.
 
-Legacy text-only delivery path used for adapters that have not upgraded to structured delivery.
+#### 11.2.1 `ext/channel/deliver` (Legacy Reserved Name)
+
+Legacy text-only delivery path retained only as a reserved name in the specification history. New adapters should implement `ext/channel/send` for text and media alike.
 
 **Direction**: server → client (request, requires response)
 
@@ -1678,7 +1689,7 @@ Legacy text-only delivery path used for adapters that have not upgraded to struc
 }
 ```
 
-The server may continue using `ext/channel/deliver` for `text` payloads when the adapter does not advertise structured delivery. It must not silently downgrade non-text payloads onto this method.
+This method is not part of the primary M3 channel runtime. Servers should route all new delivery behavior through `ext/channel/send`.
 
 #### 11.2.2 `ext/channel/send`
 
