@@ -4,7 +4,7 @@ DotCraft Telegram Adapter.
 Maps each Telegram chat to a DotCraft thread. Supports:
 - Text messages → turn/start
 - Slash commands via server command pipeline (`command/execute`)
-- Agent replies streamed and sent as a single composed message
+- Agent replies streamed and sent progressively by completed segments
 - Approval flow via Telegram inline keyboard buttons
 - ext/channel/deliver mapped to bot.send_message()
 - Typing indicator while the agent is processing
@@ -114,6 +114,8 @@ class TelegramAdapter(ChannelAdapter):
         self._typing_tasks: dict[str, asyncio.Task] = {}
         # pending approval futures: callback_data key -> Future[str]
         self._pending_approvals: dict[str, asyncio.Future[str]] = {}
+        # turn ids that already streamed at least one segment
+        self._streamed_turns: set[str] = set()
 
     # ------------------------------------------------------------------
     # ChannelAdapter abstract methods
@@ -268,15 +270,39 @@ class TelegramAdapter(ChannelAdapter):
         reply_text: str,
         channel_context: str,
     ) -> None:
-        """Send the accumulated reply to the Telegram chat."""
+        """Finalize a turn and send fallback reply when no segment was streamed."""
         self._stop_typing(channel_context)
-        if reply_text:
+        streamed = turn_id in self._streamed_turns
+        self._streamed_turns.discard(turn_id)
+        if reply_text and not streamed:
             try:
                 chat_id = int(channel_context)
             except ValueError:
                 logger.error("Invalid channel_context for delivery: %s", channel_context)
                 return
             await self._send_text(chat_id, reply_text)
+
+    async def on_segment_completed(
+        self,
+        thread_id: str,
+        turn_id: str,
+        segment_text: str,
+        is_final: bool,
+        channel_context: str,
+    ) -> None:
+        """Send each completed assistant segment to Telegram immediately."""
+        if not segment_text.strip():
+            return
+        try:
+            chat_id = int(channel_context)
+        except ValueError:
+            logger.error("Invalid channel_context for segment delivery: %s", channel_context)
+            return
+
+        self._streamed_turns.add(turn_id)
+        if is_final:
+            self._stop_typing(channel_context)
+        await self._send_text(chat_id, segment_text)
 
     async def on_turn_failed(self, thread_id: str, turn_id: str, error: str) -> None:
         logger.error("Turn %s failed: %s", turn_id, error)

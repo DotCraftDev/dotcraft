@@ -21,6 +21,7 @@ from .models import ERR_TURN_IN_PROGRESS, Thread
 from .transport import Transport
 from .turn_reply import (
     extract_agent_reply_text_from_turn_completed,
+    extract_agent_reply_texts_from_turn_completed,
     merge_reply_text_from_delta_and_snapshot,
 )
 
@@ -139,6 +140,17 @@ class ChannelAdapter(ABC):
     async def on_turn_cancelled(self, thread_id: str, turn_id: str) -> None:
         """Called when a turn is cancelled."""
         logger.info("Turn %s cancelled on thread %s", turn_id, thread_id)
+
+    async def on_segment_completed(
+        self,
+        thread_id: str,
+        turn_id: str,
+        segment_text: str,
+        is_final: bool,
+        channel_context: str,
+    ) -> None:
+        """Called when an assistant text segment is completed during streaming."""
+        return
 
     def get_delivery_capabilities(self) -> dict | None:
         """Return channelAdapter.deliveryCapabilities for initialize, or None for text-only adapters."""
@@ -394,18 +406,55 @@ class ChannelAdapter(ABC):
             else:
                 raise
 
-        # Stream events and accumulate the reply
-        reply_parts: list[str] = []
+        # Stream events and keep both full and segment-level buffers.
+        all_delta_parts: list[str] = []
+        current_segment_parts: list[str] = []
 
         async for event in self._client.stream_events(thread.id):
             if event.method == "item/agentMessage/delta":
                 delta = event.params.get("delta", "")
-                reply_parts.append(delta)
+                all_delta_parts.append(delta)
+                current_segment_parts.append(delta)
+
+            elif event.method == "item/started":
+                params = event.params or {}
+                item = params.get("item")
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type", ""))
+                if item_type != "toolCall":
+                    continue
+
+                segment_text = "".join(current_segment_parts)
+                current_segment_parts.clear()
+                if segment_text.strip():
+                    await self.on_segment_completed(
+                        thread.id,
+                        turn.id,
+                        segment_text,
+                        False,
+                        channel_context,
+                    )
 
             elif event.method == "turn/completed":
                 params = event.params or {}
+                snapshot_parts = extract_agent_reply_texts_from_turn_completed(params)
                 snapshot_text = extract_agent_reply_text_from_turn_completed(params)
-                delta_text = "".join(reply_parts)
+                delta_text = "".join(all_delta_parts)
+                delta_final_segment = "".join(current_segment_parts)
+                final_segment = (
+                    delta_final_segment
+                    if delta_final_segment.strip()
+                    else (snapshot_parts[-1] if snapshot_parts else "")
+                )
+                if final_segment.strip():
+                    await self.on_segment_completed(
+                        thread.id,
+                        turn.id,
+                        final_segment,
+                        True,
+                        channel_context,
+                    )
                 full_reply = merge_reply_text_from_delta_and_snapshot(delta_text, snapshot_text)
                 await self.on_turn_completed(thread.id, turn.id, full_reply, channel_context)
                 break
