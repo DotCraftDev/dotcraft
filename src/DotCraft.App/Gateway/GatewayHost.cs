@@ -226,6 +226,12 @@ public sealed class GatewayHost : IDotCraftHost
             planStore: planStore,
             hookRunner: hookRunner);
 
+        if (_sp.GetService<IChannelRuntimeToolProvider>() is ExternalChannelToolProvider externalChannelToolProvider)
+        {
+            externalChannelToolProvider.ConfigureReservedToolNames(
+                _sharedAgentFactory.CreateToolsForMode(AgentMode.Agent).Select(tool => tool.Name));
+        }
+
         var agent = _sharedAgentFactory.CreateAgentForMode(AgentMode.Agent);
         _sharedSessionService = SessionServiceFactory.Create(_sharedAgentFactory, agent, _sp);
         var runner = new AgentRunner(_paths.WorkspacePath, _sharedSessionService);

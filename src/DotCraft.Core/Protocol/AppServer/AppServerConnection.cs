@@ -55,12 +55,6 @@ public sealed class AppServerConnection
     public bool IsChannelAdapter => ChannelAdapterName != null;
 
     /// <summary>
-    /// Whether the adapter supports receiving <c>ext/channel/deliver</c> requests.
-    /// Default true; only meaningful when <see cref="IsChannelAdapter"/> is true.
-    /// </summary>
-    public bool SupportsDelivery { get; private set; } = true;
-
-    /// <summary>
     /// Structured delivery descriptor declared by the adapter during initialize, if any.
     /// </summary>
     public ChannelDeliveryCapabilities? DeliveryCapabilities { get; private set; }
@@ -80,6 +74,11 @@ public sealed class AppServerConnection
     /// Diagnostics produced while validating or registering channel tool descriptors.
     /// </summary>
     public IReadOnlyList<ChannelToolRegistrationDiagnostic> ChannelToolDiagnostics { get; private set; } = [];
+
+    /// <summary>
+    /// True once descriptor validation has been finalized for this connection.
+    /// </summary>
+    public bool ChannelToolRegistrationFinalized { get; private set; }
 
     /// <summary>
     /// Whether the adapter supports <c>ext/channel/send</c>.
@@ -131,9 +130,11 @@ public sealed class AppServerConnection
         if (caps?.ChannelAdapter is { } ca)
         {
             ChannelAdapterName = ca.ChannelName;
-            SupportsDelivery = ca.DeliverySupport != false;
             DeliveryCapabilities = ca.DeliveryCapabilities;
             DeclaredChannelTools = ca.ChannelTools?.ToArray() ?? [];
+            RegisteredChannelTools = [];
+            ChannelToolDiagnostics = [];
+            ChannelToolRegistrationFinalized = false;
         }
 
         _isInitialized = true;
@@ -149,6 +150,7 @@ public sealed class AppServerConnection
     {
         RegisteredChannelTools = registeredTools?.ToArray() ?? [];
         ChannelToolDiagnostics = diagnostics?.ToArray() ?? [];
+        ChannelToolRegistrationFinalized = true;
     }
 
     /// <summary>

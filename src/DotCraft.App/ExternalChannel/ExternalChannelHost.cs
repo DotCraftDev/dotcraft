@@ -144,7 +144,7 @@ public sealed class ExternalChannelHost : IChannelService
 
     public IReadOnlyList<ChannelToolDescriptor> GetChannelTools()
         => _connection is { IsClientReady: true } connection
-            ? connection.DeclaredChannelTools
+            ? connection.RegisteredChannelTools
             : [];
 
     /// <summary>

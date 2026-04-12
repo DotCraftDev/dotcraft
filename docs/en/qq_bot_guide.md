@@ -161,7 +161,28 @@ When NapCat successfully connects, you will see:
 ### Session Management
 
 - Each QQ session (group number or private chat user) has independent context
-- Session data is automatically saved in the DotCraft workspace's `sessions/` directory
+- Session data is automatically saved in the DotCraft workspace's `.craft/sessions/` directory
+
+### Channel-Native Runtime Tools
+
+QQ Bot mode now participates in the unified channel runtime. In addition to normal chat replies, the agent can call QQ-specific media tools exposed by the runtime:
+
+| Tool | Target Model | Supported Source Forms |
+|------|--------------|------------------------|
+| `QQSendGroupVoice` | Explicit QQ group | Local path, HTTP URL, `base64://...` |
+| `QQSendPrivateVoice` | Explicit QQ user | Local path, HTTP URL, `base64://...` |
+| `QQSendGroupVideo` | Explicit QQ group | Local path, HTTP URL |
+| `QQSendPrivateVideo` | Explicit QQ user | Local path, HTTP URL |
+| `QQUploadGroupFile` | Explicit QQ group | Local absolute path |
+| `QQUploadPrivateFile` | Explicit QQ user | Local absolute path |
+
+These are channel-native runtime tools, not generic file tools. They are designed for explicit cross-target delivery such as "send this report to group 123456" or "upload this file to user 10001".
+
+Practical notes:
+- Voice tools accept either a local file, an HTTP URL, or a `base64://` payload.
+- Video tools accept local files and HTTP URLs.
+- File upload tools require a local absolute path because they map to the OneBot upload APIs.
+- QQ runtime media tools do not require "current chat" context; the caller must provide the target group or user explicitly.
 
 ---
 

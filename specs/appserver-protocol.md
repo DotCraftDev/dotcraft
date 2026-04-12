@@ -1664,40 +1664,9 @@ Capability negotiation happens during `initialize` via `capabilities.channelAdap
 - `deliveryCapabilities.structuredDelivery = true` means the adapter implements the unified delivery contract through `ext/channel/send`.
 - media entries under `deliveryCapabilities.media` describe which `message.kind` values the remote backend accepts and which source forms are allowed.
 - `channelTools` declares the channel-scoped tools that may be injected into matching-origin threads for the lifetime of the connection.
+- adapter-declared tools are validated and registered once per connection; later thread-level tool construction only filters visibility for the matching origin channel and current reserved names.
 
-`ext/channel/deliver` remains reserved only as a legacy name. M3 runtime implementations must not depend on it.
-
-#### 11.2.1 `ext/channel/deliver` (Legacy Reserved Name)
-
-Legacy text-only delivery path retained only as a reserved name in the specification history. New adapters should implement `ext/channel/send` for text and media alike.
-
-**Direction**: server → client (request, requires response)
-
-**Params**:
-
-```json
-{
-  "target": "group:12345",
-  "content": "Scheduled report: build passed.",
-  "metadata": {
-    "format": "markdown"
-  }
-}
-```
-
-**Result**:
-
-```json
-{
-  "delivered": true,
-  "errorCode": null,
-  "errorMessage": null
-}
-```
-
-This method is not part of the primary M3 channel runtime. Servers should route all new delivery behavior through `ext/channel/send`.
-
-#### 11.2.2 `ext/channel/send`
+#### 11.2.1 `ext/channel/send`
 
 Structured delivery path for text and media payloads.
 

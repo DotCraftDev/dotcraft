@@ -451,9 +451,13 @@ await pusher.PushFileAsync(fileMediaId);
 
 #### 语音/文件消息（发送）
 
+当前推荐的 runtime 使用方式是：
+- 在 Agent 对话里，优先使用渠道原生 runtime 工具 `WeComSendVoice` / `WeComSendFile`。
+- 在自定义机器人开发里，如需更底层控制，再直接使用 `IWeComPusher`。
+
 `IWeComPusher` 提供了 `PushVoiceAsync` 和 `PushFileAsync` 方法用于发送语音和文件消息。发送前需先通过 `UploadMediaAsync` 上传临时素材获取 `media_id`。
 
-> **当前状态**：Agent 已内置 `WeComSendVoice` / `WeComSendFile` 工具，可在 WeCom Bot 模式下的对话中直接调用（详见 §2.10）。以下示例适用于需要在自定义处理器中直接操作底层 API 的场景。
+> **当前 Runtime 行为**：`WeComSendVoice` / `WeComSendFile` 是“当前聊天”工具，只在 WeCom Bot 模式下可用，依赖当前消息提供的聊天上下文，并把内容发送回同一个企业微信聊天。
 
 二次开发示例：
 
@@ -483,14 +487,14 @@ await pusher.PushFileAsync(fileMediaId);
 
 ### 2.10 Agent 内置工具（WeCom 模式）
 
-在企业微信机器人模式下，Agent 可直接调用以下工具将内容发送到“当前会话”：
+在企业微信机器人模式下，Agent 可直接调用以下渠道原生 runtime 工具，将内容发送到当前企业微信聊天：
 
 | 工具名 | 作用 | 备注 |
 |-------|------|------|
-| `WeComSendVoice(filePath)` | 发送语音（AMR 推荐） | 仅支持本地绝对路径；先上传素材再发送 |
-| `WeComSendFile(filePath)` | 发送文件 | 仅支持本地绝对路径；先上传素材再发送 |
+| `WeComSendVoice(filePath)` | 发送语音（AMR 推荐） | 仅当前聊天可用；仅支持本地绝对路径；先上传素材再发送 |
+| `WeComSendFile(filePath)` | 发送文件 | 仅当前聊天可用；仅支持本地绝对路径；先上传素材再发送 |
 
-> 说明：以上工具基于当前消息上下文的 chatId 工作，无需额外填写用户 ID；若要点对点外发特定用户，可在自定义处理器中使用 `pusher.UploadMediaAsync` + `Push*Async` 组合实现更细粒度控制。
+> 说明：以上工具基于当前消息上下文的 chatId 工作，不提供任意跨目标投递；若需要更底层或更定制的外发行为，可在自定义处理器中继续使用 `IWeComPusher`。
 
 ---
 

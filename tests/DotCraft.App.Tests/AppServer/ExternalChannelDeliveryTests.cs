@@ -210,13 +210,13 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task ExternalChannelMessageDispatcher_TextDelivery_RequiresStructuredSend()
+    public async Task ExternalChannelMessageDispatcher_TextDelivery_RequiresUnifiedSendCapabilities()
     {
         var transport = new StubTransport(new { delivered = false, error = "legacy failed" });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
         var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
-        var connection = CreateAdapterConnection(structuredDelivery: false, fileConstraints: null, supportsDelivery: true);
+        var connection = CreateAdapterConnection(structuredDelivery: false, fileConstraints: null);
 
         var result = await dispatcher.DeliverAsync(
             transport,
@@ -236,13 +236,13 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task ExternalChannelMessageDispatcher_TextOnlyAdapter_IsRejectedBeforeDispatch()
+    public async Task ExternalChannelMessageDispatcher_TextDelivery_IsRejectedWithoutStructuredCapabilities()
     {
         var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
         var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
-        var connection = CreateAdapterConnection(structuredDelivery: false, fileConstraints: null, supportsDelivery: true);
+        var connection = CreateAdapterConnection(structuredDelivery: false, fileConstraints: null);
 
         var result = await dispatcher.DeliverAsync(
             transport,
@@ -447,6 +447,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         registry.Register("telegram", host);
 
         var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
         var thread = new SessionThread
         {
             Id = "thread_001",
@@ -540,6 +541,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         registry.Register("telegram", host);
 
         var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
         var tools = provider.CreateToolsForThread(
             new SessionThread
             {
@@ -589,6 +591,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         registry.Register("telegram", firstHost);
 
         var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames(["sharedTool"]);
         _ = provider.CreateToolsForThread(
             new SessionThread
             {
@@ -597,11 +600,126 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 OriginChannel = "telegram",
                 Status = ThreadStatus.Active
             },
-            new HashSet<string>(["sharedTool"], StringComparer.Ordinal));
+            new HashSet<string>(StringComparer.Ordinal));
 
         Assert.Empty(firstHost.AdapterConnection!.RegisteredChannelTools);
         Assert.Contains(firstHost.AdapterConnection.ChannelToolDiagnostics, d => d.ToolName == "invalidTool");
         Assert.Contains(firstHost.AdapterConnection.ChannelToolDiagnostics, d => d.ToolName == "sharedTool");
+        Assert.True(firstHost.AdapterConnection.ChannelToolRegistrationFinalized);
+    }
+
+    [Fact]
+    public void ExternalChannelToolProvider_ReusesRegisteredDescriptorsAcrossMatchingThreads()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        AttachFakeAdapter(host, new StubTransport(), CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "TelegramSendDocumentToCurrentChat",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
+
+        var firstTools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_a",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.True(host.AdapterConnection!.ChannelToolRegistrationFinalized);
+        Assert.Single(host.AdapterConnection.RegisteredChannelTools);
+
+        var secondTools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_b",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Single(firstTools);
+        Assert.Single(secondTools);
+        Assert.Single(host.AdapterConnection.RegisteredChannelTools);
+        Assert.Empty(host.AdapterConnection.ChannelToolDiagnostics);
+    }
+
+    [Fact]
+    public void ExternalChannelToolProvider_DoesNotRecomputeRegistrationForThreadSpecificConflicts()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        AttachFakeAdapter(host, new StubTransport(), CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "TelegramSendDocumentToCurrentChat",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
+
+        var firstTools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_one",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+
+        var secondTools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_two",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(["TelegramSendDocumentToCurrentChat"], StringComparer.Ordinal));
+
+        Assert.Single(firstTools);
+        Assert.Empty(secondTools);
+        Assert.True(host.AdapterConnection!.ChannelToolRegistrationFinalized);
+        Assert.Single(host.AdapterConnection.RegisteredChannelTools);
+        Assert.Empty(host.AdapterConnection.ChannelToolDiagnostics);
     }
 
     [Fact]
@@ -636,6 +754,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         registry.Register("telegram", host);
 
         var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
         var tools = provider.CreateToolsForThread(
             new SessionThread
             {
@@ -709,6 +828,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         registry.Register("telegram", host);
 
         var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
         var fn = Assert.IsAssignableFrom<AIFunction>(Assert.Single(provider.CreateToolsForThread(
             new SessionThread
             {
@@ -899,8 +1019,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
     private static AppServerConnection CreateAdapterConnection(
         bool structuredDelivery,
-        ChannelMediaConstraints? fileConstraints,
-        bool supportsDelivery = true)
+        ChannelMediaConstraints? fileConstraints)
     {
         var connection = new AppServerConnection();
         connection.TryMarkInitialized(
@@ -910,7 +1029,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 ChannelAdapter = new ChannelAdapterCapability
                 {
                     ChannelName = "telegram",
-                    DeliverySupport = supportsDelivery,
                     DeliveryCapabilities = structuredDelivery
                         ? new ChannelDeliveryCapabilities
                         {
@@ -939,7 +1057,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 ChannelAdapter = new ChannelAdapterCapability
                 {
                     ChannelName = channelName,
-                    DeliverySupport = true,
                     ChannelTools = tools.ToList()
                 }
             });

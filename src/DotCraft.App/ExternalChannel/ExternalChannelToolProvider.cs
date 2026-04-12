@@ -11,6 +11,19 @@ namespace DotCraft.ExternalChannel;
 
 internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry registry) : IChannelRuntimeToolProvider
 {
+    private readonly Lock _registrationLock = new();
+    private HashSet<string> _reservedRuntimeToolNames = new(StringComparer.Ordinal);
+
+    public void ConfigureReservedToolNames(IEnumerable<string> toolNames)
+    {
+        lock (_registrationLock)
+        {
+            _reservedRuntimeToolNames = new HashSet<string>(
+                toolNames.Where(name => !string.IsNullOrWhiteSpace(name)),
+                StringComparer.Ordinal);
+        }
+    }
+
     public IReadOnlyList<AITool> CreateToolsForThread(
         SessionThread thread,
         IReadOnlySet<string> reservedToolNames)
@@ -21,21 +34,44 @@ internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry regist
         if (!registry.TryGet(thread.OriginChannel, out var runtime) || runtime == null)
             return [];
 
-        var descriptors = FinalizeRuntimeRegistration(runtime, reservedToolNames);
-        if (descriptors.Count == 0)
+        EnsureRuntimeRegistration(runtime);
+        var descriptors = runtime
+            .GetChannelTools()
+            .Where(descriptor => !reservedToolNames.Contains(descriptor.Name))
+            .ToArray();
+        if (descriptors.Length == 0)
             return [];
 
         return CreateRuntimeTools(runtime, descriptors);
     }
 
-    private static List<ChannelToolDescriptor> FinalizeRuntimeRegistration(
+    private void EnsureRuntimeRegistration(IChannelRuntime runtime)
+    {
+        if (runtime is not ExternalChannelHost host || host.AdapterConnection == null)
+            return;
+
+        var connection = host.AdapterConnection;
+        if (connection.ChannelToolRegistrationFinalized)
+            return;
+
+        lock (_registrationLock)
+        {
+            if (connection.ChannelToolRegistrationFinalized)
+                return;
+
+            FinalizeRuntimeRegistration(host, connection, _reservedRuntimeToolNames);
+        }
+    }
+
+    private static void FinalizeRuntimeRegistration(
         IChannelRuntime runtime,
+        AppServerConnection connection,
         IReadOnlySet<string> reservedToolNames)
     {
         var diagnostics = new List<ChannelToolRegistrationDiagnostic>();
         var registered = new List<ChannelToolDescriptor>();
 
-        foreach (var descriptor in runtime.GetChannelTools())
+        foreach (var descriptor in connection.DeclaredChannelTools)
         {
             if (reservedToolNames.Contains(descriptor.Name))
             {
@@ -63,10 +99,7 @@ internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry regist
             registered.Add(descriptor);
         }
 
-        if (runtime is ExternalChannelHost host && host.AdapterConnection != null)
-            host.AdapterConnection.SetChannelToolRegistration(registered, diagnostics);
-
-        return registered;
+        connection.SetChannelToolRegistration(registered, diagnostics);
     }
 
     private static void RegisterToolDisplay(ChannelToolDescriptor descriptor)

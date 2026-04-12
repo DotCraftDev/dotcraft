@@ -115,15 +115,8 @@ public sealed class ChannelAdapterCapability
     public string ChannelName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Whether this adapter can receive <c>ext/channel/deliver</c> requests.
-    /// Defaults to true when not specified.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? DeliverySupport { get; set; }
-
-    /// <summary>
-    /// Optional structured delivery capability descriptor for <c>ext/channel/send</c>.
-    /// When omitted, the adapter is treated as text-only.
+    /// Structured delivery capability descriptor for <c>ext/channel/send</c>.
+    /// Text and media delivery both use the unified send contract.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ChannelDeliveryCapabilities? DeliveryCapabilities { get; set; }
@@ -1449,7 +1442,6 @@ public static class AppServerMethods
     public const string McpStatusUpdated = "mcp/status/updated";
 
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
-    public const string ExtChannelDeliver = "ext/channel/deliver";
     public const string ExtChannelSend = "ext/channel/send";
     public const string ExtChannelToolCall = "ext/channel/toolCall";
     public const string ExtChannelHeartbeat = "ext/channel/heartbeat";

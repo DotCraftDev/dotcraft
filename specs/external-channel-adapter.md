@@ -202,7 +202,6 @@ External channel adapters extend the standard `initialize` params with a `channe
     "streamingSupport": true,
     "channelAdapter": {
       "channelName": "telegram",
-      "deliverySupport": true,
       "deliveryCapabilities": {
         "structuredDelivery": true,
         "media": {
@@ -238,8 +237,7 @@ External channel adapters extend the standard `initialize` params with a `channe
 |-------|------|----------|-------------|
 | `capabilities.channelAdapter` | object | yes (for channel adapters) | Identifies this connection as a channel adapter. Omit for regular clients. |
 | `channelAdapter.channelName` | string | yes | The canonical channel name (e.g., `"telegram"`). Must match the name declared in server-side configuration. |
-| `channelAdapter.deliverySupport` | boolean | no | Whether this adapter can receive `ext/channel/deliver` server requests. Default `true`. |
-| `channelAdapter.deliveryCapabilities` | object | no | Structured delivery capability descriptor. Omit for text-only adapters. |
+| `channelAdapter.deliveryCapabilities` | object | no | Unified delivery capability descriptor for `ext/channel/send`. Text and media delivery both use this contract. |
 | `channelAdapter.channelTools` | array | no | Runtime-declared channel tool descriptors exposed to matching-origin threads for the life of this connection. |
 
 When `channelAdapter` is present, the server records the channel name on the connection. The server responds with the standard `initialize` result (see appserver-protocol.md §3.2). No additional fields are added to the response in v1.
@@ -250,7 +248,7 @@ If the `channelName` is not recognized in the server configuration, the server c
 
 `channelAdapter` is an additive field. Existing clients that do not send it are treated as regular AppServer clients (e.g. CLI, VS Code extension) and are not registered as channel adapters.
 
-`channelTools` is also additive. Adapters that omit it behave exactly like M1/text-only integrations and will never receive `ext/channel/toolCall`.
+`channelTools` is also additive. Adapters that omit it behave like delivery-only integrations and will never receive `ext/channel/toolCall`.
 
 ---
 
@@ -258,41 +256,7 @@ If the `channelName` is not recognized in the server configuration, the server c
 
 These are server-to-client extension methods (under the `ext/channel/` namespace, per appserver-protocol.md §11) used by DotCraft to push information to channel adapters.
 
-### 6.1 `ext/channel/deliver`
-
-Delivers a message to a specific target on the channel. Used by the Cron service, Heartbeat service, and cross-channel message routing. This is the Wire Protocol equivalent of `IChannelService.DeliverMessageAsync` for external channels.
-
-**Direction**: server → client (request, requires response)
-
-**Params**:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `target` | string | Platform-specific delivery target. Format is channel-defined (e.g. `"group:12345"`, `"user:67890"`). |
-| `content` | string | Message content. Plain text or markdown. |
-| `metadata` | object? | Optional channel-specific delivery hints. |
-
-**Example**:
-
-```json
-{ "jsonrpc": "2.0", "method": "ext/channel/deliver", "id": 200, "params": {
-    "target": "group:12345",
-    "content": "Scheduled report: build passed (3/3 tests).",
-    "metadata": { "format": "markdown" }
-} }
-```
-
-**Result**:
-
-```json
-{ "delivered": true }
-```
-
-If delivery fails, the adapter returns `{ "delivered": false, "errorCode": "...", "errorMessage": "..." }`. A failed delivery logs a warning on the server but does not fail the originating cron job.
-
-If the adapter declared `deliverySupport: false` during `initialize`, the server must not send `ext/channel/deliver` to that adapter.
-
-### 6.2 `ext/channel/send`
+### 6.1 `ext/channel/send`
 
 Structured delivery request for text and media payloads.
 
@@ -352,15 +316,15 @@ Each media capability entry under `channelAdapter.deliveryCapabilities.media` su
 }
 ```
 
-Compatibility rules:
+Runtime rules:
 
-- Text-only adapters may keep implementing only `ext/channel/deliver`.
-- The server may route `message.kind = "text"` through either `ext/channel/deliver` or `ext/channel/send`.
-- The server must never silently downgrade `file`, `audio`, `image`, or `video` to `ext/channel/deliver`.
+- `ext/channel/send` is the only active remote delivery method.
+- Adapters must advertise `deliveryCapabilities.structuredDelivery = true` to participate in unified channel delivery.
+- The server never downgrades `text`, `file`, `audio`, `image`, or `video` to a legacy text-only method.
 
 If an adapter advertises `maxBytes` for a media kind, it should expect the server to reject sources it cannot validate against that limit. In the current milestone, remote `url` media is rejected when `maxBytes` is enforced because the server does not fetch remote bytes for size inspection.
 
-### 6.3 `ext/channel/toolCall`
+### 6.2 `ext/channel/toolCall`
 
 Runtime tool invocation for adapter-declared channel tools.
 
@@ -416,7 +380,7 @@ If the adapter does not respond within the configured timeout, `ExternalChannelH
 
 - Establishing and maintaining the transport connection to the adapter.
 - Running the `AppServerRequestHandler` message loop for the adapter's connection, giving the adapter full access to `ISessionService`.
-- Implementing text delivery via `ext/channel/deliver` and structured delivery via `ext/channel/send`.
+- Implementing unified delivery via `ext/channel/send` for both text and media.
 - Forwarding injected `HeartbeatService` and `CronService` delivery events to the adapter through the negotiated delivery path.
 - Monitoring adapter responsiveness via `ext/channel/heartbeat` and triggering restarts when the adapter becomes unresponsive.
 - Subprocess lifecycle management (subprocess mode only): spawning, monitoring exit, and restarting with backoff.
@@ -438,7 +402,7 @@ GatewayHost.StopAsync()
 
 ### 7.3 Restart Behavior (Subprocess Mode)
 
-If the adapter process exits unexpectedly, `ExternalChannelHost` logs the exit code and restarts after a backoff delay. After a configurable number of consecutive failed starts, the channel is marked permanently failed and removed from the active channel list. While the adapter is down, `DeliverMessageAsync` is a no-op (delivery is best-effort).
+If the adapter process exits unexpectedly, `ExternalChannelHost` logs the exit code and restarts after a backoff delay. After a configurable number of consecutive failed starts, the channel is marked permanently failed and removed from the active channel list. While the adapter is down, `DeliverAsync` is best-effort and returns structured failure results.
 
 ### 7.4 `IChannelService` Mapping
 
@@ -447,7 +411,6 @@ If the adapter process exits unexpectedly, `ExternalChannelHost` logs the exit c
 | `Name` | Channel name from `channelAdapter.channelName` in `initialize`. |
 | `StartAsync()` | Establishes transport, performs handshake, starts message loop. |
 | `StopAsync()` | Closes transport, stops message loop. |
-| `DeliverMessageAsync(target, content)` | Legacy text helper; may route to `ext/channel/deliver` or structured `text` delivery. |
 | `DeliverAsync(target, message, metadata)` | Structured delivery entry point used for text and media. |
 | `ApprovalService` | `null` — approval is handled end-to-end by the adapter via Wire Protocol. |
 | `ChannelClient` | `null` — platform client is out-of-process. |
@@ -555,7 +518,7 @@ This section defines the protocol-level obligations that any conforming external
 
 - The adapter **must** populate `SenderContext` in `turn/start` with at minimum `senderId` and `senderName`. This enables correct attribution in the turn's `initiator` record and cross-channel audit logging.
 - The adapter is responsible for permission checks before forwarding a message to DotCraft. DotCraft trusts the `SenderContext` presented by the adapter.
-- The `groupId` field **must** be set to the platform-specific delivery target for the current chat or group (e.g. the Telegram `chat_id`). The server uses this value as the default delivery target when a cron job is created during the turn: if the cron payload does not specify a `to` field, the server falls back to `SenderContext.groupId`. Adapters that support delivery (`deliverySupport: true`) must therefore ensure `groupId` contains a value that their own `ext/channel/deliver` handler can accept as `target`. If no meaningful group context exists, omit `groupId`; the server will fall back to `senderId` instead.
+- The `groupId` field **must** be set to the platform-specific delivery target for the current chat or group (e.g. the Telegram `chat_id`). The server uses this value as the default delivery target when a cron job is created during the turn: if the cron payload does not specify a `to` field, the server falls back to `SenderContext.groupId`. Adapters that participate in unified delivery must therefore ensure `groupId` contains a value that their `ext/channel/send` implementation can accept as `target`. If no meaningful group context exists, omit `groupId`; the server will fall back to `senderId` instead.
 
 ### 10.4 Server-to-Client Requests
 
@@ -564,7 +527,6 @@ The adapter **must** handle the following server-initiated requests:
 | Method | Required behavior |
 |--------|-------------------|
 | `item/approval/request` | Present platform-native approval UI; respond with `{ "decision": "..." }`. See §11. |
-| `ext/channel/deliver` | Deliver `content` to `target` on the platform; respond with `{ "delivered": true/false }`. |
 | `ext/channel/send` | Deliver a structured `message` payload to `target`; validate `message.kind` and source forms against the adapter's advertised capabilities. |
 | `ext/channel/toolCall` | Execute a previously declared `channelTools` entry; return structured success/failure data without mutating the declared tool set. |
 | `ext/channel/heartbeat` | Respond immediately with `{}`. |
@@ -658,5 +620,5 @@ The Telegram adapter demonstrates the following protocol obligations defined in 
 - **Thread management**: On each incoming message, `thread/list` is called to find the active thread for the chat's `SessionIdentity`. If none exists, `thread/start` creates one.
 - **SenderContext**: The Telegram user ID and display name are forwarded as `SenderContext` on every `turn/start`. The Telegram `chat_id` is also forwarded as `groupId`, which the server uses as the default delivery target for any cron jobs created during the session.
 - **Approval**: The adapter intercepts `item/approval/request` mid-stream, presents a platform-native prompt, and sends the JSON-RPC response before resuming event consumption.
-- **Delivery**: `ext/channel/deliver` is mapped to `bot.send_message()` targeting the stored chat ID for the given `target`, while `ext/channel/send` handles structured file delivery for the media kinds the adapter advertises.
+- **Delivery**: `ext/channel/send` is mapped to the adapter's message-send API for both text and structured media payloads, using the stored chat ID for the given `target`.
 - **Channel tools**: tool descriptors are declared during `initialize`; if the adapter declares any, it must also implement `ext/channel/toolCall` for those tools.

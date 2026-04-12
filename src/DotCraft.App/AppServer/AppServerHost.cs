@@ -138,6 +138,12 @@ public sealed class AppServerHost(
             planStore: planStore,
             onPlanUpdated: BroadcastPlanUpdated);
 
+        if (sp.GetService<IChannelRuntimeToolProvider>() is ExternalChannelToolProvider externalChannelToolProvider)
+        {
+            externalChannelToolProvider.ConfigureReservedToolNames(
+                _agentFactory.CreateToolsForMode(AgentMode.Agent).Select(tool => tool.Name));
+        }
+
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;

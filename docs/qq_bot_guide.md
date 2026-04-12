@@ -161,7 +161,28 @@ Press Ctrl+C to stop...
 ### 会话管理
 
 - 每个 QQ 会话（群号或私聊用户）有独立的上下文
-- 会话数据自动保存在 DotCraft 工作区的 `sessions/` 目录
+- 会话数据自动保存在 DotCraft 工作区的 `.craft/sessions/` 目录
+
+### 渠道原生 Runtime 工具
+
+QQ Bot 模式已经接入统一 channel runtime。除了普通对话回复外，Agent 还可以调用由 runtime 暴露的 QQ 专用媒体工具：
+
+| 工具 | 目标模型 | 支持的来源形式 |
+|------|----------|----------------|
+| `QQSendGroupVoice` | 显式指定 QQ 群 | 本地路径、HTTP URL、`base64://...` |
+| `QQSendPrivateVoice` | 显式指定 QQ 用户 | 本地路径、HTTP URL、`base64://...` |
+| `QQSendGroupVideo` | 显式指定 QQ 群 | 本地路径、HTTP URL |
+| `QQSendPrivateVideo` | 显式指定 QQ 用户 | 本地路径、HTTP URL |
+| `QQUploadGroupFile` | 显式指定 QQ 群 | 本地绝对路径 |
+| `QQUploadPrivateFile` | 显式指定 QQ 用户 | 本地绝对路径 |
+
+这些都是渠道原生 runtime 工具，不是通用文件工具。它们适合“把报告发到群 123456”或“把文件上传给用户 10001”这类显式跨目标投递。
+
+使用要点：
+- 语音工具支持本地文件、HTTP URL 或 `base64://` 负载。
+- 视频工具支持本地文件和 HTTP URL。
+- 文件上传工具要求本地绝对路径，因为它们直接映射到 OneBot 上传接口。
+- QQ runtime 媒体工具不依赖“当前聊天”上下文，调用时必须明确提供目标群号或用户号。
 
 ---
 
