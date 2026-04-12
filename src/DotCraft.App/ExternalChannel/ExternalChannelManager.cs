@@ -19,8 +19,8 @@ public sealed class ExternalChannelManager
     private readonly ExternalChannelRegistry _registry;
 
     /// <summary>
-    /// The <see cref="ExternalChannelRegistry"/> used to route WebSocket adapter connections
-    /// from <c>AppServerHost</c> to the correct <see cref="ExternalChannelHost"/>.
+    /// The <see cref="ExternalChannelRegistry"/> holding all external channel hosts for tool
+    /// discovery and WebSocket adapter routing (websocket transport only).
     /// </summary>
     public ExternalChannelRegistry Registry => _registry;
 
@@ -102,11 +102,9 @@ public sealed class ExternalChannelManager
             var host = new ExternalChannelHost(entry, sessionService, serverVersion, moduleRegistry, hostWorkspacePath);
             _hosts.Add(host);
 
-            // Register WebSocket channels for connection routing
-            if (entry.Transport == ExternalChannelTransport.Websocket)
-            {
-                _registry.Register(name, host);
-            }
+            // Register all hosts for tool discovery (IExternalChannelToolProvider) and WebSocket routing.
+            // AppServerHost only attaches WebSocket clients to hosts with Transport == Websocket.
+            _registry.Register(name, host);
 
             AnsiConsole.MarkupLine(
                 $"[green][[ExternalChannel]][/] Registered external channel [yellow]{name}[/] " +

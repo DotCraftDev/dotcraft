@@ -73,6 +73,18 @@ public sealed class ExternalChannelHost(
     public string Name => _config.Name;
 
     /// <summary>
+    /// Configured transport mode (subprocess vs WebSocket). Used to reject WebSocket adapter
+    /// handover when the channel is subprocess-only.
+    /// </summary>
+    public ExternalChannelTransport Transport => _config.Transport;
+
+    /// <summary>
+    /// Whether this host may receive a WebSocket <c>/ws</c> adapter connection via
+    /// <see cref="AttachTransport"/>. Subprocess channels use stdio only.
+    /// </summary>
+    public bool AcceptsWebSocketAdapterAttach => _config.Transport == ExternalChannelTransport.Websocket;
+
+    /// <summary>
     /// Returns <c>true</c> when an adapter transport is attached and has completed the
     /// wire handshake (<c>initialized</c> notification received). Used by
     /// <see cref="IChannelStatusProvider"/> to determine the <c>running</c> flag.

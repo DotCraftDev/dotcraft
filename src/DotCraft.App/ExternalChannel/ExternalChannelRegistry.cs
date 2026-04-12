@@ -3,12 +3,14 @@ using System.Collections.Concurrent;
 namespace DotCraft.ExternalChannel;
 
 /// <summary>
-/// Thread-safe registry of WebSocket-mode external channels.
+/// Thread-safe registry of all configured external channel hosts (subprocess and WebSocket).
 /// <para>
-/// <see cref="ExternalChannelManager"/> registers WebSocket-mode <see cref="ExternalChannelHost"/>
-/// instances here during construction. <c>AppServerHost</c> queries this registry when
-/// a WebSocket client completes the <c>initialize</c> handshake with a <c>channelAdapter</c>
-/// capability, routing the connection to the matching host.
+/// <see cref="ExternalChannelManager"/> registers each enabled <see cref="ExternalChannelHost"/>
+/// here during construction. <c>AppServerHost</c> queries this registry when a WebSocket client
+/// completes the <c>initialize</c> handshake with a <c>channelAdapter</c> capability, routing only
+/// to hosts whose transport is <see cref="DotCraft.Configuration.ExternalChannelTransport.Websocket"/>.
+/// <see cref="ExternalChannelToolProvider"/> uses the same registry to discover hosts for
+/// channel tool injection (including subprocess adapters).
 /// </para>
 /// </summary>
 public sealed class ExternalChannelRegistry
@@ -16,7 +18,7 @@ public sealed class ExternalChannelRegistry
     private readonly ConcurrentDictionary<string, ExternalChannelHost> _hosts = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Registers a WebSocket-mode external channel host.
+    /// Registers an external channel host for discovery and WebSocket routing (when applicable).
     /// </summary>
     public void Register(string channelName, ExternalChannelHost host)
     {

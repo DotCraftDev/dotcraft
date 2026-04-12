@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DotCraft.AppServer;
 using DotCraft.Configuration;
 using DotCraft.ExternalChannel;
 using DotCraft.Protocol;
@@ -648,6 +649,89 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         var payload = Assert.IsType<ExternalChannelToolCallPayload>(turn.Items[0].Payload);
         Assert.False(payload.Success);
         Assert.Equal("ExternalChannelToolTimeout", payload.ErrorCode);
+    }
+
+    [Fact]
+    public void ExternalChannelHost_AcceptsWebSocketAdapterAttach_MatchesTransport()
+    {
+        var subprocess = CreateHost("telegram");
+        Assert.Equal(ExternalChannelTransport.Subprocess, subprocess.Transport);
+        Assert.False(subprocess.AcceptsWebSocketAdapterAttach);
+
+        var websocket = new ExternalChannelHost(
+            new ExternalChannelEntry
+            {
+                Name = "feishu",
+                Enabled = true,
+                Transport = ExternalChannelTransport.Websocket,
+            },
+            new FakeSessionService(),
+            "0.0.1-test",
+            new ModuleRegistry(),
+            _tempDir);
+        Assert.Equal(ExternalChannelTransport.Websocket, websocket.Transport);
+        Assert.True(websocket.AcceptsWebSocketAdapterAttach);
+    }
+
+    [Fact]
+    public void ExternalChannelManager_RegistersSubprocessHostInRegistry()
+    {
+        var registry = new ExternalChannelRegistry();
+        var config = new AppConfig();
+        config.ExternalChannels =
+        [
+            new ExternalChannelEntry
+            {
+                Name = "telegram",
+                Enabled = true,
+                Transport = ExternalChannelTransport.Subprocess,
+                Command = "python",
+            },
+        ];
+
+        var ecManager = new ExternalChannelManager(
+            config,
+            new FakeSessionService(),
+            [],
+            new ModuleRegistry(),
+            _tempDir,
+            registry);
+
+        Assert.Single(ecManager.Channels);
+        Assert.True(registry.TryGet("telegram", out var host));
+        Assert.NotNull(host);
+        Assert.Equal(ExternalChannelTransport.Subprocess, host.Transport);
+        Assert.False(host.AcceptsWebSocketAdapterAttach);
+    }
+
+    [Fact]
+    public void ExternalChannelManager_RegistersWebsocketHostWhenAppServerWebSocketEnabled()
+    {
+        var registry = new ExternalChannelRegistry();
+        var config = new AppConfig();
+        config.SetSection("AppServer", new AppServerConfig { Mode = AppServerMode.WebSocket });
+        config.ExternalChannels =
+        [
+            new ExternalChannelEntry
+            {
+                Name = "feishu",
+                Enabled = true,
+                Transport = ExternalChannelTransport.Websocket,
+            },
+        ];
+
+        var ecManager = new ExternalChannelManager(
+            config,
+            new FakeSessionService(),
+            [],
+            new ModuleRegistry(),
+            _tempDir,
+            registry);
+
+        Assert.Single(ecManager.Channels);
+        Assert.True(registry.TryGet("feishu", out var host));
+        Assert.NotNull(host);
+        Assert.True(host.AcceptsWebSocketAdapterAttach);
     }
 
     private static AppServerConnection CreateAdapterConnection(

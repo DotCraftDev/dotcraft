@@ -26,7 +26,7 @@ public sealed partial class GatewayModule : ModuleBase
         // Register MessageRouter as a singleton for cross-channel delivery (TryAdd: app-server may register first)
         services.TryAddSingleton(_ => new MessageRouter());
 
-        // Register ExternalChannelRegistry as a singleton for WebSocket adapter routing
+        // Register ExternalChannelRegistry as a singleton (all external hosts + WebSocket routing)
         services.TryAddSingleton<ExternalChannelRegistry>();
         services.TryAddSingleton<IExternalChannelToolProvider, ExternalChannelToolProvider>();
     }

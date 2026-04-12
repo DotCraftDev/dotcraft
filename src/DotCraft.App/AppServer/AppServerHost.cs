@@ -534,6 +534,30 @@ public sealed class AppServerHost(
 
                             if (channelRegistry.TryGet(channelName, out var host) && host != null)
                             {
+                                // Subprocess channels are registered for discovery but must not accept
+                                // WebSocket adapter attach; only websocket-mode entries use /ws handover.
+                                if (!host.AcceptsWebSocketAdapterAttach)
+                                {
+                                    AnsiConsole.MarkupLine(
+                                        $"[yellow][[AppServer]][/] Rejected channel adapter '{channelName}': " +
+                                        "channel uses subprocess transport; connect the adapter via stdio, not WebSocket.");
+
+                                    await wsTransport.WriteMessageAsync(new
+                                    {
+                                        jsonrpc = "2.0",
+                                        method = AppServerMethods.SystemEvent,
+                                        @params = new
+                                        {
+                                            kind = "channelRejected",
+                                            channelName,
+                                            message =
+                                                $"Channel '{channelName}' is subprocess-only; WebSocket adapter attach is not supported."
+                                        }
+                                    }, hostCt);
+
+                                    return;
+                                }
+
                                 // Wait for the 'initialized' notification before handover
                                 var initdMsg = await wsTransport.ReadMessageAsync(hostCt);
                                 if (initdMsg is { IsNotification: true, Method: AppServerMethods.Initialized })
