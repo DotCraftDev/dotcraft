@@ -1,5 +1,7 @@
 # DotCraft 飞书外部渠道示例
 
+**中文 | [English](./README.md)**
+
 这个示例通过 **WebSocket 外部渠道适配器**，把飞书 / Lark 机器人接到 DotCraft。
 
 它基于：

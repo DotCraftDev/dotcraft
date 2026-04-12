@@ -1,5 +1,7 @@
 # DotCraft 微信外部渠道示例
 
+**中文 | [English](./README.md)**
+
 通过 **WebSocket** 外部渠道将 [腾讯iLink](https://ilinkai.weixin.qq.com)（微信机器人API）连接到 DotCraft。
 
 ## 前置条件

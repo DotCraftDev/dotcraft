@@ -1,5 +1,7 @@
 # DotCraft Feishu External Channel Example
 
+**[中文](./README_ZH.md) | English**
+
 This example connects a Feishu/Lark bot to DotCraft through the external channel adapter protocol over **WebSocket**.
 
 It is built on:

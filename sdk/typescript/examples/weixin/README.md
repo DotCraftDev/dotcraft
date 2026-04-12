@@ -1,5 +1,7 @@
 # DotCraft Weixin external channel example
 
+**[中文](./README_ZH.md) | English**
+
 Connects [Tencent iLink](https://ilinkai.weixin.qq.com) (WeChat bot API) to DotCraft via the **WebSocket** external channel transport.
 
 ## Prerequisites

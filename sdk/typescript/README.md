@@ -1,5 +1,7 @@
 # dotcraft-wire (TypeScript)
 
+**[中文](./README_ZH.md) | English**
+
 TypeScript SDK for the DotCraft AppServer Wire Protocol (JSON-RPC 2.0 over stdio JSONL or WebSocket text frames).
 
 Mirrors the Python package `dotcraft_wire` under `sdk/python/`.
@@ -29,7 +31,10 @@ const transport = new WebSocketTransport({
 });
 ```
 
-See `examples/weixin/` for a full WeChat adapter.
+See:
+
+- `examples/weixin/` for a full WeChat adapter
+- `examples/feishu/` for a full Feishu/Lark adapter
 
 ## License
 

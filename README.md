@@ -27,14 +27,12 @@ Powered by .NET 10 and a Unified Session Core, DotCraft delivers observable AI o
 </tr>
 </table>
 
-- ⚡ **Unified Session Core**: unified execution path across all channels
-- 💻 **Rich Client Matrix**: C# CLI, Rust TUI, Electron Desktop — full coverage from terminal to desktop
-- 🛠️ **Modern Agent Infrastructure**: File, Shell, Web, SubAgent tools with full MCP, Skills, Hooks, and slash commands support
-- 🖥️ **ACP Editor Integration**: native integration with Unity, JetBrains IDEs, and Obsidian
-- 🔗 **Server Capabilities**: OpenAI-compatible API and AG-UI protocol to use DotCraft as an Agent backend
-- 🌐 **Extensible Channel Integration**: Python and TypeScript SDKs for quick integration with Telegram, WeChat, Discord, and other social platforms
-- 👥 **Automation Pipeline**: support for local tasks and GitHub issue/PR orchestration
-- ⚗️ **Context-Friendly**: auto-compaction, memory consolidation, deferred MCP tool loading for efficient long sessions
+| Capability Theme | What that means |
+|------|------|
+| 📁 Project-scoped workspace | `.craft/` keeps sessions, memory, skills, and config with the repo instead of scattering them across clients |
+| ⚡ Unified Session Core | CLI, Desktop, IDEs, bots, and automations reuse the same runtime and session model |
+| 🛡️ Observability and approvals | Built-in approvals, trace, dashboard, and optional sandboxing support long-running, governable agent work |
+| 🔗 Extensibility and integration | AppServer, API, external adapters, SDKs, MCP, and Automations all build on the same harness |
 
 ## 🚀 Quick Start
 
@@ -91,28 +89,17 @@ On the first run, DotCraft initializes `.craft/` for the workspace. If no `ApiKe
 - `dotcraft app-server [--listen ...]` starts AppServer.
 - `dotcraft gateway` starts the Gateway host.
 
-**Example session**:
+**Configuration and next steps**:
 
-```
-You > Summarize the recent changes in this repo
-
-DotCraft is thinking...
-
-I've reviewed the recent git history. Here is a summary of the
-changes in the last week: ...
-```
-
-For manual editing or the full configuration reference, see the [Configuration Guide](./docs/en/config_guide.md).
-
-## ⚙️ Configuration
-
-For first-time setup, use the built-in Dashboard for visual configuration. Later, you can continue using the Dashboard Settings page for workspace adjustments.
-
-For the full configuration reference, config layering details, or manual editing, see the [Configuration Guide](./docs/en/config_guide.md).
+- For first-time setup, the built-in Dashboard is the recommended visual configuration flow.
+- For full configuration reference, layering details, or manual editing, see the [Configuration Guide](./docs/en/config_guide.md).
+- For Dashboard usage and inspection workflows, see the [Dashboard Guide](./docs/en/dash_board_guide.md).
 
 ## 🔌 Entry Points
 
-All entry points share one execution engine — the **Unified Session Core**. Here is how that differs from a traditional gateway-style architecture:
+DotCraft organizes its entry points around the **Unified Session Core**: CLI, Desktop, IDEs, bots, and automations do not each maintain their own agent loop, but reuse the same execution engine and session model.
+
+Here is how that differs from a traditional gateway-style architecture:
 
 | Dimension | Gateway-style (nanobot / OpenClaw) | DotCraft |
 |-----------|-----------------------------------|----------|
@@ -124,6 +111,8 @@ All entry points share one execution engine — the **Unified Session Core**. He
 | Workspace persistence | Not defined at framework level | `.craft/` — sessions, memory, skills, and config scoped to the project |
 
 ![entry](https://github.com/DotHarness/resources/raw/master/dotcraft/entry.png)
+
+<div align="center">Different entry points connect to the same project-scoped workspace, while the Unified Session Core handles execution, state, and orchestration.</div>
 
 ```mermaid
 flowchart LR
@@ -174,6 +163,8 @@ flowchart LR
     style GitHubSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
 ```
 
+Based on that structure, you can choose the entry point that best fits your workflow:
+
 | If you want to... | Start here |
 |---|---|
 | Work in a local terminal | [CLI](#cli) |
@@ -194,59 +185,55 @@ flowchart LR
 
 ### CLI
 
-CLI mode is the default starting point for working directly in a project directory.
+CLI is the most direct entry point for working with DotCraft in a local project directory. It is also the default starting point for understanding the overall workflow before expanding into AppServer, Desktop, or automation scenarios.
 
 ### TUI
 
-TUI is a terminal interface built on Ratatui, connecting to AppServer over Wire Protocol.
+TUI is for users who want a richer terminal experience. It is built on Ratatui, connects to AppServer over the Wire Protocol, and reuses the same session capabilities.
 
 ### AppServer
 
-AppServer exposes DotCraft's Agent capabilities as a wire protocol (JSON-RPC) server over stdio or WebSocket, enabling remote CLI connections, multi-client access, and custom integrations in any language. See the [AppServer Guide](./docs/en/appserver_guide.md).
-
-Start it explicitly with `dotcraft app-server`.
+AppServer is DotCraft's unified backend boundary for exposing capabilities over a JSON-RPC Wire Protocol via stdio or WebSocket. It is the right entry point for remote CLI, multi-client access, and custom integrations in any language. See the [AppServer Guide](./docs/en/appserver_guide.md).
 
 ### Desktop
 
-DotCraft Desktop is an Electron + React application that acts as a graphical client for AppServer. Over the Wire Protocol it consumes server-side session, approval, plan, cron, and automation capabilities, providing a three-panel workspace with multi-session management, real-time streaming conversation, and inline diff review with one-click revert.
-
-See the [Desktop Client README](./desktop/README.md) for details.
+Desktop is for users who want a graphical workspace for conversations, diffs, plans, and automation review. It acts as a graphical AppServer client and consumes the same session, approval, and automation capabilities over the Wire Protocol. See the [Desktop Client README](./desktop/README.md) for details.
 
 ### Editors And ACP
 
-DotCraft supports ACP-compatible editors including Unity, Obsidian, and JetBrains IDEs. The ACP client acts as a protocol bridge between the editor (ACP/JSON-RPC over stdio) and an AppServer instance (wire protocol), so all session state, agent execution, and tool invocation are handled by AppServer — just like CLI, TUI, and Desktop clients. The bridge can spawn a local AppServer subprocess automatically, or connect to an already-running remote AppServer via `--remote ws://host:port/ws`.
-
-Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
+Editors and ACP are for users who want DotCraft embedded directly into development tools, including Unity, Obsidian, and JetBrains IDEs. The key idea is not a separate editor-only agent, but an ACP bridge that connects the editor to the same AppServer runtime. Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
 ### API / AG-UI
 
-Expose DotCraft as a service or connect it to frontend experiences. See the [API Mode Guide](./docs/en/api_guide.md) and [AG-UI Mode Guide](./docs/en/agui_guide.md).
+API / AG-UI are for exposing DotCraft as a service to other applications or frontend experiences. They provide service-side entry points into the same DotCraft runtime rather than branching off into a separate capability stack. See the [API Mode Guide](./docs/en/api_guide.md) and [AG-UI Mode Guide](./docs/en/agui_guide.md).
 
 ![agui](https://github.com/DotHarness/resources/raw/master/dotcraft/agui.gif)
 
 ### QQ / WeCom
 
-Connect the same workspace to chat bot entry points. See the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
+QQ / WeCom are for bringing the same workspace into IM-based bot scenarios, while continuing to reuse the same session, approval, and task flows. See the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
+
+![qqbot](https://github.com/DotHarness/resources/raw/master/dotcraft/qqbot.gif)
 
 ### External Channels
 
-DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
+DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Feishu/Lark, WeChat, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
 
-The Python and TypeScript SDKs (`DotCraftClient`, `ChannelAdapter`) make it easier to wire up external channels. Adapters can show approval flows with each platform's native UI, so integration stays flexible.
-
-The repository includes two reference adapters:
+The Python and TypeScript SDKs (`DotCraftClient`, `ChannelAdapter`) make it easier to build these adapters, and the repository includes reference implementations:
 
 - **Telegram** (Python SDK): long polling, inline-keyboard approvals, and full end-to-end integration. See the [Python SDK](./sdk/python/README.md).
 
+- **Feishu / Lark** (TypeScript SDK): WebSocket event subscription, interactive approval cards, and a full external-channel integration example. See the [Feishu example](./sdk/typescript/examples/feishu/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
+
 - **WeChat** (TypeScript SDK): WebSocket transport, QR-code login, text-keyword approvals. See the [TypeScript SDK](./sdk/typescript/README.md).
 
-| Telegram (Python SDK) | QQ / WeCom | WeChat (TypeScript SDK) |
-|:---:|:---:|:---:|
-| ![telegram](https://github.com/DotHarness/resources/raw/master/dotcraft/telegram.jpg) | ![qqbot](https://github.com/DotHarness/resources/raw/master/dotcraft/qqbot.gif) | ![wechat](https://github.com/DotHarness/resources/raw/master/dotcraft/wechat.jpg) |
+| Telegram (Python SDK) | WeChat (TypeScript SDK) |
+|:---:|:---:|
+| ![telegram](https://github.com/DotHarness/resources/raw/master/dotcraft/telegram.jpg) | ![wechat](https://github.com/DotHarness/resources/raw/master/dotcraft/wechat.jpg) |
 
 ### Automations
 
-DotCraft Automations uses a shared `AutomationOrchestrator` to run automation tasks across multiple sources, currently `Local` and `GitHub`. `Automations.Enabled` defaults to `true`, while `GitHubTracker.Enabled` stays `false` until you opt in. Bare `dotcraft` still starts the CLI; use `dotcraft gateway` when you want a dedicated host process for concurrent channels and automations. See the [Automations Guide](./docs/en/automations_guide.md).
+Automations are for running local tasks and GitHub-driven workflows. The key optimization here is that automation tasks are orchestrated by a shared `AutomationOrchestrator` and reuse the same session runtime, rather than living as a separate sidecar scripting system. See the [Automations Guide](./docs/en/automations_guide.md).
 
 | Desktop Automations | GitHub tracker |
 |:---:|:---:|
@@ -257,7 +244,7 @@ DotCraft Automations uses a shared `AutomationOrchestrator` to run automation ta
 
 ### Dashboard
 
-DotCraft includes a built-in Dashboard for inspecting sessions, traces, and configuration. When `ApiKey` is missing, it can also run in setup-only mode as the initial configuration entry point. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
+Dashboard is DotCraft's visual inspection and configuration surface for sessions, traces, and workspace settings. When `ApiKey` is missing, it also serves as the setup-only entry point for initial configuration. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
 
 | Usage overview | Session trace |
 |:---:|:---:|
@@ -266,62 +253,49 @@ DotCraft includes a built-in Dashboard for inspecting sessions, traces, and conf
 
 ### Sandbox Isolation
 
-If you want Shell and File tools to run in an isolated environment, DotCraft supports [OpenSandbox](https://github.com/alibaba/OpenSandbox). Installation, configuration, and security details are covered in the [Configuration Guide](./docs/en/config_guide.md).
-
-### MCP Deferred Loading
-
-When many MCP servers are connected, injecting all tool definitions upfront adds significant token overhead and can reduce tool selection accuracy. Deferred Loading keeps MCP tools out of the initial context — the Agent discovers and activates them on demand via `SearchTools`. Once activated, tools are available immediately and the tool list grows monotonically within a session to keep the prompt cache stable.
-
-For configuration details and the recommended Skill-based guidance pattern, see the [Configuration Guide](./docs/en/config_guide.md#mcp-tool-deferred-loading).
-
-### Workspace Customization
-
-You can customize agent behavior through files such as `.craft/AGENTS.md`, `.craft/USER.md`, `.craft/SOUL.md`, `.craft/TOOLS.md`, and `.craft/IDENTITY.md`, and add custom slash commands under `.craft/commands/`. Detailed usage belongs in the dedicated docs and examples.
+Sandbox Isolation is for scenarios where Shell and File tools should run inside a controlled execution boundary with stronger host isolation. Installation, configuration, and security details are covered in the [Configuration Guide](./docs/en/config_guide.md).
 
 ## 📚 Documentation
 
-**Setup and operations**
+**I want to use DotCraft directly in a repo**
 
 - [Configuration Guide](./docs/en/config_guide.md): configuration, tools, security, approvals, MCP, sandbox, startup modes, Gateway
 - [Dashboard Guide](./docs/en/dash_board_guide.md): Dashboard pages, debugging, and visual configuration
 - [Automations Guide](./docs/en/automations_guide.md): local tasks and GitHub issue/PR orchestration, agent dispatch, and human review flow
+- [Rust TUI Guide](./tui/README.md): build, launch modes, key bindings, slash commands, and theme configuration
 
-**Entry points**
+**I want to connect DotCraft to an editor or client**
+
+- [Desktop Client Guide](./desktop/README.md): Electron desktop application, build, launch, and feature overview
+- [ACP Mode Guide](./docs/en/acp_guide.md): editor/IDE integration (JetBrains, Obsidian, and more)
+- [Unity Integration Guide](./docs/en/unity_guide.md): Unity Editor extension and AI-powered scene and asset tools
+
+**I want to use DotCraft as a server or backend**
 
 - [AppServer Guide](./docs/en/appserver_guide.md): wire protocol server, WebSocket transport, remote CLI
-- [Desktop Client Guide](./desktop/README.md): Electron desktop application, build, launch, and feature overview
 - [API Mode Guide](./docs/en/api_guide.md): OpenAI-compatible API, tool filtering, SDK examples
 - [AG-UI Mode Guide](./docs/en/agui_guide.md): AG-UI SSE server and CopilotKit integration
+
+**I want to build bots, adapters, or extensions**
+
 - [QQ Bot Guide](./docs/en/qq_bot_guide.md): NapCat, permissions, and approvals
 - [WeCom Guide](./docs/en/wecom_guide.md): WeCom push notifications and bot mode
-- [ACP Mode Guide](./docs/en/acp_guide.md): editor/IDE integration (JetBrains, Obsidian, and more)
 - [External Channel Adapter Spec](./specs/external-channel-adapter.md): wire protocol contract for out-of-process channel adapters
 - [Python SDK](./sdk/python/README.md): build external adapters with `dotcraft-wire` and the Telegram reference example
-- [TypeScript SDK](./sdk/typescript/README.md): build external adapters with `dotcraft-wire` (TypeScript) and the WeChat reference example
-
-**Editor integrations and extension points**
-
-- [Unity Integration Guide](./docs/en/unity_guide.md): Unity Editor extension and AI-powered scene and asset tools
+- [TypeScript SDK](./sdk/typescript/README.md): build external adapters with `dotcraft-wire` (TypeScript) for WeChat, Feishu, and similar channels
 - [Hooks Guide](./docs/en/hooks_guide.md): lifecycle hooks, shell extensions, and security guards
+
+**I want to continue into the full documentation set**
+
 - [Documentation Index](./docs/en/index.md): full documentation navigation
-
-**TUI**
-
-- [Rust TUI Guide](./tui/README.md): build, launch modes, key bindings, slash commands, and theme configuration
 
 ## 🤝 Contributing
 
-We welcome contributions! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
-
-**Getting Started**: See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines.
-
-You can contribute with or without AI assistance - the guidelines support both approaches.
+We welcome code, documentation, and integration contributions. Start with [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## 🙏 Credits
 
-Inspired by nanobot and Codex, and built on the Microsoft Agent Framework.
-
-Thanks to [Devin AI](https://devin.ai/) for providing free ACU credits to facilitate development.
+Inspired by [nanobot](https://github.com/HKUDS/nanobot) and [codex](https://github.com/openai/codex), and built on [Agent Framework](https://github.com/microsoft/agent-framework).
 
 - [HKUDS/nanobot](https://github.com/HKUDS/nanobot)
 - [openai/codex](https://github.com/openai/codex)

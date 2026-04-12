@@ -1,8 +1,6 @@
 # DotCraft Python SDK
 
-**中文 | [English](./README.md)**
-
-> This is the English version. Chinese version: [README_ZH.md](./README_ZH.md)
+**[中文](./README_ZH.md) | English**
 
 A Python client library for the DotCraft AppServer Wire Protocol (JSON-RPC 2.0). Build external channel adapters in Python — Telegram, Discord, Slack, and more — that integrate with DotCraft as first-class channels with full support for thread management, streaming events, and the approval flow.
 
