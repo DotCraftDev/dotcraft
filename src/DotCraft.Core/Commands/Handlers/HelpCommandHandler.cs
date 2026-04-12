@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Text;
 using DotCraft.Commands.Core;
 using DotCraft.Localization;

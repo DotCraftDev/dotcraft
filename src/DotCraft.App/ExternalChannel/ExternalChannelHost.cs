@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Configuration;
 using DotCraft.Cron;
@@ -116,7 +115,7 @@ public sealed class ExternalChannelHost(
     /// Starts the external channel adapter.
     /// For subprocess mode, spawns the process and enters the message loop.
     /// For WebSocket mode, waits for the adapter to connect and then enters the message loop.
-    /// Blocks until stopped or cancelled.
+    /// Blocks until stopped or canceled.
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -613,7 +612,7 @@ public sealed class ExternalChannelHost(
     {
         StopHeartbeatTimer();
         _heartbeatTimer = new Timer(
-            _ => _ = SendHeartbeatAsync(),
+            __ => _ = SendHeartbeatAsync(),
             state: null,
             dueTime: HeartbeatInterval,
             period: HeartbeatInterval);
@@ -643,7 +642,7 @@ public sealed class ExternalChannelHost(
         {
             // SendClientRequestAsync uses CancellationTokenSource.CancelAfter() for timeouts,
             // which throws TaskCanceledException (a subclass of OperationCanceledException).
-            // If neither _stopped nor _runCts is cancelled, this is a heartbeat timeout.
+            // If neither _stopped nor _runCts is canceled, this is a heartbeat timeout.
             AnsiConsole.MarkupLine(
                 $"[red][[ExternalChannel]][/] Heartbeat timeout for [yellow]{Name}[/] — " +
                 "connection unhealthy, triggering reconnect");

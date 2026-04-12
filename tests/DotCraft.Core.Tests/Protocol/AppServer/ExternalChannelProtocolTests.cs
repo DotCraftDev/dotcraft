@@ -160,7 +160,7 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         AppServerTestHarness.AssertIsSuccessResponse(response);
         Assert.Single(_h.Connection.DeclaredChannelTools);
         Assert.Equal("telegramSendDocument", _h.Connection.DeclaredChannelTools[0].Name);
-        Assert.Single(_h.Connection.RegisteredChannelTools);
+        Assert.Empty(_h.Connection.RegisteredChannelTools);
     }
 
     [Fact]

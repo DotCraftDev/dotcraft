@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
@@ -11,8 +10,6 @@ namespace DotCraft.ExternalChannel;
 
 internal sealed class ExternalChannelToolProvider(ExternalChannelRegistry registry) : IExternalChannelToolProvider
 {
-    private readonly ExternalChannelRegistry _registry = registry;
-
     public IReadOnlyList<AITool> CreateToolsForThread(
         SessionThread thread,
         IReadOnlySet<string> reservedToolNames)
@@ -20,93 +17,150 @@ internal sealed class ExternalChannelToolProvider(ExternalChannelRegistry regist
         if (string.IsNullOrWhiteSpace(thread.OriginChannel))
             return [];
 
-        RefreshRegistrationSnapshot(reservedToolNames);
-
-        if (!_registry.TryGet(thread.OriginChannel, out var host) || host?.IsAdapterConnected != true)
+        var connectedHosts = GetConnectedHostsForRegistration(registry);
+        if (connectedHosts.Count == 0)
             return [];
 
-        var connection = host.AdapterConnection;
-        if (connection == null || connection.RegisteredChannelTools.Count == 0)
+        var snapshot = BuildRegistrationSnapshot(connectedHosts, reservedToolNames);
+        ApplyRegistrationSnapshot(snapshot);
+
+        if (!registry.TryGet(thread.OriginChannel, out var host) || host?.IsAdapterConnected != true)
             return [];
 
-        return connection.RegisteredChannelTools
-            .Select(descriptor => (AITool)new ExternalChannelRuntimeFunction(host, descriptor))
-            .ToArray();
+        if (!snapshot.TryGetValue(host, out var hostState) || hostState.RegisteredTools.Count == 0)
+            return [];
+
+        return CreateRuntimeTools(host, hostState.RegisteredTools);
     }
 
-    private void RefreshRegistrationSnapshot(IReadOnlySet<string> reservedToolNames)
-    {
-        var hosts = _registry.SnapshotHosts()
-            .Where(static h => h.IsAdapterConnected && h.AdapterConnection != null)
+    private static IReadOnlyList<ExternalChannelHost> GetConnectedHostsForRegistration(
+        ExternalChannelRegistry registry)
+        => registry.SnapshotHosts()
+            .Where(static host => host.IsAdapterConnected && host.AdapterConnection != null)
             .ToArray();
-        if (hosts.Length == 0)
-            return;
 
-        var perHost = new Dictionary<ExternalChannelHost, HostRegistrationState>();
-        var nameCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+    private static RegistrationSnapshot BuildRegistrationSnapshot(
+        IReadOnlyList<ExternalChannelHost> hosts,
+        IReadOnlySet<string> reservedToolNames)
+    {
+        var hostStates = BuildDeclaredToolStates(hosts);
+        var nameCounts = BuildNameCounts(hostStates, reservedToolNames);
+        var registrations = hostStates
+            .ToDictionary(
+                kvp => kvp.Key,
+                kvp => FinalizeHostRegistration(kvp.Value, reservedToolNames, nameCounts));
+        return new RegistrationSnapshot(registrations);
+    }
+
+    private static Dictionary<ExternalChannelHost, HostDeclaredToolState> BuildDeclaredToolStates(
+        IReadOnlyList<ExternalChannelHost> hosts)
+    {
+        var perHost = new Dictionary<ExternalChannelHost, HostDeclaredToolState>();
 
         foreach (var host in hosts)
-        {
-            var connection = host.AdapterConnection!;
-            var diagnostics = new List<ChannelToolRegistrationDiagnostic>();
-            var structurallyValid = new List<ChannelToolDescriptor>();
+            perHost[host] = BuildDeclaredToolState(host);
 
-            foreach (var descriptor in connection.DeclaredChannelTools)
+        return perHost;
+    }
+
+    private static HostDeclaredToolState BuildDeclaredToolState(
+        ExternalChannelHost host)
+    {
+        var connection = host.AdapterConnection!;
+        var diagnostics = new List<ChannelToolRegistrationDiagnostic>();
+        var structurallyValid = new List<ChannelToolDescriptor>();
+
+        foreach (var descriptor in connection.DeclaredChannelTools)
+        {
+            var toolName = descriptor.Name;
+            if (TryValidateDescriptor(descriptor, out var message))
             {
-                var toolName = descriptor.Name ?? string.Empty;
-                if (TryValidateDescriptor(descriptor, out var message))
-                {
-                    structurallyValid.Add(descriptor);
-                    if (!reservedToolNames.Contains(toolName))
-                        nameCounts[toolName] = nameCounts.TryGetValue(toolName, out var count) ? count + 1 : 1;
-                }
-                else
-                {
-                    diagnostics.Add(new ChannelToolRegistrationDiagnostic
-                    {
-                        ToolName = toolName,
-                        Code = "InvalidChannelToolDescriptor",
-                        Message = message
-                    });
-                }
+                structurallyValid.Add(descriptor);
+                continue;
             }
 
-            perHost[host] = new HostRegistrationState(structurallyValid, diagnostics);
+            diagnostics.Add(new ChannelToolRegistrationDiagnostic
+            {
+                ToolName = toolName,
+                Code = "InvalidChannelToolDescriptor",
+                Message = message
+            });
         }
 
-        foreach (var (host, state) in perHost)
+        return new HostDeclaredToolState(host, structurallyValid, diagnostics);
+    }
+
+    private static Dictionary<string, int> BuildNameCounts(
+        IReadOnlyDictionary<ExternalChannelHost, HostDeclaredToolState> hostStates,
+        IReadOnlySet<string> reservedToolNames)
+    {
+        var nameCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var state in hostStates.Values)
         {
-            var registered = new List<ChannelToolDescriptor>();
             foreach (var descriptor in state.StructurallyValid)
             {
-                if (reservedToolNames.Contains(descriptor.Name))
-                {
-                    state.Diagnostics.Add(new ChannelToolRegistrationDiagnostic
-                    {
-                        ToolName = descriptor.Name,
-                        Code = "ChannelToolNameConflict",
-                        Message = $"Tool '{descriptor.Name}' conflicts with an existing runtime tool."
-                    });
+                var toolName = descriptor.Name;
+                if (reservedToolNames.Contains(toolName))
                     continue;
-                }
 
-                if (nameCounts.TryGetValue(descriptor.Name, out var count) && count > 1)
+                nameCounts[toolName] = nameCounts.TryGetValue(toolName, out var count) ? count + 1 : 1;
+            }
+        }
+
+        return nameCounts;
+    }
+
+    private static HostRegistrationState FinalizeHostRegistration(
+        HostDeclaredToolState declaredState,
+        IReadOnlySet<string> reservedToolNames,
+        IReadOnlyDictionary<string, int> nameCounts)
+    {
+        var diagnostics = declaredState.Diagnostics.ToList();
+        var registered = new List<ChannelToolDescriptor>();
+
+        foreach (var descriptor in declaredState.StructurallyValid)
+        {
+            if (reservedToolNames.Contains(descriptor.Name))
+            {
+                diagnostics.Add(new ChannelToolRegistrationDiagnostic
                 {
-                    state.Diagnostics.Add(new ChannelToolRegistrationDiagnostic
-                    {
-                        ToolName = descriptor.Name,
-                        Code = "ChannelToolNameConflict",
-                        Message = $"Tool '{descriptor.Name}' conflicts with another connected external adapter."
-                    });
-                    continue;
-                }
-
-                registered.Add(descriptor);
+                    ToolName = descriptor.Name,
+                    Code = "ChannelToolNameConflict",
+                    Message = $"Tool '{descriptor.Name}' conflicts with an existing runtime tool."
+                });
+                continue;
             }
 
-            host.AdapterConnection!.SetChannelToolRegistration(registered, state.Diagnostics);
+            if (nameCounts.TryGetValue(descriptor.Name, out var count) && count > 1)
+            {
+                diagnostics.Add(new ChannelToolRegistrationDiagnostic
+                {
+                    ToolName = descriptor.Name,
+                    Code = "ChannelToolNameConflict",
+                    Message = $"Tool '{descriptor.Name}' conflicts with another connected external adapter."
+                });
+                continue;
+            }
+
+            registered.Add(descriptor);
         }
+
+        return new HostRegistrationState(declaredState.Host, registered, diagnostics);
     }
+
+    private static void ApplyRegistrationSnapshot(RegistrationSnapshot snapshot)
+    {
+        foreach (var state in snapshot.Hosts.Values)
+            state.Host.AdapterConnection!.SetChannelToolRegistration(state.RegisteredTools, state.Diagnostics);
+    }
+
+    private static IReadOnlyList<AITool> CreateRuntimeTools(
+        ExternalChannelHost host,
+        IReadOnlyList<ChannelToolDescriptor> registeredTools)
+        => registeredTools
+            .Select(descriptor => (AITool)new ExternalChannelRuntimeFunction(host, descriptor))
+            .ToArray();
 
     private static bool TryValidateDescriptor(ChannelToolDescriptor descriptor, out string message)
     {
@@ -145,9 +199,22 @@ internal sealed class ExternalChannelToolProvider(ExternalChannelRegistry regist
         return true;
     }
 
+    private sealed record RegistrationSnapshot(
+        IReadOnlyDictionary<ExternalChannelHost, HostRegistrationState> Hosts)
+    {
+        public bool TryGetValue(ExternalChannelHost host, out HostRegistrationState state)
+            => Hosts.TryGetValue(host, out state!);
+    }
+
+    private sealed record HostDeclaredToolState(
+        ExternalChannelHost Host,
+        IReadOnlyList<ChannelToolDescriptor> StructurallyValid,
+        IReadOnlyList<ChannelToolRegistrationDiagnostic> Diagnostics);
+
     private sealed record HostRegistrationState(
-        List<ChannelToolDescriptor> StructurallyValid,
-        List<ChannelToolRegistrationDiagnostic> Diagnostics);
+        ExternalChannelHost Host,
+        IReadOnlyList<ChannelToolDescriptor> RegisteredTools,
+        IReadOnlyList<ChannelToolRegistrationDiagnostic> Diagnostics);
 }
 
 internal sealed class ExternalChannelRuntimeFunction : AIFunction
@@ -295,7 +362,6 @@ internal sealed class ExternalChannelRuntimeFunction : AIFunction
                     try
                     {
                         aiContents.Add(new DataContent(Convert.FromBase64String(item.DataBase64), item.MediaType));
-                        continue;
                     }
                     catch (FormatException)
                     {
@@ -431,14 +497,14 @@ internal static class ChannelToolSchemaValidator
         {
             case "object":
                 if (schema["properties"] is JsonNode propertiesNode
-                    && propertiesNode is not JsonObject properties)
+                    && propertiesNode is not JsonObject)
                 {
                     message = $"{path}.properties must be an object.";
                     return false;
                 }
 
                 if (schema["required"] is JsonNode requiredNode
-                    && requiredNode is not JsonArray requiredArray)
+                    && requiredNode is not JsonArray)
                 {
                     message = $"{path}.required must be an array.";
                     return false;
@@ -511,8 +577,7 @@ internal static class ChannelToolSchemaValidator
                 }
 
                 var properties = schema["properties"] as JsonObject;
-                var required = schema["required"] as JsonArray;
-                if (required != null)
+                if (schema["required"] is JsonArray required)
                 {
                     foreach (var item in required)
                     {
@@ -615,22 +680,6 @@ internal static class ChannelToolSchemaValidator
                 message = $"{path} uses unsupported schema type '{type}'.";
                 return false;
         }
-    }
-
-    private static JsonValueKind GetValueKind(this JsonNode node)
-    {
-        if (node is JsonValue value)
-        {
-            using var document = JsonDocument.Parse(value.ToJsonString());
-            return document.RootElement.ValueKind;
-        }
-
-        return node switch
-        {
-            JsonObject => JsonValueKind.Object,
-            JsonArray => JsonValueKind.Array,
-            _ => JsonValueKind.Undefined
-        };
     }
 
     private static bool TryGetValue<T>(this JsonNode node, out T? value)

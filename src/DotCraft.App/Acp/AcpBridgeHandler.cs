@@ -13,7 +13,6 @@ using DotCraft.CLI;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Tracing;
-using Microsoft.Extensions.AI;
 using Spectre.Console;
 
 namespace DotCraft.Acp;
@@ -724,7 +723,7 @@ public sealed class AcpBridgeHandler(
             {
                 var resultElement = await acpTransport.SendClientRequestAsync(
                     AcpMethods.RequestPermission, permParams,
-                    timeout: TimeSpan.FromSeconds(120));
+                    timeout: TimeSpan.FromSeconds(120), ct: ct);
                 var result = resultElement.Deserialize<RequestPermissionResult>(JsonOptions);
                 var decision = result?.Outcome?.OptionId switch
                 {

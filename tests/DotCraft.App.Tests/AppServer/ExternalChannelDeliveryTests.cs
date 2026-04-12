@@ -21,7 +21,11 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_tempDir, recursive: true); } catch { }
+        try { Directory.Delete(_tempDir, recursive: true); }
+        catch
+        {
+            // ignored
+        }
     }
 
     [Fact]
@@ -677,17 +681,19 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     public void ExternalChannelManager_RegistersSubprocessHostInRegistry()
     {
         var registry = new ExternalChannelRegistry();
-        var config = new AppConfig();
-        config.ExternalChannels =
-        [
-            new ExternalChannelEntry
-            {
-                Name = "telegram",
-                Enabled = true,
-                Transport = ExternalChannelTransport.Subprocess,
-                Command = "python",
-            },
-        ];
+        var config = new AppConfig
+        {
+            ExternalChannels =
+            [
+                new ExternalChannelEntry
+                {
+                    Name = "telegram",
+                    Enabled = true,
+                    Transport = ExternalChannelTransport.Subprocess,
+                    Command = "python",
+                },
+            ]
+        };
 
         var ecManager = new ExternalChannelManager(
             config,
@@ -813,9 +819,6 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
     private sealed class StubTransport(object? result = null, Exception? exception = null) : IAppServerTransport
     {
-        private readonly object? _result = result;
-        private readonly Exception? _exception = exception;
-
         public string? LastMethod { get; private set; }
 
         public object? LastParams { get; private set; }
@@ -829,9 +832,9 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         {
             LastMethod = method;
             LastParams = @params;
-            if (_exception != null)
-                return Task.FromException<AppServerIncomingMessage>(_exception);
-            var payload = _result ?? new ExtChannelSendResult { Delivered = true };
+            if (exception != null)
+                return Task.FromException<AppServerIncomingMessage>(exception);
+            var payload = result ?? new ExtChannelSendResult { Delivered = true };
             var json = JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 1, result = payload }, SessionWireJsonOptions.Default);
             var msg = JsonSerializer.Deserialize<AppServerIncomingMessage>(json, new JsonSerializerOptions
             {

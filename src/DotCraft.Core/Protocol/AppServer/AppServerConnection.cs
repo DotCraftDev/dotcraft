@@ -134,7 +134,6 @@ public sealed class AppServerConnection
             SupportsDelivery = ca.DeliverySupport != false;
             DeliveryCapabilities = ca.DeliveryCapabilities;
             DeclaredChannelTools = ca.ChannelTools?.ToArray() ?? [];
-            RegisteredChannelTools = DeclaredChannelTools;
         }
 
         _isInitialized = true;

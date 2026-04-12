@@ -71,7 +71,6 @@ internal sealed record ExternalChannelDeliveryDependencies(
 
 internal sealed class FileSystemChannelMediaArtifactStore(string rootPath) : IChannelMediaArtifactStore
 {
-    private readonly string _rootPath = rootPath;
     private readonly ConcurrentDictionary<string, ChannelMediaArtifact> _artifacts = new(StringComparer.Ordinal);
 
     public Task<ChannelMediaArtifact?> GetAsync(string artifactId, CancellationToken cancellationToken = default)
@@ -83,7 +82,7 @@ internal sealed class FileSystemChannelMediaArtifactStore(string rootPath) : ICh
     public Task RegisterAsync(ChannelMediaArtifact artifact, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Directory.CreateDirectory(_rootPath);
+        Directory.CreateDirectory(rootPath);
         _artifacts[artifact.Id] = artifact;
         return Task.CompletedTask;
     }
@@ -114,9 +113,6 @@ internal sealed class ChannelMediaResolver(
     IChannelMediaArtifactStore artifactStore,
     string tempRootPath) : IChannelMediaResolver
 {
-    private readonly IChannelMediaArtifactStore _artifactStore = artifactStore;
-    private readonly string _tempRootPath = tempRootPath;
-
     public async Task<ChannelMediaResolutionResult> ResolveAsync(
         ChannelOutboundMessage message,
         CancellationToken cancellationToken = default)
@@ -129,7 +125,7 @@ internal sealed class ChannelMediaResolver(
 
         return kind switch
         {
-            "artifactId" => await ResolveArtifactIdAsync(message, source, cancellationToken),
+            "artifactId" => await ResolveArtifactIdAsync(source, cancellationToken),
             "hostPath" => await ResolveHostPathAsync(message, source, cancellationToken),
             "dataBase64" => await ResolveBase64Async(message, source, cancellationToken),
             "url" => ResolveUrl(message, source),
@@ -137,15 +133,12 @@ internal sealed class ChannelMediaResolver(
         };
     }
 
-    private async Task<ChannelMediaResolutionResult> ResolveArtifactIdAsync(
-        ChannelOutboundMessage message,
-        ChannelMediaSource source,
-        CancellationToken cancellationToken)
+    private async Task<ChannelMediaResolutionResult> ResolveArtifactIdAsync(ChannelMediaSource source, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(source.ArtifactId))
             throw new InvalidOperationException("artifactId source requires artifactId.");
 
-        var artifact = await _artifactStore.GetAsync(source.ArtifactId, cancellationToken)
+        var artifact = await artifactStore.GetAsync(source.ArtifactId, cancellationToken)
             ?? throw new FileNotFoundException($"Channel media artifact '{source.ArtifactId}' was not found.");
 
         return new ChannelMediaResolutionResult { Artifact = artifact };
@@ -175,7 +168,7 @@ internal sealed class ChannelMediaResolver(
             ResolvedPath = fullPath,
             Sha256 = await ComputeSha256Async(fullPath, cancellationToken)
         };
-        await _artifactStore.RegisterAsync(artifact, cancellationToken);
+        await artifactStore.RegisterAsync(artifact, cancellationToken);
         return new ChannelMediaResolutionResult { Artifact = artifact };
     }
 
@@ -197,10 +190,10 @@ internal sealed class ChannelMediaResolver(
             throw new InvalidOperationException("dataBase64 source did not contain valid base64.", ex);
         }
 
-        Directory.CreateDirectory(_tempRootPath);
+        Directory.CreateDirectory(tempRootPath);
         var artifactId = CreateArtifactId();
         var extension = ResolveExtension(message);
-        var tempPath = Path.Combine(_tempRootPath, $"{artifactId}{extension}");
+        var tempPath = Path.Combine(tempRootPath, $"{artifactId}{extension}");
         await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken);
 
         var artifact = new ChannelMediaArtifact
@@ -215,7 +208,7 @@ internal sealed class ChannelMediaResolver(
             Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             OwnsResolvedPath = true
         };
-        await _artifactStore.RegisterAsync(artifact, cancellationToken);
+        await artifactStore.RegisterAsync(artifact, cancellationToken);
         return new ChannelMediaResolutionResult
         {
             Artifact = artifact,
@@ -223,7 +216,7 @@ internal sealed class ChannelMediaResolver(
         };
     }
 
-    private ChannelMediaResolutionResult ResolveUrl(ChannelOutboundMessage message, ChannelMediaSource source)
+    private static ChannelMediaResolutionResult ResolveUrl(ChannelOutboundMessage message, ChannelMediaSource source)
     {
         if (string.IsNullOrWhiteSpace(source.Url))
             throw new InvalidOperationException("url source requires url.");
@@ -357,9 +350,6 @@ internal sealed class ExternalChannelMessageDispatcher(
     IChannelMediaArtifactStore artifactStore)
     : IChannelMessageDispatcher
 {
-    private readonly IChannelMediaResolver _mediaResolver = mediaResolver;
-    private readonly IChannelMediaArtifactStore _artifactStore = artifactStore;
-
     public async Task<ExtChannelSendResult> DeliverAsync(
         IAppServerTransport transport,
         AppServerConnection connection,
@@ -393,7 +383,7 @@ internal sealed class ExternalChannelMessageDispatcher(
         ChannelMediaResolutionResult? resolution = null;
         try
         {
-            resolution = await _mediaResolver.ResolveAsync(message, cancellationToken);
+            resolution = await mediaResolver.ResolveAsync(message, cancellationToken);
             var preparedSource = await PrepareSourceForAdapterAsync(message, constraints, resolution, cancellationToken);
             if (preparedSource.Error != null)
                 return preparedSource.Error;
@@ -440,7 +430,7 @@ internal sealed class ExternalChannelMessageDispatcher(
         finally
         {
             if (resolution?.CleanupOnCompletion == true)
-                await _artifactStore.DeleteAsync(resolution.Artifact.Id, cancellationToken);
+                await artifactStore.DeleteAsync(resolution.Artifact.Id, cancellationToken);
         }
     }
 
