@@ -26,14 +26,16 @@ public sealed class ExternalChannelHost(
     ISessionService sessionService,
     string serverVersion,
     ModuleRegistry moduleRegistry,
-    string hostWorkspacePath)
+    string hostWorkspacePath,
+    Func<string, object>? deliveryDependenciesFactory = null)
     : IChannelService
 {
     private readonly ExternalChannelEntry _config = config ?? throw new ArgumentNullException(nameof(config));
     private readonly ISessionService _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
     private readonly ModuleRegistry _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
     private readonly string _workspaceCraftPath = Path.Combine(hostWorkspacePath, ".craft");
-    private readonly ChannelDeliveryDependencies _delivery = CreateDeliveryDependencies(hostWorkspacePath);
+    private readonly ExternalChannelDeliveryDependencies _delivery =
+        CreateDeliveryDependencies(hostWorkspacePath, deliveryDependenciesFactory);
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -616,13 +618,18 @@ public sealed class ExternalChannelHost(
         return TimeSpan.FromSeconds(seconds);
     }
 
-    private static ChannelDeliveryDependencies CreateDeliveryDependencies(string hostWorkspacePath)
+    private static ExternalChannelDeliveryDependencies CreateDeliveryDependencies(
+        string hostWorkspacePath,
+        Func<string, object>? deliveryDependenciesFactory)
     {
+        if (deliveryDependenciesFactory?.Invoke(hostWorkspacePath) is ExternalChannelDeliveryDependencies provided)
+            return provided;
+
         var mediaRoot = Path.Combine(hostWorkspacePath, ".craft", "external-channel-media");
         var artifactStore = new FileSystemChannelMediaArtifactStore(mediaRoot);
         var resolver = new ChannelMediaResolver(artifactStore, Path.Combine(mediaRoot, "tmp"));
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, artifactStore);
-        return new ChannelDeliveryDependencies(artifactStore, resolver, dispatcher);
+        return new ExternalChannelDeliveryDependencies(artifactStore, resolver, dispatcher);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -634,9 +641,4 @@ public sealed class ExternalChannelHost(
         await StopAsync();
         _runCts?.Dispose();
     }
-
-    private sealed record ChannelDeliveryDependencies(
-        IChannelMediaArtifactStore ArtifactStore,
-        IChannelMediaResolver MediaResolver,
-        IChannelMessageDispatcher MessageDispatcher);
 }

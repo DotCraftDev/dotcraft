@@ -78,6 +78,52 @@ export class FeishuAdapter extends ChannelAdapter {
     }
   }
 
+  protected getDeliveryCapabilities(): Record<string, unknown> | null {
+    return {
+      structuredDelivery: true,
+      media: {
+        file: {
+          supportsHostPath: false,
+          supportsUrl: false,
+          supportsBase64: true,
+          supportsCaption: true,
+          allowedMimeTypes: ["text/plain", "application/pdf"],
+        },
+      },
+    };
+  }
+
+  protected override async onSend(
+    target: string,
+    message: Record<string, unknown>,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const kind = String(message.kind ?? "");
+    if (kind === "text") {
+      return await super.onSend(target, message, metadata);
+    }
+
+    if (kind === "file") {
+      const fileName = String(message.fileName ?? "attachment");
+      const caption = String(message.caption ?? "");
+      logInfo("outbound.send.file", {
+        target: shortId(target),
+        fileName,
+      });
+      const preview = caption
+        ? `[structured:file] ${fileName}\n${caption}`
+        : `[structured:file] ${fileName}`;
+      const ok = await this.onDeliver(target, preview, metadata);
+      return { delivered: ok };
+    }
+
+    return {
+      delivered: false,
+      errorCode: "UnsupportedDeliveryKind",
+      errorMessage: `Feishu example does not implement structured '${kind}' delivery yet.`,
+    };
+  }
+
   async onApprovalRequest(request: Record<string, unknown>): Promise<string> {
     const requestId = String(request.requestId ?? "");
     const threadId = String(request.threadId ?? "");

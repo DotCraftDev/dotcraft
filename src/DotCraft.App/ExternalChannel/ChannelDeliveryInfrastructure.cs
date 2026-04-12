@@ -40,7 +40,7 @@ internal interface IChannelMediaArtifactStore
 {
     Task<ChannelMediaArtifact?> GetAsync(string artifactId, CancellationToken cancellationToken = default);
 
-    Task SaveAsync(ChannelMediaArtifact artifact, CancellationToken cancellationToken = default);
+    Task RegisterAsync(ChannelMediaArtifact artifact, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(string artifactId, CancellationToken cancellationToken = default);
 }
@@ -64,6 +64,11 @@ internal interface IChannelMessageDispatcher
         CancellationToken cancellationToken = default);
 }
 
+internal sealed record ExternalChannelDeliveryDependencies(
+    IChannelMediaArtifactStore ArtifactStore,
+    IChannelMediaResolver MediaResolver,
+    IChannelMessageDispatcher MessageDispatcher);
+
 internal sealed class FileSystemChannelMediaArtifactStore(string rootPath) : IChannelMediaArtifactStore
 {
     private readonly string _rootPath = rootPath;
@@ -75,7 +80,7 @@ internal sealed class FileSystemChannelMediaArtifactStore(string rootPath) : ICh
         return Task.FromResult(artifact);
     }
 
-    public Task SaveAsync(ChannelMediaArtifact artifact, CancellationToken cancellationToken = default)
+    public Task RegisterAsync(ChannelMediaArtifact artifact, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(_rootPath);
@@ -116,8 +121,11 @@ internal sealed class ChannelMediaResolver(
         ChannelOutboundMessage message,
         CancellationToken cancellationToken = default)
     {
+        ValidateMessageShape(message);
+
         var source = message.Source ?? throw new InvalidOperationException("Message source is required for non-text delivery.");
-        var kind = source.Kind?.Trim() ?? string.Empty;
+        ValidateSourceShape(source);
+        var kind = source.Kind.Trim();
 
         return kind switch
         {
@@ -167,7 +175,7 @@ internal sealed class ChannelMediaResolver(
             ResolvedPath = fullPath,
             Sha256 = await ComputeSha256Async(fullPath, cancellationToken)
         };
-        await _artifactStore.SaveAsync(artifact, cancellationToken);
+        await _artifactStore.RegisterAsync(artifact, cancellationToken);
         return new ChannelMediaResolutionResult { Artifact = artifact };
     }
 
@@ -207,7 +215,7 @@ internal sealed class ChannelMediaResolver(
             Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             OwnsResolvedPath = true
         };
-        await _artifactStore.SaveAsync(artifact, cancellationToken);
+        await _artifactStore.RegisterAsync(artifact, cancellationToken);
         return new ChannelMediaResolutionResult
         {
             Artifact = artifact,
@@ -219,6 +227,13 @@ internal sealed class ChannelMediaResolver(
     {
         if (string.IsNullOrWhiteSpace(source.Url))
             throw new InvalidOperationException("url source requires url.");
+        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out var uri))
+            throw new InvalidOperationException("url source requires an absolute URL.");
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("url source only supports http/https URLs.");
+        }
 
         var artifact = new ChannelMediaArtifact
         {
@@ -230,6 +245,51 @@ internal sealed class ChannelMediaResolver(
             Url = source.Url
         };
         return new ChannelMediaResolutionResult { Artifact = artifact };
+    }
+
+    private static void ValidateMessageShape(ChannelOutboundMessage message)
+    {
+        var kind = message.Kind?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(kind))
+            throw new InvalidOperationException("Message kind is required.");
+
+        if (string.Equals(kind, "text", StringComparison.OrdinalIgnoreCase))
+        {
+            if (message.Source != null)
+                throw new InvalidOperationException("Text delivery must not include a media source.");
+            return;
+        }
+
+        if (message.Source == null)
+            throw new InvalidOperationException($"Message source is required for '{kind}' delivery.");
+    }
+
+    private static void ValidateSourceShape(ChannelMediaSource source)
+    {
+        var kind = source.Kind?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(kind))
+            throw new InvalidOperationException("Media source kind is required.");
+
+        var populated = 0;
+        if (!string.IsNullOrWhiteSpace(source.HostPath)) populated++;
+        if (!string.IsNullOrWhiteSpace(source.Url)) populated++;
+        if (!string.IsNullOrWhiteSpace(source.DataBase64)) populated++;
+        if (!string.IsNullOrWhiteSpace(source.ArtifactId)) populated++;
+
+        if (populated != 1)
+            throw new InvalidOperationException("Media source must specify exactly one concrete source field.");
+
+        var matchesKind = kind switch
+        {
+            "hostPath" => !string.IsNullOrWhiteSpace(source.HostPath),
+            "url" => !string.IsNullOrWhiteSpace(source.Url),
+            "dataBase64" => !string.IsNullOrWhiteSpace(source.DataBase64),
+            "artifactId" => !string.IsNullOrWhiteSpace(source.ArtifactId),
+            _ => false
+        };
+
+        if (!matchesKind)
+            throw new InvalidOperationException($"Media source kind '{kind}' does not match the populated source field.");
     }
 
     private static string ResolveMediaType(ChannelOutboundMessage message, string pathOrUrl)
