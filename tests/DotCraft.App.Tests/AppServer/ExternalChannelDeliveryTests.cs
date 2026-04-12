@@ -1,8 +1,11 @@
+using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.AppServer;
 using DotCraft.Configuration;
 using DotCraft.ExternalChannel;
+using DotCraft.Processes;
 using DotCraft.Protocol;
 using DotCraft.Modules;
 using DotCraft.Protocol.AppServer;
@@ -338,6 +341,73 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
         Assert.False(result.Delivered);
         Assert.Equal("AdapterDeliveryFailed", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ExternalChannelHost_SpawnAdapterProcess_UsesManagedFactory()
+    {
+        ProcessStartInfo? capturedStartInfo = null;
+        ManagedChildProcess? spawnedProcess = null;
+        var host = new ExternalChannelHost(
+            new ExternalChannelEntry
+            {
+                Name = "telegram",
+                Enabled = true,
+                Transport = ExternalChannelTransport.Subprocess,
+                Command = "python",
+                Args = ["-m", "dotcraft_telegram"],
+                WorkingDirectory = _tempDir,
+                Env = new Dictionary<string, string> { ["DOTCRAFT_TEST"] = "1" }
+            },
+            new FakeSessionService(),
+            "0.0.1-test",
+            new ModuleRegistry(),
+            _tempDir,
+            deliveryDependenciesFactory: null,
+            managedChildProcessFactory: startInfo =>
+            {
+                capturedStartInfo = startInfo;
+                spawnedProcess = ManagedChildProcess.Start(CreateLongRunningStartInfo());
+                return spawnedProcess;
+            });
+
+        try
+        {
+            var method = typeof(ExternalChannelHost)
+                .GetMethod("SpawnAdapterProcess", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var managed = Assert.IsType<ManagedChildProcess>(method.Invoke(host, null));
+
+            Assert.Same(spawnedProcess, managed);
+            Assert.NotNull(capturedStartInfo);
+            Assert.Equal("python", capturedStartInfo!.FileName);
+            Assert.Equal(_tempDir, capturedStartInfo.WorkingDirectory);
+            Assert.Contains("-m", capturedStartInfo.ArgumentList);
+            Assert.Equal("1", capturedStartInfo.Environment["DOTCRAFT_TEST"]);
+        }
+        finally
+        {
+            if (spawnedProcess is not null)
+                await spawnedProcess.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ExternalChannelHost_StopAsync_DisposesManagedAdapterProcess()
+    {
+        var host = CreateHost("telegram");
+        await using var managedProcess = ManagedChildProcess.Start(CreateLongRunningStartInfo());
+        var processId = managedProcess.Process.Id;
+
+        typeof(ExternalChannelHost)
+            .GetField("_adapterProcess", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(host, managedProcess);
+
+        await host.StopAsync();
+
+        Assert.ThrowsAny<ArgumentException>(() => Process.GetProcessById(processId));
+        Assert.Null(typeof(ExternalChannelHost)
+            .GetField("_adapterProcess", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(host));
     }
 
     [Fact]
@@ -804,16 +874,53 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             new ModuleRegistry(),
             _tempDir);
 
+    private static ProcessStartInfo CreateLongRunningStartInfo()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new ProcessStartInfo
+            {
+                FileName = "powershell",
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                ArgumentList =
+                {
+                    "-NoProfile",
+                    "-Command",
+                    "Start-Sleep -Seconds 30"
+                }
+            };
+        }
+
+        return new ProcessStartInfo
+        {
+            FileName = "/bin/sh",
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            ArgumentList =
+            {
+                "-c",
+                "sleep 30"
+            }
+        };
+    }
+
     private static void AttachFakeAdapter(
         ExternalChannelHost host,
         StubTransport transport,
         AppServerConnection connection)
     {
         typeof(ExternalChannelHost)
-            .GetField("_transport", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetField("_transport", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(host, transport);
         typeof(ExternalChannelHost)
-            .GetField("_connection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetField("_connection", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(host, connection);
     }
 

@@ -5,6 +5,7 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
 using DotCraft.Modules;
+using DotCraft.Processes;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Protocol;
 using DotCraft.Security;
@@ -21,21 +22,16 @@ namespace DotCraft.ExternalChannel;
 /// <see cref="AttachTransport"/>.
 /// </para>
 /// </summary>
-public sealed class ExternalChannelHost(
-    ExternalChannelEntry config,
-    ISessionService sessionService,
-    string serverVersion,
-    ModuleRegistry moduleRegistry,
-    string hostWorkspacePath,
-    Func<string, object>? deliveryDependenciesFactory = null)
-    : IChannelService
+public sealed class ExternalChannelHost : IChannelService
 {
-    private readonly ExternalChannelEntry _config = config ?? throw new ArgumentNullException(nameof(config));
-    private readonly ISessionService _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
-    private readonly ModuleRegistry _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
-    private readonly string _workspaceCraftPath = Path.Combine(hostWorkspacePath, ".craft");
-    private readonly ExternalChannelDeliveryDependencies _delivery =
-        CreateDeliveryDependencies(hostWorkspacePath, deliveryDependenciesFactory);
+    private readonly ExternalChannelEntry _config;
+    private readonly ISessionService _sessionService;
+    private readonly string _serverVersion;
+    private readonly ModuleRegistry _moduleRegistry;
+    private readonly string _hostWorkspacePath;
+    private readonly string _workspaceCraftPath;
+    private readonly ExternalChannelDeliveryDependencies _delivery;
+    private readonly Func<ProcessStartInfo, ManagedChildProcess> _managedChildProcessFactory;
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -43,7 +39,7 @@ public sealed class ExternalChannelHost(
     private AppServerRequestHandler? _handler;
 
     // Subprocess management
-    private Process? _adapterProcess;
+    private ManagedChildProcess? _adapterProcess;
     private CancellationTokenSource? _runCts;
 
     // WebSocket mode: signaled when an adapter attaches via AppServerHost
@@ -64,6 +60,43 @@ public sealed class ExternalChannelHost(
     // State
     private volatile bool _stopped;
     private volatile bool _permanentlyFailed;
+
+    public ExternalChannelHost(
+        ExternalChannelEntry config,
+        ISessionService sessionService,
+        string serverVersion,
+        ModuleRegistry moduleRegistry,
+        string hostWorkspacePath,
+        Func<string, object>? deliveryDependenciesFactory = null)
+        : this(
+            config,
+            sessionService,
+            serverVersion,
+            moduleRegistry,
+            hostWorkspacePath,
+            deliveryDependenciesFactory,
+            ManagedChildProcess.Start)
+    {
+    }
+
+    internal ExternalChannelHost(
+        ExternalChannelEntry config,
+        ISessionService sessionService,
+        string serverVersion,
+        ModuleRegistry moduleRegistry,
+        string hostWorkspacePath,
+        Func<string, object>? deliveryDependenciesFactory,
+        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory)
+    {
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
+        _serverVersion = serverVersion ?? throw new ArgumentNullException(nameof(serverVersion));
+        _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
+        _hostWorkspacePath = hostWorkspacePath ?? throw new ArgumentNullException(nameof(hostWorkspacePath));
+        _workspaceCraftPath = Path.Combine(_hostWorkspacePath, ".craft");
+        _delivery = CreateDeliveryDependencies(_hostWorkspacePath, deliveryDependenciesFactory);
+        _managedChildProcessFactory = managedChildProcessFactory ?? throw new ArgumentNullException(nameof(managedChildProcessFactory));
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // IChannelService implementation
@@ -311,8 +344,9 @@ public sealed class ExternalChannelHost(
     private async Task RunSubprocessCycleAsync(CancellationToken ct)
     {
         // Spawn the adapter process
-        var process = SpawnAdapterProcess();
-        _adapterProcess = process;
+        var adapterProcess = SpawnAdapterProcess();
+        _adapterProcess = adapterProcess;
+        var process = adapterProcess.Process;
 
         // Create transport from process streams
         // Note: StdioTransport reads from the process's stdout (our input),
@@ -327,11 +361,11 @@ public sealed class ExternalChannelHost(
         _handler = new AppServerRequestHandler(
             _sessionService, _connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
-            serverVersion,
+            _serverVersion,
             cronService: CronService,
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
-            hostWorkspacePath: hostWorkspacePath);
+            hostWorkspacePath: _hostWorkspacePath);
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -368,7 +402,7 @@ public sealed class ExternalChannelHost(
         _consecutiveFailures = 0;
     }
 
-    private Process SpawnAdapterProcess()
+    private ManagedChildProcess SpawnAdapterProcess()
     {
         var startInfo = new ProcessStartInfo
         {
@@ -395,11 +429,7 @@ public sealed class ExternalChannelHost(
                 startInfo.Environment[key] = value;
         }
 
-        var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException(
-                $"Failed to start adapter process: {_config.Command}");
-
-        return process;
+        return _managedChildProcessFactory(startInfo);
     }
 
     private static async Task ForwardStderrAsync(Process process, CancellationToken ct)
@@ -420,21 +450,16 @@ public sealed class ExternalChannelHost(
 
     private async Task TerminateSubprocessAsync()
     {
-        if (_adapterProcess is not { HasExited: false } process)
+        if (_adapterProcess is not { } adapterProcess)
             return;
+
+        _adapterProcess = null;
 
         try
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(CancellationToken.None)
-                .WaitAsync(TimeSpan.FromSeconds(5));
+            await adapterProcess.DisposeAsync();
         }
         catch { /* best-effort */ }
-        finally
-        {
-            process.Dispose();
-            _adapterProcess = null;
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -457,11 +482,11 @@ public sealed class ExternalChannelHost(
         _handler = new AppServerRequestHandler(
             _sessionService, connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
-            serverVersion,
+            _serverVersion,
             cronService: CronService,
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
-            hostWorkspacePath: hostWorkspacePath);
+            hostWorkspacePath: _hostWorkspacePath);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +
