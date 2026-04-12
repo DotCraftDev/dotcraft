@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useConversationStore } from '../../stores/conversationStore'
 import { TokenUsageDisplay } from './TokenUsageDisplay'
+import { RunningSpinner } from '../ui/RunningSpinner'
 
 interface TurnStatusIndicatorProps {
   threadId: string
@@ -65,19 +66,7 @@ export function TurnStatusIndicator({ threadId }: TurnStatusIndicatorProps): JSX
       }}
     >
       {/* Spinner */}
-      <span
-        aria-label="Working"
-        style={{
-          display: 'inline-block',
-          width: '12px',
-          height: '12px',
-          border: '2px solid var(--text-dimmed)',
-          borderTopColor: 'var(--accent)',
-          borderRadius: '50%',
-          animation: 'spin 1s linear infinite',
-          flexShrink: 0
-        }}
-      />
+      <RunningSpinner title="Working" />
 
       {/* Label */}
       <span style={{ flex: 1 }}>

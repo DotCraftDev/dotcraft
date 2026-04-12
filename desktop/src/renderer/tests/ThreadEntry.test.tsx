@@ -195,4 +195,44 @@ describe('ThreadEntry', () => {
     expect(screen.queryByText('1h')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull()
   })
+
+  it('shows a running spinner for a background thread with an active turn', () => {
+    useThreadStore.setState({
+      runningTurnThreadIds: new Set<string>(['thread-1'])
+    })
+
+    renderThreadEntry(makeThread())
+
+    expect(screen.getByTestId('thread-running-indicator-thread-1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Turn running')).toBeInTheDocument()
+  })
+
+  it('shows a running spinner for the active thread with an active turn', () => {
+    useThreadStore.setState({
+      activeThreadId: 'thread-1',
+      runningTurnThreadIds: new Set<string>(['thread-1'])
+    })
+
+    renderThreadEntry(makeThread())
+
+    expect(screen.getByTestId('thread-running-indicator-thread-1')).toBeInTheDocument()
+  })
+
+  it('shows paused status when not running', () => {
+    renderThreadEntry(makeThread({ status: 'paused' }))
+
+    expect(screen.queryByTestId('thread-running-indicator-thread-1')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('paused')).toBeInTheDocument()
+  })
+
+  it('prefers the running spinner over paused status when both states are present', () => {
+    useThreadStore.setState({
+      runningTurnThreadIds: new Set<string>(['thread-1'])
+    })
+
+    renderThreadEntry(makeThread({ status: 'paused' }))
+
+    expect(screen.getByTestId('thread-running-indicator-thread-1')).toBeInTheDocument()
+    expect(screen.queryByLabelText('paused')).not.toBeInTheDocument()
+  })
 })

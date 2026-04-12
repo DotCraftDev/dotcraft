@@ -757,6 +757,12 @@ export function App(): JSX.Element {
           }
           const res = result as { thread: Thread }
           useThreadStore.getState().setActiveThread(res.thread)
+          const hasRunningTurn = (res.thread.turns ?? []).some((turn) => turn.status === 'running')
+          if (hasRunningTurn) {
+            useThreadStore.getState().markTurnStarted(requestedId)
+          } else {
+            useThreadStore.getState().markTurnEnded(requestedId)
+          }
           {
             const name = res.thread.displayName?.trim()
             if (name) {

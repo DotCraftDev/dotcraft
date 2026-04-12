@@ -7,6 +7,7 @@ import { formatRelativeTime } from '../../utils/relativeTime'
 import type { ContextMenuPosition } from '../ui/ContextMenu'
 import { ContextMenu } from '../ui/ContextMenu'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { RunningSpinner } from '../ui/RunningSpinner'
 
 interface ThreadEntryProps {
   thread: ThreadSummary
@@ -14,9 +15,9 @@ interface ThreadEntryProps {
 
 /**
  * Single row in the thread list.
- * Layout: [StatusDot] [DisplayName ...] [RelativeTime]
+ * Layout: [StatusSlot] [DisplayName ...] [RelativeTime]
  * Supports: click to select, right-click context menu, inline rename.
- * Spec §9.5
+ * Spec 搂9.5
  */
 export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const locale = useLocale()
@@ -24,7 +25,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const { activeThreadId, setActiveThreadId, renameThread, runningTurnThreadIds } = useThreadStore()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const isActive = activeThreadId === thread.id
-  const hasRunningTurn = runningTurnThreadIds.has(thread.id) && !isActive
+  const hasRunningTurn = runningTurnThreadIds.has(thread.id)
 
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null)
   const [renaming, setRenaming] = useState(false)
@@ -115,7 +116,6 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
     if (e.key === 'Escape') cancelRename()
   }
 
-  // Status dot for non-active paused / archived threads
   const showStatusIcon = !isActive && thread.status !== 'active'
 
   return (
@@ -150,34 +150,32 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           }
         }}
       >
-        {/* Activity indicator: pulsing dot when a turn is running in the background */}
-        {hasRunningTurn && (
-          <span
-            aria-label={t('threadEntry.turnRunning')}
-            title={t('threadEntry.turnRunning')}
-            style={{
-              width: '7px',
-              height: '7px',
-              borderRadius: '50%',
-              background: 'var(--accent)',
-              flexShrink: 0,
-              animation: 'pulse 1.5s ease-in-out infinite'
-            }}
-          />
-        )}
+        <span
+          style={{
+            width: '12px',
+            minWidth: '12px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}
+        >
+          {hasRunningTurn ? (
+            <RunningSpinner
+              title={t('threadEntry.turnRunning')}
+              testId={`thread-running-indicator-${thread.id}`}
+            />
+          ) : showStatusIcon ? (
+            <span
+              title={thread.status}
+              style={{ fontSize: '10px', color: 'var(--text-dimmed)', flexShrink: 0 }}
+              aria-label={thread.status}
+            >
+              {thread.status === 'paused' ? '⏸' : '🗄'}
+            </span>
+          ) : null}
+        </span>
 
-        {/* Status icon */}
-        {showStatusIcon && !hasRunningTurn && (
-          <span
-            title={thread.status}
-            style={{ fontSize: '10px', color: 'var(--text-dimmed)', flexShrink: 0 }}
-            aria-label={thread.status}
-          >
-            {thread.status === 'paused' ? '⏸' : '📁'}
-          </span>
-        )}
-
-        {/* Thread name (or rename input) */}
         {renaming ? (
           <input
             ref={renameInputRef}
@@ -237,7 +235,6 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           </>
         )}
 
-        {/* Relative time */}
         {!renaming && (
           <div
             ref={actionSlotRef}
@@ -352,7 +349,6 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
         )}
       </div>
 
-      {/* Context menu portal */}
       {contextMenu && (
         <ThreadEntryContextMenu
           position={contextMenu}

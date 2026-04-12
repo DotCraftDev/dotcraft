@@ -30,22 +30,32 @@ function dispatch(payload: { method: string; params: unknown }): void {
   const method = payload.method
   const p = (payload.params ?? {}) as Record<string, unknown>
   const conv = useConversationStore.getState()
+  const threads = useThreadStore.getState()
 
   switch (method) {
     case 'turn/started': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
       conv.onTurnStarted(rawTurn)
+      const startedThreadId =
+        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (startedThreadId) threads.markTurnStarted(startedThreadId)
       break
     }
 
     case 'turn/completed': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
+      const completedThreadId =
+        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (completedThreadId) threads.markTurnEnded(completedThreadId)
       conv.onTurnCompleted(rawTurn)
       break
     }
 
     case 'turn/failed': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
+      const failedThreadId =
+        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (failedThreadId) threads.markTurnEnded(failedThreadId)
       const error = (p.error as string) ?? 'Unknown error'
       conv.onTurnFailed(rawTurn, error)
       break
@@ -53,6 +63,9 @@ function dispatch(payload: { method: string; params: unknown }): void {
 
     case 'turn/cancelled': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
+      const cancelledThreadId =
+        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
+      if (cancelledThreadId) threads.markTurnEnded(cancelledThreadId)
       const reason = (p.reason as string) ?? ''
       conv.onTurnCancelled(rawTurn, reason)
       break
@@ -125,6 +138,7 @@ function makeTurnPayload(id: string, status = 'running'): Record<string, unknown
 
 beforeEach(() => {
   s().reset()
+  useThreadStore.getState().reset()
 })
 
 // ---------------------------------------------------------------------------
@@ -142,6 +156,7 @@ describe('notification dispatch payload format', () => {
     expect(state.turnStatus).toBe('running')
     expect(state.turns).toHaveLength(1)
     expect(state.turns[0].id).toBe('turn_server_1')
+    expect(useThreadStore.getState().runningTurnThreadIds.has('thread-1')).toBe(true)
   })
 
   it('dispatches turn/completed and sets status to idle', () => {
@@ -154,6 +169,7 @@ describe('notification dispatch payload format', () => {
     const state = s()
     expect(state.turnStatus).toBe('idle')
     expect(state.turns[0].status).toBe('completed')
+    expect(useThreadStore.getState().runningTurnThreadIds.has('thread-1')).toBe(false)
   })
 
   it('dispatches turn/failed', () => {
@@ -166,6 +182,7 @@ describe('notification dispatch payload format', () => {
     expect(s().turnStatus).toBe('idle')
     expect(s().turns[0].status).toBe('failed')
     expect(s().turns[0].error).toBe('API rate limit')
+    expect(useThreadStore.getState().runningTurnThreadIds.has('thread-1')).toBe(false)
   })
 
   it('dispatches turn/cancelled', () => {
@@ -178,6 +195,7 @@ describe('notification dispatch payload format', () => {
     expect(s().turnStatus).toBe('idle')
     expect(s().turns[0].status).toBe('cancelled')
     expect(s().turns[0].cancelReason).toBe('user requested')
+    expect(useThreadStore.getState().runningTurnThreadIds.has('thread-1')).toBe(false)
   })
 
   it('dispatches item/agentMessage/delta and accumulates streamingMessage', () => {
