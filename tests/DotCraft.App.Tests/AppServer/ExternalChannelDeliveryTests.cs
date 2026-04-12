@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Configuration;
 using DotCraft.ExternalChannel;
 using DotCraft.Protocol;
@@ -217,6 +218,242 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.Equal("AdapterDeliveryFailed", result.ErrorCode);
     }
 
+    [Fact]
+    public async Task ExternalChannelToolProvider_InjectsOnlyMatchingChannelTools()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        var transport = new StubTransport(new ExtChannelToolCallResult
+        {
+            Success = true,
+            ContentItems = [new ExtChannelToolContentItem { Type = "text", Text = "Document sent." }]
+        });
+        var connection = CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "telegramSendDocument",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]);
+        AttachFakeAdapter(host, transport, connection);
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        var thread = new SessionThread
+        {
+            Id = "thread_001",
+            WorkspacePath = _tempDir,
+            OriginChannel = "telegram",
+            ChannelContext = "chat_123",
+            Status = ThreadStatus.Active
+        };
+
+        var tools = provider.CreateToolsForThread(thread, new HashSet<string>(StringComparer.Ordinal));
+        var otherTools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_002",
+                WorkspacePath = _tempDir,
+                OriginChannel = "feishu",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Single(tools);
+        Assert.Empty(otherTools);
+
+        var fn = Assert.IsAssignableFrom<AIFunction>(tools[0]);
+        var turn = new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = thread.Id,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        using var scope = ExternalChannelToolExecutionScope.Set(
+            new ExternalChannelToolExecutionContext
+            {
+                ThreadId = thread.Id,
+                TurnId = turn.Id,
+                OriginChannel = thread.OriginChannel,
+                ChannelContext = thread.ChannelContext,
+                SenderId = "user_42",
+                GroupId = "chat_123",
+                Turn = turn,
+                NextItemSequence = () => turn.Items.Count + 1,
+                EmitItemStarted = _ => { },
+                EmitItemCompleted = _ => { }
+            });
+
+        var result = await fn.InvokeAsync(
+            new AIFunctionArguments(new Dictionary<string, object?>
+            {
+                ["fileName"] = "report.pdf"
+            }),
+            CancellationToken.None);
+
+        Assert.Equal(AppServerMethods.ExtChannelToolCall, transport.LastMethod);
+        var toolParams = Assert.IsType<ExtChannelToolCallParams>(transport.LastParams);
+        Assert.Equal("telegramSendDocument", toolParams.Tool);
+        Assert.Equal("chat_123", toolParams.Context.ChannelContext);
+        Assert.Equal("user_42", toolParams.Context.SenderId);
+        Assert.Single(turn.Items);
+        Assert.Equal(ItemType.ExternalChannelToolCall, turn.Items[0].Type);
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public void ExternalChannelToolProvider_RejectsInvalidSchema_And_NameConflicts()
+    {
+        var registry = new ExternalChannelRegistry();
+        var firstHost = CreateHost("telegram");
+        var secondHost = CreateHost("feishu");
+
+        AttachFakeAdapter(firstHost, new StubTransport(), CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "sharedTool",
+                    Description = "Valid descriptor.",
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject()
+                    }
+                },
+                new ChannelToolDescriptor
+                {
+                    Name = "invalidTool",
+                    Description = "Invalid descriptor.",
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "array"
+                    }
+                }
+            ]));
+
+        AttachFakeAdapter(secondHost, new StubTransport(), CreateToolAdapterConnection(
+            "feishu",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "sharedTool",
+                    Description = "Conflicts with telegram.",
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject()
+                    }
+                }
+            ]));
+
+        registry.Register("telegram", firstHost);
+        registry.Register("feishu", secondHost);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        _ = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_010",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(["BuiltInConflict"], StringComparer.Ordinal));
+
+        Assert.Empty(firstHost.AdapterConnection!.RegisteredChannelTools);
+        Assert.Contains(firstHost.AdapterConnection.ChannelToolDiagnostics, d => d.ToolName == "invalidTool");
+        Assert.Contains(firstHost.AdapterConnection.ChannelToolDiagnostics, d => d.ToolName == "sharedTool");
+        Assert.Contains(secondHost.AdapterConnection!.ChannelToolDiagnostics, d => d.ToolName == "sharedTool");
+    }
+
+    [Fact]
+    public async Task ExternalChannelToolProvider_RequiresChatContextBeforeDispatch()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        var transport = new StubTransport(new ExtChannelToolCallResult
+        {
+            Success = true,
+            ContentItems = [new ExtChannelToolContentItem { Type = "text", Text = "ok" }]
+        });
+        AttachFakeAdapter(host, transport, CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "telegramSendDocument",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        var tools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_020",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+
+        var fn = Assert.IsAssignableFrom<AIFunction>(Assert.Single(tools));
+        var turn = new SessionTurn
+        {
+            Id = "turn_020",
+            ThreadId = "thread_020",
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        using var scope = ExternalChannelToolExecutionScope.Set(
+            new ExternalChannelToolExecutionContext
+            {
+                ThreadId = "thread_020",
+                TurnId = "turn_020",
+                OriginChannel = "telegram",
+                Turn = turn,
+                NextItemSequence = () => turn.Items.Count + 1,
+                EmitItemStarted = _ => { },
+                EmitItemCompleted = _ => { }
+            });
+
+        var result = await fn.InvokeAsync(
+            new AIFunctionArguments(new Dictionary<string, object?>
+            {
+                ["fileName"] = "report.pdf"
+            }),
+            CancellationToken.None);
+
+        Assert.Null(transport.LastMethod);
+        var resultText = Assert.IsType<string>(result);
+        Assert.Contains("MissingChatContext", resultText);
+    }
+
     private static AppServerConnection CreateAdapterConnection(
         bool structuredDelivery,
         ChannelMediaConstraints? fileConstraints,
@@ -247,9 +484,60 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         return connection;
     }
 
+    private static AppServerConnection CreateToolAdapterConnection(
+        string channelName,
+        IReadOnlyList<ChannelToolDescriptor> tools)
+    {
+        var connection = new AppServerConnection();
+        connection.TryMarkInitialized(
+            new AppServerClientInfo { Name = $"{channelName}-adapter", Version = "1.0.0" },
+            new AppServerClientCapabilities
+            {
+                ChannelAdapter = new ChannelAdapterCapability
+                {
+                    ChannelName = channelName,
+                    DeliverySupport = true,
+                    ChannelTools = tools.ToList()
+                }
+            });
+        connection.MarkClientReady();
+        return connection;
+    }
+
+    private ExternalChannelHost CreateHost(string channelName)
+        => new(
+            new ExternalChannelEntry
+            {
+                Name = channelName,
+                Enabled = true,
+                Transport = ExternalChannelTransport.Subprocess,
+                Command = "python"
+            },
+            new FakeSessionService(),
+            "0.0.1-test",
+            new ModuleRegistry(),
+            _tempDir);
+
+    private static void AttachFakeAdapter(
+        ExternalChannelHost host,
+        StubTransport transport,
+        AppServerConnection connection)
+    {
+        typeof(ExternalChannelHost)
+            .GetField("_transport", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(host, transport);
+        typeof(ExternalChannelHost)
+            .GetField("_connection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(host, connection);
+    }
+
     private sealed class StubTransport(object? result = null) : IAppServerTransport
     {
         private readonly object? _result = result;
+
+        public string? LastMethod { get; private set; }
+
+        public object? LastParams { get; private set; }
 
         public Task<AppServerIncomingMessage?> ReadMessageAsync(CancellationToken ct = default) =>
             Task.FromResult<AppServerIncomingMessage?>(null);
@@ -258,6 +546,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
         public Task<AppServerIncomingMessage> SendClientRequestAsync(string method, object? @params, CancellationToken ct = default, TimeSpan? timeout = null)
         {
+            LastMethod = method;
+            LastParams = @params;
             var payload = _result ?? new ExtChannelSendResult { Delivered = true };
             var json = JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 1, result = payload }, SessionWireJsonOptions.Default);
             var msg = JsonSerializer.Deserialize<AppServerIncomingMessage>(json, new JsonSerializerOptions

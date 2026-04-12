@@ -28,6 +28,7 @@ public sealed partial class GatewayModule : ModuleBase
 
         // Register ExternalChannelRegistry as a singleton for WebSocket adapter routing
         services.TryAddSingleton<ExternalChannelRegistry>();
+        services.TryAddSingleton<IExternalChannelToolProvider, ExternalChannelToolProvider>();
     }
 
     /// <inheritdoc />

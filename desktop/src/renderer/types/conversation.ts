@@ -14,6 +14,7 @@ export type ItemType =
   | 'agentMessage'
   | 'reasoningContent'
   | 'toolCall'
+  | 'externalChannelToolCall'
   | 'toolResult'
   | 'error'
   | 'approvalCard'
@@ -57,6 +58,8 @@ export interface ConversationItem {
   toolCallId?: string
   /** Tool call arguments from item/started payload — toolCall items */
   arguments?: Record<string, unknown>
+  /** External adapter channel name — externalChannelToolCall items */
+  toolChannelName?: string
   /** Tool result text — updated on item/completed (toolResult) */
   result?: string
   /** Whether the tool succeeded — updated on item/completed (toolResult) */

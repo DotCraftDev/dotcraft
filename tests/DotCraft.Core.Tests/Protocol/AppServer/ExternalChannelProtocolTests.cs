@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Protocol.AppServer;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
@@ -117,7 +118,49 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         Assert.True(_h.Connection.DeliveryCapabilities!.StructuredDelivery);
         Assert.NotNull(_h.Connection.DeliveryCapabilities.Media?.File);
         Assert.True(_h.Connection.DeliveryCapabilities.Media!.File!.SupportsHostPath);
-        Assert.True(_h.Connection.DeliveryCapabilities.Media.File.SupportsBase64);
+        Assert.True(_h.Connection.DeliveryCapabilities.Media.File!.SupportsBase64);
+    }
+
+    [Fact]
+    public async Task Initialize_WithChannelAdapterTools_SetsToolState()
+    {
+        var initMsg = InMemoryTransport.BuildRequest(AppServerMethods.Initialize, new
+        {
+            clientInfo = new { name = "tool-adapter", version = "1.0.0" },
+            capabilities = new
+            {
+                channelAdapter = new
+                {
+                    channelName = "telegram",
+                    channelTools = new object[]
+                    {
+                        new
+                        {
+                            name = "telegramSendDocument",
+                            description = "Send a document to the current chat.",
+                            requiresChatContext = true,
+                            inputSchema = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    fileName = new { type = "string" }
+                                },
+                                required = new[] { "fileName" }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        await _h.ExecuteRequestAsync(initMsg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        Assert.Single(_h.Connection.DeclaredChannelTools);
+        Assert.Equal("telegramSendDocument", _h.Connection.DeclaredChannelTools[0].Name);
+        Assert.Single(_h.Connection.RegisteredChannelTools);
     }
 
     [Fact]
@@ -164,6 +207,7 @@ public sealed class ExternalChannelProtocolTests : IDisposable
     {
         Assert.Equal("ext/channel/deliver", AppServerMethods.ExtChannelDeliver);
         Assert.Equal("ext/channel/send", AppServerMethods.ExtChannelSend);
+        Assert.Equal("ext/channel/toolCall", AppServerMethods.ExtChannelToolCall);
         Assert.Equal("ext/channel/heartbeat", AppServerMethods.ExtChannelHeartbeat);
     }
 
@@ -203,7 +247,28 @@ public sealed class ExternalChannelProtocolTests : IDisposable
                         SupportsCaption = false
                     }
                 }
-            }
+            },
+            ChannelTools =
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "discordSendAttachment",
+                    Description = "Send an attachment to the current Discord channel.",
+                    RequiresChatContext = true,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject
+                            {
+                                ["type"] = "string"
+                            }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]
         };
 
         var json = JsonSerializer.Serialize(cap, new JsonSerializerOptions
@@ -220,6 +285,8 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         Assert.True(deserialized.DeliverySupport);
         Assert.True(deserialized.DeliveryCapabilities?.StructuredDelivery);
         Assert.True(deserialized.DeliveryCapabilities?.Media?.Audio?.SupportsBase64);
+        Assert.Single(deserialized.ChannelTools!);
+        Assert.Equal("discordSendAttachment", deserialized.ChannelTools![0].Name);
     }
 
     [Fact]

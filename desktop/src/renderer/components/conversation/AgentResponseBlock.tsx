@@ -85,10 +85,13 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   while (i < renderableItems.length) {
     const item = renderableItems[i]
 
-    if (item.type === 'toolCall') {
-      // Collect a consecutive run of toolCall items starting at this position
+    if (item.type === 'toolCall' || item.type === 'externalChannelToolCall') {
+      // Collect a consecutive run of tool-like items starting at this position
       const toolRun: ConversationItem[] = [item]
-      while (i + 1 < renderableItems.length && renderableItems[i + 1].type === 'toolCall') {
+      while (
+        i + 1 < renderableItems.length &&
+        (renderableItems[i + 1].type === 'toolCall' || renderableItems[i + 1].type === 'externalChannelToolCall')
+      ) {
         i++
         toolRun.push(renderableItems[i])
       }

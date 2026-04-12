@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 using DotCraft.Cron;
 
 namespace DotCraft.Protocol.AppServer;
@@ -126,6 +127,117 @@ public sealed class ChannelAdapterCapability
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ChannelDeliveryCapabilities? DeliveryCapabilities { get; set; }
+
+    /// <summary>
+    /// Optional channel-scoped tools declared by the adapter during initialize.
+    /// These tools are only injected into matching-origin threads while the adapter remains connected.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ChannelToolDescriptor>? ChannelTools { get; set; }
+}
+
+public sealed class ChannelToolDescriptor
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>
+    /// JSON Schema describing the input arguments accepted by the tool.
+    /// </summary>
+    public JsonObject? InputSchema { get; set; }
+
+    /// <summary>
+    /// Optional JSON Schema describing the structured result returned by the tool.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonObject? OutputSchema { get; set; }
+
+    /// <summary>
+    /// Optional adapter-provided display metadata for richer tool UIs.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelToolDisplay? Display { get; set; }
+
+    public bool RequiresChatContext { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? DeferLoading { get; set; }
+}
+
+public sealed class ChannelToolDisplay
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Subtitle { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Icon { get; set; }
+}
+
+public sealed class ExtChannelToolCallParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public string TurnId { get; set; } = string.Empty;
+
+    public string CallId { get; set; } = string.Empty;
+
+    public string Tool { get; set; } = string.Empty;
+
+    public JsonObject Arguments { get; set; } = [];
+
+    public ExtChannelToolCallContext Context { get; set; } = new();
+}
+
+public sealed class ExtChannelToolCallContext
+{
+    public string ChannelName { get; set; } = string.Empty;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChannelContext { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SenderId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? GroupId { get; set; }
+}
+
+public sealed class ExtChannelToolCallResult
+{
+    public bool Success { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ExtChannelToolContentItem>? ContentItems { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonNode? StructuredResult { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorMessage { get; set; }
+}
+
+public sealed class ExtChannelToolContentItem
+{
+    public string Type { get; set; } = "text";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Url { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DataBase64 { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MediaType { get; set; }
 }
 
 public sealed class ChannelDeliveryCapabilities
@@ -1339,6 +1451,7 @@ public static class AppServerMethods
     // Server → Client requests (external channel adapter, ext-channel-adapter spec §6)
     public const string ExtChannelDeliver = "ext/channel/deliver";
     public const string ExtChannelSend = "ext/channel/send";
+    public const string ExtChannelToolCall = "ext/channel/toolCall";
     public const string ExtChannelHeartbeat = "ext/channel/heartbeat";
 
     // Server → Client requests (ACP tool proxy, appserver-protocol.md §11.2)

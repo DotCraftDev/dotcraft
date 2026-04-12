@@ -27,6 +27,7 @@ public sealed partial class AppServerModule : ModuleBase
         // for ChannelRunner (native channels, external channels, cron delivery).
         services.TryAddSingleton(_ => new MessageRouter());
         services.TryAddSingleton<ExternalChannelRegistry>();
+        services.TryAddSingleton<IExternalChannelToolProvider, ExternalChannelToolProvider>();
     }
 }
 

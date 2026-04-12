@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Configuration;
 using DotCraft.Cron;
@@ -78,6 +79,11 @@ public sealed class ExternalChannelHost(
     /// </summary>
     public bool IsAdapterConnected => !_stopped && !_permanentlyFailed
         && _connection is { IsClientReady: true };
+
+    /// <summary>
+    /// Current adapter connection snapshot, when attached.
+    /// </summary>
+    public AppServerConnection? AdapterConnection => _connection;
 
     public HeartbeatService? HeartbeatService { get; set; }
 
@@ -232,6 +238,44 @@ public sealed class ExternalChannelHost(
         }
 
         return result;
+    }
+
+    public async Task<ExtChannelToolCallResult> ExecuteToolAsync(
+        ExtChannelToolCallParams request,
+        CancellationToken cancellationToken = default)
+    {
+        if (_stopped || _permanentlyFailed || _transport == null || _connection is not { IsClientReady: true })
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterDisconnected",
+                ErrorMessage = "Adapter is not connected."
+            };
+        }
+
+        try
+        {
+            var response = await _transport.SendClientRequestAsync(
+                AppServerMethods.ExtChannelToolCall,
+                request,
+                cancellationToken,
+                TimeSpan.FromSeconds(20));
+            return ParseToolResult(response);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterToolCallFailed",
+                ErrorMessage = ex.Message
+            };
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -630,6 +674,39 @@ public sealed class ExternalChannelHost(
         var resolver = new ChannelMediaResolver(artifactStore, Path.Combine(mediaRoot, "tmp"));
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, artifactStore);
         return new ExternalChannelDeliveryDependencies(artifactStore, resolver, dispatcher);
+    }
+
+    private static ExtChannelToolCallResult ParseToolResult(AppServerIncomingMessage response)
+    {
+        if (response.Result is not { } result || result.ValueKind != JsonValueKind.Object)
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterProtocolViolation",
+                ErrorMessage = "Adapter returned an invalid tool response payload."
+            };
+        }
+
+        var parsed = JsonSerializer.Deserialize<ExtChannelToolCallResult>(
+            result.GetRawText(),
+            SessionWireJsonOptions.Default);
+        if (parsed == null)
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterProtocolViolation",
+                ErrorMessage = "Adapter returned an empty tool response payload."
+            };
+        }
+
+        if (!parsed.Success && string.IsNullOrWhiteSpace(parsed.ErrorCode))
+            parsed.ErrorCode = "AdapterToolCallFailed";
+        if (!parsed.Success && string.IsNullOrWhiteSpace(parsed.ErrorMessage))
+            parsed.ErrorMessage = "Adapter reported a failed tool call.";
+
+        return parsed;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

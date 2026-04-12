@@ -93,6 +93,24 @@ export class FeishuAdapter extends ChannelAdapter {
     };
   }
 
+  protected override getChannelTools(): Record<string, unknown>[] | null {
+    return [
+      {
+        name: "feishuSendFileToCurrentChat",
+        description: "Send a file-like notification to the current Feishu chat.",
+        requiresChatContext: true,
+        inputSchema: {
+          type: "object",
+          properties: {
+            fileName: { type: "string" },
+            caption: { type: "string" },
+          },
+          required: ["fileName"],
+        },
+      },
+    ];
+  }
+
   protected override async onSend(
     target: string,
     message: Record<string, unknown>,
@@ -122,6 +140,48 @@ export class FeishuAdapter extends ChannelAdapter {
       errorCode: "UnsupportedDeliveryKind",
       errorMessage: `Feishu example does not implement structured '${kind}' delivery yet.`,
     };
+  }
+
+  protected override async onToolCall(
+    request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const tool = String(request.tool ?? "");
+    const args = (request.arguments as Record<string, unknown>) ?? {};
+    const context = (request.context as Record<string, unknown>) ?? {};
+    const target = String(context.channelContext ?? context.groupId ?? "");
+    if (tool !== "feishuSendFileToCurrentChat") {
+      return {
+        success: false,
+        errorCode: "UnsupportedTool",
+        errorMessage: `Unknown tool '${tool}'.`,
+      };
+    }
+
+    if (!target) {
+      return {
+        success: false,
+        errorCode: "MissingChatContext",
+        errorMessage: "Current tool call does not contain a Feishu chat target.",
+      };
+    }
+
+    const fileName = String(args.fileName ?? "");
+    const caption = String(args.caption ?? "");
+    const preview = caption
+      ? `[tool:file] ${fileName}\n${caption}`
+      : `[tool:file] ${fileName}`;
+    const delivered = await this.onDeliver(target, preview, {});
+    return delivered
+      ? {
+          success: true,
+          contentItems: [{ type: "text", text: `Sent ${fileName} to the current chat.` }],
+          structuredResult: { delivered: true, fileName },
+        }
+      : {
+          success: false,
+          errorCode: "AdapterToolCallFailed",
+          errorMessage: `Failed to send ${fileName}.`,
+        };
   }
 
   async onApprovalRequest(request: Record<string, unknown>): Promise<string> {

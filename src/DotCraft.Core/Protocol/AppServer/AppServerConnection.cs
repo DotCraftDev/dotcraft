@@ -66,6 +66,22 @@ public sealed class AppServerConnection
     public ChannelDeliveryCapabilities? DeliveryCapabilities { get; private set; }
 
     /// <summary>
+    /// Raw channel tool descriptors declared by the adapter during initialize.
+    /// Registration diagnostics are resolved separately after the connection is attached.
+    /// </summary>
+    public IReadOnlyList<ChannelToolDescriptor> DeclaredChannelTools { get; private set; } = [];
+
+    /// <summary>
+    /// Validated channel tool descriptors that are currently available for runtime injection.
+    /// </summary>
+    public IReadOnlyList<ChannelToolDescriptor> RegisteredChannelTools { get; private set; } = [];
+
+    /// <summary>
+    /// Diagnostics produced while validating or registering channel tool descriptors.
+    /// </summary>
+    public IReadOnlyList<ChannelToolRegistrationDiagnostic> ChannelToolDiagnostics { get; private set; } = [];
+
+    /// <summary>
     /// Whether the adapter supports <c>ext/channel/send</c>.
     /// </summary>
     public bool SupportsStructuredDelivery => DeliveryCapabilities?.StructuredDelivery == true;
@@ -117,10 +133,23 @@ public sealed class AppServerConnection
             ChannelAdapterName = ca.ChannelName;
             SupportsDelivery = ca.DeliverySupport != false;
             DeliveryCapabilities = ca.DeliveryCapabilities;
+            DeclaredChannelTools = ca.ChannelTools?.ToArray() ?? [];
+            RegisteredChannelTools = DeclaredChannelTools;
         }
 
         _isInitialized = true;
         return true;
+    }
+
+    /// <summary>
+    /// Replaces the registered channel tool snapshot and associated diagnostics after host-level validation.
+    /// </summary>
+    public void SetChannelToolRegistration(
+        IReadOnlyList<ChannelToolDescriptor>? registeredTools,
+        IReadOnlyList<ChannelToolRegistrationDiagnostic>? diagnostics)
+    {
+        RegisteredChannelTools = registeredTools?.ToArray() ?? [];
+        ChannelToolDiagnostics = diagnostics?.ToArray() ?? [];
     }
 
     /// <summary>
@@ -201,4 +230,13 @@ public sealed class AppServerConnection
             }
         }
     }
+}
+
+public sealed class ChannelToolRegistrationDiagnostic
+{
+    public string ToolName { get; init; } = string.Empty;
+
+    public string Code { get; init; } = string.Empty;
+
+    public string Message { get; init; } = string.Empty;
 }

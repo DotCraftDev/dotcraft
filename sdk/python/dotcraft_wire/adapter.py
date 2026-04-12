@@ -144,6 +144,18 @@ class ChannelAdapter(ABC):
         """Return channelAdapter.deliveryCapabilities for initialize, or None for text-only adapters."""
         return None
 
+    def get_channel_tools(self) -> list[dict] | None:
+        """Return channelAdapter.channelTools for initialize, or None when no tools are exposed."""
+        return None
+
+    async def on_tool_call(self, request: dict) -> dict:
+        """Handle ext/channel/toolCall for a declared channel tool."""
+        return {
+            "success": False,
+            "errorCode": "UnsupportedTool",
+            "errorMessage": "Adapter does not implement channel tool calls.",
+        }
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -162,6 +174,7 @@ class ChannelAdapter(ABC):
             channel_name=self._channel_name,
             delivery_support=True,
             delivery_capabilities=self.get_delivery_capabilities(),
+            channel_tools=self.get_channel_tools(),
         )
         self._running = True
 
@@ -173,6 +186,7 @@ class ChannelAdapter(ABC):
         )
         self._client._request_handlers["ext/channel/deliver"] = self._handle_deliver_request
         self._client._request_handlers["ext/channel/send"] = self._handle_send_request
+        self._client._request_handlers["ext/channel/toolCall"] = self._handle_tool_call_request
         self._client._request_handlers["ext/channel/heartbeat"] = self._handle_heartbeat
 
         logger.info(
@@ -520,6 +534,18 @@ class ChannelAdapter(ABC):
             return {
                 "delivered": False,
                 "errorCode": "AdapterDeliveryFailed",
+                "errorMessage": str(e),
+            }
+
+    async def _handle_tool_call_request(self, request_id, params: dict) -> dict:
+        """Route ext/channel/toolCall to the subclass."""
+        try:
+            return await self.on_tool_call(params or {})
+        except Exception as e:
+            logger.error("on_tool_call raised: %s", e)
+            return {
+                "success": False,
+                "errorCode": "AdapterToolCallFailed",
                 "errorMessage": str(e),
             }
 

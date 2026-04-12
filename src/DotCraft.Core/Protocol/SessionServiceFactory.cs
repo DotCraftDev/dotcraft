@@ -1,4 +1,5 @@
 using DotCraft.Agents;
+using DotCraft.Abstractions;
 using DotCraft.Hooks;
 using DotCraft.Security;
 using DotCraft.Sessions;
@@ -33,6 +34,7 @@ public static class SessionServiceFactory
             agent,
             sp.GetRequiredService<ThreadStore>(),
             sp.GetRequiredService<SessionGate>(),
+            sp.GetService<IExternalChannelToolProvider>(),
             sp.GetService<HookRunner>(),
             sp.GetService<TraceCollector>(),
             approvalTimeout,

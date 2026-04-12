@@ -74,6 +74,7 @@ export class DotCraftClient {
     channelName?: string | null;
     deliverySupport?: boolean;
     deliveryCapabilities?: Record<string, unknown> | null;
+    channelTools?: Record<string, unknown>[] | null;
   }): Promise<InitializeResult> {
     if (!this.readerPromise) await this.start();
 
@@ -91,6 +92,10 @@ export class DotCraftClient {
       if (opts.deliveryCapabilities) {
         (capabilities.channelAdapter as Record<string, unknown>).deliveryCapabilities =
           opts.deliveryCapabilities;
+      }
+      if (opts.channelTools?.length) {
+        (capabilities.channelAdapter as Record<string, unknown>).channelTools =
+          opts.channelTools;
       }
     }
 

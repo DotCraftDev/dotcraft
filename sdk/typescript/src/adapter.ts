@@ -83,6 +83,20 @@ export abstract class ChannelAdapter {
     return null;
   }
 
+  protected getChannelTools(): Record<string, unknown>[] | null {
+    return null;
+  }
+
+  protected async onToolCall(
+    _request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return {
+      success: false,
+      errorCode: "UnsupportedTool",
+      errorMessage: "Adapter does not implement channel tool calls.",
+    };
+  }
+
   protected async onTurnCompleted(
     threadId: string,
     turnId: string,
@@ -122,6 +136,7 @@ export abstract class ChannelAdapter {
       channelName: this.channelName,
       deliverySupport: true,
       deliveryCapabilities: this.getDeliveryCapabilities(),
+      channelTools: this.getChannelTools(),
     });
     this.running = true;
 
@@ -160,6 +175,18 @@ export abstract class ChannelAdapter {
         return {
           delivered: false,
           errorCode: "AdapterDeliveryFailed",
+          errorMessage: String(e),
+        };
+      }
+    });
+    this.client.registerServerRequestHandler("ext/channel/toolCall", async (_id, params) => {
+      try {
+        return await this.onToolCall((params as Record<string, unknown>) ?? {});
+      } catch (e) {
+        console.error("onToolCall raised:", e);
+        return {
+          success: false,
+          errorCode: "AdapterToolCallFailed",
           errorMessage: String(e),
         };
       }

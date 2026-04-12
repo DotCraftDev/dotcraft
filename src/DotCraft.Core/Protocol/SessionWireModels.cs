@@ -408,6 +408,7 @@ public static class SessionWireMapper
             ApprovalResponsePayload => "approvalResponse",
             ErrorPayload => "error",
             ToolCallPayload => "toolCall",
+            ExternalChannelToolCallPayload => "externalChannelToolCall",
             ToolResultPayload => "toolResult",
             UserMessagePayload => "userMessage",
             AgentMessagePayload => "agentMessage",

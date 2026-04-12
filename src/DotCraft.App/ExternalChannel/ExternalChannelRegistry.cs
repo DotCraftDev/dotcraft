@@ -38,6 +38,12 @@ public sealed class ExternalChannelRegistry
         => _hosts.ContainsKey(channelName);
 
     /// <summary>
+    /// Returns a point-in-time snapshot of all registered hosts.
+    /// </summary>
+    public IReadOnlyList<ExternalChannelHost> SnapshotHosts()
+        => _hosts.Values.ToArray();
+
+    /// <summary>
     /// Removes a channel from the registry (e.g. on shutdown).
     /// </summary>
     public bool Unregister(string channelName)
