@@ -21,7 +21,8 @@ There are two abstraction levels:
 - Full thread and turn lifecycle (`thread/start`, `thread/resume`, `turn/start`, `turn/interrupt`, …)
 - Streaming event dispatch (`item/agentMessage/delta`, `turn/completed`, …)
 - Bidirectional approval flow (`item/approval/request` ↔ JSON-RPC response)
-- Delivery requests from server (`ext/channel/deliver`)
+- Delivery requests from server (`ext/channel/deliver`, `ext/channel/send`)
+- Runtime channel tool calls from server (`ext/channel/toolCall`)
 - Automatic reconnection with exponential backoff (WebSocket mode)
 
 ## Installation
@@ -115,6 +116,58 @@ class MyAdapter(ChannelAdapter):
         """Called when DotCraft asks the adapter to send a message to the platform."""
         print(f"Deliver to {target}: {content}")
         return True
+
+    def get_delivery_capabilities(self) -> dict | None:
+        return {
+            "structuredDelivery": True,
+            "media": {
+                "file": {
+                    "supportsHostPath": True,
+                    "supportsUrl": True,
+                    "supportsBase64": True,
+                    "supportsCaption": True,
+                }
+            },
+        }
+
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict:
+        kind = str(message.get("kind", ""))
+        if kind == "text":
+            return await super().on_send(target, message, metadata)
+        if kind == "file":
+            return {"delivered": True}
+        return {
+            "delivered": False,
+            "errorCode": "UnsupportedDeliveryKind",
+            "errorMessage": f"Unsupported kind: {kind}",
+        }
+
+    def get_channel_tools(self) -> list[dict] | None:
+        return [
+            {
+                "name": "sendFileToCurrentChat",
+                "description": "Send a file to the current chat.",
+                "requiresChatContext": True,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "fileName": {"type": "string"},
+                    },
+                    "required": ["fileName"],
+                },
+            }
+        ]
+
+    async def on_tool_call(self, request: dict) -> dict:
+        return {
+            "success": True,
+            "contentItems": [
+                {
+                    "type": "text",
+                    "text": f"Sent {request['arguments']['fileName']}.",
+                }
+            ],
+        }
 
     async def on_approval_request(self, request: dict) -> str:
         """Called when the agent needs user approval. Return a decision string."""
@@ -256,7 +309,11 @@ class ChannelAdapter:
 
     # Override these:
     async def on_deliver(self, target: str, content: str, metadata: dict) -> bool: ...
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict: ...
     async def on_approval_request(self, request: dict) -> str: ...
+    def get_delivery_capabilities(self) -> dict | None: ...
+    def get_channel_tools(self) -> list[dict] | None: ...
+    async def on_tool_call(self, request: dict) -> dict: ...
 
     # Lifecycle:
     async def start(self): ...   # connect, initialize, start message loop
@@ -273,6 +330,14 @@ class ChannelAdapter:
     ) -> None: ...
     # Finds or creates the thread for this identity, serializes if a turn is running.
 ```
+
+`ChannelAdapter` handshake mapping:
+
+- `get_delivery_capabilities()` -> `initialize.capabilities.channelAdapter.deliveryCapabilities`
+- `get_channel_tools()` -> `initialize.capabilities.channelAdapter.channelTools`
+- `on_deliver()` -> `ext/channel/deliver`
+- `on_send()` -> `ext/channel/send`
+- `on_tool_call()` -> `ext/channel/toolCall`
 
 ## Configuration
 
@@ -298,6 +363,8 @@ Add an `ExternalChannels` section to DotCraft's `config.json`:
 ```
 
 DotCraft will spawn `python -m my_adapter`, communicate over stdin/stdout, and restart the process if it crashes.
+
+The `ExternalChannels` section only tells DotCraft how to launch or accept the adapter connection. Structured delivery capabilities and `channelTools` are declared by the adapter itself during `initialize`, not in `config.json`.
 
 ### WebSocket mode (adapter connects independently)
 

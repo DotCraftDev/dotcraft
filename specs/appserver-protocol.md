@@ -179,7 +179,22 @@ Client                              Server
             "allowedMimeTypes": ["application/pdf"]
           }
         }
-      }
+      },
+      "channelTools": [
+        {
+          "name": "telegramSendDocument",
+          "description": "Send a document to the current Telegram chat.",
+          "requiresChatContext": true,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fileName": { "type": "string" }
+            },
+            "required": ["fileName"]
+          },
+          "deferLoading": true
+        }
+      ]
     }
   }
 }
@@ -212,6 +227,7 @@ Client                              Server
 | `channelName` | string | Canonical external channel name (for example `telegram`, `feishu`). |
 | `deliverySupport` | boolean | Whether the adapter can receive legacy text `ext/channel/deliver` requests. Default `true`. |
 | `deliveryCapabilities` | object | Optional structured delivery capability descriptor. When omitted, the adapter is treated as text-only. |
+| `channelTools` | array | Optional channel tool descriptors declared by the adapter during `initialize`. |
 
 **`deliveryCapabilities` object**:
 
@@ -229,6 +245,18 @@ Each media capability entry supports:
 - `supportsUrl: boolean`
 - `supportsBase64: boolean`
 - `supportsCaption: boolean`
+
+Each `channelTools` descriptor supports:
+
+- `name: string`
+- `description: string`
+- `inputSchema: object`
+- `outputSchema?: object`
+- `display?: object`
+- `requiresChatContext: boolean`
+- `deferLoading?: boolean`
+
+`deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior in this milestone.
 
 **Result**:
 
@@ -911,6 +939,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
 | `reasoningContent` | Reasoning deltas stream through `item/reasoningContent/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. |
+| `externalChannelToolCall` | External channel tool payload uses camelCase fields such as `toolName`, `channelName`, `arguments`, `success`, `errorCode`, and `errorMessage`. |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
 | `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
@@ -1619,6 +1648,7 @@ Capability negotiation happens during `initialize` via `capabilities.channelAdap
 - `deliverySupport = true` means the adapter may receive legacy text `ext/channel/deliver`.
 - `deliveryCapabilities.structuredDelivery = true` means the adapter may receive `ext/channel/send`.
 - media entries under `deliveryCapabilities.media` describe which non-text `message.kind` values the adapter accepts and which source forms are allowed.
+- `channelTools` declares the channel-scoped tools that may be injected into matching-origin threads for the lifetime of the connection.
 
 #### 11.2.1 `ext/channel/deliver`
 
@@ -1726,6 +1756,63 @@ When `delivered` is `false`, `errorCode` should use a stable string when possibl
 - `MediaResolutionFailed`
 - `AdapterDeliveryFailed`
 - `AdapterProtocolViolation`
+
+#### 11.2.3 `ext/channel/toolCall`
+
+Structured runtime tool invocation for adapter-declared channel tools.
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_001",
+  "turnId": "turn_002",
+  "callId": "exttool_001",
+  "tool": "telegramSendDocument",
+  "arguments": {
+    "fileName": "report.pdf"
+  },
+  "context": {
+    "channelName": "telegram",
+    "channelContext": "-1001234567890",
+    "senderId": "user_42",
+    "groupId": "-1001234567890"
+  }
+}
+```
+
+**Result**:
+
+```json
+{
+  "success": true,
+  "contentItems": [
+    { "type": "text", "text": "Sent report.pdf to the current chat." }
+  ],
+  "structuredResult": {
+    "delivered": true,
+    "fileName": "report.pdf"
+  }
+}
+```
+
+When `success` is `false`, `errorCode` should use a stable string when possible. Standard protocol-level values:
+
+- `UnsupportedTool`
+- `MissingChatContext`
+- `InvalidArguments`
+- `AdapterToolCallFailed`
+- `AdapterProtocolViolation`
+- `ExternalChannelToolTimeout`
+
+Behavior rules:
+
+- The server must only call tools declared in `capabilities.channelAdapter.channelTools` during `initialize`.
+- A connected adapter's declared tool set is immutable for the lifetime of that connection.
+- If an adapter declares channel tools, it must handle `ext/channel/toolCall` requests for those tools.
+- Tool registration comes from the adapter's runtime handshake, not from static `ExternalChannels` config.
 
 ### 11.3 ACP Tool Proxy
 

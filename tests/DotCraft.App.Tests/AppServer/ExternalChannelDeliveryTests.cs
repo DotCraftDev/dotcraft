@@ -130,6 +130,40 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
+    public async Task ExternalChannelMessageDispatcher_RejectsUrlSource_WhenMaxBytesCannotBeValidated()
+    {
+        var store = new FileSystemChannelMediaArtifactStore(_tempDir);
+        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
+        var transport = new StubTransport();
+        var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: new ChannelMediaConstraints
+        {
+            SupportsUrl = true,
+            MaxBytes = 1024
+        });
+
+        var result = await dispatcher.DeliverAsync(
+            transport,
+            connection,
+            "telegram",
+            "group:1",
+            new ChannelOutboundMessage
+            {
+                Kind = "file",
+                Source = new ChannelMediaSource
+                {
+                    Kind = "url",
+                    Url = "https://example.com/file.pdf"
+                }
+            },
+            metadata: null);
+
+        Assert.False(result.Delivered);
+        Assert.Equal("MediaResolutionFailed", result.ErrorCode);
+        Assert.Null(transport.LastMethod);
+    }
+
+    [Fact]
     public async Task ExternalChannelMessageDispatcher_CleansUpTemporaryBase64Artifact()
     {
         var mediaRoot = Path.Combine(_tempDir, "media");
@@ -188,6 +222,89 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.False(result.Delivered);
         Assert.Equal("AdapterDeliveryFailed", result.ErrorCode);
         Assert.Equal("legacy failed", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ExternalChannelMessageDispatcher_TextOnlyAdapter_UsesLegacyDeliver()
+    {
+        var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
+        var store = new FileSystemChannelMediaArtifactStore(_tempDir);
+        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
+        var connection = CreateAdapterConnection(structuredDelivery: false, fileConstraints: null, supportsDelivery: true);
+
+        var result = await dispatcher.DeliverAsync(
+            transport,
+            connection,
+            "telegram",
+            "group:1",
+            new ChannelOutboundMessage
+            {
+                Kind = "text",
+                Text = "hello"
+            },
+            metadata: null);
+
+        Assert.True(result.Delivered);
+        Assert.Equal(AppServerMethods.ExtChannelDeliver, transport.LastMethod);
+    }
+
+    [Fact]
+    public async Task ExternalChannelMessageDispatcher_StructuredAdapter_UsesSendForText()
+    {
+        var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
+        var store = new FileSystemChannelMediaArtifactStore(_tempDir);
+        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
+        var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: new ChannelMediaConstraints
+        {
+            SupportsBase64 = true
+        });
+
+        var result = await dispatcher.DeliverAsync(
+            transport,
+            connection,
+            "telegram",
+            "group:1",
+            new ChannelOutboundMessage
+            {
+                Kind = "text",
+                Text = "hello"
+            },
+            metadata: null);
+
+        Assert.True(result.Delivered);
+        Assert.Equal(AppServerMethods.ExtChannelSend, transport.LastMethod);
+    }
+
+    [Fact]
+    public async Task ExternalChannelMessageDispatcher_RejectsUnsupportedMediaKind_BeforeDispatch()
+    {
+        var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
+        var store = new FileSystemChannelMediaArtifactStore(_tempDir);
+        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
+        var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: null);
+
+        var result = await dispatcher.DeliverAsync(
+            transport,
+            connection,
+            "telegram",
+            "group:1",
+            new ChannelOutboundMessage
+            {
+                Kind = "audio",
+                Source = new ChannelMediaSource
+                {
+                    Kind = "url",
+                    Url = "https://example.com/voice.mp3"
+                }
+            },
+            metadata: null);
+
+        Assert.False(result.Delivered);
+        Assert.Equal("UnsupportedDeliveryKind", result.ErrorCode);
+        Assert.Null(transport.LastMethod);
     }
 
     [Fact]
@@ -282,6 +399,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             Status = TurnStatus.Running,
             StartedAt = DateTimeOffset.UtcNow
         };
+        var lifecycle = new List<string>();
         using var scope = ExternalChannelToolExecutionScope.Set(
             new ExternalChannelToolExecutionContext
             {
@@ -293,8 +411,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 GroupId = "chat_123",
                 Turn = turn,
                 NextItemSequence = () => turn.Items.Count + 1,
-                EmitItemStarted = _ => { },
-                EmitItemCompleted = _ => { }
+                EmitItemStarted = _ => lifecycle.Add("started"),
+                EmitItemCompleted = _ => lifecycle.Add("completed")
             });
 
         var result = await fn.InvokeAsync(
@@ -311,6 +429,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.Equal("user_42", toolParams.Context.SenderId);
         Assert.Single(turn.Items);
         Assert.Equal(ItemType.ExternalChannelToolCall, turn.Items[0].Type);
+        Assert.Equal(["started", "completed"], lifecycle);
         Assert.NotNull(result);
     }
 
@@ -452,6 +571,83 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.Null(transport.LastMethod);
         var resultText = Assert.IsType<string>(result);
         Assert.Contains("MissingChatContext", resultText);
+        Assert.Single(turn.Items);
+        Assert.Equal(ItemStatus.Completed, turn.Items[0].Status);
+        Assert.False(turn.Items[0].AsExternalChannelToolCall?.Success);
+    }
+
+    [Fact]
+    public async Task ExternalChannelToolProvider_TimeoutYieldsFailedItem()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        var transport = new StubTransport(exception: new OperationCanceledException("tool timeout"));
+        AttachFakeAdapter(host, transport, CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "telegramSendDocument",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        var fn = Assert.IsAssignableFrom<AIFunction>(Assert.Single(provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_030",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                ChannelContext = "chat_123",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal))));
+        var turn = new SessionTurn
+        {
+            Id = "turn_030",
+            ThreadId = "thread_030",
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        using var scope = ExternalChannelToolExecutionScope.Set(
+            new ExternalChannelToolExecutionContext
+            {
+                ThreadId = "thread_030",
+                TurnId = "turn_030",
+                OriginChannel = "telegram",
+                ChannelContext = "chat_123",
+                GroupId = "chat_123",
+                Turn = turn,
+                NextItemSequence = () => turn.Items.Count + 1,
+                EmitItemStarted = _ => { },
+                EmitItemCompleted = _ => { }
+            });
+
+        var result = await fn.InvokeAsync(
+            new AIFunctionArguments(new Dictionary<string, object?>
+            {
+                ["fileName"] = "report.pdf"
+            }),
+            CancellationToken.None);
+
+        var resultText = Assert.IsType<string>(result);
+        Assert.Contains("ExternalChannelToolTimeout", resultText);
+        Assert.Single(turn.Items);
+        var payload = Assert.IsType<ExternalChannelToolCallPayload>(turn.Items[0].Payload);
+        Assert.False(payload.Success);
+        Assert.Equal("ExternalChannelToolTimeout", payload.ErrorCode);
     }
 
     private static AppServerConnection CreateAdapterConnection(
@@ -531,9 +727,10 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             .SetValue(host, connection);
     }
 
-    private sealed class StubTransport(object? result = null) : IAppServerTransport
+    private sealed class StubTransport(object? result = null, Exception? exception = null) : IAppServerTransport
     {
         private readonly object? _result = result;
+        private readonly Exception? _exception = exception;
 
         public string? LastMethod { get; private set; }
 
@@ -548,6 +745,8 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         {
             LastMethod = method;
             LastParams = @params;
+            if (_exception != null)
+                return Task.FromException<AppServerIncomingMessage>(_exception);
             var payload = _result ?? new ExtChannelSendResult { Delivered = true };
             var json = JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 1, result = payload }, SessionWireJsonOptions.Default);
             var msg = JsonSerializer.Deserialize<AppServerIncomingMessage>(json, new JsonSerializerOptions

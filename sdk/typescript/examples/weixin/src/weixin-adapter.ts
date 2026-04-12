@@ -142,6 +142,117 @@ export class WeixinAdapter extends ChannelAdapter {
     }
   }
 
+  protected override getDeliveryCapabilities(): Record<string, unknown> | null {
+    return {
+      structuredDelivery: true,
+      media: {
+        file: {
+          supportsHostPath: false,
+          supportsUrl: false,
+          supportsBase64: true,
+          supportsCaption: true,
+          allowedMimeTypes: ["text/plain", "application/pdf"],
+        },
+      },
+    };
+  }
+
+  protected override getChannelTools(): Record<string, unknown>[] | null {
+    return [
+      {
+        name: "weixinSendFilePreviewToCurrentChat",
+        description: "Send a file-style preview message to the current Weixin chat.",
+        requiresChatContext: true,
+        inputSchema: {
+          type: "object",
+          properties: {
+            fileName: { type: "string" },
+            caption: { type: "string" },
+          },
+          required: ["fileName"],
+        },
+      },
+    ];
+  }
+
+  protected override async onSend(
+    target: string,
+    message: Record<string, unknown>,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const kind = String(message.kind ?? "");
+    if (kind === "text") {
+      return await super.onSend(target, message, metadata);
+    }
+
+    if (kind !== "file") {
+      return {
+        delivered: false,
+        errorCode: "UnsupportedDeliveryKind",
+        errorMessage: `Weixin example does not implement structured '${kind}' delivery.`,
+      };
+    }
+
+    const fileName = String(message.fileName ?? "attachment");
+    const caption = String(message.caption ?? "");
+    const preview = caption
+      ? `[structured:file] ${fileName}\n${caption}`
+      : `[structured:file] ${fileName}`;
+    const delivered = await this.onDeliver(target, preview, metadata);
+    return delivered
+      ? { delivered: true }
+      : {
+          delivered: false,
+          errorCode: "AdapterDeliveryFailed",
+          errorMessage: `Failed to deliver structured preview for ${fileName}.`,
+        };
+  }
+
+  protected override async onToolCall(
+    request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const tool = String(request.tool ?? "");
+    if (tool !== "weixinSendFilePreviewToCurrentChat") {
+      return {
+        success: false,
+        errorCode: "UnsupportedTool",
+        errorMessage: `Unknown tool '${tool}'.`,
+      };
+    }
+
+    const args = (request.arguments as Record<string, unknown>) ?? {};
+    const context = (request.context as Record<string, unknown>) ?? {};
+    const target = String(context.channelContext ?? context.groupId ?? "");
+    if (!target) {
+      return {
+        success: false,
+        errorCode: "MissingChatContext",
+        errorMessage: "Current tool call does not contain a Weixin chat target.",
+      };
+    }
+
+    const fileName = String(args.fileName ?? "attachment");
+    const caption = String(args.caption ?? "");
+    const preview = caption ? `[tool:file] ${fileName}\n${caption}` : `[tool:file] ${fileName}`;
+    const delivered = await this.onDeliver(target, preview, {});
+    return delivered
+      ? {
+          success: true,
+          contentItems: [
+            {
+              type: "text",
+              text: `Sent a file preview for ${fileName} to the current Weixin chat.`,
+            },
+          ],
+          structuredResult: { delivered: true, fileName },
+        }
+      : {
+          success: false,
+          errorCode: "AdapterToolCallFailed",
+          errorMessage: `Failed to send preview for ${fileName}.`,
+        };
+  }
+
   async onApprovalRequest(request: Record<string, unknown>): Promise<string> {
     const threadId = String(request.threadId ?? "");
     const approvalType = String(request.approvalType ?? "");

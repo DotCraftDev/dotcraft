@@ -13,6 +13,8 @@ Maps each Telegram chat to a DotCraft thread. Supports:
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import os
 import re
@@ -122,20 +124,146 @@ class TelegramAdapter(ChannelAdapter):
         if not self._app:
             logger.warning("Telegram bot not running; cannot deliver to %s", target)
             return False
-        # target is stored as "chat_id" (numeric string) or "group:<id>"
-        chat_id_str = target.removeprefix("group:").removeprefix("user:")
-        try:
-            chat_id = int(chat_id_str)
-        except ValueError:
+        chat_id = self._parse_target_chat_id(target)
+        if chat_id is None:
             logger.error("Invalid delivery target: %s", target)
             return False
 
         # Stop typing indicator when delivering any message (including slash-command
         # replies, which bypass on_turn_completed).
-        self._stop_typing(chat_id_str)
+        self._stop_typing(str(chat_id))
 
         await self._send_text(chat_id, content)
         return True
+
+    def get_delivery_capabilities(self) -> dict | None:
+        return {
+            "structuredDelivery": True,
+            "media": {
+                "file": {
+                    "supportsHostPath": True,
+                    "supportsUrl": True,
+                    "supportsBase64": True,
+                    "supportsCaption": True,
+                }
+            },
+        }
+
+    def get_channel_tools(self) -> list[dict] | None:
+        return [
+            {
+                "name": "telegramSendDocumentToCurrentChat",
+                "description": "Create a text document and send it to the current Telegram chat.",
+                "requiresChatContext": True,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "fileName": {"type": "string"},
+                        "contentText": {"type": "string"},
+                        "caption": {"type": "string"},
+                    },
+                    "required": ["fileName", "contentText"],
+                },
+            }
+        ]
+
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict:
+        kind = str(message.get("kind", ""))
+        if kind == "text":
+            return await super().on_send(target, message, metadata)
+
+        if kind != "file":
+            return {
+                "delivered": False,
+                "errorCode": "UnsupportedDeliveryKind",
+                "errorMessage": f"Telegram example does not implement structured '{kind}' delivery.",
+            }
+
+        chat_id = self._parse_target_chat_id(target)
+        if chat_id is None:
+            return {
+                "delivered": False,
+                "errorCode": "AdapterDeliveryFailed",
+                "errorMessage": f"Invalid Telegram target '{target}'.",
+            }
+
+        source = message.get("source") or {}
+        caption = str(message.get("caption", ""))
+        file_name = str(message.get("fileName", "attachment"))
+        try:
+            remote_message = await self._send_document_from_message(
+                chat_id=chat_id,
+                message=message,
+                source=source,
+                file_name=file_name,
+                caption=caption,
+            )
+            return {
+                "delivered": True,
+                "remoteMessageId": str(getattr(remote_message, "message_id", "")),
+            }
+        except Exception as exc:
+            logger.error("Structured file delivery failed: %s", exc)
+            return {
+                "delivered": False,
+                "errorCode": "AdapterDeliveryFailed",
+                "errorMessage": str(exc),
+            }
+
+    async def on_tool_call(self, request: dict) -> dict:
+        tool = str(request.get("tool", ""))
+        if tool != "telegramSendDocumentToCurrentChat":
+            return {
+                "success": False,
+                "errorCode": "UnsupportedTool",
+                "errorMessage": f"Unknown tool '{tool}'.",
+            }
+
+        args = request.get("arguments") or {}
+        context = request.get("context") or {}
+        target = str(context.get("channelContext") or context.get("groupId") or "")
+        chat_id = self._parse_target_chat_id(target)
+        if chat_id is None:
+            return {
+                "success": False,
+                "errorCode": "MissingChatContext",
+                "errorMessage": "Current tool call does not contain a Telegram chat target.",
+            }
+
+        file_name = str(args.get("fileName") or "note.txt")
+        content_text = str(args.get("contentText") or "")
+        caption = str(args.get("caption") or "")
+        buffer = io.BytesIO(content_text.encode("utf-8"))
+        buffer.name = file_name
+
+        try:
+            message = await self._app.bot.send_document(
+                chat_id=chat_id,
+                document=buffer,
+                caption=caption or None,
+                filename=file_name,
+            )
+            return {
+                "success": True,
+                "contentItems": [
+                    {
+                        "type": "text",
+                        "text": f"Sent {file_name} to the current Telegram chat.",
+                    }
+                ],
+                "structuredResult": {
+                    "delivered": True,
+                    "fileName": file_name,
+                    "messageId": str(message.message_id),
+                },
+            }
+        except Exception as exc:
+            logger.error("Tool document send failed: %s", exc)
+            return {
+                "success": False,
+                "errorCode": "AdapterToolCallFailed",
+                "errorMessage": str(exc),
+            }
 
     async def on_approval_request(self, request: dict) -> str:
         """Present an inline keyboard approval prompt in the Telegram chat."""
@@ -448,8 +576,57 @@ class TelegramAdapter(ChannelAdapter):
                 # channel_context is the chat_id string
                 parts = identity_key.split(":", 1)
                 if len(parts) == 2:
-                    try:
-                        return int(parts[1])
-                    except ValueError:
-                        pass
+                    return self._parse_target_chat_id(parts[1])
         return None
+
+    def _parse_target_chat_id(self, target: str) -> int | None:
+        chat_id_str = str(target).removeprefix("group:").removeprefix("user:")
+        try:
+            return int(chat_id_str)
+        except ValueError:
+            return None
+
+    async def _send_document_from_message(
+        self,
+        chat_id: int,
+        message: dict,
+        source: dict,
+        file_name: str,
+        caption: str,
+    ):
+        if not self._app:
+            raise RuntimeError("Telegram bot not running.")
+
+        source_kind = str(source.get("kind", ""))
+        if source_kind == "hostPath":
+            host_path = str(source.get("hostPath", ""))
+            with open(host_path, "rb") as handle:
+                return await self._app.bot.send_document(
+                    chat_id=chat_id,
+                    document=handle,
+                    caption=caption or None,
+                    filename=file_name,
+                )
+
+        if source_kind == "url":
+            return await self._app.bot.send_document(
+                chat_id=chat_id,
+                document=str(source.get("url", "")),
+                caption=caption or None,
+                filename=file_name,
+            )
+
+        if source_kind == "dataBase64":
+            raw = base64.b64decode(str(source.get("dataBase64", "")))
+            buffer = io.BytesIO(raw)
+            buffer.name = file_name
+            return await self._app.bot.send_document(
+                chat_id=chat_id,
+                document=buffer,
+                caption=caption or None,
+                filename=file_name,
+            )
+
+        raise ValueError(
+            f"Telegram example cannot send file source kind '{source_kind}'."
+        )

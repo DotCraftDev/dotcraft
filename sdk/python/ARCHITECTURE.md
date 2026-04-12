@@ -67,18 +67,36 @@ Adapter                              DotCraft (AppServer)
 **External channel adapter extensions** (from [specs/external-channel-adapter.md](../../specs/external-channel-adapter.md)):
 
 - The `initialize` request includes a `channelAdapter` capability object:
+- The `initialize` request includes a `channelAdapter` capability object:
   ```json
   {
     "capabilities": {
       "channelAdapter": {
         "channelName": "telegram",
-        "deliverySupport": true
+        "deliverySupport": true,
+        "deliveryCapabilities": {
+          "structuredDelivery": true
+        },
+        "channelTools": [
+          {
+            "name": "telegramSendDocument",
+            "description": "Send a document to the current Telegram chat.",
+            "requiresChatContext": true,
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "fileName": { "type": "string" }
+              },
+              "required": ["fileName"]
+            }
+          }
+        ]
       }
     }
   }
   ```
 - The server routes the connection to `ExternalChannelHost` instead of a regular session client.
-- `ext/channel/deliver` and `ext/channel/heartbeat` are server-to-adapter requests (the server sends them, the adapter must respond).
+- `ext/channel/deliver`, `ext/channel/send`, `ext/channel/toolCall`, and `ext/channel/heartbeat` are server-to-adapter requests (the server sends them, the adapter must respond).
 
 ---
 
@@ -157,7 +175,7 @@ Registered with `client.on(method, callback)`. Multiple handlers can be register
 
 ### Server-initiated requests
 
-`item/approval/request` and `ext/channel/deliver` are JSON-RPC requests sent by the *server* to the *adapter*. They have both `id` and `method`. The reader loop detects these, calls the appropriate registered handler, and sends back the JSON-RPC response.
+`item/approval/request`, `ext/channel/deliver`, `ext/channel/send`, and `ext/channel/toolCall` are JSON-RPC requests sent by the *server* to the *adapter*. They have both `id` and `method`. The reader loop detects these, calls the appropriate registered handler, and sends back the JSON-RPC response.
 
 ```python
 # Server sends:
@@ -203,7 +221,21 @@ Platform Events                 ChannelAdapter                DotCraftClient
       │                               │◄── ext/channel/deliver ──────│
       │                     on_deliver called                         │
       │◄── send message ──────────────│                              │
+      │                               │◄── ext/channel/send ─────────│
+      │                     on_send called                            │
+      │◄── send structured payload ───│                              │
+      │                               │◄── ext/channel/toolCall ─────│
+      │                   on_tool_call called                         │
+      │◄── perform channel action ────│                              │
 ```
+
+Handshake-to-hook mapping:
+
+- `get_delivery_capabilities()` populates `initialize.capabilities.channelAdapter.deliveryCapabilities`
+- `get_channel_tools()` populates `initialize.capabilities.channelAdapter.channelTools`
+- `on_deliver()` handles `ext/channel/deliver`
+- `on_send()` handles `ext/channel/send`
+- `on_tool_call()` handles `ext/channel/toolCall`
 
 ### Thread-per-identity mapping
 

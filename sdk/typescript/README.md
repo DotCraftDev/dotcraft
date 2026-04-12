@@ -20,21 +20,139 @@ In another package:
 }
 ```
 
-## Quick start (WebSocket external channel)
+## What You Get
+
+- Raw `DotCraftClient` access for the full wire protocol
+- `ChannelAdapter` base class for external channel adapters
+- Approval handling via `item/approval/request`
+- Structured delivery via `ext/channel/send`
+- Runtime channel tools via `ext/channel/toolCall`
+
+## Quick Start
+
+### WebSocket external channel
 
 ```typescript
 import { ChannelAdapter, WebSocketTransport } from "dotcraft-wire";
 
-const transport = new WebSocketTransport({
-  url: "ws://127.0.0.1:9100/ws",
-  token: "",
-});
+class MyAdapter extends ChannelAdapter {
+  constructor() {
+    super(
+      new WebSocketTransport({
+        url: "ws://127.0.0.1:9100/ws",
+        token: "",
+      }),
+      "my-channel",
+      "my-adapter",
+      "1.0.0",
+    );
+  }
+
+  async onDeliver(target: string, content: string): Promise<boolean> {
+    console.log(`Deliver to ${target}: ${content}`);
+    return true;
+  }
+
+  protected override getDeliveryCapabilities(): Record<string, unknown> | null {
+    return {
+      structuredDelivery: true,
+      media: {
+        file: {
+          supportsHostPath: true,
+          supportsUrl: true,
+          supportsBase64: true,
+          supportsCaption: true,
+        },
+      },
+    };
+  }
+
+  protected override async onSend(
+    target: string,
+    message: Record<string, unknown>,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const kind = String(message.kind ?? "");
+    if (kind === "text") {
+      return await super.onSend(target, message, metadata);
+    }
+    if (kind === "file") {
+      return { delivered: true };
+    }
+    return {
+      delivered: false,
+      errorCode: "UnsupportedDeliveryKind",
+      errorMessage: `Unsupported kind: ${kind}`,
+    };
+  }
+
+  protected override getChannelTools(): Record<string, unknown>[] | null {
+    return [
+      {
+        name: "sendFileToCurrentChat",
+        description: "Send a file to the current chat.",
+        requiresChatContext: true,
+        inputSchema: {
+          type: "object",
+          properties: {
+            fileName: { type: "string" },
+          },
+          required: ["fileName"],
+        },
+      },
+    ];
+  }
+
+  protected override async onToolCall(
+    request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const args = (request.arguments as Record<string, unknown>) ?? {};
+    return {
+      success: true,
+      contentItems: [
+        {
+          type: "text",
+          text: `Sent ${String(args.fileName ?? "file")}.`,
+        },
+      ],
+    };
+  }
+
+  async onApprovalRequest(): Promise<string> {
+    return "accept";
+  }
+}
 ```
 
-See:
+## `ChannelAdapter` Hook Mapping
 
-- `examples/weixin/` for a full WeChat adapter
-- `examples/feishu/` for a full Feishu/Lark adapter
+- `getDeliveryCapabilities()` -> `initialize.capabilities.channelAdapter.deliveryCapabilities`
+- `getChannelTools()` -> `initialize.capabilities.channelAdapter.channelTools`
+- `onDeliver()` -> `ext/channel/deliver`
+- `onSend()` -> `ext/channel/send`
+- `onToolCall()` -> `ext/channel/toolCall`
+
+`channelTools` are runtime declarations sent by the adapter during `initialize`. They are not configured statically in DotCraft's `ExternalChannels` config.
+
+## DotCraft Config
+
+```json
+{
+  "ExternalChannels": {
+    "my-channel": {
+      "enabled": true,
+      "transport": "websocket"
+    }
+  }
+}
+```
+
+`ExternalChannels` only tells DotCraft how to start or accept the adapter connection. Structured delivery capabilities and channel tool descriptors come from the adapter's handshake.
+
+## Examples
+
+- `examples/weixin/` for a Weixin adapter
+- `examples/feishu/` for a Feishu/Lark adapter with structured delivery and channel tools
 
 ## License
 

@@ -544,6 +544,14 @@ internal sealed class ExternalChannelMessageDispatcher(
 
     private static ExtChannelSendResult? ValidateArtifactAgainstConstraints(ChannelMediaArtifact artifact, ChannelMediaConstraints constraints)
     {
+        if (string.Equals(artifact.SourceKind, "url", StringComparison.OrdinalIgnoreCase)
+            && constraints.MaxBytes is > 0)
+        {
+            return Failure(
+                "MediaResolutionFailed",
+                "Remote URL media cannot be validated against maxBytes in this milestone.");
+        }
+
         if (constraints.MaxBytes is > 0 && artifact.ByteLength > constraints.MaxBytes.Value)
         {
             return Failure("MediaTooLarge", $"Media exceeds maxBytes limit ({constraints.MaxBytes.Value}).");
