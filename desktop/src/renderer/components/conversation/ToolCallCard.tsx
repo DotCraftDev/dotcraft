@@ -28,6 +28,14 @@ const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles', 'ListDirect
 const FILE_WRITE_TOOLS = new Set(['WriteFile', 'EditFile'])
 const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
 
+function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
+  if (!isShellTool) return false
+  if (item.executionStatus != null) {
+    return item.executionStatus === 'inProgress'
+  }
+  return item.status !== 'completed'
+}
+
 function getCollapsedLabel(
   toolName: string,
   args: Record<string, unknown> | undefined,
@@ -70,7 +78,8 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
   const isShellTool = SHELL_TOOLS.has(toolName)
-  const isRunning = item.status !== 'completed'
+  const shellExecutionRunning = isShellExecutionRunning(item, isShellTool)
+  const isRunning = isShellTool ? shellExecutionRunning : item.status !== 'completed'
   const shellOutput = item.aggregatedOutput ?? item.result ?? ''
   const shellFailed = item.executionStatus === 'failed'
     || item.executionStatus === 'cancelled'

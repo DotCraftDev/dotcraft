@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ToolCallCard } from '../components/conversation/ToolCallCard'
@@ -42,5 +42,28 @@ describe('ToolCallCard shell rendering', () => {
     fireEvent.click(screen.getByRole('button'))
 
     expect(screen.getByText((content) => content.includes('line 1'))).toBeInTheDocument()
+  })
+
+  it('keeps showing the running timer for Exec after the toolCall item is completed but command execution is still in progress', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-13T10:00:01.500Z'))
+
+    const item: ConversationItem = {
+      id: 'tool-2',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'Exec',
+      toolCallId: 'exec-2',
+      arguments: { command: 'ping -n 10 8.8.8.8' },
+      executionStatus: 'inProgress',
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('1.5s')).toBeInTheDocument()
+    expect(screen.queryByText('Calling')).toBeInTheDocument()
+
+    vi.useRealTimers()
   })
 })
