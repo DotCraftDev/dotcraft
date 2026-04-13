@@ -119,6 +119,30 @@ describe('turn lifecycle', () => {
     expect(item?.duration).toBe(1500)
   })
 
+  it('maps commandExecution executionStatus from payload.status, not wire item lifecycle status', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-wire',
+        type: 'commandExecution',
+        status: 'started',
+        payload: {
+          callId: 'exec-wire',
+          command: 'ping',
+          workingDirectory: 'C:/repo',
+          source: 'host',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+
+    const cmd = s().turns[0].items.find((i) => i.id === 'cmd-wire')
+    expect(cmd?.type).toBe('commandExecution')
+    expect(cmd?.executionStatus).toBe('inProgress')
+  })
+
   it('mirrors command execution output onto the matching Exec toolCall item', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({
@@ -151,6 +175,42 @@ describe('turn lifecycle', () => {
     const toolItem = s().turns[0].items.find((i) => i.id === 'tool-1')
     expect(toolItem?.type).toBe('toolCall')
     expect(toolItem?.aggregatedOutput).toBe('chunk\n')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+  })
+
+  it('mirrors command execution onto matching RunCommand toolCall (not only Exec)', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-rc',
+        type: 'toolCall',
+        payload: {
+          callId: 'run-1',
+          toolName: 'RunCommand',
+          arguments: { command: 'echo hi' }
+        }
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-rc',
+        type: 'commandExecution',
+        payload: {
+          callId: 'run-1',
+          command: 'echo hi',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+    s().onCommandExecutionDelta({ turnId: 'turn-1', itemId: 'cmd-rc', delta: 'out\n' })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool-rc')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.toolName).toBe('RunCommand')
+    expect(toolItem?.aggregatedOutput).toBe('out\n')
     expect(toolItem?.executionStatus).toBe('inProgress')
   })
 

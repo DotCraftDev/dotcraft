@@ -18,6 +18,7 @@ import {
   isWebToolName
 } from '../../utils/webToolDisplay'
 import { InlineDiffView } from './InlineDiffView'
+import { isShellToolName } from '../../utils/shellTools'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -26,14 +27,19 @@ interface ToolCallCardProps {
 
 const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles', 'ListDirectory'])
 const FILE_WRITE_TOOLS = new Set(['WriteFile', 'EditFile'])
-const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
-
 function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
   if (!isShellTool) return false
   if (item.executionStatus != null) {
-    return item.executionStatus === 'inProgress'
+    if (item.executionStatus === 'inProgress') return true
+    // Legacy: wire item lifecycle "started" was mistakenly stored as executionStatus
+    if (String(item.executionStatus) === 'started') return true
+    return false
   }
-  return item.status !== 'completed'
+  if (item.status !== 'completed') return true
+  // ToolCall item/completed marks invocation done before the shell finishes; keep the live
+  // timer until toolResult merges (result + success), or until executionStatus is merged.
+  const toolResultPending = item.result === undefined && item.success === undefined
+  return toolResultPending
 }
 
 function getCollapsedLabel(
@@ -55,7 +61,7 @@ function getCollapsedLabel(
       ? translate(locale, 'toolCall.edited', { filename })
       : translate(locale, 'toolCall.editedFile')
   }
-  if (SHELL_TOOLS.has(toolName)) {
+  if (isShellToolName(toolName)) {
     const cmd = (args?.command as string | undefined) ?? toolName
     const short = cmd.length > 40 ? cmd.slice(0, 40) + '…' : cmd
     return translate(locale, 'toolCall.ran', { cmd: short })
@@ -77,7 +83,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
-  const isShellTool = SHELL_TOOLS.has(toolName)
+  const isShellTool = isShellToolName(toolName)
   const shellExecutionRunning = isShellExecutionRunning(item, isShellTool)
   const isRunning = isShellTool ? shellExecutionRunning : item.status !== 'completed'
   const shellOutput = item.aggregatedOutput ?? item.result ?? ''
@@ -139,7 +145,11 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
         >
           <Spinner />
           <span style={{ flex: 1 }}>
-            {toolName === CRON_TOOL_NAME ? (
+            {isShellTool ? (
+              <span style={{ color: 'var(--text-primary)' }}>
+                {getCollapsedLabel(toolName, args, locale)}
+              </span>
+            ) : toolName === CRON_TOOL_NAME ? (
               <span style={{ color: 'var(--text-primary)' }}>
                 {formatCronRunningLabel(args, locale)}
               </span>
@@ -318,7 +328,7 @@ function ExpandedContent({
     }
   }
 
-  if (SHELL_TOOLS.has(toolName)) {
+  if (isShellToolName(toolName)) {
     const command = (args?.command as string | undefined) ?? toolName
     const output = result ?? ''
     const outputLines = output.split('\n')

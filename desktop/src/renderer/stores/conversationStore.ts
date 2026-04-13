@@ -8,6 +8,7 @@ import type {
   ApprovalState
 } from '../types/conversation'
 import { wireTurnToConversationTurn } from '../types/conversation'
+import { isShellToolName } from '../utils/shellTools'
 import type { FileDiff, SubAgentEntry } from '../types/toolCall'
 import {
   mergeFileDiffIncrement,
@@ -216,7 +217,7 @@ function mergeCommandExecutionIntoToolCall(
   commandExecution: Partial<ConversationItem>
 ): ConversationItem {
   if (item.type !== 'toolCall') return item
-  if ((item.toolName ?? '') !== 'Exec') return item
+  if (!isShellToolName(item.toolName)) return item
   if (!commandExecution.toolCallId || item.toolCallId !== commandExecution.toolCallId) return item
 
   return {
@@ -564,8 +565,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           ?? '',
         exitCode: (item?.exitCode as number | null | undefined)
           ?? (itemPayload.exitCode as number | null | undefined),
-        executionStatus: (item?.status as ConversationItem['executionStatus'] | undefined)
-          ?? (itemPayload.status as ConversationItem['executionStatus'] | undefined)
+        // Wire item.status is item lifecycle (started/completed), not shell execution state.
+        // Prefer payload.status (inProgress/completed/failed/cancelled).
+        executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined)
           ?? 'inProgress',
         toolCallId: (item?.callId as string | undefined)
           ?? (itemPayload.callId as string | undefined),
@@ -798,8 +800,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                       exitCode: (item?.exitCode as number | null | undefined)
                         ?? (itemPayload.exitCode as number | null | undefined)
                         ?? i.exitCode,
-                      executionStatus: (item?.status as ConversationItem['executionStatus'] | undefined)
-                        ?? (itemPayload.status as ConversationItem['executionStatus'] | undefined)
+                      executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined)
                         ?? i.executionStatus
                         ?? 'completed',
                       toolCallId: (item?.callId as string | undefined)

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ConversationTurn, ConversationItem, TurnStatus } from '../types/conversation'
 import { wireTurnToConversationTurn } from '../types/conversation'
+import { isShellToolName } from '../utils/shellTools'
 import type { AutomationTask } from './automationsStore'
 import { useAutomationsStore } from './automationsStore'
 import type { SubAgentEntry } from '../types/toolCall'
@@ -17,7 +18,7 @@ function mergeCommandExecutionIntoToolCall(
   commandExecution: Partial<ConversationItem>
 ): ConversationItem {
   if (item.type !== 'toolCall') return item
-  if ((item.toolName ?? '') !== 'Exec') return item
+  if (!isShellToolName(item.toolName)) return item
   if (!commandExecution.toolCallId || item.toolCallId !== commandExecution.toolCallId) return item
 
   return {
@@ -393,6 +394,7 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
           ?? '',
         exitCode: (item?.exitCode as number | null | undefined)
           ?? (itemPayload.exitCode as number | null | undefined),
+        // Same as main conversationStore: wire item.status is lifecycle; execution state is payload.status.
         executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined) ?? 'inProgress',
         toolCallId: (item?.callId as string | undefined)
           ?? (itemPayload.callId as string | undefined),
@@ -621,6 +623,7 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
                       exitCode: (item?.exitCode as number | null | undefined)
                         ?? (itemPayload.exitCode as number | null | undefined)
                         ?? i.exitCode,
+                      // Prefer payload execution status; do not use wire item.status here.
                       executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined)
                         ?? i.executionStatus
                         ?? 'completed',

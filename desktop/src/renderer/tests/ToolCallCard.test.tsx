@@ -62,7 +62,69 @@ describe('ToolCallCard shell rendering', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('1.5s')).toBeInTheDocument()
-    expect(screen.queryByText('Calling')).toBeInTheDocument()
+    expect(screen.getByText(/Ran ping -n 10 8\.8\.8\.8/)).toBeInTheDocument()
+    expect(screen.queryByText('Calling')).not.toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('shows running timer when toolCall is completed but toolResult has not merged yet (no executionStatus)', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-13T10:00:02.000Z'))
+
+    const item: ConversationItem = {
+      id: 'tool-3',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'Exec',
+      toolCallId: 'exec-3',
+      arguments: { command: 'slow-cmd' },
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('2.0s')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('shows Ran + command while shell is running (same style as completed, not Calling Exec)', () => {
+    const item: ConversationItem = {
+      id: 'tool-ran',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'Exec',
+      toolCallId: 'exec-ran',
+      arguments: { command: 'echo hello' },
+      executionStatus: 'inProgress',
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Ran echo hello/)).toBeInTheDocument()
+    expect(screen.queryByText('Calling')).not.toBeInTheDocument()
+  })
+
+  it('treats legacy executionStatus started as running (mis-mapped wire lifecycle)', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-13T10:00:01.500Z'))
+
+    const item = {
+      id: 'tool-legacy',
+      type: 'toolCall' as const,
+      status: 'completed' as const,
+      toolName: 'Exec',
+      toolCallId: 'exec-legacy',
+      arguments: { command: 'ping' },
+      executionStatus: 'started' as ConversationItem['executionStatus'],
+      createdAt: '2026-04-13T10:00:00.000Z'
+    } as ConversationItem
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('1.5s')).toBeInTheDocument()
 
     vi.useRealTimers()
   })
