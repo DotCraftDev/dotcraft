@@ -65,7 +65,7 @@ function getCollapsedLabel(
 export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [expanded, setExpanded] = useState(false)
-  const [elapsed, setElapsed] = useState(0)
+  const [elapsedMs, setElapsedMs] = useState(0)
 
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
@@ -78,13 +78,19 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const success = item.success !== false && !shellFailed
 
   useEffect(() => {
-    if (!isRunning) return
     const start = item.createdAt ? new Date(item.createdAt).getTime() : Date.now()
+    if (!isRunning) {
+      setElapsedMs(Math.max(0, Date.now() - start))
+      return
+    }
+    setElapsedMs(Math.max(0, Date.now() - start))
     const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - start) / 1000))
-    }, 500)
+      setElapsedMs(Math.max(0, Date.now() - start))
+    }, 100)
     return () => clearInterval(interval)
   }, [isRunning, item.createdAt])
+
+  const runningElapsedLabel = `${(elapsedMs / 1000).toFixed(1)}s`
 
   const itemDiffs = useConversationStore((s) => s.itemDiffs)
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
@@ -139,11 +145,9 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
               </>
             )}
           </span>
-          {elapsed > 0 && (
-            <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
-              {elapsed}s
-            </span>
-          )}
+          <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
+            {runningElapsedLabel}
+          </span>
           {isShellTool && <Chevron expanded={expanded} />}
         </button>
 
