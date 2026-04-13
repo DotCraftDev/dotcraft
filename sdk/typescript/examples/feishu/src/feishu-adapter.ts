@@ -336,6 +336,16 @@ export class FeishuAdapter extends ChannelAdapter {
     }
   }
 
+  private transcriptStateKey(threadId: string, turnId: string): string {
+    return `${threadId}\u0000${turnId}`;
+  }
+
+  private turnIdFromTranscriptStateKey(stateKey: string): string {
+    const separator = stateKey.lastIndexOf("\u0000");
+    if (separator < 0) return "";
+    return stateKey.slice(separator + 1);
+  }
+
   private getOrInitTurnTranscriptState(
     threadId: string,
     turnId: string,
@@ -347,7 +357,8 @@ export class FeishuAdapter extends ChannelAdapter {
     accumulatedText: string;
     isFinal: boolean;
   } {
-    const existing = this.turnTranscriptStates.get(turnId);
+    const stateKey = this.transcriptStateKey(threadId, turnId);
+    const existing = this.turnTranscriptStates.get(stateKey);
     if (existing) return existing;
     const created = {
       threadId,
@@ -356,7 +367,7 @@ export class FeishuAdapter extends ChannelAdapter {
       accumulatedText: "",
       isFinal: false,
     };
-    this.turnTranscriptStates.set(turnId, created);
+    this.turnTranscriptStates.set(stateKey, created);
     return created;
   }
 
@@ -376,12 +387,13 @@ export class FeishuAdapter extends ChannelAdapter {
     const sent = await createOrUpdateCard(this.feishu, channelTarget, card, state.messageId);
     state.messageId = sent.messageId;
     if (isFinal) {
-      this.clearTurnTranscriptState(turnId);
+      this.clearTurnTranscriptState(threadId, turnId);
     }
   }
 
-  private clearTurnTranscriptState(turnId: string): void {
-    const state = this.turnTranscriptStates.get(turnId);
+  private clearTurnTranscriptState(threadId: string, turnId: string): void {
+    const stateKey = this.transcriptStateKey(threadId, turnId);
+    const state = this.turnTranscriptStates.get(stateKey);
     if (!state) return;
     const activeTurnId = this.activeTurnByThread.get(state.threadId);
     if (activeTurnId === turnId) {
@@ -391,12 +403,12 @@ export class FeishuAdapter extends ChannelAdapter {
     if (activeTargetTurnId === turnId) {
       this.activeTurnByChannelTarget.delete(state.channelTarget);
     }
-    this.turnTranscriptStates.delete(turnId);
+    this.turnTranscriptStates.delete(stateKey);
   }
 
   private clearThreadTranscriptState(threadId: string): void {
     const activeTurnId = this.activeTurnByThread.get(threadId);
-    if (activeTurnId) this.clearTurnTranscriptState(activeTurnId);
+    if (activeTurnId) this.clearTurnTranscriptState(threadId, activeTurnId);
   }
 
   private async appendCaptionToActiveTranscript(
@@ -415,7 +427,9 @@ export class FeishuAdapter extends ChannelAdapter {
       });
       return;
     }
-    const state = this.turnTranscriptStates.get(turnId);
+    const state = Array.from(this.turnTranscriptStates.entries()).find(([stateKey, current]) => {
+      return this.turnIdFromTranscriptStateKey(stateKey) === turnId && current.channelTarget === channelTarget;
+    })?.[1];
     if (!state || state.isFinal) {
       logWarn("outbound.send.file.caption_skipped_missing_state", {
         source: logContext.source,
@@ -458,23 +472,31 @@ export class FeishuAdapter extends ChannelAdapter {
     segmentsWereDelivered: boolean,
   ): Promise<void> {
     if (!replyText.trim()) {
-      this.clearTurnTranscriptState(turnId);
+      this.clearTurnTranscriptState(threadId, turnId);
       return;
     }
     if (segmentsWereDelivered) {
-      this.clearTurnTranscriptState(turnId);
+      const state = this.turnTranscriptStates.get(this.transcriptStateKey(threadId, turnId));
+      if (state && state.channelTarget === channelContext && state.accumulatedText !== replyText) {
+        state.accumulatedText = replyText;
+        state.isFinal = true;
+        const card = buildTranscriptCard(replyText, true);
+        const sent = await createOrUpdateCard(this.feishu, channelContext, card, state.messageId);
+        state.messageId = sent.messageId;
+      }
+      this.clearTurnTranscriptState(threadId, turnId);
       return;
     }
     await this.upsertTurnTranscriptCard(threadId, turnId, channelContext, replyText, true);
   }
 
   protected override async onTurnFailed(threadId: string, turnId: string, error: string): Promise<void> {
-    this.clearTurnTranscriptState(turnId);
+    this.clearTurnTranscriptState(threadId, turnId);
     await super.onTurnFailed(threadId, turnId, error);
   }
 
   protected override async onTurnCancelled(threadId: string, turnId: string): Promise<void> {
-    this.clearTurnTranscriptState(turnId);
+    this.clearTurnTranscriptState(threadId, turnId);
     await super.onTurnCancelled(threadId, turnId);
   }
 

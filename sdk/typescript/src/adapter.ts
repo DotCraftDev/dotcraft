@@ -426,7 +426,7 @@ export abstract class ChannelAdapter {
   ): Promise<void> {
     const itemOrder: string[] = [];
     const perItemDelta = new Map<string, string>();
-    const deliveredLengthPerItem = new Map<string, number>();
+    const deliveredTextPerItem = new Map<string, string>();
     let activeAgentItemId: string | null = null;
     /** Last seen item id from agent deltas, used when item/started ordering is imperfect. */
     let lastDeltaAgentItemId: string | null = null;
@@ -443,25 +443,37 @@ export abstract class ChannelAdapter {
       if (!itemId) return "";
       return perItemDelta.get(itemId) ?? "";
     };
+    const getDeliveredFrontier = (currentText: string, deliveredText: string): number => {
+      if (!currentText || !deliveredText) return 0;
+      if (currentText.startsWith(deliveredText)) return deliveredText.length;
+      if (deliveredText.endsWith(currentText)) return currentText.length;
+      const maxProbe = Math.min(currentText.length, deliveredText.length);
+      for (let len = maxProbe; len > 0; len--) {
+        const suffix = deliveredText.slice(deliveredText.length - len);
+        const idx = currentText.lastIndexOf(suffix);
+        if (idx >= 0) return idx + len;
+      }
+      return 0;
+    };
     const markSegmentDelivered = (itemId: string | null, segmentText: string): void => {
       if (!itemId || !segmentText) return;
-      const delivered = deliveredLengthPerItem.get(itemId) ?? 0;
-      const current = getCurrentItemText(itemId);
-      const next = Math.min(delivered + segmentText.length, current.length);
-      deliveredLengthPerItem.set(itemId, next);
+      const delivered = deliveredTextPerItem.get(itemId) ?? "";
+      deliveredTextPerItem.set(itemId, delivered + segmentText);
     };
     const getUnsentTail = (itemId: string | null, fallbackText = ""): string => {
       if (!itemId) return fallbackText;
       const current = getCurrentItemText(itemId) || fallbackText;
-      const delivered = deliveredLengthPerItem.get(itemId) ?? 0;
-      if (delivered >= current.length) return "";
-      return current.slice(delivered);
+      const delivered = deliveredTextPerItem.get(itemId) ?? "";
+      const frontier = getDeliveredFrontier(current, delivered);
+      if (frontier >= current.length) return "";
+      return current.slice(frontier);
     };
     const getUnsentFromMerged = (itemId: string | null, mergedText: string): string => {
       if (!itemId) return mergedText;
-      const delivered = deliveredLengthPerItem.get(itemId) ?? 0;
-      if (delivered >= mergedText.length) return "";
-      return mergedText.slice(delivered);
+      const delivered = deliveredTextPerItem.get(itemId) ?? "";
+      const frontier = getDeliveredFrontier(mergedText, delivered);
+      if (frontier >= mergedText.length) return "";
+      return mergedText.slice(frontier);
     };
 
     for await (const event of eventStream) {

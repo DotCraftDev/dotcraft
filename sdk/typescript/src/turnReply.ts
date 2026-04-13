@@ -41,6 +41,11 @@ export function extractAgentReplyTextsFromTurnCompletedParams(
  * Prefer the longer of snapshot (from turn/completed) vs streamed deltas (avoids truncated prefix).
  */
 export function mergeReplyTextFromDeltaAndSnapshot(deltaText: string, snapshotText: string): string {
+  if (!deltaText) return snapshotText;
+  if (!snapshotText) return deltaText;
+  if (deltaText === snapshotText) return snapshotText;
+  if (snapshotText.includes(deltaText)) return snapshotText;
+  if (deltaText.includes(snapshotText)) return deltaText;
   if (snapshotText.length >= deltaText.length) return snapshotText;
   return deltaText;
 }

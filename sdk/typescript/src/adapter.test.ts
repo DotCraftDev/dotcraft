@@ -494,6 +494,75 @@ test("snapshot-only turn (no deltas) still delivers one final segment", async ()
   assert.deepEqual(adapter.completedReplies, []);
 });
 
+test("snapshot prefix repair does not trim the next sentence prefix", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
+  client.streamEvents = () =>
+    (async function* () {
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "a1", type: "agentMessage" } } };
+      yield {
+        method: "item/agentMessage/delta",
+        params: {
+          threadId: "thread-1",
+          itemId: "a1",
+          delta: "我来文件发送。首先验证文件是否存在，然后发送。\n\n\n\n",
+        },
+      };
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "tool-1", type: "toolCall" } } };
+      yield {
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          item: {
+            id: "a1",
+            type: "agentMessage",
+            payload: {
+              text: "我来测试将文件发送给你。首先验证文件是否存在，然后发送。\n\n\n\n文件存在。现在发送文件到当前飞书。",
+            },
+          },
+        },
+      };
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [
+              {
+                id: "a1",
+                type: "agentMessage",
+                payload: {
+                  text: "我来测试将文件发送给你。首先验证文件是否存在，然后发送。\n\n\n\n文件存在。现在发送文件到当前飞书。",
+                },
+              },
+            ],
+          },
+        },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "hi",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(adapter.segments, [
+    { text: "我来文件发送。首先验证文件是否存在，然后发送。\n\n\n\n", isFinal: false, channelContext: "c" },
+    { text: "文件存在。现在发送文件到当前飞书。", isFinal: true, channelContext: "c" },
+  ]);
+  assert.deepEqual(adapter.completedReplies, []);
+});
+
 test("processMessage uses inputParts when provided", async () => {
   const adapter = new RecordingAdapter();
   const client = (adapter as unknown as { client: Record<string, unknown> }).client;
