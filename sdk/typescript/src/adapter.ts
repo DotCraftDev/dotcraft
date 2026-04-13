@@ -6,6 +6,7 @@ import { DotCraftClient, DotCraftError } from "./client.js";
 import {
   ERR_THREAD_NOT_ACTIVE,
   ERR_TURN_IN_PROGRESS,
+  JsonRpcMessage,
   Thread,
   Turn,
   textPart,
@@ -19,7 +20,7 @@ import {
 import { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
 
 /** Queued inbound message; skipCommand skips slash handling for expanded prompts. */
-type ChannelAdapterMessageOpts = {
+export type ChannelAdapterMessageOpts = {
   userId: string;
   userName: string;
   text: string;
@@ -27,6 +28,13 @@ type ChannelAdapterMessageOpts = {
   workspacePath?: string;
   senderExtra?: Record<string, unknown>;
   skipCommand?: boolean;
+  /** When set, used as turn input instead of {@link textPart}(text). */
+  inputParts?: Record<string, unknown>[];
+  /**
+   * When true, do not set `sender.groupId` from channelContext (e.g. Feishu DM vs group).
+   * Default false: groupId is set whenever channelContext is non-empty.
+   */
+  omitSenderGroupId?: boolean;
 };
 
 export abstract class ChannelAdapter {
@@ -98,12 +106,18 @@ export abstract class ChannelAdapter {
     };
   }
 
+  /**
+   * @param segmentsWereDelivered When true, progressive segments were already shown (e.g. tool
+   *   boundaries); default implementation skips sending the full reply again to avoid duplicates.
+   */
   protected async onTurnCompleted(
     threadId: string,
     turnId: string,
     replyText: string,
     channelContext: string,
+    segmentsWereDelivered: boolean,
   ): Promise<void> {
+    if (segmentsWereDelivered) return;
     if (replyText) await this.onDeliver(channelContext, replyText, {});
   }
 
@@ -124,6 +138,9 @@ export abstract class ChannelAdapter {
   ): Promise<void> {
     // Default no-op; adapters can override for progressive delivery.
   }
+
+  /** Called after the thread is resolved for an inbound message (e.g. map threadId → chat target). */
+  protected onThreadContextBound(_threadId: string, _channelContext: string): void {}
 
   async start(): Promise<void> {
     await this.client.connect();
@@ -230,7 +247,7 @@ export abstract class ChannelAdapter {
           senderName: opts.userName,
           ...(opts.senderExtra ?? {}),
         };
-        if (channelContext) sender.groupId = channelContext;
+        if (channelContext && !opts.omitSenderGroupId) sender.groupId = channelContext;
         const parts = trimmedText.split(/\s+/);
         try {
           const commandResult = await this.client.commandExecute({
@@ -268,7 +285,7 @@ export abstract class ChannelAdapter {
    * Schedule a message for serial processing (one turn at a time per identity).
    * Does not wait for the turn to complete (matches Python asyncio.Queue.put).
    */
-  private enqueueMessage(opts: ChannelAdapterMessageOpts): void {
+  protected enqueueMessage(opts: ChannelAdapterMessageOpts): void {
     const channelContext = opts.channelContext ?? "";
     const identityKey = this.identityKey(opts.userId, channelContext);
 
@@ -308,11 +325,11 @@ export abstract class ChannelAdapter {
     }
   }
 
-  private identityKey(userId: string, channelContext: string): string {
+  protected identityKey(userId: string, channelContext: string): string {
     return `${userId}:${channelContext}`;
   }
 
-  private async processMessage(
+  protected async processMessage(
     identityKey: string,
     opts: ChannelAdapterMessageOpts,
   ): Promise<void> {
@@ -326,13 +343,14 @@ export abstract class ChannelAdapter {
       channelContext,
       workspacePath,
     );
+    this.onThreadContextBound(thread.id, channelContext);
 
     const sender: Record<string, unknown> = {
       senderId: opts.userId,
       senderName: opts.userName,
       ...senderExtra,
     };
-    if (channelContext) sender.groupId = channelContext;
+    if (channelContext && !opts.omitSenderGroupId) sender.groupId = channelContext;
 
     const trimmedText = opts.text.trim();
     if (trimmedText.startsWith("/") && !opts.skipCommand) {
@@ -365,10 +383,14 @@ export abstract class ChannelAdapter {
       }
     }
 
+    const input = opts.inputParts?.length ? opts.inputParts : [textPart(opts.text)];
+
+    const eventStream = this.client.streamEvents(thread.id);
     let turn: Turn;
     try {
-      turn = await this.client.turnStart(thread.id, [textPart(opts.text)], sender);
+      turn = await this.client.turnStart(thread.id, input, sender);
     } catch (e) {
+      await eventStream.return?.();
       if (e instanceof DotCraftError && e.code === ERR_TURN_IN_PROGRESS) {
         await new Promise((r) => setTimeout(r, 1000));
         this.enqueueMessage(opts);
@@ -376,75 +398,178 @@ export abstract class ChannelAdapter {
       }
       if (e instanceof DotCraftError && e.code === ERR_THREAD_NOT_ACTIVE) {
         await this.client.threadResume(thread.id);
-        turn = await this.client.turnStart(thread.id, [textPart(opts.text)], sender);
-      } else {
-        throw e;
+        const stream2 = this.client.streamEvents(thread.id);
+        try {
+          turn = await this.client.turnStart(thread.id, input, sender);
+        } catch (err) {
+          await stream2.return?.();
+          throw err;
+        }
+        await this.consumeTurnEventStream(stream2, thread.id, turn.id, channelContext);
+        return;
       }
+      throw e;
     }
 
-    const allDeltaParts: string[] = [];
-    const currentSegmentParts: string[] = [];
-    for await (const event of this.client.streamEvents(thread.id)) {
+    await this.consumeTurnEventStream(eventStream, thread.id, turn.id, channelContext);
+  }
+
+  /**
+   * Runs the streaming loop for an already-started turn. Separated so callers can subscribe
+   * to events before {@link DotCraftClient.turnStart}.
+   */
+  protected async consumeTurnEventStream(
+    eventStream: AsyncIterableIterator<JsonRpcMessage>,
+    threadId: string,
+    turnId: string,
+    channelContext: string,
+  ): Promise<void> {
+    const itemOrder: string[] = [];
+    const perItemDelta = new Map<string, string>();
+    const deliveredLengthPerItem = new Map<string, number>();
+    let activeAgentItemId: string | null = null;
+    /** Last seen item id from agent deltas, used when item/started ordering is imperfect. */
+    let lastDeltaAgentItemId: string | null = null;
+    let orphanDeltaTail = "";
+    let segmentsWereDelivered = false;
+
+    const orderSeen = new Set<string>();
+    const pushOrder = (itemId: string): void => {
+      if (!itemId || orderSeen.has(itemId)) return;
+      orderSeen.add(itemId);
+      itemOrder.push(itemId);
+    };
+    const getCurrentItemText = (itemId: string | null): string => {
+      if (!itemId) return "";
+      return perItemDelta.get(itemId) ?? "";
+    };
+    const markSegmentDelivered = (itemId: string | null, segmentText: string): void => {
+      if (!itemId || !segmentText) return;
+      const delivered = deliveredLengthPerItem.get(itemId) ?? 0;
+      const current = getCurrentItemText(itemId);
+      const next = Math.min(delivered + segmentText.length, current.length);
+      deliveredLengthPerItem.set(itemId, next);
+    };
+    const getUnsentTail = (itemId: string | null, fallbackText = ""): string => {
+      if (!itemId) return fallbackText;
+      const current = getCurrentItemText(itemId) || fallbackText;
+      const delivered = deliveredLengthPerItem.get(itemId) ?? 0;
+      if (delivered >= current.length) return "";
+      return current.slice(delivered);
+    };
+    const getUnsentFromMerged = (itemId: string | null, mergedText: string): string => {
+      if (!itemId) return mergedText;
+      const delivered = deliveredLengthPerItem.get(itemId) ?? 0;
+      if (delivered >= mergedText.length) return "";
+      return mergedText.slice(delivered);
+    };
+
+    for await (const event of eventStream) {
       if (event.method === "item/agentMessage/delta") {
-        const delta = String((event.params as Record<string, unknown>)?.delta ?? "");
-        allDeltaParts.push(delta);
-        currentSegmentParts.push(delta);
+        const params = (event.params as Record<string, unknown>) ?? {};
+        const delta = String(params.delta ?? "");
+        const explicitItemId = String(params.itemId ?? "");
+        const resolvedItemId: string | null = explicitItemId || activeAgentItemId || lastDeltaAgentItemId || null;
+        if (resolvedItemId) {
+          pushOrder(resolvedItemId);
+          const prev = perItemDelta.get(resolvedItemId) ?? "";
+          perItemDelta.set(resolvedItemId, prev + delta);
+          lastDeltaAgentItemId = resolvedItemId;
+          if (!activeAgentItemId) activeAgentItemId = resolvedItemId;
+        } else {
+          orphanDeltaTail += delta;
+        }
       } else if (event.method === "item/started") {
         const params = (event.params as Record<string, unknown>) ?? {};
         const item = (params.item as Record<string, unknown>) ?? {};
         const itemType = String(item.type ?? "");
+        const itemId = String(item.id ?? "");
+        if (itemType === "agentMessage" && itemId) {
+          activeAgentItemId = itemId;
+          lastDeltaAgentItemId = itemId;
+          pushOrder(itemId);
+        }
         if (shouldFlushSegmentOnItemStarted(itemType)) {
-          const segmentText = currentSegmentParts.join("");
-          currentSegmentParts.length = 0;
+          const segmentItemId = activeAgentItemId ?? lastDeltaAgentItemId;
+          let segmentText = "";
+          if (segmentItemId) {
+            const merged = perItemDelta.get(segmentItemId) ?? "";
+            segmentText = getUnsentFromMerged(segmentItemId, merged);
+          } else if (orphanDeltaTail) {
+            segmentText = orphanDeltaTail;
+            orphanDeltaTail = "";
+          }
           if (segmentText.trim()) {
-            await this.onSegmentCompleted(
-              thread.id,
-              turn.id,
-              segmentText,
-              false,
-              channelContext,
-            );
+            segmentsWereDelivered = true;
+            await this.onSegmentCompleted(threadId, turnId, segmentText, false, channelContext);
+            markSegmentDelivered(segmentItemId, segmentText);
           }
         }
+      } else if (event.method === "item/completed") {
+        const params = (event.params as Record<string, unknown>) ?? {};
+        const item = (params.item as Record<string, unknown>) ?? {};
+        const itemType = String(item.type ?? "");
+        if (itemType !== "agentMessage") continue;
+        const itemId = String(item.id ?? "");
+        const payload = (item.payload as Record<string, unknown>) ?? {};
+        const snap = typeof payload.text === "string" ? payload.text : "";
+        pushOrder(itemId);
+        const fromD = perItemDelta.get(itemId) ?? "";
+        const canon = mergeReplyTextFromDeltaAndSnapshot(fromD, snap);
+        perItemDelta.set(itemId, canon);
+        if (itemId === activeAgentItemId) {
+          activeAgentItemId = null;
+        }
+        lastDeltaAgentItemId = itemId;
       } else if (event.method === "turn/completed") {
         const params = (event.params as Record<string, unknown>) ?? {};
-        const segmentTextFromDelta = currentSegmentParts.join("");
-        const segmentText =
-          segmentTextFromDelta.trim().length > 0
-            ? segmentTextFromDelta
-            : (() => {
-                const snapshots = extractAgentReplyTextsFromTurnCompletedParams(params);
-                return snapshots.length > 0 ? snapshots[snapshots.length - 1] : "";
-              })();
+        const snapshots = extractAgentReplyTextsFromTurnCompletedParams(params);
+        const lastSnap = snapshots.length > 0 ? snapshots[snapshots.length - 1] ?? "" : "";
+        const unsentParts: Array<{ itemId: string | null; text: string }> = [];
+        for (const itemId of itemOrder) {
+          const tail = getUnsentTail(itemId, "");
+          if (tail.length > 0) unsentParts.push({ itemId, text: tail });
+        }
+        if (orphanDeltaTail.length > 0) {
+          unsentParts.push({ itemId: null, text: orphanDeltaTail });
+          orphanDeltaTail = "";
+        }
+        let segmentText = unsentParts.map((part) => part.text).join("");
+        if (!segmentText.trim() && lastSnap && !segmentsWereDelivered && itemOrder.length === 0) {
+          segmentText = lastSnap;
+        }
         if (segmentText.trim()) {
-          await this.onSegmentCompleted(
-            thread.id,
-            turn.id,
-            segmentText,
-            true,
-            channelContext,
-          );
+          segmentsWereDelivered = true;
+          await this.onSegmentCompleted(threadId, turnId, segmentText, true, channelContext);
+          if (unsentParts.length > 0) {
+            for (const part of unsentParts) {
+              markSegmentDelivered(part.itemId, part.text);
+            }
+          } else {
+            const lastItemId = itemOrder.length > 0 ? itemOrder[itemOrder.length - 1] : null;
+            markSegmentDelivered(lastItemId, segmentText);
+          }
         }
         const snapshotText = extractAgentReplyTextFromTurnCompletedParams(params);
-        const deltaText = allDeltaParts.join("");
+        const deltaText = itemOrder.map((id) => perItemDelta.get(id) ?? "").join("");
         const fullReply = mergeReplyTextFromDeltaAndSnapshot(deltaText, snapshotText);
-        await this.onTurnCompleted(thread.id, turn.id, fullReply, channelContext);
+        await this.onTurnCompleted(threadId, turnId, fullReply, channelContext, segmentsWereDelivered);
         break;
       } else if (event.method === "turn/failed") {
         const err = String(
           ((event.params as Record<string, unknown>)?.turn as Record<string, unknown>)?.error ??
             "Unknown error",
         );
-        await this.onTurnFailed(thread.id, turn.id, err);
+        await this.onTurnFailed(threadId, turnId, err);
         break;
       } else if (event.method === "turn/cancelled") {
-        await this.onTurnCancelled(thread.id, turn.id);
+        await this.onTurnCancelled(threadId, turnId);
         break;
       }
     }
   }
 
-  private async getOrCreateThread(
+  protected async getOrCreateThread(
     identityKey: string,
     userId: string,
     channelContext: string,

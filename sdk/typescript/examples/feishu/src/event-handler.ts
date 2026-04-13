@@ -111,8 +111,15 @@ export function createFeishuEventHandlers(params: {
       logInfo("approval.action.received", {
         eventId: shortId(event.event_id ?? ""),
         actionTag: event.action?.tag ?? "unknown",
+        openMessageId: shortId(event.context?.open_message_id ?? ""),
       });
-      params.adapter.handleCardAction(event);
+      const handled = params.adapter.handleCardAction(event);
+      if (!handled) {
+        logWarn("approval.action_ignored", {
+          eventId: shortId(event.event_id ?? ""),
+          openMessageId: shortId(event.context?.open_message_id ?? ""),
+        });
+      }
     },
   };
 }

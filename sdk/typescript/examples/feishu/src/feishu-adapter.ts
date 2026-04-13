@@ -12,26 +12,21 @@ import {
   DECISION_CANCEL,
   DECISION_DECLINE,
   DotCraftError,
-  ERR_THREAD_NOT_ACTIVE,
-  ERR_TURN_IN_PROGRESS,
   Thread,
-  Turn,
   WebSocketTransport,
-  extractAgentReplyTextFromTurnCompletedParams,
-  mergeReplyTextFromDeltaAndSnapshot,
-  shouldFlushSegmentOnItemStarted,
   textPart,
 } from "dotcraft-wire";
-import { buildApprovalCard, buildErrorCard } from "./card-builder.js";
-import { sendProgressCard, sendReplyCards, sendSingleCard } from "./card-sender.js";
+import {
+  buildApprovalCard,
+  buildApprovalResolvedCard,
+  buildApprovalTimeoutCard,
+  buildErrorCard,
+  buildTranscriptCard,
+} from "./card-builder.js";
+import { createOrUpdateCard, sendReplyCards, sendSingleCard, updateCard } from "./card-sender.js";
 import type { FeishuCardActionEvent, ParsedInboundMessage } from "./feishu-types.js";
 import type { FeishuClient } from "./feishu-client.js";
 import { errorMessage, logError, logInfo, logWarn, shortId } from "./logging.js";
-
-type InboundJob = ParsedInboundMessage & {
-  workspacePath?: string;
-  skipCommand?: boolean;
-};
 
 export interface FeishuAdapterConfig {
   wsUrl: string;
@@ -43,12 +38,29 @@ export interface FeishuAdapterConfig {
 export class FeishuAdapter extends ChannelAdapter {
   private readonly feishu: FeishuClient;
   private readonly approvalTimeoutMs: number;
-  private readonly inboundQueues = new Map<string, Array<() => Promise<void>>>();
-  private readonly activeWorkers = new Map<string, boolean>();
   private readonly threadContextMap = new Map<string, string>();
+  private readonly turnTranscriptStates = new Map<
+    string,
+    {
+      threadId: string;
+      channelTarget: string;
+      messageId: string;
+      accumulatedText: string;
+      isFinal: boolean;
+    }
+  >();
+  private readonly activeTurnByThread = new Map<string, string>();
+  private readonly activeTurnByChannelTarget = new Map<string, string>();
   private readonly approvalWaiters = new Map<
     string,
-    { resolve: (decision: string) => void; timer: ReturnType<typeof setTimeout> }
+    {
+      resolve: (decision: string) => void;
+      timer: ReturnType<typeof setTimeout>;
+      threadId: string;
+      channelTarget: string;
+      messageId: string;
+      timeoutSeconds: number;
+    }
   >();
 
   constructor(cfg: FeishuAdapterConfig) {
@@ -114,7 +126,7 @@ export class FeishuAdapter extends ChannelAdapter {
           operation: "read",
         },
         display: {
-          icon: "📎",
+          icon: "\u{1F4CE}",
           title: "Send file to current Feishu chat",
         },
         inputSchema: {
@@ -183,7 +195,7 @@ export class FeishuAdapter extends ChannelAdapter {
     const caption = String(args.caption ?? "");
     if (!filePath) {
       return {
-          success: false,
+        success: false,
         errorCode: "MissingFilePath",
         errorMessage: "Feishu file sending requires a filePath.",
       };
@@ -208,13 +220,11 @@ export class FeishuAdapter extends ChannelAdapter {
         mediaType: inferMediaType(effectiveFileName),
       });
       if (caption) {
-        const captionDelivered = await this.onDeliver(target, caption, {});
-        if (!captionDelivered) {
-          logWarn("outbound.send.file.caption_failed", {
-            target: shortId(target),
-            fileName: effectiveFileName,
-          });
-        }
+        await this.appendCaptionToActiveTranscript(target, caption, {
+          target,
+          fileName: effectiveFileName,
+          source: "tool",
+        });
       }
 
       return {
@@ -261,16 +271,22 @@ export class FeishuAdapter extends ChannelAdapter {
       reason,
       timeoutSeconds,
     });
-    await sendSingleCard(this.feishu, channelTarget, card);
+    const sent = await sendSingleCard(this.feishu, channelTarget, card);
     logInfo("approval.card_sent", {
       requestId: shortId(requestId),
       threadId: shortId(threadId),
       timeoutSec: timeoutSeconds,
+      channelTarget: shortId(channelTarget),
+      messageId: shortId(sent.messageId),
     });
 
     return new Promise<string>((resolve) => {
       const timer = setTimeout(() => {
+        const waiter = this.approvalWaiters.get(requestId);
         this.approvalWaiters.delete(requestId);
+        if (waiter?.messageId) {
+          void this.tryUpdateApprovalCard(waiter.messageId, buildApprovalTimeoutCard({ requestId, timeoutSeconds }));
+        }
         logWarn("approval.timeout", {
           requestId: shortId(requestId),
           decision: DECISION_CANCEL,
@@ -280,7 +296,17 @@ export class FeishuAdapter extends ChannelAdapter {
       this.approvalWaiters.set(requestId, {
         resolve: (decision: string) => {
           clearTimeout(timer);
+          const waiter = this.approvalWaiters.get(requestId);
           this.approvalWaiters.delete(requestId);
+          if (waiter?.messageId) {
+            void this.tryUpdateApprovalCard(
+              waiter.messageId,
+              buildApprovalResolvedCard({
+                requestId,
+                decision,
+              }),
+            );
+          }
           logInfo("approval.resolved", {
             requestId: shortId(requestId),
             decision,
@@ -288,33 +314,172 @@ export class FeishuAdapter extends ChannelAdapter {
           resolve(decision);
         },
         timer,
+        threadId,
+        channelTarget,
+        messageId: sent.messageId,
+        timeoutSeconds,
       });
     });
   }
 
-  async onTurnCompleted(
-    _threadId: string,
-    _turnId: string,
-    replyText: string,
-    channelContext: string,
-  ): Promise<void> {
-    if (!replyText.trim()) return;
-    logInfo("turn.completed", {
-      threadId: shortId(_threadId),
-      turnId: shortId(_turnId),
-      replyChars: replyText.length,
-    });
-    await sendReplyCards(this.feishu, channelContext, replyText);
+  private async tryUpdateApprovalCard(messageId: string, card: Record<string, unknown>): Promise<void> {
+    try {
+      await updateCard(this.feishu, messageId, card);
+      logInfo("approval.card_updated", {
+        messageId: shortId(messageId),
+      });
+    } catch (error) {
+      logWarn("approval.card_update_failed", {
+        messageId: shortId(messageId),
+        message: errorMessage(error),
+      });
+    }
   }
 
-  async onProgressMessage(threadId: string, turnId: string, replyText: string, channelContext: string): Promise<void> {
-    if (!replyText.trim()) return;
-    logInfo("turn.progress", {
+  private getOrInitTurnTranscriptState(
+    threadId: string,
+    turnId: string,
+    channelTarget: string,
+  ): {
+    threadId: string;
+    channelTarget: string;
+    messageId: string;
+    accumulatedText: string;
+    isFinal: boolean;
+  } {
+    const existing = this.turnTranscriptStates.get(turnId);
+    if (existing) return existing;
+    const created = {
+      threadId,
+      channelTarget,
+      messageId: "",
+      accumulatedText: "",
+      isFinal: false,
+    };
+    this.turnTranscriptStates.set(turnId, created);
+    return created;
+  }
+
+  private async upsertTurnTranscriptCard(
+    threadId: string,
+    turnId: string,
+    channelTarget: string,
+    segmentText: string,
+    isFinal: boolean,
+  ): Promise<void> {
+    const state = this.getOrInitTurnTranscriptState(threadId, turnId, channelTarget);
+    if (segmentText) state.accumulatedText += segmentText;
+    state.isFinal = isFinal;
+    this.activeTurnByThread.set(threadId, turnId);
+    this.activeTurnByChannelTarget.set(channelTarget, turnId);
+    const card = buildTranscriptCard(state.accumulatedText, isFinal);
+    const sent = await createOrUpdateCard(this.feishu, channelTarget, card, state.messageId);
+    state.messageId = sent.messageId;
+    if (isFinal) {
+      this.clearTurnTranscriptState(turnId);
+    }
+  }
+
+  private clearTurnTranscriptState(turnId: string): void {
+    const state = this.turnTranscriptStates.get(turnId);
+    if (!state) return;
+    const activeTurnId = this.activeTurnByThread.get(state.threadId);
+    if (activeTurnId === turnId) {
+      this.activeTurnByThread.delete(state.threadId);
+    }
+    const activeTargetTurnId = this.activeTurnByChannelTarget.get(state.channelTarget);
+    if (activeTargetTurnId === turnId) {
+      this.activeTurnByChannelTarget.delete(state.channelTarget);
+    }
+    this.turnTranscriptStates.delete(turnId);
+  }
+
+  private clearThreadTranscriptState(threadId: string): void {
+    const activeTurnId = this.activeTurnByThread.get(threadId);
+    if (activeTurnId) this.clearTurnTranscriptState(activeTurnId);
+  }
+
+  private async appendCaptionToActiveTranscript(
+    channelTarget: string,
+    caption: string,
+    logContext: { target: string; fileName: string; source: "tool" | "structured" },
+  ): Promise<void> {
+    const normalized = caption.trim();
+    if (!normalized) return;
+    const turnId = this.activeTurnByChannelTarget.get(channelTarget);
+    if (!turnId) {
+      logWarn("outbound.send.file.caption_skipped_no_active_turn", {
+        source: logContext.source,
+        target: shortId(logContext.target),
+        fileName: logContext.fileName,
+      });
+      return;
+    }
+    const state = this.turnTranscriptStates.get(turnId);
+    if (!state || state.isFinal) {
+      logWarn("outbound.send.file.caption_skipped_missing_state", {
+        source: logContext.source,
+        target: shortId(logContext.target),
+        fileName: logContext.fileName,
+        turnId: shortId(turnId),
+      });
+      return;
+    }
+    const current = state.accumulatedText.trimEnd();
+    if (current.endsWith(normalized)) return;
+    state.accumulatedText = current ? `${current}\n\n${normalized}` : normalized;
+    const card = buildTranscriptCard(state.accumulatedText, false);
+    const sent = await createOrUpdateCard(this.feishu, state.channelTarget, card, state.messageId);
+    state.messageId = sent.messageId;
+  }
+
+  protected override async onSegmentCompleted(
+    threadId: string,
+    turnId: string,
+    segmentText: string,
+    isFinal: boolean,
+    channelContext: string,
+  ): Promise<void> {
+    if (!segmentText.trim()) return;
+    logInfo(isFinal ? "turn.completed_segment" : "turn.progress", {
       threadId: shortId(threadId),
       turnId: shortId(turnId),
-      replyChars: replyText.length,
+      replyChars: segmentText.length,
+      isFinal,
     });
-    await sendProgressCard(this.feishu, channelContext, replyText);
+    await this.upsertTurnTranscriptCard(threadId, turnId, channelContext, segmentText, isFinal);
+  }
+
+  protected override async onTurnCompleted(
+    threadId: string,
+    turnId: string,
+    replyText: string,
+    channelContext: string,
+    segmentsWereDelivered: boolean,
+  ): Promise<void> {
+    if (!replyText.trim()) {
+      this.clearTurnTranscriptState(turnId);
+      return;
+    }
+    if (segmentsWereDelivered) {
+      this.clearTurnTranscriptState(turnId);
+      return;
+    }
+    await this.upsertTurnTranscriptCard(threadId, turnId, channelContext, replyText, true);
+  }
+
+  protected override async onTurnFailed(threadId: string, turnId: string, error: string): Promise<void> {
+    this.clearTurnTranscriptState(turnId);
+    await super.onTurnFailed(threadId, turnId, error);
+  }
+
+  protected override async onTurnCancelled(threadId: string, turnId: string): Promise<void> {
+    this.clearTurnTranscriptState(turnId);
+    await super.onTurnCancelled(threadId, turnId);
+  }
+
+  protected override onThreadContextBound(threadId: string, channelContext: string): void {
+    this.threadContextMap.set(threadId, channelContext);
   }
 
   async handleInboundMessage(message: ParsedInboundMessage): Promise<void> {
@@ -337,9 +502,14 @@ export class FeishuAdapter extends ChannelAdapter {
       return;
     }
 
-    this.enqueueInbound({
-      ...message,
+    await this.handleMessage({
+      userId: message.threadUserId,
+      userName: message.userName,
+      text: message.text,
+      channelContext: message.channelContext,
       workspacePath: this.defaultWorkspacePath,
+      inputParts: message.parts.length ? message.parts : undefined,
+      omitSenderGroupId: message.chatType !== "group",
     });
   }
 
@@ -350,16 +520,26 @@ export class FeishuAdapter extends ChannelAdapter {
     const decision = String(value.decision ?? "");
     const waiter = this.approvalWaiters.get(requestId);
     if (!waiter) return false;
+    const openMessageId = String(event.context?.open_message_id ?? "");
+    if (openMessageId && waiter.messageId && openMessageId !== waiter.messageId) {
+      logWarn("approval.action_message_mismatch", {
+        requestId: shortId(requestId),
+        expectedMessageId: shortId(waiter.messageId),
+        actualMessageId: shortId(openMessageId),
+      });
+      return false;
+    }
     waiter.resolve(decision || DECISION_CANCEL);
     logInfo("approval.action_resolved", {
       requestId: shortId(requestId),
       decision: decision || DECISION_CANCEL,
+      messageId: shortId(openMessageId || waiter.messageId),
     });
     return true;
   }
 
   override async newThread(userId: string, channelContext = ""): Promise<void> {
-    const identityKey = this.buildIdentityKey(userId, channelContext);
+    const identityKey = this.identityKey(userId, channelContext);
     const oldId = this.threadMap.get(identityKey);
     if (oldId) {
       try {
@@ -376,258 +556,11 @@ export class FeishuAdapter extends ChannelAdapter {
       }
       this.threadMap.delete(identityKey);
       this.threadContextMap.delete(oldId);
+      this.clearThreadTranscriptState(oldId);
     }
   }
 
-  private enqueueInbound(job: InboundJob): void {
-    const identityKey = this.buildIdentityKey(job.threadUserId, job.channelContext);
-    let queue = this.inboundQueues.get(identityKey);
-    if (!queue) {
-      queue = [];
-      this.inboundQueues.set(identityKey, queue);
-    }
-    queue.push(async () => {
-      await this.processInbound(identityKey, job);
-    });
-    logInfo("inbound.queue.enqueue", {
-      identityKey: shortId(identityKey),
-      queueSize: queue.length,
-      messageId: shortId(job.messageId),
-    });
-    void this.drainInboundQueue(identityKey, queue);
-  }
-
-  private async drainInboundQueue(identityKey: string, queue: Array<() => Promise<void>>): Promise<void> {
-    if (this.activeWorkers.get(identityKey)) return;
-    this.activeWorkers.set(identityKey, true);
-    logInfo("inbound.queue.drain_start", {
-      identityKey: shortId(identityKey),
-      queueSize: queue.length,
-    });
-    try {
-      while (queue.length > 0) {
-        const job = queue.shift();
-        if (!job) continue;
-        try {
-          await job();
-        } catch (error) {
-          logError("inbound.queue.job_failed", {
-            identityKey: shortId(identityKey),
-            message: errorMessage(error),
-          });
-        }
-      }
-    } finally {
-      this.activeWorkers.set(identityKey, false);
-      logInfo("inbound.queue.drain_done", {
-        identityKey: shortId(identityKey),
-      });
-      if (queue.length > 0) void this.drainInboundQueue(identityKey, queue);
-    }
-  }
-
-  private async processInbound(identityKey: string, job: InboundJob): Promise<void> {
-    const thread = await this.resolveThread(
-      identityKey,
-      job.threadUserId,
-      job.channelContext,
-      job.workspacePath ?? "",
-    );
-    this.threadContextMap.set(thread.id, job.channelContext);
-    logInfo("thread.resolve", {
-      threadId: shortId(thread.id),
-      identityKey: shortId(identityKey),
-      status: thread.status,
-    });
-
-    const sender: Record<string, unknown> = {
-      senderId: job.userId,
-      senderName: job.userName,
-    };
-    if (job.chatType === "group") {
-      sender.groupId = job.channelContext;
-    }
-
-    if (job.kind === "text" && job.text.trim().startsWith("/") && !job.skipCommand) {
-      const commandParts = job.text.trim().split(/\s+/);
-      try {
-        logInfo("command.execute", {
-          threadId: shortId(thread.id),
-          command: commandParts[0],
-        });
-        const commandResult = await this.client.commandExecute({
-          threadId: thread.id,
-          command: commandParts[0],
-          arguments: commandParts.length > 1 ? commandParts.slice(1) : undefined,
-          sender,
-        });
-        const expandedPrompt = commandResult.expandedPrompt as string | undefined;
-        if (expandedPrompt) {
-          this.enqueueInbound({
-            ...job,
-            text: expandedPrompt,
-            parts: [textPart(expandedPrompt)],
-            kind: "text",
-            skipCommand: true,
-          });
-          return;
-        }
-        if (Boolean(commandResult.handled)) {
-          const message = String(commandResult.message ?? "");
-          if (message) {
-            await this.onDeliver(job.channelContext, message, {});
-          }
-          return;
-        }
-      } catch (error) {
-        if (error instanceof DotCraftError) {
-          await this.onDeliver(job.channelContext, error.message || String(error), {});
-          return;
-        }
-        throw error;
-      }
-    }
-
-    let turn: Turn;
-    try {
-      logInfo("turn.start", {
-        threadId: shortId(thread.id),
-        inputParts: job.parts.length,
-      });
-      turn = await this.client.turnStart(thread.id, job.parts, sender);
-      logInfo("turn.started", {
-        threadId: shortId(thread.id),
-        turnId: shortId(turn.id),
-      });
-    } catch (error) {
-      if (error instanceof DotCraftError && error.code === ERR_TURN_IN_PROGRESS) {
-        logWarn("turn.retry", {
-          reason: "turn_in_progress",
-          threadId: shortId(thread.id),
-        });
-        await delay(1000);
-        this.enqueueInbound(job);
-        return;
-      }
-      if (error instanceof DotCraftError && error.code === ERR_THREAD_NOT_ACTIVE) {
-        logWarn("turn.resume_then_retry", {
-          threadId: shortId(thread.id),
-        });
-        await this.client.threadResume(thread.id);
-        turn = await this.client.turnStart(thread.id, job.parts, sender);
-        logInfo("turn.started", {
-          threadId: shortId(thread.id),
-          turnId: shortId(turn.id),
-        });
-      } else {
-        throw error;
-      }
-    }
-
-    const allDeltaParts: string[] = [];
-    const currentSegmentParts: string[] = [];
-    for await (const event of this.client.streamEvents(thread.id)) {
-      if (event.method === "item/agentMessage/delta") {
-        const delta = String((event.params as Record<string, unknown>)?.delta ?? "");
-        allDeltaParts.push(delta);
-        currentSegmentParts.push(delta);
-      } else if (event.method === "item/started") {
-        const params = (event.params as Record<string, unknown>) ?? {};
-        const item = (params.item as Record<string, unknown>) ?? {};
-        const itemType = String(item.type ?? "");
-        if (shouldFlushSegmentOnItemStarted(itemType)) {
-          const segmentText = currentSegmentParts.join("");
-          currentSegmentParts.length = 0;
-          await this.onProgressMessage(thread.id, turn.id, segmentText, job.channelContext);
-        }
-      } else if (event.method === "turn/completed") {
-        const params = (event.params as Record<string, unknown>) ?? {};
-        const snapshotText = extractAgentReplyTextFromTurnCompletedParams(params);
-        const deltaText = allDeltaParts.join("");
-        const fullReply = mergeReplyTextFromDeltaAndSnapshot(deltaText, snapshotText);
-        await this.onTurnCompleted(thread.id, turn.id, fullReply, job.channelContext);
-        return;
-      } else if (event.method === "turn/failed") {
-        const errorMessage = String(
-          ((event.params as Record<string, unknown>)?.turn as Record<string, unknown>)?.error ??
-            "Unknown error",
-        );
-        logError("turn.failed", {
-          threadId: shortId(thread.id),
-          turnId: shortId(turn.id),
-          message: errorMessage,
-        });
-        await sendSingleCard(
-          this.feishu,
-          job.channelContext,
-          buildErrorCard("DotCraft Turn Failed", errorMessage),
-        );
-        return;
-      } else if (event.method === "turn/cancelled") {
-        logWarn("turn.cancelled", {
-          threadId: shortId(thread.id),
-          turnId: shortId(turn.id),
-        });
-        return;
-      }
-    }
-  }
-
-  private buildIdentityKey(userId: string, channelContext: string): string {
-    return `${userId}:${channelContext}`;
-  }
-
-  private async deliverFileMessage(
-    target: string,
-    message: Record<string, unknown>,
-    context: {
-      source: "structured" | "tool";
-      metadata: Record<string, unknown>;
-    },
-  ): Promise<Record<string, unknown>> {
-    const caption = String(message.caption ?? "");
-    const fileName = String(message.fileName ?? "attachment");
-
-    try {
-      const file = await resolveOutboundFilePayload(message, fileName);
-      logInfo("outbound.send.file", {
-        source: context.source,
-        target: shortId(target),
-        fileName: file.fileName,
-        bytes: file.data.length,
-      });
-      const sendResult = await this.feishu.sendFile(target, file);
-      if (caption) {
-        const captionDelivered = await this.onDeliver(target, caption, context.metadata);
-        if (!captionDelivered) {
-          logWarn("outbound.send.file.caption_failed", {
-            target: shortId(target),
-            fileName: file.fileName,
-          });
-        }
-      }
-
-      return {
-        delivered: true,
-        remoteMessageId: sendResult.messageId,
-        remoteMediaId: sendResult.fileKey,
-      };
-    } catch (error) {
-      logError("outbound.send.file.failed", {
-        source: context.source,
-        target: shortId(target),
-        fileName,
-        message: errorMessage(error),
-      });
-      return {
-        delivered: false,
-        errorCode: "AdapterDeliveryFailed",
-        errorMessage: errorMessage(error),
-      };
-    }
-  }
-
-  private async resolveThread(
+  protected override async getOrCreateThread(
     identityKey: string,
     userId: string,
     channelContext: string,
@@ -647,7 +580,6 @@ export class FeishuAdapter extends ChannelAdapter {
         }
         if (existing.status === "paused") {
           const resumed = await this.client.threadResume(threadId);
-          this.threadContextMap.set(resumed.id, channelContext);
           logInfo("thread.resolve_action", {
             action: "resumed_from_cache",
             threadId: shortId(resumed.id),
@@ -677,7 +609,6 @@ export class FeishuAdapter extends ChannelAdapter {
           ? await this.client.threadResume(reusable.id)
           : await this.client.threadRead(reusable.id);
       this.threadMap.set(identityKey, active.id);
-      this.threadContextMap.set(active.id, channelContext);
       logInfo("thread.resolve_action", {
         action: reusable.status === "paused" ? "listed_resumed" : "listed_active",
         threadId: shortId(active.id),
@@ -693,13 +624,60 @@ export class FeishuAdapter extends ChannelAdapter {
       workspacePath,
     });
     this.threadMap.set(identityKey, created.id);
-    this.threadContextMap.set(created.id, channelContext);
     logInfo("thread.resolve_action", {
       action: "created",
       threadId: shortId(created.id),
       identityKey: shortId(identityKey),
     });
     return created;
+  }
+
+  private async deliverFileMessage(
+    target: string,
+    message: Record<string, unknown>,
+    context: {
+      source: "structured" | "tool";
+      metadata: Record<string, unknown>;
+    },
+  ): Promise<Record<string, unknown>> {
+    const caption = String(message.caption ?? "");
+    const fileName = String(message.fileName ?? "attachment");
+
+    try {
+      const file = await resolveOutboundFilePayload(message, fileName);
+      logInfo("outbound.send.file", {
+        source: context.source,
+        target: shortId(target),
+        fileName: file.fileName,
+        bytes: file.data.length,
+      });
+      const sendResult = await this.feishu.sendFile(target, file);
+      if (caption) {
+        await this.appendCaptionToActiveTranscript(target, caption, {
+          target,
+          fileName: file.fileName,
+          source: context.source,
+        });
+      }
+
+      return {
+        delivered: true,
+        remoteMessageId: sendResult.messageId,
+        remoteMediaId: sendResult.fileKey,
+      };
+    } catch (error) {
+      logError("outbound.send.file.failed", {
+        source: context.source,
+        target: shortId(target),
+        fileName,
+        message: errorMessage(error),
+      });
+      return {
+        delivered: false,
+        errorCode: "AdapterDeliveryFailed",
+        errorMessage: errorMessage(error),
+      };
+    }
   }
 }
 
@@ -715,10 +693,6 @@ function parseActionValue(value: Record<string, unknown> | string | undefined): 
   } catch {
     return null;
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function resolveOutboundFilePayload(

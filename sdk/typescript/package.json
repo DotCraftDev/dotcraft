@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test dist/adapter.test.js",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },

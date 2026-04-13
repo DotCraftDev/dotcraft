@@ -18,6 +18,7 @@ class NoopTransport implements Transport {
 
 class RecordingAdapter extends ChannelAdapter {
   readonly segments: Array<{ text: string; isFinal: boolean; channelContext: string }> = [];
+  /** Full-reply deliveries only (mirrors base ChannelAdapter: skipped when segments already sent). */
   readonly completedReplies: string[] = [];
 
   constructor() {
@@ -47,8 +48,10 @@ class RecordingAdapter extends ChannelAdapter {
     _turnId: string,
     replyText: string,
     _channelContext: string,
+    segmentsWereDelivered: boolean,
   ): Promise<void> {
-    this.completedReplies.push(replyText);
+    await super.onTurnCompleted(_threadId, _turnId, replyText, _channelContext, segmentsWereDelivered);
+    if (!segmentsWereDelivered && replyText) this.completedReplies.push(replyText);
   }
 }
 
@@ -67,26 +70,36 @@ test("ChannelAdapter flushes the current segment before external channel tool ca
   }).getOrCreateThread = async () => new Thread("thread-1", "active");
 
   client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
-  client.streamEvents = async function* () {
-    yield { method: "item/agentMessage/delta", params: { delta: "before " } };
-    yield {
-      method: "item/started",
-      params: {
-        threadId: "thread-1",
-        item: { type: "externalChannelToolCall" },
-      },
-    };
-    yield { method: "item/agentMessage/delta", params: { delta: "after" } };
-    yield {
-      method: "turn/completed",
-      params: {
-        threadId: "thread-1",
-        turn: {
-          items: [{ type: "agentMessage", payload: { text: "before after" } }],
+  client.streamEvents = () =>
+    (async function* () {
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "item-a", delta: "before " },
+      };
+      yield {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          item: { type: "externalChannelToolCall", id: "tool-1" },
         },
-      },
-    };
-  };
+      };
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "item-b", delta: "after" },
+      };
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [
+              { type: "agentMessage", id: "item-a", payload: { text: "before " } },
+              { type: "agentMessage", id: "item-b", payload: { text: "after" } },
+            ],
+          },
+        },
+      };
+    })();
 
   await (adapter as unknown as {
     processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
@@ -101,5 +114,416 @@ test("ChannelAdapter flushes the current segment before external channel tool ca
     { text: "before ", isFinal: false, channelContext: "chat-1" },
     { text: "after", isFinal: true, channelContext: "chat-1" },
   ]);
-  assert.deepEqual(adapter.completedReplies, ["before after"]);
+  assert.deepEqual(
+    adapter.completedReplies,
+    [],
+    "full merged reply must not be delivered again when segments were already sent",
+  );
+});
+
+test("item/completed reconciles truncated deltas before turn/completed", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
+  client.streamEvents = () =>
+    (async function* () {
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "m1", delta: "hel" },
+      };
+      yield {
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          item: {
+            id: "m1",
+            type: "agentMessage",
+            status: "completed",
+            payload: { text: "hello world" },
+          },
+        },
+      };
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [{ type: "agentMessage", payload: { text: "hello world" } }],
+          },
+        },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "hi",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(adapter.segments, [{ text: "hello world", isFinal: true, channelContext: "c" }]);
+  assert.deepEqual(adapter.completedReplies, []);
+});
+
+test("approval-gated external tool call keeps final segment as unsent tail only", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
+  client.streamEvents = () =>
+    (async function* () {
+      yield {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          item: { id: "agent-1", type: "agentMessage" },
+        },
+      };
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "agent-1", delta: "part-a " },
+      };
+      yield {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          item: { id: "tool-1", type: "toolCall" },
+        },
+      };
+      yield {
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          item: { id: "tool-1", type: "toolCall", status: "completed" },
+        },
+      };
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "agent-1", delta: "part-b " },
+      };
+      yield {
+        method: "item/started",
+        params: {
+          threadId: "thread-1",
+          item: { id: "ext-tool", type: "externalChannelToolCall" },
+        },
+      };
+      yield {
+        method: "item/approval/resolved",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: { id: "approval-response", type: "approvalResponse", status: "completed" },
+        },
+      };
+      yield {
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          item: { id: "ext-tool", type: "externalChannelToolCall", status: "completed" },
+        },
+      };
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "agent-1", delta: "part-c" },
+      };
+      // This completion arrives before turn/completed in real traces.
+      yield {
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          item: {
+            id: "agent-1",
+            type: "agentMessage",
+            status: "completed",
+            payload: { text: "part-a part-b part-c" },
+          },
+        },
+      };
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [{ id: "agent-1", type: "agentMessage", payload: { text: "part-a part-b part-c" } }],
+          },
+        },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "hi",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(adapter.segments, [
+    { text: "part-a ", isFinal: false, channelContext: "c" },
+    { text: "part-b ", isFinal: false, channelContext: "c" },
+    { text: "part-c", isFinal: true, channelContext: "c" },
+  ]);
+  assert.deepEqual(adapter.completedReplies, []);
+});
+
+test("two approvals and file-send style flow preserves ordered unsent transcript tails", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
+  client.streamEvents = () =>
+    (async function* () {
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "item-007", type: "agentMessage" } } };
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "item-007", delta: "text-before-second-approval " },
+      };
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "item-008", type: "toolCall" } } };
+      yield { method: "item/completed", params: { threadId: "thread-1", item: { id: "item-008", type: "toolCall" } } };
+      yield {
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          item: {
+            id: "item-007",
+            type: "agentMessage",
+            payload: { text: "text-before-second-approval " },
+          },
+        },
+      };
+      yield {
+        method: "item/started",
+        params: { threadId: "thread-1", item: { id: "item-009", type: "externalChannelToolCall" } },
+      };
+      yield {
+        method: "item/started",
+        params: { threadId: "thread-1", item: { id: "item-010", type: "approvalRequest" } },
+      };
+      yield {
+        method: "item/completed",
+        params: { threadId: "thread-1", item: { id: "item-010", type: "approvalRequest" } },
+      };
+      yield {
+        method: "item/approval/resolved",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: { id: "item-011", type: "approvalResponse", status: "completed" },
+        },
+      };
+      yield {
+        method: "item/completed",
+        params: { threadId: "thread-1", item: { id: "item-009", type: "externalChannelToolCall" } },
+      };
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "item-013", type: "agentMessage" } } };
+      yield {
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread-1", itemId: "item-013", delta: "text-after-file-send" },
+      };
+      yield {
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          item: {
+            id: "item-013",
+            type: "agentMessage",
+            payload: { text: "text-after-file-send" },
+          },
+        },
+      };
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [
+              { id: "item-007", type: "agentMessage", payload: { text: "text-before-second-approval " } },
+              { id: "item-013", type: "agentMessage", payload: { text: "text-after-file-send" } },
+            ],
+          },
+        },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "hi",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(adapter.segments, [
+    { text: "text-before-second-approval ", isFinal: false, channelContext: "c" },
+    { text: "text-after-file-send", isFinal: true, channelContext: "c" },
+  ]);
+  assert.deepEqual(adapter.completedReplies, []);
+});
+
+test("multiple agentMessage items preserve remaining tails on turn completion", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
+  client.streamEvents = () =>
+    (async function* () {
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "a1", type: "agentMessage" } } };
+      yield { method: "item/agentMessage/delta", params: { threadId: "thread-1", itemId: "a1", delta: "first " } };
+      yield { method: "item/completed", params: { threadId: "thread-1", item: { id: "a1", type: "agentMessage", payload: { text: "first " } } } };
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "a2", type: "agentMessage" } } };
+      yield { method: "item/agentMessage/delta", params: { threadId: "thread-1", itemId: "a2", delta: "second" } };
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [
+              { id: "a1", type: "agentMessage", payload: { text: "first " } },
+              { id: "a2", type: "agentMessage", payload: { text: "second" } },
+            ],
+          },
+        },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "hi",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(adapter.segments, [{ text: "first second", isFinal: true, channelContext: "c" }]);
+  assert.deepEqual(adapter.completedReplies, []);
+});
+
+test("delta without itemId is attributed to active agent item", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
+  client.streamEvents = () =>
+    (async function* () {
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "a1", type: "agentMessage" } } };
+      yield { method: "item/agentMessage/delta", params: { threadId: "thread-1", delta: "tail-without-id" } };
+      yield { method: "item/started", params: { threadId: "thread-1", item: { id: "tool-1", type: "toolCall" } } };
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [{ id: "a1", type: "agentMessage", payload: { text: "tail-without-id" } }],
+          },
+        },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "hi",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(adapter.segments, [{ text: "tail-without-id", isFinal: false, channelContext: "c" }]);
+  assert.deepEqual(adapter.completedReplies, []);
+});
+
+test("snapshot-only turn (no deltas) still delivers one final segment", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async () => new Turn("turn-1", "thread-1", "running");
+  client.streamEvents = () =>
+    (async function* () {
+      yield {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: {
+            items: [{ type: "agentMessage", payload: { text: "from snapshot" } }],
+          },
+        },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "hi",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(adapter.segments, [{ text: "from snapshot", isFinal: true, channelContext: "c" }]);
+  assert.deepEqual(adapter.completedReplies, []);
+});
+
+test("processMessage uses inputParts when provided", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+  let startedInput: unknown;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.turnStart = async (_threadId: string, input: unknown) => {
+    startedInput = input;
+    return new Turn("turn-1", "thread-1", "running");
+  };
+  client.streamEvents = () =>
+    (async function* () {
+      yield {
+        method: "turn/completed",
+        params: { threadId: "thread-1", turn: { items: [] } },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: import("./adapter.js").ChannelAdapterMessageOpts) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "ignored",
+    channelContext: "c",
+    inputParts: [{ type: "text", text: "custom part" }],
+  });
+
+  assert.deepEqual(startedInput, [{ type: "text", text: "custom part" }]);
 });

@@ -290,12 +290,14 @@ export class WeixinAdapter extends ChannelAdapter {
     });
   }
 
-  async onTurnCompleted(
+  protected override async onTurnCompleted(
     threadId: string,
     turnId: string,
     replyText: string,
     channelContext: string,
+    segmentsWereDelivered: boolean,
   ): Promise<void> {
+    if (segmentsWereDelivered) return;
     if (!replyText) return;
     try {
       await this.sendWeixinText(channelContext, replyText);

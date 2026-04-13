@@ -3,6 +3,7 @@
  */
 
 export { ChannelAdapter } from "./adapter.js";
+export type { ChannelAdapterMessageOpts } from "./adapter.js";
 export { DotCraftClient, DotCraftError } from "./client.js";
 export type { NotificationHandler, ServerRequestHandler } from "./client.js";
 export {
