@@ -9,6 +9,7 @@ export interface AppConfig {
     brand?: "feishu" | "lark" | string;
     approvalTimeoutMs?: number;
     groupMentionRequired?: boolean;
+    ackReactionEmoji?: string;
     downloadDir?: string;
   };
 }

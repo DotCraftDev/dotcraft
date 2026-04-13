@@ -16,6 +16,7 @@
 - 基于外部渠道身份复用 DotCraft 线程
 - `/new` 开启新会话
 - 群聊仅在 **@机器人** 时响应
+- 对会被处理的入站消息立即添加一个表情回复，让用户知道机器人已经看到消息
 - 按钮式审批卡片
 - `turn/completed` 后发送静态回复卡片
 - 图片消息下载后以 `localImage` 形式转发给 DotCraft
@@ -71,6 +72,7 @@
 
 - `im:message`
 - `im:message:send`
+- 消息表情回复相关权限，用于调用 `im/v1/messages/:message_id/reactions`
 - `im:resource`
 - `im:chat`
 
@@ -95,6 +97,7 @@
     "brand": "feishu",
     "approvalTimeoutMs": 120000,
     "groupMentionRequired": true,
+    "ackReactionEmoji": "GLANCE",
     "downloadDir": "./tmp"
   }
 }
@@ -104,6 +107,8 @@
 
 - `config.example.json` 用于 DotCraft 工作区配置，不是适配器运行时配置。
 - `adapter_config.json` 是本示例目录下的适配器运行时配置。
+- `ackReactionEmoji` 必须填写飞书官方 `emoji_type`，例如 `GLANCE`、`SMILE`、`OnIt`，默认值是 `GLANCE`。
+- 支持的取值请参考飞书“表情文案说明”：`message-reaction/emojis-introduce`。
 - `downloadDir` 用于暂存图片文件，再把它们转发给 DotCraft。
 
 ## 4. 安装并构建
@@ -136,6 +141,7 @@ node dist/index.js adapter_config.json
 
 - **私聊**：默认都会处理
 - **群聊**：默认只有被 @ 时才处理；如果把 `groupMentionRequired` 设为 `false`，则群聊所有消息都可触发
+- **收到提示**：消息通过过滤与解析后，会先给用户原消息加上配置的表情回复，再继续交给 DotCraft 处理
 - **命令**：`/new` 会归档当前线程并创建新会话
 - **审批**：通过交互式卡片按钮处理
 - **回复**：在回合结束后以静态交互卡片发送

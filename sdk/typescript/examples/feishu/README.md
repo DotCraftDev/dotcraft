@@ -16,6 +16,7 @@ It is built on:
 - DotCraft thread reuse via external channel identity
 - `/new` to start a fresh DotCraft thread
 - Group chats that only respond when the bot is **@mentioned**
+- Add an immediate reaction to handled inbound messages so users can see the bot has seen them
 - Interactive approval cards with buttons
 - Static reply cards after `turn/completed`
 - Image input forwarding to DotCraft as `localImage`
@@ -71,6 +72,7 @@ Recommended minimum bot-side permissions for this example:
 
 - `im:message`
 - `im:message:send`
+- message reaction permission required by `im/v1/messages/:message_id/reactions`
 - `im:resource`
 - `im:chat`
 
@@ -95,6 +97,7 @@ Then collect:
     "brand": "feishu",
     "approvalTimeoutMs": 120000,
     "groupMentionRequired": true,
+    "ackReactionEmoji": "GLANCE",
     "downloadDir": "./tmp"
   }
 }
@@ -104,6 +107,8 @@ Notes:
 
 - `config.example.json` is for DotCraft workspace config, not adapter runtime config.
 - `adapter_config.json` is the adapter runtime config in this example directory.
+- `ackReactionEmoji` must be a Feishu official `emoji_type`, such as `GLANCE`, `SMILE`, or `OnIt`. Default: `GLANCE`.
+- Supported values are documented in the Feishu emoji reference: `message-reaction/emojis-introduce`.
 - `downloadDir` is used to store temporary image files before they are forwarded to DotCraft.
 
 ## 4. Install and Build
@@ -136,6 +141,7 @@ If you do not pass a path, the process looks for `adapter_config.json` in the cu
 
 - **DM**: always handled
 - **Group**: handled only when the bot is mentioned, unless `groupMentionRequired` is set to `false`
+- **Inbound ack**: once a message passes filtering and parsing, the adapter immediately adds the configured reaction to that user message
 - **Commands**: `/new` archives the current thread and starts a new one
 - **Approvals**: rendered as interactive cards with `Approve`, `Approve Session`, `Decline`, and `Cancel`
 - **Replies**: sent as static interactive cards after the turn finishes

@@ -12,6 +12,8 @@ import { shouldHandleMessageWithReason } from "./mention.js";
 import { parseInboundMessage } from "./message-parser.js";
 import { errorMessage, logInfo, logWarn, shortId } from "./logging.js";
 
+const DEFAULT_ACK_REACTION_EMOJI = "GLANCE";
+
 export function createFeishuEventHandlers(params: {
   adapter: FeishuAdapter;
   client: FeishuClient;
@@ -21,6 +23,7 @@ export function createFeishuEventHandlers(params: {
   const dedup = new Map<string, number>();
   const dedupTtlMs = 5 * 60 * 1000;
   let loggedMissingBotIdentityWarning = false;
+  const ackReactionEmoji = (params.config.ackReactionEmoji ?? DEFAULT_ACK_REACTION_EMOJI).trim() || DEFAULT_ACK_REACTION_EMOJI;
 
   const remember = (key: string): boolean => {
     const now = Date.now();
@@ -98,6 +101,30 @@ export function createFeishuEventHandlers(params: {
         return;
       }
 
+      if (!looksLikeFeishuReactionEmojiType(ackReactionEmoji)) {
+        logWarn("inbound.message.reaction_skipped_invalid_config", {
+          messageId: shortId(parsed.messageId),
+          emojiType: ackReactionEmoji,
+          hint: "ackReactionEmoji must be a Feishu emoji_type such as GLANCE, SMILE, or OnIt.",
+        });
+        await params.adapter.handleInboundMessage(parsed);
+        return;
+      }
+
+      try {
+        await params.client.addMessageReaction(parsed.messageId, ackReactionEmoji);
+        logInfo("inbound.message.reaction_added", {
+          messageId: shortId(parsed.messageId),
+          emojiType: ackReactionEmoji,
+        });
+      } catch (error) {
+        logWarn("inbound.message.reaction_failed", {
+          messageId: shortId(parsed.messageId),
+          emojiType: ackReactionEmoji,
+          message: errorMessage(error),
+        });
+      }
+
       await params.adapter.handleInboundMessage(parsed);
     },
     onCardAction: async (event: FeishuCardActionEvent): Promise<void> => {
@@ -122,4 +149,8 @@ export function createFeishuEventHandlers(params: {
       }
     },
   };
+}
+
+function looksLikeFeishuReactionEmojiType(value: string): boolean {
+  return /^[A-Z][A-Za-z0-9]*$/.test(value);
 }

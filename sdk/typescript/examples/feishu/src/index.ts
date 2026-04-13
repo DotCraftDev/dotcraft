@@ -36,6 +36,7 @@ async function main(): Promise<void> {
   logInfo("startup.config_loaded", {
     brand: config.feishu.brand ?? "feishu",
     groupMentionRequired: config.feishu.groupMentionRequired !== false,
+    ackReactionEmoji: (config.feishu.ackReactionEmoji ?? "GLANCE").trim() || "GLANCE",
     hasDownloadDir: Boolean(config.feishu.downloadDir),
     hasDotcraftToken: Boolean(config.dotcraft.token),
   });
