@@ -212,7 +212,7 @@ export class WeixinAdapter extends ChannelAdapter {
     request: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const tool = String(request.tool ?? "");
-    if (tool !== "weixinSendFilePreviewToCurrentChat") {
+    if (tool !== "WeixinSendFilePreviewToCurrentChat") {
       return {
         success: false,
         errorCode: "UnsupportedTool",
