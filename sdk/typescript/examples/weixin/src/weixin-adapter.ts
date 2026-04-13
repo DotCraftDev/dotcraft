@@ -160,7 +160,7 @@ export class WeixinAdapter extends ChannelAdapter {
   protected override getChannelTools(): Record<string, unknown>[] | null {
     return [
       {
-        name: "weixinSendFilePreviewToCurrentChat",
+        name: "WeixinSendFilePreviewToCurrentChat",
         description: "Send a file-style preview message to the current Weixin chat.",
         requiresChatContext: true,
         inputSchema: {
