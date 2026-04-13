@@ -109,6 +109,8 @@ public sealed class WeComChannelService(
 
     static WeComChannelService()
     {
+        ToolRegistry.RegisterDisplay(WeComSendVoiceTool, icon: "🎤", title: "Send voice in current WeCom chat");
+        ToolRegistry.RegisterDisplay(WeComSendFileTool, icon: "📁", title: "Send file in current WeCom chat");
         ToolRegistry.RegisterDisplayFormatter(WeComSendVoiceTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendVoice));
         ToolRegistry.RegisterDisplayFormatter(WeComSendFileTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendFile));
     }
