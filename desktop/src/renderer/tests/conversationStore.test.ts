@@ -62,6 +62,63 @@ describe('turn lifecycle', () => {
     expect(items[0].status).toBe('streaming')
   })
 
+  it('onItemStarted/onCommandExecutionDelta/onItemCompleted track command execution output', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-1',
+        type: 'commandExecution',
+        payload: {
+          callId: 'exec-1',
+          command: 'npm test',
+          workingDirectory: 'C:/repo',
+          source: 'host',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+
+    s().onCommandExecutionDelta({
+      turnId: 'turn-1',
+      itemId: 'cmd-1',
+      delta: 'line 1\n'
+    })
+    s().onCommandExecutionDelta({
+      turnId: 'turn-1',
+      itemId: 'cmd-1',
+      delta: 'line 2\n'
+    })
+
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-1',
+        type: 'commandExecution',
+        completedAt: new Date().toISOString(),
+        payload: {
+          callId: 'exec-1',
+          command: 'npm test',
+          workingDirectory: 'C:/repo',
+          source: 'host',
+          status: 'completed',
+          aggregatedOutput: 'line 1\nline 2\n',
+          exitCode: 0,
+          durationMs: 1500
+        }
+      }
+    })
+
+    const item = s().turns[0].items.find((i) => i.id === 'cmd-1')
+    expect(item?.type).toBe('commandExecution')
+    expect(item?.aggregatedOutput).toBe('line 1\nline 2\n')
+    expect(item?.status).toBe('completed')
+    expect(item?.executionStatus).toBe('completed')
+    expect(item?.exitCode).toBe(0)
+    expect(item?.duration).toBe(1500)
+  })
+
   it('onItemCompleted (agentMessage) updates placeholder in place and clears buffer', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({ turnId: 'turn-1', item: { id: 'item-1', type: 'agentMessage' } })

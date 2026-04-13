@@ -1,7 +1,7 @@
 /**
  * Conversation-level types for M3.
  * These expand on the minimal Turn/Item stubs used in M2 and map directly
- * to the AppServer Wire Protocol payloads (specs/appserver-protocol.md §6).
+ * to the AppServer Wire Protocol payloads (specs/appserver-protocol.md Section 6).
  */
 
 export type TurnStatus = 'running' | 'completed' | 'failed' | 'cancelled'
@@ -13,6 +13,7 @@ export type ItemType =
   | 'userMessage'
   | 'agentMessage'
   | 'reasoningContent'
+  | 'commandExecution'
   | 'toolCall'
   | 'externalChannelToolCall'
   | 'toolResult'
@@ -50,19 +51,31 @@ export interface ConversationItem {
   text?: string
   /** Optimistic-only: data URLs for user-attached images (not persisted by server) */
   imageDataUrls?: string[]
-  /** Reasoning (thinking) text — reasoningContent items */
+  /** Reasoning text for reasoningContent items */
   reasoning?: string
-  /** Tool name — toolCall items */
+  /** Tool name for toolCall items */
   toolName?: string
   /** Correlation ID between toolCall and toolResult */
   toolCallId?: string
-  /** Tool call arguments from item/started payload — toolCall items */
+  /** Shell command text for commandExecution items */
+  command?: string
+  /** Working directory for commandExecution items */
+  workingDirectory?: string
+  /** Runtime source for commandExecution items */
+  commandSource?: 'host' | 'sandbox'
+  /** Aggregated command output for commandExecution items */
+  aggregatedOutput?: string
+  /** Exit code for commandExecution items */
+  exitCode?: number | null
+  /** Runtime status for commandExecution items */
+  executionStatus?: 'inProgress' | 'completed' | 'failed' | 'cancelled'
+  /** Tool call arguments from item/started payload for toolCall items */
   arguments?: Record<string, unknown>
-  /** External adapter channel name — externalChannelToolCall items */
+  /** External adapter channel name for externalChannelToolCall items */
   toolChannelName?: string
-  /** Tool result text — updated on item/completed (toolResult) */
+  /** Tool result text updated on item/completed (toolResult) */
   result?: string
-  /** Whether the tool succeeded — updated on item/completed (toolResult) */
+  /** Whether the tool succeeded updated on item/completed (toolResult) */
   success?: boolean
   /** Duration in milliseconds from tool start to completion */
   duration?: number
@@ -70,7 +83,7 @@ export interface ConversationItem {
   completedAt?: string
   /** Elapsed seconds from createdAt to completedAt (reasoning indicator) */
   elapsedSeconds?: number
-  /** Approval card fields — approvalCard items */
+  /** Approval card fields for approvalCard items */
   approvalType?: 'shell' | 'file'
   approvalOperation?: string
   approvalTarget?: string
@@ -124,28 +137,33 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
     id: (raw.id as string) ?? '',
     type,
     status: 'completed',
-    // text: top-level first (streaming/optimistic), then payload.text (agentMessage, userMessage),
-    // then payload.message (ErrorPayload), then raw.content (legacy fallback)
     text: (raw.text as string | undefined)
       ?? (payload.text as string | undefined)
       ?? (raw.content as string | undefined)
       ?? (payload.message as string | undefined),
-    // reasoning: for reasoningContent items, text lives in payload.text
     reasoning: (raw.reasoning as string | undefined)
       ?? (type === 'reasoningContent' ? (payload.text as string | undefined) : undefined)
       ?? (raw.content as string | undefined),
-    // toolName: ToolCallPayload.toolName
     toolName: (raw.toolName as string | undefined)
       ?? (payload.toolName as string | undefined)
       ?? (raw.name as string | undefined),
-    // toolCallId: ToolCallPayload.callId / ToolResultPayload.callId
     toolCallId: (raw.toolCallId as string | undefined)
       ?? (payload.callId as string | undefined)
       ?? (raw.callId as string | undefined),
-    // arguments: ToolCallPayload.arguments (stored for diff extraction)
+    command: (raw.command as string | undefined)
+      ?? (payload.command as string | undefined),
+    workingDirectory: (raw.workingDirectory as string | undefined)
+      ?? (payload.workingDirectory as string | undefined),
+    commandSource: (raw.commandSource as 'host' | 'sandbox' | undefined)
+      ?? (payload.source as 'host' | 'sandbox' | undefined),
+    aggregatedOutput: (raw.aggregatedOutput as string | undefined)
+      ?? (payload.aggregatedOutput as string | undefined),
+    exitCode: (raw.exitCode as number | null | undefined)
+      ?? (payload.exitCode as number | null | undefined),
+    executionStatus: (raw.executionStatus as ConversationItem['executionStatus'] | undefined)
+      ?? (payload.status as ConversationItem['executionStatus'] | undefined),
     arguments: (raw.arguments as Record<string, unknown> | undefined)
       ?? (payload.arguments as Record<string, unknown> | undefined),
-    // result/success: ToolResultPayload fields (populated when loading history)
     result: (raw.result as string | undefined)
       ?? (payload.result as string | undefined),
     success: (raw.success as boolean | undefined)

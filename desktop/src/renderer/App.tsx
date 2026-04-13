@@ -437,6 +437,27 @@ export function App(): JSX.Element {
             }
             break
 
+          case 'item/commandExecution/outputDelta':
+            conv.onCommandExecutionDelta({
+              threadId: (p.threadId as string | undefined),
+              turnId: (p.turnId as string | undefined),
+              itemId: (p.itemId as string | undefined),
+              delta: (p.delta as string | undefined)
+            })
+            {
+              const tid = (p.threadId as string | undefined) ?? ''
+              const rs = useReviewPanelStore.getState()
+              if (tid && rs.reviewThreadId === tid) {
+                rs.onCommandExecutionDelta({
+                  threadId: (p.threadId as string | undefined),
+                  turnId: (p.turnId as string | undefined),
+                  itemId: (p.itemId as string | undefined),
+                  delta: (p.delta as string | undefined)
+                })
+              }
+            }
+            break
+
           case 'item/completed':
             conv.onItemCompleted(p)
             {

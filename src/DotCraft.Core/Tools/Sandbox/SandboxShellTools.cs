@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using DotCraft.Protocol;
 
 namespace DotCraft.Tools.Sandbox;
 
@@ -34,8 +35,13 @@ public sealed class SandboxShellTools
         if (string.IsNullOrWhiteSpace(command))
             return "Error: Command cannot be empty.";
 
+        CommandExecutionTracker? commandExecution = null;
         try
         {
+            commandExecution = SandboxCommandExecutionTracker.Begin(
+                command,
+                !string.IsNullOrWhiteSpace(workingDir) ? workingDir! : "/workspace",
+                source: "sandbox");
             var sandbox = await _sandboxManager.GetOrCreateAsync();
 
             // If a working directory is specified, wrap the command with cd
@@ -50,15 +56,25 @@ public sealed class SandboxShellTools
                     TimeoutSeconds = _timeoutSeconds
                 });
 
-            return FormatOutput(execution);
+            var output = FormatOutput(execution);
+            commandExecution?.Append(output);
+            commandExecution?.Complete(
+                output,
+                status: execution.Error == null ? "completed" : "failed",
+                exitCode: execution.Error == null ? 0 : 1);
+            return output;
         }
         catch (OpenSandbox.Core.SandboxException ex)
         {
-            return $"Sandbox error: [{ex.Error.Code}] {ex.Error.Message}";
+            var error = $"Sandbox error: [{ex.Error.Code}] {ex.Error.Message}";
+            commandExecution?.Complete(error, status: "failed", exitCode: null);
+            return error;
         }
         catch (Exception ex)
         {
-            return $"Error executing command in sandbox: {ex.Message}";
+            var error = $"Error executing command in sandbox: {ex.Message}";
+            commandExecution?.Complete(error, status: "failed", exitCode: null);
+            return error;
         }
     }
 
@@ -110,4 +126,10 @@ public sealed class SandboxShellTools
     {
         return "'" + arg.Replace("'", "'\\''") + "'";
     }
+}
+
+file static class SandboxCommandExecutionTracker
+{
+    public static CommandExecutionTracker? Begin(string command, string workingDirectory, string source) =>
+        CommandExecutionTracker.Begin(command, workingDirectory, source);
 }

@@ -60,6 +60,7 @@ internal sealed class SessionItemConverter : JsonConverter<SessionItem>
             ItemType.UserMessage => payload.Deserialize<UserMessagePayload>(options),
             ItemType.AgentMessage => payload.Deserialize<AgentMessagePayload>(options),
             ItemType.ReasoningContent => payload.Deserialize<ReasoningContentPayload>(options),
+            ItemType.CommandExecution => payload.Deserialize<CommandExecutionPayload>(options),
             ItemType.ToolCall => payload.Deserialize<ToolCallPayload>(options),
             ItemType.ExternalChannelToolCall => payload.Deserialize<ExternalChannelToolCallPayload>(options),
             ItemType.ToolResult => payload.Deserialize<ToolResultPayload>(options),
@@ -149,6 +150,7 @@ internal sealed class SessionEventConverter : JsonConverter<SessionEvent>
             return (deltaKind.GetString() ?? string.Empty) switch
             {
                 "reasoningContent" => payload.Deserialize<ReasoningContentDelta>(options),
+                "commandExecution" => payload.Deserialize<CommandExecutionOutputDelta>(options),
                 "agentMessage" => payload.Deserialize<AgentMessageDelta>(options),
                 _ => payload.Deserialize<AgentMessageDelta>(options)
             };

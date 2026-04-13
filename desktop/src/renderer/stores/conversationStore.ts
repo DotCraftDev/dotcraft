@@ -107,6 +107,8 @@ interface ConversationActions {
   onAgentMessageDelta(delta: string): void
   /** item/reasoning/delta notification */
   onReasoningDelta(delta: string): void
+  /** item/commandExecution/outputDelta notification */
+  onCommandExecutionDelta(params: { threadId?: string; turnId?: string; itemId?: string; delta?: string }): void
   /** item/completed notification */
   onItemCompleted(params: Record<string, unknown>): void
   /** item/usage/delta notification */
@@ -509,6 +511,34 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
+    } else if (type === 'commandExecution') {
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      const newItem: ConversationItem = {
+        id: itemId ?? '',
+        type: 'commandExecution',
+        status: 'started',
+        command: (item?.command as string | undefined) ?? (itemPayload.command as string | undefined) ?? '',
+        workingDirectory: (item?.workingDirectory as string | undefined)
+          ?? (itemPayload.workingDirectory as string | undefined),
+        commandSource: (item?.source as 'host' | 'sandbox' | undefined)
+          ?? (itemPayload.source as 'host' | 'sandbox' | undefined),
+        aggregatedOutput: (item?.aggregatedOutput as string | undefined)
+          ?? (itemPayload.aggregatedOutput as string | undefined)
+          ?? '',
+        exitCode: (item?.exitCode as number | null | undefined)
+          ?? (itemPayload.exitCode as number | null | undefined),
+        executionStatus: (item?.status as ConversationItem['executionStatus'] | undefined)
+          ?? (itemPayload.status as ConversationItem['executionStatus'] | undefined)
+          ?? 'inProgress',
+        toolCallId: (item?.callId as string | undefined)
+          ?? (itemPayload.callId as string | undefined),
+        createdAt: (item?.createdAt as string) ?? new Date().toISOString()
+      }
+      set((state) => ({
+        turns: state.turns.map((t) =>
+          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
+        )
+      }))
     }
   },
 
@@ -518,6 +548,33 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 
   onReasoningDelta(delta) {
     set((state) => ({ streamingReasoning: state.streamingReasoning + delta }))
+  },
+
+  onCommandExecutionDelta(params) {
+    const turnId = params.turnId ?? ''
+    const itemId = params.itemId ?? ''
+    const delta = params.delta ?? ''
+    if (!turnId || !itemId || !delta) return
+
+    set((state) => ({
+      turns: state.turns.map((t) =>
+        t.id !== turnId
+          ? t
+          : {
+              ...t,
+              items: sortItemsByCreatedAt(
+                t.items.map((i) =>
+                  i.id === itemId && i.type === 'commandExecution'
+                    ? {
+                        ...i,
+                        aggregatedOutput: (i.aggregatedOutput ?? '') + delta
+                      }
+                    : i
+                )
+              )
+            }
+      )
+    }))
   },
 
   onItemCompleted(params) {
@@ -657,6 +714,55 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 )
               }
             : t
+        )
+      }))
+    } else if (type === 'commandExecution') {
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  t.items.map((i) => {
+                    if (i.id !== (item?.id as string) || i.type !== 'commandExecution') return i
+                    const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
+                    const endMs = (item?.completedAt as string)
+                      ? new Date(item.completedAt as string).getTime()
+                      : Date.now()
+                    return {
+                      ...i,
+                      status: 'completed' as const,
+                      command: (item?.command as string | undefined)
+                        ?? (itemPayload.command as string | undefined)
+                        ?? i.command,
+                      workingDirectory: (item?.workingDirectory as string | undefined)
+                        ?? (itemPayload.workingDirectory as string | undefined)
+                        ?? i.workingDirectory,
+                      commandSource: (item?.source as 'host' | 'sandbox' | undefined)
+                        ?? (itemPayload.source as 'host' | 'sandbox' | undefined)
+                        ?? i.commandSource,
+                      aggregatedOutput: (item?.aggregatedOutput as string | undefined)
+                        ?? (itemPayload.aggregatedOutput as string | undefined)
+                        ?? i.aggregatedOutput
+                        ?? '',
+                      exitCode: (item?.exitCode as number | null | undefined)
+                        ?? (itemPayload.exitCode as number | null | undefined)
+                        ?? i.exitCode,
+                      executionStatus: (item?.status as ConversationItem['executionStatus'] | undefined)
+                        ?? (itemPayload.status as ConversationItem['executionStatus'] | undefined)
+                        ?? i.executionStatus
+                        ?? 'completed',
+                      toolCallId: (item?.callId as string | undefined)
+                        ?? (itemPayload.callId as string | undefined)
+                        ?? i.toolCallId,
+                      duration: (itemPayload.durationMs as number | undefined) ?? (endMs - startMs),
+                      completedAt: (item?.completedAt as string) ?? new Date().toISOString()
+                    }
+                  })
+                )
+              }
         )
       }))
     } else if (type === 'externalChannelToolCall') {

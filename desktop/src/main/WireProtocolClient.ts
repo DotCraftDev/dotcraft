@@ -385,6 +385,7 @@ export class WireProtocolClient extends EventEmitter {
         capabilities: {
           approvalSupport: true,
           streamingSupport: true,
+          commandExecutionStreaming: true,
           optOutNotificationMethods: []
         }
       },

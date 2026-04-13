@@ -67,6 +67,12 @@ public sealed class AppServerClientCapabilities
     /// <summary>Whether the client can consume streaming delta notifications. Default true.</summary>
     public bool? StreamingSupport { get; set; }
 
+    /// <summary>
+    /// Whether the client can consume commandExecution items and item/commandExecution/outputDelta.
+    /// Default false to preserve legacy toolCall/toolResult-based clients.
+    /// </summary>
+    public bool? CommandExecutionStreaming { get; set; }
+
     /// <summary>Exact notification method names to suppress for this connection.</summary>
     public List<string>? OptOutNotificationMethods { get; set; }
 
@@ -1449,6 +1455,7 @@ public static class AppServerMethods
     public const string ItemStarted = "item/started";
     public const string ItemAgentMessageDelta = "item/agentMessage/delta";
     public const string ItemReasoningDelta = "item/reasoning/delta";
+    public const string ItemCommandExecutionOutputDelta = "item/commandExecution/outputDelta";
     public const string ItemCompleted = "item/completed";
     public const string ItemApprovalResolved = "item/approval/resolved";
 

@@ -108,6 +108,32 @@ describe('wireItemToConversationItem — nested payload format (thread/read)', (
     expect(item.toolCallId).toBe('call-abc')
   })
 
+  it('extracts command execution payload fields', () => {
+    const item = wireItemToConversationItem({
+      id: 'i4b',
+      type: 'commandExecution',
+      status: 'completed',
+      payload: {
+        callId: 'exec-1',
+        command: 'npm test',
+        workingDirectory: 'C:/repo',
+        source: 'host',
+        status: 'completed',
+        aggregatedOutput: 'ok',
+        exitCode: 0,
+        durationMs: 1200
+      },
+      createdAt: '2025-01-01T00:00:00Z'
+    })
+    expect(item.command).toBe('npm test')
+    expect(item.workingDirectory).toBe('C:/repo')
+    expect(item.commandSource).toBe('host')
+    expect(item.aggregatedOutput).toBe('ok')
+    expect(item.exitCode).toBe(0)
+    expect(item.executionStatus).toBe('completed')
+    expect(item.toolCallId).toBe('exec-1')
+  })
+
   it('extracts error message from ErrorPayload.message', () => {
     const item = wireItemToConversationItem({
       id: 'i5',

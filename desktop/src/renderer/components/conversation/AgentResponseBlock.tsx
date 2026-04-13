@@ -8,6 +8,7 @@ import { CancelledNotice } from './CancelledNotice'
 import { SubAgentProgressBlock } from './SubAgentProgressBlock'
 import { TurnCompletionSummary } from './TurnCompletionSummary'
 import { ApprovalCard } from './ApprovalCard'
+import { TerminalCommandBlock } from '../detail/TerminalCommandBlock'
 import { aggregateToolCalls } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
@@ -70,10 +71,15 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   const activeItemId =
     activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
 
+  const hasCommandExecution = turn.items.some((i) => i.type === 'commandExecution')
+
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)
   const renderableItems = turn.items.filter(
-    (i) => i.type !== 'userMessage' && i.type !== 'toolResult'
+    (i) =>
+      i.type !== 'userMessage'
+      && i.type !== 'toolResult'
+      && !(hasCommandExecution && i.type === 'toolCall' && i.toolName === 'Exec')
   )
 
   // Build the ordered render list by walking items in sequence.
@@ -120,6 +126,18 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       const displayText = isLiveStreaming ? streamingMessage : (item.text ?? '')
       renderNodes.push(
         <AgentMessage key={item.id} text={displayText} streaming={isLiveStreaming} />
+      )
+    } else if (item.type === 'commandExecution') {
+      renderNodes.push(
+        <TerminalCommandBlock
+          key={item.id}
+          command={item.command ?? 'shell'}
+          output={item.aggregatedOutput ?? ''}
+          duration={item.duration}
+          running={item.status !== 'completed' || item.executionStatus === 'inProgress'}
+          exitCode={item.exitCode}
+          source={item.commandSource}
+        />
       )
     } else if (item.type === 'error') {
       renderNodes.push(

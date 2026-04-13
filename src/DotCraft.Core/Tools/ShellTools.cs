@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using DotCraft.Protocol;
 using DotCraft.Security;
 
 namespace DotCraft.Tools;
@@ -79,8 +80,10 @@ public sealed class ShellTools
         if (guardError != null)
             return guardError;
 
+        CommandExecutionTracker? commandExecution = null;
         try
         {
+            commandExecution = CommandExecutionTracker.Begin(command, cwd, source: "host");
             var isWindows = OperatingSystem.IsWindows();
 
             var psi = new ProcessStartInfo
@@ -110,18 +113,39 @@ public sealed class ShellTools
 
             using var process = Process.Start(psi);
             if (process == null)
+            {
+                commandExecution?.Complete("Error: Failed to start process.", status: "failed", exitCode: null);
                 return "Error: Failed to start process.";
+            }
 
             var outputBuilder = new StringBuilder();
             var errorBuilder = new StringBuilder();
+            var outputLock = new object();
+            var stderrHeaderWritten = false;
 
             process.OutputDataReceived += (_, e) =>
             {
-                if (e.Data != null) outputBuilder.AppendLine(e.Data);
+                if (e.Data == null) return;
+                lock (outputLock)
+                {
+                    outputBuilder.AppendLine(e.Data);
+                }
+                commandExecution?.Append(e.Data + Environment.NewLine);
             };
             process.ErrorDataReceived += (_, e) =>
             {
-                if (e.Data != null) errorBuilder.AppendLine(e.Data);
+                if (e.Data == null) return;
+                lock (outputLock)
+                {
+                    errorBuilder.AppendLine(e.Data);
+                    if (!stderrHeaderWritten)
+                    {
+                        stderrHeaderWritten = true;
+                        var prefix = outputBuilder.Length > 0 ? Environment.NewLine + "STDERR:" + Environment.NewLine : "STDERR:" + Environment.NewLine;
+                        commandExecution?.Append(prefix);
+                    }
+                }
+                commandExecution?.Append(e.Data + Environment.NewLine);
             };
 
             process.BeginOutputReadLine();
@@ -139,7 +163,9 @@ public sealed class ShellTools
             if (!completed)
             {
                 process.Kill(entireProcessTree: true);
-                return $"Error: Command timed out after {_timeoutSeconds} seconds.";
+                var timeoutOutput = $"Error: Command timed out after {_timeoutSeconds} seconds.";
+                commandExecution?.Complete(timeoutOutput, status: "cancelled", exitCode: null);
+                return timeoutOutput;
             }
 
             var result = new StringBuilder();
@@ -172,11 +198,18 @@ public sealed class ShellTools
                          + $"\n... (truncated, {output.Length - _maxOutputLength} more chars)";
             }
 
+            commandExecution?.Complete(
+                output,
+                status: process.ExitCode == 0 ? "completed" : "failed",
+                exitCode: process.ExitCode);
+
             return output;
         }
         catch (Exception ex)
         {
-            return $"Error executing command: {ex.Message}";
+            var error = $"Error executing command: {ex.Message}";
+            commandExecution?.Complete(error, status: "failed", exitCode: null);
+            return error;
         }
     }
 

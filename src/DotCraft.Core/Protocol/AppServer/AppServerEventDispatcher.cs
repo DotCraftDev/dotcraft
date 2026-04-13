@@ -182,6 +182,13 @@ public sealed class AppServerEventDispatcher
             deltaKind = delta.DeltaKind,
             delta = delta.TextDelta
         },
+        SessionEventType.ItemDelta when evt.CommandExecutionDeltaPayload is { } commandDelta => new
+        {
+            threadId = evt.ThreadId,
+            turnId = evt.TurnId,
+            itemId = evt.ItemId,
+            delta = commandDelta.TextDelta
+        },
         SessionEventType.ItemDelta when evt.ReasoningDeltaPayload is { } reasoning => new
         {
             threadId = evt.ThreadId,
@@ -361,6 +368,7 @@ public sealed class AppServerEventDispatcher
     private static bool IsEmptyDelta(SessionEvent evt) =>
         evt.EventType == SessionEventType.ItemDelta &&
         (evt.DeltaPayload is { } d ? string.IsNullOrEmpty(d.TextDelta)
+            : evt.CommandExecutionDeltaPayload is { } c ? string.IsNullOrEmpty(c.TextDelta)
             : evt.ReasoningDeltaPayload is { } r && string.IsNullOrEmpty(r.TextDelta));
 
     private Task SendNotificationAsync(string method, object? @params, CancellationToken ct)
