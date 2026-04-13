@@ -19,6 +19,7 @@ import {
   WebSocketTransport,
   extractAgentReplyTextFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
+  shouldFlushSegmentOnItemStarted,
   textPart,
 } from "dotcraft-wire";
 import { buildApprovalCard, buildErrorCard } from "./card-builder.js";
@@ -107,6 +108,11 @@ export class FeishuAdapter extends ChannelAdapter {
         name: "FeishuSendFileToCurrentChat",
         description: "Send a real file attachment to the current Feishu chat.",
         requiresChatContext: true,
+        approval: {
+          kind: "file",
+          targetArgument: "filePath",
+          operation: "read",
+        },
         display: {
           icon: "📎",
           title: "Send file to current Feishu chat",
@@ -529,7 +535,7 @@ export class FeishuAdapter extends ChannelAdapter {
         const params = (event.params as Record<string, unknown>) ?? {};
         const item = (params.item as Record<string, unknown>) ?? {};
         const itemType = String(item.type ?? "");
-        if (itemType === "toolCall") {
+        if (shouldFlushSegmentOnItemStarted(itemType)) {
           const segmentText = currentSegmentParts.join("");
           currentSegmentParts.length = 0;
           await this.onProgressMessage(thread.id, turn.id, segmentText, job.channelContext);

@@ -152,10 +152,43 @@ public sealed class ChannelToolDescriptor
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ChannelToolDisplay? Display { get; set; }
 
+    /// <summary>
+    /// Optional approval metadata describing which argument should be intercepted by the server
+    /// before dispatching <c>ext/channel/toolCall</c>.
+    /// This describes approval targets only; policy remains server-owned.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ChannelToolApprovalDescriptor? Approval { get; set; }
+
     public bool RequiresChatContext { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? DeferLoading { get; set; }
+}
+
+public sealed class ChannelToolApprovalDescriptor
+{
+    /// <summary>
+    /// Server approval category, for example <c>file</c> or <c>shell</c>.
+    /// </summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Name of the tool argument that contains the primary approval target.
+    /// </summary>
+    public string TargetArgument { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional static operation label forwarded to the approval service.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Operation { get; set; }
+
+    /// <summary>
+    /// Optional argument name whose runtime value is forwarded as the operation string.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OperationArgument { get; set; }
 }
 
 public sealed class ChannelToolDisplay

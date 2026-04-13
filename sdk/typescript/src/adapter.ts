@@ -16,6 +16,7 @@ import {
   extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
+import { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
 
 /** Queued inbound message; skipCommand skips slash handling for expanded prompts. */
 type ChannelAdapterMessageOpts = {
@@ -392,7 +393,7 @@ export abstract class ChannelAdapter {
         const params = (event.params as Record<string, unknown>) ?? {};
         const item = (params.item as Record<string, unknown>) ?? {};
         const itemType = String(item.type ?? "");
-        if (itemType === "toolCall") {
+        if (shouldFlushSegmentOnItemStarted(itemType)) {
           const segmentText = currentSegmentParts.join("");
           currentSegmentParts.length = 0;
           if (segmentText.trim()) {

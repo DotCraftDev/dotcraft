@@ -1,3 +1,5 @@
+using DotCraft.Security;
+
 namespace DotCraft.Protocol;
 
 /// <summary>
@@ -16,6 +18,14 @@ public sealed class ExternalChannelToolExecutionContext
     public string? SenderId { get; init; }
 
     public string? GroupId { get; init; }
+
+    public required string WorkspacePath { get; init; }
+
+    public required bool RequireApprovalOutsideWorkspace { get; init; }
+
+    public required IApprovalService ApprovalService { get; init; }
+
+    public PathBlacklist? PathBlacklist { get; init; }
 
     public required SessionTurn Turn { get; init; }
 

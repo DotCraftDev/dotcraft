@@ -1191,15 +1191,32 @@ Thread configuration belongs to the thread model rather than to any individual a
 
 ### 16.2 Thread Configuration
 
-Each thread may carry a `Configuration` object:
+Each thread may carry a `Configuration` object. This is a thread-owned model, not channel-owned state, and the same shape applies across CLI, AppServer, external adapters, and other hosts.
 
 ```
 ThreadConfiguration
-├── McpServers: McpServerConfig[]        // Per-thread MCP server connections (nullable)
-├── Mode: string                         // Agent mode: "agent", "plan", etc. (default: "agent")
-├── Extensions: string[]                 // Active extension prefixes, e.g. ["_unity"] (nullable)
-└── CustomTools: string[]                // Additional tool names to enable (nullable)
+├── McpServers: McpServerConfig[]?               // Per-thread MCP server connections
+├── Mode: string                                 // Agent mode: "agent", "plan", etc. (default: "agent")
+├── Extensions: string[]?                        // Active extension prefixes, e.g. ["_unity"]
+├── CustomTools: string[]?                       // Additional tool names to enable
+├── Model: string?                               // Optional per-thread model override
+├── WorkspaceOverride: string?                   // Alternate workspace root for this thread
+├── ToolProfile: string?                         // Named tool profile to inject
+├── UseToolProfileOnly: bool                     // Use only the profile tools when true
+├── AgentInstructions: string?                   // Optional extra system instructions
+├── ApprovalPolicy: default|autoApprove|interrupt// Thread-scoped approval behavior
+├── AutomationTaskDirectory: string?             // Local automation task directory
+└── RequireApprovalOutsideWorkspace: bool?       // Overrides workspace file/shell boundary behavior
 ```
+
+Approval-related fields are normative:
+
+- `ApprovalPolicy = default` means the thread uses the normal interactive approval path when a tool requests approval.
+- `ApprovalPolicy = autoApprove` means approval-gated operations on that thread are auto-accepted by the server.
+- `ApprovalPolicy = interrupt` means any approval-gated operation interrupts/cancels the turn instead of prompting.
+- `RequireApprovalOutsideWorkspace = true` allows outside-workspace file or shell operations to proceed through the approval service.
+- `RequireApprovalOutsideWorkspace = false` rejects outside-workspace file or shell operations without prompting.
+- `RequireApprovalOutsideWorkspace = null` falls back to the workspace-level defaults in `AppConfig.Tools.File` and `AppConfig.Tools.Shell`.
 
 When a thread is created or its configuration changes, Session Core recreates the effective agent/tool set from that configuration.
 

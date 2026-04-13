@@ -184,6 +184,11 @@ Client                              Server
           "name": "TelegramSendDocumentToCurrentChat",
           "description": "Send a document to the current Telegram chat.",
           "requiresChatContext": true,
+          "approval": {
+            "kind": "file",
+            "targetArgument": "filePath",
+            "operation": "read"
+          },
           "display": {
             "icon": "📎",
             "title": "Send document to current Telegram chat"
@@ -256,11 +261,20 @@ Each `channelTools` descriptor supports:
 - `outputSchema?: object`
 - `display?: { icon?: string, title?: string, subtitle?: string }`
 - `requiresChatContext: boolean`
+- `approval?: { kind: string, targetArgument: string, operation?: string, operationArgument?: string }`
 - `deferLoading?: boolean`
 
 Channel tool names should use PascalCase. For cross-runtime icon support, adapters should prefer declaring emoji icons via `channelTools[].display.icon`.
 
 `deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior in this milestone.
+
+When `approval` is present, it is a descriptive risk declaration rather than an adapter-owned policy block:
+
+- `approval.kind` identifies the server approval category. Initial standard values are `file` and `shell`.
+- `approval.targetArgument` names the tool argument that contains the primary approval target, such as `filePath` or `workingDirectory`.
+- `approval.operation` is an optional static label forwarded to the server approval layer.
+- `approval.operationArgument` is an optional argument name whose value is forwarded as the operation string.
+- Policy resolution remains server-owned. The adapter must not treat descriptor metadata as a private approval configuration source.
 
 ### 3.2.1 Unified Channel Model
 
@@ -357,6 +371,53 @@ Create a new thread. The server generates a Thread ID and persists initial state
 | `config` | ThreadConfiguration | no | Per-thread agent configuration. Null means workspace defaults. |
 | `historyMode` | string | no | `"server"` (default) or `"client"`. |
 | `displayName` | string | no | Explicit thread display name. |
+
+#### 4.1.1 `ThreadConfiguration` Wire Shape
+
+`ThreadConfiguration` is the canonical thread-scoped configuration object on the wire:
+
+```json
+{
+  "mcpServers": [],
+  "mode": "agent",
+  "extensions": ["_unity"],
+  "customTools": ["SomeTool"],
+  "model": "gpt-4.1",
+  "workspaceOverride": "/path/to/alt/workspace",
+  "toolProfile": "commit-message",
+  "useToolProfileOnly": false,
+  "agentInstructions": "Focus on concise commit messages.",
+  "approvalPolicy": "default",
+  "automationTaskDirectory": "/path/to/task",
+  "requireApprovalOutsideWorkspace": true
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mcpServers` | `McpServerConfig[]` | Optional per-thread MCP server configuration. |
+| `mode` | string | Agent mode for the thread. Default `agent`. |
+| `extensions` | string[] | Optional active ACP extension prefixes. |
+| `customTools` | string[] | Optional extra tool names enabled for the thread. |
+| `model` | string | Optional per-thread model override. |
+| `workspaceOverride` | string | Optional alternate workspace root for the thread. |
+| `toolProfile` | string | Optional named tool profile. |
+| `useToolProfileOnly` | boolean | When `true`, use only the tools from `toolProfile`. |
+| `agentInstructions` | string | Optional additional system instructions. |
+| `approvalPolicy` | string | Thread-scoped approval mode: `default`, `autoApprove`, or `interrupt`. |
+| `automationTaskDirectory` | string | Optional local automation task directory. |
+| `requireApprovalOutsideWorkspace` | boolean | Optional override for the workspace file/shell outside-boundary behavior. |
+
+Approval semantics:
+
+- `approvalPolicy = default` uses the normal interactive approval flow when the client supports approvals.
+- `approvalPolicy = autoApprove` auto-accepts approval-gated operations for that thread.
+- `approvalPolicy = interrupt` cancels the turn when an approval-gated operation is encountered.
+- `requireApprovalOutsideWorkspace = true` allows outside-workspace file/shell operations to proceed through the approval service.
+- `requireApprovalOutsideWorkspace = false` rejects outside-workspace file/shell operations without prompting.
+- `requireApprovalOutsideWorkspace` omitted means the server uses workspace defaults.
 
 `SessionIdentity` on the wire:
 
@@ -1414,7 +1475,13 @@ When approval resolution is persisted or echoed back in a later event, the respo
 
 ### 7.4 Clients Without Approval Support
 
-If a client declared `capabilities.approvalSupport = false` during initialization, the server must not send `item/approval/request`. Instead, the server applies the workspace's default approval policy (auto-approve or auto-reject based on configuration).
+If a client declared `capabilities.approvalSupport = false` during initialization, the server must not send `item/approval/request`. Instead, the server resolves approvals non-interactively using the same server-owned thread policy model:
+
+- `approvalPolicy = autoApprove` resolves as `accept`.
+- `approvalPolicy = interrupt` resolves as `cancel`.
+- `approvalPolicy = default` cannot prompt on a non-interactive client, so the server falls back to its non-interactive default decision. In the current implementation and spec baseline, that fallback is `decline`.
+
+The same non-interactive fallback may also be applied when an approval-capable client disconnects or times out before replying.
 
 ---
 
@@ -1799,6 +1866,9 @@ Behavior rules:
 - A connected adapter's declared tool set is immutable for the lifetime of that connection.
 - If an adapter declares channel tools, it must handle `ext/channel/toolCall` requests for those tools.
 - Tool registration comes from the adapter's runtime handshake, not from static `ExternalChannels` config.
+- When a tool descriptor declares `approval`, the server may gate execution before sending `ext/channel/toolCall`.
+- `approval` metadata identifies approval targets for server interception only; it does not define an adapter-local approval policy.
+- Any gating decision for adapter-declared tools must be resolved from the same server-owned thread/workspace policy surfaces used by built-in tools.
 
 ### 11.3 ACP Tool Proxy
 

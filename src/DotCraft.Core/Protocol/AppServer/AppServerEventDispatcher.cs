@@ -19,9 +19,9 @@ public sealed class AppServerEventDispatcher
     private readonly ISessionService _sessionService;
 
     /// <summary>
-    /// Decision to apply when the client declared <c>approvalSupport = false</c>.
+    /// Fallback decision to apply when the server cannot derive a non-interactive
+    /// approval outcome from the thread policy.
     /// Defaults to <see cref="SessionApprovalDecision.Reject"/> if not specified.
-    /// Should be sourced from the workspace's default approval policy.
     /// </summary>
     private readonly SessionApprovalDecision _defaultApprovalDecision;
 
@@ -42,8 +42,8 @@ public sealed class AppServerEventDispatcher
     /// ensuring the <c>turn/start</c> response reaches the client before <c>turn/started</c>.
     /// </param>
     /// <param name="defaultApprovalDecision">
-    /// The decision to apply when the client declared <c>approvalSupport = false</c>.
-    /// Per spec Section 7.4, the workspace's default approval policy applies in that case.
+    /// The fallback decision to apply when non-interactive approval resolution cannot be
+    /// determined from the thread's approval policy.
     /// Defaults to <see cref="SessionApprovalDecision.Reject"/>.
     /// </param>
     public AppServerEventDispatcher(
@@ -246,9 +246,8 @@ public sealed class AppServerEventDispatcher
 
         if (!_connection.SupportsApproval)
         {
-            // Fix 6: Apply workspace default policy instead of hard-coding Reject.
-            // Per spec Section 7.4: "the server applies the workspace's default approval policy".
-            await TryResolveApprovalAsync(evt, req.RequestId, _defaultApprovalDecision, ct);
+            var fallbackDecision = await ResolveNonInteractiveApprovalDecisionAsync(evt, ct);
+            await TryResolveApprovalAsync(evt, req.RequestId, fallbackDecision, ct);
             return;
         }
 
@@ -276,8 +275,10 @@ public sealed class AppServerEventDispatcher
         }
         catch (OperationCanceledException)
         {
-            // Timeout or disconnect: apply default policy so the agent can continue or fail gracefully
-            await TryResolveApprovalAsync(evt, req.RequestId, _defaultApprovalDecision, ct);
+            // Timeout or disconnect: apply the same non-interactive fallback used when
+            // the client cannot participate in approvals.
+            var fallbackDecision = await ResolveNonInteractiveApprovalDecisionAsync(evt, ct);
+            await TryResolveApprovalAsync(evt, req.RequestId, fallbackDecision, ct);
             return;
         }
 
@@ -299,6 +300,26 @@ public sealed class AppServerEventDispatcher
             await _sessionService.ResolveApprovalAsync(evt.ThreadId, evt.TurnId, requestId, decision, ct);
         }
         catch (OperationCanceledException) { /* Ignore if session was cancelled */ }
+    }
+
+    private async Task<SessionApprovalDecision> ResolveNonInteractiveApprovalDecisionAsync(
+        SessionEvent evt,
+        CancellationToken ct)
+    {
+        try
+        {
+            var thread = await _sessionService.GetThreadAsync(evt.ThreadId, ct);
+            return thread.Configuration?.ApprovalPolicy switch
+            {
+                ApprovalPolicy.AutoApprove => SessionApprovalDecision.AcceptOnce,
+                ApprovalPolicy.Interrupt => SessionApprovalDecision.CancelTurn,
+                _ => _defaultApprovalDecision
+            };
+        }
+        catch
+        {
+            return _defaultApprovalDecision;
+        }
     }
 
     private static SessionApprovalDecision ParseApprovalDecision(AppServerIncomingMessage response)

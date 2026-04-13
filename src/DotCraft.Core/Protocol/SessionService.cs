@@ -535,6 +535,17 @@ public sealed class SessionService(
                 // SubAgent progress aggregator: lazily created when SpawnSubagent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
 
+                var effectiveWorkspacePath =
+                    !string.IsNullOrWhiteSpace(thread.Configuration?.WorkspaceOverride)
+                        ? thread.Configuration.WorkspaceOverride!
+                        : agentFactory.ToolProviderContext.WorkspacePath;
+                var requireApprovalOutsideWorkspace =
+                    thread.Configuration?.RequireApprovalOutsideWorkspace
+                    ?? agentFactory.ToolProviderContext.Config.Tools.File.RequireApprovalOutsideWorkspace;
+                var effectivePathBlacklist = !string.IsNullOrWhiteSpace(thread.Configuration?.WorkspaceOverride)
+                    ? new PathBlacklist([])
+                    : agentFactory.ToolProviderContext.PathBlacklist;
+
                 using var externalChannelToolScope = ExternalChannelToolExecutionScope.Set(
                     new ExternalChannelToolExecutionContext
                     {
@@ -544,6 +555,10 @@ public sealed class SessionService(
                         ChannelContext = turn.Initiator?.ChannelContext,
                         SenderId = turn.Initiator?.UserId,
                         GroupId = turn.Initiator?.GroupId,
+                        WorkspacePath = effectiveWorkspacePath,
+                        RequireApprovalOutsideWorkspace = requireApprovalOutsideWorkspace,
+                        ApprovalService = turnApprovalService,
+                        PathBlacklist = effectivePathBlacklist,
                         Turn = turn,
                         NextItemSequence = NextItemSeq,
                         EmitItemStarted = eventChannel.EmitItemStarted,

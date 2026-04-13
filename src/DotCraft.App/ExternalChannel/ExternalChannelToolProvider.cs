@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
+using DotCraft.Security;
 using DotCraft.Tools;
 using Microsoft.Extensions.AI;
 
@@ -154,6 +155,94 @@ internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry regist
             return false;
         }
 
+        if (descriptor.Approval != null
+            && !TryValidateApprovalDescriptor(descriptor, out message))
+        {
+            message = $"Tool '{descriptor.Name}' has an invalid approval descriptor: {message}";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
+    }
+
+    private static bool TryValidateApprovalDescriptor(ChannelToolDescriptor descriptor, out string message)
+    {
+        var approval = descriptor.Approval;
+        if (approval == null)
+        {
+            message = string.Empty;
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(approval.Kind))
+        {
+            message = "approval.kind is required.";
+            return false;
+        }
+
+        if (!approval.Kind.Equals("file", StringComparison.OrdinalIgnoreCase)
+            && !approval.Kind.Equals("shell", StringComparison.OrdinalIgnoreCase))
+        {
+            message = $"approval.kind '{approval.Kind}' is not supported.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(approval.TargetArgument))
+        {
+            message = "approval.targetArgument is required.";
+            return false;
+        }
+
+        if (!TryValidateStringProperty(descriptor.InputSchema, approval.TargetArgument, out message))
+            return false;
+
+        var hasStaticOperation = !string.IsNullOrWhiteSpace(approval.Operation);
+        var hasOperationArgument = !string.IsNullOrWhiteSpace(approval.OperationArgument);
+        if (hasStaticOperation == hasOperationArgument)
+        {
+            message = "exactly one of approval.operation or approval.operationArgument must be set.";
+            return false;
+        }
+
+        if (hasOperationArgument
+            && !TryValidateStringProperty(descriptor.InputSchema, approval.OperationArgument!, out message))
+        {
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
+    }
+
+    private static bool TryValidateStringProperty(JsonObject? schema, string propertyName, out string message)
+    {
+        if (schema is not JsonObject schemaObject)
+        {
+            message = "inputSchema must be an object.";
+            return false;
+        }
+
+        if (!string.Equals(schemaObject["type"]?.GetValue<string>(), "object", StringComparison.Ordinal))
+        {
+            message = "inputSchema.type must be 'object' when approval metadata is declared.";
+            return false;
+        }
+
+        if (schemaObject["properties"] is not JsonObject properties
+            || !properties.TryGetPropertyValue(propertyName, out var propertySchema)
+            || propertySchema is not JsonObject propertySchemaObject)
+        {
+            message = $"approval references unknown property '{propertyName}'.";
+            return false;
+        }
+
+        if (!string.Equals(propertySchemaObject["type"]?.GetValue<string>(), "string", StringComparison.Ordinal))
+        {
+            message = $"approval property '{propertyName}' must be declared as a string.";
+            return false;
+        }
+
         message = string.Empty;
         return true;
     }
@@ -230,6 +319,18 @@ internal sealed class ExternalChannelRuntimeFunction : AIFunction
                 argsObject,
                 "MissingChatContext",
                 $"Tool '{_descriptor.Name}' requires channel chat context, but this turn does not have one.");
+        }
+
+        var approvalFailure = await ApplyServerApprovalAsync(scope, argsObject, cancellationToken);
+        if (approvalFailure != null)
+        {
+            return FinalizeFailure(
+                item,
+                scope,
+                callId,
+                argsObject,
+                approvalFailure.Value.ErrorCode,
+                approvalFailure.Value.ErrorMessage);
         }
 
         ExtChannelToolCallResult result;
@@ -362,6 +463,158 @@ internal sealed class ExternalChannelRuntimeFunction : AIFunction
             lines.Add(result.StructuredResult.ToJsonString());
 
         return lines.Count > 0 ? string.Join(Environment.NewLine, lines) : "Tool completed.";
+    }
+
+    private async Task<(string ErrorCode, string ErrorMessage)?> ApplyServerApprovalAsync(
+        ExternalChannelToolExecutionContext scope,
+        JsonObject argsObject,
+        CancellationToken cancellationToken)
+    {
+        var approval = _descriptor.Approval;
+        if (approval == null)
+            return null;
+
+        if (!TryReadStringArgument(argsObject, approval.TargetArgument, out var approvalTarget))
+        {
+            return (
+                "InvalidArguments",
+                $"Tool '{_descriptor.Name}' requires string argument '{approval.TargetArgument}' for approval routing.");
+        }
+
+        if (!TryResolveApprovalOperation(argsObject, approval, out var approvalOperation, out var operationError))
+            return ("InvalidArguments", operationError);
+
+        return approval.Kind.ToLowerInvariant() switch
+        {
+            "file" => await GuardFileAccessAsync(scope, approvalTarget, approvalOperation, cancellationToken),
+            "shell" => await GuardShellAccessAsync(scope, approvalTarget, approvalOperation),
+            _ => (
+                "InvalidChannelToolDescriptor",
+                $"Tool '{_descriptor.Name}' uses unsupported approval kind '{approval.Kind}'.")
+        };
+    }
+
+    private bool TryResolveApprovalOperation(
+        JsonObject argsObject,
+        ChannelToolApprovalDescriptor approval,
+        out string operation,
+        out string error)
+    {
+        if (!string.IsNullOrWhiteSpace(approval.Operation))
+        {
+            operation = approval.Operation!;
+            error = string.Empty;
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(approval.OperationArgument)
+            && TryReadStringArgument(argsObject, approval.OperationArgument!, out var operationArgument))
+        {
+            operation = operationArgument;
+            error = string.Empty;
+            return true;
+        }
+
+        operation = string.Empty;
+        error = $"Tool '{_descriptor.Name}' could not resolve approval operation metadata.";
+        return false;
+    }
+
+    private static async Task<(string ErrorCode, string ErrorMessage)?> GuardFileAccessAsync(
+        ExternalChannelToolExecutionContext scope,
+        string path,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        var userDotCraftPath = Path.GetFullPath(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft"));
+        var guard = new FileAccessGuard(
+            scope.WorkspacePath,
+            requireApprovalOutsideWorkspace: scope.RequireApprovalOutsideWorkspace,
+            approvalService: scope.ApprovalService,
+            blacklist: scope.PathBlacklist,
+            trustedReadPaths: [userDotCraftPath]);
+        var resolvedPath = guard.ResolvePath(path);
+        var error = await guard.ValidatePathAsync(resolvedPath, operation, path, cancellationToken);
+        return error == null ? null : ("AccessDenied", error);
+    }
+
+    private static async Task<(string ErrorCode, string ErrorMessage)?> GuardShellAccessAsync(
+        ExternalChannelToolExecutionContext scope,
+        string workingDirectory,
+        string command)
+    {
+        var normalizedCommand = command.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedCommand))
+        {
+            return (
+                "InvalidArguments",
+                "Shell approval routing requires a non-empty command string.");
+        }
+
+        if (scope.PathBlacklist != null && scope.PathBlacklist.CommandReferencesBlacklistedPath(normalizedCommand))
+        {
+            return (
+                "AccessDenied",
+                "Error: Command references a blacklisted path and cannot be executed.");
+        }
+
+        var resolvedWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+            ? scope.WorkspacePath
+            : ResolveAgainstWorkspace(scope.WorkspacePath, workingDirectory);
+        var hasPathTraversal = normalizedCommand.Contains("..\\", StringComparison.Ordinal)
+            || normalizedCommand.Contains("../", StringComparison.Ordinal);
+        var isOutsideWorkspace = !IsWithinBoundary(resolvedWorkingDirectory, scope.WorkspacePath);
+
+        if (!hasPathTraversal && !isOutsideWorkspace)
+            return null;
+
+        if (!scope.RequireApprovalOutsideWorkspace)
+        {
+            if (hasPathTraversal)
+                return ("AccessDenied", "Error: Command blocked by safety guard (path traversal detected).");
+            return ("AccessDenied", "Error: Working directory is outside workspace boundary.");
+        }
+
+        var approved = await scope.ApprovalService.RequestShellApprovalAsync(
+            normalizedCommand,
+            resolvedWorkingDirectory,
+            ApprovalContextScope.Current);
+        return approved
+            ? null
+            : ("AccessDenied", "Error: Command execution was rejected by user.");
+    }
+
+    private static bool TryReadStringArgument(JsonObject argsObject, string argumentName, out string value)
+    {
+        value = string.Empty;
+        if (!argsObject.TryGetPropertyValue(argumentName, out var node)
+            || node == null
+            || node.GetValueKind() != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = node.GetValue<string>() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static string ResolveAgainstWorkspace(string workspacePath, string path)
+        => Path.IsPathRooted(path)
+            ? Path.GetFullPath(path)
+            : Path.GetFullPath(Path.Combine(workspacePath, path));
+
+    private static bool IsWithinBoundary(string fullPath, string boundaryRoot)
+    {
+        var resolvedPath = Path.GetFullPath(fullPath);
+        var resolvedBoundary = Path.GetFullPath(boundaryRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (resolvedPath.Equals(resolvedBoundary, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return resolvedPath.StartsWith(resolvedBoundary + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || resolvedPath.StartsWith(resolvedBoundary + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string CreateFailureResult(string errorCode, string errorMessage) =>

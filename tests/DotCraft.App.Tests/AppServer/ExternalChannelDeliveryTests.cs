@@ -629,6 +629,9 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 ChannelContext = thread.ChannelContext,
                 SenderId = "user_42",
                 GroupId = "chat_123",
+                WorkspacePath = _tempDir,
+                RequireApprovalOutsideWorkspace = true,
+                ApprovalService = new AutoApproveApprovalService(),
                 Turn = turn,
                 NextItemSequence = () => turn.Items.Count + 1,
                 EmitItemStarted = _ => lifecycle.Add("started"),
@@ -651,6 +654,200 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.Equal(ItemType.ExternalChannelToolCall, turn.Items[0].Type);
         Assert.Equal(["started", "completed"], lifecycle);
         Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task ExternalChannelToolProvider_FileApprovalMetadata_BlocksDispatchWhenRejected()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        var transport = new StubTransport(new ExtChannelToolCallResult { Success = true });
+        AttachFakeAdapter(host, transport, CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "TelegramSendDocumentToCurrentChat",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    Approval = new ChannelToolApprovalDescriptor
+                    {
+                        Kind = "file",
+                        TargetArgument = "filePath",
+                        Operation = "read"
+                    },
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["filePath"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("filePath")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
+        var fn = Assert.IsAssignableFrom<AIFunction>(Assert.Single(provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_approval_reject",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                ChannelContext = "chat_123",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal))));
+        var turn = new SessionTurn
+        {
+            Id = "turn_approval_reject",
+            ThreadId = "thread_approval_reject",
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        var approvalService = new RecordingApprovalService(approve: false);
+        var outsidePath = Path.Combine(Path.GetTempPath(), $"ext_tool_reject_{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(outsidePath, "demo");
+
+        try
+        {
+            using var scope = ExternalChannelToolExecutionScope.Set(
+                new ExternalChannelToolExecutionContext
+                {
+                    ThreadId = "thread_approval_reject",
+                    TurnId = "turn_approval_reject",
+                    OriginChannel = "telegram",
+                    ChannelContext = "chat_123",
+                    GroupId = "chat_123",
+                    WorkspacePath = _tempDir,
+                    RequireApprovalOutsideWorkspace = true,
+                    ApprovalService = approvalService,
+                    Turn = turn,
+                    NextItemSequence = () => turn.Items.Count + 1,
+                    EmitItemStarted = _ => { },
+                    EmitItemCompleted = _ => { }
+                });
+
+            var result = await fn.InvokeAsync(
+                new AIFunctionArguments(new Dictionary<string, object?>
+                {
+                    ["filePath"] = outsidePath
+                }),
+                CancellationToken.None);
+
+            var resultText = Assert.IsType<string>(result);
+            Assert.Contains("AccessDenied", resultText);
+            Assert.Null(transport.LastMethod);
+            Assert.Equal("read", approvalService.LastOperation);
+            Assert.Equal(Path.GetFullPath(outsidePath), approvalService.LastPath);
+        }
+        finally
+        {
+            try { File.Delete(outsidePath); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ExternalChannelToolProvider_FileApprovalMetadata_DispatchesAfterApproval()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        var transport = new StubTransport(new ExtChannelToolCallResult
+        {
+            Success = true,
+            ContentItems = [new ExtChannelToolContentItem { Type = "text", Text = "Document sent." }]
+        });
+        AttachFakeAdapter(host, transport, CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "TelegramSendDocumentToCurrentChat",
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = true,
+                    Approval = new ChannelToolApprovalDescriptor
+                    {
+                        Kind = "file",
+                        TargetArgument = "filePath",
+                        Operation = "read"
+                    },
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["filePath"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("filePath")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
+        var fn = Assert.IsAssignableFrom<AIFunction>(Assert.Single(provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_approval_accept",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                ChannelContext = "chat_123",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal))));
+        var turn = new SessionTurn
+        {
+            Id = "turn_approval_accept",
+            ThreadId = "thread_approval_accept",
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        var approvalService = new RecordingApprovalService(approve: true);
+        var outsidePath = Path.Combine(Path.GetTempPath(), $"ext_tool_accept_{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(outsidePath, "demo");
+
+        try
+        {
+            using var scope = ExternalChannelToolExecutionScope.Set(
+                new ExternalChannelToolExecutionContext
+                {
+                    ThreadId = "thread_approval_accept",
+                    TurnId = "turn_approval_accept",
+                    OriginChannel = "telegram",
+                    ChannelContext = "chat_123",
+                    GroupId = "chat_123",
+                    WorkspacePath = _tempDir,
+                    RequireApprovalOutsideWorkspace = true,
+                    ApprovalService = approvalService,
+                    Turn = turn,
+                    NextItemSequence = () => turn.Items.Count + 1,
+                    EmitItemStarted = _ => { },
+                    EmitItemCompleted = _ => { }
+                });
+
+            await fn.InvokeAsync(
+                new AIFunctionArguments(new Dictionary<string, object?>
+                {
+                    ["filePath"] = outsidePath
+                }),
+                CancellationToken.None);
+
+            Assert.Equal(AppServerMethods.ExtChannelToolCall, transport.LastMethod);
+            var toolParams = Assert.IsType<ExtChannelToolCallParams>(transport.LastParams);
+            Assert.Equal(outsidePath, toolParams.Arguments["filePath"]?.GetValue<string>());
+            Assert.Equal("read", approvalService.LastOperation);
+            Assert.Equal(Path.GetFullPath(outsidePath), approvalService.LastPath);
+        }
+        finally
+        {
+            try { File.Delete(outsidePath); }
+            catch { }
+        }
     }
 
     [Fact]
@@ -919,6 +1116,9 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 ThreadId = "thread_020",
                 TurnId = "turn_020",
                 OriginChannel = "telegram",
+                WorkspacePath = _tempDir,
+                RequireApprovalOutsideWorkspace = true,
+                ApprovalService = new AutoApproveApprovalService(),
                 Turn = turn,
                 NextItemSequence = () => turn.Items.Count + 1,
                 EmitItemStarted = _ => { },
@@ -994,6 +1194,9 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
                 OriginChannel = "telegram",
                 ChannelContext = "chat_123",
                 GroupId = "chat_123",
+                WorkspacePath = _tempDir,
+                RequireApprovalOutsideWorkspace = true,
+                ApprovalService = new AutoApproveApprovalService(),
                 Turn = turn,
                 NextItemSequence = () => turn.Items.Count + 1,
                 EmitItemStarted = _ => { },

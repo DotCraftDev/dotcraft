@@ -44,5 +44,6 @@ export {
   extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
+export { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
 
 export const version = "0.1.0";

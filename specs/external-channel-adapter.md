@@ -219,12 +219,17 @@ External channel adapters extend the standard `initialize` params with a `channe
           "name": "TelegramSendDocumentToCurrentChat",
           "description": "Send a document to the current Telegram chat.",
           "requiresChatContext": true,
+          "approval": {
+            "kind": "file",
+            "targetArgument": "filePath",
+            "operation": "read"
+          },
           "inputSchema": {
             "type": "object",
             "properties": {
-              "fileName": { "type": "string" }
+              "filePath": { "type": "string" }
             },
-            "required": ["fileName"]
+            "required": ["filePath"]
           }
         }
       ]
@@ -506,6 +511,7 @@ This section defines the protocol-level obligations that any conforming external
 - `channelAdapter.channelName` **must** match the channel name declared in server-side configuration.
 - `channelAdapter.channelTools`, when present, **must** be declared during `initialize`; they are not loaded from server-side `ExternalChannels` configuration.
 - `capabilities.approvalSupport` **must** be `true` if the adapter will handle approval requests. If set to `false`, the server auto-resolves approvals using workspace defaults and the adapter will never receive `item/approval/request`.
+- `channelTools[].approval`, when present, is a descriptive declaration of approval targets for server interception. It must not be used as an adapter-local approval policy source.
 
 ### 10.2 Thread and Turn Management
 
@@ -528,7 +534,7 @@ The adapter **must** handle the following server-initiated requests:
 |--------|-------------------|
 | `item/approval/request` | Present platform-native approval UI; respond with `{ "decision": "..." }`. See §11. |
 | `ext/channel/send` | Deliver a structured `message` payload to `target`; validate `message.kind` and source forms against the adapter's advertised capabilities. |
-| `ext/channel/toolCall` | Execute a previously declared `channelTools` entry; return structured success/failure data without mutating the declared tool set. |
+| `ext/channel/toolCall` | Execute a previously declared `channelTools` entry after any server-side gating implied by descriptor metadata; return structured success/failure data without mutating the declared tool set. |
 | `ext/channel/heartbeat` | Respond immediately with `{}`. |
 
 The adapter **must not** ignore these requests. Failure to respond causes the server to time out (approval: `-32020` turn failure; heartbeat: connection marked unhealthy).
@@ -582,6 +588,29 @@ Platform User           Adapter                  DotCraft (AppServer)
 ### 11.3 Decision Values
 
 The adapter must support the five `SessionApprovalDecision` values (appserver-protocol.md §7.3). Adapters that cannot present all five may offer a simplified subset (e.g., "Approve" = `accept`, "Stop" = `cancel`). The Wire Protocol does not require every decision value to be surfaced.
+
+### 11.4 Channel Tool Approval Metadata
+
+Adapter-declared `channelTools` may carry an `approval` object so the server can intercept sensitive tool calls before dispatch:
+
+- `approval.kind` identifies the server approval category. Initial standard values are `file` and `shell`.
+- `approval.targetArgument` names the argument that contains the primary approval target.
+- `approval.operation` is an optional static operation label.
+- `approval.operationArgument` is an optional argument name whose runtime value supplies the operation label.
+
+This metadata is descriptive only:
+
+- It does not create a separate per-channel approval policy.
+- It does not replace `item/approval/request`.
+- It does not let the adapter override thread or workspace approval rules.
+
+When the server supports pre-dispatch gating for a declared approval category, the server evaluates the tool call using the same approval policy sources already used by built-in tools:
+
+- thread `approvalPolicy`
+- thread `requireApprovalOutsideWorkspace` override when relevant
+- workspace defaults in `AppConfig.Tools.*`
+
+The adapter remains responsible only for declaration and execution. The approval decision stays server-owned.
 
 ---
 
