@@ -138,12 +138,12 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
                 <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
               </>
             )}
-            {elapsed > 0 && (
-              <span style={{ color: 'var(--text-dimmed)', marginLeft: '6px' }}>
-                {elapsed}s
-              </span>
-            )}
           </span>
+          {elapsed > 0 && (
+            <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
+              {elapsed}s
+            </span>
+          )}
           {isShellTool && <Chevron expanded={expanded} />}
         </button>
 
