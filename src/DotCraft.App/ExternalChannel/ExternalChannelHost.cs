@@ -391,20 +391,21 @@ public sealed class ExternalChannelHost : IChannelService
         // Run the message loop
         await RunMessageLoopAsync(transport, _connection, _handler, ct);
 
+        // Capture exit status before disposal. TerminateSubprocessAsync disposes the
+        // underlying Process via ManagedChildProcess.DisposeAsync.
+        var exitedBeforeTerminate = !ct.IsCancellationRequested && process.HasExited;
+        int? exitCodeBeforeTerminate = null;
+        if (exitedBeforeTerminate)
+            exitCodeBeforeTerminate = process.ExitCode;
+
         // Terminate the subprocess after the message loop exits.
         // When the loop exits due to heartbeat-timeout (transport disposed), the process
         // may still be running. Kill it first to avoid hanging on WaitForExitAsync.
         await TerminateSubprocessAsync();
 
-        // Process exited — check if it was expected
-        if (!ct.IsCancellationRequested && !process.HasExited)
+        // Process exited before termination — check if it was expected.
+        if (exitedBeforeTerminate && exitCodeBeforeTerminate is { } exitCode)
         {
-            await process.WaitForExitAsync(ct);
-        }
-
-        if (!ct.IsCancellationRequested && process.HasExited)
-        {
-            var exitCode = process.ExitCode;
             AnsiConsole.MarkupLine(
                 $"[yellow][[ExternalChannel]][/] Adapter [yellow]{Name}[/] exited with code {exitCode}");
 

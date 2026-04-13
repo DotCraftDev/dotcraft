@@ -529,6 +529,32 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
+    public async Task ExternalChannelHost_RunSubprocessCycleAsync_DoesNotAccessDisposedProcess()
+    {
+        var host = new ExternalChannelHost(
+            new ExternalChannelEntry
+            {
+                Name = "telegram",
+                Enabled = true,
+                Transport = ExternalChannelTransport.Subprocess,
+                Command = "python"
+            },
+            new FakeSessionService(),
+            "0.0.1-test",
+            new ModuleRegistry(),
+            _tempDir,
+            deliveryDependenciesFactory: null,
+            managedChildProcessFactory: _ => ManagedChildProcess.Start(CreateImmediateExitStartInfo()));
+
+        var method = typeof(ExternalChannelHost)
+            .GetMethod("RunSubprocessCycleAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var task = Assert.IsAssignableFrom<Task>(
+            method.Invoke(host, [CancellationToken.None]));
+
+        await task;
+    }
+
+    [Fact]
     public async Task ExternalChannelToolProvider_InjectsOnlyMatchingChannelTools()
     {
         var registry = new ExternalChannelRegistry();
@@ -1239,6 +1265,43 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             {
                 "-c",
                 "sleep 30"
+            }
+        };
+    }
+
+    private static ProcessStartInfo CreateImmediateExitStartInfo()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new ProcessStartInfo
+            {
+                FileName = "powershell",
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                ArgumentList =
+                {
+                    "-NoProfile",
+                    "-Command",
+                    "exit 0"
+                }
+            };
+        }
+
+        return new ProcessStartInfo
+        {
+            FileName = "/bin/sh",
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            ArgumentList =
+            {
+                "-c",
+                "exit 0"
             }
         };
     }
