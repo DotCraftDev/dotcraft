@@ -34,6 +34,7 @@ public sealed class SessionService(
     AIAgent defaultAgent,
     ThreadStore threadStore,
     SessionGate sessionGate,
+    IChannelRuntimeToolProvider? channelRuntimeToolProvider = null,
     HookRunner? hookRunner = null,
     TraceCollector? traceCollector = null,
     TimeSpan? approvalTimeout = null,
@@ -100,9 +101,10 @@ public sealed class SessionService(
         _threads[thread.Id] = thread;
         var broker = GetOrCreateBroker(thread.Id);
 
-        // Create per-thread agent if custom configuration provided
-        if (config != null)
-            _threadAgents[thread.Id] = await BuildAgentForConfigAsync(thread.Id, config, ct);
+        // Create a per-thread agent when custom configuration is provided or when
+        // runtime external channel tools may need thread-scoped injection.
+        if (config != null || channelRuntimeToolProvider != null)
+            _threadAgents[thread.Id] = await BuildAgentForThreadAsync(thread, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
         broker.PublishThreadEvent(SessionEventType.ThreadCreated, thread);
@@ -533,6 +535,36 @@ public sealed class SessionService(
                 // SubAgent progress aggregator: lazily created when SpawnSubagent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
 
+                var effectiveWorkspacePath =
+                    !string.IsNullOrWhiteSpace(thread.Configuration?.WorkspaceOverride)
+                        ? thread.Configuration.WorkspaceOverride!
+                        : agentFactory.ToolProviderContext.WorkspacePath;
+                var requireApprovalOutsideWorkspace =
+                    thread.Configuration?.RequireApprovalOutsideWorkspace
+                    ?? agentFactory.ToolProviderContext.Config.Tools.File.RequireApprovalOutsideWorkspace;
+                var effectivePathBlacklist = !string.IsNullOrWhiteSpace(thread.Configuration?.WorkspaceOverride)
+                    ? new PathBlacklist([])
+                    : agentFactory.ToolProviderContext.PathBlacklist;
+
+                using var externalChannelToolScope = ExternalChannelToolExecutionScope.Set(
+                    new ExternalChannelToolExecutionContext
+                    {
+                        ThreadId = threadId,
+                        TurnId = turn.Id,
+                        OriginChannel = turnOriginChannel,
+                        ChannelContext = turn.Initiator?.ChannelContext,
+                        SenderId = turn.Initiator?.UserId,
+                        GroupId = turn.Initiator?.GroupId,
+                        WorkspacePath = effectiveWorkspacePath,
+                        RequireApprovalOutsideWorkspace = requireApprovalOutsideWorkspace,
+                        ApprovalService = turnApprovalService,
+                        PathBlacklist = effectivePathBlacklist,
+                        Turn = turn,
+                        NextItemSequence = NextItemSeq,
+                        EmitItemStarted = eventChannel.EmitItemStarted,
+                        EmitItemCompleted = eventChannel.EmitItemCompleted
+                    });
+
                 try
                 {
                     await foreach (var update in agent.RunStreamingAsync(userMessage, session)
@@ -879,7 +911,7 @@ public sealed class SessionService(
         thread.Configuration ??= new ThreadConfiguration();
         thread.Configuration.Mode = mode;
 
-        _threadAgents[threadId] = await BuildAgentForConfigAsync(threadId, thread.Configuration, ct);
+        _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
 
         await threadStore.SaveThreadAsync(thread, ct);
     }
@@ -892,7 +924,7 @@ public sealed class SessionService(
     {
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         thread.Configuration = config;
-        _threadAgents[threadId] = await BuildAgentForConfigAsync(threadId, config, ct);
+        _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
         await threadStore.SaveThreadAsync(thread, ct);
     }
 
@@ -927,8 +959,8 @@ public sealed class SessionService(
     private async Task EnsurePerThreadAgentIfMissingAsync(
         string threadId, SessionThread thread, CancellationToken ct)
     {
-        if (thread.Configuration != null && !_threadAgents.ContainsKey(threadId))
-            _threadAgents[threadId] = await BuildAgentForConfigAsync(threadId, thread.Configuration, ct);
+        if ((thread.Configuration != null || channelRuntimeToolProvider != null) && !_threadAgents.ContainsKey(threadId))
+            _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
     }
 
     private async Task PersistThreadStatusAsync(SessionThread thread, CancellationToken ct)
@@ -998,9 +1030,12 @@ public sealed class SessionService(
         };
     }
 
-    private async Task<AIAgent> BuildAgentForConfigAsync(
-        string threadId, ThreadConfiguration config, CancellationToken ct)
+    private async Task<AIAgent> BuildAgentForThreadAsync(
+        SessionThread thread,
+        CancellationToken ct)
     {
+        var threadId = thread.Id;
+        var config = thread.Configuration ?? new ThreadConfiguration();
         var mode = config.Mode.Equals("plan", StringComparison.OrdinalIgnoreCase)
             ? AgentMode.Plan
             : AgentMode.Agent;
@@ -1029,7 +1064,6 @@ public sealed class SessionService(
                 ApprovalService = baseCtx.ApprovalService,
                 PathBlacklist = new PathBlacklist([]),
                 TraceCollector = baseCtx.TraceCollector,
-                ChannelClient = baseCtx.ChannelClient,
                 AcpExtensionProxy = baseCtx.AcpExtensionProxy,
                 CronTools = baseCtx.CronTools,
                 DeferredToolRegistry = baseCtx.DeferredToolRegistry,
@@ -1067,6 +1101,7 @@ public sealed class SessionService(
                 var tools = agentFactory.CreateToolsForMode(mode, scopedContext);
                 if (profileTools != null)
                     tools.AddRange(profileTools);
+                AppendChannelTools(tools, thread);
                 return agentFactory.CreateAgentWithTools(tools, mm, scopedContext);
             }
 
@@ -1074,10 +1109,12 @@ public sealed class SessionService(
             {
                 var tools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
                 tools.AddRange(profileTools);
+                AppendChannelTools(tools, thread);
                 return agentFactory.CreateAgentWithTools(tools, mm, threadBaseContext);
             }
 
             var modeTools = agentFactory.CreateToolsForMode(mode, threadBaseContext);
+            AppendChannelTools(modeTools, thread);
             return agentFactory.CreateAgentWithTools(modeTools, mm, threadBaseContext);
         }
 
@@ -1103,7 +1140,6 @@ public sealed class SessionService(
                 PathBlacklist = scopedContext.PathBlacklist,
                 TraceCollector = scopedContext.TraceCollector,
                 McpClientManager = mcpManager,
-                ChannelClient = scopedContext.ChannelClient,
                 AcpExtensionProxy = scopedContext.AcpExtensionProxy,
                 CronTools = scopedContext.CronTools,
                 DeferredToolRegistry = scopedContext.DeferredToolRegistry,
@@ -1115,6 +1151,7 @@ public sealed class SessionService(
             if (profileTools != null)
                 modeTools.AddRange(profileTools);
             modeTools.AddRange(mcpManager.Tools);
+            AppendChannelTools(modeTools, thread);
             return agentFactory.CreateAgentWithTools(modeTools, mm, effectiveContext);
         }
 
@@ -1122,7 +1159,21 @@ public sealed class SessionService(
         if (profileTools != null)
             toolsWithMcp.AddRange(profileTools);
         toolsWithMcp.AddRange(mcpManager.Tools);
+        AppendChannelTools(toolsWithMcp, thread);
         return agentFactory.CreateAgentWithTools(toolsWithMcp, mm, threadBaseContext);
+    }
+
+    private void AppendChannelTools(List<AITool> tools, SessionThread thread)
+    {
+        if (channelRuntimeToolProvider == null)
+            return;
+
+        var reservedNames = new HashSet<string>(tools.Select(t => t.Name), StringComparer.Ordinal);
+        var channelTools = channelRuntimeToolProvider.CreateToolsForThread(thread, reservedNames);
+        if (channelTools.Count == 0)
+            return;
+
+        tools.AddRange(channelTools);
     }
 
     private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, ThreadConfiguration config)
@@ -1159,7 +1210,6 @@ public sealed class SessionService(
             CronTools = source.CronTools,
             McpClientManager = source.McpClientManager,
             TraceCollector = source.TraceCollector,
-            ChannelClient = source.ChannelClient,
             AcpExtensionProxy = source.AcpExtensionProxy,
             AgentFileSystem = source.AgentFileSystem,
             AutomationTaskDirectory = source.AutomationTaskDirectory,

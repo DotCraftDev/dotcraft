@@ -41,6 +41,18 @@ export function buildApprovalCard(params: {
 }): Record<string, unknown> {
   const summary = summarizeApprovalOperation(params.approvalType, params.operation, params.target);
   const reasonBlock = params.reason ? `\nReason: ${params.reason}` : "";
+  const buttons = [
+    buildApprovalButton("Approve", "primary", "approval_accept", params.requestId, DECISION_ACCEPT),
+    buildApprovalButton(
+      "Approve Session",
+      "default",
+      "approval_accept_session",
+      params.requestId,
+      DECISION_ACCEPT_FOR_SESSION,
+    ),
+    buildApprovalButton("Decline", "danger", "approval_decline", params.requestId, DECISION_DECLINE),
+    buildApprovalButton("Cancel", "default", "approval_cancel", params.requestId, DECISION_CANCEL),
+  ];
 
   return buildV2Card("Approval Required", "orange", [
     {
@@ -49,15 +61,7 @@ export function buildApprovalCard(params: {
         `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}\n\n` +
         `Timeout: ${params.timeoutSeconds}s`,
     },
-    {
-      tag: "action",
-      actions: [
-        buildApprovalButton("Approve", "primary", params.requestId, DECISION_ACCEPT),
-        buildApprovalButton("Approve Session", "default", params.requestId, DECISION_ACCEPT_FOR_SESSION),
-        buildApprovalButton("Decline", "danger", params.requestId, DECISION_DECLINE),
-        buildApprovalButton("Cancel", "default", params.requestId, DECISION_CANCEL),
-      ],
-    },
+    ...buttons,
   ]);
 }
 
@@ -97,20 +101,29 @@ function buildV2Card(
 function buildApprovalButton(
   label: string,
   type: "default" | "primary" | "danger",
+  elementId: string,
   requestId: string,
   decision: string,
 ): Record<string, unknown> {
+  const callbackValue = {
+    kind: "approval",
+    requestId,
+    decision,
+  };
+
   return {
     tag: "button",
+    element_id: elementId,
     text: {
       tag: "plain_text",
       content: label,
     },
     type,
-    value: {
-      kind: "approval",
-      requestId,
-      decision,
-    },
+    behaviors: [
+      {
+        type: "callback",
+        value: callbackValue,
+      },
+    ],
   };
 }

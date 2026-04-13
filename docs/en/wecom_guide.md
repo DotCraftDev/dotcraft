@@ -386,9 +386,13 @@ When a user sends a file in a single chat, DotCraft receives the file's encrypte
 
 #### Voice/File Messages (Sending)
 
+The active runtime model is:
+- Agent conversations use channel-native runtime tools such as `WeComSendVoice` and `WeComSendFile`.
+- Custom bot development can still use `IWeComPusher` directly when you need lower-level control.
+
 `IWeComPusher` provides `PushVoiceAsync` and `PushFileAsync` methods for sending voice and file messages. Before sending, you need to upload temporary media via `UploadMediaAsync` to get the `media_id`.
 
-> **Current Status**: The Agent has built-in `WeComSendVoice` / `WeComSendFile` tools that can be called directly in WeCom Bot mode conversations (see 2.10). The following examples are for scenarios requiring direct low-level API manipulation in custom handlers.
+> **Current Runtime Behavior**: `WeComSendVoice` / `WeComSendFile` are current-chat runtime tools. They only work in WeCom Bot mode, require active chat context from the current message, and send back into that same WeCom chat.
 
 Custom handler example:
 
@@ -418,14 +422,14 @@ await pusher.PushFileAsync(fileMediaId);
 
 ### 2.10 Agent Built-in Tools (WeCom Mode)
 
-In WeCom Bot mode, the Agent can directly call the following tools to send content to the "current session":
+In WeCom Bot mode, the Agent can directly call the following channel-native runtime tools to send content to the current WeCom chat:
 
 | Tool Name | Function | Notes |
 |-----------|----------|-------|
-| `WeComSendVoice(filePath)` | Send voice (AMR recommended) | Only local absolute paths; uploads media first |
-| `WeComSendFile(filePath)` | Send file | Only local absolute paths; uploads media first |
+| `WeComSendVoice(filePath)` | Send voice (AMR recommended) | Current-chat only; local absolute path only; uploads media first |
+| `WeComSendFile(filePath)` | Send file | Current-chat only; local absolute path only; uploads media first |
 
-> Note: These tools work based on the current message context's chatId and don't require filling in user IDs. For point-to-point delivery to specific users, use `pusher.UploadMediaAsync` + `Push*Async` combination in custom handlers for finer-grained control.
+> Note: These tools work from the current message context's chatId and do not expose arbitrary cross-target delivery. If you need lower-level or custom delivery behavior, keep using `IWeComPusher` inside custom handlers.
 
 ---
 

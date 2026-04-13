@@ -27,6 +27,7 @@ public enum ItemType
     AgentMessage,
     ReasoningContent,
     ToolCall,
+    ExternalChannelToolCall,
     ToolResult,
     ApprovalRequest,
     ApprovalResponse,

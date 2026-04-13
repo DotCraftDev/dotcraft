@@ -1,4 +1,5 @@
 using DotCraft.Abstractions;
+using DotCraft.Protocol.AppServer;
 
 namespace DotCraft.Gateway;
 
@@ -8,12 +9,14 @@ namespace DotCraft.Gateway;
 public interface IMessageRouter
 {
     /// <summary>
-    /// Delivers a message to a specific target within the named channel.
+    /// Delivers a structured message to a specific target within the named channel.
     /// </summary>
-    /// <param name="channel">The channel name (e.g., "qq", "wecom", "api").</param>
-    /// <param name="target">The target identifier within the channel (user ID, group ID, etc.).</param>
-    /// <param name="content">The message content to deliver.</param>
-    Task DeliverAsync(string channel, string target, string content);
+    Task DeliverAsync(
+        string channel,
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Delivers a message to all admin-capable channels (for Heartbeat notifications).

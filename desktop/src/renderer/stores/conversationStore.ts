@@ -489,18 +489,19 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
-    } else if (type === 'toolCall') {
+    } else if (type === 'toolCall' || type === 'externalChannelToolCall') {
       // Extract nested payload for toolCall items (wire protocol: item.payload.{toolName,callId,arguments})
       const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
       // Add a started tool call item to the active turn, storing arguments for diff extraction
       const newItem: ConversationItem = {
         id: itemId ?? '',
-        type: 'toolCall',
+        type: type as 'toolCall' | 'externalChannelToolCall',
         status: 'started',
         toolName: (item?.toolName as string) ?? (itemPayload.toolName as string) ?? (item?.name as string) ?? 'tool',
         toolCallId: (item?.toolCallId as string) ?? (itemPayload.callId as string) ?? (item?.callId as string) ?? itemId,
         arguments: (item?.arguments as Record<string, unknown> | undefined)
           ?? (itemPayload.arguments as Record<string, unknown> | undefined),
+        toolChannelName: (itemPayload.channelName as string | undefined),
         createdAt: (item?.createdAt as string) ?? new Date().toISOString()
       }
       set((state) => ({
@@ -656,6 +657,35 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 )
               }
             : t
+        )
+      }))
+    } else if (type === 'externalChannelToolCall') {
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  t.items.map((i) => {
+                    if (i.id !== (item?.id as string)) return i
+                    const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
+                    const endMs = (item?.completedAt as string)
+                      ? new Date(item.completedAt as string).getTime()
+                      : Date.now()
+                    return {
+                      ...i,
+                      status: 'completed' as const,
+                      result: (itemPayload.result as string | undefined) ?? i.result,
+                      success: (itemPayload.success as boolean | undefined) ?? true,
+                      toolChannelName: (itemPayload.channelName as string | undefined) ?? i.toolChannelName,
+                      duration: endMs - startMs,
+                      completedAt: (item?.completedAt as string) ?? new Date().toISOString()
+                    }
+                  })
+                )
+              }
         )
       }))
     } else if (type === 'toolResult') {

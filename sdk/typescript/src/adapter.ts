@@ -16,6 +16,7 @@ import {
   extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
+import { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
 
 /** Queued inbound message; skipCommand skips slash handling for expanded prompts. */
 type ChannelAdapterMessageOpts = {
@@ -61,6 +62,42 @@ export abstract class ChannelAdapter {
 
   abstract onApprovalRequest(request: Record<string, unknown>): Promise<string>;
 
+  protected async onSend(
+    target: string,
+    message: Record<string, unknown>,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const kind = String(message.kind ?? "");
+    if (kind === "text") {
+      const ok = await this.onDeliver(target, String(message.text ?? ""), metadata);
+      return { delivered: ok };
+    }
+
+    return {
+      delivered: false,
+      errorCode: "UnsupportedDeliveryKind",
+      errorMessage: `Adapter does not implement structured '${kind}' delivery.`,
+    };
+  }
+
+  protected getDeliveryCapabilities(): Record<string, unknown> | null {
+    return null;
+  }
+
+  protected getChannelTools(): Record<string, unknown>[] | null {
+    return null;
+  }
+
+  protected async onToolCall(
+    _request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return {
+      success: false,
+      errorCode: "UnsupportedTool",
+      errorMessage: "Adapter does not implement channel tool calls.",
+    };
+  }
+
   protected async onTurnCompleted(
     threadId: string,
     turnId: string,
@@ -99,6 +136,8 @@ export abstract class ChannelAdapter {
       optOutNotifications: this.optOutNotifications,
       channelName: this.channelName,
       deliverySupport: true,
+      deliveryCapabilities: this.getDeliveryCapabilities(),
+      channelTools: this.getChannelTools(),
     });
     this.running = true;
 
@@ -124,6 +163,33 @@ export abstract class ChannelAdapter {
       } catch (e) {
         console.error("onDeliver raised:", e);
         return { delivered: false, error: String(e) };
+      }
+    });
+    this.client.registerServerRequestHandler("ext/channel/send", async (_id, params) => {
+      const target = String(params.target ?? "");
+      const message = (params.message as Record<string, unknown>) ?? {};
+      const metadata = (params.metadata as Record<string, unknown>) ?? {};
+      try {
+        return await this.onSend(target, message, metadata);
+      } catch (e) {
+        console.error("onSend raised:", e);
+        return {
+          delivered: false,
+          errorCode: "AdapterDeliveryFailed",
+          errorMessage: String(e),
+        };
+      }
+    });
+    this.client.registerServerRequestHandler("ext/channel/toolCall", async (_id, params) => {
+      try {
+        return await this.onToolCall((params as Record<string, unknown>) ?? {});
+      } catch (e) {
+        console.error("onToolCall raised:", e);
+        return {
+          success: false,
+          errorCode: "AdapterToolCallFailed",
+          errorMessage: String(e),
+        };
       }
     });
     this.client.registerServerRequestHandler("ext/channel/heartbeat", async () => ({}));
@@ -327,7 +393,7 @@ export abstract class ChannelAdapter {
         const params = (event.params as Record<string, unknown>) ?? {};
         const item = (params.item as Record<string, unknown>) ?? {};
         const itemType = String(item.type ?? "");
-        if (itemType === "toolCall") {
+        if (shouldFlushSegmentOnItemStarted(itemType)) {
           const segmentText = currentSegmentParts.join("");
           currentSegmentParts.length = 0;
           if (segmentText.trim()) {

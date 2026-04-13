@@ -19,11 +19,6 @@ public sealed class ApprovalServiceContext
     public required string WorkspacePath { get; init; }
 
     /// <summary>
-    /// Optional channel-specific client for interactive approval (e.g., QQBotClient).
-    /// </summary>
-    public object? ChannelClient { get; init; }
-
-    /// <summary>
     /// Optional permission service for authorization checks.
     /// </summary>
     public object? PermissionService { get; init; }

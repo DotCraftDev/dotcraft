@@ -23,6 +23,7 @@ import {
   addRecentWorkspace,
   getRecentWorkspaces,
   type AppSettings,
+  type BinarySource,
   type ConnectionMode
 } from './settings'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
@@ -101,6 +102,14 @@ function resolveConnectionMode(settings: AppSettings): ConnectionMode {
     return mode
   }
   return 'stdio'
+}
+
+function resolveBinarySource(settings: AppSettings): BinarySource {
+  const source = settings.binarySource
+  if (source === 'bundled' || source === 'path' || source === 'custom') {
+    return source
+  }
+  return settings.appServerBinaryPath?.trim() ? 'custom' : 'bundled'
 }
 
 function resolveWebSocketHostPort(settings: AppSettings): { host: string; port: number } {
@@ -554,6 +563,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
 
   const manager = new AppServerManager({
     workspacePath,
+    binarySource: resolveBinarySource(sharedSettings),
     binaryPath: sharedSettings.appServerBinaryPath,
     listenUrl: buildManagedListenUrl(sharedSettings, connectionMode)
   })
@@ -567,6 +577,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     const payload: ConnectionStatusPayload = {
       status: 'error',
       errorMessage: err.message,
+      ...(isBinaryError ? { binarySource: resolveBinarySource(sharedSettings) } : {}),
       ...(isBinaryError ? { errorType: 'binary-not-found' } : {})
     }
     if (mainWindow && !mainWindow.isDestroyed()) {

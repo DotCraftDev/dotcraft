@@ -12,6 +12,7 @@ using DotCraft.Hooks;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
@@ -62,10 +63,12 @@ public sealed class AGUIChannelService(
     /// <inheritdoc />
     public IApprovalService ApprovalService { get; } = new AutoApproveApprovalService();
 
-    /// <inheritdoc />
-    public object? ChannelClient => null;
-
-    public Task DeliverMessageAsync(string target, string content) => Task.CompletedTask;
+    public Task<ExtChannelSendResult> DeliverAsync(
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new ExtChannelSendResult { Delivered = true });
 
     public IReadOnlyList<string> GetAdminTargets() => [];
 

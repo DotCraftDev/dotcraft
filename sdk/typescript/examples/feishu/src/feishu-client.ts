@@ -77,11 +77,15 @@ export class FeishuClient {
   private readonly appId: string;
   private readonly appSecret: string;
   private readonly domain: string | Lark.Domain;
+  private readonly apiBaseUrl: string;
+  private tenantAccessToken: string | null = null;
+  private tenantAccessTokenExpiresAt = 0;
 
   constructor(private readonly config: AppConfig["feishu"]) {
     this.appId = config.appId;
     this.appSecret = config.appSecret;
     this.domain = resolveBrand(config.brand);
+    this.apiBaseUrl = resolveApiBaseUrl(config.brand);
     this.sdk = new Lark.Client({
       appId: this.appId,
       appSecret: this.appSecret,
@@ -280,6 +284,38 @@ export class FeishuClient {
     });
   }
 
+  async sendFile(
+    target: string,
+    file: {
+      fileName: string;
+      data: Buffer;
+      mediaType?: string;
+    },
+  ): Promise<FeishuSendResult & { fileKey: string }> {
+    if (!file.fileName.trim()) {
+      throw new Error("Feishu file delivery requires a fileName.");
+    }
+    if (file.data.length === 0) {
+      throw new Error("Feishu file delivery does not support empty files.");
+    }
+    if (file.data.length > 30 * 1024 * 1024) {
+      throw new Error("Feishu file delivery only supports files up to 30 MB.");
+    }
+
+    const fileKey = await this.uploadFile(file.fileName, file.data, file.mediaType);
+    const { receiveId, receiveIdType } = this.resolveTarget(target);
+    const response = await this.sendMessage(receiveId, receiveIdType, "file", {
+      file_key: fileKey,
+    });
+    const responseData = (response.data as Record<string, unknown> | undefined) ?? {};
+
+    return {
+      messageId: String(responseData.message_id ?? ""),
+      chatId: String(responseData.chat_id ?? ""),
+      fileKey,
+    };
+  }
+
   async downloadMessageImage(messageId: string, imageKey: string, downloadDir?: string): Promise<string> {
     const response = await this.sdk.im.messageResource.get({
       path: {
@@ -318,19 +354,160 @@ export class FeishuClient {
       receiveIdType: "chat_id",
     };
   }
+
+  private async uploadFile(fileName: string, data: Buffer, mediaType?: string): Promise<string> {
+    const token = await this.getTenantAccessToken();
+    const formData = new FormData();
+    formData.set("file_type", toFeishuFileType(fileName, mediaType));
+    formData.set("file_name", fileName);
+    formData.set("file", new Blob([data], { type: mediaType ?? inferMediaType(fileName) }), fileName);
+
+    const response = await fetch(`${this.apiBaseUrl}/open-apis/im/v1/files`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+    const payload = (await response.json()) as Record<string, unknown>;
+    if (!response.ok || Number(payload.code ?? 0) !== 0) {
+      throw new Error(String(payload.msg ?? `Failed to upload file '${fileName}' to Feishu.`));
+    }
+
+    const dataNode = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const fileKey = String(dataNode.file_key ?? "");
+    if (!fileKey) {
+      throw new Error("Feishu upload response did not include file_key.");
+    }
+    return fileKey;
+  }
+
+  private async sendMessage(
+    receiveId: string,
+    receiveIdType: "chat_id" | "open_id",
+    msgType: string,
+    content: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const token = await this.getTenantAccessToken();
+    const response = await fetch(
+      `${this.apiBaseUrl}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(receiveIdType)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          receive_id: receiveId,
+          msg_type: msgType,
+          content: JSON.stringify(content),
+        }),
+      },
+    );
+    const payload = (await response.json()) as Record<string, unknown>;
+    if (!response.ok || Number(payload.code ?? 0) !== 0) {
+      throw new Error(String(payload.msg ?? `Failed to send Feishu '${msgType}' message.`));
+    }
+    return payload;
+  }
+
+  private async getTenantAccessToken(): Promise<string> {
+    const now = Date.now();
+    if (this.tenantAccessToken && now < this.tenantAccessTokenExpiresAt) {
+      return this.tenantAccessToken;
+    }
+
+    const response = await fetch(`${this.apiBaseUrl}/open-apis/auth/v3/tenant_access_token/internal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        app_id: this.appId,
+        app_secret: this.appSecret,
+      }),
+    });
+    const payload = (await response.json()) as Record<string, unknown>;
+    if (!response.ok || Number(payload.code ?? 0) !== 0) {
+      throw new Error(String(payload.msg ?? "Failed to obtain Feishu tenant access token."));
+    }
+
+    const token = String(payload.tenant_access_token ?? "");
+    if (!token) {
+      throw new Error("Feishu auth response did not include tenant_access_token.");
+    }
+
+    const expiresInSeconds = Math.max(60, Number(payload.expire ?? payload.expires_in ?? 7200));
+    this.tenantAccessToken = token;
+    this.tenantAccessTokenExpiresAt = now + (expiresInSeconds - 60) * 1000;
+    return token;
+  }
 }
 
 function assertCardPayloadShape(card: Record<string, unknown>): void {
   const schema = String(card.schema ?? "");
   const body = card.body as Record<string, unknown> | undefined;
   const elements = body?.elements;
-  if (schema === "2.0" && Array.isArray(elements)) return;
+  if (schema === "2.0" && Array.isArray(elements)) {
+    const forbiddenTagPath = findForbiddenV2TagPath(elements);
+    if (!forbiddenTagPath) return;
+
+    throw new Error(
+      `Invalid Feishu card payload: schema 2.0 does not support 'action' tags (found at ${forbiddenTagPath}).`,
+    );
+  }
 
   logWarn("feishu.card.payload.shape_unexpected", {
     schema,
     hasBody: Boolean(body),
     hasElements: Array.isArray(elements),
   });
+}
+
+function findForbiddenV2TagPath(
+  elements: unknown[],
+  path = "body.elements",
+): string | null {
+  for (const [index, element] of elements.entries()) {
+    if (!element || typeof element !== "object") continue;
+
+    const record = element as Record<string, unknown>;
+    const currentPath = `${path}[${index}]`;
+    if (record.tag === "action") return currentPath;
+
+    const nestedElements = record.elements;
+    if (Array.isArray(nestedElements)) {
+      const nestedPath = findForbiddenV2TagPath(nestedElements, `${currentPath}.elements`);
+      if (nestedPath) return nestedPath;
+    }
+
+    const nestedColumns = record.columns;
+    if (Array.isArray(nestedColumns)) {
+      const columnPath = findForbiddenV2ColumnsPath(nestedColumns, `${currentPath}.columns`);
+      if (columnPath) return columnPath;
+    }
+  }
+
+  return null;
+}
+
+function findForbiddenV2ColumnsPath(
+  columns: unknown[],
+  path: string,
+): string | null {
+  for (const [index, column] of columns.entries()) {
+    if (!column || typeof column !== "object") continue;
+
+    const record = column as Record<string, unknown>;
+    const currentPath = `${path}[${index}]`;
+    const nestedElements = record.elements;
+    if (!Array.isArray(nestedElements)) continue;
+
+    const nestedPath = findForbiddenV2TagPath(nestedElements, `${currentPath}.elements`);
+    if (nestedPath) return nestedPath;
+  }
+
+  return null;
 }
 
 function extensionFromContentType(contentType?: string): string {
@@ -346,4 +523,40 @@ function extensionFromContentType(contentType?: string): string {
     default:
       return ".jpg";
   }
+}
+
+function resolveApiBaseUrl(brand?: string): string {
+  if (!brand || brand === "feishu") return "https://open.feishu.cn";
+  if (brand === "lark") return "https://open.larksuite.com";
+
+  const normalized = brand.replace(/\/+$/, "");
+  return /^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`;
+}
+
+function toFeishuFileType(fileName: string, mediaType?: string): string {
+  const extension = path.extname(fileName).toLowerCase();
+  if (mediaType === "application/pdf" || extension === ".pdf") return "pdf";
+  if (extension === ".doc" || extension === ".docx") return "doc";
+  if (extension === ".xls" || extension === ".xlsx" || extension === ".csv") return "xls";
+  if (extension === ".ppt" || extension === ".pptx") return "ppt";
+  if (extension === ".opus") return "opus";
+  if (mediaType === "video/mp4" || extension === ".mp4") return "mp4";
+  return "stream";
+}
+
+function inferMediaType(fileName: string): string {
+  const extension = path.extname(fileName).toLowerCase();
+  return extension === ".pdf"
+    ? "application/pdf"
+    : extension === ".json"
+      ? "application/json"
+      : extension === ".xml"
+        ? "application/xml"
+        : extension === ".txt"
+          ? "text/plain"
+          : extension === ".csv"
+            ? "text/csv"
+            : extension === ".md"
+              ? "text/markdown"
+              : "application/octet-stream";
 }

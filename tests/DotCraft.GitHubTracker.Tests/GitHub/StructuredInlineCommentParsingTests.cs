@@ -1,5 +1,4 @@
 using DotCraft.GitHubTracker.GitHub;
-using DotCraft.GitHubTracker.Tracker;
 
 namespace DotCraft.GitHubTracker.Tests.GitHub;
 

@@ -55,8 +55,7 @@ public sealed partial class WeComModule : ModuleBase
     }
 
     /// <inheritdoc />
-    public override IEnumerable<IAgentToolProvider> GetToolProviders()
-        => [new WeComToolProvider()];
+    public override IEnumerable<IAgentToolProvider> GetToolProviders() => [];
 
     /// <inheritdoc />
     public override IChannelService CreateChannelService(IServiceProvider sp)

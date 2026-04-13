@@ -5,6 +5,7 @@ using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
 using DotCraft.Modules;
+using DotCraft.Processes;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Protocol;
 using DotCraft.Security;
@@ -21,18 +22,16 @@ namespace DotCraft.ExternalChannel;
 /// <see cref="AttachTransport"/>.
 /// </para>
 /// </summary>
-public sealed class ExternalChannelHost(
-    ExternalChannelEntry config,
-    ISessionService sessionService,
-    string serverVersion,
-    ModuleRegistry moduleRegistry,
-    string hostWorkspacePath)
-    : IChannelService
+public sealed class ExternalChannelHost : IChannelService
 {
-    private readonly ExternalChannelEntry _config = config ?? throw new ArgumentNullException(nameof(config));
-    private readonly ISessionService _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
-    private readonly ModuleRegistry _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
-    private readonly string _workspaceCraftPath = Path.Combine(hostWorkspacePath, ".craft");
+    private readonly ExternalChannelEntry _config;
+    private readonly ISessionService _sessionService;
+    private readonly string _serverVersion;
+    private readonly ModuleRegistry _moduleRegistry;
+    private readonly string _hostWorkspacePath;
+    private readonly string _workspaceCraftPath;
+    private readonly ExternalChannelDeliveryDependencies _delivery;
+    private readonly Func<ProcessStartInfo, ManagedChildProcess> _managedChildProcessFactory;
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -40,7 +39,7 @@ public sealed class ExternalChannelHost(
     private AppServerRequestHandler? _handler;
 
     // Subprocess management
-    private Process? _adapterProcess;
+    private ManagedChildProcess? _adapterProcess;
     private CancellationTokenSource? _runCts;
 
     // WebSocket mode: signaled when an adapter attaches via AppServerHost
@@ -62,11 +61,87 @@ public sealed class ExternalChannelHost(
     private volatile bool _stopped;
     private volatile bool _permanentlyFailed;
 
+    public ExternalChannelHost(
+        ExternalChannelEntry config,
+        ISessionService sessionService,
+        string serverVersion,
+        ModuleRegistry moduleRegistry,
+        string hostWorkspacePath,
+        PathBlacklist? pathBlacklist = null,
+        IApprovalService? approvalService = null,
+        Func<string, object>? deliveryDependenciesFactory = null)
+        : this(
+            config,
+            sessionService,
+            serverVersion,
+            moduleRegistry,
+            hostWorkspacePath,
+            pathBlacklist,
+            approvalService,
+            deliveryDependenciesFactory,
+            ManagedChildProcess.Start)
+    {
+    }
+
+    internal ExternalChannelHost(
+        ExternalChannelEntry config,
+        ISessionService sessionService,
+        string serverVersion,
+        ModuleRegistry moduleRegistry,
+        string hostWorkspacePath,
+        Func<string, object>? deliveryDependenciesFactory,
+        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory)
+        : this(
+            config,
+            sessionService,
+            serverVersion,
+            moduleRegistry,
+            hostWorkspacePath,
+            pathBlacklist: null,
+            approvalService: null,
+            deliveryDependenciesFactory,
+            managedChildProcessFactory)
+    {
+    }
+
+    internal ExternalChannelHost(
+        ExternalChannelEntry config,
+        ISessionService sessionService,
+        string serverVersion,
+        ModuleRegistry moduleRegistry,
+        string hostWorkspacePath,
+        PathBlacklist? pathBlacklist,
+        IApprovalService? approvalService,
+        Func<string, object>? deliveryDependenciesFactory,
+        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory)
+    {
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
+        _serverVersion = serverVersion ?? throw new ArgumentNullException(nameof(serverVersion));
+        _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
+        _hostWorkspacePath = hostWorkspacePath ?? throw new ArgumentNullException(nameof(hostWorkspacePath));
+        _workspaceCraftPath = Path.Combine(_hostWorkspacePath, ".craft");
+        _delivery = CreateDeliveryDependencies(_hostWorkspacePath, pathBlacklist, approvalService, deliveryDependenciesFactory);
+        _managedChildProcessFactory = managedChildProcessFactory ?? throw new ArgumentNullException(nameof(managedChildProcessFactory));
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // IChannelService implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     public string Name => _config.Name;
+
+    /// <summary>
+    /// Configured transport mode (subprocess vs WebSocket). Used to reject WebSocket adapter
+    /// handover when the channel is subprocess-only.
+    /// </summary>
+    public ExternalChannelTransport Transport => _config.Transport;
+
+    /// <summary>
+    /// Whether this host may receive a WebSocket <c>/ws</c> adapter connection via
+    /// <see cref="AttachTransport"/>. Subprocess channels use stdio only.
+    /// </summary>
+    public bool AcceptsWebSocketAdapterAttach => _config.Transport == ExternalChannelTransport.Websocket;
 
     /// <summary>
     /// Returns <c>true</c> when an adapter transport is attached and has completed the
@@ -75,6 +150,11 @@ public sealed class ExternalChannelHost(
     /// </summary>
     public bool IsAdapterConnected => !_stopped && !_permanentlyFailed
         && _connection is { IsClientReady: true };
+
+    /// <summary>
+    /// Current adapter connection snapshot, when attached.
+    /// </summary>
+    public AppServerConnection? AdapterConnection => _connection;
 
     public HeartbeatService? HeartbeatService { get; set; }
 
@@ -86,16 +166,19 @@ public sealed class ExternalChannelHost(
     /// </summary>
     public IApprovalService? ApprovalService => null;
 
-    /// <summary>
-    /// Platform client lives out-of-process, so this is always null.
-    /// </summary>
-    public object? ChannelClient => null;
+    public ChannelDeliveryCapabilities? GetDeliveryCapabilities()
+        => _connection?.DeliveryCapabilities;
+
+    public IReadOnlyList<ChannelToolDescriptor> GetChannelTools()
+        => _connection is { IsClientReady: true } connection
+            ? connection.RegisteredChannelTools
+            : [];
 
     /// <summary>
     /// Starts the external channel adapter.
     /// For subprocess mode, spawns the process and enters the message loop.
     /// For WebSocket mode, waits for the adapter to connect and then enters the message loop.
-    /// Blocks until stopped or cancelled.
+    /// Blocks until stopped or canceled.
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -181,41 +264,76 @@ public sealed class ExternalChannelHost(
             await disposable.DisposeAsync();
     }
 
-    /// <summary>
-    /// Delivers a message to the adapter via <c>ext/channel/deliver</c>.
-    /// Best-effort: returns silently if the adapter is disconnected.
-    /// </summary>
-    public async Task DeliverMessageAsync(string target, string content)
+    public async Task<ExtChannelSendResult> DeliverAsync(
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_stopped || _permanentlyFailed || _transport == null || _connection is not { IsClientReady: true } connection)
+        {
+            return new ExtChannelSendResult
+            {
+                Delivered = false,
+                ErrorCode = "AdapterDeliveryFailed",
+                ErrorMessage = "Adapter is not connected."
+            };
+        }
+
+        var result = await _delivery.MessageDispatcher.DeliverAsync(
+            _transport,
+            connection,
+            Name,
+            target,
+            message,
+            metadata,
+            cancellationToken);
+
+        if (!result.Delivered)
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow][[ExternalChannel]][/] Delivery to [yellow]{Name}[/] target '{target}' failed: " +
+                $"{result.ErrorCode ?? "AdapterDeliveryFailed"} {result.ErrorMessage}");
+        }
+
+        return result;
+    }
+
+    public async Task<ExtChannelToolCallResult> ExecuteToolAsync(
+        ExtChannelToolCallParams request,
+        CancellationToken cancellationToken = default)
     {
         if (_stopped || _permanentlyFailed || _transport == null || _connection is not { IsClientReady: true })
-            return;
-
-        if (_connection is { SupportsDelivery: false })
-            return;
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterDisconnected",
+                ErrorMessage = "Adapter is not connected."
+            };
+        }
 
         try
         {
             var response = await _transport.SendClientRequestAsync(
-                AppServerMethods.ExtChannelDeliver,
-                new { target, content },
-                timeout: TimeSpan.FromSeconds(10));
-
-            // The response.Result is a JsonElement? containing the adapter's reply
-            if (response.Result is { } resultElement &&
-                resultElement.TryGetProperty("delivered", out var delivered) &&
-                delivered.ValueKind == JsonValueKind.False)
-            {
-                var errorMsg = resultElement.TryGetProperty("error", out var err) ? err.GetString() : "unknown";
-                AnsiConsole.MarkupLine(
-                    $"[yellow][[ExternalChannel]][/] Delivery to [yellow]{Name}[/] target '{target}' " +
-                    $"failed: {errorMsg}");
-            }
+                AppServerMethods.ExtChannelToolCall,
+                request,
+                cancellationToken,
+                TimeSpan.FromSeconds(20));
+            return ParseToolResult(response);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            // Best-effort delivery — log but don't throw
-            AnsiConsole.MarkupLine(
-                $"[yellow][[ExternalChannel]][/] Delivery to [yellow]{Name}[/] failed: {ex.Message}");
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterToolCallFailed",
+                ErrorMessage = ex.Message
+            };
         }
     }
 
@@ -241,8 +359,9 @@ public sealed class ExternalChannelHost(
     private async Task RunSubprocessCycleAsync(CancellationToken ct)
     {
         // Spawn the adapter process
-        var process = SpawnAdapterProcess();
-        _adapterProcess = process;
+        var adapterProcess = SpawnAdapterProcess();
+        _adapterProcess = adapterProcess;
+        var process = adapterProcess.Process;
 
         // Create transport from process streams
         // Note: StdioTransport reads from the process's stdout (our input),
@@ -257,11 +376,11 @@ public sealed class ExternalChannelHost(
         _handler = new AppServerRequestHandler(
             _sessionService, _connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
-            serverVersion,
+            _serverVersion,
             cronService: CronService,
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
-            hostWorkspacePath: hostWorkspacePath);
+            hostWorkspacePath: _hostWorkspacePath);
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -272,20 +391,21 @@ public sealed class ExternalChannelHost(
         // Run the message loop
         await RunMessageLoopAsync(transport, _connection, _handler, ct);
 
+        // Capture exit status before disposal. TerminateSubprocessAsync disposes the
+        // underlying Process via ManagedChildProcess.DisposeAsync.
+        var exitedBeforeTerminate = !ct.IsCancellationRequested && process.HasExited;
+        int? exitCodeBeforeTerminate = null;
+        if (exitedBeforeTerminate)
+            exitCodeBeforeTerminate = process.ExitCode;
+
         // Terminate the subprocess after the message loop exits.
         // When the loop exits due to heartbeat-timeout (transport disposed), the process
         // may still be running. Kill it first to avoid hanging on WaitForExitAsync.
         await TerminateSubprocessAsync();
 
-        // Process exited — check if it was expected
-        if (!ct.IsCancellationRequested && !process.HasExited)
+        // Process exited before termination — check if it was expected.
+        if (exitedBeforeTerminate && exitCodeBeforeTerminate is { } exitCode)
         {
-            await process.WaitForExitAsync(ct);
-        }
-
-        if (!ct.IsCancellationRequested && process.HasExited)
-        {
-            var exitCode = process.ExitCode;
             AnsiConsole.MarkupLine(
                 $"[yellow][[ExternalChannel]][/] Adapter [yellow]{Name}[/] exited with code {exitCode}");
 
@@ -298,7 +418,7 @@ public sealed class ExternalChannelHost(
         _consecutiveFailures = 0;
     }
 
-    private Process SpawnAdapterProcess()
+    private ManagedChildProcess SpawnAdapterProcess()
     {
         var startInfo = new ProcessStartInfo
         {
@@ -325,11 +445,7 @@ public sealed class ExternalChannelHost(
                 startInfo.Environment[key] = value;
         }
 
-        var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException(
-                $"Failed to start adapter process: {_config.Command}");
-
-        return process;
+        return _managedChildProcessFactory(startInfo);
     }
 
     private static async Task ForwardStderrAsync(Process process, CancellationToken ct)
@@ -350,21 +466,16 @@ public sealed class ExternalChannelHost(
 
     private async Task TerminateSubprocessAsync()
     {
-        if (_adapterProcess is not { HasExited: false } process)
+        if (_adapterProcess is not { } adapterProcess)
             return;
+
+        _adapterProcess = null;
 
         try
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(CancellationToken.None)
-                .WaitAsync(TimeSpan.FromSeconds(5));
+            await adapterProcess.DisposeAsync();
         }
         catch { /* best-effort */ }
-        finally
-        {
-            process.Dispose();
-            _adapterProcess = null;
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -387,11 +498,11 @@ public sealed class ExternalChannelHost(
         _handler = new AppServerRequestHandler(
             _sessionService, connection, transport,
             new ModuleRegistryChannelListContributor(_moduleRegistry, CronService, HeartbeatService),
-            serverVersion,
+            _serverVersion,
             cronService: CronService,
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
-            hostWorkspacePath: hostWorkspacePath);
+            hostWorkspacePath: _hostWorkspacePath);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +
@@ -542,7 +653,7 @@ public sealed class ExternalChannelHost(
     {
         StopHeartbeatTimer();
         _heartbeatTimer = new Timer(
-            _ => _ = SendHeartbeatAsync(),
+            __ => _ = SendHeartbeatAsync(),
             state: null,
             dueTime: HeartbeatInterval,
             period: HeartbeatInterval);
@@ -572,7 +683,7 @@ public sealed class ExternalChannelHost(
         {
             // SendClientRequestAsync uses CancellationTokenSource.CancelAfter() for timeouts,
             // which throws TaskCanceledException (a subclass of OperationCanceledException).
-            // If neither _stopped nor _runCts is cancelled, this is a heartbeat timeout.
+            // If neither _stopped nor _runCts is canceled, this is a heartbeat timeout.
             AnsiConsole.MarkupLine(
                 $"[red][[ExternalChannel]][/] Heartbeat timeout for [yellow]{Name}[/] — " +
                 "connection unhealthy, triggering reconnect");
@@ -601,6 +712,60 @@ public sealed class ExternalChannelHost(
             InitialBackoff.TotalSeconds * Math.Pow(2, failures - 1),
             MaxBackoff.TotalSeconds);
         return TimeSpan.FromSeconds(seconds);
+    }
+
+    private static ExternalChannelDeliveryDependencies CreateDeliveryDependencies(
+        string hostWorkspacePath,
+        PathBlacklist? pathBlacklist,
+        IApprovalService? approvalService,
+        Func<string, object>? deliveryDependenciesFactory)
+    {
+        if (deliveryDependenciesFactory?.Invoke(hostWorkspacePath) is ExternalChannelDeliveryDependencies provided)
+            return provided;
+
+        var mediaRoot = Path.Combine(hostWorkspacePath, ".craft", "external-channel-media");
+        var artifactStore = new FileSystemChannelMediaArtifactStore(mediaRoot);
+        var fileAccessGuard = new FileAccessGuard(
+            hostWorkspacePath,
+            requireApprovalOutsideWorkspace: true,
+            approvalService,
+            pathBlacklist);
+        var resolver = new ChannelMediaResolver(artifactStore, Path.Combine(mediaRoot, "tmp"), fileAccessGuard);
+        var dispatcher = new ExternalChannelMessageDispatcher(resolver, artifactStore);
+        return new ExternalChannelDeliveryDependencies(artifactStore, resolver, dispatcher);
+    }
+
+    private static ExtChannelToolCallResult ParseToolResult(AppServerIncomingMessage response)
+    {
+        if (response.Result is not { } result || result.ValueKind != JsonValueKind.Object)
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterProtocolViolation",
+                ErrorMessage = "Adapter returned an invalid tool response payload."
+            };
+        }
+
+        var parsed = JsonSerializer.Deserialize<ExtChannelToolCallResult>(
+            result.GetRawText(),
+            SessionWireJsonOptions.Default);
+        if (parsed == null)
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "AdapterProtocolViolation",
+                ErrorMessage = "Adapter returned an empty tool response payload."
+            };
+        }
+
+        if (!parsed.Success && string.IsNullOrWhiteSpace(parsed.ErrorCode))
+            parsed.ErrorCode = "AdapterToolCallFailed";
+        if (!parsed.Success && string.IsNullOrWhiteSpace(parsed.ErrorMessage))
+            parsed.ErrorMessage = "Adapter reported a failed tool call.";
+
+        return parsed;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

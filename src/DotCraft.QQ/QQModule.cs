@@ -42,14 +42,12 @@ public sealed partial class QQModule : ModuleBase
         // Register QQApprovalService (depends on QQBotClient and QQPermissionService)
         services.AddSingleton(sp =>
         {
-            var client = sp.GetRequiredService<QQBotClient>();
             var permission = sp.GetRequiredService<QQPermissionService>();
-            var factory = new QQApprovalServiceFactory();
+            var factory = new QQApprovalServiceFactory(sp.GetRequiredService<QQBotClient>());
             return (QQApprovalService)factory.Create(new ApprovalServiceContext
             {
                 Config = context.Config,
                 WorkspacePath = context.Paths.WorkspacePath,
-                ChannelClient = client,
                 PermissionService = permission,
                 ApprovalTimeoutSeconds = config.ApprovalTimeoutSeconds
             });
@@ -57,8 +55,7 @@ public sealed partial class QQModule : ModuleBase
     }
 
     /// <inheritdoc />
-    public override IEnumerable<IAgentToolProvider> GetToolProviders()
-        => [new QQToolProvider()];
+    public override IEnumerable<IAgentToolProvider> GetToolProviders() => [];
 
     /// <inheritdoc />
     public override IChannelService CreateChannelService(IServiceProvider sp)

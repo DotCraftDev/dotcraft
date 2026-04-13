@@ -2,7 +2,6 @@ using DotCraft.Automations.Abstractions;
 using DotCraft.GitHubTracker.GitHub;
 using DotCraft.GitHubTracker.Tests.Fakes;
 using DotCraft.GitHubTracker.Tests.Helpers;
-using DotCraft.GitHubTracker.Tracker;
 using DotCraft.GitHubTracker.Workflow;
 using DotCraft.GitHubTracker.Workspace;
 using Microsoft.Extensions.Logging.Abstractions;

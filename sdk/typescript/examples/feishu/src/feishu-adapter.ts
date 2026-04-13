@@ -1,4 +1,13 @@
 import {
+  readFile,
+  stat,
+} from "node:fs/promises";
+import {
+  basename,
+  resolve,
+} from "node:path";
+
+import {
   ChannelAdapter,
   DECISION_CANCEL,
   DECISION_DECLINE,
@@ -9,8 +18,8 @@ import {
   Turn,
   WebSocketTransport,
   extractAgentReplyTextFromTurnCompletedParams,
-  extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,
+  shouldFlushSegmentOnItemStarted,
   textPart,
 } from "dotcraft-wire";
 import { buildApprovalCard, buildErrorCard } from "./card-builder.js";
@@ -75,6 +84,155 @@ export class FeishuAdapter extends ChannelAdapter {
         message: errorMessage(error),
       });
       return false;
+    }
+  }
+
+  protected getDeliveryCapabilities(): Record<string, unknown> | null {
+    return {
+      structuredDelivery: true,
+      media: {
+        file: {
+          maxBytes: 30 * 1024 * 1024,
+          supportsHostPath: false,
+          supportsUrl: false,
+          supportsBase64: true,
+          supportsCaption: true,
+        },
+      },
+    };
+  }
+
+  protected override getChannelTools(): Record<string, unknown>[] | null {
+    return [
+      {
+        name: "FeishuSendFileToCurrentChat",
+        description: "Send a real file attachment to the current Feishu chat.",
+        requiresChatContext: true,
+        approval: {
+          kind: "file",
+          targetArgument: "filePath",
+          operation: "read",
+        },
+        display: {
+          icon: "📎",
+          title: "Send file to current Feishu chat",
+        },
+        inputSchema: {
+          type: "object",
+          properties: {
+            filePath: { type: "string" },
+            fileName: { type: "string" },
+            caption: { type: "string" },
+          },
+          required: ["filePath"],
+        },
+      },
+    ];
+  }
+
+  protected override async onSend(
+    target: string,
+    message: Record<string, unknown>,
+    metadata: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const kind = String(message.kind ?? "");
+    if (kind === "text") {
+      return await super.onSend(target, message, metadata);
+    }
+
+    if (kind === "file") {
+      const result = await this.deliverFileMessage(target, message, {
+        source: "structured",
+        metadata,
+      });
+      return result;
+    }
+
+    return {
+      delivered: false,
+      errorCode: "UnsupportedDeliveryKind",
+      errorMessage: `Feishu example does not implement structured '${kind}' delivery yet.`,
+    };
+  }
+
+  protected override async onToolCall(
+    request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const tool = String(request.tool ?? "");
+    const args = (request.arguments as Record<string, unknown>) ?? {};
+    const context = (request.context as Record<string, unknown>) ?? {};
+    const target = String(context.channelContext ?? context.groupId ?? "");
+    if (tool !== "FeishuSendFileToCurrentChat") {
+      return {
+        success: false,
+        errorCode: "UnsupportedTool",
+        errorMessage: `Unknown tool '${tool}'.`,
+      };
+    }
+
+    if (!target) {
+      return {
+        success: false,
+        errorCode: "MissingChatContext",
+        errorMessage: "Current tool call does not contain a Feishu chat target.",
+      };
+    }
+
+    const filePath = String(args.filePath ?? "");
+    const fileName = String(args.fileName ?? "");
+    const caption = String(args.caption ?? "");
+    if (!filePath) {
+      return {
+          success: false,
+        errorCode: "MissingFilePath",
+        errorMessage: "Feishu file sending requires a filePath.",
+      };
+    }
+
+    try {
+      const resolvedPath = resolve(filePath);
+      const fileStats = await stat(resolvedPath);
+      if (!fileStats.isFile()) {
+        return {
+          success: false,
+          errorCode: "InvalidFilePath",
+          errorMessage: `Path '${resolvedPath}' is not a file.`,
+        };
+      }
+
+      const data = await readFile(resolvedPath);
+      const effectiveFileName = fileName || basename(resolvedPath);
+      const sendResult = await this.feishu.sendFile(target, {
+        fileName: effectiveFileName,
+        data,
+        mediaType: inferMediaType(effectiveFileName),
+      });
+      if (caption) {
+        const captionDelivered = await this.onDeliver(target, caption, {});
+        if (!captionDelivered) {
+          logWarn("outbound.send.file.caption_failed", {
+            target: shortId(target),
+            fileName: effectiveFileName,
+          });
+        }
+      }
+
+      return {
+        success: true,
+        contentItems: [{ type: "text", text: `Sent ${effectiveFileName} to the current chat.` }],
+        structuredResult: {
+          delivered: true,
+          fileName: effectiveFileName,
+          remoteMessageId: sendResult.messageId,
+          fileKey: sendResult.fileKey,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errorCode: "AdapterToolCallFailed",
+        errorMessage: errorMessage(error),
+      };
     }
   }
 
@@ -377,24 +535,17 @@ export class FeishuAdapter extends ChannelAdapter {
         const params = (event.params as Record<string, unknown>) ?? {};
         const item = (params.item as Record<string, unknown>) ?? {};
         const itemType = String(item.type ?? "");
-        if (itemType === "toolCall") {
+        if (shouldFlushSegmentOnItemStarted(itemType)) {
           const segmentText = currentSegmentParts.join("");
           currentSegmentParts.length = 0;
           await this.onProgressMessage(thread.id, turn.id, segmentText, job.channelContext);
         }
       } else if (event.method === "turn/completed") {
         const params = (event.params as Record<string, unknown>) ?? {};
-        const snapshotParts = extractAgentReplyTextsFromTurnCompletedParams(params);
         const snapshotText = extractAgentReplyTextFromTurnCompletedParams(params);
-        const mergedFullReply = mergeReplyTextFromDeltaAndSnapshot(allDeltaParts.join(""), snapshotText);
-        const deltaFinalSegment = currentSegmentParts.join("");
-        const finalSegment =
-          deltaFinalSegment.trim().length > 0
-            ? deltaFinalSegment
-            : snapshotParts.length > 0
-              ? snapshotParts[snapshotParts.length - 1]
-              : mergedFullReply;
-        await this.onTurnCompleted(thread.id, turn.id, finalSegment, job.channelContext);
+        const deltaText = allDeltaParts.join("");
+        const fullReply = mergeReplyTextFromDeltaAndSnapshot(deltaText, snapshotText);
+        await this.onTurnCompleted(thread.id, turn.id, fullReply, job.channelContext);
         return;
       } else if (event.method === "turn/failed") {
         const errorMessage = String(
@@ -424,6 +575,56 @@ export class FeishuAdapter extends ChannelAdapter {
 
   private buildIdentityKey(userId: string, channelContext: string): string {
     return `${userId}:${channelContext}`;
+  }
+
+  private async deliverFileMessage(
+    target: string,
+    message: Record<string, unknown>,
+    context: {
+      source: "structured" | "tool";
+      metadata: Record<string, unknown>;
+    },
+  ): Promise<Record<string, unknown>> {
+    const caption = String(message.caption ?? "");
+    const fileName = String(message.fileName ?? "attachment");
+
+    try {
+      const file = await resolveOutboundFilePayload(message, fileName);
+      logInfo("outbound.send.file", {
+        source: context.source,
+        target: shortId(target),
+        fileName: file.fileName,
+        bytes: file.data.length,
+      });
+      const sendResult = await this.feishu.sendFile(target, file);
+      if (caption) {
+        const captionDelivered = await this.onDeliver(target, caption, context.metadata);
+        if (!captionDelivered) {
+          logWarn("outbound.send.file.caption_failed", {
+            target: shortId(target),
+            fileName: file.fileName,
+          });
+        }
+      }
+
+      return {
+        delivered: true,
+        remoteMessageId: sendResult.messageId,
+        remoteMediaId: sendResult.fileKey,
+      };
+    } catch (error) {
+      logError("outbound.send.file.failed", {
+        source: context.source,
+        target: shortId(target),
+        fileName,
+        message: errorMessage(error),
+      });
+      return {
+        delivered: false,
+        errorCode: "AdapterDeliveryFailed",
+        errorMessage: errorMessage(error),
+      };
+    }
   }
 
   private async resolveThread(
@@ -518,4 +719,61 @@ function parseActionValue(value: Record<string, unknown> | string | undefined): 
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveOutboundFilePayload(
+  message: Record<string, unknown>,
+  fallbackFileName: string,
+): Promise<{
+  fileName: string;
+  data: Buffer;
+  mediaType?: string;
+}> {
+  const source = (message.source as Record<string, unknown> | undefined) ?? {};
+  const sourceKind = String(source.kind ?? "");
+  const fileName = String(message.fileName ?? fallbackFileName).trim() || "attachment";
+  const mediaType = String(message.mediaType ?? inferMediaType(fileName));
+
+  if (sourceKind === "dataBase64") {
+    const base64 = String(source.dataBase64 ?? "");
+    if (!base64) {
+      throw new Error("Feishu file delivery requires source.dataBase64 for dataBase64 sources.");
+    }
+    try {
+      return {
+        fileName,
+        data: Buffer.from(base64, "base64"),
+        mediaType,
+      };
+    } catch {
+      throw new Error("Feishu file delivery received invalid base64 data.");
+    }
+  }
+
+  if (sourceKind === "hostPath") {
+    const hostPath = String(source.hostPath ?? "");
+    if (!hostPath) {
+      throw new Error("Feishu file delivery requires source.hostPath for hostPath sources.");
+    }
+    const resolvedPath = resolve(hostPath);
+    const fileData = await readFile(resolvedPath);
+    return {
+      fileName: fileName || basename(resolvedPath),
+      data: fileData,
+      mediaType,
+    };
+  }
+
+  throw new Error(`Feishu file delivery does not support source kind '${sourceKind || "unknown"}'.`);
+}
+
+function inferMediaType(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".json")) return "application/json";
+  if (lower.endsWith(".xml")) return "application/xml";
+  if (lower.endsWith(".txt")) return "text/plain";
+  if (lower.endsWith(".csv")) return "text/csv";
+  if (lower.endsWith(".md")) return "text/markdown";
+  return "application/octet-stream";
 }

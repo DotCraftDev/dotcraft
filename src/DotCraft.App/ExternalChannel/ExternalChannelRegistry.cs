@@ -1,22 +1,25 @@
+using DotCraft.Abstractions;
 using System.Collections.Concurrent;
 
 namespace DotCraft.ExternalChannel;
 
 /// <summary>
-/// Thread-safe registry of WebSocket-mode external channels.
+/// Thread-safe registry of all configured external channel hosts (subprocess and WebSocket).
 /// <para>
-/// <see cref="ExternalChannelManager"/> registers WebSocket-mode <see cref="ExternalChannelHost"/>
-/// instances here during construction. <c>AppServerHost</c> queries this registry when
-/// a WebSocket client completes the <c>initialize</c> handshake with a <c>channelAdapter</c>
-/// capability, routing the connection to the matching host.
+/// <see cref="ExternalChannelManager"/> registers each enabled <see cref="ExternalChannelHost"/>
+/// here during construction. <c>AppServerHost</c> queries this registry when a WebSocket client
+/// completes the <c>initialize</c> handshake with a <c>channelAdapter</c> capability, routing only
+/// to hosts whose transport is <see cref="DotCraft.Configuration.ExternalChannelTransport.Websocket"/>.
+/// <see cref="ExternalChannelToolProvider"/> uses the same registry to discover hosts for
+/// channel tool injection (including subprocess adapters).
 /// </para>
 /// </summary>
-public sealed class ExternalChannelRegistry
+public sealed class ExternalChannelRegistry : IChannelRuntimeRegistry
 {
     private readonly ConcurrentDictionary<string, ExternalChannelHost> _hosts = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Registers a WebSocket-mode external channel host.
+    /// Registers an external channel host for discovery and WebSocket routing (when applicable).
     /// </summary>
     public void Register(string channelName, ExternalChannelHost host)
     {
@@ -36,6 +39,30 @@ public sealed class ExternalChannelRegistry
     /// </summary>
     public bool IsRegistered(string channelName)
         => _hosts.ContainsKey(channelName);
+
+    /// <summary>
+    /// Returns a point-in-time snapshot of all registered hosts.
+    /// </summary>
+    public IReadOnlyList<ExternalChannelHost> SnapshotHosts()
+        => _hosts.Values.ToArray();
+
+    void IChannelRuntimeRegistry.Register(IChannelRuntime runtime)
+    {
+        if (runtime is not ExternalChannelHost host)
+            throw new InvalidOperationException("ExternalChannelRegistry only accepts ExternalChannelHost runtimes.");
+
+        Register(host.Name, host);
+    }
+
+    bool IChannelRuntimeRegistry.TryGet(string channelName, out IChannelRuntime? runtime)
+    {
+        var found = _hosts.TryGetValue(channelName, out var host);
+        runtime = host;
+        return found;
+    }
+
+    IReadOnlyList<IChannelRuntime> IChannelRuntimeRegistry.Snapshot()
+        => _hosts.Values.Cast<IChannelRuntime>().ToArray();
 
     /// <summary>
     /// Removes a channel from the registry (e.g. on shutdown).

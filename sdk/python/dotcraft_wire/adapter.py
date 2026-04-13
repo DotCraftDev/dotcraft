@@ -21,6 +21,7 @@ from .models import ERR_TURN_IN_PROGRESS, Thread
 from .transport import Transport
 from .turn_reply import (
     extract_agent_reply_text_from_turn_completed,
+    extract_agent_reply_texts_from_turn_completed,
     merge_reply_text_from_delta_and_snapshot,
 )
 
@@ -80,6 +81,24 @@ class ChannelAdapter(ABC):
             True if delivered successfully, False otherwise.
         """
 
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict:
+        """
+        Called when DotCraft asks the adapter to send a structured payload.
+
+        Default behavior preserves text-only compatibility by forwarding text
+        messages to on_deliver() and rejecting non-text messages.
+        """
+        kind = str(message.get("kind", ""))
+        if kind == "text":
+            ok = await self.on_deliver(target, str(message.get("text", "")), metadata)
+            return {"delivered": ok}
+
+        return {
+            "delivered": False,
+            "errorCode": "UnsupportedDeliveryKind",
+            "errorMessage": f"Adapter does not implement structured '{kind}' delivery.",
+        }
+
     @abstractmethod
     async def on_approval_request(self, request: dict) -> str:
         """
@@ -122,6 +141,33 @@ class ChannelAdapter(ABC):
         """Called when a turn is cancelled."""
         logger.info("Turn %s cancelled on thread %s", turn_id, thread_id)
 
+    async def on_segment_completed(
+        self,
+        thread_id: str,
+        turn_id: str,
+        segment_text: str,
+        is_final: bool,
+        channel_context: str,
+    ) -> None:
+        """Called when an assistant text segment is completed during streaming."""
+        return
+
+    def get_delivery_capabilities(self) -> dict | None:
+        """Return channelAdapter.deliveryCapabilities for initialize, or None for text-only adapters."""
+        return None
+
+    def get_channel_tools(self) -> list[dict] | None:
+        """Return channelAdapter.channelTools for initialize, or None when no tools are exposed."""
+        return None
+
+    async def on_tool_call(self, request: dict) -> dict:
+        """Handle ext/channel/toolCall for a declared channel tool."""
+        return {
+            "success": False,
+            "errorCode": "UnsupportedTool",
+            "errorMessage": "Adapter does not implement channel tool calls.",
+        }
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -139,6 +185,8 @@ class ChannelAdapter(ABC):
             opt_out_notifications=self._opt_out,
             channel_name=self._channel_name,
             delivery_support=True,
+            delivery_capabilities=self.get_delivery_capabilities(),
+            channel_tools=self.get_channel_tools(),
         )
         self._running = True
 
@@ -149,6 +197,8 @@ class ChannelAdapter(ABC):
             self._handle_deliver_notification,
         )
         self._client._request_handlers["ext/channel/deliver"] = self._handle_deliver_request
+        self._client._request_handlers["ext/channel/send"] = self._handle_send_request
+        self._client._request_handlers["ext/channel/toolCall"] = self._handle_tool_call_request
         self._client._request_handlers["ext/channel/heartbeat"] = self._handle_heartbeat
 
         logger.info(
@@ -356,18 +406,55 @@ class ChannelAdapter(ABC):
             else:
                 raise
 
-        # Stream events and accumulate the reply
-        reply_parts: list[str] = []
+        # Stream events and keep both full and segment-level buffers.
+        all_delta_parts: list[str] = []
+        current_segment_parts: list[str] = []
 
         async for event in self._client.stream_events(thread.id):
             if event.method == "item/agentMessage/delta":
                 delta = event.params.get("delta", "")
-                reply_parts.append(delta)
+                all_delta_parts.append(delta)
+                current_segment_parts.append(delta)
+
+            elif event.method == "item/started":
+                params = event.params or {}
+                item = params.get("item")
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type", ""))
+                if item_type not in ("toolCall", "externalChannelToolCall"):
+                    continue
+
+                segment_text = "".join(current_segment_parts)
+                current_segment_parts.clear()
+                if segment_text.strip():
+                    await self.on_segment_completed(
+                        thread.id,
+                        turn.id,
+                        segment_text,
+                        False,
+                        channel_context,
+                    )
 
             elif event.method == "turn/completed":
                 params = event.params or {}
+                snapshot_parts = extract_agent_reply_texts_from_turn_completed(params)
                 snapshot_text = extract_agent_reply_text_from_turn_completed(params)
-                delta_text = "".join(reply_parts)
+                delta_text = "".join(all_delta_parts)
+                delta_final_segment = "".join(current_segment_parts)
+                final_segment = (
+                    delta_final_segment
+                    if delta_final_segment.strip()
+                    else (snapshot_parts[-1] if snapshot_parts else "")
+                )
+                if final_segment.strip():
+                    await self.on_segment_completed(
+                        thread.id,
+                        turn.id,
+                        final_segment,
+                        True,
+                        channel_context,
+                    )
                 full_reply = merge_reply_text_from_delta_and_snapshot(delta_text, snapshot_text)
                 await self.on_turn_completed(thread.id, turn.id, full_reply, channel_context)
                 break
@@ -483,6 +570,33 @@ class ChannelAdapter(ABC):
     async def _handle_deliver_notification(self, params: dict) -> None:
         """Handle ext/channel/deliver if sent as a notification (shouldn't happen per spec)."""
         await self._handle_deliver_request(None, params)
+
+    async def _handle_send_request(self, request_id, params: dict) -> dict:
+        """Route ext/channel/send to the subclass or default structured handler."""
+        target = params.get("target", "")
+        message = params.get("message") or {}
+        metadata = params.get("metadata") or {}
+        try:
+            return await self.on_send(str(target), message, metadata)
+        except Exception as e:
+            logger.error("on_send raised: %s", e)
+            return {
+                "delivered": False,
+                "errorCode": "AdapterDeliveryFailed",
+                "errorMessage": str(e),
+            }
+
+    async def _handle_tool_call_request(self, request_id, params: dict) -> dict:
+        """Route ext/channel/toolCall to the subclass."""
+        try:
+            return await self.on_tool_call(params or {})
+        except Exception as e:
+            logger.error("on_tool_call raised: %s", e)
+            return {
+                "success": False,
+                "errorCode": "AdapterToolCallFailed",
+                "errorMessage": str(e),
+            }
 
     async def _handle_heartbeat(self, request_id, params: dict) -> dict:
         """Respond to ext/channel/heartbeat immediately."""

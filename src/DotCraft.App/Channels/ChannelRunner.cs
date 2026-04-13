@@ -10,6 +10,7 @@ using DotCraft.Hosting;
 using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
+using DotCraft.Security;
 using DotCraft.Tracing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -217,8 +218,21 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
         if (ExternalChannelManager.HasEnabledChannels(_config))
         {
             var nativeNames = _nativeChannels.Select(ch => ch.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var pathBlacklist = _sp.GetRequiredService<PathBlacklist>();
+            var channelServiceMap = _allChannels
+                .Where(ch => ch.ApprovalService != null)
+                .ToDictionary(ch => ch.Name, ch => ch.ApprovalService!);
+            var approvalService = new SessionScopedApprovalService(
+                new ChannelRoutingApprovalService(channelServiceMap, new ConsoleApprovalService()));
             var ecManager = new ExternalChannelManager(
-                _config, sessionService, nativeNames, _moduleRegistry, _paths.WorkspacePath, _externalChannelRegistry);
+                _config,
+                sessionService,
+                nativeNames,
+                _moduleRegistry,
+                _paths.WorkspacePath,
+                pathBlacklist,
+                approvalService,
+                _externalChannelRegistry);
 
             foreach (var extCh in ecManager.Channels)
             {

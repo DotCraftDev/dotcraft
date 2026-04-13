@@ -139,6 +139,8 @@ dotcraft app-server --listen ws://127.0.0.1:9100 --token my-secret
 
 也可以通过 `config.json` 配置 AppServer，适合需要固定配置的部署场景：
 
+如果你在接入外部 channel adapter，需要把 adapter 的启动方式写在 `ExternalChannels` 中；但 structured delivery 能力和 `channelTools` 列表并不写在配置文件里，而是由 adapter 在 `initialize` 握手时动态声明。
+
 **AppServer 配置项**：
 
 | 配置项 | 说明 | 默认值 |

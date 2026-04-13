@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Text.Json.Nodes;
 using DotCraft.Abstractions;
 using DotCraft.Agents;
 using DotCraft.Commands.Custom;
@@ -14,6 +15,7 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Protocol;
+using DotCraft.Protocol.AppServer;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
@@ -44,10 +46,74 @@ public sealed class WeComChannelService(
     ModuleRegistry moduleRegistry)
     : IChannelService, IWebHostingChannel
 {
+    private const string WeComSendVoiceTool = "WeComSendVoice";
+    private const string WeComSendFileTool = "WeComSendFile";
+
     private WebApplication? _webApp;
     private WeComChannelAdapter? _adapter;
     private AgentFactory? _agentFactory;
     private HttpClient? _httpClient;
+    private static readonly ChannelDeliveryCapabilities DeliveryCapabilities = new()
+    {
+        StructuredDelivery = true,
+        Media = new ChannelMediaCapabilitySet
+        {
+            Audio = new ChannelMediaConstraints
+            {
+                SupportsHostPath = true,
+                SupportsBase64 = true
+            },
+            File = new ChannelMediaConstraints
+            {
+                SupportsHostPath = true,
+                SupportsBase64 = true
+            }
+        }
+    };
+
+    private static readonly IReadOnlyList<ChannelToolDescriptor> ChannelTools =
+    [
+        new()
+        {
+            Name = WeComSendVoiceTool,
+            Description = "Send a voice message in the current WeCom chat (WeCom Bot mode only). ONLY supports AMR format. For other audio formats (mp3/wav/etc.), use WeComSendFile instead.",
+            RequiresChatContext = true,
+            InputSchema = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["filePath"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("filePath")
+            },
+            Display = new ChannelToolDisplay { Icon = "🎤", Title = "Send voice in current WeCom chat" }
+        },
+        new()
+        {
+            Name = WeComSendFileTool,
+            Description = "Send a file in the current WeCom chat (WeCom Bot mode only). The file must be a local absolute path.",
+            RequiresChatContext = true,
+            InputSchema = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["filePath"] = new JsonObject { ["type"] = "string" }
+                },
+                ["required"] = new JsonArray("filePath")
+            },
+            Display = new ChannelToolDisplay { Icon = "📁", Title = "Send file in current WeCom chat" }
+        }
+    ];
+
+    static WeComChannelService()
+    {
+        ToolRegistry.RegisterDisplay(WeComSendVoiceTool, icon: "🎤", title: "Send voice in current WeCom chat");
+        ToolRegistry.RegisterDisplay(WeComSendFileTool, icon: "📁", title: "Send file in current WeCom chat");
+        ToolRegistry.RegisterDisplayFormatter(WeComSendVoiceTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendVoice));
+        ToolRegistry.RegisterDisplayFormatter(WeComSendFileTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendFile));
+    }
 
     public string Name => "wecom";
 
@@ -60,8 +126,9 @@ public sealed class WeComChannelService(
     /// <inheritdoc />
     public IApprovalService ApprovalService => wecomApprovalService;
 
-    /// <inheritdoc />
-    public object? ChannelClient => null;
+    public ChannelDeliveryCapabilities? GetDeliveryCapabilities() => DeliveryCapabilities;
+
+    public IReadOnlyList<ChannelToolDescriptor> GetChannelTools() => ChannelTools;
 
     #region IWebHostingChannel
 
@@ -197,19 +264,124 @@ public sealed class WeComChannelService(
     /// <inheritdoc />
     public IReadOnlyList<string> GetAdminTargets() => [""];
 
-    public Task DeliverMessageAsync(string target, string content)
+    public async Task<ExtChannelSendResult> DeliverAsync(
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default)
     {
-        // Prefer the per-chat webhook URL cached at runtime from incoming messages.
-        // Fall back to the global config webhook if the target chatId hasn't been seen yet.
-        var webhookUrl = (!string.IsNullOrWhiteSpace(target) ? registry.GetWebhookUrl(target) : null)
-            ?? config.GetSection<WeComConfig>("WeCom").WebhookUrl;
+        _ = metadata;
+        _ = cancellationToken;
 
-        if (!string.IsNullOrWhiteSpace(webhookUrl))
+        try
         {
-            var wecomTools = new WeComTools(webhookUrl);
-            return wecomTools.SendTextAsync(content);
+            var pusher = CreatePusher(target);
+            if (pusher == null)
+            {
+                return new ExtChannelSendResult
+                {
+                    Delivered = false,
+                    ErrorCode = "AdapterDeliveryFailed",
+                    ErrorMessage = $"No WeCom webhook is available for target '{target}'."
+                };
+            }
+
+            switch (message.Kind.ToLowerInvariant())
+            {
+                case "text":
+                    await pusher.PushTextAsync(message.Text ?? string.Empty);
+                    return new ExtChannelSendResult { Delivered = true };
+                case "audio":
+                    await SendMediaAsync(pusher, message, "voice");
+                    return new ExtChannelSendResult { Delivered = true };
+                case "file":
+                    await SendMediaAsync(pusher, message, "file");
+                    return new ExtChannelSendResult { Delivered = true };
+                default:
+                    return new ExtChannelSendResult
+                    {
+                        Delivered = false,
+                        ErrorCode = "UnsupportedDeliveryKind",
+                        ErrorMessage = $"WeCom channel does not support '{message.Kind}' delivery."
+                    };
+            }
         }
-        return Task.CompletedTask;
+        catch (Exception ex)
+        {
+            return new ExtChannelSendResult
+            {
+                Delivered = false,
+                ErrorCode = "AdapterDeliveryFailed",
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
+    public async Task<ExtChannelToolCallResult> ExecuteToolAsync(
+        ExtChannelToolCallParams request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var target = request.Context.ChannelContext;
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                return new ExtChannelToolCallResult
+                {
+                    Success = false,
+                    ErrorCode = "MissingChatContext",
+                    ErrorMessage = "WeCom tool execution requires a current chat context."
+                };
+            }
+
+            var message = request.Tool switch
+            {
+                WeComSendVoiceTool => CreateMessageFromArgs("audio", request.Arguments),
+                WeComSendFileTool => CreateMessageFromArgs("file", request.Arguments),
+                _ => null
+            };
+
+            if (message == null)
+            {
+                return new ExtChannelToolCallResult
+                {
+                    Success = false,
+                    ErrorCode = "UnsupportedChannelTool",
+                    ErrorMessage = $"WeCom does not expose tool '{request.Tool}'."
+                };
+            }
+
+            var result = await DeliverAsync(target, message, cancellationToken: cancellationToken);
+            return new ExtChannelToolCallResult
+            {
+                Success = result.Delivered,
+                ContentItems =
+                [
+                    new ExtChannelToolContentItem
+                    {
+                        Type = "text",
+                        Text = result.Delivered ? "Message sent." : (result.ErrorMessage ?? "Tool execution failed.")
+                    }
+                ],
+                StructuredResult = new JsonObject
+                {
+                    ["delivered"] = result.Delivered,
+                    ["errorCode"] = result.ErrorCode,
+                    ["target"] = target
+                },
+                ErrorCode = result.ErrorCode,
+                ErrorMessage = result.ErrorMessage
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ExtChannelToolCallResult
+            {
+                Success = false,
+                ErrorCode = "ChannelToolCallFailed",
+                ErrorMessage = ex.Message
+            };
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -221,5 +393,91 @@ public sealed class WeComChannelService(
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
         _httpClient?.Dispose();
+    }
+
+    private IWeComPusher? CreatePusher(string target)
+    {
+        var webhookUrl = (!string.IsNullOrWhiteSpace(target) ? registry.GetWebhookUrl(target) : null)
+            ?? config.GetSection<WeComConfig>("WeCom").WebhookUrl;
+        if (string.IsNullOrWhiteSpace(webhookUrl) || _httpClient == null)
+            return null;
+
+        return new WeComPusher(target, webhookUrl, _httpClient);
+    }
+
+    private async Task SendMediaAsync(IWeComPusher pusher, ChannelOutboundMessage message, string mediaKind)
+    {
+        var source = message.Source ?? throw new InvalidOperationException("Media delivery requires a source.");
+        var fileName = !string.IsNullOrWhiteSpace(message.FileName)
+            ? message.FileName
+            : source.HostPath != null ? Path.GetFileName(source.HostPath) : $"{mediaKind}.bin";
+
+        if (mediaKind == "voice" && !fileName.EndsWith(".amr", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("WeCom voice delivery only supports AMR files.");
+
+        string? tempPath = null;
+        try
+        {
+            var hostPath = source.Kind switch
+            {
+                "hostPath" => source.HostPath ?? throw new InvalidOperationException("hostPath is required."),
+                "dataBase64" => tempPath = WriteTempFileFromBase64(source.DataBase64, fileName),
+                _ => throw new InvalidOperationException($"WeCom {mediaKind} delivery only supports hostPath or dataBase64.")
+            };
+
+            await using var fs = File.OpenRead(hostPath);
+            var mediaId = await pusher.UploadMediaAsync(fs, fileName, mediaKind);
+            if (mediaKind == "voice")
+                await pusher.PushVoiceAsync(mediaId);
+            else
+                await pusher.PushFileAsync(mediaId);
+        }
+        finally
+        {
+            DeleteTempFile(tempPath);
+        }
+    }
+
+    private static ChannelOutboundMessage? CreateMessageFromArgs(string kind, JsonObject args)
+    {
+        var filePath = args["filePath"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(filePath))
+            throw new InvalidOperationException("filePath is required.");
+
+        return new ChannelOutboundMessage
+        {
+            Kind = kind,
+            Source = new ChannelMediaSource
+            {
+                Kind = "hostPath",
+                HostPath = filePath,
+            }
+        };
+    }
+
+    private static string WriteTempFileFromBase64(string? dataBase64, string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(dataBase64))
+            throw new InvalidOperationException("dataBase64 is required.");
+
+        var extension = Path.GetExtension(fileName);
+        var tempPath = Path.Combine(Path.GetTempPath(), $"dotcraft-wecom-{Guid.NewGuid():N}{extension}");
+        File.WriteAllBytes(tempPath, Convert.FromBase64String(dataBase64));
+        return tempPath;
+    }
+
+    private static void DeleteTempFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return;
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
     }
 }

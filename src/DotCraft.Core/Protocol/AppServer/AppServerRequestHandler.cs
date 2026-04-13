@@ -27,7 +27,7 @@ public sealed class AppServerRequestHandler(
     IAppServerTransport transport,
     IAppServerChannelListContributor channelListContributor,
     string serverVersion = "0.1.0",
-    SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
+    SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.Reject,
     CronService? cronService = null,
     HeartbeatService? heartbeatService = null,
     SkillsLoader? skillsLoader = null,
@@ -60,8 +60,8 @@ public sealed class AppServerRequestHandler(
     private readonly McpClientManager? _mcpClientManager = mcpClientManager;
 
     /// <summary>
-    /// Decision applied by <see cref="AppServerEventDispatcher"/> when the client declares
-    /// <c>approvalSupport = false</c>. Sourced from the workspace's default approval policy.
+    /// Fallback decision used by <see cref="AppServerEventDispatcher"/> when non-interactive
+    /// approval resolution cannot be derived from thread policy.
     /// </summary>
     private readonly SessionApprovalDecision _defaultApprovalDecision = defaultApprovalDecision;
 

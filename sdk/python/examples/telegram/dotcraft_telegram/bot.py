@@ -4,7 +4,7 @@ DotCraft Telegram Adapter.
 Maps each Telegram chat to a DotCraft thread. Supports:
 - Text messages → turn/start
 - Slash commands via server command pipeline (`command/execute`)
-- Agent replies streamed and sent as a single composed message
+- Agent replies streamed and sent progressively by completed segments
 - Approval flow via Telegram inline keyboard buttons
 - ext/channel/deliver mapped to bot.send_message()
 - Typing indicator while the agent is processing
@@ -55,6 +55,7 @@ from dotcraft_wire import (
 )
 
 from .formatting import markdown_to_telegram_html, split_message
+from .telegram_media_tools import TelegramMediaError, TelegramMediaTools
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ class TelegramAdapter(ChannelAdapter):
         )
         self._bot_token = bot_token
         self._proxy = proxy
+        self._media_tools = TelegramMediaTools()
 
         self._app: Application | None = None
         # track chat_id for each user for delivery: user_id -> chat_id
@@ -112,6 +114,8 @@ class TelegramAdapter(ChannelAdapter):
         self._typing_tasks: dict[str, asyncio.Task] = {}
         # pending approval futures: callback_data key -> Future[str]
         self._pending_approvals: dict[str, asyncio.Future[str]] = {}
+        # turn ids that already streamed at least one segment
+        self._streamed_turns: set[str] = set()
 
     # ------------------------------------------------------------------
     # ChannelAdapter abstract methods
@@ -122,20 +126,93 @@ class TelegramAdapter(ChannelAdapter):
         if not self._app:
             logger.warning("Telegram bot not running; cannot deliver to %s", target)
             return False
-        # target is stored as "chat_id" (numeric string) or "group:<id>"
-        chat_id_str = target.removeprefix("group:").removeprefix("user:")
-        try:
-            chat_id = int(chat_id_str)
-        except ValueError:
+        chat_id = self._parse_target_chat_id(target)
+        if chat_id is None:
             logger.error("Invalid delivery target: %s", target)
             return False
 
         # Stop typing indicator when delivering any message (including slash-command
         # replies, which bypass on_turn_completed).
-        self._stop_typing(chat_id_str)
+        self._stop_typing(str(chat_id))
 
         await self._send_text(chat_id, content)
         return True
+
+    def get_delivery_capabilities(self) -> dict | None:
+        return self._media_tools.get_delivery_capabilities()
+
+    def get_channel_tools(self) -> list[dict] | None:
+        return self._media_tools.get_channel_tools()
+
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict:
+        kind = str(message.get("kind", ""))
+        if kind == "text":
+            return await super().on_send(target, message, metadata)
+
+        chat_id = self._parse_target_chat_id(target)
+        if chat_id is None:
+            return {
+                "delivered": False,
+                "errorCode": "AdapterDeliveryFailed",
+                "errorMessage": f"Invalid Telegram target '{target}'.",
+            }
+
+        try:
+            return await self._media_tools.send_structured_message(
+                bot=self._app.bot,
+                chat_id=chat_id,
+                message=message,
+                metadata=metadata,
+            )
+        except TelegramMediaError as exc:
+            logger.error("Structured Telegram media delivery failed: %s", exc.message)
+            return {
+                "delivered": False,
+                "errorCode": exc.code,
+                "errorMessage": exc.message,
+            }
+        except Exception as exc:
+            logger.error("Structured file delivery failed: %s", exc)
+            return {
+                "delivered": False,
+                "errorCode": "AdapterDeliveryFailed",
+                "errorMessage": str(exc),
+            }
+
+    async def on_tool_call(self, request: dict) -> dict:
+        tool = str(request.get("tool", ""))
+        args = request.get("arguments") or {}
+        context = request.get("context") or {}
+        target = str(context.get("channelContext") or context.get("groupId") or "")
+        chat_id = self._parse_target_chat_id(target)
+        if chat_id is None:
+            return {
+                "success": False,
+                "errorCode": "MissingChatContext",
+                "errorMessage": "Current tool call does not contain a Telegram chat target.",
+            }
+
+        try:
+            return await self._media_tools.execute_tool_call(
+                bot=self._app.bot,
+                tool_name=tool,
+                chat_id=chat_id,
+                args=args,
+            )
+        except TelegramMediaError as exc:
+            logger.error("Tool media send failed: %s", exc.message)
+            return {
+                "success": False,
+                "errorCode": exc.code,
+                "errorMessage": exc.message,
+            }
+        except Exception as exc:
+            logger.error("Tool document send failed: %s", exc)
+            return {
+                "success": False,
+                "errorCode": "AdapterToolCallFailed",
+                "errorMessage": str(exc),
+            }
 
     async def on_approval_request(self, request: dict) -> str:
         """Present an inline keyboard approval prompt in the Telegram chat."""
@@ -193,9 +270,11 @@ class TelegramAdapter(ChannelAdapter):
         reply_text: str,
         channel_context: str,
     ) -> None:
-        """Send the accumulated reply to the Telegram chat."""
+        """Finalize a turn and send fallback reply when no segment was streamed."""
         self._stop_typing(channel_context)
-        if reply_text:
+        streamed = turn_id in self._streamed_turns
+        self._streamed_turns.discard(turn_id)
+        if reply_text and not streamed:
             try:
                 chat_id = int(channel_context)
             except ValueError:
@@ -203,10 +282,34 @@ class TelegramAdapter(ChannelAdapter):
                 return
             await self._send_text(chat_id, reply_text)
 
+    async def on_segment_completed(
+        self,
+        thread_id: str,
+        turn_id: str,
+        segment_text: str,
+        is_final: bool,
+        channel_context: str,
+    ) -> None:
+        """Send each completed assistant segment to Telegram immediately."""
+        if not segment_text.strip():
+            return
+        try:
+            chat_id = int(channel_context)
+        except ValueError:
+            logger.error("Invalid channel_context for segment delivery: %s", channel_context)
+            return
+
+        self._streamed_turns.add(turn_id)
+        if is_final:
+            self._stop_typing(channel_context)
+        await self._send_text(chat_id, segment_text)
+
     async def on_turn_failed(self, thread_id: str, turn_id: str, error: str) -> None:
+        self._streamed_turns.discard(turn_id)
         logger.error("Turn %s failed: %s", turn_id, error)
 
     async def on_turn_cancelled(self, thread_id: str, turn_id: str) -> None:
+        self._streamed_turns.discard(turn_id)
         logger.info("Turn %s cancelled", turn_id)
 
     # ------------------------------------------------------------------
@@ -448,8 +551,12 @@ class TelegramAdapter(ChannelAdapter):
                 # channel_context is the chat_id string
                 parts = identity_key.split(":", 1)
                 if len(parts) == 2:
-                    try:
-                        return int(parts[1])
-                    except ValueError:
-                        pass
+                    return self._parse_target_chat_id(parts[1])
         return None
+
+    def _parse_target_chat_id(self, target: str) -> int | None:
+        chat_id_str = str(target).removeprefix("group:").removeprefix("user:")
+        try:
+            return int(chat_id_str)
+        except ValueError:
+            return None

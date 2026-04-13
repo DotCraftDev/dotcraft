@@ -14,6 +14,7 @@ import {
   type McpServerStatusWire,
   type McpTransport
 } from '../../stores/mcpStore'
+import type { BinarySource } from '../../../preload/api'
 
 declare const __APP_VERSION__: string | undefined
 
@@ -196,6 +197,19 @@ function primaryButtonStyle(disabled = false): CSSProperties {
   }
 }
 
+function selectionCardStyle(active: boolean): CSSProperties {
+  return {
+    border: active ? '1px solid var(--accent)' : '1px solid var(--border-default)',
+    borderRadius: '10px',
+    background: active ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
+    padding: '12px',
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'flex-start',
+    cursor: 'pointer'
+  }
+}
+
 function EditableValueList({
   rows,
   setRows,
@@ -309,7 +323,10 @@ export function SettingsView({
   const capabilities = useConnectionStore((s) => s.capabilities)
   const mcpStatuses = useMcpStore((s) => s.statuses)
   const setMcpStatuses = useMcpStore((s) => s.setStatuses)
+  const [binarySource, setBinarySource] = useState<BinarySource>('bundled')
   const [binaryPath, setBinaryPath] = useState('')
+  const [resolvedBinaryPath, setResolvedBinaryPath] = useState<string | null>(null)
+  const [resolvingBinary, setResolvingBinary] = useState(false)
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
   const [savedConnectionMode, setSavedConnectionMode] = useState<ConnectionMode>('stdio')
   const [wsHost, setWsHost] = useState(DEFAULT_WS_HOST)
@@ -351,6 +368,7 @@ export function SettingsView({
       .get()
       .then(async (s) => {
         const loadedMode = (s.connectionMode ?? 'stdio') as ConnectionMode
+        setBinarySource((s.binarySource ?? (s.appServerBinaryPath ? 'custom' : 'bundled')) as BinarySource)
         setBinaryPath(s.appServerBinaryPath ?? '')
         setConnectionMode(loadedMode)
         setSavedConnectionMode(loadedMode)
@@ -365,6 +383,34 @@ export function SettingsView({
       .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setResolvingBinary(true)
+    window.api.appServer
+      .getResolvedBinary({
+        binarySource,
+        binaryPath
+      })
+      .then((result) => {
+        if (!cancelled) {
+          setResolvedBinaryPath(result.path)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedBinaryPath(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setResolvingBinary(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [binaryPath, binarySource])
 
   useEffect(() => {
     let cancelled = false
@@ -648,6 +694,7 @@ export function SettingsView({
           ? parsedPort
           : DEFAULT_WS_PORT
       await window.api.settings.set({
+        binarySource,
         appServerBinaryPath: binaryPath.trim() || undefined,
         connectionMode,
         webSocket: {
@@ -695,6 +742,22 @@ export function SettingsView({
       )
     } finally {
       setRestartingAppServer(false)
+    }
+  }
+
+  async function handlePickBinary(): Promise<void> {
+    try {
+      const picked = await window.api.appServer.pickBinary()
+      if (picked) {
+        setBinaryPath(picked)
+      }
+    } catch (err) {
+      addToast(
+        t('settings.pickBinaryFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
     }
   }
 
@@ -919,20 +982,106 @@ export function SettingsView({
                 )}
 
                 <div style={{ marginBottom: '16px' }}>
-                  <label htmlFor="settings-binary-path" style={sectionLabelStyle()}>
-                    {t('settings.appServerBinary')}
-                  </label>
-                  <input
-                    id="settings-binary-path"
-                    ref={inputRef}
-                    type="text"
-                    value={binaryPath}
-                    onChange={(e) => setBinaryPath(e.target.value)}
-                    placeholder={t('settings.binaryPlaceholder')}
-                    style={inputStyle(true)}
-                  />
-                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
+                  <div style={sectionLabelStyle()}>{t('settings.appServerBinary')}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {(['bundled', 'path', 'custom'] as BinarySource[]).map((source) => {
+                      const active = binarySource === source
+                      const titleKey =
+                        source === 'bundled'
+                          ? 'settings.binarySource.bundled'
+                          : source === 'path'
+                            ? 'settings.binarySource.path'
+                            : 'settings.binarySource.custom'
+                      const descKey =
+                        source === 'bundled'
+                          ? 'settings.binarySource.bundledDesc'
+                          : source === 'path'
+                            ? 'settings.binarySource.pathDesc'
+                            : 'settings.binarySource.customDesc'
+                      return (
+                        <label key={source} style={selectionCardStyle(active)}>
+                          <input
+                            type="radio"
+                            name="settings-binary-source"
+                            checked={active}
+                            onChange={() => setBinarySource(source)}
+                            style={{ marginTop: '3px' }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                color: 'var(--text-primary)'
+                              }}
+                            >
+                              {t(titleKey)}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-dimmed)',
+                                lineHeight: 1.5,
+                                marginTop: '4px'
+                              }}
+                            >
+                              {t(descKey)}
+                            </div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  {binarySource === 'custom' && (
+                    <div
+                      style={{
+                        marginTop: '10px',
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto',
+                        gap: '8px'
+                      }}
+                    >
+                      <input
+                        id="settings-binary-path"
+                        ref={inputRef}
+                        type="text"
+                        value={binaryPath}
+                        onChange={(e) => setBinaryPath(e.target.value)}
+                        placeholder={t('settings.binaryPlaceholder')}
+                        style={inputStyle(true)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handlePickBinary()
+                        }}
+                        style={secondaryButtonStyle(false)}
+                      >
+                        {t('settings.binaryBrowse')}
+                      </button>
+                    </div>
+                  )}
+                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '8px', lineHeight: 1.5 }}>
                     {t('settings.binaryHint')}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color:
+                        !resolvingBinary && !resolvedBinaryPath ? 'var(--error)' : 'var(--text-dimmed)',
+                      marginTop: '6px',
+                      lineHeight: 1.5
+                    }}
+                  >
+                    {resolvingBinary
+                      ? t('settings.binaryResolving')
+                      : resolvedBinaryPath
+                        ? t('settings.binaryResolved', { path: resolvedBinaryPath })
+                        : binarySource === 'bundled'
+                          ? t('settings.binaryNotFound.bundled')
+                          : binarySource === 'path'
+                            ? t('settings.binaryNotFound.path')
+                            : t('settings.binaryNotFound.custom')}
                   </div>
                 </div>
 

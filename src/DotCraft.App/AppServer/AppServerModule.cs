@@ -24,9 +24,11 @@ public sealed partial class AppServerModule : ModuleBase
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
         // When gateway submodule is disabled, AppServer still needs MessageRouter / ExternalChannelRegistry
-        // for ChannelRunner (native channels, external channels, cron delivery).
-        services.TryAddSingleton(_ => new MessageRouter());
+        // for ChannelRunner (native channels, external channels, cron delivery, channel tool discovery).
+        services.TryAddSingleton<IChannelRuntimeRegistry, ChannelRuntimeRegistry>();
+        services.TryAddSingleton(sp => new MessageRouter(sp.GetRequiredService<IChannelRuntimeRegistry>()));
         services.TryAddSingleton<ExternalChannelRegistry>();
+        services.TryAddSingleton<IChannelRuntimeToolProvider, ExternalChannelToolProvider>();
     }
 }
 

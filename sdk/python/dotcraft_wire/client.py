@@ -91,6 +91,8 @@ class DotCraftClient:
         opt_out_notifications: list[str] | None = None,
         channel_name: str | None = None,
         delivery_support: bool = True,
+        delivery_capabilities: dict | None = None,
+        channel_tools: list[dict] | None = None,
     ) -> InitializeResult:
         """
         Perform the initialize / initialized handshake.
@@ -112,6 +114,10 @@ class DotCraftClient:
                 "channelName": channel_name,
                 "deliverySupport": delivery_support,
             }
+            if delivery_capabilities is not None:
+                capabilities["channelAdapter"]["deliveryCapabilities"] = delivery_capabilities
+            if channel_tools:
+                capabilities["channelAdapter"]["channelTools"] = channel_tools
 
         client_info: dict = {
             "name": client_name,

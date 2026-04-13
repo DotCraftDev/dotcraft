@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotCraft.Protocol.AppServer;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
@@ -33,8 +34,7 @@ public sealed class ExternalChannelProtocolTests : IDisposable
                 streamingSupport = true,
                 channelAdapter = new
                 {
-                    channelName = "telegram",
-                    deliverySupport = true
+                    channelName = "telegram"
                 }
             }
         });
@@ -50,21 +50,34 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         Assert.True(_h.Connection.IsInitialized);
         Assert.True(_h.Connection.IsChannelAdapter);
         Assert.Equal("telegram", _h.Connection.ChannelAdapterName);
-        Assert.True(_h.Connection.SupportsDelivery);
+        Assert.Null(_h.Connection.DeliveryCapabilities);
     }
 
     [Fact]
-    public async Task Initialize_WithChannelAdapter_DeliverySupportFalse()
+    public async Task Initialize_WithChannelAdapterStructuredDelivery_SetsStructuredState()
     {
         var initMsg = InMemoryTransport.BuildRequest(AppServerMethods.Initialize, new
         {
-            clientInfo = new { name = "readonly-adapter", version = "1.0.0" },
+            clientInfo = new { name = "media-adapter", version = "1.0.0" },
             capabilities = new
             {
                 channelAdapter = new
                 {
-                    channelName = "readonly-channel",
-                    deliverySupport = false
+                    channelName = "telegram",
+                    deliveryCapabilities = new
+                    {
+                        structuredDelivery = true,
+                        media = new
+                        {
+                            file = new
+                            {
+                                supportsHostPath = true,
+                                supportsUrl = false,
+                                supportsBase64 = true,
+                                supportsCaption = true
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -73,15 +86,60 @@ public sealed class ExternalChannelProtocolTests : IDisposable
 
         var response = await _h.Transport.ReadNextSentAsync();
         AppServerTestHarness.AssertIsSuccessResponse(response);
-        Assert.True(_h.Connection.IsChannelAdapter);
-        Assert.Equal("readonly-channel", _h.Connection.ChannelAdapterName);
-        Assert.False(_h.Connection.SupportsDelivery);
+        Assert.True(_h.Connection.SupportsStructuredDelivery);
+        Assert.NotNull(_h.Connection.DeliveryCapabilities);
+        Assert.True(_h.Connection.DeliveryCapabilities!.StructuredDelivery);
+        Assert.NotNull(_h.Connection.DeliveryCapabilities.Media?.File);
+        Assert.True(_h.Connection.DeliveryCapabilities.Media!.File!.SupportsHostPath);
+        Assert.True(_h.Connection.DeliveryCapabilities.Media.File!.SupportsBase64);
     }
 
     [Fact]
-    public async Task Initialize_WithChannelAdapter_DeliverySupportDefaultTrue()
+    public async Task Initialize_WithChannelAdapterTools_SetsToolState()
     {
-        // When deliverySupport is not specified, it should default to true
+        var initMsg = InMemoryTransport.BuildRequest(AppServerMethods.Initialize, new
+        {
+            clientInfo = new { name = "tool-adapter", version = "1.0.0" },
+            capabilities = new
+            {
+                channelAdapter = new
+                {
+                    channelName = "telegram",
+                    channelTools = new object[]
+                    {
+                        new
+                        {
+                            name = "TelegramSendDocumentToCurrentChat",
+                            description = "Send a document to the current chat.",
+                            requiresChatContext = true,
+                            inputSchema = new
+                            {
+                                type = "object",
+                                properties = new
+                                {
+                                    fileName = new { type = "string" }
+                                },
+                                required = new[] { "fileName" }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        await _h.ExecuteRequestAsync(initMsg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+        Assert.Single(_h.Connection.DeclaredChannelTools);
+        Assert.Equal("TelegramSendDocumentToCurrentChat", _h.Connection.DeclaredChannelTools[0].Name);
+        Assert.Empty(_h.Connection.RegisteredChannelTools);
+        Assert.False(_h.Connection.ChannelToolRegistrationFinalized);
+    }
+
+    [Fact]
+    public async Task Initialize_WithChannelAdapter_WithoutDeliveryCapabilities_RemainsSendDisabledUntilAdvertised()
+    {
         var initMsg = InMemoryTransport.BuildRequest(AppServerMethods.Initialize, new
         {
             clientInfo = new { name = "simple-adapter", version = "1.0.0" },
@@ -99,7 +157,8 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         var response = await _h.Transport.ReadNextSentAsync();
         AppServerTestHarness.AssertIsSuccessResponse(response);
         Assert.True(_h.Connection.IsChannelAdapter);
-        Assert.True(_h.Connection.SupportsDelivery);
+        Assert.False(_h.Connection.SupportsStructuredDelivery);
+        Assert.Null(_h.Connection.DeliveryCapabilities);
     }
 
     [Fact]
@@ -110,7 +169,7 @@ public sealed class ExternalChannelProtocolTests : IDisposable
 
         Assert.False(_h.Connection.IsChannelAdapter);
         Assert.Null(_h.Connection.ChannelAdapterName);
-        Assert.True(_h.Connection.SupportsDelivery); // default
+        Assert.Null(_h.Connection.DeliveryCapabilities);
     }
 
     // -------------------------------------------------------------------------
@@ -120,7 +179,8 @@ public sealed class ExternalChannelProtocolTests : IDisposable
     [Fact]
     public void ExtChannelMethods_HaveCorrectValues()
     {
-        Assert.Equal("ext/channel/deliver", AppServerMethods.ExtChannelDeliver);
+        Assert.Equal("ext/channel/send", AppServerMethods.ExtChannelSend);
+        Assert.Equal("ext/channel/toolCall", AppServerMethods.ExtChannelToolCall);
         Assert.Equal("ext/channel/heartbeat", AppServerMethods.ExtChannelHeartbeat);
     }
 
@@ -148,7 +208,39 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         var cap = new ChannelAdapterCapability
         {
             ChannelName = "discord",
-            DeliverySupport = true
+            DeliveryCapabilities = new ChannelDeliveryCapabilities
+            {
+                StructuredDelivery = true,
+                Media = new ChannelMediaCapabilitySet
+                {
+                    Audio = new ChannelMediaConstraints
+                    {
+                        SupportsBase64 = true,
+                        SupportsCaption = false
+                    }
+                }
+            },
+            ChannelTools =
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = "discordSendAttachment",
+                    Description = "Send an attachment to the current Discord channel.",
+                    RequiresChatContext = true,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject
+                            {
+                                ["type"] = "string"
+                            }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]
         };
 
         var json = JsonSerializer.Serialize(cap, new JsonSerializerOptions
@@ -162,7 +254,10 @@ public sealed class ExternalChannelProtocolTests : IDisposable
 
         Assert.NotNull(deserialized);
         Assert.Equal("discord", deserialized.ChannelName);
-        Assert.True(deserialized.DeliverySupport);
+        Assert.True(deserialized.DeliveryCapabilities?.StructuredDelivery);
+        Assert.True(deserialized.DeliveryCapabilities?.Media?.Audio?.SupportsBase64);
+        Assert.Single(deserialized.ChannelTools!);
+        Assert.Equal("discordSendAttachment", deserialized.ChannelTools![0].Name);
     }
 
     [Fact]
@@ -175,7 +270,10 @@ public sealed class ExternalChannelProtocolTests : IDisposable
             ChannelAdapter = new ChannelAdapterCapability
             {
                 ChannelName = "telegram",
-                DeliverySupport = false
+                DeliveryCapabilities = new ChannelDeliveryCapabilities
+                {
+                    StructuredDelivery = true
+                }
             }
         };
 
@@ -186,7 +284,7 @@ public sealed class ExternalChannelProtocolTests : IDisposable
         Assert.NotNull(deserialized);
         Assert.NotNull(deserialized.ChannelAdapter);
         Assert.Equal("telegram", deserialized.ChannelAdapter.ChannelName);
-        Assert.False(deserialized.ChannelAdapter.DeliverySupport);
+        Assert.True(deserialized.ChannelAdapter.DeliveryCapabilities?.StructuredDelivery);
     }
 
     [Fact]

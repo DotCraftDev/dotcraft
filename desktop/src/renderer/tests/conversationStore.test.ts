@@ -693,6 +693,71 @@ describe('tool item ordering by createdAt', () => {
   })
 })
 
+describe('externalChannelToolCall items', () => {
+  it('stores started externalChannelToolCall items with payload fields', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'ext-tool-1',
+        type: 'externalChannelToolCall',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        payload: {
+          callId: 'ext-call-1',
+          toolName: 'telegramSendDocument',
+          channelName: 'telegram',
+          arguments: { fileName: 'report.pdf' }
+        }
+      }
+    })
+
+    const item = s().turns[0].items.find((i) => i.id === 'ext-tool-1')
+    expect(item).toBeDefined()
+    expect(item?.type).toBe('externalChannelToolCall')
+    expect(item?.toolName).toBe('telegramSendDocument')
+    expect(item?.toolCallId).toBe('ext-call-1')
+    expect(item?.toolChannelName).toBe('telegram')
+  })
+
+  it('completes externalChannelToolCall items with result and success state', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'ext-tool-1',
+        type: 'externalChannelToolCall',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        payload: {
+          callId: 'ext-call-1',
+          toolName: 'telegramSendDocument',
+          channelName: 'telegram',
+          arguments: { fileName: 'report.pdf' }
+        }
+      }
+    })
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'ext-tool-1',
+        type: 'externalChannelToolCall',
+        completedAt: '2025-01-01T00:00:01.000Z',
+        payload: {
+          callId: 'ext-call-1',
+          toolName: 'telegramSendDocument',
+          channelName: 'telegram',
+          result: 'Document sent.',
+          success: true
+        }
+      }
+    })
+
+    const item = s().turns[0].items.find((i) => i.id === 'ext-tool-1')
+    expect(item?.status).toBe('completed')
+    expect(item?.result).toBe('Document sent.')
+    expect(item?.success).toBe(true)
+  })
+})
+
 describe('itemDiffs per tool call', () => {
   it('setTurns stores per-item incremental diffs and cumulative changedFiles', () => {
     const turn: ConversationTurn = {

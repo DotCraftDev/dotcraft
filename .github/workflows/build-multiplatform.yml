@@ -133,6 +133,20 @@ jobs:
       run: npm ci
       working-directory: desktop
 
+    - name: Stage embedded binary for desktop - Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path desktop/resources/bin | Out-Null
+        Copy-Item -Path publish/${{ matrix.output_name }}/dotcraft.exe -Destination desktop/resources/bin/dotcraft.exe -Force
+
+    - name: Stage embedded binary for desktop - macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        mkdir -p desktop/resources/bin
+        cp publish/${{ matrix.output_name }}/dotcraft desktop/resources/bin/dotcraft
+
     # Match build.bat: avoid stale dist confusing electron-builder; safe on fresh checkouts too.
     - name: Clean desktop dist
       if: runner.os != 'Linux'

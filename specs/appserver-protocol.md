@@ -164,6 +164,45 @@ Client                              Server
       "fsWriteTextFile": true,
       "terminalCreate": true,
       "extensions": ["_unity"]
+    },
+    "channelAdapter": {
+      "channelName": "telegram",
+      "deliveryCapabilities": {
+        "structuredDelivery": true,
+        "media": {
+          "file": {
+            "supportsHostPath": false,
+            "supportsUrl": false,
+            "supportsBase64": true,
+            "supportsCaption": true,
+            "allowedMimeTypes": ["application/pdf"]
+          }
+        }
+      },
+      "channelTools": [
+        {
+          "name": "TelegramSendDocumentToCurrentChat",
+          "description": "Send a document to the current Telegram chat.",
+          "requiresChatContext": true,
+          "approval": {
+            "kind": "file",
+            "targetArgument": "filePath",
+            "operation": "read"
+          },
+          "display": {
+            "icon": "📎",
+            "title": "Send document to current Telegram chat"
+          },
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fileName": { "type": "string" }
+            },
+            "required": ["fileName"]
+          },
+          "deferLoading": true
+        }
+      ]
     }
   }
 }
@@ -177,6 +216,7 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
+| `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
 
 **`acpExtensions` object** (when present):
@@ -187,6 +227,66 @@ Client                              Server
 | `fsWriteTextFile` | boolean | Client can handle `ext/acp/fs/writeTextFile`. |
 | `terminalCreate` | boolean | Client can handle `ext/acp/terminal/*` methods. |
 | `extensions` | string[] | Custom extension families the client implements (e.g. `["_unity"]`). Server may send `ext/acp/<family>/<method>` for each advertised family. |
+
+**`channelAdapter` object** (when present):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `channelName` | string | Canonical external channel name (for example `telegram`, `feishu`). |
+| `deliveryCapabilities` | object | Structured delivery capability descriptor for the remote backend. |
+| `channelTools` | array | Optional channel tool descriptors declared by the adapter during `initialize`. These descriptors are the wire projection of the unified channel tool model. |
+
+**`deliveryCapabilities` object**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `structuredDelivery` | boolean | Whether the adapter can receive `ext/channel/send`. |
+| `media` | object | Optional media capability map keyed by delivery kind (`file`, `audio`, `image`, `video`). |
+
+Each media capability entry supports:
+
+- `maxBytes?: number`
+- `allowedMimeTypes?: string[]`
+- `allowedExtensions?: string[]`
+- `supportsHostPath: boolean`
+- `supportsUrl: boolean`
+- `supportsBase64: boolean`
+- `supportsCaption: boolean`
+
+Each `channelTools` descriptor supports:
+
+- `name: string`
+- `description: string`
+- `inputSchema: object`
+- `outputSchema?: object`
+- `display?: { icon?: string, title?: string, subtitle?: string }`
+- `requiresChatContext: boolean`
+- `approval?: { kind: string, targetArgument: string, operation?: string, operationArgument?: string }`
+- `deferLoading?: boolean`
+
+Channel tool names should use PascalCase. For cross-runtime icon support, adapters should prefer declaring emoji icons via `channelTools[].display.icon`.
+
+`deferLoading` is currently a reserved wire field. Adapters may send it for forward compatibility, but the server does not apply special lazy-loading behavior in this milestone.
+
+When `approval` is present, it is a descriptive risk declaration rather than an adapter-owned policy block:
+
+- `approval.kind` identifies the server approval category. Initial standard values are `file` and `shell`.
+- `approval.targetArgument` names the tool argument that contains the primary approval target, such as `filePath` or `workingDirectory`.
+- `approval.operation` is an optional static label forwarded to the server approval layer.
+- `approval.operationArgument` is an optional argument name whose value is forwarded as the operation string.
+- Policy resolution remains server-owned. The adapter must not treat descriptor metadata as a private approval configuration source.
+
+### 3.2.1 Unified Channel Model
+
+DotCraft internally models built-in channels and external adapters through the same runtime concepts:
+
+- `ChannelDeliveryCapabilities`
+- `ChannelToolDescriptor`
+- `ChannelOutboundMessage`
+- `ExtChannelToolCallContext` (unified channel execution context)
+- `ExtChannelToolCallResult` (unified channel tool result)
+
+Built-in channels do not negotiate these capabilities over `initialize`; they provide equivalent runtime objects in-process. External adapters expose the same model through `capabilities.channelAdapter`, `ext/channel/send`, and `ext/channel/toolCall`.
 
 **Result**:
 
@@ -271,6 +371,53 @@ Create a new thread. The server generates a Thread ID and persists initial state
 | `config` | ThreadConfiguration | no | Per-thread agent configuration. Null means workspace defaults. |
 | `historyMode` | string | no | `"server"` (default) or `"client"`. |
 | `displayName` | string | no | Explicit thread display name. |
+
+#### 4.1.1 `ThreadConfiguration` Wire Shape
+
+`ThreadConfiguration` is the canonical thread-scoped configuration object on the wire:
+
+```json
+{
+  "mcpServers": [],
+  "mode": "agent",
+  "extensions": ["_unity"],
+  "customTools": ["SomeTool"],
+  "model": "gpt-4.1",
+  "workspaceOverride": "/path/to/alt/workspace",
+  "toolProfile": "commit-message",
+  "useToolProfileOnly": false,
+  "agentInstructions": "Focus on concise commit messages.",
+  "approvalPolicy": "default",
+  "automationTaskDirectory": "/path/to/task",
+  "requireApprovalOutsideWorkspace": true
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mcpServers` | `McpServerConfig[]` | Optional per-thread MCP server configuration. |
+| `mode` | string | Agent mode for the thread. Default `agent`. |
+| `extensions` | string[] | Optional active ACP extension prefixes. |
+| `customTools` | string[] | Optional extra tool names enabled for the thread. |
+| `model` | string | Optional per-thread model override. |
+| `workspaceOverride` | string | Optional alternate workspace root for the thread. |
+| `toolProfile` | string | Optional named tool profile. |
+| `useToolProfileOnly` | boolean | When `true`, use only the tools from `toolProfile`. |
+| `agentInstructions` | string | Optional additional system instructions. |
+| `approvalPolicy` | string | Thread-scoped approval mode: `default`, `autoApprove`, or `interrupt`. |
+| `automationTaskDirectory` | string | Optional local automation task directory. |
+| `requireApprovalOutsideWorkspace` | boolean | Optional override for the workspace file/shell outside-boundary behavior. |
+
+Approval semantics:
+
+- `approvalPolicy = default` uses the normal interactive approval flow when the client supports approvals.
+- `approvalPolicy = autoApprove` auto-accepts approval-gated operations for that thread.
+- `approvalPolicy = interrupt` cancels the turn when an approval-gated operation is encountered.
+- `requireApprovalOutsideWorkspace = true` allows outside-workspace file/shell operations to proceed through the approval service.
+- `requireApprovalOutsideWorkspace = false` rejects outside-workspace file/shell operations without prompting.
+- `requireApprovalOutsideWorkspace` omitted means the server uses workspace defaults.
 
 `SessionIdentity` on the wire:
 
@@ -869,6 +1016,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
 | `reasoningContent` | Reasoning deltas stream through `item/reasoningContent/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. |
+| `externalChannelToolCall` | External channel tool payload uses camelCase fields such as `toolName`, `channelName`, `arguments`, `success`, `errorCode`, and `errorMessage`. |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
 | `approvalResponse` | Response payload uses the canonical fields; decision values are serialized as wire strings. |
@@ -1327,7 +1475,13 @@ When approval resolution is persisted or echoed back in a later event, the respo
 
 ### 7.4 Clients Without Approval Support
 
-If a client declared `capabilities.approvalSupport = false` during initialization, the server must not send `item/approval/request`. Instead, the server applies the workspace's default approval policy (auto-approve or auto-reject based on configuration).
+If a client declared `capabilities.approvalSupport = false` during initialization, the server must not send `item/approval/request`. Instead, the server resolves approvals non-interactively using the same server-owned thread policy model:
+
+- `approvalPolicy = autoApprove` resolves as `accept`.
+- `approvalPolicy = interrupt` resolves as `cancel`.
+- `approvalPolicy = default` cannot prompt on a non-interactive client, so the server falls back to its non-interactive default decision. In the current implementation and spec baseline, that fallback is `decline`.
+
+The same non-interactive fallback may also be applied when an approval-capable client disconnects or times out before replying.
 
 ---
 
@@ -1568,7 +1722,155 @@ The core wire protocol (Sections 3–10) covers the `ISessionService` surface. M
 - `initialize` may advertise extension availability in `capabilities.extensions`. Compatibility top-level capability fields may coexist during migration.
 - Clients must treat the spec as the source of truth for a documented extension's method names and payloads; implementation location inside the server is not wire-visible.
 
-### 11.2 ACP Tool Proxy
+### 11.2 Unified Channel Runtime (Remote Projection)
+
+The external channel adapter integration uses **server → client** JSON-RPC requests under the `ext/channel/*` namespace. These methods are bidirectional protocol extensions in the same sense as `item/approval/request`: the server sends a request with an `id`, and the adapter returns a structured `result`.
+
+Capability negotiation happens during `initialize` via `capabilities.channelAdapter`:
+
+- `deliveryCapabilities.structuredDelivery = true` means the adapter implements the unified delivery contract through `ext/channel/send`.
+- media entries under `deliveryCapabilities.media` describe which `message.kind` values the remote backend accepts and which source forms are allowed.
+- `channelTools` declares the channel-scoped tools that may be injected into matching-origin threads for the lifetime of the connection.
+- adapter-declared tools are validated and registered once per connection; later thread-level tool construction only filters visibility for the matching origin channel and current reserved names.
+
+#### 11.2.1 `ext/channel/send`
+
+Structured delivery path for text and media payloads.
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+```json
+{
+  "target": "group:12345",
+  "message": {
+    "kind": "file",
+    "caption": "Latest report",
+    "fileName": "report.pdf",
+    "mediaType": "application/pdf",
+    "source": {
+      "kind": "artifactId",
+      "artifactId": "artifact_001"
+    }
+  },
+  "metadata": {
+    "origin": "cron"
+  }
+}
+```
+
+`message.kind` values standardized in v1:
+
+- `text`
+- `file`
+- `audio`
+- `image`
+- `video`
+
+`message` fields:
+
+- `kind: string`
+- `text?: string`
+- `caption?: string`
+- `fileName?: string`
+- `mediaType?: string`
+- `source?: ChannelMediaSource`
+
+`ChannelMediaSource` fields:
+
+- `kind: "hostPath" | "url" | "dataBase64" | "artifactId"`
+- `hostPath?: string`
+- `url?: string`
+- `dataBase64?: string`
+- `artifactId?: string`
+
+Adapters must treat `source.kind` as authoritative and ignore unrelated source fields.
+
+**Result**:
+
+```json
+{
+  "delivered": true,
+  "remoteMessageId": "msg_123",
+  "remoteMediaId": "media_456",
+  "errorCode": null,
+  "errorMessage": null
+}
+```
+
+When `delivered` is `false`, `errorCode` should use a stable string when possible. Standard protocol-level values:
+
+- `UnsupportedDeliveryKind`
+- `UnsupportedMediaSource`
+- `MediaTooLarge`
+- `MediaTypeNotAllowed`
+- `MediaArtifactNotFound`
+- `MediaResolutionFailed`
+- `AdapterDeliveryFailed`
+- `AdapterProtocolViolation`
+
+#### 11.2.3 `ext/channel/toolCall`
+
+Structured runtime tool invocation for adapter-declared channel tools.
+
+**Direction**: server → client (request, requires response)
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_001",
+  "turnId": "turn_002",
+  "callId": "exttool_001",
+  "tool": "TelegramSendDocumentToCurrentChat",
+  "arguments": {
+    "fileName": "report.pdf"
+  },
+  "context": {
+    "channelName": "telegram",
+    "channelContext": "-1001234567890",
+    "senderId": "user_42",
+    "groupId": "-1001234567890"
+  }
+}
+```
+
+**Result**:
+
+```json
+{
+  "success": true,
+  "contentItems": [
+    { "type": "text", "text": "Sent report.pdf to the current chat." }
+  ],
+  "structuredResult": {
+    "delivered": true,
+    "fileName": "report.pdf"
+  }
+}
+```
+
+When `success` is `false`, `errorCode` should use a stable string when possible. Standard protocol-level values:
+
+- `UnsupportedTool`
+- `MissingChatContext`
+- `InvalidArguments`
+- `AdapterToolCallFailed`
+- `AdapterProtocolViolation`
+- `ExternalChannelToolTimeout`
+
+Behavior rules:
+
+- The server must only call tools declared in `capabilities.channelAdapter.channelTools` during `initialize`.
+- A connected adapter's declared tool set is immutable for the lifetime of that connection.
+- If an adapter declares channel tools, it must handle `ext/channel/toolCall` requests for those tools.
+- Tool registration comes from the adapter's runtime handshake, not from static `ExternalChannels` config.
+- When a tool descriptor declares `approval`, the server may gate execution before sending `ext/channel/toolCall`.
+- `approval` metadata identifies approval targets for server interception only; it does not define an adapter-local approval policy.
+- Any gating decision for adapter-declared tools must be resolved from the same server-owned thread/workspace policy surfaces used by built-in tools.
+
+### 11.3 ACP Tool Proxy
 
 The ACP (Agent Client Protocol) integration allows the agent's tools to access the IDE client's filesystem, terminals, and custom extension methods. On the AppServer wire, these map to **server → client** JSON-RPC requests (same bidirectional pattern as `item/approval/request` in [Section 7](#7-approval-flow)): the server sends a request with a numeric `id`; the client responds with a `result` or `error`.
 

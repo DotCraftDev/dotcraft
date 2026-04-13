@@ -138,6 +138,12 @@ public sealed class AppServerHost(
             planStore: planStore,
             onPlanUpdated: BroadcastPlanUpdated);
 
+        if (sp.GetService<IChannelRuntimeToolProvider>() is ExternalChannelToolProvider externalChannelToolProvider)
+        {
+            externalChannelToolProvider.ConfigureReservedToolNames(
+                _agentFactory.CreateToolsForMode(AgentMode.Agent).Select(tool => tool.Name));
+        }
+
         var agent = _agentFactory.CreateAgentForMode(AgentMode.Agent);
         var sessionService = SessionServiceFactory.Create(_agentFactory, agent, sp);
         sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
@@ -249,7 +255,14 @@ public sealed class AppServerHost(
                     ? (run?.Result ?? "")
                     : $"[Cron] {job.Name}\n{run.Error}";
                 if (!string.IsNullOrEmpty(content) || run?.Error != null)
-                    await messageRouter.DeliverAsync(channel, target, content);
+                    await messageRouter.DeliverAsync(
+                        channel,
+                        target,
+                        new ChannelOutboundMessage
+                        {
+                            Kind = "text",
+                            Text = content
+                        });
             }
 
             var ok = run != null && run.Error == null;
@@ -534,6 +547,30 @@ public sealed class AppServerHost(
 
                             if (channelRegistry.TryGet(channelName, out var host) && host != null)
                             {
+                                // Subprocess channels are registered for discovery but must not accept
+                                // WebSocket adapter attach; only websocket-mode entries use /ws handover.
+                                if (!host.AcceptsWebSocketAdapterAttach)
+                                {
+                                    AnsiConsole.MarkupLine(
+                                        $"[yellow][[AppServer]][/] Rejected channel adapter '{channelName}': " +
+                                        "channel uses subprocess transport; connect the adapter via stdio, not WebSocket.");
+
+                                    await wsTransport.WriteMessageAsync(new
+                                    {
+                                        jsonrpc = "2.0",
+                                        method = AppServerMethods.SystemEvent,
+                                        @params = new
+                                        {
+                                            kind = "channelRejected",
+                                            channelName,
+                                            message =
+                                                $"Channel '{channelName}' is subprocess-only; WebSocket adapter attach is not supported."
+                                        }
+                                    }, hostCt);
+
+                                    return;
+                                }
+
                                 // Wait for the 'initialized' notification before handover
                                 var initdMsg = await wsTransport.ReadMessageAsync(hostCt);
                                 if (initdMsg is { IsNotification: true, Method: AppServerMethods.Initialized })

@@ -12,7 +12,7 @@ vi.mock('fs', () => ({
   existsSync: vi.fn((p: string) => p === '/usr/bin/dotcraft')
 }))
 
-import { AppServerManager } from '../AppServerManager'
+import { AppServerManager, resolveBinaryLocation } from '../AppServerManager'
 import { spawn, execFileSync } from 'child_process'
 import { existsSync } from 'fs'
 
@@ -78,8 +78,8 @@ describe('AppServerManager', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    // Default: binary exists
-    mockExistsSync.mockImplementation((p: string) => p === '/usr/bin/dotcraft')
+    // Default: a bundled binary exists so manager startup succeeds unless a test overrides it.
+    mockExistsSync.mockReturnValue(true)
     manager = new AppServerManager({ workspacePath: '/home/user/project' })
   })
 
@@ -185,6 +185,32 @@ describe('AppServerManager', () => {
     expect(errorHandler).toHaveBeenCalledOnce()
     const err: Error = errorHandler.mock.calls[0][0]
     expect(err.message).toMatch(/not found/i)
+  })
+
+  it('resolves the PATH binary when source is set to path', () => {
+    mockExistsSync.mockImplementation((p: string) => p === '/usr/bin/dotcraft')
+    mockExecFileSync.mockReturnValue('/usr/bin/dotcraft\n')
+
+    const resolved = resolveBinaryLocation({ binarySource: 'path' })
+
+    expect(resolved).toEqual({
+      source: 'path',
+      path: '/usr/bin/dotcraft'
+    })
+  })
+
+  it('returns null for a missing custom binary path', () => {
+    mockExistsSync.mockReturnValue(false)
+
+    const resolved = resolveBinaryLocation({
+      binarySource: 'custom',
+      binaryPath: '/tmp/missing-dotcraft'
+    })
+
+    expect(resolved).toEqual({
+      source: 'custom',
+      path: null
+    })
   })
 
   it('emits "crash" when process exits unexpectedly', () => {

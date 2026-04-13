@@ -21,7 +21,8 @@ SDK 提供两个抽象层级：
 - 完整的线程和对话轮次生命周期（`thread/start`、`thread/resume`、`turn/start`、`turn/interrupt` 等）
 - 流式事件分发（`item/agentMessage/delta`、`turn/completed` 等）
 - 双向审批流（`item/approval/request` ↔ JSON-RPC 响应）
-- 服务端消息投递请求（`ext/channel/deliver`）
+- 服务端消息投递请求（`ext/channel/deliver`、`ext/channel/send`）
+- 服务端运行时 channel tool 调用（`ext/channel/toolCall`）
 - 指数退避自动重连（WebSocket 模式）
 
 ## 安装
@@ -115,6 +116,58 @@ class MyAdapter(ChannelAdapter):
         """DotCraft 要求适配器向平台发送消息时调用。"""
         print(f"投递到 {target}: {content}")
         return True
+
+    def get_delivery_capabilities(self) -> dict | None:
+        return {
+            "structuredDelivery": True,
+            "media": {
+                "file": {
+                    "supportsHostPath": True,
+                    "supportsUrl": True,
+                    "supportsBase64": True,
+                    "supportsCaption": True,
+                }
+            },
+        }
+
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict:
+        kind = str(message.get("kind", ""))
+        if kind == "text":
+            return await super().on_send(target, message, metadata)
+        if kind == "file":
+            return {"delivered": True}
+        return {
+            "delivered": False,
+            "errorCode": "UnsupportedDeliveryKind",
+            "errorMessage": f"不支持的类型: {kind}",
+        }
+
+    def get_channel_tools(self) -> list[dict] | None:
+        return [
+            {
+                "name": "SendFileToCurrentChat",
+                "description": "向当前聊天发送文件。",
+                "requiresChatContext": True,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "fileName": {"type": "string"},
+                    },
+                    "required": ["fileName"],
+                },
+            }
+        ]
+
+    async def on_tool_call(self, request: dict) -> dict:
+        return {
+            "success": True,
+            "contentItems": [
+                {
+                    "type": "text",
+                    "text": f"已发送 {request['arguments']['fileName']}。",
+                }
+            ],
+        }
 
     async def on_approval_request(self, request: dict) -> str:
         """Agent 需要用户审批时调用。返回决策字符串。"""
@@ -256,7 +309,11 @@ class ChannelAdapter:
 
     # 需要重写的方法：
     async def on_deliver(self, target: str, content: str, metadata: dict) -> bool: ...
+    async def on_send(self, target: str, message: dict, metadata: dict) -> dict: ...
     async def on_approval_request(self, request: dict) -> str: ...
+    def get_delivery_capabilities(self) -> dict | None: ...
+    def get_channel_tools(self) -> list[dict] | None: ...
+    async def on_tool_call(self, request: dict) -> dict: ...
 
     # 生命周期：
     async def start(self): ...   # 连接、初始化、启动消息循环
@@ -273,6 +330,14 @@ class ChannelAdapter:
     ) -> None: ...
     # 为该身份查找或创建线程，如果正在执行对话轮次则串行排队。
 ```
+
+`ChannelAdapter` 与握手/协议方法的映射关系：
+
+- `get_delivery_capabilities()` -> `initialize.capabilities.channelAdapter.deliveryCapabilities`
+- `get_channel_tools()` -> `initialize.capabilities.channelAdapter.channelTools`
+- `on_deliver()` -> `ext/channel/deliver`
+- `on_send()` -> `ext/channel/send`
+- `on_tool_call()` -> `ext/channel/toolCall`
 
 ## 配置
 
@@ -298,6 +363,8 @@ class ChannelAdapter:
 ```
 
 DotCraft 会启动 `python -m my_adapter`，通过 stdin/stdout 通信，并在进程崩溃时自动重启。
+
+`ExternalChannels` 配置节只负责告诉 DotCraft 如何启动或接入适配器。structured delivery 能力和 `channelTools` 需要由适配器在 `initialize` 握手时自行声明，而不是写在 `config.json` 里。
 
 ### WebSocket 模式（适配器独立连接）
 

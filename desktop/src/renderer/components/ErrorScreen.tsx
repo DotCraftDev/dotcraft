@@ -15,7 +15,7 @@ interface ErrorScreenProps {
  */
 export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Element | null {
   const t = useT()
-  const { status, errorMessage, errorType } = useConnectionStore()
+  const { status, errorMessage, errorType, binarySource } = useConnectionStore()
 
   if (status !== 'error') return null
 
@@ -29,7 +29,11 @@ export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Elem
       : t('error.title.generic')
 
   const description = isBinaryNotFound
-    ? t('error.desc.binary')
+    ? binarySource === 'custom'
+      ? t('error.desc.binary.custom')
+      : binarySource === 'path'
+        ? t('error.desc.binary.path')
+        : t('error.desc.binary.bundled')
     : isHandshakeTimeout
       ? t('error.desc.timeout')
       : (errorMessage ?? t('error.desc.unexpected'))
@@ -141,7 +145,7 @@ export function ErrorScreen({ onOpenSettings }: ErrorScreenProps = {}): JSX.Elem
         </button>
 
         {/* Error details (collapsible for debugging) */}
-        {errorMessage && !isBinaryNotFound && !isHandshakeTimeout && (
+        {errorMessage && (
           <details
             style={{
               marginTop: '20px',

@@ -12,14 +12,19 @@ from typing import Any
 
 def extract_agent_reply_text_from_turn_completed(params: dict[str, Any] | None) -> str:
     """Concatenate text from all agentMessage items in turn/completed params (wire order)."""
+    return "".join(extract_agent_reply_texts_from_turn_completed(params))
+
+
+def extract_agent_reply_texts_from_turn_completed(params: dict[str, Any] | None) -> list[str]:
+    """Extract text from each agentMessage item in turn/completed params (wire order)."""
     if not params:
-        return ""
+        return []
     turn = params.get("turn")
     if not isinstance(turn, dict):
-        return ""
+        return []
     items = turn.get("items")
     if not isinstance(items, list):
-        return ""
+        return []
     parts: list[str] = []
     for raw in items:
         if not isinstance(raw, dict):
@@ -32,7 +37,7 @@ def extract_agent_reply_text_from_turn_completed(params: dict[str, Any] | None) 
         text = payload.get("text")
         if isinstance(text, str) and len(text) > 0:
             parts.append(text)
-    return "".join(parts)
+    return parts
 
 
 def merge_reply_text_from_delta_and_snapshot(delta_text: str, snapshot_text: str) -> str:

@@ -18,6 +18,7 @@ using DotCraft.Modules;
 using DotCraft.Security;
 using DotCraft.Skills;
 using DotCraft.Tools;
+using DotCraft.Protocol.AppServer;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Builder;
@@ -68,9 +69,6 @@ public sealed class ApiChannelService(
 
     /// <inheritdoc />
     public IApprovalService ApprovalService { get; } = new AutoApproveApprovalService();
-
-    /// <inheritdoc />
-    public object? ChannelClient => null;
 
     #region IWebHostingChannel
 
@@ -245,11 +243,17 @@ public sealed class ApiChannelService(
             await _webApp.StopAsync();
     }
 
-    public Task DeliverMessageAsync(string target, string content)
-    {
-        // API channel has no proactive message delivery capability
-        return Task.CompletedTask;
-    }
+    public Task<ExtChannelSendResult> DeliverAsync(
+        string target,
+        ChannelOutboundMessage message,
+        object? metadata = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new ExtChannelSendResult
+        {
+            Delivered = false,
+            ErrorCode = "UnsupportedDeliveryKind",
+            ErrorMessage = "API channel does not support proactive delivery."
+        });
 
     /// <summary>
     /// Resolves a stable session key for the current request.
