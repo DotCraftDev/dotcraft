@@ -7,6 +7,7 @@ import type { TopLevelMenuId } from '../shared/locales/types'
 
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+export type BinarySource = 'bundled' | 'path' | 'custom'
 
 export interface NotificationPayload {
   method: string
@@ -24,6 +25,12 @@ export interface ConnectionStatusPayload {
   dashboardUrl?: string
   errorMessage?: string
   errorType?: 'binary-not-found' | 'handshake-timeout' | 'crash'
+  binarySource?: BinarySource
+}
+
+export interface ResolvedBinaryPayload {
+  source: BinarySource
+  path: string | null
 }
 
 export interface ServerRequestPayload {
@@ -115,6 +122,17 @@ const api = {
      */
     getConnectionStatus(): Promise<ConnectionStatusPayload> {
       return ipcRenderer.invoke('appserver:get-connection-status')
+    },
+
+    getResolvedBinary(request?: {
+      binarySource?: BinarySource
+      binaryPath?: string
+    }): Promise<ResolvedBinaryPayload> {
+      return ipcRenderer.invoke('appserver:resolved-binary', request)
+    },
+
+    pickBinary(): Promise<string | null> {
+      return ipcRenderer.invoke('appserver:pick-binary')
     },
 
     restartManaged(): Promise<void> {
@@ -310,6 +328,7 @@ const api = {
      * Returns the current application settings.
      */
     get(): Promise<{
+      binarySource?: BinarySource
       appServerBinaryPath?: string
       lastWorkspacePath?: string
       connectionMode?: ConnectionMode
@@ -332,6 +351,7 @@ const api = {
      * Merges and persists partial settings updates.
      */
     set(partial: {
+      binarySource?: BinarySource
       appServerBinaryPath?: string
       connectionMode?: ConnectionMode
       webSocket?: {

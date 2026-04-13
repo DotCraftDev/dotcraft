@@ -41,7 +41,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const showOriginBadge =
     thread.originChannel.length > 0 &&
     thread.originChannel.toLowerCase() !== 'dotcraft-desktop'
-  const showArchiveAction = !renaming && (isActive || hovered || archiveButtonFocused)
+  const showArchiveAction = !renaming && (hovered || archiveButtonFocused)
   const showArchiveConfirm = showArchiveAction && archiveConfirming
   const confirm = useConfirmDialog()
 

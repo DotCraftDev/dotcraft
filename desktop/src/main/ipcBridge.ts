@@ -3,7 +3,8 @@ import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
 import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
-import type { AppSettings, RecentWorkspace } from './settings'
+import type { AppSettings, RecentWorkspace, BinarySource } from './settings'
+import { resolveBinaryLocation } from './AppServerManager'
 import { checkWorkspaceLock } from './workspaceLock'
 import {
   TITLE_BAR_OVERLAY_BY_THEME,
@@ -33,6 +34,17 @@ export interface ConnectionStatusPayload {
   dashboardUrl?: string
   errorMessage?: string
   errorType?: ConnectionErrorType
+  binarySource?: BinarySource
+}
+
+export interface ResolvedBinaryRequest {
+  binarySource?: BinarySource
+  binaryPath?: string
+}
+
+export interface ResolvedBinaryPayload {
+  source: BinarySource
+  path: string | null
 }
 
 export interface ServerRequestPayload {
@@ -129,6 +141,8 @@ export interface IpcHandlerCallbacks {
  * - `appserver:server-request`    (main -> renderer, send)   -> server-initiated request
  * - `appserver:connection-status` (main -> renderer, send)   -> connection state changes
  * - `appserver:get-connection-status` (renderer -> main, invoke) -> latest status snapshot
+ * - `appserver:resolved-binary`      (renderer -> main, invoke) -> resolves the selected binary source
+ * - `appserver:pick-binary`          (renderer -> main, invoke) -> opens native file picker for dotcraft
  * - `appserver:restart-managed`   (renderer -> main, invoke) -> restarts Desktop-managed AppServer
  * - `window:set-title`            (renderer -> main, invoke) -> sets window title
  * - `window:get-workspace-path`   (renderer -> main, invoke) -> returns workspace path
@@ -187,6 +201,35 @@ export function registerIpcHandlers(
 
   handleSafe('appserver:get-connection-status', () => {
     return callbacks?.getConnectionStatus() ?? { status: 'disconnected' }
+  })
+
+  handleSafe('appserver:resolved-binary', (_event, request?: ResolvedBinaryRequest) => {
+    const settings = callbacks?.getSettings() ?? {}
+    return resolveBinaryLocation({
+      binarySource: request?.binarySource ?? settings.binarySource,
+      binaryPath: request?.binaryPath ?? settings.appServerBinaryPath
+    })
+  })
+
+  handleSafe('appserver:pick-binary', async (_event) => {
+    const focusedWin = BrowserWindow.getFocusedWindow()
+    const options =
+      process.platform === 'win32'
+        ? {
+            title: translate(mainLocale(callbacks), 'settings.pickBinaryTitle'),
+            properties: ['openFile'] as const,
+            filters: [{ name: 'DotCraft', extensions: ['exe'] }]
+          }
+        : {
+            title: translate(mainLocale(callbacks), 'settings.pickBinaryTitle'),
+            properties: ['openFile'] as const
+          }
+    const result = await dialog.showOpenDialog(
+      focusedWin ?? BrowserWindow.getAllWindows()[0],
+      options
+    )
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
   })
 
   handleSafe('appserver:restart-managed', async () => {
@@ -490,6 +533,8 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
   ipcMain.removeHandler('appserver:model-list')
   ipcMain.removeHandler('appserver:get-connection-status')
+  ipcMain.removeHandler('appserver:resolved-binary')
+  ipcMain.removeHandler('appserver:pick-binary')
   ipcMain.removeHandler('appserver:restart-managed')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')

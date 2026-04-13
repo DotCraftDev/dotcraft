@@ -1,5 +1,6 @@
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+export type BinarySource = 'bundled' | 'path' | 'custom'
 
 export interface NotificationPayload {
   method: string
@@ -17,6 +18,12 @@ export interface ConnectionStatusPayload {
   dashboardUrl?: string
   errorMessage?: string
   errorType?: 'binary-not-found' | 'handshake-timeout' | 'crash'
+  binarySource?: BinarySource
+}
+
+export interface ResolvedBinaryPayload {
+  source: BinarySource
+  path: string | null
 }
 
 export interface ServerRequestPayload {
@@ -42,6 +49,11 @@ declare global {
         sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
         listModels(): Promise<unknown>
         getConnectionStatus(): Promise<ConnectionStatusPayload>
+        getResolvedBinary(request?: {
+          binarySource?: BinarySource
+          binaryPath?: string
+        }): Promise<ResolvedBinaryPayload>
+        pickBinary(): Promise<string | null>
         restartManaged(): Promise<void>
         onNotification(callback: (payload: NotificationPayload) => void): UnsubscribeFn
         onConnectionStatus(
@@ -84,6 +96,7 @@ declare global {
       }
       settings: {
         get(): Promise<{
+          binarySource?: BinarySource
           appServerBinaryPath?: string
           lastWorkspacePath?: string
           connectionMode?: ConnectionMode
@@ -101,6 +114,7 @@ declare global {
         }>
         set(
           partial: {
+            binarySource?: BinarySource
             appServerBinaryPath?: string
             connectionMode?: ConnectionMode
             webSocket?: {

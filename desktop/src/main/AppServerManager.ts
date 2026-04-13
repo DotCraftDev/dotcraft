@@ -1,9 +1,10 @@
 import { spawn, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { Readable, Writable } from 'stream'
-import { resolve as resolvePath } from 'path'
+import { join, resolve as resolvePath } from 'path'
 import { existsSync } from 'fs'
 import { execFileSync } from 'child_process'
+import type { BinarySource } from './settings'
 
 export type AppServerManagerEvent =
   | 'started'
@@ -12,9 +13,90 @@ export type AppServerManagerEvent =
   | 'crash'
 
 export interface AppServerManagerOptions {
+  binarySource?: BinarySource
   binaryPath?: string
   workspacePath: string
   listenUrl?: string
+}
+
+export interface ResolvedBinaryInfo {
+  source: BinarySource
+  path: string | null
+}
+
+const DEFAULT_BINARY_SOURCE: BinarySource = 'bundled'
+
+function normalizeBinarySource(source: BinarySource | undefined): BinarySource {
+  return source === 'bundled' || source === 'path' || source === 'custom'
+    ? source
+    : DEFAULT_BINARY_SOURCE
+}
+
+function getBinaryFileName(): string {
+  return process.platform === 'win32' ? 'dotcraft.exe' : 'dotcraft'
+}
+
+function resolveBundledBinaryPath(): string | null {
+  const binaryName = getBinaryFileName()
+  if (typeof process.resourcesPath === 'string' && process.resourcesPath.length > 0) {
+    const packagedResource = join(process.resourcesPath, 'bin', binaryName)
+    if (existsSync(packagedResource)) {
+      return packagedResource
+    }
+  }
+
+  const legacySibling = resolvePath(process.execPath, '..', binaryName)
+  if (existsSync(legacySibling)) {
+    return legacySibling
+  }
+
+  const devFallback = resolvePath(__dirname, '../../../build/release', binaryName)
+  if (existsSync(devFallback)) {
+    return devFallback
+  }
+
+  return null
+}
+
+function resolvePathBinaryPath(): string | null {
+  const whichCommand = process.platform === 'win32' ? 'where' : 'which'
+  try {
+    const result = execFileSync(whichCommand, ['dotcraft'], { encoding: 'utf8' }).trim()
+    const firstLine = result.split(/\r?\n/)[0]?.trim()
+    if (firstLine && existsSync(firstLine)) {
+      return firstLine
+    }
+  } catch {
+    // Not on PATH.
+  }
+  return null
+}
+
+export function resolveBinaryLocation(options: {
+  binarySource?: BinarySource
+  binaryPath?: string
+}): ResolvedBinaryInfo {
+  const source = normalizeBinarySource(options.binarySource)
+  const customPath = options.binaryPath?.trim()
+
+  if (source === 'custom') {
+    return {
+      source,
+      path: customPath && existsSync(customPath) ? customPath : null
+    }
+  }
+
+  if (source === 'path') {
+    return {
+      source,
+      path: resolvePathBinaryPath()
+    }
+  }
+
+  return {
+    source,
+    path: resolveBundledBinaryPath()
+  }
 }
 
 /**
@@ -28,6 +110,7 @@ export class AppServerManager extends EventEmitter {
 
   private process: ChildProcess | null = null
   private _workspacePath: string
+  private _binarySource: BinarySource
   private _binaryPath: string | undefined
   private _listenUrl: string | undefined
   private _shutdownRequested = false
@@ -49,44 +132,49 @@ export class AppServerManager extends EventEmitter {
   constructor(options: AppServerManagerOptions) {
     super()
     this._workspacePath = options.workspacePath
+    this._binarySource = normalizeBinarySource(options.binarySource)
     this._binaryPath = options.binaryPath
     this._listenUrl = options.listenUrl
   }
 
   /**
-   * Resolves the dotcraft binary path.
-   * Order: explicit setting -> PATH lookup -> bundled binary
+   * Resolves the dotcraft binary path for the selected source.
    */
   private resolveBinary(): string {
-    if (this._binaryPath && existsSync(this._binaryPath)) {
-      return this._binaryPath
+    const resolved = resolveBinaryLocation({
+      binarySource: this._binarySource,
+      binaryPath: this._binaryPath
+    })
+
+    if (resolved.path) {
+      return resolved.path
     }
 
-    // Try PATH lookup
-    const whichCommand = process.platform === 'win32' ? 'where' : 'which'
-    try {
-      const result = execFileSync(whichCommand, ['dotcraft'], { encoding: 'utf8' }).trim()
-      const firstLine = result.split('\n')[0].trim()
-      if (firstLine && existsSync(firstLine)) {
-        return firstLine
-      }
-    } catch {
-      // Not on PATH
+    if (resolved.source === 'custom') {
+      const configuredPath = this._binaryPath?.trim()
+      throw new Error(
+        configuredPath
+          ? `Configured DotCraft binary not found: ${configuredPath}`
+          : 'Custom DotCraft binary path is empty. Please choose a binary or switch to another source.'
+      )
     }
 
-    // Try bundled binary next to the app executable
-    const bundledPath = resolvePath(
-      process.execPath,
-      '..',
-      process.platform === 'win32' ? 'dotcraft.exe' : 'dotcraft'
-    )
-    if (existsSync(bundledPath)) {
-      return bundledPath
+    if (resolved.source === 'path') {
+      throw new Error(
+        'DotCraft binary not found on PATH. Install dotcraft or switch to the bundled binary in Settings.'
+      )
     }
 
     throw new Error(
-      'DotCraft AppServer binary not found. Please install DotCraft or configure the binary path in Settings.'
+      'Bundled DotCraft binary not found. Reinstall DotCraft Desktop or switch to another binary source in Settings.'
     )
+  }
+
+  resolveConfiguredBinary(): ResolvedBinaryInfo {
+    return resolveBinaryLocation({
+      binarySource: this._binarySource,
+      binaryPath: this._binaryPath
+    })
   }
 
   /**
@@ -201,6 +289,13 @@ export class AppServerManager extends EventEmitter {
    */
   setWorkspacePath(workspacePath: string): void {
     this._workspacePath = workspacePath
+  }
+
+  /**
+   * Updates the binary source (e.g. from Settings).
+   */
+  setBinarySource(binarySource: BinarySource): void {
+    this._binarySource = normalizeBinarySource(binarySource)
   }
 
   /**

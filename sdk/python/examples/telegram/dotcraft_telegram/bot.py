@@ -305,9 +305,11 @@ class TelegramAdapter(ChannelAdapter):
         await self._send_text(chat_id, segment_text)
 
     async def on_turn_failed(self, thread_id: str, turn_id: str, error: str) -> None:
+        self._streamed_turns.discard(turn_id)
         logger.error("Turn %s failed: %s", turn_id, error)
 
     async def on_turn_cancelled(self, thread_id: str, turn_id: str) -> None:
+        self._streamed_turns.discard(turn_id)
         logger.info("Turn %s cancelled", turn_id)
 
     # ------------------------------------------------------------------

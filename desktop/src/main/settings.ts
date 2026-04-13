@@ -11,6 +11,7 @@ export interface RecentWorkspace {
 
 export type UiTheme = 'dark' | 'light'
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
+export type BinarySource = 'bundled' | 'path' | 'custom'
 
 export interface WebSocketConnectionSettings {
   host?: string
@@ -24,6 +25,7 @@ export interface RemoteConnectionSettings {
 
 export interface AppSettings {
   lastWorkspacePath?: string
+  binarySource?: BinarySource
   appServerBinaryPath?: string
   connectionMode?: ConnectionMode
   webSocket?: WebSocketConnectionSettings
@@ -42,6 +44,14 @@ export interface AppSettings {
 
 const MAX_RECENT = 20
 
+function normalizeBinarySource(settings: AppSettings): BinarySource {
+  const source = settings.binarySource
+  if (source === 'bundled' || source === 'path' || source === 'custom') {
+    return source
+  }
+  return settings.appServerBinaryPath?.trim() ? 'custom' : 'bundled'
+}
+
 function getSettingsPath(): string {
   return join(app.getPath('userData'), 'settings.json')
 }
@@ -51,6 +61,7 @@ export function loadSettings(): AppSettings {
   try {
     if (existsSync(filePath)) {
       const raw = JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
+      raw.binarySource = normalizeBinarySource(raw)
       if (raw.locale !== undefined) {
         raw.locale = normalizeLocale(raw.locale)
       }
@@ -67,6 +78,7 @@ export function saveSettings(settings: AppSettings): void {
   try {
     const dir = join(filePath, '..')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    settings.binarySource = normalizeBinarySource(settings)
     writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')
   } catch {
     // Non-fatal

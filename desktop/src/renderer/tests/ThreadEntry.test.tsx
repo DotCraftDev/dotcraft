@@ -73,6 +73,25 @@ describe('ThreadEntry', () => {
     })
   })
 
+  it('keeps archive action hidden for active row until hover', async () => {
+    useThreadStore.setState({ activeThreadId: 'thread-1' })
+    renderThreadEntry(makeThread())
+
+    const row = screen.getByTestId('thread-entry-thread-1')
+    const timeLabel = screen.getByText('1h')
+    const archiveButton = screen.getByRole('button', { name: 'Archive' })
+
+    expect(timeLabel).toBeVisible()
+    expect(archiveButton).not.toBeVisible()
+
+    fireEvent.mouseEnter(row)
+
+    await waitFor(() => {
+      expect(timeLabel).not.toBeVisible()
+      expect(archiveButton).toBeVisible()
+    })
+  })
+
   it('reveals archive action on focus for keyboard access', async () => {
     renderThreadEntry(makeThread())
 

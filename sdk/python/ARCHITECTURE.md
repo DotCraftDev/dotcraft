@@ -67,7 +67,6 @@ Adapter                              DotCraft (AppServer)
 **External channel adapter extensions** (from [specs/external-channel-adapter.md](../../specs/external-channel-adapter.md)):
 
 - The `initialize` request includes a `channelAdapter` capability object:
-- The `initialize` request includes a `channelAdapter` capability object:
   ```json
   {
     "capabilities": {

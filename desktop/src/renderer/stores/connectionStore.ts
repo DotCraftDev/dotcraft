@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ConnectionStatusPayload } from '../../preload/api.d'
+import type { BinarySource, ConnectionStatusPayload } from '../../preload/api.d'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 export type ConnectionErrorType = 'binary-not-found' | 'handshake-timeout' | 'crash'
@@ -35,6 +35,7 @@ export interface ConnectionState {
   dashboardUrl: string | null
   errorMessage: string | null
   errorType: ConnectionErrorType | null
+  binarySource: BinarySource | null
 }
 
 interface ConnectionStore extends ConnectionState {
@@ -48,7 +49,8 @@ const initialState: ConnectionState = {
   capabilities: null,
   dashboardUrl: null,
   errorMessage: null,
-  errorType: null
+  errorType: null,
+  binarySource: null
 }
 
 export const useConnectionStore = create<ConnectionStore>((set) => ({
@@ -62,7 +64,8 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
       capabilities: (payload.capabilities as ServerCapabilities) ?? null,
       dashboardUrl: connected ? (payload.dashboardUrl ?? null) : null,
       errorMessage: payload.errorMessage ?? null,
-      errorType: (payload.errorType as ConnectionErrorType) ?? null
+      errorType: (payload.errorType as ConnectionErrorType) ?? null,
+      binarySource: payload.binarySource ?? null
     })
   },
 
