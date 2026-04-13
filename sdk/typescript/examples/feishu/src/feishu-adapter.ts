@@ -14,6 +14,7 @@ import {
   DotCraftError,
   Thread,
   WebSocketTransport,
+  mergeReplyTextFromDeltaAndSnapshot,
   textPart,
 } from "dotcraft-wire";
 import {
@@ -412,22 +413,7 @@ export class FeishuAdapter extends ChannelAdapter {
   }
 
   private reconcileFinalTranscriptText(accumulatedText: string, replyText: string): string {
-    const accumulated = accumulatedText.trim();
-    const reply = replyText.trim();
-    if (!accumulated) return replyText;
-    if (!reply) return accumulatedText;
-    if (accumulated === reply) return accumulatedText;
-    if (accumulated.includes(reply)) return accumulatedText;
-    if (reply.includes(accumulated)) return replyText;
-    const commonPrefixLen = commonPrefixLength(accumulated, reply);
-    const stablePrefixThreshold = Math.min(24, Math.min(accumulated.length, reply.length));
-    if (commonPrefixLen >= stablePrefixThreshold) {
-      const replyTail = reply.slice(commonPrefixLen).trim();
-      if (replyTail && !accumulated.includes(replyTail)) {
-        return `${accumulatedText.trimEnd()}\n\n${replyTail}`;
-      }
-    }
-    return accumulated.length >= reply.length ? accumulatedText : replyText;
+    return mergeReplyTextFromDeltaAndSnapshot(accumulatedText, replyText);
   }
 
   private async appendCaptionToActiveTranscript(
@@ -793,9 +779,3 @@ function inferMediaType(fileName: string): string {
   return "application/octet-stream";
 }
 
-function commonPrefixLength(left: string, right: string): number {
-  const max = Math.min(left.length, right.length);
-  let idx = 0;
-  while (idx < max && left[idx] === right[idx]) idx += 1;
-  return idx;
-}

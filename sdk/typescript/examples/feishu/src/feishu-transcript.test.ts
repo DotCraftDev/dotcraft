@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DECISION_ACCEPT, Thread, Turn } from "dotcraft-wire";
+import { DECISION_ACCEPT, Thread, Turn, mergeReplyTextFromDeltaAndSnapshot } from "dotcraft-wire";
 import type { FeishuClient } from "./feishu-client.js";
 import type { FeishuSendResult } from "./feishu-types.js";
 import { FeishuAdapter } from "./feishu-adapter.js";
@@ -269,4 +269,11 @@ test("Feishu adapter does not reuse transcript cards when two threads share turn
     ["dm:user-A", "dm:user-B"],
   );
   assert.equal(mockFeishu.updatedCards.length, 0);
+});
+
+test("Feishu final transcript reconciliation uses mergeReplyTextFromDeltaAndSnapshot (divergent tails)", () => {
+  const merged = mergeReplyTextFromDeltaAndSnapshot("Hello streamed", "Hello snapshot");
+  assert.equal(merged, "Hello streamed\n\nsnapshot");
+  assert.ok(merged.includes("streamed"));
+  assert.ok(merged.includes("snapshot"));
 });

@@ -12,6 +12,7 @@ import {
   textPart,
 } from "./models.js";
 import { Transport } from "./transport.js";
+import { getDeliveredFrontier } from "./deliveredFrontier.js";
 import {
   extractAgentReplyTextFromTurnCompletedParams,
   extractAgentReplyTextsFromTurnCompletedParams,
@@ -442,18 +443,6 @@ export abstract class ChannelAdapter {
     const getCurrentItemText = (itemId: string | null): string => {
       if (!itemId) return "";
       return perItemDelta.get(itemId) ?? "";
-    };
-    const getDeliveredFrontier = (currentText: string, deliveredText: string): number => {
-      if (!currentText || !deliveredText) return 0;
-      if (currentText.startsWith(deliveredText)) return deliveredText.length;
-      if (deliveredText.endsWith(currentText)) return currentText.length;
-      const maxProbe = Math.min(currentText.length, deliveredText.length);
-      for (let len = maxProbe; len > 0; len--) {
-        const suffix = deliveredText.slice(deliveredText.length - len);
-        const idx = currentText.lastIndexOf(suffix);
-        if (idx >= 0) return idx + len;
-      }
-      return 0;
     };
     const markSegmentDelivered = (itemId: string | null, segmentText: string): void => {
       if (!itemId || !segmentText) return;
