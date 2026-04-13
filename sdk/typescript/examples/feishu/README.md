@@ -98,13 +98,19 @@ Then collect:
     "approvalTimeoutMs": 120000,
     "groupMentionRequired": true,
     "ackReactionEmoji": "GLANCE",
-    "downloadDir": "./tmp"
+    "downloadDir": "./tmp",
+    "debug": {
+      "adapterStream": false,
+      "textMerge": false
+    }
   }
 }
 ```
 
 Notes:
 
+- `feishu.debug.adapterStream`: verbose `ChannelAdapter` stream traces to stderr (`[dotcraft-wire:adapter-stream]`). Only enabled when `true`.
+- `feishu.debug.textMerge`: traces merge decisions. Only enabled when `true`.
 - `config.example.json` is for DotCraft workspace config, not adapter runtime config.
 - `adapter_config.json` is the adapter runtime config in this example directory.
 - `ackReactionEmoji` must be a Feishu official `emoji_type`, such as `GLANCE`, `SMILE`, or `OnIt`. Default: `GLANCE`.

@@ -9,6 +9,7 @@ import {
 
 import {
   ChannelAdapter,
+  configureTextMergeDebug,
   DECISION_CANCEL,
   DECISION_DECLINE,
   DotCraftError,
@@ -34,6 +35,11 @@ export interface FeishuAdapterConfig {
   dotcraftToken?: string;
   approvalTimeoutMs: number;
   feishu: FeishuClient;
+  /** Debug logging; pass `true` per flag to enable. */
+  debug?: {
+    adapterStream?: boolean;
+    textMerge?: boolean;
+  };
 }
 
 export class FeishuAdapter extends ChannelAdapter {
@@ -69,15 +75,17 @@ export class FeishuAdapter extends ChannelAdapter {
       url: cfg.wsUrl,
       token: cfg.dotcraftToken ?? "",
     });
-    super(transport, "feishu", "dotcraft-feishu", "0.1.0", [
-      "item/reasoning/delta",
-      "subagent/progress",
-      "item/usage/delta",
-      "system/event",
-      "plan/updated",
-    ]);
+    super(
+      transport,
+      "feishu",
+      "dotcraft-feishu",
+      "0.1.0",
+      ["item/reasoning/delta", "subagent/progress", "item/usage/delta", "system/event", "plan/updated"],
+      { debugStream: cfg.debug?.adapterStream },
+    );
     this.feishu = cfg.feishu;
     this.approvalTimeoutMs = cfg.approvalTimeoutMs;
+    configureTextMergeDebug(cfg.debug?.textMerge);
   }
 
   async onDeliver(target: string, content: string, _metadata: Record<string, unknown>): Promise<boolean> {

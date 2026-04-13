@@ -39,6 +39,8 @@ async function main(): Promise<void> {
     ackReactionEmoji: (config.feishu.ackReactionEmoji ?? "GLANCE").trim() || "GLANCE",
     hasDownloadDir: Boolean(config.feishu.downloadDir),
     hasDotcraftToken: Boolean(config.dotcraft.token),
+    debugAdapterStream: config.feishu.debug?.adapterStream ?? false,
+    debugTextMerge: config.feishu.debug?.textMerge ?? false,
   });
   if (config.feishu.downloadDir) {
     await mkdir(resolve(config.feishu.downloadDir), { recursive: true });
@@ -83,6 +85,7 @@ async function main(): Promise<void> {
     dotcraftToken: config.dotcraft.token,
     approvalTimeoutMs: config.feishu.approvalTimeoutMs ?? 120000,
     feishu: feishuClient,
+    debug: config.feishu.debug,
   });
   await adapter.start();
   logInfo("dotcraft.ws.connected");

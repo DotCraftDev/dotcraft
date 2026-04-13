@@ -65,9 +65,19 @@ function commonPrefixLengthForMerge(left: string, right: string): number {
   return afterSpace + wordLcp;
 }
 
+/** Set by {@link configureTextMergeDebug}; only `true` enables merge stderr traces. */
+let textMergeDebugOverride: boolean | undefined;
+
+/**
+ * Configure whether `mergeReplyTextFromDeltaAndSnapshot` emits stderr traces.
+ * Pass `true` to enable; `false` or `undefined` to disable.
+ */
+export function configureTextMergeDebug(enabled: boolean | undefined): void {
+  textMergeDebugOverride = enabled;
+}
+
 function isDebugTextMergeEnabled(): boolean {
-  const v = process.env.DOTCRAFT_DEBUG_TEXT_MERGE;
-  return v === "1" || v === "true" || v === "yes";
+  return textMergeDebugOverride === true;
 }
 
 function debugTextMerge(message: string, data: Record<string, unknown>): void {

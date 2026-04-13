@@ -98,13 +98,19 @@
     "approvalTimeoutMs": 120000,
     "groupMentionRequired": true,
     "ackReactionEmoji": "GLANCE",
-    "downloadDir": "./tmp"
+    "downloadDir": "./tmp",
+    "debug": {
+      "adapterStream": false,
+      "textMerge": false
+    }
   }
 }
 ```
 
 说明：
 
+- `feishu.debug.adapterStream`：打印 `ChannelAdapter` 流式事件与合并前后文本预览（stderr，前缀 `[dotcraft-wire:adapter-stream]`）。仅 `true` 时启用。
+- `feishu.debug.textMerge`：打印 `mergeReplyTextFromDeltaAndSnapshot` 分支。仅 `true` 时启用。
 - `config.example.json` 用于 DotCraft 工作区配置，不是适配器运行时配置。
 - `adapter_config.json` 是本示例目录下的适配器运行时配置。
 - `ackReactionEmoji` 必须填写飞书官方 `emoji_type`，例如 `GLANCE`、`SMILE`、`OnIt`，默认值是 `GLANCE`。

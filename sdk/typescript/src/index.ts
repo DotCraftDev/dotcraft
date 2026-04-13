@@ -3,7 +3,7 @@
  */
 
 export { ChannelAdapter } from "./adapter.js";
-export type { ChannelAdapterMessageOpts } from "./adapter.js";
+export type { ChannelAdapterMessageOpts, ChannelAdapterOptions } from "./adapter.js";
 export { DotCraftClient, DotCraftError } from "./client.js";
 export type { NotificationHandler, ServerRequestHandler } from "./client.js";
 export {
@@ -42,6 +42,7 @@ export {
 export type { Transport, WebSocketTransportOptions } from "./transport.js";
 export { getDeliveredFrontier } from "./deliveredFrontier.js";
 export {
+  configureTextMergeDebug,
   extractAgentReplyTextFromTurnCompletedParams,
   extractAgentReplyTextsFromTurnCompletedParams,
   mergeReplyTextFromDeltaAndSnapshot,

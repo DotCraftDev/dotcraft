@@ -20,6 +20,17 @@ import {
 } from "./turnReply.js";
 import { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
 
+function previewWireText(text: string, maxChars = 160): string {
+  const s = text.replace(/\r\n/g, "\n");
+  if (s.length <= maxChars) return s;
+  return `${s.slice(0, maxChars)}…(+${s.length - maxChars} chars)`;
+}
+
+function shortWireId(id: string, max = 12): string {
+  if (id.length <= max) return id;
+  return `${id.slice(0, max)}…`;
+}
+
 /** Queued inbound message; skipCommand skips slash handling for expanded prompts. */
 export type ChannelAdapterMessageOpts = {
   userId: string;
@@ -38,12 +49,20 @@ export type ChannelAdapterMessageOpts = {
   omitSenderGroupId?: boolean;
 };
 
+/** Optional construction-time settings for {@link ChannelAdapter}. */
+export type ChannelAdapterOptions = {
+  /** When `true`, enables stderr trace logs for `consumeTurnEventStream`. Omitted or `false` disables. */
+  debugStream?: boolean;
+};
+
 export abstract class ChannelAdapter {
   protected readonly client: DotCraftClient;
   protected readonly channelName: string;
   private readonly clientName: string;
   private readonly clientVersion: string;
   private readonly optOutNotifications: string[];
+  /** See {@link ChannelAdapterOptions.debugStream}. */
+  private readonly adapterStreamDebug: boolean | undefined;
 
   protected readonly threadMap = new Map<string, string>();
   private readonly threadQueues = new Map<string, Array<() => Promise<void>>>();
@@ -59,12 +78,28 @@ export abstract class ChannelAdapter {
     clientName: string,
     clientVersion: string,
     optOutNotifications: string[] = [],
+    options?: ChannelAdapterOptions,
   ) {
     this.client = new DotCraftClient(transport);
     this.channelName = channelName;
     this.clientName = clientName;
     this.clientVersion = clientVersion;
     this.optOutNotifications = optOutNotifications;
+    this.adapterStreamDebug = options?.debugStream;
+  }
+
+  /** Stream debug is enabled only when `ChannelAdapterOptions.debugStream` is `true`. */
+  protected isAdapterStreamDebugEnabled(): boolean {
+    return this.adapterStreamDebug === true;
+  }
+
+  protected debugAdapterStreamLog(
+    message: string,
+    data: Record<string, unknown> | (() => Record<string, unknown>),
+  ): void {
+    if (!this.isAdapterStreamDebugEnabled()) return;
+    const payload = typeof data === "function" ? data() : data;
+    console.error(`[dotcraft-wire:adapter-stream] ${message}`, payload);
   }
 
   abstract onDeliver(target: string, content: string, metadata: Record<string, unknown>): Promise<boolean>;
@@ -465,7 +500,27 @@ export abstract class ChannelAdapter {
       return mergedText.slice(frontier);
     };
 
+    const snapshotStreamState = (): Record<string, unknown> => ({
+      itemOrder: itemOrder.map((id) => shortWireId(id)),
+      perItemChars: Object.fromEntries(
+        [...perItemDelta.entries()].map(([id, t]) => [shortWireId(id), t.length]),
+      ),
+      deliveredChars: Object.fromEntries(
+        [...deliveredTextPerItem.entries()].map(([id, t]) => [shortWireId(id), t.length]),
+      ),
+      activeAgentItemId: activeAgentItemId ? shortWireId(activeAgentItemId) : "",
+      lastDeltaAgentItemId: lastDeltaAgentItemId ? shortWireId(lastDeltaAgentItemId) : "",
+      orphanDeltaChars: orphanDeltaTail.length,
+      segmentsWereDelivered,
+    });
+
     for await (const event of eventStream) {
+      this.debugAdapterStreamLog("event", () => ({
+        method: event.method,
+        threadId: shortWireId(threadId),
+        turnId: shortWireId(turnId),
+        channel: shortWireId(channelContext),
+      }));
       if (event.method === "item/agentMessage/delta") {
         const params = (event.params as Record<string, unknown>) ?? {};
         const delta = String(params.delta ?? "");
@@ -480,6 +535,14 @@ export abstract class ChannelAdapter {
         } else {
           orphanDeltaTail += delta;
         }
+        this.debugAdapterStreamLog("event.item/agentMessage/delta", () => ({
+          explicitItemId: explicitItemId ? shortWireId(explicitItemId) : "(empty)",
+          resolvedItemId: resolvedItemId ? shortWireId(resolvedItemId) : "(orphan)",
+          deltaChars: delta.length,
+          deltaPreview: previewWireText(delta, 120),
+          mergedAfterChars: resolvedItemId ? (perItemDelta.get(resolvedItemId) ?? "").length : orphanDeltaTail.length,
+          ...snapshotStreamState(),
+        }));
       } else if (event.method === "item/started") {
         const params = (event.params as Record<string, unknown>) ?? {};
         const item = (params.item as Record<string, unknown>) ?? {};
@@ -505,12 +568,35 @@ export abstract class ChannelAdapter {
             await this.onSegmentCompleted(threadId, turnId, segmentText, false, channelContext);
             markSegmentDelivered(segmentItemId, segmentText);
           }
+          this.debugAdapterStreamLog("event.item/started.flush_segment", () => ({
+            itemType,
+            itemId: itemId ? shortWireId(itemId) : "",
+            flushSegment: true,
+            segmentItemId: segmentItemId ? shortWireId(segmentItemId) : "",
+            segmentChars: segmentText.length,
+            segmentPreview: previewWireText(segmentText),
+            ...snapshotStreamState(),
+          }));
+        } else {
+          this.debugAdapterStreamLog("event.item/started", () => ({
+            itemType,
+            itemId: itemId ? shortWireId(itemId) : "",
+            flushSegment: false,
+            ...snapshotStreamState(),
+          }));
         }
       } else if (event.method === "item/completed") {
         const params = (event.params as Record<string, unknown>) ?? {};
         const item = (params.item as Record<string, unknown>) ?? {};
         const itemType = String(item.type ?? "");
-        if (itemType !== "agentMessage") continue;
+        if (itemType !== "agentMessage") {
+          this.debugAdapterStreamLog("event.item/completed.skipped", () => ({
+            itemType,
+            itemId: String(item.id ?? "") ? shortWireId(String(item.id ?? "")) : "",
+            ...snapshotStreamState(),
+          }));
+          continue;
+        }
         const itemId = String(item.id ?? "");
         const payload = (item.payload as Record<string, unknown>) ?? {};
         const snap = typeof payload.text === "string" ? payload.text : "";
@@ -522,6 +608,16 @@ export abstract class ChannelAdapter {
           activeAgentItemId = null;
         }
         lastDeltaAgentItemId = itemId;
+        this.debugAdapterStreamLog("event.item/completed.agentMessage", () => ({
+          itemId: shortWireId(itemId),
+          deltaCharsBeforeMerge: fromD.length,
+          snapshotChars: snap.length,
+          mergedCharsAfter: canon.length,
+          deltaPreview: previewWireText(fromD),
+          snapshotPreview: previewWireText(snap),
+          mergedPreview: previewWireText(canon),
+          ...snapshotStreamState(),
+        }));
       } else if (event.method === "turn/completed") {
         const params = (event.params as Record<string, unknown>) ?? {};
         const snapshots = extractAgentReplyTextsFromTurnCompletedParams(params);
@@ -554,6 +650,23 @@ export abstract class ChannelAdapter {
         const snapshotText = extractAgentReplyTextFromTurnCompletedParams(params);
         const deltaText = itemOrder.map((id) => perItemDelta.get(id) ?? "").join("");
         const fullReply = mergeReplyTextFromDeltaAndSnapshot(deltaText, snapshotText);
+        this.debugAdapterStreamLog("event.turn/completed", () => ({
+          unsentParts: unsentParts.map((p) => ({
+            itemId: p.itemId ? shortWireId(p.itemId) : "(orphan)",
+            chars: p.text.length,
+            preview: previewWireText(p.text),
+          })),
+          finalSegmentChars: segmentText.length,
+          finalSegmentPreview: previewWireText(segmentText),
+          snapshotConcatChars: snapshotText.length,
+          deltaConcatChars: deltaText.length,
+          deltaConcatPreview: previewWireText(deltaText),
+          snapshotConcatPreview: previewWireText(snapshotText),
+          fullReplyChars: fullReply.length,
+          fullReplyPreview: previewWireText(fullReply),
+          segmentsWereDelivered,
+          ...snapshotStreamState(),
+        }));
         await this.onTurnCompleted(threadId, turnId, fullReply, channelContext, segmentsWereDelivered);
         break;
       } else if (event.method === "turn/failed") {
@@ -561,9 +674,14 @@ export abstract class ChannelAdapter {
           ((event.params as Record<string, unknown>)?.turn as Record<string, unknown>)?.error ??
             "Unknown error",
         );
+        this.debugAdapterStreamLog("event.turn/failed", () => ({
+          error: previewWireText(err, 500),
+          ...snapshotStreamState(),
+        }));
         await this.onTurnFailed(threadId, turnId, err);
         break;
       } else if (event.method === "turn/cancelled") {
+        this.debugAdapterStreamLog("event.turn/cancelled", () => snapshotStreamState());
         await this.onTurnCancelled(threadId, turnId);
         break;
       }
