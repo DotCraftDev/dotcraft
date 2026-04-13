@@ -63,8 +63,12 @@ public sealed class FileTools(
     };
 
     private readonly string _workspaceRoot = Path.GetFullPath(workspaceRoot);
-    
-    private readonly IReadOnlyList<string> _trustedReadPaths = trustedReadPaths ?? [];
+    private readonly FileAccessGuard _fileAccessGuard = new(
+        workspaceRoot,
+        requireApprovalOutsideWorkspace,
+        approvalService,
+        blacklist,
+        trustedReadPaths);
 
     [Description("Read the contents of a file or list the contents of a directory. If the path is a directory, lists its entries. Supports offset and limit for paginated reading of large text files. Image files (.png, .jpg, .jpeg, .gif, .webp, .bmp) are returned as vision input for the model (full file only; offset/limit do not apply).")]
     [Tool(Icon = "📄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.ReadFile), MaxResultChars = 0)]
@@ -496,22 +500,7 @@ public sealed class FileTools(
     }
 
     private string ResolvePath(string path)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-        if (!string.IsNullOrEmpty(home))
-        {
-            if (path == "~" || path.StartsWith("~/") || path.StartsWith("~\\"))
-                path = Path.Combine(home, path[1..].TrimStart('/', '\\'));
-
-            path = path.Replace("${HOME}", home).Replace("$HOME", home);
-        }
-
-        var expanded = Environment.ExpandEnvironmentVariables(path);
-        return Path.IsPathRooted(expanded) 
-            ? Path.GetFullPath(expanded) 
-            : Path.GetFullPath(Path.Combine(_workspaceRoot, expanded));
-    }
+        => _fileAccessGuard.ResolvePath(path);
 
     private static readonly Regex UnicodeEscapeRegex = new(@"\\u([0-9a-fA-F]{4})", RegexOptions.Compiled);
 
@@ -525,47 +514,7 @@ public sealed class FileTools(
     }
 
     private async Task<string?> ValidatePathAsync(string fullPath, string operation, string originalPath)
-    {
-        if (blacklist != null && blacklist.IsBlacklisted(fullPath))
-        {
-            return $"Error: Path '{originalPath}' is in the blacklist and cannot be accessed.";
-        }
-
-        var isWithinWorkspace = fullPath.StartsWith(_workspaceRoot, StringComparison.OrdinalIgnoreCase);
-        
-        if (!isWithinWorkspace)
-        {
-            if (operation is "read" or "list" && IsWithinTrustedReadPath(fullPath))
-                return null;
-
-            if (!requireApprovalOutsideWorkspace)
-            {
-                return $"Error: Path '{originalPath}' is outside workspace boundary.";
-            }
-            
-            if (approvalService != null)
-            {
-                var context = ApprovalContextScope.Current;
-                var approved = await approvalService.RequestFileApprovalAsync(operation, fullPath, context);
-                if (!approved)
-                {
-                    return $"Error: Operation '{operation}' on '{originalPath}' was rejected by user.";
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private bool IsWithinTrustedReadPath(string fullPath)
-    {
-        foreach (var trustedPath in _trustedReadPaths)
-        {
-            if (fullPath.StartsWith(trustedPath, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
+        => await _fileAccessGuard.ValidatePathAsync(fullPath, operation, originalPath);
 
     private static async Task<string> ApplySearchReplaceEdit(
         string fullPath, string displayPath, string content, string oldText, string newText,

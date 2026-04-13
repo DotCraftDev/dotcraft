@@ -4,6 +4,7 @@ using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Modules;
 using DotCraft.Protocol;
+using DotCraft.Security;
 using Spectre.Console;
 
 namespace DotCraft.ExternalChannel;
@@ -48,6 +49,8 @@ public sealed class ExternalChannelManager
         IReadOnlyCollection<string> nativeChannelNames,
         ModuleRegistry moduleRegistry,
         string hostWorkspacePath,
+        PathBlacklist? pathBlacklist = null,
+        IApprovalService? approvalService = null,
         ExternalChannelRegistry? registry = null)
     {
         _registry = registry ?? new ExternalChannelRegistry();
@@ -99,7 +102,14 @@ public sealed class ExternalChannelManager
                 }
             }
 
-            var host = new ExternalChannelHost(entry, sessionService, serverVersion, moduleRegistry, hostWorkspacePath);
+            var host = new ExternalChannelHost(
+                entry,
+                sessionService,
+                serverVersion,
+                moduleRegistry,
+                hostWorkspacePath,
+                pathBlacklist,
+                approvalService);
             _hosts.Add(host);
 
             // Register all hosts for unified channel runtime tool discovery and WebSocket routing.

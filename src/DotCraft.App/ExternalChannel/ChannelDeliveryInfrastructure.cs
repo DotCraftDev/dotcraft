@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
+using DotCraft.Security;
 
 namespace DotCraft.ExternalChannel;
 
@@ -111,7 +112,8 @@ internal sealed class FileSystemChannelMediaArtifactStore(string rootPath) : ICh
 
 internal sealed class ChannelMediaResolver(
     IChannelMediaArtifactStore artifactStore,
-    string tempRootPath) : IChannelMediaResolver
+    string tempRootPath,
+    FileAccessGuard fileAccessGuard) : IChannelMediaResolver
 {
     public async Task<ChannelMediaResolutionResult> ResolveAsync(
         ChannelOutboundMessage message,
@@ -152,7 +154,15 @@ internal sealed class ChannelMediaResolver(
         if (string.IsNullOrWhiteSpace(source.HostPath))
             throw new InvalidOperationException("hostPath source requires hostPath.");
 
-        var fullPath = Path.GetFullPath(source.HostPath);
+        var fullPath = fileAccessGuard.ResolvePath(source.HostPath);
+        var validationError = await fileAccessGuard.ValidatePathAsync(
+            fullPath,
+            "read-for-delivery",
+            source.HostPath,
+            cancellationToken);
+        if (validationError != null)
+            throw new InvalidOperationException(validationError);
+
         if (!File.Exists(fullPath))
             throw new FileNotFoundException($"Media file '{fullPath}' was not found.");
 
@@ -194,26 +204,45 @@ internal sealed class ChannelMediaResolver(
         var artifactId = CreateArtifactId();
         var extension = ResolveExtension(message);
         var tempPath = Path.Combine(tempRootPath, $"{artifactId}{extension}");
-        await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken);
+        var registered = false;
+        try
+        {
+            await File.WriteAllBytesAsync(tempPath, bytes, cancellationToken);
 
-        var artifact = new ChannelMediaArtifact
+            var artifact = new ChannelMediaArtifact
+            {
+                Id = artifactId,
+                Kind = message.Kind,
+                MediaType = ResolveMediaType(message, tempPath),
+                ByteLength = bytes.LongLength,
+                FileName = ResolveFileName(message, tempPath),
+                SourceKind = "dataBase64",
+                ResolvedPath = tempPath,
+                Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+                OwnsResolvedPath = true
+            };
+            await artifactStore.RegisterAsync(artifact, cancellationToken);
+            registered = true;
+            return new ChannelMediaResolutionResult
+            {
+                Artifact = artifact,
+                CleanupOnCompletion = true
+            };
+        }
+        finally
         {
-            Id = artifactId,
-            Kind = message.Kind,
-            MediaType = ResolveMediaType(message, tempPath),
-            ByteLength = bytes.LongLength,
-            FileName = ResolveFileName(message, tempPath),
-            SourceKind = "dataBase64",
-            ResolvedPath = tempPath,
-            Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-            OwnsResolvedPath = true
-        };
-        await artifactStore.RegisterAsync(artifact, cancellationToken);
-        return new ChannelMediaResolutionResult
-        {
-            Artifact = artifact,
-            CleanupOnCompletion = true
-        };
+            if (!registered && File.Exists(tempPath))
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch
+                {
+                    // Best-effort cleanup only.
+                }
+            }
+        }
     }
 
     private static ChannelMediaResolutionResult ResolveUrl(ChannelOutboundMessage message, ChannelMediaSource source)

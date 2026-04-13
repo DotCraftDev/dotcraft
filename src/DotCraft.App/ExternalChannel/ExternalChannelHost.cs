@@ -67,6 +67,8 @@ public sealed class ExternalChannelHost : IChannelService
         string serverVersion,
         ModuleRegistry moduleRegistry,
         string hostWorkspacePath,
+        PathBlacklist? pathBlacklist = null,
+        IApprovalService? approvalService = null,
         Func<string, object>? deliveryDependenciesFactory = null)
         : this(
             config,
@@ -74,6 +76,8 @@ public sealed class ExternalChannelHost : IChannelService
             serverVersion,
             moduleRegistry,
             hostWorkspacePath,
+            pathBlacklist,
+            approvalService,
             deliveryDependenciesFactory,
             ManagedChildProcess.Start)
     {
@@ -87,6 +91,29 @@ public sealed class ExternalChannelHost : IChannelService
         string hostWorkspacePath,
         Func<string, object>? deliveryDependenciesFactory,
         Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory)
+        : this(
+            config,
+            sessionService,
+            serverVersion,
+            moduleRegistry,
+            hostWorkspacePath,
+            pathBlacklist: null,
+            approvalService: null,
+            deliveryDependenciesFactory,
+            managedChildProcessFactory)
+    {
+    }
+
+    internal ExternalChannelHost(
+        ExternalChannelEntry config,
+        ISessionService sessionService,
+        string serverVersion,
+        ModuleRegistry moduleRegistry,
+        string hostWorkspacePath,
+        PathBlacklist? pathBlacklist,
+        IApprovalService? approvalService,
+        Func<string, object>? deliveryDependenciesFactory,
+        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
@@ -94,7 +121,7 @@ public sealed class ExternalChannelHost : IChannelService
         _moduleRegistry = moduleRegistry ?? throw new ArgumentNullException(nameof(moduleRegistry));
         _hostWorkspacePath = hostWorkspacePath ?? throw new ArgumentNullException(nameof(hostWorkspacePath));
         _workspaceCraftPath = Path.Combine(_hostWorkspacePath, ".craft");
-        _delivery = CreateDeliveryDependencies(_hostWorkspacePath, deliveryDependenciesFactory);
+        _delivery = CreateDeliveryDependencies(_hostWorkspacePath, pathBlacklist, approvalService, deliveryDependenciesFactory);
         _managedChildProcessFactory = managedChildProcessFactory ?? throw new ArgumentNullException(nameof(managedChildProcessFactory));
     }
 
@@ -688,6 +715,8 @@ public sealed class ExternalChannelHost : IChannelService
 
     private static ExternalChannelDeliveryDependencies CreateDeliveryDependencies(
         string hostWorkspacePath,
+        PathBlacklist? pathBlacklist,
+        IApprovalService? approvalService,
         Func<string, object>? deliveryDependenciesFactory)
     {
         if (deliveryDependenciesFactory?.Invoke(hostWorkspacePath) is ExternalChannelDeliveryDependencies provided)
@@ -695,7 +724,12 @@ public sealed class ExternalChannelHost : IChannelService
 
         var mediaRoot = Path.Combine(hostWorkspacePath, ".craft", "external-channel-media");
         var artifactStore = new FileSystemChannelMediaArtifactStore(mediaRoot);
-        var resolver = new ChannelMediaResolver(artifactStore, Path.Combine(mediaRoot, "tmp"));
+        var fileAccessGuard = new FileAccessGuard(
+            hostWorkspacePath,
+            requireApprovalOutsideWorkspace: true,
+            approvalService,
+            pathBlacklist);
+        var resolver = new ChannelMediaResolver(artifactStore, Path.Combine(mediaRoot, "tmp"), fileAccessGuard);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, artifactStore);
         return new ExternalChannelDeliveryDependencies(artifactStore, resolver, dispatcher);
     }

@@ -10,6 +10,7 @@ using DotCraft.Protocol;
 using DotCraft.Modules;
 using DotCraft.Protocol.AppServer;
 using DotCraft.QQ;
+using DotCraft.Security;
 using DotCraft.Tools;
 using DotCraft.WeCom;
 using Microsoft.Extensions.AI;
@@ -38,7 +39,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     public async Task ChannelMediaResolver_RejectsTextMessageWithSource()
     {
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(new ChannelOutboundMessage
         {
@@ -58,7 +59,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     public async Task ChannelMediaResolver_RejectsSourceWithMultipleFields()
     {
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(new ChannelOutboundMessage
         {
@@ -81,7 +82,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         await File.WriteAllTextAsync(path, "report");
 
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
 
         var first = await resolver.ResolveAsync(new ChannelOutboundMessage
         {
@@ -108,10 +109,123 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     }
 
     [Fact]
+    public async Task ChannelMediaResolver_HostPathOutsideWorkspace_RequestsApprovalAndRejectsWhenDenied()
+    {
+        var outsideDir = Path.Combine(Path.GetTempPath(), "ExternalChannelOutside_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(outsideDir);
+        try
+        {
+            var outsidePath = Path.Combine(outsideDir, "secret.txt");
+            await File.WriteAllTextAsync(outsidePath, "secret");
+
+            var store = new FileSystemChannelMediaArtifactStore(_tempDir);
+            var approvalService = new RecordingApprovalService(approve: false);
+            var resolver = CreateResolver(store, _tempDir, approvalService: approvalService);
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(new ChannelOutboundMessage
+            {
+                Kind = "file",
+                Source = new ChannelMediaSource
+                {
+                    Kind = "hostPath",
+                    HostPath = outsidePath
+                }
+            }));
+
+            Assert.Contains("rejected by user", ex.Message);
+            Assert.Equal("read-for-delivery", approvalService.LastOperation);
+            Assert.Equal(Path.GetFullPath(outsidePath), approvalService.LastPath);
+        }
+        finally
+        {
+            try { Directory.Delete(outsideDir, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ChannelMediaResolver_HostPathOutsideWorkspace_AllowsApprovedDelivery()
+    {
+        var outsideDir = Path.Combine(Path.GetTempPath(), "ExternalChannelOutside_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(outsideDir);
+        try
+        {
+            var outsidePath = Path.Combine(outsideDir, "approved.txt");
+            await File.WriteAllTextAsync(outsidePath, "approved");
+
+            var store = new FileSystemChannelMediaArtifactStore(_tempDir);
+            var approvalService = new RecordingApprovalService(approve: true);
+            var resolver = CreateResolver(store, _tempDir, approvalService: approvalService);
+
+            var result = await resolver.ResolveAsync(new ChannelOutboundMessage
+            {
+                Kind = "file",
+                Source = new ChannelMediaSource
+                {
+                    Kind = "hostPath",
+                    HostPath = outsidePath
+                }
+            });
+
+            Assert.Equal(Path.GetFullPath(outsidePath), result.Artifact.ResolvedPath);
+            Assert.Equal("read-for-delivery", approvalService.LastOperation);
+        }
+        finally
+        {
+            try { Directory.Delete(outsideDir, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ChannelMediaResolver_RejectsBlacklistedHostPath()
+    {
+        var blockedPath = Path.Combine(_tempDir, "blocked.txt");
+        await File.WriteAllTextAsync(blockedPath, "blocked");
+
+        var store = new FileSystemChannelMediaArtifactStore(_tempDir);
+        var resolver = CreateResolver(store, _tempDir, blacklist: new PathBlacklist([blockedPath]));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(new ChannelOutboundMessage
+        {
+            Kind = "file",
+            Source = new ChannelMediaSource
+            {
+                Kind = "hostPath",
+                HostPath = blockedPath
+            }
+        }));
+
+        Assert.Contains("blacklist", ex.Message);
+    }
+
+    [Fact]
+    public async Task ChannelMediaResolver_CleansUpTemporaryBase64Artifact_WhenRegisterFails()
+    {
+        var mediaRoot = Path.Combine(_tempDir, "register-failure-media");
+        var store = new ThrowingRegisterArtifactStore();
+        var resolver = CreateResolver(store, mediaRoot);
+
+        await Assert.ThrowsAsync<IOException>(() => resolver.ResolveAsync(new ChannelOutboundMessage
+        {
+            Kind = "file",
+            FileName = "report.txt",
+            Source = new ChannelMediaSource
+            {
+                Kind = "dataBase64",
+                DataBase64 = Convert.ToBase64String("hello"u8.ToArray())
+            }
+        }));
+
+        var tmpDir = Path.Combine(mediaRoot, "tmp");
+        Assert.False(Directory.Exists(tmpDir) && Directory.EnumerateFiles(tmpDir).Any());
+    }
+
+    [Fact]
     public async Task ExternalChannelMessageDispatcher_RejectsUnsupportedUrlSource()
     {
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
         var transport = new StubTransport();
         var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: new ChannelMediaConstraints
@@ -144,7 +258,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     public async Task ExternalChannelMessageDispatcher_RejectsUrlSource_WhenMaxBytesCannotBeValidated()
     {
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
         var transport = new StubTransport();
         var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: new ChannelMediaConstraints
@@ -179,7 +293,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     {
         var mediaRoot = Path.Combine(_tempDir, "media");
         var store = new FileSystemChannelMediaArtifactStore(mediaRoot);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(mediaRoot, "tmp"));
+        var resolver = CreateResolver(store, mediaRoot);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
         var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
         var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: new ChannelMediaConstraints
@@ -214,7 +328,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     {
         var transport = new StubTransport(new { delivered = false, error = "legacy failed" });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
         var connection = CreateAdapterConnection(structuredDelivery: false, fileConstraints: null);
 
@@ -240,7 +354,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     {
         var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
         var connection = CreateAdapterConnection(structuredDelivery: false, fileConstraints: null);
 
@@ -266,7 +380,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     {
         var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
         var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: new ChannelMediaConstraints
         {
@@ -294,7 +408,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
     {
         var transport = new StubTransport(new ExtChannelSendResult { Delivered = true });
         var store = new FileSystemChannelMediaArtifactStore(_tempDir);
-        var resolver = new ChannelMediaResolver(store, Path.Combine(_tempDir, "tmp"));
+        var resolver = CreateResolver(store, _tempDir);
         var dispatcher = new ExternalChannelMessageDispatcher(resolver, store);
         var connection = CreateAdapterConnection(structuredDelivery: true, fileConstraints: null);
 
@@ -978,7 +1092,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             [],
             new ModuleRegistry(),
             _tempDir,
-            registry);
+            registry: registry);
 
         Assert.Single(ecManager.Channels);
         Assert.True(registry.TryGet("telegram", out var host));
@@ -1009,7 +1123,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
             [],
             new ModuleRegistry(),
             _tempDir,
-            registry);
+            registry: registry);
 
         Assert.Single(ecManager.Channels);
         Assert.True(registry.TryGet("feishu", out var host));
@@ -1063,6 +1177,20 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         connection.MarkClientReady();
         return connection;
     }
+
+    private static ChannelMediaResolver CreateResolver(
+        IChannelMediaArtifactStore store,
+        string workspaceRoot,
+        IApprovalService? approvalService = null,
+        PathBlacklist? blacklist = null)
+        => new(
+            store,
+            Path.Combine(workspaceRoot, "tmp"),
+            new FileAccessGuard(
+                workspaceRoot,
+                requireApprovalOutsideWorkspace: true,
+                approvalService,
+                blacklist));
 
     private ExternalChannelHost CreateHost(string channelName)
         => new(
@@ -1163,6 +1291,35 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class RecordingApprovalService(bool approve) : IApprovalService
+    {
+        public string? LastOperation { get; private set; }
+
+        public string? LastPath { get; private set; }
+
+        public Task<bool> RequestFileApprovalAsync(string operation, string path, ApprovalContext? context = null)
+        {
+            LastOperation = operation;
+            LastPath = path;
+            return Task.FromResult(approve);
+        }
+
+        public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingRegisterArtifactStore : IChannelMediaArtifactStore
+    {
+        public Task<ChannelMediaArtifact?> GetAsync(string artifactId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ChannelMediaArtifact?>(null);
+
+        public Task RegisterAsync(ChannelMediaArtifact artifact, CancellationToken cancellationToken = default)
+            => Task.FromException(new IOException("register failed"));
+
+        public Task DeleteAsync(string artifactId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private sealed class FakeSessionService : ISessionService

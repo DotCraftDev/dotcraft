@@ -67,7 +67,12 @@ public sealed class MessageRouter : IMessageRouter
             {
                 try
                 {
-                    await channel.DeliverAsync(target, message);
+                    var result = await channel.DeliverAsync(target, message);
+                    if (!result.Delivered)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"[grey][[Gateway]][/] [red]{Markup.Escape(channel.Name)} admin notify to {Markup.Escape(target)} failed: {Markup.Escape(result.ErrorCode ?? "DeliveryFailed")} {Markup.Escape(result.ErrorMessage ?? "Unknown error")}[/]");
+                    }
                 }
                 catch (Exception ex)
                 {
