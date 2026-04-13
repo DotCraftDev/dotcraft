@@ -3,12 +3,19 @@ import test from "node:test";
 
 import { createFeishuEventHandlers } from "./event-handler.js";
 import { FeishuClient } from "./feishu-client.js";
-import type { AppConfig, FeishuBotInfo, FeishuMessageEvent, ParsedInboundMessage } from "./feishu-types.js";
+import type {
+  AppConfig,
+  FeishuBotInfo,
+  FeishuCardActionEvent,
+  FeishuMessageEvent,
+  ParsedInboundMessage,
+} from "./feishu-types.js";
 
 type MockAdapter = {
   handledMessages: ParsedInboundMessage[];
+  cardActionCalls: number;
   handleInboundMessage: (message: ParsedInboundMessage) => Promise<void>;
-  handleCardAction: () => boolean;
+  handleCardAction: (event: FeishuCardActionEvent) => boolean;
 };
 
 type MockClient = {
@@ -20,11 +27,13 @@ type MockClient = {
 function createAdapterMock(onHandle?: (message: ParsedInboundMessage) => void): MockAdapter {
   return {
     handledMessages: [],
+    cardActionCalls: 0,
     async handleInboundMessage(message: ParsedInboundMessage): Promise<void> {
       this.handledMessages.push(message);
       onHandle?.(message);
     },
-    handleCardAction(): boolean {
+    handleCardAction(_event: FeishuCardActionEvent): boolean {
+      this.cardActionCalls += 1;
       return false;
     },
   };
@@ -269,4 +278,49 @@ test("Feishu event handler keeps processing when adding reaction fails", async (
   assert.equal(client.reactedMessages.length, 1);
   assert.equal(adapter.handledMessages.length, 1);
   assert.equal(adapter.handledMessages[0]?.messageId, "om_message_123");
+});
+
+test("card action without event_id is not deduped across different approval requests (same token)", async () => {
+  const adapter = createAdapterMock();
+  adapter.handleCardAction = function handleCardAction(_event: FeishuCardActionEvent): boolean {
+    this.cardActionCalls += 1;
+    return true;
+  };
+  const { handlers } = createHandlers({ adapter });
+
+  const base = { token: "shared-feishu-token" };
+  await handlers.onCardAction({
+    ...base,
+    context: { open_message_id: "om_approval_msg_1" },
+    action: { value: { kind: "approval", requestId: "req-first", decision: "accept" } },
+    operator: { open_id: "ou_clicker" },
+  });
+  await handlers.onCardAction({
+    ...base,
+    context: { open_message_id: "om_approval_msg_2" },
+    action: { value: { kind: "approval", requestId: "req-second", decision: "accept" } },
+    operator: { open_id: "ou_clicker" },
+  });
+
+  assert.equal(adapter.cardActionCalls, 2);
+});
+
+test("card action without event_id dedupes identical redelivery", async () => {
+  const adapter = createAdapterMock();
+  adapter.handleCardAction = function handleCardAction(_event: FeishuCardActionEvent): boolean {
+    this.cardActionCalls += 1;
+    return true;
+  };
+  const { handlers } = createHandlers({ adapter });
+
+  const evt: FeishuCardActionEvent = {
+    token: "shared-feishu-token",
+    context: { open_message_id: "om_approval_msg_1" },
+    action: { value: { kind: "approval", requestId: "req-first", decision: "accept" } },
+    operator: { open_id: "ou_clicker" },
+  };
+  await handlers.onCardAction(evt);
+  await handlers.onCardAction(evt);
+
+  assert.equal(adapter.cardActionCalls, 1);
 });

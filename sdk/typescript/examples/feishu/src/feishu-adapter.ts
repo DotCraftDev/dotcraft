@@ -542,11 +542,26 @@ export class FeishuAdapter extends ChannelAdapter {
 
   handleCardAction(event: FeishuCardActionEvent): boolean {
     const value = parseActionValue(event.action?.value);
-    if (!value || value.kind !== "approval") return false;
+    if (!value || value.kind !== "approval") {
+      const kindStr =
+        value && typeof value === "object" && "kind" in value
+          ? String((value as Record<string, unknown>).kind ?? "")
+          : "";
+      logWarn("approval.action_not_approval_kind", {
+        kind: kindStr || "missing",
+      });
+      return false;
+    }
     const requestId = String(value.requestId ?? "");
     const decision = String(value.decision ?? "");
     const waiter = this.approvalWaiters.get(requestId);
-    if (!waiter) return false;
+    if (!waiter) {
+      logWarn("approval.action_no_waiter", {
+        requestId: shortId(requestId),
+        openMessageId: shortId(String(event.context?.open_message_id ?? "")),
+      });
+      return false;
+    }
     const openMessageId = String(event.context?.open_message_id ?? "");
     if (openMessageId && waiter.messageId && openMessageId !== waiter.messageId) {
       logWarn("approval.action_message_mismatch", {

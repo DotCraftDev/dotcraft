@@ -8,7 +8,7 @@
     "start": "node dist/index.js adapter_config.json",
     "build": "tsc",
     "dev": "tsc && node dist/index.js adapter_config.json",
-    "test": "npm run build && node --test dist/feishu-transcript.test.js dist/event-handler.test.js"
+    "test": "npm run build && node --test dist/feishu-transcript.test.js dist/event-handler.test.js dist/card-action-dedup.test.js"
   },
   "engines": {
     "node": ">=18"

@@ -8,6 +8,7 @@ import type {
   FeishuCardActionEvent,
   FeishuMessageEvent,
 } from "./feishu-types.js";
+import { buildCardActionDedupKey } from "./card-action-dedup.js";
 import { shouldHandleMessageWithReason } from "./mention.js";
 import { parseInboundMessage } from "./message-parser.js";
 import { errorMessage, logInfo, logWarn, shortId } from "./logging.js";
@@ -128,10 +129,18 @@ export function createFeishuEventHandlers(params: {
       await params.adapter.handleInboundMessage(parsed);
     },
     onCardAction: async (event: FeishuCardActionEvent): Promise<void> => {
-      const dedupKey = `action:${event.event_id ?? ""}:${event.token ?? ""}`;
+      const { key: dedupKey, weak: weakDedupKey } = buildCardActionDedupKey(event);
+      if (weakDedupKey) {
+        logWarn("approval.action.weak_dedup_key", {
+          eventId: shortId(event.event_id ?? ""),
+          openMessageId: shortId(event.context?.open_message_id ?? ""),
+          hint: "Card action missing event_id and insufficient fields for a strong dedup key; retries may be misclassified.",
+        });
+      }
       if (!remember(dedupKey)) {
         logInfo("approval.action.deduped", {
           eventId: shortId(event.event_id ?? ""),
+          dedupKeyKind: weakDedupKey ? "weak" : "strong",
         });
         return;
       }
@@ -145,6 +154,7 @@ export function createFeishuEventHandlers(params: {
         logWarn("approval.action_ignored", {
           eventId: shortId(event.event_id ?? ""),
           openMessageId: shortId(event.context?.open_message_id ?? ""),
+          hint: "Adapter returned false (unknown action, no pending waiter, or open_message_id mismatch).",
         });
       }
     },

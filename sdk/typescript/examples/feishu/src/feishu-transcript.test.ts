@@ -218,6 +218,56 @@ test("Feishu adapter keeps approval card separate from transcript content", asyn
   assert.equal(latestTranscriptText(mockFeishu), normalizeMarkdownForFeishu("这是正文 transcript。"));
 });
 
+test("Feishu adapter resolves two consecutive approval requests with distinct message ids", async () => {
+  const mockFeishu = new MockFeishuClient();
+  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 5000, feishu: mockFeishu as unknown as FeishuClient });
+  (adapter as unknown as { onThreadContextBound: (threadId: string, channelContext: string) => void }).onThreadContextBound(
+    "thread-double-approval",
+    "dm:test-user",
+  );
+
+  const pending1 = adapter.onApprovalRequest({
+    requestId: "request-seq-1",
+    threadId: "thread-double-approval",
+    approvalType: "file",
+    operation: "read",
+    target: "a.txt",
+    reason: "first",
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const msg1 = mockFeishu.sentCards[mockFeishu.sentCards.length - 1]?.messageId ?? "";
+  assert.ok(msg1.length > 0);
+
+  const handled1 = adapter.handleCardAction({
+    action: { value: { kind: "approval", requestId: "request-seq-1", decision: DECISION_ACCEPT } },
+    context: { open_message_id: msg1 },
+  });
+  const decision1 = await pending1;
+  assert.equal(handled1, true);
+  assert.equal(decision1, DECISION_ACCEPT);
+
+  const pending2 = adapter.onApprovalRequest({
+    requestId: "request-seq-2",
+    threadId: "thread-double-approval",
+    approvalType: "file",
+    operation: "read",
+    target: "b.txt",
+    reason: "second",
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const msg2 = mockFeishu.sentCards[mockFeishu.sentCards.length - 1]?.messageId ?? "";
+  assert.ok(msg2.length > 0);
+  assert.notEqual(msg1, msg2);
+
+  const handled2 = adapter.handleCardAction({
+    action: { value: { kind: "approval", requestId: "request-seq-2", decision: DECISION_ACCEPT } },
+    context: { open_message_id: msg2 },
+  });
+  const decision2 = await pending2;
+  assert.equal(handled2, true);
+  assert.equal(decision2, DECISION_ACCEPT);
+});
+
 test("Feishu visible transcript keeps repaired prefix in file-send style flow", async () => {
   const mockFeishu = new MockFeishuClient();
   const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
