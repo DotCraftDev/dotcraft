@@ -1,99 +1,21 @@
 # DotCraft 企业微信指南
 
-DotCraft 提供两种企业微信集成能力：
-
-| 能力 | 说明 | 配置节 |
-|------|------|--------|
-| **企业微信推送** | 通过群机器人 Webhook 向企业微信群发送通知 | `WeCom` |
-| **企业微信机器人** | 作为独立运行模式，接收并响应企业微信消息 | `WeComBot` |
-
-两者可独立使用，也可同时启用。
+DotCraft 当前通过 `WeComBot` 配置节提供企业微信机器人能力（接收消息、会话处理、渠道内回推）。
 
 ---
 
 ## 目录
 
-- [一、企业微信推送](#一企业微信推送)
-- [二、企业微信机器人模式](#二企业微信机器人模式)
-- [三、心跳与定时任务集成](#三心跳与定时任务集成)
-- [四、完整配置示例](#四完整配置示例)
-- [五、部署指南](#五部署指南)
+- [一、企业微信机器人模式](#一企业微信机器人模式)
+- [二、心跳与定时任务集成](#二心跳与定时任务集成)
+- [三、完整配置示例](#三完整配置示例)
+- [四、部署指南](#四部署指南)
 
 ---
 
-## 一、企业微信推送
+## 一、企业微信机器人模式
 
 ### 1.1 概述
-
-企业微信推送基于**群机器人 Webhook**，是一种单向通知机制。DotCraft 通过 HTTPS POST 将消息投递到企业微信群，无需额外登录或客户端。
-
-适用场景：
-- Agent 执行任务后自动通知群组
-- Heartbeat 巡检结果推送
-- Cron 定时任务结果投递
-
-### 1.2 创建群机器人
-
-1. 打开企业微信客户端，进入目标群聊
-2. 点击右上角 **···** > **群设置** > **群机器人** > **添加机器人**
-3. 输入机器人名称（例如 DotCraft 通知），点击 **添加**
-4. 复制生成的 Webhook 地址
-
-> **安全提示**：Webhook URL 中的 `key` 是唯一凭证，任何获得该 URL 的人都可以向群发送消息。请勿将其提交到公共代码仓库。
-
-### 1.3 配置
-
-在 `config.json` 中添加 `WeCom` 配置节：
-
-```json
-{
-    "WeCom": {
-        "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
-    }
-}
-```
-
-| 配置项 | 类型 | 默认值 | 必填 | 说明 |
-|--------|------|--------|------|------|
-| `WeCom.Enabled` | bool | `false` | 是 | 是否启用企业微信推送 |
-| `WeCom.WebhookUrl` | string | 空 | 是 | 完整的 Webhook URL（含 key） |
-
-**推荐做法**：将 `WeCom.WebhookUrl` 配置在全局配置（`~/.craft/config.json`）而非工作区配置，避免将敏感信息提交到 Git 仓库。
-
-### 1.4 使用方式
-
-#### Agent 智能调用
-
-启用后，Agent 会自动获得 `WeComNotify` 工具，可根据上下文智能决定何时发送通知。
-
-工具参数：
-- `message`（必填）：通知消息内容（最长 2048 字节，UTF-8）
-- `mentionList`（可选）：@成员的 userid 列表，逗号分隔（如 `"userid1,userid2"`），或 `"@all"` 表示 @所有人
-
-#### Heartbeat 自动通知
-
-当 `Heartbeat.NotifyAdmin = true` 时，心跳执行结果会自动推送到企业微信群。详见[心跳与定时任务集成](#三心跳与定时任务集成)。
-
-#### Cron 定时投递
-
-Cron 任务支持投递到企业微信群，只需在创建任务时指定 `channel: "wecom"`。
-
-### 1.5 消息格式与限制
-
-| 项目 | 限制 |
-|------|------|
-| 消息格式 | 纯文本（`text` 类型），支持换行符 |
-| 最大长度 | 2048 字节（UTF-8） |
-| 频率限制 | 每个群机器人 20 条/分钟 |
-
-> **注意**：`userid` 是企业微信的成员账号（由管理员分配），不是手机号或 QQ 号。
-
----
-
-## 二、企业微信机器人模式
-
-### 2.1 概述
 
 企业微信机器人模式是 DotCraft 的三种运行模式之一（CLI / QQ Bot / WeCom Bot）。启用后，DotCraft 作为 HTTP 服务器接收企业微信的消息回调，并通过 AI Agent 自动回复。
 
@@ -107,7 +29,7 @@ Cron 任务支持投递到企业微信群，只需在创建任务时指定 `chan
 - 流式响应实时推送
 - 集成 Heartbeat 和 Cron 服务
 
-### 2.2 在企业微信中创建应用机器人
+### 1.2 在企业微信中创建应用机器人
 
 1. 登录[企业微信管理后台](https://work.weixin.qq.com/)
 2. 进入 **应用与小程序** > **自建** > **创建应用**
@@ -118,7 +40,7 @@ Cron 任务支持投递到企业微信群，只需在创建任务时指定 `chan
    - EncodingAESKey：自定义或由企业微信生成（通常为 43 位，但支持可变长度）
 5. 点击 **保存**，系统会验证 URL（DotCraft 必须已启动）
 
-### 2.3 配置
+### 1.3 配置
 
 在 `config.json` 中添加 `WeComBot` 配置节：
 
@@ -180,7 +102,7 @@ Cron 任务支持投递到企业微信群，只需在创建任务时指定 `chan
 
 > **注意**：默认情况下（`Gateway.Enabled = false`），以上模式按优先级顺序互斥，仅运行优先级最高的一个。若需同时运行 QQ Bot、WeCom Bot 和 API，请启用 [Gateway 模式](./config_guide.md#gateway-多-channel-并发模式)。
 
-### 2.4 权限与审批机制
+### 1.4 权限与审批机制
 
 企业微信机器人模式实现了与 QQ Bot 类似的权限分级和聊天内审批机制。
 
@@ -265,7 +187,7 @@ Cron 任务支持投递到企业微信群，只需在创建任务时指定 `chan
 
 ---
 
-### 2.5 启动与验证
+### 1.5 启动与验证
 
 ```bash
 cd /your/workspace
@@ -284,7 +206,7 @@ Registered bots:
 Press Ctrl+C to stop...
 ```
 
-### 2.5 消息处理
+### 1.6 消息处理
 
 DotCraft 支持三种消息处理器，按优先级路由：
 
@@ -349,7 +271,7 @@ public delegate Task<string?> EventMessageHandler(
 "group"      // 群聊
 ```
 
-### 2.6 命令系统
+### 1.7 命令系统
 
 企业微信机器人模式支持以下斜杠命令：
 
@@ -361,7 +283,7 @@ public delegate Task<string?> EventMessageHandler(
 | `/cron list` | 查看所有定时任务 |
 | `/cron remove <id>` | 删除指定定时任务 |
 
-### 2.7 会话管理
+### 1.8 会话管理
 
 每个用户的会话独立存储，命名规则为：
 
@@ -375,7 +297,7 @@ sessionId = "wecom_{chatId}_{userId}"
 
 会话文件存储在 `.craft/sessions/` 目录下。
 
-### 2.8 推送能力（IWeComPusher）
+### 1.9 推送能力（IWeComPusher）
 
 企业微信机器人模式下的消息推送器支持多种消息格式：
 
@@ -426,11 +348,11 @@ var fileMediaId = await pusher.UploadMediaAsync(fileStream, "report.pdf", "file"
 await pusher.PushFileAsync(fileMediaId);
 ```
 
-> **注意**：企业微信推送（`WeCom` 配置节）仅支持纯文本（`text`）格式；而企业微信机器人模式（`WeComBot`）的 `IWeComPusher` 支持上述所有格式。
+> **注意**：本文中的发送能力均基于企业微信机器人模式（`WeComBot`）及其 `IWeComPusher`。
 >
 > **语音/文件限制**：上传临时素材的有效期为 3 天。语音支持 AMR 格式，文件大小上限参见企业微信官方文档。
 
-### 2.9 语音与文件消息
+### 1.10 语音与文件消息
 
 企业微信智能机器人 API 支持在单聊中接收语音和文件消息。DotCraft 对这两种消息的处理方式如下：
 
@@ -485,7 +407,7 @@ await pusher.PushFileAsync(fileMediaId);
 
 > 参考文档：[企业微信智能机器人接口文档](https://developer.work.weixin.qq.com/document/path/100719)
 
-### 2.10 Agent 内置工具（WeCom 模式）
+### 1.11 Agent 内置工具（WeCom 模式）
 
 在企业微信机器人模式下，Agent 可直接调用以下渠道原生 runtime 工具，将内容发送到当前企业微信聊天：
 
@@ -498,11 +420,11 @@ await pusher.PushFileAsync(fileMediaId);
 
 ---
 
-## 三、心跳与定时任务集成
+## 二、心跳与定时任务集成
 
 ### Heartbeat 通知
 
-当同时启用 `Heartbeat.NotifyAdmin` 和 `WeCom.Enabled` 时，心跳执行结果会自动推送到企业微信群。
+当启用 `Heartbeat.NotifyAdmin` 且 WeCom 机器人会话已建立后，心跳执行结果会通过当前可用的企业微信机器人 webhook 推送到对应会话。
 
 ```json
 {
@@ -511,15 +433,23 @@ await pusher.PushFileAsync(fileMediaId);
         "IntervalSeconds": 1800,
         "NotifyAdmin": true
     },
-    "WeCom": {
+    "WeComBot": {
         "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+        "Host": "0.0.0.0",
+        "Port": 9000,
+        "Robots": [
+            {
+                "Path": "/dotcraft",
+                "Token": "your_token",
+                "AesKey": "your_43_char_aeskey"
+            }
+        ]
     }
 }
 ```
 
-- **QQ Bot 模式**：Heartbeat 结果同时发送到 QQ 管理员私聊和企业微信群
-- **WeCom Bot 模式**：Heartbeat 结果仅发送到企业微信群（通过 `WeCom.WebhookUrl`）
+- **QQ Bot 模式**：Heartbeat 结果发送到 QQ 管理员私聊
+- **WeCom Bot 模式**：Heartbeat 结果发送到企业微信机器人会话（依赖已缓存 chatId 对应 webhook）
 
 ### Cron 投递渠道
 
@@ -527,24 +457,32 @@ await pusher.PushFileAsync(fileMediaId);
 |-----------|------|---------|----------|
 | `"qq"` | `"group:<群号>"` | QQ 群 | QQ Bot 模式 |
 | `"qq"` | `"<QQ号>"` | QQ 私聊 | QQ Bot 模式 |
-| `"wecom"` | `"<ChatId>"` | 企业微信指定群 | WeCom Bot 模式 |
-| `"wecom"` | 不填 | 企业微信（全局 Webhook） | 启用 `WeCom` 配置 |
+| `"wecom"` | `"<ChatId>"` | 企业微信指定群 | WeCom Bot 模式（chatId 已建立 webhook 缓存） |
+| `"wecom"` | 不填 | 不推荐/可能无法投递 | WeCom Bot 模式需要可解析目标 |
 
-> 从企业微信群对话中创建的 Cron 任务会自动关联当前群的 ChatId，投递时优先发送到该群；若 ChatId 尚未缓存（机器人重启后首次收消息前），则回退到 `WeCom.WebhookUrl`。
+> 建议在企业微信群对话中创建 Cron 任务，让任务自动关联当前群的 ChatId；若目标 chatId 尚未建立 webhook 缓存，投递会失败并返回 “No WeCom webhook is available for target ...”。
 
 ---
 
-## 四、完整配置示例
+## 三、完整配置示例
 
-### 仅启用企业微信推送
+### 仅启用企业微信机器人模式
 
 ```json
 {
     "ApiKey": "sk-xxx",
     "Model": "gpt-4o-mini",
-    "WeCom": {
+    "WeComBot": {
         "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+        "Host": "0.0.0.0",
+        "Port": 9000,
+        "Robots": [
+            {
+                "Path": "/dotcraft",
+                "Token": "your_token",
+                "AesKey": "your_43_char_aeskey"
+            }
+        ]
     }
 }
 ```
@@ -572,10 +510,6 @@ await pusher.PushFileAsync(fileMediaId);
             }
         ]
     },
-    "WeCom": {
-        "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
-    },
     "Heartbeat": {
         "Enabled": true,
         "IntervalSeconds": 1800,
@@ -588,20 +522,31 @@ await pusher.PushFileAsync(fileMediaId);
 }
 ```
 
-### 同时启用 QQ Bot 与企业微信推送
+### 同时启用 QQ Bot 与企业微信机器人（Gateway）
 
 ```json
 {
     "ApiKey": "sk-xxx",
     "Model": "gpt-4o-mini",
+    "Gateway": {
+        "Enabled": true
+    },
     "QQBot": {
         "Enabled": true,
         "Port": 6700,
         "AdminUsers": [123456789]
     },
-    "WeCom": {
+    "WeComBot": {
         "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+        "Port": 9000,
+        "Host": "0.0.0.0",
+        "Robots": [
+            {
+                "Path": "/dotcraft",
+                "Token": "your_token",
+                "AesKey": "your_43_char_aeskey"
+            }
+        ]
     },
     "Heartbeat": {
         "Enabled": true,
@@ -613,7 +558,7 @@ await pusher.PushFileAsync(fileMediaId);
 
 ---
 
-## 五、部署指南
+## 四、部署指南
 
 请遵循企业微信官方文档部署：[企业微信 - 智能机器人](https://developer.work.weixin.qq.com/document/path/101039)
 

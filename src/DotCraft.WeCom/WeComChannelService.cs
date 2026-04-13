@@ -109,8 +109,6 @@ public sealed class WeComChannelService(
 
     static WeComChannelService()
     {
-        ToolRegistry.RegisterDisplay(WeComSendVoiceTool, icon: "🎤", title: "Send voice in current WeCom chat");
-        ToolRegistry.RegisterDisplay(WeComSendFileTool, icon: "📁", title: "Send file in current WeCom chat");
         ToolRegistry.RegisterDisplayFormatter(WeComSendVoiceTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendVoice));
         ToolRegistry.RegisterDisplayFormatter(WeComSendFileTool, typeof(WeComToolDisplays), nameof(WeComToolDisplays.WeComSendFile));
     }
@@ -126,7 +124,7 @@ public sealed class WeComChannelService(
     /// <inheritdoc />
     public IApprovalService ApprovalService => wecomApprovalService;
 
-    public ChannelDeliveryCapabilities? GetDeliveryCapabilities() => DeliveryCapabilities;
+    public ChannelDeliveryCapabilities GetDeliveryCapabilities() => DeliveryCapabilities;
 
     public IReadOnlyList<ChannelToolDescriptor> GetChannelTools() => ChannelTools;
 
@@ -397,15 +395,14 @@ public sealed class WeComChannelService(
 
     private IWeComPusher? CreatePusher(string target)
     {
-        var webhookUrl = (!string.IsNullOrWhiteSpace(target) ? registry.GetWebhookUrl(target) : null)
-            ?? config.GetSection<WeComConfig>("WeCom").WebhookUrl;
+        var webhookUrl = !string.IsNullOrWhiteSpace(target) ? registry.GetWebhookUrl(target) : null;
         if (string.IsNullOrWhiteSpace(webhookUrl) || _httpClient == null)
             return null;
 
         return new WeComPusher(target, webhookUrl, _httpClient);
     }
 
-    private async Task SendMediaAsync(IWeComPusher pusher, ChannelOutboundMessage message, string mediaKind)
+    private static async Task SendMediaAsync(IWeComPusher pusher, ChannelOutboundMessage message, string mediaKind)
     {
         var source = message.Source ?? throw new InvalidOperationException("Media delivery requires a source.");
         var fileName = !string.IsNullOrWhiteSpace(message.FileName)
@@ -438,7 +435,7 @@ public sealed class WeComChannelService(
         }
     }
 
-    private static ChannelOutboundMessage? CreateMessageFromArgs(string kind, JsonObject args)
+    private static ChannelOutboundMessage CreateMessageFromArgs(string kind, JsonObject args)
     {
         var filePath = args["filePath"]?.GetValue<string>();
         if (string.IsNullOrWhiteSpace(filePath))

@@ -12,7 +12,7 @@ Read the DotCraft documentation to get started quickly
 
 [QQ Bot Guide](./qq_bot_guide.md) - NapCat / OneBot V11, permissions & approval
 
-[WeCom Guide](./wecom_guide.md) - WeCom push notifications & bot mode
+[WeCom Guide](./wecom_guide.md) - WeComBot mode, approvals, and delivery
 
 [ACP Mode Guide](./acp_guide.md) - Agent Client Protocol editor/IDE integration (JetBrains, Obsidian, and more)
 

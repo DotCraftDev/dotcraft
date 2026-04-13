@@ -12,7 +12,7 @@
 
 [QQ 机器人使用指南](./qq_bot_guide.md) - NapCat/OneBot V11、权限与审批
 
-[企业微信指南](./wecom_guide.md) - 企业微信推送与机器人模式
+[企业微信指南](./wecom_guide.md) - WeComBot 机器人模式、权限审批与投递
 
 [ACP 模式指南](./acp_guide.md) - Agent Client Protocol 编辑器/IDE 集成（JetBrains、Obsidian 等）
 

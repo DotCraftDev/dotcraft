@@ -1,99 +1,21 @@
 # DotCraft WeCom Guide
 
-DotCraft provides two WeCom (WeChat Work) integration capabilities:
-
-| Capability | Description | Config Section |
-|-----------|-------------|----------------|
-| **WeCom Push** | Send notifications to WeCom groups via group bot Webhook | `WeCom` |
-| **WeCom Bot** | Run as an independent mode, receive and respond to WeCom messages | `WeComBot` |
-
-Both can be used independently or simultaneously.
+DotCraft currently provides WeCom integration through the `WeComBot` config section (message receiving, session handling, and in-channel delivery).
 
 ---
 
 ## Table of Contents
 
-- [1. WeCom Push](#1-wecom-push)
-- [2. WeCom Bot Mode](#2-wecom-bot-mode)
-- [3. Heartbeat & Cron Integration](#3-heartbeat--cron-integration)
-- [4. Full Configuration Examples](#4-full-configuration-examples)
-- [5. Deployment Guide](#5-deployment-guide)
+- [1. WeCom Bot Mode](#1-wecom-bot-mode)
+- [2. Heartbeat & Cron Integration](#2-heartbeat--cron-integration)
+- [3. Full Configuration Examples](#3-full-configuration-examples)
+- [4. Deployment Guide](#4-deployment-guide)
 
 ---
 
-## 1. WeCom Push
+## 1. WeCom Bot Mode
 
 ### 1.1 Overview
-
-WeCom Push is based on **group bot Webhooks**, a one-way notification mechanism. DotCraft delivers messages to WeCom groups via HTTPS POST, with no additional login or client required.
-
-Use cases:
-- Auto-notify groups after Agent completes tasks
-- Heartbeat inspection result push
-- Cron scheduled task result delivery
-
-### 1.2 Create a Group Bot
-
-1. Open the WeCom client and enter the target group chat
-2. Click the top-right **...** > **Group Settings** > **Group Bots** > **Add Bot**
-3. Enter a bot name (e.g., DotCraft Notifications) and click **Add**
-4. Copy the generated Webhook URL
-
-> **Security Tip**: The `key` in the Webhook URL is the sole credential. Anyone with this URL can send messages to the group. Do not commit it to public code repositories.
-
-### 1.3 Configuration
-
-Add the `WeCom` config section in `config.json`:
-
-```json
-{
-    "WeCom": {
-        "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
-    }
-}
-```
-
-| Config Item | Type | Default | Required | Description |
-|-------------|------|---------|----------|-------------|
-| `WeCom.Enabled` | bool | `false` | Yes | Enable WeCom push |
-| `WeCom.WebhookUrl` | string | empty | Yes | Full Webhook URL (including key) |
-
-**Recommendation**: Place `WeCom.WebhookUrl` in global config (`~/.craft/config.json`) rather than workspace config to avoid committing sensitive information to Git.
-
-### 1.4 Usage
-
-#### Agent Smart Invocation
-
-When enabled, the Agent automatically gets the `WeComNotify` tool and can intelligently decide when to send notifications based on context.
-
-Tool parameters:
-- `message` (required): Notification message content (max 2048 bytes, UTF-8)
-- `mentionList` (optional): List of user IDs to @mention, comma-separated (e.g., `"userid1,userid2"`), or `"@all"` to @everyone
-
-#### Heartbeat Auto-Notification
-
-When `Heartbeat.NotifyAdmin = true`, heartbeat execution results are automatically pushed to WeCom groups. See [Heartbeat & Cron Integration](#3-heartbeat--cron-integration).
-
-#### Cron Delivery
-
-Cron tasks support delivery to WeCom groups by specifying `channel: "wecom"` when creating the task.
-
-### 1.5 Message Format & Limits
-
-| Item | Limit |
-|------|-------|
-| Message format | Plain text (`text` type), supports newlines |
-| Max length | 2048 bytes (UTF-8) |
-| Rate limit | 20 messages/minute per group bot |
-
-> **Note**: `userid` is the WeCom member account (assigned by admin), not a phone number or QQ number.
-
----
-
-## 2. WeCom Bot Mode
-
-### 2.1 Overview
 
 WeCom Bot mode is one of DotCraft's four runtime modes (CLI / QQ Bot / WeCom Bot / API). When enabled, DotCraft runs as an HTTP server receiving WeCom message callbacks and auto-replying via the AI Agent.
 
@@ -107,7 +29,7 @@ Core features:
 - Streaming response real-time push
 - Integrated Heartbeat and Cron services
 
-### 2.2 Create an Application Bot in WeCom
+### 1.2 Create an Application Bot in WeCom
 
 1. Log in to [WeCom Admin Console](https://work.weixin.qq.com/)
 2. Go to **Apps & Mini Programs** > **Self-built** > **Create App**
@@ -118,7 +40,7 @@ Core features:
    - EncodingAESKey: Custom or WeCom-generated (usually 43 characters, but supports variable length)
 5. Click **Save**, the system will verify the URL (DotCraft must already be running)
 
-### 2.3 Configuration
+### 1.3 Configuration
 
 Add the `WeComBot` config section in `config.json`:
 
@@ -180,7 +102,7 @@ Add the `WeComBot` config section in `config.json`:
 
 > **Note**: By default (`Gateway.Enabled = false`), these modes are mutually exclusive and only the highest-priority enabled mode runs. To run QQ Bot, WeCom Bot, and API simultaneously, enable [Gateway mode](./config_guide.md#gateway-multi-channel-concurrent-mode).
 
-### 2.4 Permissions & Approval
+### 1.4 Permissions & Approval
 
 WeCom Bot mode implements permission tiers and in-chat approval similar to QQ Bot.
 
@@ -265,7 +187,7 @@ When a user selects "approve all", similar operations in that session will no lo
 
 ---
 
-### 2.5 Start & Verify
+### 1.5 Start & Verify
 
 ```bash
 cd /your/workspace
@@ -284,7 +206,7 @@ Registered bots:
 Press Ctrl+C to stop...
 ```
 
-### 2.6 Command System
+### 1.6 Command System
 
 WeCom Bot mode supports the following slash commands:
 
@@ -296,7 +218,7 @@ WeCom Bot mode supports the following slash commands:
 | `/cron list` | View all scheduled tasks |
 | `/cron remove <id>` | Delete a scheduled task |
 
-### 2.7 Session Management
+### 1.7 Session Management
 
 Each user's session is independently stored, following the naming convention:
 
@@ -310,7 +232,7 @@ sessionId = "wecom_{chatId}_{userId}"
 
 Session files are stored in the `.craft/sessions/` directory.
 
-### 2.8 Push Capabilities (IWeComPusher)
+### 1.8 Push Capabilities (IWeComPusher)
 
 The message pusher in WeCom Bot mode supports multiple message formats:
 
@@ -361,11 +283,11 @@ var fileMediaId = await pusher.UploadMediaAsync(fileStream, "report.pdf", "file"
 await pusher.PushFileAsync(fileMediaId);
 ```
 
-> **Note**: WeCom Push (`WeCom` config section) only supports plain text (`text`) format; while WeCom Bot mode (`WeComBot`) `IWeComPusher` supports all formats listed above.
+> **Note**: The sending capabilities in this guide are all based on WeCom Bot mode (`WeComBot`) and its `IWeComPusher`.
 >
 > **Voice/File Limits**: Uploaded temporary media expires after 3 days. Voice supports AMR format. For file size limits, refer to the official WeCom documentation.
 
-### 2.9 Voice & File Messages
+### 1.9 Voice & File Messages
 
 The WeCom Smart Bot API supports receiving voice and file messages in single chats. DotCraft handles these two message types as follows:
 
@@ -420,7 +342,7 @@ await pusher.PushFileAsync(fileMediaId);
 
 > Reference: [WeCom Smart Bot API Documentation](https://developer.work.weixin.qq.com/document/path/100719)
 
-### 2.10 Agent Built-in Tools (WeCom Mode)
+### 1.10 Agent Built-in Tools (WeCom Mode)
 
 In WeCom Bot mode, the Agent can directly call the following channel-native runtime tools to send content to the current WeCom chat:
 
@@ -433,11 +355,11 @@ In WeCom Bot mode, the Agent can directly call the following channel-native runt
 
 ---
 
-## 3. Heartbeat & Cron Integration
+## 2. Heartbeat & Cron Integration
 
 ### Heartbeat Notification
 
-When both `Heartbeat.NotifyAdmin` and `WeCom.Enabled` are enabled, heartbeat execution results are automatically pushed to WeCom groups.
+When `Heartbeat.NotifyAdmin` is enabled and a WeCom bot session has been established, heartbeat results are pushed through the available webhook cached for that session target.
 
 ```json
 {
@@ -446,15 +368,23 @@ When both `Heartbeat.NotifyAdmin` and `WeCom.Enabled` are enabled, heartbeat exe
         "IntervalSeconds": 1800,
         "NotifyAdmin": true
     },
-    "WeCom": {
+    "WeComBot": {
         "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+        "Host": "0.0.0.0",
+        "Port": 9000,
+        "Robots": [
+            {
+                "Path": "/dotcraft",
+                "Token": "your_token",
+                "AesKey": "your_43_char_aeskey"
+            }
+        ]
     }
 }
 ```
 
-- **QQ Bot mode**: Heartbeat results sent to both QQ admin private chat and WeCom group
-- **WeCom Bot mode**: Heartbeat results sent only to WeCom group (via `WeCom.WebhookUrl`)
+- **QQ Bot mode**: Heartbeat results are sent to QQ admin private chat
+- **WeCom Bot mode**: Heartbeat results are sent to WeCom bot chats (requires cached webhook by chatId)
 
 ### Cron Delivery Channels
 
@@ -462,24 +392,32 @@ When both `Heartbeat.NotifyAdmin` and `WeCom.Enabled` are enabled, heartbeat exe
 |-----------|------|----------------|--------------|
 | `"qq"` | `"group:<groupId>"` | QQ group | QQ Bot mode |
 | `"qq"` | `"<qqUserId>"` | QQ private chat | QQ Bot mode |
-| `"wecom"` | `"<ChatId>"` | Specific WeCom group | WeCom Bot mode |
-| `"wecom"` | (omit) | WeCom (global Webhook) | `WeCom` config enabled |
+| `"wecom"` | `"<ChatId>"` | Specific WeCom group | WeCom Bot mode (chatId has webhook cache) |
+| `"wecom"` | (omit) | Not recommended / likely to fail | WeCom Bot delivery requires resolvable target |
 
-> Cron tasks created from within a WeCom group chat automatically capture the current group's ChatId. Delivery is routed to that group; if the ChatId is not yet cached (e.g., before the first message after a restart), it falls back to `WeCom.WebhookUrl`.
+> Create Cron tasks from inside a WeCom group chat whenever possible. This captures the current ChatId automatically. If the target chatId has no webhook cache yet, delivery fails with `No WeCom webhook is available for target ...`.
 
 ---
 
-## 4. Full Configuration Examples
+## 3. Full Configuration Examples
 
-### WeCom Push Only
+### WeCom Bot Only
 
 ```json
 {
     "ApiKey": "sk-xxx",
     "Model": "gpt-4o-mini",
-    "WeCom": {
+    "WeComBot": {
         "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+        "Host": "0.0.0.0",
+        "Port": 9000,
+        "Robots": [
+            {
+                "Path": "/dotcraft",
+                "Token": "your_token",
+                "AesKey": "your_43_char_aeskey"
+            }
+        ]
     }
 }
 ```
@@ -507,10 +445,6 @@ When both `Heartbeat.NotifyAdmin` and `WeCom.Enabled` are enabled, heartbeat exe
             }
         ]
     },
-    "WeCom": {
-        "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
-    },
     "Heartbeat": {
         "Enabled": true,
         "IntervalSeconds": 1800,
@@ -523,20 +457,31 @@ When both `Heartbeat.NotifyAdmin` and `WeCom.Enabled` are enabled, heartbeat exe
 }
 ```
 
-### Enable Both QQ Bot and WeCom Push
+### Enable Both QQ Bot and WeCom Bot (Gateway)
 
 ```json
 {
     "ApiKey": "sk-xxx",
     "Model": "gpt-4o-mini",
+    "Gateway": {
+        "Enabled": true
+    },
     "QQBot": {
         "Enabled": true,
         "Port": 6700,
         "AdminUsers": [123456789]
     },
-    "WeCom": {
+    "WeComBot": {
         "Enabled": true,
-        "WebhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+        "Port": 9000,
+        "Host": "0.0.0.0",
+        "Robots": [
+            {
+                "Path": "/dotcraft",
+                "Token": "your_token",
+                "AesKey": "your_43_char_aeskey"
+            }
+        ]
     },
     "Heartbeat": {
         "Enabled": true,
@@ -548,7 +493,7 @@ When both `Heartbeat.NotifyAdmin` and `WeCom.Enabled` are enabled, heartbeat exe
 
 ---
 
-## 5. Deployment Guide
+## 4. Deployment Guide
 
 Please follow the official WeChat Work documentation for deployment: [WeChat Work - Intelligent Robot](https://developer.work.weixin.qq.com/document/path/101039)
 

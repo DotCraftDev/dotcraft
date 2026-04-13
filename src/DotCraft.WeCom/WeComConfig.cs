@@ -2,19 +2,7 @@ using DotCraft.Configuration;
 
 namespace DotCraft.WeCom;
 
-[ConfigSection("WeCom", DisplayName = "WeCom", Order = 210)]
-public sealed class WeComConfig
-{
-    public bool Enabled { get; set; }
-
-    /// <summary>
-    /// Full webhook URL including key, e.g. https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY
-    /// </summary>
-    [ConfigField(Sensitive = true, Hint = "Full webhook URL including key")]
-    public string WebhookUrl { get; set; } = string.Empty;
-}
-
-[ConfigSection("WeComBot", DisplayName = "WeCom Bot", Order = 220)]
+[ConfigSection("WeComBot", DisplayName = "WeCom Bot", Order = 210)]
 public sealed class WeComBotConfig
 {
     /// <summary>
