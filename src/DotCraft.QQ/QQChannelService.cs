@@ -186,11 +186,19 @@ public sealed class QQChannelService(
 
     static QQChannelService()
     {
+        ToolRegistry.RegisterDisplay(QQSendGroupVoiceTool, icon: "🎤", title: "Send voice to QQ group");
+        ToolRegistry.RegisterDisplay(QQSendPrivateVoiceTool, icon: "🎤", title: "Send voice to QQ user");
+        ToolRegistry.RegisterDisplay(QQSendGroupVideoTool, icon: "🎬", title: "Send video to QQ group");
+        ToolRegistry.RegisterDisplay(QQSendPrivateVideoTool, icon: "🎬", title: "Send video to QQ user");
+        ToolRegistry.RegisterDisplay(QQUploadGroupFileTool, icon: "📁", title: "Upload file to QQ group");
+        ToolRegistry.RegisterDisplay(QQUploadPrivateFileTool, icon: "📁", title: "Upload file to QQ user");
         ToolRegistry.RegisterDisplayFormatter(QQSendGroupVoiceTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendGroupVoice));
         ToolRegistry.RegisterDisplayFormatter(QQSendPrivateVoiceTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendPrivateVoice));
         ToolRegistry.RegisterDisplayFormatter(QQSendGroupVideoTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendGroupVideo));
         ToolRegistry.RegisterDisplayFormatter(QQSendPrivateVideoTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQSendPrivateVideo));
         ToolRegistry.RegisterDisplayFormatter(QQUploadGroupFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadGroupFile));
+        ToolRegistry.RegisterDisplayFormatter(QQUploadPrivateFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadPrivateFile));
+    }
         ToolRegistry.RegisterDisplayFormatter(QQUploadPrivateFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadPrivateFile));
     }
 
