@@ -6,7 +6,13 @@ import type { FeishuClient } from "./feishu-client.js";
 import type { FeishuSendResult } from "./feishu-types.js";
 import { FeishuAdapter } from "./feishu-adapter.js";
 import { normalizeMarkdownForFeishu } from "./formatting.js";
-import { fileCaptionFixture, prefixRepairFixture, twoApprovalFileSendFixture, type WireEventFixture } from "./transcript-test-fixtures.js";
+import {
+  captionFinalizationFixture,
+  fileCaptionFixture,
+  prefixRepairFixture,
+  twoApprovalFileSendFixture,
+  type WireEventFixture,
+} from "./transcript-test-fixtures.js";
 
 class MockFeishuClient {
   readonly sentCards: Array<{ target: string; card: Record<string, unknown>; messageId: string }> = [];
@@ -121,6 +127,60 @@ test("Feishu adapter appends file caption into transcript card without extra tex
   assert.equal(mockFeishu.sentFiles.length, 1);
   assert.equal(mockFeishu.sentCards.length, 1);
   assert.ok(latestTranscriptText(mockFeishu).includes(fileCaptionFixture.expectedCaptionLine));
+});
+
+test("Feishu adapter keeps caption when final turn reconciliation runs", async () => {
+  const mockFeishu = new MockFeishuClient();
+  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
+
+  await (adapter as unknown as {
+    onSegmentCompleted: (
+      threadId: string,
+      turnId: string,
+      segmentText: string,
+      isFinal: boolean,
+      channelContext: string,
+    ) => Promise<void>;
+  }).onSegmentCompleted(
+    captionFinalizationFixture.threadId,
+    captionFinalizationFixture.turnId,
+    captionFinalizationFixture.initialSegment,
+    false,
+    captionFinalizationFixture.channelContext,
+  );
+
+  await (adapter as unknown as {
+    onSend: (target: string, message: Record<string, unknown>, metadata: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  }).onSend(
+    captionFinalizationFixture.channelContext,
+    {
+      kind: "file",
+      fileName: "Untitled.xml",
+      caption: captionFinalizationFixture.caption,
+      source: { kind: "dataBase64", dataBase64: Buffer.from("<unattend/>", "utf8").toString("base64") },
+    },
+    {},
+  );
+
+  await (adapter as unknown as {
+    onTurnCompleted: (
+      threadId: string,
+      turnId: string,
+      replyText: string,
+      channelContext: string,
+      segmentsWereDelivered: boolean,
+    ) => Promise<void>;
+  }).onTurnCompleted(
+    captionFinalizationFixture.threadId,
+    captionFinalizationFixture.turnId,
+    captionFinalizationFixture.finalReplyWithoutCaption,
+    captionFinalizationFixture.channelContext,
+    true,
+  );
+
+  const visible = latestTranscriptText(mockFeishu);
+  assert.ok(visible.includes(captionFinalizationFixture.caption));
+  assert.ok(visible.includes("已成功将文件"));
 });
 
 test("Feishu adapter keeps approval card separate from transcript content", async () => {

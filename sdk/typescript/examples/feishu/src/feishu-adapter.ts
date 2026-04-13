@@ -411,6 +411,25 @@ export class FeishuAdapter extends ChannelAdapter {
     if (activeTurnId) this.clearTurnTranscriptState(threadId, activeTurnId);
   }
 
+  private reconcileFinalTranscriptText(accumulatedText: string, replyText: string): string {
+    const accumulated = accumulatedText.trim();
+    const reply = replyText.trim();
+    if (!accumulated) return replyText;
+    if (!reply) return accumulatedText;
+    if (accumulated === reply) return accumulatedText;
+    if (accumulated.includes(reply)) return accumulatedText;
+    if (reply.includes(accumulated)) return replyText;
+    const commonPrefixLen = commonPrefixLength(accumulated, reply);
+    const stablePrefixThreshold = Math.min(24, Math.min(accumulated.length, reply.length));
+    if (commonPrefixLen >= stablePrefixThreshold) {
+      const replyTail = reply.slice(commonPrefixLen).trim();
+      if (replyTail && !accumulated.includes(replyTail)) {
+        return `${accumulatedText.trimEnd()}\n\n${replyTail}`;
+      }
+    }
+    return accumulated.length >= reply.length ? accumulatedText : replyText;
+  }
+
   private async appendCaptionToActiveTranscript(
     channelTarget: string,
     caption: string,
@@ -477,10 +496,10 @@ export class FeishuAdapter extends ChannelAdapter {
     }
     if (segmentsWereDelivered) {
       const state = this.turnTranscriptStates.get(this.transcriptStateKey(threadId, turnId));
-      if (state && state.channelTarget === channelContext && state.accumulatedText !== replyText) {
-        state.accumulatedText = replyText;
+      if (state && state.channelTarget === channelContext) {
+        state.accumulatedText = this.reconcileFinalTranscriptText(state.accumulatedText, replyText);
         state.isFinal = true;
-        const card = buildTranscriptCard(replyText, true);
+        const card = buildTranscriptCard(state.accumulatedText, true);
         const sent = await createOrUpdateCard(this.feishu, channelContext, card, state.messageId);
         state.messageId = sent.messageId;
       }
@@ -772,4 +791,11 @@ function inferMediaType(fileName: string): string {
   if (lower.endsWith(".csv")) return "text/csv";
   if (lower.endsWith(".md")) return "text/markdown";
   return "application/octet-stream";
+}
+
+function commonPrefixLength(left: string, right: string): number {
+  const max = Math.min(left.length, right.length);
+  let idx = 0;
+  while (idx < max && left[idx] === right[idx]) idx += 1;
+  return idx;
 }

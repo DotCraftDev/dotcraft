@@ -168,3 +168,16 @@ export const fileCaptionFixture = {
   caption: "这是您请求的 Untitled.xml 文件",
   expectedCaptionLine: "这是您请求的 Untitled.xml 文件",
 };
+
+export const captionFinalizationFixture = {
+  threadId: "thread-caption-finalize",
+  turnId: "turn-caption-finalize",
+  channelContext: "dm:test-user",
+  initialSegment:
+    "好的，文件存在。这是一个 Windows 无人值守安装的 XML 配置文件。现在我来使用 FeishuSendFileToCurrentChat 工具将文件发送给你。\n\n",
+  caption:
+    "这是您请求的文件 \"C:\\Untitled.xml\"，这是一个 Windows 无人值守安装配置文件。",
+  finalReplyWithoutCaption:
+    "好的，文件存在。这是一个 Windows 无人值守安装的 XML 配置文件。现在我来使用 FeishuSendFileToCurrentChat 工具将文件发送给你。\n\n" +
+    "已成功将文件 \"C:\\Untitled.xml\" 发送给你。这是一个 Windows 无人值守安装的 XML 配置文件，包含了在 specialize 阶段启用 CopyProfile 的设置。",
+};
