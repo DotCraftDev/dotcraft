@@ -199,8 +199,6 @@ public sealed class QQChannelService(
         ToolRegistry.RegisterDisplayFormatter(QQUploadGroupFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadGroupFile));
         ToolRegistry.RegisterDisplayFormatter(QQUploadPrivateFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadPrivateFile));
     }
-        ToolRegistry.RegisterDisplayFormatter(QQUploadPrivateFileTool, typeof(QQToolDisplays), nameof(QQToolDisplays.QQUploadPrivateFile));
-    }
 
     public string Name => "qq";
 
