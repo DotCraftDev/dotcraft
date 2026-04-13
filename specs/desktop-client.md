@@ -232,7 +232,8 @@ This section defines how protocol messages affect user-visible behavior. It inte
 - File changes produced during a thread remain discoverable until reverted or superseded.
 - Plan updates remain associated with the active thread and reflect the latest complete plan snapshot.
 - Tool output remains readable in-thread and must remain distinguishable from agent conversational text.
-- `commandExecution` items are the Desktop client's primary source of shell output. Running commands remain visible before completion and continue updating even if the user opens the Terminal detail surface.
+- `commandExecution` items are the Desktop client's primary source of shell output data, but the conversation view keeps the existing tool-card presentation for shell work instead of rendering command output as a standalone message block.
+- In the conversation view, shell work remains collapsed by default using the normal tool-card style. If the user expands the card, live output may be shown there while the command is still running.
 - The Terminal detail surface shows all `commandExecution` items for the current thread history, including in-progress commands.
 - If the user switches to another thread while a command is still running, the output continues updating in the background thread state without forcing a focus change.
 - This milestone does not require interactive terminal input; shell output is read-only from the Desktop client's perspective.

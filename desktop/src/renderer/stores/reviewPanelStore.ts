@@ -12,6 +12,41 @@ function sortItemsByCreatedAt(items: ConversationItem[]): ConversationItem[] {
   )
 }
 
+function mergeCommandExecutionIntoToolCall(
+  item: ConversationItem,
+  commandExecution: Partial<ConversationItem>
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  if ((item.toolName ?? '') !== 'Exec') return item
+  if (!commandExecution.toolCallId || item.toolCallId !== commandExecution.toolCallId) return item
+
+  return {
+    ...item,
+    aggregatedOutput: commandExecution.aggregatedOutput ?? item.aggregatedOutput,
+    executionStatus: commandExecution.executionStatus ?? item.executionStatus,
+    exitCode: commandExecution.exitCode ?? item.exitCode,
+    commandSource: commandExecution.commandSource ?? item.commandSource,
+    duration: commandExecution.duration ?? item.duration
+  }
+}
+
+function mergeCommandExecutionAcrossItems(
+  items: ConversationItem[],
+  commandExecution: Partial<ConversationItem>
+): ConversationItem[] {
+  return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
+}
+
+function mergeHistoricalCommandExecutions(turn: ConversationTurn): ConversationTurn {
+  let items = turn.items
+  for (const item of turn.items) {
+    if (item.type === 'commandExecution' && item.toolCallId) {
+      items = mergeCommandExecutionAcrossItems(items, item)
+    }
+  }
+  return { ...turn, items }
+}
+
 export interface ReviewPanelState {
   /** Task id for which the panel was opened (used to sync when threadId appears later). */
   openedTaskId: string | null
@@ -167,7 +202,7 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       }
 
       const rawTurns = res.thread?.turns ?? []
-      const turns = rawTurns.map((t) => wireTurnToConversationTurn(t))
+      const turns = rawTurns.map((t) => mergeHistoricalCommandExecutions(wireTurnToConversationTurn(t)))
       const runningTurn = turns.find((t) => t.status === 'running')
       set({
         turns,
@@ -365,7 +400,14 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       }
       set((state) => ({
         turns: state.turns.map((t) =>
-          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  mergeCommandExecutionAcrossItems([...t.items, newItem], newItem)
+                )
+              }
         )
       }))
     }
@@ -391,13 +433,17 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
           ? t
           : {
               ...t,
-              items: sortItemsByCreatedAt(
-                t.items.map((i) =>
+              items: sortItemsByCreatedAt((() => {
+                const updatedItems = t.items.map((i) =>
                   i.id === itemId && i.type === 'commandExecution'
                     ? { ...i, aggregatedOutput: (i.aggregatedOutput ?? '') + delta }
                     : i
                 )
-              )
+                const commandExecution = updatedItems.find((i) => i.id === itemId && i.type === 'commandExecution')
+                return commandExecution
+                  ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                  : updatedItems
+              })())
             }
       )
     }))
@@ -549,8 +595,8 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
             ? t
             : {
                 ...t,
-                items: sortItemsByCreatedAt(
-                  t.items.map((i) => {
+                items: sortItemsByCreatedAt((() => {
+                  const updatedItems = t.items.map((i) => {
                     if (i.id !== (item?.id as string) || i.type !== 'commandExecution') return i
                     const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
                     const endMs = (item?.completedAt as string)
@@ -585,7 +631,13 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
                       completedAt: (item?.completedAt as string) ?? new Date().toISOString()
                     }
                   })
-                )
+                  const commandExecution = updatedItems.find(
+                    (i) => i.id === (item?.id as string) && i.type === 'commandExecution'
+                  )
+                  return commandExecution
+                    ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                    : updatedItems
+                })())
               }
         )
       }))

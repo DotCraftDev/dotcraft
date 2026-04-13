@@ -119,6 +119,41 @@ describe('turn lifecycle', () => {
     expect(item?.duration).toBe(1500)
   })
 
+  it('mirrors command execution output onto the matching Exec toolCall item', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-1',
+        type: 'toolCall',
+        payload: {
+          callId: 'exec-2',
+          toolName: 'Exec',
+          arguments: { command: 'npm test' }
+        }
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-2',
+        type: 'commandExecution',
+        payload: {
+          callId: 'exec-2',
+          command: 'npm test',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+    s().onCommandExecutionDelta({ turnId: 'turn-1', itemId: 'cmd-2', delta: 'chunk\n' })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool-1')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.aggregatedOutput).toBe('chunk\n')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+  })
+
   it('onItemCompleted (agentMessage) updates placeholder in place and clears buffer', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({ turnId: 'turn-1', item: { id: 'item-1', type: 'agentMessage' } })

@@ -280,6 +280,50 @@ describe('notification dispatch payload format', () => {
     expect(item?.exitCode).toBe(0)
   })
 
+  it('updates the existing Exec toolCall instead of requiring a standalone terminal block', () => {
+    dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_1',
+          type: 'toolCall',
+          payload: {
+            callId: 'exec-3',
+            toolName: 'Exec',
+            arguments: { command: 'dir' }
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'cmd_3',
+          type: 'commandExecution',
+          payload: {
+            callId: 'exec-3',
+            command: 'dir',
+            status: 'inProgress',
+            aggregatedOutput: ''
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/commandExecution/outputDelta',
+      params: { threadId: 'thread-1', turnId: 'turn_1', itemId: 'cmd_3', delta: 'file.txt\n' }
+    })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool_1')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.aggregatedOutput).toBe('file.txt\n')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+  })
+
   it('dispatches item/usage/delta and accumulates tokens', () => {
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
     dispatch({ method: 'item/usage/delta', params: { inputTokens: 150, outputTokens: 80 } })

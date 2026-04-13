@@ -211,6 +211,31 @@ function sortItemsByCreatedAt(items: ConversationItem[]): ConversationItem[] {
   )
 }
 
+function mergeCommandExecutionIntoToolCall(
+  item: ConversationItem,
+  commandExecution: Partial<ConversationItem>
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  if ((item.toolName ?? '') !== 'Exec') return item
+  if (!commandExecution.toolCallId || item.toolCallId !== commandExecution.toolCallId) return item
+
+  return {
+    ...item,
+    aggregatedOutput: commandExecution.aggregatedOutput ?? item.aggregatedOutput,
+    executionStatus: commandExecution.executionStatus ?? item.executionStatus,
+    exitCode: commandExecution.exitCode ?? item.exitCode,
+    commandSource: commandExecution.commandSource ?? item.commandSource,
+    duration: commandExecution.duration ?? item.duration
+  }
+}
+
+function mergeCommandExecutionAcrossItems(
+  items: ConversationItem[],
+  commandExecution: Partial<ConversationItem>
+): ConversationItem[] {
+  return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
+}
+
 const SYSTEM_LABELS: Record<string, string | null> = {
   compacting: 'Compacting context...',
   consolidating: 'Consolidating memory...',
@@ -249,18 +274,27 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     const rehydratedTurns = converted.map((turn) => {
       // Build a callId -> toolResult lookup for this turn
       const resultByCallId = new Map<string, ConversationItem>()
+      const commandExecutionByCallId = new Map<string, ConversationItem>()
       for (const item of turn.items) {
         if (item.type === 'toolResult' && item.toolCallId) {
           resultByCallId.set(item.toolCallId, item)
         }
+        if (item.type === 'commandExecution' && item.toolCallId) {
+          commandExecutionByCallId.set(item.toolCallId, item)
+        }
       }
-      if (resultByCallId.size === 0) return turn
+      if (resultByCallId.size === 0 && commandExecutionByCallId.size === 0) return turn
 
       // Merge result data into toolCall items and extract diffs
       const mergedItems = turn.items.map((item) => {
         if (item.type !== 'toolCall') return item
         const resultItem = resultByCallId.get(item.toolCallId ?? '')
-        if (!resultItem) return item
+        const commandExecution = commandExecutionByCallId.get(item.toolCallId ?? '')
+        if (!resultItem) {
+          return commandExecution
+            ? mergeCommandExecutionIntoToolCall(item, commandExecution)
+            : item
+        }
 
         const resultText = resultItem.result ?? ''
         const success = resultItem.success !== false
@@ -274,6 +308,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           duration: endMs - startMs,
           completedAt: resultItem.completedAt
         }
+        const mergedWithCommandExecution = commandExecution
+          ? mergeCommandExecutionIntoToolCall(merged, commandExecution)
+          : merged
 
         // Accumulate diffs for file-writing tools (same path may appear multiple times)
         if (item.arguments && (item.toolName === 'WriteFile' || item.toolName === 'EditFile')) {
@@ -304,7 +341,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           }
         }
 
-        return merged
+        return mergedWithCommandExecution
       })
 
       return { ...turn, items: mergedItems }
@@ -536,7 +573,14 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       }
       set((state) => ({
         turns: state.turns.map((t) =>
-          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  mergeCommandExecutionAcrossItems([...t.items, newItem], newItem)
+                )
+              }
         )
       }))
     }
@@ -562,8 +606,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           ? t
           : {
               ...t,
-              items: sortItemsByCreatedAt(
-                t.items.map((i) =>
+              items: sortItemsByCreatedAt((() => {
+                const updatedItems = t.items.map((i) =>
                   i.id === itemId && i.type === 'commandExecution'
                     ? {
                         ...i,
@@ -571,7 +615,11 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                       }
                     : i
                 )
-              )
+                const commandExecution = updatedItems.find((i) => i.id === itemId && i.type === 'commandExecution')
+                return commandExecution
+                  ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                  : updatedItems
+              })())
             }
       )
     }))
@@ -724,8 +772,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
             ? t
             : {
                 ...t,
-                items: sortItemsByCreatedAt(
-                  t.items.map((i) => {
+                items: sortItemsByCreatedAt((() => {
+                  const updatedItems = t.items.map((i) => {
                     if (i.id !== (item?.id as string) || i.type !== 'commandExecution') return i
                     const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
                     const endMs = (item?.completedAt as string)
@@ -761,7 +809,13 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                       completedAt: (item?.completedAt as string) ?? new Date().toISOString()
                     }
                   })
-                )
+                  const commandExecution = updatedItems.find(
+                    (i) => i.id === (item?.id as string) && i.type === 'commandExecution'
+                  )
+                  return commandExecution
+                    ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                    : updatedItems
+                })())
               }
         )
       }))

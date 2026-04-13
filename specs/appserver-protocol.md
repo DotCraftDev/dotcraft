@@ -1085,6 +1085,7 @@ Compatibility rule:
 
 - When a connection advertises `capabilities.commandExecutionStreaming = true`, the server may emit the `commandExecution` projection for `Exec`-style tools so clients can render real-time shell output.
 - The underlying `toolCall` / `toolResult` items still exist for model execution and persistence, but clients that support `commandExecution` should treat that item type as the primary terminal-output source to avoid duplicate rendering.
+- A client may also use `commandExecution` as an enhancement source for an existing `Exec` tool card instead of rendering it as a standalone conversation item.
 - Clients that do not advertise the capability continue to rely on existing `toolCall` / `toolResult` behavior.
 
 **Params**:
