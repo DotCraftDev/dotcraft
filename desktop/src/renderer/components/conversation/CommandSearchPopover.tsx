@@ -24,7 +24,13 @@ export function CommandSearchPopover({
   const filtered = useMemo(() => {
     const prefix = query.toLowerCase()
     if (!prefix) return commands
-    return commands.filter((cmd) => cmd.name.slice(1).toLowerCase().startsWith(prefix))
+    return commands.filter((cmd) => {
+      if (cmd.name.slice(1).toLowerCase().startsWith(prefix)) return true
+      return cmd.aliases.some((alias) => {
+        const bare = alias.startsWith('/') ? alias.slice(1) : alias
+        return bare.toLowerCase().startsWith(prefix)
+      })
+    })
   }, [commands, query])
 
   useEffect(() => {
