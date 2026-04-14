@@ -7,7 +7,7 @@ import {
   useState,
   type ForwardedRef
 } from 'react'
-import { FILE_REF_CLASS } from './richInputConstants'
+import { COMMAND_REF_CLASS, FILE_REF_CLASS } from './richInputConstants'
 import { serializeEditor, truncateEditorDomToSerializedLength } from './richInputSerialization'
 
 const MAX_ROWS = 8
@@ -19,6 +19,7 @@ export interface RichInputAreaHandle {
   clear: () => void
   focus: () => void
   insertFileTag: (relativePath: string) => void
+  insertCommandTag: (commandName: string) => void
   /** Replace editor content with plain text (used for composer prefill). */
   setPlainText: (text: string) => void
 }
@@ -31,13 +32,14 @@ interface RichInputAreaProps {
   onSubmit: () => void
   /** Omitted on welcome screen (no @ popover). */
   onAtQuery?: (query: string | null) => void
+  onSlashQuery?: (query: string | null) => void
   onContentChange?: () => void
   onPasteImage?: (file: File) => void
   onPasteTextOversized?: () => void
 }
 
-/** Same linearization as textBeforeCaretForAt (tags = one boundary char). */
-function linearizeForAt(root: HTMLElement): string {
+/** Same linearization as textBeforeCaretForTriggers (tags = one boundary char). */
+function linearizeForTriggers(root: HTMLElement): string {
   let out = ''
   const walk = (node: Node): void => {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -49,7 +51,7 @@ function linearizeForAt(root: HTMLElement): string {
     if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') {
       return
     }
-    if (el.classList.contains(FILE_REF_CLASS)) {
+    if (el.classList.contains(FILE_REF_CLASS) || el.classList.contains(COMMAND_REF_CLASS)) {
       out += ' '
       return
     }
@@ -67,7 +69,7 @@ function linearizeForAt(root: HTMLElement): string {
   return out
 }
 
-function textBeforeCaretForAt(root: HTMLElement): string {
+function textBeforeCaretForTriggers(root: HTMLElement): string {
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0) return ''
   const range = sel.getRangeAt(0)
@@ -78,7 +80,7 @@ function textBeforeCaretForAt(root: HTMLElement): string {
   const frag = endRange.cloneContents()
   const div = document.createElement('div')
   div.appendChild(frag)
-  return linearizeForAt(div)
+  return linearizeForTriggers(div)
 }
 
 function walkToLinearOffset(
@@ -100,7 +102,7 @@ function walkToLinearOffset(
     if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') {
       return null
     }
-    if (el.classList.contains(FILE_REF_CLASS)) {
+    if (el.classList.contains(FILE_REF_CLASS) || el.classList.contains(COMMAND_REF_CLASS)) {
       if (pos + 1 >= target) {
         return { node: el, offset: 0 }
       }
@@ -129,6 +131,19 @@ function parseAtQuery(beforeCaret: string): { fullMatch: string; query: string }
   return { fullMatch: m[0], query: m[1] }
 }
 
+function parseSlashQuery(beforeCaret: string): { fullMatch: string; query: string } | null {
+  const m = /(?:^|[\s\n])\/([^\s/]*)$/.exec(beforeCaret)
+  if (!m) return null
+  return { fullMatch: m[0], query: m[1] }
+}
+
+function isInlineTagElement(node: Node | null): node is HTMLElement {
+  return (
+    node instanceof HTMLElement &&
+    (node.classList.contains(FILE_REF_CLASS) || node.classList.contains(COMMAND_REF_CLASS))
+  )
+}
+
 export const RichInputArea = forwardRef(function RichInputArea(
   {
     disabled,
@@ -137,6 +152,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
     onToggleModeShortcut,
     onSubmit,
     onAtQuery,
+    onSlashQuery,
     onContentChange,
     onPasteImage,
     onPasteTextOversized
@@ -150,7 +166,9 @@ export const RichInputArea = forwardRef(function RichInputArea(
       const el = editorRef.current
       if (!el) return
       const t = el.textContent?.replace(/\u00a0/g, ' ').trim() ?? ''
-      const hasTags = el.querySelector(`.${FILE_REF_CLASS}`) !== null
+      const hasTags =
+        el.querySelector(`.${FILE_REF_CLASS}`) !== null ||
+        el.querySelector(`.${COMMAND_REF_CLASS}`) !== null
       setShowPh(!t && !hasTags)
     }, [])
 
@@ -173,10 +191,12 @@ export const RichInputArea = forwardRef(function RichInputArea(
       const el = editorRef.current
       if (!el) return
       el.innerHTML = ''
+      onAtQuery?.(null)
+      onSlashQuery?.(null)
       setShowPh(true)
       adjustHeight()
       onContentChange?.()
-    }, [adjustHeight, onContentChange])
+    }, [adjustHeight, onAtQuery, onContentChange, onSlashQuery])
 
     const focusEditor = useCallback((): void => {
       editorRef.current?.focus()
@@ -186,7 +206,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
       (relativePath: string): void => {
         const el = editorRef.current
         if (!el) return
-        const before = textBeforeCaretForAt(el)
+        const before = textBeforeCaretForTriggers(el)
         const parsed = parseAtQuery(before)
         if (!parsed) return
 
@@ -235,11 +255,75 @@ export const RichInputArea = forwardRef(function RichInputArea(
         sel?.addRange(range)
 
         onAtQuery?.(null)
+        onSlashQuery?.(null)
         syncEmpty()
         adjustHeight()
         onContentChange?.()
       },
-      [adjustHeight, onAtQuery, onContentChange, syncEmpty]
+      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
+    )
+
+    const insertCommandTag = useCallback(
+      (commandName: string): void => {
+        const el = editorRef.current
+        if (!el) return
+        const command = commandName.trim()
+        if (!command.startsWith('/')) return
+        const before = textBeforeCaretForTriggers(el)
+        const parsed = parseSlashQuery(before)
+        if (!parsed) return
+
+        const endLinear = before.length
+        const leadingWs = parsed.fullMatch.length > 0 && parsed.fullMatch[0] !== '/' ? 1 : 0
+        const startLinear = endLinear - parsed.fullMatch.length + leadingWs
+        const startLoc = walkToLinearOffset(el, startLinear)
+        const endLoc = walkToLinearOffset(el, endLinear)
+        if (!startLoc || !endLoc) return
+
+        const range = document.createRange()
+        try {
+          range.setStart(startLoc.node, startLoc.offset)
+          range.setEnd(endLoc.node, endLoc.offset)
+          range.deleteContents()
+        } catch {
+          return
+        }
+
+        const span = document.createElement('span')
+        span.className = COMMAND_REF_CLASS
+        span.setAttribute('data-command', command)
+        span.setAttribute('contenteditable', 'false')
+        span.style.display = 'inline-flex'
+        span.style.alignItems = 'center'
+        span.style.borderRadius = '6px'
+        span.style.background = 'color-mix(in srgb, var(--accent) 16%, transparent)'
+        span.style.border = '1px solid color-mix(in srgb, var(--accent) 38%, transparent)'
+        span.style.color = 'var(--accent)'
+        span.style.padding = '1px 6px'
+        span.style.fontSize = '13px'
+        span.style.verticalAlign = 'baseline'
+        span.style.whiteSpace = 'nowrap'
+        span.style.userSelect = 'none'
+        span.style.fontWeight = '600'
+        span.textContent = command
+
+        const space = document.createTextNode('\u00a0')
+        range.insertNode(span)
+        range.setStartAfter(span)
+        range.insertNode(space)
+        range.setStartAfter(space)
+        range.collapse(true)
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+
+        onAtQuery?.(null)
+        onSlashQuery?.(null)
+        syncEmpty()
+        adjustHeight()
+        onContentChange?.()
+      },
+      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
     )
 
     const setPlainText = useCallback(
@@ -247,11 +331,13 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const el = editorRef.current
         if (!el) return
         el.textContent = text
+        onAtQuery?.(null)
+        onSlashQuery?.(null)
         syncEmpty()
         adjustHeight()
         onContentChange?.()
       },
-      [adjustHeight, onContentChange, syncEmpty]
+      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
     )
 
     useImperativeHandle(
@@ -261,37 +347,62 @@ export const RichInputArea = forwardRef(function RichInputArea(
         clear,
         focus: focusEditor,
         insertFileTag,
+        insertCommandTag,
         setPlainText
       }),
-      [getText, clear, focusEditor, insertFileTag, setPlainText]
+      [getText, clear, focusEditor, insertCommandTag, insertFileTag, setPlainText]
     )
 
     useEffect(() => {
       syncEmpty()
     }, [syncEmpty])
 
-    const emitAtQuery = useCallback((): void => {
+    const emitTriggerQueries = useCallback((): void => {
       const el = editorRef.current
       if (!el) return
-      const before = textBeforeCaretForAt(el)
-      const parsed = parseAtQuery(before)
-      onAtQuery?.(parsed ? parsed.query : null)
-    }, [onAtQuery])
+      const before = textBeforeCaretForTriggers(el)
+      const atParsed = parseAtQuery(before)
+      const slashParsed = parseSlashQuery(before)
+      if (atParsed && slashParsed) {
+        const atStart = before.length - atParsed.fullMatch.length
+        const slashStart = before.length - slashParsed.fullMatch.length
+        if (atStart > slashStart) {
+          onAtQuery?.(atParsed.query)
+          onSlashQuery?.(null)
+        } else {
+          onAtQuery?.(null)
+          onSlashQuery?.(slashParsed.query)
+        }
+        return
+      }
+      if (atParsed) {
+        onAtQuery?.(atParsed.query)
+        onSlashQuery?.(null)
+        return
+      }
+      if (slashParsed) {
+        onAtQuery?.(null)
+        onSlashQuery?.(slashParsed.query)
+        return
+      }
+      onAtQuery?.(null)
+      onSlashQuery?.(null)
+    }, [onAtQuery, onSlashQuery])
 
     const onInput = useCallback((): void => {
       syncEmpty()
       adjustHeight()
-      emitAtQuery()
+      emitTriggerQueries()
       onContentChange?.()
       const el = editorRef.current
       if (el && serializeEditor(el).length > MAX_TEXT_LEN) {
         truncateEditorDomToSerializedLength(el, MAX_TEXT_LEN)
         syncEmpty()
         adjustHeight()
-        emitAtQuery()
+        emitTriggerQueries()
         onContentChange?.()
       }
-    }, [adjustHeight, emitAtQuery, onContentChange, syncEmpty])
+    }, [adjustHeight, emitTriggerQueries, onContentChange, syncEmpty])
 
     const onKeyDown = useCallback(
       (e: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -320,10 +431,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
             const prev = startContainer.previousSibling
             if (prev && prev.nodeType === Node.TEXT_NODE && (prev.textContent === '\u00a0' || prev.textContent === ' ')) {
               const beforeSpace = prev.previousSibling
-              if (
-                beforeSpace instanceof HTMLElement &&
-                beforeSpace.classList.contains(FILE_REF_CLASS)
-              ) {
+              if (isInlineTagElement(beforeSpace)) {
                 e.preventDefault()
                 beforeSpace.remove()
                 prev.remove()
@@ -331,10 +439,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
                 return
               }
             }
-            if (
-              prev instanceof HTMLElement &&
-              prev.classList.contains(FILE_REF_CLASS)
-            ) {
+            if (isInlineTagElement(prev)) {
               e.preventDefault()
               prev.remove()
               onInput()

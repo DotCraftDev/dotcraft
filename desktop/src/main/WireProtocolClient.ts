@@ -18,6 +18,8 @@ export interface ServerCapabilities {
   configOverride?: boolean
   cronManagement?: boolean
   heartbeatManagement?: boolean
+  skillsManagement?: boolean
+  commandManagement?: boolean
   modelCatalogManagement?: boolean
   workspaceConfigManagement?: boolean
   mcpManagement?: boolean
