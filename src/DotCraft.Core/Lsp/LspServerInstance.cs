@@ -276,11 +276,12 @@ public sealed class LspServerInstance
         object? @params,
         CancellationToken cancellationToken = default)
     {
-        if (!IsHealthy() || _client == null)
+        var client = _client;
+        if (!IsHealthy() || client == null)
             throw new InvalidOperationException(
                 $"Cannot send notification to LSP server '{Name}': server is {_state}.");
 
-        await _client.SendNotificationAsync(method, @params, cancellationToken);
+        await client.SendNotificationAsync(method, @params, cancellationToken);
     }
 
     public void OnNotification(string method, Action<JsonElement> handler)
