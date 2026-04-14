@@ -7,6 +7,7 @@ using DotCraft.ExternalChannel;
 using DotCraft.Gateway;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
+using DotCraft.Logging;
 using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
@@ -224,6 +225,7 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
                 .ToDictionary(ch => ch.Name, ch => ch.ApprovalService!);
             var approvalService = new SessionScopedApprovalService(
                 new ChannelRoutingApprovalService(channelServiceMap, new ConsoleApprovalService()));
+            var streamDebugLogger = _sp.GetService<SessionStreamDebugLogger>();
             var ecManager = new ExternalChannelManager(
                 _config,
                 sessionService,
@@ -232,7 +234,8 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
                 _paths.WorkspacePath,
                 pathBlacklist,
                 approvalService,
-                _externalChannelRegistry);
+                _externalChannelRegistry,
+                streamDebugLogger);
 
             foreach (var extCh in ecManager.Channels)
             {

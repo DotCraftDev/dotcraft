@@ -2,6 +2,7 @@ using DotCraft.Abstractions;
 using DotCraft.AppServer;
 using DotCraft.Common;
 using DotCraft.Configuration;
+using DotCraft.Logging;
 using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Security;
@@ -51,7 +52,8 @@ public sealed class ExternalChannelManager
         string hostWorkspacePath,
         PathBlacklist? pathBlacklist = null,
         IApprovalService? approvalService = null,
-        ExternalChannelRegistry? registry = null)
+        ExternalChannelRegistry? registry = null,
+        SessionStreamDebugLogger? streamDebugLogger = null)
     {
         _registry = registry ?? new ExternalChannelRegistry();
 
@@ -109,7 +111,8 @@ public sealed class ExternalChannelManager
                 moduleRegistry,
                 hostWorkspacePath,
                 pathBlacklist,
-                approvalService);
+                approvalService,
+                streamDebugLogger: streamDebugLogger);
             _hosts.Add(host);
 
             // Register all hosts for unified channel runtime tool discovery and WebSocket routing.
