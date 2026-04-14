@@ -49,6 +49,19 @@ public static class ServiceRegistration
                 builder.AddConsole();
             }
         });
+        services.AddSingleton(_ =>
+        {
+            var loggingCfg = config.Logging;
+            var streamCfg = config.StreamDebug;
+            var logsDir = Path.Combine(botPath, loggingCfg.Directory);
+            return SessionStreamDebugLogger.Create(logsDir, new SessionStreamDebugLoggerOptions
+            {
+                Enabled = streamCfg.Enabled,
+                ThreadIdFilter = streamCfg.ThreadIdFilter,
+                TurnIdFilter = streamCfg.TurnIdFilter,
+                IncludeFullText = streamCfg.IncludeFullText
+            });
+        });
         services.AddSingleton(config);
         services.AddSingleton(new DotCraftPaths
         {

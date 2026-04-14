@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotCraft.Logging;
 
 namespace DotCraft.Protocol.AppServer;
 
@@ -17,6 +18,7 @@ public sealed class AppServerEventDispatcher
     private readonly AppServerConnection _connection;
     private readonly IAppServerTransport _transport;
     private readonly ISessionService _sessionService;
+    private readonly SessionStreamDebugLogger? _streamDebugLogger;
 
     /// <summary>
     /// Fallback decision to apply when the server cannot derive a non-interactive
@@ -52,7 +54,8 @@ public sealed class AppServerEventDispatcher
         IAppServerTransport transport,
         ISessionService sessionService,
         Func<SessionWireTurn, Task>? onTurnStarted = null,
-        SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.Reject)
+        SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.Reject,
+        SessionStreamDebugLogger? streamDebugLogger = null)
     {
         _events = events;
         _connection = connection;
@@ -60,6 +63,7 @@ public sealed class AppServerEventDispatcher
         _sessionService = sessionService;
         _onTurnStarted = onTurnStarted;
         _defaultApprovalDecision = defaultApprovalDecision;
+        _streamDebugLogger = streamDebugLogger;
     }
 
     /// <summary>
@@ -103,12 +107,19 @@ public sealed class AppServerEventDispatcher
                 break;
 
             case SessionEventType.ItemDelta:
+                LogOutboundDelta(evt, method);
                 // Fix 4: Suppress delta notifications when client declared streamingSupport = false.
                 // Also skip empty deltas — the LLM emits empty string chunks at stream boundaries.
                 if (_connection.IsClientReady
                     && _connection.SupportsStreaming
                     && !IsEmptyDelta(evt)
                     && _connection.ShouldSendNotification(method))
+                    await SendNotificationAsync(method, BuildParams(evt), ct);
+                break;
+
+            case SessionEventType.TurnCompleted:
+                LogTurnCompletedSnapshot(evt);
+                if (_connection.IsClientReady && _connection.ShouldSendNotification(method))
                     await SendNotificationAsync(method, BuildParams(evt), ct);
                 break;
 
@@ -370,6 +381,81 @@ public sealed class AppServerEventDispatcher
         (evt.DeltaPayload is { } d ? string.IsNullOrEmpty(d.TextDelta)
             : evt.CommandExecutionDeltaPayload is { } c ? string.IsNullOrEmpty(c.TextDelta)
             : evt.ReasoningDeltaPayload is { } r && string.IsNullOrEmpty(r.TextDelta));
+
+    private void LogOutboundDelta(SessionEvent evt, string method)
+    {
+        if (_streamDebugLogger == null || !_streamDebugLogger.ShouldCapture(evt.ThreadId, evt.TurnId))
+            return;
+
+        string? deltaKind = null;
+        string deltaText = string.Empty;
+        if (evt.DeltaPayload is { } agentDelta)
+        {
+            deltaKind = agentDelta.DeltaKind;
+            deltaText = agentDelta.TextDelta;
+        }
+        else if (evt.ReasoningDeltaPayload is { } reasoningDelta)
+        {
+            deltaKind = reasoningDelta.DeltaKind;
+            deltaText = reasoningDelta.TextDelta;
+        }
+        else if (evt.CommandExecutionDeltaPayload is { } commandDelta)
+        {
+            deltaKind = "commandExecution";
+            deltaText = commandDelta.TextDelta;
+        }
+
+        var connectionKind = _connection.IsChannelAdapter
+            ? "externalChannel"
+            : _connection.HasAcpExtensions
+                ? "acp"
+                : "cli";
+
+        _streamDebugLogger.Log(
+            "appserver_outbound_delta",
+            evt.ThreadId,
+            evt.TurnId,
+            new
+            {
+                method,
+                itemId = evt.ItemId,
+                deltaKind,
+                deltaChars = deltaText.Length,
+                deltaText = _streamDebugLogger.IncludeFullText ? deltaText : null,
+                connectionKind,
+                channelAdapterName = _connection.ChannelAdapterName
+            });
+    }
+
+    private void LogTurnCompletedSnapshot(SessionEvent evt)
+    {
+        if (_streamDebugLogger == null
+            || evt.TurnPayload == null
+            || !_streamDebugLogger.ShouldCapture(evt.ThreadId, evt.TurnId))
+            return;
+
+        var agentMessageTexts = new List<string>();
+        foreach (var item in evt.TurnPayload.Items)
+        {
+            if (item.Type != ItemType.AgentMessage)
+                continue;
+            if (item.Payload is AgentMessagePayload { Text: { } text } && text.Length > 0)
+                agentMessageTexts.Add(text);
+        }
+
+        var snapshotConcatText = string.Concat(agentMessageTexts);
+        _streamDebugLogger.Log(
+            "appserver_turn_completed_snapshot",
+            evt.ThreadId,
+            evt.TurnId,
+            new
+            {
+                agentMessageTexts = _streamDebugLogger.IncludeFullText ? agentMessageTexts : null,
+                agentMessageCount = agentMessageTexts.Count,
+                snapshotConcatChars = snapshotConcatText.Length,
+                snapshotConcatText = _streamDebugLogger.IncludeFullText ? snapshotConcatText : null
+            });
+    }
 
     private Task SendNotificationAsync(string method, object? @params, CancellationToken ct)
     {

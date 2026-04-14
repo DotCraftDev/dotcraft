@@ -7,6 +7,7 @@ using DotCraft.Commands.Custom;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Logging;
 using DotCraft.Localization;
 using DotCraft.Mcp;
 using DotCraft.Skills;
@@ -42,7 +43,8 @@ public sealed class AppServerRequestHandler(
     CommandRegistry? commandRegistry = null,
     IChannelStatusProvider? channelStatusProvider = null,
     McpClientManager? mcpClientManager = null,
-    IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null)
+    IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
+    SessionStreamDebugLogger? streamDebugLogger = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -652,7 +654,8 @@ public sealed class AppServerRequestHandler(
 
         var dispatcher = new AppServerEventDispatcher(
             events, connection, transport, sessionService,
-            defaultApprovalDecision: _defaultApprovalDecision);
+            defaultApprovalDecision: _defaultApprovalDecision,
+            streamDebugLogger: streamDebugLogger);
         _ = dispatcher.RunAsync(subCts.Token)
             .ContinueWith(t =>
             {
@@ -889,7 +892,8 @@ public sealed class AppServerRequestHandler(
 
         var dispatcher = new AppServerEventDispatcher(
             events, connection, transport, sessionService, OnTurnStarted,
-            defaultApprovalDecision: _defaultApprovalDecision);
+            defaultApprovalDecision: _defaultApprovalDecision,
+            streamDebugLogger: streamDebugLogger);
 
         var dispatchTask = dispatcher.RunAsync(ct);
 

@@ -9,6 +9,7 @@ using DotCraft.Mcp;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Skills;
+using DotCraft.Logging;
 using DotCraft.Tracing;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -40,10 +41,12 @@ public sealed class SessionService(
     TimeSpan? approvalTimeout = null,
     ILogger<SessionService>? logger = null,
     ApprovalStore? approvalStore = null,
-    IToolProfileRegistry? toolProfileRegistry = null)
+    IToolProfileRegistry? toolProfileRegistry = null,
+    SessionStreamDebugLogger? sessionStreamDebugLogger = null)
     : ISessionService
 {
     private readonly IToolProfileRegistry? _toolProfileRegistry = toolProfileRegistry;
+    private readonly SessionStreamDebugLogger? _sessionStreamDebugLogger = sessionStreamDebugLogger;
 
     private readonly TimeSpan _approvalTimeout = approvalTimeout ?? TimeSpan.FromMinutes(5);
 
@@ -407,7 +410,30 @@ public sealed class SessionService(
 
         // Step 3: Create event channel
         var broker = GetOrCreateBroker(threadId);
-        var eventChannel = broker.CreateTurnChannel(turn.Id);
+        var eventChannel = broker.CreateTurnChannel(turn.Id, LogStreamDebugSessionEvent);
+
+        void LogStreamDebugSessionEvent(SessionEvent evt)
+        {
+            if (_sessionStreamDebugLogger == null || evt.EventType != SessionEventType.ItemDelta)
+                return;
+            if (!_sessionStreamDebugLogger.ShouldCapture(evt.ThreadId, evt.TurnId))
+                return;
+
+            if (evt.DeltaPayload is { } agentDelta)
+            {
+                _sessionStreamDebugLogger.Log(
+                    "session_event_delta",
+                    evt.ThreadId,
+                    evt.TurnId,
+                    new
+                    {
+                        itemId = evt.ItemId,
+                        deltaKind = agentDelta.DeltaKind,
+                        deltaChars = agentDelta.TextDelta.Length,
+                        deltaText = _sessionStreamDebugLogger.IncludeFullText ? agentDelta.TextDelta : null
+                    });
+            }
+        }
 
         // Step 4: Emit initial events synchronously so the caller sees them before awaiting
         eventChannel.EmitTurnStarted(turn);
@@ -529,6 +555,7 @@ public sealed class SessionService(
                 SessionItem? reasoningItem = null;
                 var agentText = string.Empty;
                 var reasoningText = string.Empty;
+                var agentDeltaIndex = 0;
                 long inputTokens = 0, outputTokens = 0;
                 long lastUsageInput = 0, lastUsageOutput = 0;
 
@@ -606,6 +633,23 @@ public sealed class SessionService(
                                         eventChannel.EmitItemStarted(agentMessageItem);
                                     }
                                     agentText += chunk;
+                                    agentDeltaIndex += 1;
+                                    if (_sessionStreamDebugLogger?.ShouldCapture(threadId, turn.Id) == true)
+                                    {
+                                        _sessionStreamDebugLogger.Log(
+                                            "agent_delta_source",
+                                            threadId,
+                                            turn.Id,
+                                            new
+                                            {
+                                                itemId = agentMessageItem.Id,
+                                                deltaIndex = agentDeltaIndex,
+                                                chunkChars = chunk.Length,
+                                                chunkText = _sessionStreamDebugLogger.IncludeFullText ? chunk : null,
+                                                cumulativeChars = agentText.Length,
+                                                cumulativeText = _sessionStreamDebugLogger.IncludeFullText ? agentText : null
+                                            });
+                                    }
                                     eventChannel.EmitItemDelta(agentMessageItem, new AgentMessageDelta { TextDelta = chunk });
                                     break;
 

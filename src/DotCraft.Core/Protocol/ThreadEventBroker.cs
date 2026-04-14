@@ -19,8 +19,10 @@ internal sealed class ThreadEventBroker(string threadId)
     /// <summary>
     /// Creates a turn-scoped event channel backed by this broker.
     /// </summary>
-    public SessionEventChannel CreateTurnChannel(string turnId) =>
-        new(threadId, turnId, NextEventId, Publish);
+    public SessionEventChannel CreateTurnChannel(
+        string turnId,
+        Action<SessionEvent>? debugTap = null) =>
+        new(threadId, turnId, NextEventId, Publish, debugTap);
 
     /// <summary>
     /// Publishes a thread-level lifecycle event.

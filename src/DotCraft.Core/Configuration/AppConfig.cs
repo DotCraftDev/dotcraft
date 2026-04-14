@@ -115,6 +115,9 @@ public sealed class AppConfig
     public LoggingConfig Logging { get; set; } = new();
 
     [ConfigField(Ignore = true)]
+    public StreamDebugConfig StreamDebug { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
     [JsonConverter(typeof(McpServerConfigListConverter))]
     public List<McpServerConfig> McpServers { get; set; } = [];
 
@@ -695,6 +698,34 @@ public sealed class AppConfig
         /// </summary>
         [ConfigField(Hint = "Days to keep log files before auto-deletion; 0 = keep forever")]
         public int RetentionDays { get; set; } = 7;
+    }
+
+    [ConfigSection("StreamDebug", DisplayName = "Stream Debug", Order = 95)]
+    public sealed class StreamDebugConfig
+    {
+        /// <summary>
+        /// Enables dedicated stream debug logging to a standalone file under the logs directory.
+        /// </summary>
+        [ConfigField(Hint = "Write detailed stream delta diagnostics to a dedicated file under logs")]
+        public bool Enabled { get; set; }
+
+        /// <summary>
+        /// Optional thread filter. When set, only events for this thread are written.
+        /// </summary>
+        [ConfigField(Hint = "Only log this thread ID (empty = all threads)")]
+        public string ThreadIdFilter { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Optional turn filter. When set, only events for this turn are written.
+        /// </summary>
+        [ConfigField(Hint = "Only log this turn ID (empty = all turns)")]
+        public string TurnIdFilter { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Include full text payloads (delta/snapshot). Disable when handling sensitive content.
+        /// </summary>
+        [ConfigField(Hint = "Include full text in stream debug records")]
+        public bool IncludeFullText { get; set; } = true;
     }
 }
 
