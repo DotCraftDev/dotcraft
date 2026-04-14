@@ -602,6 +602,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:get-recent')
   ipcMain.removeHandler('workspace:get-status')
   ipcMain.removeHandler('workspace:run-setup')
+  ipcMain.removeHandler('workspace:list-setup-models')
   ipcMain.removeHandler('workspace:open-new-window')
   ipcMain.removeHandler('workspace:check-lock')
   ipcMain.removeHandler('workspace:save-image-to-temp')
