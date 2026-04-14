@@ -40,7 +40,10 @@ public sealed record CommandLineArgs
         Gateway,
 
         /// <summary>ACP (Agent Communication Protocol) mode for IDE integration.</summary>
-        Acp
+        Acp,
+
+        /// <summary>One-shot non-interactive workspace setup.</summary>
+        Setup
     }
 
     /// <summary>Top-level execution mode.</summary>
@@ -66,6 +69,20 @@ public sealed record CommandLineArgs
     /// </summary>
     public string? Token { get; init; }
 
+    public string? SetupLanguage { get; init; }
+
+    public string? SetupModel { get; init; }
+
+    public string? SetupEndPoint { get; init; }
+
+    public string? SetupApiKey { get; init; }
+
+    public string? SetupProfile { get; init; }
+
+    public bool SaveUserConfig { get; init; }
+
+    public bool PreferExistingUserConfig { get; init; }
+
     /// <summary>
     /// Whether this execution mode reserves stdout for a wire protocol (stdio-based JSON-RPC).
     /// When <c>true</c>, all console diagnostics must be redirected to stderr.
@@ -85,6 +102,13 @@ public sealed record CommandLineArgs
         string? listenUrl = null;
         string? remoteUrl = null;
         string? token = null;
+        string? setupLanguage = null;
+        string? setupModel = null;
+        string? setupEndPoint = null;
+        string? setupApiKey = null;
+        string? setupProfile = null;
+        var saveUserConfig = false;
+        var preferExistingUserConfig = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -100,6 +124,12 @@ public sealed record CommandLineArgs
             if (arg.Equals("gateway", StringComparison.OrdinalIgnoreCase))
             {
                 mode = RunMode.Gateway;
+                continue;
+            }
+
+            if (arg.Equals("setup", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = RunMode.Setup;
                 continue;
             }
 
@@ -132,6 +162,48 @@ public sealed record CommandLineArgs
                 continue;
             }
 
+            if (arg.Equals("--language", StringComparison.OrdinalIgnoreCase))
+            {
+                setupLanguage = ConsumeNext(args, ref i, "--language");
+                continue;
+            }
+
+            if (arg.Equals("--model", StringComparison.OrdinalIgnoreCase))
+            {
+                setupModel = ConsumeNext(args, ref i, "--model");
+                continue;
+            }
+
+            if (arg.Equals("--endpoint", StringComparison.OrdinalIgnoreCase))
+            {
+                setupEndPoint = ConsumeNext(args, ref i, "--endpoint");
+                continue;
+            }
+
+            if (arg.Equals("--api-key", StringComparison.OrdinalIgnoreCase))
+            {
+                setupApiKey = ConsumeNext(args, ref i, "--api-key");
+                continue;
+            }
+
+            if (arg.Equals("--profile", StringComparison.OrdinalIgnoreCase))
+            {
+                setupProfile = ConsumeNext(args, ref i, "--profile");
+                continue;
+            }
+
+            if (arg.Equals("--save-user-config", StringComparison.OrdinalIgnoreCase))
+            {
+                saveUserConfig = true;
+                continue;
+            }
+
+            if (arg.Equals("--prefer-existing-user-config", StringComparison.OrdinalIgnoreCase))
+            {
+                preferExistingUserConfig = true;
+                continue;
+            }
+
             // Support --listen=<url> / --remote=<url> / --token=<value> forms
             if (TryParseKeyValue(arg, "--listen", out var listenValue))
             {
@@ -148,6 +220,37 @@ public sealed record CommandLineArgs
             if (TryParseKeyValue(arg, "--token", out var tokenValue))
             {
                 token = tokenValue;
+                continue;
+            }
+
+            if (TryParseKeyValue(arg, "--language", out var languageValue))
+            {
+                setupLanguage = languageValue;
+                continue;
+            }
+
+            if (TryParseKeyValue(arg, "--model", out var modelValue))
+            {
+                setupModel = modelValue;
+                continue;
+            }
+
+            if (TryParseKeyValue(arg, "--endpoint", out var endpointValue))
+            {
+                setupEndPoint = endpointValue;
+                continue;
+            }
+
+            if (TryParseKeyValue(arg, "--api-key", out var apiKeyValue))
+            {
+                setupApiKey = apiKeyValue;
+                continue;
+            }
+
+            if (TryParseKeyValue(arg, "--profile", out var profileValue))
+            {
+                setupProfile = profileValue;
+                continue;
             }
 
             // Unknown arguments are silently ignored (forward-compatible).
@@ -169,6 +272,13 @@ public sealed record CommandLineArgs
             ListenUrl = listenUrl,
             RemoteUrl = remoteUrl,
             Token = token,
+            SetupLanguage = setupLanguage,
+            SetupModel = setupModel,
+            SetupEndPoint = setupEndPoint,
+            SetupApiKey = setupApiKey,
+            SetupProfile = setupProfile,
+            SaveUserConfig = saveUserConfig,
+            PreferExistingUserConfig = preferExistingUserConfig,
             ReservesStdout = reservesStdout
         };
     }
@@ -208,6 +318,9 @@ public sealed record CommandLineArgs
 
             case RunMode.Cli:
                 ApplyCliConfig(config);
+                break;
+
+            case RunMode.Setup:
                 break;
         }
     }

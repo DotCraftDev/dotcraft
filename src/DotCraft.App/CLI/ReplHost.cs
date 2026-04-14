@@ -578,7 +578,7 @@ public sealed class ReplHost(
             }
         }
 
-        var result = InitHelper.InitializeWorkspace(workspacePath);
+        var result = InitHelper.InitializeWorkspace(dotCraftPath);
 
         if (result == 0)
         {

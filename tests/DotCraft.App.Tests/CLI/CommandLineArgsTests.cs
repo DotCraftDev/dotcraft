@@ -31,4 +31,29 @@ public sealed class CommandLineArgsTests
         Assert.Equal("ws://127.0.0.1:9100", args.ListenUrl);
         Assert.False(args.ReservesStdout);
     }
+
+    [Fact]
+    public void Parse_SetupSubcommand_ParsesSetupFlags()
+    {
+        var args = CommandLineArgs.Parse([
+            "setup",
+            "--language", "English",
+            "--model", "gpt-4o-mini",
+            "--endpoint", "https://api.openai.com/v1",
+            "--api-key", "sk-test",
+            "--profile", "developer",
+            "--save-user-config",
+            "--prefer-existing-user-config"
+        ]);
+
+        Assert.Equal(CommandLineArgs.RunMode.Setup, args.Mode);
+        Assert.Equal("English", args.SetupLanguage);
+        Assert.Equal("gpt-4o-mini", args.SetupModel);
+        Assert.Equal("https://api.openai.com/v1", args.SetupEndPoint);
+        Assert.Equal("sk-test", args.SetupApiKey);
+        Assert.Equal("developer", args.SetupProfile);
+        Assert.True(args.SaveUserConfig);
+        Assert.True(args.PreferExistingUserConfig);
+        Assert.False(args.ReservesStdout);
+    }
 }

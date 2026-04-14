@@ -111,20 +111,57 @@ describe('registerIpcHandlers', () => {
     })
 
     const onRestartManagedAppServer = vi.fn().mockResolvedValue(undefined)
+    const onListSetupModels = vi.fn().mockResolvedValue({ kind: 'unsupported' })
 
     registerIpcHandlers(null, () => null, '/workspace', {
       onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels,
       onOpenNewWindow: vi.fn(),
       onRestartManagedAppServer,
       getSettings: vi.fn(() => ({})),
       updateSettings: vi.fn(),
       getRecentWorkspaces: vi.fn(() => []),
-      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' }))
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
     })
 
     expect(handlers.has('appserver:restart-managed')).toBe(true)
     await handlers.get('appserver:restart-managed')?.({})
     expect(onRestartManagedAppServer).toHaveBeenCalledOnce()
+  })
+
+  it('registers workspace:list-setup-models and forwards to callback', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+
+    const onListSetupModels = vi.fn().mockResolvedValue({ kind: 'success', models: ['gpt-4.1'] })
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels,
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    expect(handlers.has('workspace:list-setup-models')).toBe(true)
+    const result = await handlers.get('workspace:list-setup-models')?.({}, {
+      endpoint: 'https://example.com/v1',
+      apiKey: '',
+      preferExistingUserConfig: true
+    })
+    expect(onListSetupModels).toHaveBeenCalledOnce()
+    expect(result).toEqual({ kind: 'success', models: ['gpt-4.1'] })
   })
 })
 

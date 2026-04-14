@@ -37,6 +37,82 @@ var workspacePath = Directory.GetCurrentDirectory();
 var botPath = Path.GetFullPath(".craft");
 var workspaceJustInitialized = false;
 
+if (cliArgs.Mode == CommandLineArgs.RunMode.Setup)
+{
+    static Language ParseSetupLanguage(string? value)
+    {
+        if (string.Equals(value, "Chinese", StringComparison.OrdinalIgnoreCase))
+            return Language.Chinese;
+        if (string.Equals(value, "English", StringComparison.OrdinalIgnoreCase))
+            return Language.English;
+        throw new ArgumentException("Missing or invalid --language. Expected Chinese or English.");
+    }
+
+    static WorkspaceBootstrapProfile ParseSetupProfile(string? value)
+    {
+        if (string.Equals(value, "default", StringComparison.OrdinalIgnoreCase))
+            return WorkspaceBootstrapProfile.Default;
+        if (string.Equals(value, "developer", StringComparison.OrdinalIgnoreCase))
+            return WorkspaceBootstrapProfile.Developer;
+        if (string.Equals(value, "personal-assistant", StringComparison.OrdinalIgnoreCase))
+            return WorkspaceBootstrapProfile.PersonalAssistant;
+        throw new ArgumentException("Missing or invalid --profile. Expected default, developer, or personal-assistant.");
+    }
+
+    try
+    {
+        if (cliArgs.SaveUserConfig && cliArgs.PreferExistingUserConfig)
+            throw new ArgumentException("Cannot combine --save-user-config with --prefer-existing-user-config.");
+
+        var request = new WorkspaceSetupRequest
+        {
+            Language = ParseSetupLanguage(cliArgs.SetupLanguage),
+            Model = string.IsNullOrWhiteSpace(cliArgs.SetupModel)
+                ? throw new ArgumentException("Missing --model.")
+                : cliArgs.SetupModel.Trim(),
+            EndPoint = string.IsNullOrWhiteSpace(cliArgs.SetupEndPoint)
+                ? throw new ArgumentException("Missing --endpoint.")
+                : cliArgs.SetupEndPoint.Trim(),
+            ApiKey = string.IsNullOrWhiteSpace(cliArgs.SetupApiKey)
+                ? cliArgs.PreferExistingUserConfig
+                    ? string.Empty
+                    : throw new ArgumentException("Missing --api-key.")
+                : cliArgs.SetupApiKey.Trim(),
+            Profile = ParseSetupProfile(cliArgs.SetupProfile),
+            SaveToUserConfig = cliArgs.SaveUserConfig,
+            PreferExistingUserConfig = cliArgs.PreferExistingUserConfig
+        };
+
+        var result = InitHelper.RunSetup(botPath, request);
+        if (result != 0)
+        {
+            Environment.Exit(result);
+            return;
+        }
+
+        Console.WriteLine($"Workspace setup completed: {workspacePath}");
+        if (request.SaveToUserConfig)
+        {
+            Console.WriteLine("Saved language and AI settings to user config.");
+        }
+        else if (request.PreferExistingUserConfig)
+        {
+            Console.WriteLine("Reused user config defaults and saved workspace-only overrides.");
+        }
+        else
+        {
+            Console.WriteLine("Saved language and AI settings to workspace config.");
+        }
+        return;
+    }
+    catch (Exception ex)
+    {
+        await Console.Error.WriteLineAsync(ex.Message);
+        Environment.Exit(1);
+        return;
+    }
+}
+
 if (!Directory.Exists(botPath))
 {
     if (isHeadless)
