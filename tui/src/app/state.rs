@@ -4,6 +4,7 @@
 use std::cell::Cell;
 
 use super::token_tracker::TokenTracker;
+use crate::wire::types::CommandInfo;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TurnStatus {
@@ -193,6 +194,23 @@ pub struct CommandPopupState {
     pub selected: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlashCommandDescriptor {
+    pub name: String,
+    pub description: String,
+    pub category: String,
+}
+
+impl SlashCommandDescriptor {
+    pub fn new(name: impl Into<String>, description: impl Into<String>, category: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            category: category.into(),
+        }
+    }
+}
+
 pub struct AppState {
     // Connection
     pub connected: bool,
@@ -268,6 +286,8 @@ pub struct AppState {
 
     // Slash command completion popup
     pub command_popup: Option<CommandPopupState>,
+    pub server_commands: Vec<CommandInfo>,
+    pub command_catalog: Vec<SlashCommandDescriptor>,
 
     // Ctrl+C double-press quit detection
     pub last_interrupt_at: Option<std::time::Instant>,
@@ -311,6 +331,8 @@ impl AppState {
             model_cache: ModelCacheState::Idle,
             active_overlay: None,
             command_popup: None,
+            server_commands: Vec::new(),
+            command_catalog: Vec::new(),
             last_interrupt_at: None,
         }
     }
