@@ -65,6 +65,7 @@ export abstract class ChannelAdapter {
   private readonly adapterStreamDebug: boolean | undefined;
 
   protected readonly threadMap = new Map<string, string>();
+  private readonly forceFreshThreadIdentities = new Set<string>();
   private readonly threadQueues = new Map<string, Array<() => Promise<void>>>();
   private readonly runningWorkers = new Map<string, boolean>();
   private running = false;
@@ -363,6 +364,36 @@ export abstract class ChannelAdapter {
 
   protected identityKey(userId: string, channelContext: string): string {
     return `${userId}:${channelContext}`;
+  }
+
+  protected async resetIdentityThreads(userId: string, channelContext = ""): Promise<string[]> {
+    const identityKey = this.identityKey(userId, channelContext);
+    const archivedIds = new Set<string>();
+    const cachedThreadId = this.threadMap.get(identityKey);
+    if (cachedThreadId) archivedIds.add(cachedThreadId);
+
+    const threads = await this.client.threadList({
+      channelName: this.channelName,
+      userId,
+      channelContext,
+      workspacePath: this.defaultWorkspacePath,
+    });
+    for (const thread of threads) {
+      if (thread.status === "active" || thread.status === "paused") archivedIds.add(thread.id);
+    }
+
+    for (const threadId of archivedIds) {
+      try {
+        await this.client.threadArchive(threadId);
+        console.info(`Archived thread ${threadId} for ${identityKey}`);
+      } catch (e) {
+        console.warn(`Could not archive thread ${threadId}:`, e);
+      }
+    }
+
+    this.threadMap.delete(identityKey);
+    this.forceFreshThreadIdentities.add(identityKey);
+    return [...archivedIds];
   }
 
   protected async processMessage(
@@ -694,6 +725,19 @@ export abstract class ChannelAdapter {
     channelContext: string,
     workspacePath: string,
   ): Promise<Thread> {
+    if (this.forceFreshThreadIdentities.has(identityKey)) {
+      const thread = await this.client.threadStart({
+        channelName: this.channelName,
+        userId,
+        channelContext,
+        workspacePath,
+      });
+      this.threadMap.set(identityKey, thread.id);
+      this.forceFreshThreadIdentities.delete(identityKey);
+      console.info(`Created fresh thread ${thread.id} for identity ${identityKey}`);
+      return thread;
+    }
+
     let threadId = this.threadMap.get(identityKey);
     if (threadId) {
       try {
@@ -733,16 +777,6 @@ export abstract class ChannelAdapter {
   }
 
   async newThread(userId: string, channelContext = ""): Promise<void> {
-    const identityKey = this.identityKey(userId, channelContext);
-    const oldId = this.threadMap.get(identityKey);
-    if (oldId) {
-      try {
-        await this.client.threadArchive(oldId);
-        console.info(`Archived thread ${oldId} for ${identityKey}`);
-      } catch (e) {
-        console.warn(`Could not archive thread ${oldId}:`, e);
-      }
-      this.threadMap.delete(identityKey);
-    }
+    await this.resetIdentityThreads(userId, channelContext);
   }
 }

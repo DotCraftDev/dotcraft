@@ -59,10 +59,13 @@ public interface ISessionService
     /// Discovers Threads matching the given identity (workspace + user + channel context).
     /// Returns summaries ordered by LastActiveAt descending.
     /// </summary>
+    /// <param name="identity"></param>
+    /// <param name="includeArchived"></param>
     /// <param name="crossChannelOrigins">
     /// When non-null and non-empty, also includes threads that match workspace + userId and have
     /// <see cref="ThreadSummary.OriginChannel"/> in this list (case-insensitive), ignoring channel context.
     /// </param>
+    /// <param name="ct"></param>
     Task<IReadOnlyList<ThreadSummary>> FindThreadsAsync(
         SessionIdentity identity,
         bool includeArchived = false,
@@ -70,7 +73,7 @@ public interface ISessionService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Subscribes to thread-level events independently from turn execution.
+    /// Subscribes to thread-level events independently of turn execution.
     /// Multiple passive subscribers may observe the same thread concurrently.
     /// </summary>
     IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(
