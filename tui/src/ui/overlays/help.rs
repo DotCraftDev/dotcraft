@@ -1,28 +1,13 @@
 // HelpOverlay widget — shown when the user runs /help or presses F1/?.
 // Displays a two-section reference: slash commands and key bindings.
 
-use crate::{i18n::Strings, theme::Theme};
+use crate::{app::state::SlashCommandDescriptor, i18n::Strings, theme::Theme};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
-
-/// All slash commands with their descriptions (static, language-independent).
-const COMMANDS: &[(&str, &str)] = &[
-    ("/help", "Show this help overlay"),
-    ("/new", "Start a new thread"),
-    ("/sessions", "Browse and resume previous threads"),
-    ("/load <id>", "Resume a thread by ID"),
-    ("/plan", "Switch to Plan mode"),
-    ("/agent", "Switch to Agent mode"),
-    ("/clear", "Clear the chat display"),
-    ("/cron", "List cron jobs"),
-    ("/heartbeat", "Trigger heartbeat run"),
-    ("/model [name|default]", "Open model picker or set model directly"),
-    ("/quit", "Exit dotcraft-tui"),
-];
 
 /// All key bindings with their descriptions (static, language-independent).
 const KEYBINDINGS: &[(&str, &str)] = &[
@@ -47,11 +32,16 @@ const KEYBINDINGS: &[(&str, &str)] = &[
 pub struct HelpOverlay<'a> {
     pub theme: &'a Theme,
     pub strings: &'a Strings,
+    pub commands: &'a [SlashCommandDescriptor],
 }
 
 impl<'a> HelpOverlay<'a> {
-    pub fn new(theme: &'a Theme, strings: &'a Strings) -> Self {
-        Self { theme, strings }
+    pub fn new(theme: &'a Theme, strings: &'a Strings, commands: &'a [SlashCommandDescriptor]) -> Self {
+        Self {
+            theme,
+            strings,
+            commands,
+        }
     }
 
     /// Centered popup: 60% width, 80% height.
@@ -92,7 +82,7 @@ impl Widget for HelpOverlay<'_> {
         }
 
         // Split into two vertical halves: commands (top) and key bindings (bottom).
-        let cmd_rows = COMMANDS.len() as u16 + 2; // +2 for header + blank line
+        let cmd_rows = self.commands.len() as u16 + 2;
         let kb_rows = KEYBINDINGS.len() as u16 + 2;
         let total = cmd_rows + kb_rows;
 
@@ -120,14 +110,20 @@ impl Widget for HelpOverlay<'_> {
             )),
             Line::default(),
         ];
-        let key_col = 18usize;
-        for (cmd, desc) in COMMANDS {
-            let padding = key_col.saturating_sub(cmd.len());
+        let key_col = 24usize;
+        for cmd in self.commands {
+            let category_label = match cmd.category.as_str() {
+                "custom" => "[custom]",
+                "local-ui" => "[local]",
+                _ => "[builtin]",
+            };
+            let display = format!("{} {}", cmd.name, category_label);
+            let padding = key_col.saturating_sub(display.len());
             cmd_lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(cmd.to_string(), self.theme.dim),
+                Span::styled(display, self.theme.dim),
                 Span::raw(" ".repeat(padding)),
-                Span::styled(desc.to_string(), self.theme.agent_message),
+                Span::styled(cmd.description.clone(), self.theme.agent_message),
             ]));
         }
         Paragraph::new(cmd_lines).render(cmd_area, buf);

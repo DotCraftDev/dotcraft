@@ -15,7 +15,7 @@ use tokio::time;
 
 use crate::{
     app::{
-        commands::{self, SlashCommand},
+        commands::{self, LocalSlashCommand, ParsedSlashCommand},
         event_mapper,
         input_router::{self, InputAction, ModelPickerOp, ThreadPickerOp},
         state::{
@@ -190,6 +190,13 @@ pub async fn run(
     let mut state = AppState::new(ws_path.clone());
     state.connected = true;
     state.workspace_model = read_workspace_model(&resolved_workspace);
+    state.command_catalog = commands::merge_command_catalog(&state.server_commands);
+    if let Err(e) = refresh_command_catalog(&mut wire, &mut state, &resolved_lang).await {
+        tracing::warn!("Failed to load command catalog: {e}");
+        state.history.push(HistoryEntry::Error {
+            message: format!("Failed to load command catalog: {e}"),
+        });
+    }
 
     // ── 7. Event loop (WelcomeScreen shown first, then chat UI) ─────────
     run_event_loop(
@@ -198,6 +205,7 @@ pub async fn run(
         &mut state,
         &theme,
         &strings,
+        &resolved_lang,
         &connection_mode,
     )
     .await?;
@@ -213,6 +221,7 @@ async fn run_event_loop(
     state: &mut AppState,
     theme: &Theme,
     strings: &Strings,
+    language: &str,
     #[allow(unused_variables)] conn_mode: &ConnectionMode,
 ) -> Result<()> {
     let mut tick = time::interval(Duration::from_millis(16)); // ~60 fps
@@ -257,6 +266,12 @@ async fn run_event_loop(
                                         let _ = spawn_model_catalog_load(wire, &deferred_tx).await;
                                     } else {
                                         state.model_cache = ModelCacheState::Idle;
+                                    }
+                                    if let Err(e) = refresh_command_catalog(wire, state, language).await {
+                                        tracing::warn!("Failed to refresh command catalog after reconnect: {e}");
+                                        state.history.push(HistoryEntry::Error {
+                                            message: format!("Failed to refresh command catalog: {e}"),
+                                        });
                                     }
                                     if let Some(ref tid) = state.current_thread_id {
                                         let _ = wire.notify("thread/subscribe", serde_json::json!({
@@ -405,15 +420,20 @@ async fn handle_terminal_event(
                     if text.is_empty() {
                         return Ok(false);
                     }
-                    state.streaming.clear();
-
                     if let Some(cmd) = commands::parse(&text) {
-                        let quit =
-                            handle_slash_command(wire, state, strings, deferred_tx, cmd).await?;
+                        let quit = handle_slash_command(
+                            wire,
+                            state,
+                            strings,
+                            deferred_tx,
+                            cmd,
+                        )
+                        .await?;
                         if quit {
                             return Ok(true);
                         }
                     } else {
+                        state.streaming.clear();
                         submit_turn(wire, state, text).await?;
                     }
                 }
@@ -502,6 +522,39 @@ async fn spawn_model_catalog_load(
             .unwrap_or_else(|_| Err(anyhow::anyhow!("response dropped")));
         let _ = tx.send(DeferredResult::ModelCatalogLoaded(result));
     });
+    Ok(())
+}
+
+fn normalize_command_language(language: &str) -> &'static str {
+    if language.eq_ignore_ascii_case("zh")
+        || language.eq_ignore_ascii_case("zh-cn")
+        || language.eq_ignore_ascii_case("zh_cn")
+    {
+        "zh"
+    } else {
+        "en"
+    }
+}
+
+async fn refresh_command_catalog(
+    wire: &mut WireClient,
+    state: &mut AppState,
+    language: &str,
+) -> Result<()> {
+    if !wire.capabilities.command_management.unwrap_or(false) {
+        state.server_commands.clear();
+        state.command_catalog = commands::merge_command_catalog(&state.server_commands);
+        return Ok(());
+    }
+
+    let result: wire::types::CommandListResult = wire
+        .request(
+            "command/list",
+            serde_json::json!({ "language": normalize_command_language(language) }),
+        )
+        .await?;
+    state.server_commands = result.commands;
+    state.command_catalog = commands::merge_command_catalog(&state.server_commands);
     Ok(())
 }
 
@@ -1128,66 +1181,47 @@ fn replay_thread_history(state: &mut AppState, data: &serde_json::Value) {
     }
 }
 
-/// Format a cron/list response as a human-readable text block.
-fn format_cron_list(result: &serde_json::Value, strings: &Strings) -> String {
-    let jobs = match result.get("jobs").and_then(|v| v.as_array()) {
-        Some(j) if !j.is_empty() => j,
-        _ => return strings.cron_no_jobs.to_string(),
-    };
-
-    let mut lines = vec!["Cron jobs:".to_string()];
-    for job in jobs {
-        let name = job
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("(unnamed)");
-        let id = job.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let enabled = job
-            .get("enabled")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let status_str = if enabled { "enabled" } else { "disabled" };
-        let last_status = job
-            .get("state")
-            .and_then(|s| s.get("lastStatus"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("—");
-        lines.push(format!(
-            "  [{id}] {name} ({status_str}) — last: {last_status}"
-        ));
-    }
-    lines.join("\n")
-}
-
 async fn handle_slash_command(
     wire: &mut WireClient,
     state: &mut AppState,
     strings: &Strings,
     deferred_tx: &tokio_mpsc::UnboundedSender<DeferredResult>,
-    cmd: SlashCommand,
+    cmd: ParsedSlashCommand,
+) -> Result<bool> {
+    if let Some(local_cmd) = commands::to_local_command(&cmd) {
+        return handle_local_slash_command(wire, state, strings, deferred_tx, local_cmd).await;
+    }
+
+    if state
+        .server_commands
+        .iter()
+        .any(|server_cmd| server_cmd.name.eq_ignore_ascii_case(&cmd.name))
+    {
+        execute_server_command(wire, state, &cmd).await?;
+    } else {
+        let name = cmd.name.trim_start_matches('/');
+        state.history.push(HistoryEntry::Error {
+            message: format!("Unknown command: /{name}. Type /help for available commands."),
+        });
+    }
+    Ok(false)
+}
+
+async fn handle_local_slash_command(
+    wire: &mut WireClient,
+    state: &mut AppState,
+    strings: &Strings,
+    deferred_tx: &tokio_mpsc::UnboundedSender<DeferredResult>,
+    cmd: LocalSlashCommand,
 ) -> Result<bool> {
     match cmd {
-        SlashCommand::Quit => return Ok(true),
-        SlashCommand::Clear => {
+        LocalSlashCommand::Quit => return Ok(true),
+        LocalSlashCommand::Clear => {
             state.history.clear();
             state.plan = None;
             state.subagent_entries.clear();
         }
-        SlashCommand::New => {
-            state.history.clear();
-            state.plan = None;
-            state.subagent_entries.clear();
-            state.streaming.clear();
-            state.token_tracker.reset();
-            state.current_thread_id = None;
-            state.current_thread_name = None;
-            state.current_model_override = None;
-            state.pending_model_override = None;
-            state.history.push(HistoryEntry::SystemInfo {
-                message: strings.new_session_hint.to_string(),
-            });
-        }
-        SlashCommand::Plan => {
+        LocalSlashCommand::Plan => {
             if let Some(thread_id) = state.current_thread_id.clone() {
                 wire.send_request(
                     "thread/mode/set",
@@ -1197,7 +1231,7 @@ async fn handle_slash_command(
                 state.mode = AgentMode::Plan;
             }
         }
-        SlashCommand::Agent => {
+        LocalSlashCommand::Agent => {
             if let Some(thread_id) = state.current_thread_id.clone() {
                 wire.send_request(
                     "thread/mode/set",
@@ -1207,20 +1241,7 @@ async fn handle_slash_command(
                 state.mode = AgentMode::Agent;
             }
         }
-        SlashCommand::Heartbeat => {
-            if wire.capabilities.heartbeat_management.unwrap_or(false) {
-                wire.send_request("heartbeat/trigger", serde_json::json!({}))
-                    .await?;
-                state.history.push(HistoryEntry::SystemInfo {
-                    message: "Heartbeat triggered.".to_string(),
-                });
-            } else {
-                state.history.push(HistoryEntry::Error {
-                    message: "Heartbeat service is not configured on this server.".to_string(),
-                });
-            }
-        }
-        SlashCommand::Model { model_name } => {
+        LocalSlashCommand::Model { model_name } => {
             if !wire.capabilities.model_catalog_management.unwrap_or(false)
                 || !wire.capabilities.workspace_config_management.unwrap_or(false)
             {
@@ -1276,17 +1297,17 @@ async fn handle_slash_command(
             });
             state.active_overlay = Some(OverlayKind::ModelPicker);
         }
-        SlashCommand::Help => {
+        LocalSlashCommand::Help => {
             state.active_overlay = Some(OverlayKind::Help);
         }
-        SlashCommand::Sessions => {
+        LocalSlashCommand::Sessions => {
             if !wire.capabilities.thread_management.unwrap_or(false) {
                 state.history.push(HistoryEntry::Error {
                     message: strings.feature_unavailable.to_string(),
                 });
                 return Ok(false);
             }
-            // Set loading state and open overlay immediately.
+
             state.thread_picker = Some(ThreadPickerState {
                 threads: vec![],
                 selected: 0,
@@ -1295,7 +1316,6 @@ async fn handle_slash_command(
             });
             state.active_overlay = Some(OverlayKind::ThreadPicker);
 
-            // Fire async thread/list; result handled via deferred channel.
             let identity = build_identity(&state.workspace_path);
             let (_, rx) = wire
                 .send_request("thread/list", serde_json::json!({ "identity": identity }))
@@ -1308,7 +1328,7 @@ async fn handle_slash_command(
                 let _ = tx.send(DeferredResult::ThreadListLoaded(result));
             });
         }
-        SlashCommand::Load { thread_id } => {
+        LocalSlashCommand::Load { thread_id } => {
             if thread_id.is_empty() {
                 state.history.push(HistoryEntry::Error {
                     message: "Usage: /load <thread-id>".to_string(),
@@ -1324,7 +1344,7 @@ async fn handle_slash_command(
             wire.send_request("thread/resume", serde_json::json!({ "threadId": id }))
                 .await?;
             state.current_thread_id = Some(id.clone());
-            // Fire async thread/read; result handled via deferred channel.
+
             let (_, rx) = wire
                 .send_request(
                     "thread/read",
@@ -1339,40 +1359,80 @@ async fn handle_slash_command(
                 let _ = tx.send(DeferredResult::ThreadHistoryLoaded(result));
             });
         }
-        SlashCommand::Cron => {
-            if !wire.capabilities.cron_management.unwrap_or(false) {
-                state.history.push(HistoryEntry::Error {
-                    message: strings.feature_unavailable.to_string(),
-                });
-                return Ok(false);
-            }
-            match wire
-                .request::<serde_json::Value>(
-                    "cron/list",
-                    serde_json::json!({ "includeDisabled": false }),
-                )
-                .await
-            {
-                Ok(result) => {
-                    let text = format_cron_list(&result, strings);
-                    state
-                        .history
-                        .push(HistoryEntry::SystemInfo { message: text });
-                }
-                Err(e) => {
-                    state.history.push(HistoryEntry::Error {
-                        message: format!("Failed to list cron jobs: {e}"),
-                    });
-                }
-            }
-        }
-        SlashCommand::Unknown { name } => {
-            state.history.push(HistoryEntry::Error {
-                message: format!("Unknown command: /{name}. Type /help for available commands."),
-            });
-        }
     }
     Ok(false)
+}
+
+async fn execute_server_command(
+    wire: &mut WireClient,
+    state: &mut AppState,
+    cmd: &ParsedSlashCommand,
+) -> Result<()> {
+    if state.current_thread_id.is_none() {
+        create_thread(wire, state).await?;
+    }
+
+    let thread_id = match &state.current_thread_id {
+        Some(id) => id.clone(),
+        None => {
+            state.history.push(HistoryEntry::Error {
+                message: "Failed to create thread.".to_string(),
+            });
+            return Ok(());
+        }
+    };
+
+    let arguments = if cmd.arguments.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::json!(cmd.arguments)
+    };
+    let result: wire::types::CommandExecuteResult = wire
+        .request(
+            "command/execute",
+            serde_json::json!({
+                "threadId": thread_id,
+                "command": cmd.name,
+                "arguments": arguments
+            }),
+        )
+        .await?;
+
+    if let Some(message) = result.message.clone().filter(|m| !m.trim().is_empty()) {
+        let _is_markdown = result.is_markdown;
+        state.history.push(HistoryEntry::SystemInfo { message });
+    }
+
+    if result.session_reset.unwrap_or(false) {
+        state.history.clear();
+        state.plan = None;
+        state.subagent_entries.clear();
+        state.streaming.clear();
+        state.token_tracker.reset();
+        state.current_turn_id = None;
+        state.current_model_override = None;
+        state.pending_model_override = None;
+        if let Some(thread) = result.thread {
+            state.current_thread_id = Some(thread.id);
+            state.current_thread_name = thread.display_name;
+        } else {
+            state.current_thread_id = None;
+            state.current_thread_name = None;
+        }
+    }
+
+    if result.handled {
+        if let Some(expanded_prompt) = result.expanded_prompt.filter(|p| !p.trim().is_empty()) {
+            state.streaming.clear();
+            submit_turn(wire, state, expanded_prompt).await?;
+        }
+    } else {
+        state.history.push(HistoryEntry::Error {
+            message: format!("Command not handled: {}", cmd.name),
+        });
+    }
+
+    Ok(())
 }
 
 fn expire_notifications(state: &mut AppState) {
@@ -1580,7 +1640,7 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
                 }
             }
             Some(OverlayKind::Help) => {
-                frame.render_widget(HelpOverlay::new(theme, strings), area);
+                frame.render_widget(HelpOverlay::new(theme, strings, &state.command_catalog), area);
             }
             None => {}
         }

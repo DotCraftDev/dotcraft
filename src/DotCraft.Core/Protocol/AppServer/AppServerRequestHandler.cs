@@ -1394,8 +1394,8 @@ public sealed class AppServerRequestHandler(
 
         var thread = await sessionService.GetThreadAsync(p.ThreadId, ct);
         var rawText = BuildRawText(p.Command, p.Arguments);
-        var senderId = p.Sender?.SenderId ?? connection.ClientInfo?.Name ?? "anonymous";
-        var senderName = p.Sender?.SenderName ?? connection.ClientInfo?.Name ?? "anonymous";
+        var senderId = p.Sender?.SenderId ?? thread.UserId ?? connection.ClientInfo?.Name ?? "anonymous";
+        var senderName = p.Sender?.SenderName ?? thread.UserId ?? connection.ClientInfo?.Name ?? "anonymous";
         var source = string.IsNullOrWhiteSpace(thread.OriginChannel)
             ? (connection.IsChannelAdapter ? connection.ChannelAdapterName ?? "external" : "appserver")
             : thread.OriginChannel;
@@ -1419,12 +1419,30 @@ public sealed class AppServerRequestHandler(
 
         var responder = new BufferedCommandResponder();
         var result = await _commandRegistry.TryExecuteAsync(rawText, context, responder);
+        SessionWireThread? resetThread = null;
+        if (!string.IsNullOrWhiteSpace(result.NewThreadId))
+        {
+            try
+            {
+                var freshThread = await sessionService.GetThreadAsync(result.NewThreadId, ct);
+                resetThread = freshThread.ToWire();
+            }
+            catch
+            {
+                // Best-effort enrichment for command/execute response.
+            }
+        }
+
         return new CommandExecuteResult
         {
             Handled = result.Handled,
             Message = responder.Message ?? result.Message,
             IsMarkdown = responder.IsMarkdown || result.IsMarkdown,
-            ExpandedPrompt = result.ExpandedPrompt
+            ExpandedPrompt = result.ExpandedPrompt,
+            SessionReset = result.SessionReset,
+            Thread = resetThread,
+            ArchivedThreadIds = result.ArchivedThreadIds?.ToList(),
+            CreatedLazily = result.CreatedLazily
         };
     }
 

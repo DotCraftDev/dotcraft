@@ -89,6 +89,45 @@ pub struct ServerCapabilities {
     pub config_override: Option<bool>,
     pub cron_management: Option<bool>,
     pub heartbeat_management: Option<bool>,
+    pub command_management: Option<bool>,
     pub model_catalog_management: Option<bool>,
     pub workspace_config_management: Option<bool>,
+}
+
+// ── command/* ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandInfo {
+    pub name: String,
+    pub aliases: Vec<String>,
+    pub description: String,
+    pub category: String,
+    pub requires_admin: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandListResult {
+    pub commands: Vec<CommandInfo>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandExecuteResult {
+    pub handled: bool,
+    pub message: Option<String>,
+    pub is_markdown: bool,
+    pub expanded_prompt: Option<String>,
+    pub session_reset: Option<bool>,
+    pub thread: Option<CommandExecuteThread>,
+    pub archived_thread_ids: Option<Vec<String>>,
+    pub created_lazily: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandExecuteThread {
+    pub id: String,
+    pub display_name: Option<String>,
 }

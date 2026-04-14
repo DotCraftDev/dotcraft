@@ -2881,17 +2881,18 @@ Clients must check `capabilities.skillsManagement` before calling any `skills/*`
 
 These methods expose the server-side command registry to wire clients.
 
-- `command/list` returns discoverable command metadata (including custom commands).
+- `command/list` returns discoverable server-registered command metadata (including custom commands).
 - `command/execute` executes a slash command and returns a normalized `CommandResult`.
 
 Command resolution and execution semantics are server-authoritative.
+Client-local UX commands (for example CLI/TUI `/clear`) are intentionally outside this registry surface and do not need to appear in `command/list`.
 
 ### 19.2 `CommandInfo` Wire DTO
 
 ```json
 {
   "name": "/new",
-  "aliases": ["/clear"],
+  "aliases": [],
   "description": "Create a new conversation",
   "category": "builtin",
   "requiresAdmin": false
@@ -2925,7 +2926,7 @@ List all available commands for the current workspace/runtime.
   "commands": [
     {
       "name": "/new",
-      "aliases": ["/clear"],
+      "aliases": [],
       "description": "Create a new conversation",
       "category": "builtin",
       "requiresAdmin": false
@@ -2961,13 +2962,21 @@ Execute one slash command through the server-side command pipeline.
 ```json
 {
   "handled": true,
-  "message": "Agent stopped.",
+  "message": "Started a new conversation.",
   "isMarkdown": false,
-  "expandedPrompt": null
+  "expandedPrompt": null,
+  "sessionReset": true,
+  "thread": {
+    "id": "thread_20260414_ab12cd"
+  },
+  "archivedThreadIds": ["thread_20260414_old001"],
+  "createdLazily": true
 }
 ```
 
 When `expandedPrompt` is non-null, the command resolved to a prompt expansion and the caller may submit that text with `turn/start`.
+
+When `sessionReset` is `true` (for `/new`), clients should switch their active thread pointer to `thread.id` immediately. `createdLazily = true` means the new thread id is valid, but its thread file may not be materialized on disk until the first turn is submitted.
 
 ### 19.5 Error Codes
 

@@ -176,7 +176,7 @@ When a user selects "approve all", similar operations in that session will no lo
 - File operations are cached by type (e.g., `file:write`)
 - Shell commands are cached with wildcard (`shell:*`)
 - Cache is only valid for the current session
-- Using `/new` or `/clear` to clear the session also clears the approval cache
+- Using `/new` to clear the session also clears the approval cache
 
 #### Security Recommendations
 
@@ -212,7 +212,7 @@ WeCom Bot mode supports the following slash commands:
 
 | Command | Description |
 |---------|-------------|
-| `/new` or `/clear` | Clear current session, start new conversation |
+| `/new` | Clear current session, start new conversation |
 | `/help` | Show available commands |
 | `/heartbeat trigger` | Manually trigger a heartbeat check |
 | `/cron list` | View all scheduled tasks |

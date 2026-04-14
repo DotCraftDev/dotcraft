@@ -251,8 +251,10 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
         KeyCode::Tab => {
             // Open command popup if input starts with '/'
             if state.input_text.starts_with('/') {
-                let filtered =
-                    crate::ui::overlays::command_popup::filter_commands(&state.input_text);
+                let filtered = crate::ui::overlays::command_popup::filter_commands(
+                    &state.input_text,
+                    &state.command_catalog,
+                );
                 if !filtered.is_empty() {
                     state.command_popup = Some(crate::app::state::CommandPopupState {
                         items: filtered,
@@ -285,7 +287,10 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
 
     // Auto-show or update command popup whenever input starts with '/'.
     if state.input_text.starts_with('/') {
-        let filtered = crate::ui::overlays::command_popup::filter_commands(&state.input_text);
+        let filtered = crate::ui::overlays::command_popup::filter_commands(
+            &state.input_text,
+            &state.command_catalog,
+        );
         if filtered.is_empty() {
             state.command_popup = None;
         } else {

@@ -1344,17 +1344,16 @@ Session Core records `SenderContext` and passes it through to approval handling.
 
 ### 17.3 Slash Commands
 
-Slash commands are modeled as a managed subsystem with a single server-side command registry:
+Slash commands are modeled as a managed subsystem with a single server-side command registry for **server-managed commands**:
 
 - Built-in in-process adapters (CLI, QQ, WeCom) call the registry directly.
 - Out-of-process adapters use AppServer wire methods (`command/list`, `command/execute`).
-- Both paths resolve against the same command set and permission metadata.
+- Both paths resolve against the same server-managed command set and permission metadata.
 
 | Command | Maps To | Scope |
 |---------|---------|-------|
 | `/stop` | `ISessionService.CancelTurn(turnId)` | Session Core |
-| `/new` | `ISessionService.ArchiveThread(threadId)` + `CreateThread(identity)` | Session Core |
-| `/clear` | Archive current Thread, create new one | Session Core |
+| `/new` | `ISessionService.ResetConversation(identity)` (archive reusable threads + create fresh thread) | Session Core |
 | `/load`, `/sessions` | `ISessionService.FindThreads(identity)` + `ResumeThread` | Session Core |
 | `/help` | Managed command metadata listing | Session Core + Adapter rendering |
 | `/heartbeat` | `HeartbeatService.TriggerNowAsync()` | AppServer-hosted service |
@@ -1363,7 +1362,9 @@ Slash commands are modeled as a managed subsystem with a single server-side comm
 | Custom commands | `CustomCommandLoader.TryResolve` | Session Core command pipeline |
 
 The registry is authoritative for command discovery, permission hints, and execution routing.
-Adapters may still provide platform-specific UX (for example native command menus), but they must not fork command semantics.
+Adapters may still provide platform-specific UX (for example native command menus), but they must not fork server-managed command semantics.
+`/clear` is intentionally excluded from Session Core semantics and should be treated as a client-local UI command (clear screen) rather than a thread lifecycle command.
+Client-local commands are outside `command/list` and `command/execute`.
 
 ### 17.4 Active Run Cancellation
 

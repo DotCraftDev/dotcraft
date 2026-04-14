@@ -48,6 +48,44 @@ public sealed class WireCliSession(
             ?? throw new InvalidOperationException("AppServer returned a thread with no id.");
     }
 
+    public async Task<string> ResetConversationAsync(
+        SessionIdentity identity,
+        string? currentThreadId,
+        CancellationToken ct = default)
+    {
+        if (!string.IsNullOrWhiteSpace(currentThreadId))
+        {
+            try
+            {
+                var commandResult = await wire.SendRequestAsync(AppServerMethods.CommandExecute, new
+                {
+                    threadId = currentThreadId,
+                    command = "/new"
+                }, ct: ct);
+
+                var resultEl = commandResult.RootElement.GetProperty("result");
+                if (resultEl.TryGetProperty("thread", out var threadEl)
+                    && threadEl.ValueKind == JsonValueKind.Object
+                    && threadEl.TryGetProperty("id", out var idEl))
+                {
+                    var id = idEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(id))
+                        return id;
+                }
+            }
+            catch
+            {
+                // Fallback below keeps compatibility with older servers.
+            }
+        }
+
+        // Backward-compatible fallback: archive active/paused threads, then create a new one.
+        var existing = await FindThreadsAsync(identity, ct);
+        foreach (var summary in existing.Where(t => t.Status is ThreadStatus.Active or ThreadStatus.Paused))
+            await ArchiveThreadAsync(summary.Id, ct);
+        return await CreateThreadAsync(identity, ct);
+    }
+
     public async Task<SessionWireThread> ResumeThreadAsync(string threadId, CancellationToken ct = default)
     {
         // Resume sets the thread status to Active

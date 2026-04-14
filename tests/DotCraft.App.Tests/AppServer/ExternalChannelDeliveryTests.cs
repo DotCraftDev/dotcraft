@@ -1595,6 +1595,7 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
 
         public Task<SessionThread> CreateThreadAsync(SessionIdentity identity, ThreadConfiguration? config = null, HistoryMode historyMode = HistoryMode.Server, string? threadId = null, string? displayName = null, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<ThreadResetResult> ResetConversationAsync(SessionIdentity identity, ThreadConfiguration? config = null, HistoryMode historyMode = HistoryMode.Server, string? displayName = null, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<SessionThread> ResumeThreadAsync(string threadId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task PauseThreadAsync(string threadId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task ArchiveThreadAsync(string threadId, CancellationToken ct = default) => throw new NotImplementedException();

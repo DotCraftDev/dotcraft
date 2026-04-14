@@ -564,26 +564,17 @@ export class FeishuAdapter extends ChannelAdapter {
     return true;
   }
 
+  protected override onThreadsArchived(_identityKey: string, archivedThreadIds: string[]): void {
+    for (const threadId of archivedThreadIds) {
+      this.threadContextMap.delete(threadId);
+      this.clearThreadTranscriptState(threadId);
+    }
+  }
+
   override async newThread(userId: string, channelContext = ""): Promise<void> {
     const identityKey = this.identityKey(userId, channelContext);
-    const oldId = this.threadMap.get(identityKey);
-    if (oldId) {
-      try {
-        await this.client.threadArchive(oldId);
-        logInfo("thread.archive", {
-          threadId: shortId(oldId),
-          identityKey: shortId(identityKey),
-        });
-      } catch (error) {
-        logWarn("thread.archive_failed", {
-          threadId: shortId(oldId),
-          message: errorMessage(error),
-        });
-      }
-      this.threadMap.delete(identityKey);
-      this.threadContextMap.delete(oldId);
-      this.clearThreadTranscriptState(oldId);
-    }
+    const archivedIds = await this.resetIdentityThreads(userId, channelContext);
+    this.onThreadsArchived(identityKey, archivedIds);
   }
 
   protected override async getOrCreateThread(

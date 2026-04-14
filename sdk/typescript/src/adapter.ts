@@ -65,6 +65,7 @@ export abstract class ChannelAdapter {
   private readonly adapterStreamDebug: boolean | undefined;
 
   protected readonly threadMap = new Map<string, string>();
+  private readonly forceFreshThreadIdentities = new Set<string>();
   private readonly threadQueues = new Map<string, Array<() => Promise<void>>>();
   private readonly runningWorkers = new Map<string, boolean>();
   private running = false;
@@ -297,6 +298,14 @@ export abstract class ChannelAdapter {
             this.enqueueMessage({ ...opts, text: expanded, skipCommand: true });
             return;
           } else if (Boolean(commandResult.handled)) {
+            await this.applyCommandResetResult(
+              identityKey,
+              opts.userId,
+              channelContext,
+              opts.workspacePath ?? this.defaultWorkspacePath,
+              parts[0] ?? "",
+              commandResult,
+            );
             const commandMessage = commandResult.message as string | undefined;
             if (commandMessage) {
               await this.onDeliver(channelContext, commandMessage, {});
@@ -365,6 +374,128 @@ export abstract class ChannelAdapter {
     return `${userId}:${channelContext}`;
   }
 
+  protected async resetIdentityThreads(userId: string, channelContext = ""): Promise<string[]> {
+    const identityKey = this.identityKey(userId, channelContext);
+    const archivedIds = new Set<string>();
+    const cachedThreadId = this.threadMap.get(identityKey);
+    if (cachedThreadId) archivedIds.add(cachedThreadId);
+
+    const threads = await this.client.threadList({
+      channelName: this.channelName,
+      userId,
+      channelContext,
+      workspacePath: this.defaultWorkspacePath,
+    });
+    for (const thread of threads) {
+      if (thread.status === "active" || thread.status === "paused") archivedIds.add(thread.id);
+    }
+
+    for (const threadId of archivedIds) {
+      try {
+        await this.client.threadArchive(threadId);
+        console.info(`Archived thread ${threadId} for ${identityKey}`);
+      } catch (e) {
+        console.warn(`Could not archive thread ${threadId}:`, e);
+      }
+    }
+
+    this.threadMap.delete(identityKey);
+    this.forceFreshThreadIdentities.add(identityKey);
+    return [...archivedIds];
+  }
+
+  protected onThreadsArchived(_identityKey: string, _archivedThreadIds: string[]): void {
+    // Default no-op for adapters without per-thread local state.
+  }
+
+  protected async applyCommandResetResult(
+    identityKey: string,
+    userId: string,
+    channelContext: string,
+    workspacePath: string,
+    commandName: string,
+    commandResult: Record<string, unknown>,
+  ): Promise<void> {
+    const normalizedCommand = commandName.trim().toLowerCase();
+    const archivedThreadIds = Array.isArray(commandResult.archivedThreadIds)
+      ? commandResult.archivedThreadIds.map((v) => String(v))
+      : [];
+    if (archivedThreadIds.length > 0) {
+      this.onThreadsArchived(identityKey, archivedThreadIds);
+    }
+
+    const resetThreadWire = commandResult.thread as Record<string, unknown> | undefined;
+    const sessionReset = Boolean(commandResult.sessionReset) || Boolean(resetThreadWire);
+    if (sessionReset) {
+      if (resetThreadWire) {
+        const resetThread = Thread.fromWire(resetThreadWire);
+        this.threadMap.set(identityKey, resetThread.id);
+        this.forceFreshThreadIdentities.delete(identityKey);
+        this.onThreadContextBound(resetThread.id, channelContext);
+      } else {
+        this.threadMap.delete(identityKey);
+        this.forceFreshThreadIdentities.add(identityKey);
+      }
+      return;
+    }
+
+    // Backward compatibility: older servers may not return structured reset payload.
+    if (normalizedCommand === "/new") {
+      await this.resetIdentityThreads(userId, channelContext);
+      const thread = await this.getOrCreateThread(identityKey, userId, channelContext, workspacePath);
+      this.onThreadContextBound(thread.id, channelContext);
+    }
+  }
+
+  protected async recoverThreadAfterNotActive(
+    identityKey: string,
+    userId: string,
+    channelContext: string,
+    workspacePath: string,
+    staleThreadId: string,
+  ): Promise<Thread> {
+    try {
+      const latest = await this.client.threadRead(staleThreadId);
+      if (latest.status === "paused") {
+        const resumed = await this.client.threadResume(staleThreadId);
+        this.threadMap.set(identityKey, resumed.id);
+        return resumed;
+      }
+      if (latest.status === "active") {
+        this.threadMap.set(identityKey, latest.id);
+        return latest;
+      }
+    } catch {
+      // Continue with identity-level lookup.
+    }
+
+    this.threadMap.delete(identityKey);
+    const threads = await this.client.threadList({
+      channelName: this.channelName,
+      userId,
+      channelContext,
+      workspacePath,
+    });
+    const reusable = threads.find((t) => t.status === "active" || t.status === "paused");
+    if (reusable) {
+      const thread =
+        reusable.status === "paused"
+          ? await this.client.threadResume(reusable.id)
+          : await this.client.threadRead(reusable.id);
+      this.threadMap.set(identityKey, thread.id);
+      return thread;
+    }
+
+    const fresh = await this.client.threadStart({
+      channelName: this.channelName,
+      userId,
+      channelContext,
+      workspacePath,
+    });
+    this.threadMap.set(identityKey, fresh.id);
+    return fresh;
+  }
+
   protected async processMessage(
     identityKey: string,
     opts: ChannelAdapterMessageOpts,
@@ -404,6 +535,14 @@ export abstract class ChannelAdapter {
         if (expandedPrompt) {
           opts.text = expandedPrompt;
         } else if (Boolean(commandResult.handled)) {
+          await this.applyCommandResetResult(
+            identityKey,
+            opts.userId,
+            channelContext,
+            workspacePath,
+            commandName,
+            commandResult,
+          );
           const commandMessage = commandResult.message as string | undefined;
           if (commandMessage) {
             await this.onDeliver(channelContext, commandMessage, {});
@@ -433,15 +572,22 @@ export abstract class ChannelAdapter {
         return;
       }
       if (e instanceof DotCraftError && e.code === ERR_THREAD_NOT_ACTIVE) {
-        await this.client.threadResume(thread.id);
-        const stream2 = this.client.streamEvents(thread.id);
+        const recovered = await this.recoverThreadAfterNotActive(
+          identityKey,
+          opts.userId,
+          channelContext,
+          workspacePath,
+          thread.id,
+        );
+        this.onThreadContextBound(recovered.id, channelContext);
+        const stream2 = this.client.streamEvents(recovered.id);
         try {
-          turn = await this.client.turnStart(thread.id, input, sender);
+          turn = await this.client.turnStart(recovered.id, input, sender);
         } catch (err) {
           await stream2.return?.();
           throw err;
         }
-        await this.consumeTurnEventStream(stream2, thread.id, turn.id, channelContext);
+        await this.consumeTurnEventStream(stream2, recovered.id, turn.id, channelContext);
         return;
       }
       throw e;
@@ -694,6 +840,19 @@ export abstract class ChannelAdapter {
     channelContext: string,
     workspacePath: string,
   ): Promise<Thread> {
+    if (this.forceFreshThreadIdentities.has(identityKey)) {
+      const thread = await this.client.threadStart({
+        channelName: this.channelName,
+        userId,
+        channelContext,
+        workspacePath,
+      });
+      this.threadMap.set(identityKey, thread.id);
+      this.forceFreshThreadIdentities.delete(identityKey);
+      console.info(`Created fresh thread ${thread.id} for identity ${identityKey}`);
+      return thread;
+    }
+
     let threadId = this.threadMap.get(identityKey);
     if (threadId) {
       try {
@@ -733,16 +892,6 @@ export abstract class ChannelAdapter {
   }
 
   async newThread(userId: string, channelContext = ""): Promise<void> {
-    const identityKey = this.identityKey(userId, channelContext);
-    const oldId = this.threadMap.get(identityKey);
-    if (oldId) {
-      try {
-        await this.client.threadArchive(oldId);
-        console.info(`Archived thread ${oldId} for ${identityKey}`);
-      } catch (e) {
-        console.warn(`Could not archive thread ${oldId}:`, e);
-      }
-      this.threadMap.delete(identityKey);
-    }
+    await this.resetIdentityThreads(userId, channelContext);
   }
 }

@@ -1,7 +1,10 @@
 // CommandPopup widget — slash command completion popup above the input editor.
 // Shown when the user types a `/` prefix; filters by prefix match.
 
-use crate::{app::state::CommandPopupState, theme::Theme};
+use crate::{
+    app::state::{CommandPopupState, SlashCommandDescriptor},
+    theme::Theme,
+};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -10,37 +13,41 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
-/// All slash commands with descriptions for the completion popup.
-pub const COMMANDS: &[(&str, &str)] = &[
-    ("/help", "Show help overlay"),
-    ("/new", "Start a new thread"),
-    ("/sessions", "Browse previous threads"),
-    ("/load", "Resume a thread by ID"),
-    ("/plan", "Switch to Plan mode"),
-    ("/agent", "Switch to Agent mode"),
-    ("/clear", "Clear chat display"),
-    ("/cron", "List cron jobs"),
-    ("/heartbeat", "Trigger heartbeat"),
-    ("/model", "Select or set model"),
-    ("/quit", "Exit dotcraft-tui"),
-];
-
 /// Filter commands by prefix and return matching (command, description) pairs.
-pub fn filter_commands(input: &str) -> Vec<(String, String)> {
+pub fn filter_commands(
+    input: &str,
+    commands: &[SlashCommandDescriptor],
+) -> Vec<(String, String)> {
     let prefix = input.trim_start_matches('/');
-    COMMANDS
+    commands
         .iter()
-        .filter(|(cmd, _)| {
-            let name = cmd.trim_start_matches('/');
+        .filter(|cmd| {
+            let name = cmd.name.trim_start_matches('/');
             name.starts_with(prefix)
         })
-        .map(|(cmd, desc)| (cmd.to_string(), desc.to_string()))
+        .map(|cmd| (cmd.name.clone(), cmd.description.clone()))
         .collect()
 }
 
 pub struct CommandPopup<'a> {
     pub popup_state: &'a CommandPopupState,
     pub theme: &'a Theme,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filters_dynamic_commands_by_prefix() {
+        let commands = vec![
+            SlashCommandDescriptor::new("/help", "Show help", "local-ui"),
+            SlashCommandDescriptor::new("/code-review", "Custom review", "custom"),
+            SlashCommandDescriptor::new("/cron", "List cron", "builtin"),
+        ];
+        let filtered = filter_commands("/co", &commands);
+        assert_eq!(filtered, vec![("/code-review".to_string(), "Custom review".to_string())]);
+    }
 }
 
 impl<'a> CommandPopup<'a> {

@@ -48,6 +48,7 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
         var defaultAgent = agentFactory.CreateAgentForMode(AgentMode.Agent);
         var svc1 = new SessionService(agentFactory, defaultAgent, store, new SessionGate());
         var thread = await svc1.CreateThreadAsync(identity, config);
+        await store.SaveThreadAsync(thread);
 
         Assert.True(ThreadAgentsContains(svc1, thread.Id));
 
@@ -57,6 +58,29 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
 
         await svc2.EnsureThreadLoadedAsync(thread.Id);
         Assert.True(ThreadAgentsContains(svc2, thread.Id));
+    }
+
+    [Fact]
+    public async Task CreateThreadAsync_DoesNotMaterializeThreadFile_UntilTurnPersists()
+    {
+        var store = new ThreadStore(_tempDir);
+        var identity = new SessionIdentity
+        {
+            ChannelName = "test",
+            UserId = "u",
+            WorkspacePath = _tempDir
+        };
+
+        await using var agentFactory = CreateAgentFactory();
+        var defaultAgent = agentFactory.CreateAgentForMode(AgentMode.Agent);
+        var svc = new SessionService(agentFactory, defaultAgent, store, new SessionGate());
+
+        var thread = await svc.CreateThreadAsync(identity);
+        var fromDisk = await store.LoadThreadAsync(thread.Id);
+        Assert.Null(fromDisk);
+
+        var listed = await svc.FindThreadsAsync(identity);
+        Assert.Contains(listed, s => s.Id == thread.Id);
     }
 
     private AgentFactory CreateAgentFactory()

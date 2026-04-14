@@ -596,3 +596,88 @@ test("processMessage uses inputParts when provided", async () => {
 
   assert.deepEqual(startedInput, [{ type: "text", text: "custom part" }]);
 });
+
+test("newThread archives all reusable threads for the identity", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+  const archived: string[] = [];
+
+  (adapter as unknown as { threadMap: Map<string, string> }).threadMap.set("u:c", "thread-cached");
+  client.threadList = async () => [
+    new Thread("thread-cached", "active"),
+    new Thread("thread-hidden", "active"),
+    new Thread("thread-paused", "paused"),
+    new Thread("thread-archived", "archived"),
+  ];
+  client.threadArchive = async (threadId: string) => {
+    archived.push(threadId);
+  };
+
+  await adapter.newThread("u", "c");
+
+  assert.deepEqual(archived, ["thread-cached", "thread-hidden", "thread-paused"]);
+  assert.equal((adapter as unknown as { threadMap: Map<string, string> }).threadMap.has("u:c"), false);
+});
+
+test("getOrCreateThread forces a fresh thread after newThread", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+  const archived: string[] = [];
+  let threadListCalls = 0;
+  let threadStartCalls = 0;
+
+  (adapter as unknown as { threadMap: Map<string, string> }).threadMap.set("u:c", "thread-cached");
+  client.threadList = async () => {
+    threadListCalls += 1;
+    return [new Thread("thread-hidden", "active")];
+  };
+  client.threadArchive = async (threadId: string) => {
+    archived.push(threadId);
+  };
+
+  await adapter.newThread("u", "c");
+
+  threadListCalls = 0;
+  client.threadRead = async () => {
+    throw new Error("threadRead should not run while fresh-thread marker is active");
+  };
+  client.threadStart = async () => {
+    threadStartCalls += 1;
+    return new Thread("thread-fresh", "active");
+  };
+
+  const created = await (adapter as unknown as {
+    getOrCreateThread: (identityKey: string, userId: string, channelContext: string, workspacePath: string) => Promise<Thread>;
+  }).getOrCreateThread("u:c", "u", "c", "/workspace");
+
+  assert.equal(created.id, "thread-fresh");
+  assert.equal(threadStartCalls, 1);
+  assert.equal(threadListCalls, 0, "fresh-thread marker must bypass reusable thread discovery");
+  assert.deepEqual(archived, ["thread-cached", "thread-hidden"]);
+  assert.equal((adapter as unknown as { threadMap: Map<string, string> }).threadMap.get("u:c"), "thread-fresh");
+});
+
+test("command /new sessionReset payload updates identity thread mapping", async () => {
+  const adapter = new RecordingAdapter();
+  const map = (adapter as unknown as { threadMap: Map<string, string> }).threadMap;
+  map.set("u:c", "thread-old");
+
+  await (adapter as unknown as {
+    applyCommandResetResult: (
+      identityKey: string,
+      userId: string,
+      channelContext: string,
+      workspacePath: string,
+      commandName: string,
+      commandResult: Record<string, unknown>,
+    ) => Promise<void>;
+  }).applyCommandResetResult("u:c", "u", "c", "/workspace", "/new", {
+    handled: true,
+    sessionReset: true,
+    thread: { id: "thread-new", status: "active" },
+    archivedThreadIds: ["thread-old"],
+    createdLazily: true,
+  });
+
+  assert.equal(map.get("u:c"), "thread-new");
+});
