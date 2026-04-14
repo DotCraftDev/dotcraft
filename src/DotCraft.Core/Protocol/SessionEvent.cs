@@ -58,6 +58,9 @@ public sealed class SessionEvent
     public ReasoningContentDelta? ReasoningDeltaPayload => Payload as ReasoningContentDelta;
 
     [JsonIgnore]
+    public CommandExecutionOutputDelta? CommandExecutionDeltaPayload => Payload as CommandExecutionOutputDelta;
+
+    [JsonIgnore]
     public ThreadStatusChangedPayload? StatusChangedPayload => Payload as ThreadStatusChangedPayload;
 
     [JsonIgnore]

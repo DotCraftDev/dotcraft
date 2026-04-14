@@ -8,6 +8,7 @@ namespace DotCraft.Protocol.AppServer;
 public static class AppServerRequestContext
 {
     private static readonly AsyncLocal<IAppServerTransport?> _currentTransport = new();
+    private static readonly AsyncLocal<AppServerConnection?> _currentConnection = new();
 
     /// <summary>
     /// The transport currently executing an incoming request, or null when not in a handler
@@ -17,5 +18,14 @@ public static class AppServerRequestContext
     {
         get => _currentTransport.Value;
         set => _currentTransport.Value = value;
+    }
+
+    /// <summary>
+    /// The AppServer connection currently executing an incoming request, or null outside request handling.
+    /// </summary>
+    public static AppServerConnection? CurrentConnection
+    {
+        get => _currentConnection.Value;
+        set => _currentConnection.Value = value;
     }
 }

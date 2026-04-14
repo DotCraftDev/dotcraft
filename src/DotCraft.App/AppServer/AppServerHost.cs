@@ -538,7 +538,7 @@ public sealed class AppServerHost(
                     if (firstMsg.IsRequest && firstMsg.Method == AppServerMethods.Initialize)
                     {
                         // Process the initialize request normally
-                        await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
+                        await ProcessRequestAsync(wsTransport, wsHandler, wsConnection, firstMsg, hostCt);
 
                         // Check if this is a channel adapter connection
                         if (wsConnection.IsChannelAdapter)
@@ -623,7 +623,7 @@ public sealed class AppServerHost(
                     }
                     else if (firstMsg.IsRequest)
                     {
-                        await ProcessRequestAsync(wsTransport, wsHandler, firstMsg, hostCt);
+                        await ProcessRequestAsync(wsTransport, wsHandler, wsConnection, firstMsg, hostCt);
                     }
                 }
 
@@ -696,7 +696,7 @@ public sealed class AppServerHost(
             {
                 try
                 {
-                    await ProcessRequestAsync(transport, handler, msg, ct);
+                    await ProcessRequestAsync(transport, handler, connection, msg, ct);
                 }
                 finally
                 {
@@ -713,11 +713,14 @@ public sealed class AppServerHost(
     private static async Task ProcessRequestAsync(
         IAppServerTransport transport,
         AppServerRequestHandler handler,
+        AppServerConnection connection,
         AppServerIncomingMessage msg,
         CancellationToken ct)
     {
         var previousTransport = AppServerRequestContext.CurrentTransport;
+        var previousConnection = AppServerRequestContext.CurrentConnection;
         AppServerRequestContext.CurrentTransport = transport;
+        AppServerRequestContext.CurrentConnection = connection;
         try
         {
             object? result;
@@ -753,6 +756,7 @@ public sealed class AppServerHost(
         finally
         {
             AppServerRequestContext.CurrentTransport = previousTransport;
+            AppServerRequestContext.CurrentConnection = previousConnection;
         }
     }
 

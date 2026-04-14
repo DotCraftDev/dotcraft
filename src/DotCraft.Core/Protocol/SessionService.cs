@@ -545,6 +545,8 @@ public sealed class SessionService(
                 var effectivePathBlacklist = !string.IsNullOrWhiteSpace(thread.Configuration?.WorkspaceOverride)
                     ? new PathBlacklist([])
                     : agentFactory.ToolProviderContext.PathBlacklist;
+                var supportsCommandExecutionStreaming =
+                    AppServer.AppServerRequestContext.CurrentConnection?.SupportsCommandExecutionStreaming == true;
 
                 using var externalChannelToolScope = ExternalChannelToolExecutionScope.Set(
                     new ExternalChannelToolExecutionContext
@@ -563,6 +565,18 @@ public sealed class SessionService(
                         NextItemSequence = NextItemSeq,
                         EmitItemStarted = eventChannel.EmitItemStarted,
                         EmitItemCompleted = eventChannel.EmitItemCompleted
+                    });
+                using var commandExecutionScope = CommandExecutionRuntimeScope.Set(
+                    new CommandExecutionRuntimeContext
+                    {
+                        ThreadId = threadId,
+                        TurnId = turn.Id,
+                        Turn = turn,
+                        NextItemSequence = NextItemSeq,
+                        EmitItemStarted = eventChannel.EmitItemStarted,
+                        EmitItemDelta = eventChannel.EmitItemDelta,
+                        EmitItemCompleted = eventChannel.EmitItemCompleted,
+                        SupportsCommandExecutionStreaming = supportsCommandExecutionStreaming
                     });
 
                 try
@@ -620,6 +634,14 @@ public sealed class SessionService(
 
                                 case FunctionCallContent fc:
                                 {
+                                    RegisterCommandExecutionIfNeeded(
+                                        fc,
+                                        turn,
+                                        NextItemSeq,
+                                        eventChannel,
+                                        supportsCommandExecutionStreaming,
+                                        effectiveWorkspacePath);
+
                                     var toolCallItem = new SessionItem
                                     {
                                         Id = SessionIdGenerator.NewItemId(NextItemSeq()),
@@ -994,6 +1016,66 @@ public sealed class SessionService(
 
     private static string ResolveApprovalSource(string? channelName) =>
         channelName?.ToLowerInvariant() ?? "console";
+
+    private static void RegisterCommandExecutionIfNeeded(
+        FunctionCallContent functionCall,
+        SessionTurn turn,
+        Func<int> nextItemSeq,
+        SessionEventChannel eventChannel,
+        bool supportsCommandExecutionStreaming,
+        string defaultWorkspacePath)
+    {
+        if (!supportsCommandExecutionStreaming)
+            return;
+
+        if (!string.Equals(functionCall.Name, "Exec", StringComparison.Ordinal))
+            return;
+
+        if (CommandExecutionRuntimeScope.Current is not { } runtime)
+            return;
+
+        var args = functionCall.Arguments;
+        var command = args != null && args.TryGetValue("command", out var commandObj)
+            ? commandObj?.ToString()
+            : null;
+        if (string.IsNullOrWhiteSpace(command))
+            return;
+
+        var workingDirectory = args != null && args.TryGetValue("workingDir", out var cwdObj)
+            ? cwdObj?.ToString()
+            : null;
+        workingDirectory = !string.IsNullOrWhiteSpace(workingDirectory)
+            ? Path.GetFullPath(workingDirectory)
+            : defaultWorkspacePath;
+
+        var item = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(nextItemSeq()),
+            TurnId = turn.Id,
+            Type = ItemType.CommandExecution,
+            Status = ItemStatus.Started,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Payload = new CommandExecutionPayload
+            {
+                CallId = functionCall.CallId,
+                Command = command,
+                WorkingDirectory = workingDirectory,
+                Source = "host",
+                Status = "inProgress",
+                AggregatedOutput = string.Empty
+            }
+        };
+        turn.Items.Add(item);
+        eventChannel.EmitItemStarted(item);
+        runtime.RegisterPending(new PendingCommandExecutionRegistration
+        {
+            CallId = functionCall.CallId ?? string.Empty,
+            Command = command,
+            WorkingDirectory = workingDirectory,
+            Source = "host",
+            Item = item
+        });
+    }
 
     private static void FailTurn(SessionTurn turn, SessionEventChannel channel, string errorMsg)
     {

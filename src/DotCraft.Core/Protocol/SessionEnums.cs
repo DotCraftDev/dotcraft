@@ -26,6 +26,7 @@ public enum ItemType
     UserMessage,
     AgentMessage,
     ReasoningContent,
+    CommandExecution,
     ToolCall,
     ExternalChannelToolCall,
     ToolResult,

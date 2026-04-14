@@ -9,13 +9,9 @@ interface DetailPanelProps {
   workspacePath?: string
 }
 
-/** Tool names treated as shell execution tools (must mirror TerminalTab) */
-const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
-
 /**
- * Detail Panel — three tabs: Changes, Plan, Terminal.
+ * Detail Panel - three tabs: Changes, Plan, Terminal.
  * Tab bar shows a badge with file count on the Changes tab when changes exist.
- * Spec §11
  */
 export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Element {
   const t = useT()
@@ -24,13 +20,10 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
   const turns = useConversationStore((s) => s.turns)
 
   const changedFileCount = changedFiles.size
-
-  // Count terminal commands for badge
-  const terminalCount = turns.reduce((acc, turn) => {
-    return acc + turn.items.filter(
-      (i) => i.type === 'toolCall' && SHELL_TOOLS.has(i.toolName ?? '') && i.status === 'completed'
-    ).length
-  }, 0)
+  const terminalCount = turns.reduce(
+    (acc, turn) => acc + turn.items.filter((i) => i.type === 'commandExecution').length,
+    0
+  )
 
   const tabs: { id: DetailPanelTab; label: string; icon: JSX.Element; badge?: number }[] = [
     {
@@ -57,7 +50,6 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         backgroundColor: 'var(--bg-secondary)'
       }}
     >
-      {/* Tab bar — fixed height matches ThreadHeader; tab underline uses inset shadow (no layout growth) */}
       <div
         style={{
           display: 'flex',
@@ -83,17 +75,15 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
               padding: '0 10px',
               fontSize: '13px',
               fontWeight: activeDetailTab === tab.id ? 500 : 400,
-              color:
-                activeDetailTab === tab.id
-                  ? 'var(--text-primary)'
-                  : 'var(--text-secondary)',
+              color: activeDetailTab === tab.id
+                ? 'var(--text-primary)'
+                : 'var(--text-secondary)',
               backgroundColor: 'transparent',
               border: 'none',
               boxSizing: 'border-box',
-              boxShadow:
-                activeDetailTab === tab.id
-                  ? 'inset 0 -2px 0 var(--accent)'
-                  : 'none',
+              boxShadow: activeDetailTab === tab.id
+                ? 'inset 0 -2px 0 var(--accent)'
+                : 'none',
               cursor: 'pointer',
               transition: 'color 100ms ease, box-shadow 100ms ease'
             }}
@@ -121,10 +111,8 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
           </button>
         ))}
 
-        {/* Spacer */}
         <div style={{ flex: 1 }} />
 
-        {/* Close button */}
         <button
           onClick={toggleDetailPanel}
           title={t('detailPanel.closeTitle')}
@@ -150,17 +138,10 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         </button>
       </div>
 
-      {/* Tab content */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {activeDetailTab === 'changes' && (
-          <ChangesTab workspacePath={workspacePath} />
-        )}
-        {activeDetailTab === 'plan' && (
-          <PlanTab />
-        )}
-        {activeDetailTab === 'terminal' && (
-          <TerminalTab />
-        )}
+        {activeDetailTab === 'changes' && <ChangesTab workspacePath={workspacePath} />}
+        {activeDetailTab === 'plan' && <PlanTab />}
+        {activeDetailTab === 'terminal' && <TerminalTab />}
       </div>
     </div>
   )

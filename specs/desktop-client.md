@@ -147,6 +147,7 @@ This section defines how protocol messages affect user-visible behavior. It inte
 | `item/started` | New agent work becomes visible in the current thread. |
 | `item/agentMessage/delta` | Agent text streams incrementally when streaming is enabled. |
 | `item/reasoning/delta` | Reasoning content is exposed only if the client chooses to show reasoning. |
+| `item/commandExecution/outputDelta` | Running shell output is appended live to the matching command block in both the conversation view and the Terminal review surface. |
 | `item/completed` | The final item output replaces or finalizes any in-progress representation. |
 | `item/usage/delta` | Token usage counters update when the client exposes real-time usage. |
 
@@ -231,6 +232,11 @@ This section defines how protocol messages affect user-visible behavior. It inte
 - File changes produced during a thread remain discoverable until reverted or superseded.
 - Plan updates remain associated with the active thread and reflect the latest complete plan snapshot.
 - Tool output remains readable in-thread and must remain distinguishable from agent conversational text.
+- `commandExecution` items are the Desktop client's primary source of shell output data, but the conversation view keeps the existing tool-card presentation for shell work instead of rendering command output as a standalone message block.
+- In the conversation view, shell work remains collapsed by default using the normal tool-card style. If the user expands the card, live output may be shown there while the command is still running.
+- The Terminal detail surface shows all `commandExecution` items for the current thread history, including in-progress commands.
+- If the user switches to another thread while a command is still running, the output continues updating in the background thread state without forcing a focus change.
+- This milestone does not require interactive terminal input; shell output is read-only from the Desktop client's perspective.
 - The client may reveal related context automatically when new changes or plans appear, but the rule should be based on relevance, not on any fixed panel design.
 
 ### 5.8 Interrupt a Running Turn

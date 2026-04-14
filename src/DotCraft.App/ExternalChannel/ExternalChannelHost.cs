@@ -569,7 +569,7 @@ public sealed class ExternalChannelHost : IChannelService
                 {
                     try
                     {
-                        await ProcessRequestAsync(transport, handler, msg, ct);
+                        await ProcessRequestAsync(transport, handler, connection, msg, ct);
                     }
                     finally
                     {
@@ -588,11 +588,14 @@ public sealed class ExternalChannelHost : IChannelService
     private static async Task ProcessRequestAsync(
         IAppServerTransport transport,
         AppServerRequestHandler handler,
+        AppServerConnection connection,
         AppServerIncomingMessage msg,
         CancellationToken ct)
     {
         var previousTransport = AppServerRequestContext.CurrentTransport;
+        var previousConnection = AppServerRequestContext.CurrentConnection;
         AppServerRequestContext.CurrentTransport = transport;
+        AppServerRequestContext.CurrentConnection = connection;
         try
         {
             object? result;
@@ -630,6 +633,7 @@ public sealed class ExternalChannelHost : IChannelService
         finally
         {
             AppServerRequestContext.CurrentTransport = previousTransport;
+            AppServerRequestContext.CurrentConnection = previousConnection;
         }
     }
 

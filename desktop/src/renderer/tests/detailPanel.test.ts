@@ -68,6 +68,38 @@ describe('commit file filter', () => {
   })
 })
 
+describe('terminal command badge data', () => {
+  it('counts commandExecution items instead of completed Exec tool calls', () => {
+    cs().onTurnStarted({
+      id: 'turn-1',
+      threadId: 'thread-1',
+      status: 'running',
+      items: [],
+      startedAt: new Date().toISOString()
+    })
+    cs().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-1',
+        type: 'commandExecution',
+        payload: {
+          callId: 'exec-1',
+          command: 'npm test',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+
+    const terminalCount = cs().turns.reduce(
+      (acc, turn) => acc + turn.items.filter((i) => i.type === 'commandExecution').length,
+      0
+    )
+
+    expect(terminalCount).toBe(1)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Plan todo status mapping
 // ---------------------------------------------------------------------------

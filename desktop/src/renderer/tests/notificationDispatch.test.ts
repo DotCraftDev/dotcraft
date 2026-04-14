@@ -83,6 +83,15 @@ function dispatch(payload: { method: string; params: unknown }): void {
       conv.onReasoningDelta((p.delta as string) ?? '')
       break
 
+    case 'item/commandExecution/outputDelta':
+      conv.onCommandExecutionDelta({
+        threadId: (p.threadId as string | undefined),
+        turnId: (p.turnId as string | undefined),
+        itemId: (p.itemId as string | undefined),
+        delta: (p.delta as string | undefined)
+      })
+      break
+
     case 'item/completed':
       conv.onItemCompleted(p)
       break
@@ -221,6 +230,98 @@ describe('notification dispatch payload format', () => {
     expect(items).toHaveLength(1)
     expect(items[0].text).toBe('The answer is 42.')
     expect(items[0].type).toBe('agentMessage')
+  })
+
+  it('dispatches command execution deltas into the matching item', () => {
+    dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'cmd_1',
+          type: 'commandExecution',
+          payload: {
+            callId: 'exec-1',
+            command: 'npm test',
+            status: 'inProgress',
+            aggregatedOutput: ''
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/commandExecution/outputDelta',
+      params: { threadId: 'thread-1', turnId: 'turn_1', itemId: 'cmd_1', delta: 'chunk\n' }
+    })
+    dispatch({
+      method: 'item/completed',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'cmd_1',
+          type: 'commandExecution',
+          payload: {
+            callId: 'exec-1',
+            command: 'npm test',
+            status: 'completed',
+            aggregatedOutput: 'chunk\n',
+            exitCode: 0,
+            durationMs: 400
+          }
+        }
+      }
+    })
+
+    const item = s().turns[0].items.find((i) => i.id === 'cmd_1')
+    expect(item?.type).toBe('commandExecution')
+    expect(item?.aggregatedOutput).toBe('chunk\n')
+    expect(item?.executionStatus).toBe('completed')
+    expect(item?.exitCode).toBe(0)
+  })
+
+  it('updates the existing Exec toolCall instead of requiring a standalone terminal block', () => {
+    dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_1',
+          type: 'toolCall',
+          payload: {
+            callId: 'exec-3',
+            toolName: 'Exec',
+            arguments: { command: 'dir' }
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'cmd_3',
+          type: 'commandExecution',
+          payload: {
+            callId: 'exec-3',
+            command: 'dir',
+            status: 'inProgress',
+            aggregatedOutput: ''
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/commandExecution/outputDelta',
+      params: { threadId: 'thread-1', turnId: 'turn_1', itemId: 'cmd_3', delta: 'file.txt\n' }
+    })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool_1')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.aggregatedOutput).toBe('file.txt\n')
+    expect(toolItem?.executionStatus).toBe('inProgress')
   })
 
   it('dispatches item/usage/delta and accumulates tokens', () => {

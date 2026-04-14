@@ -215,6 +215,7 @@ Client                              Server
 | `clientInfo.version` | string | yes | Client version string. |
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
+| `capabilities.commandExecutionStreaming` | boolean | no | Whether the client can consume `commandExecution` items and `item/commandExecution/outputDelta` notifications. Default `false`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
@@ -1016,6 +1017,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 | `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
 | `reasoningContent` | Reasoning deltas stream through `item/reasoningContent/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. |
+| `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
 | `externalChannelToolCall` | External channel tool payload uses camelCase fields such as `toolName`, `channelName`, `arguments`, `success`, `errorCode`, and `errorMessage`. |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
 | `approvalRequest` | Approval payload uses the canonical fields plus wire enum/string serialization rules from this spec. |
@@ -1057,6 +1059,34 @@ Streamed text delta for a `reasoningContent` item.
 #### `item/completed`
 
 Emitted when an item is finalized. The `item.status` is `"completed"` and the payload contains the final accumulated value.
+
+#### `item/commandExecution/outputDelta`
+
+Streamed output delta for a `commandExecution` item. Concatenate `delta` values in order to reconstruct the live command output shown to the user.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_20260413_ab12cd",
+  "turnId": "turn_001",
+  "itemId": "item_004",
+  "delta": "Downloading package 1 of 5...\n"
+}
+```
+
+`commandExecution` items follow a fixed sequence:
+
+1. `item/started` with `item.type = "commandExecution"` and payload `status = "inProgress"`
+2. zero or more `item/commandExecution/outputDelta`
+3. `item/completed` with final payload status and `aggregatedOutput`
+
+Compatibility rule:
+
+- When a connection advertises `capabilities.commandExecutionStreaming = true`, the server may emit the `commandExecution` projection for `Exec`-style tools so clients can render real-time shell output.
+- The underlying `toolCall` / `toolResult` items still exist for model execution and persistence, but clients that support `commandExecution` should treat that item type as the primary terminal-output source to avoid duplicate rendering.
+- A client may also use `commandExecution` as an enhancement source for an existing `Exec` tool card instead of rendering it as a standalone conversation item.
+- Clients that do not advertise the capability continue to rely on existing `toolCall` / `toolResult` behavior.
 
 **Params**:
 

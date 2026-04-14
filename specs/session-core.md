@@ -252,6 +252,7 @@ Fields:
   - `UserMessage` — User's input text.
   - `AgentMessage` — Agent's response text (may be streamed incrementally).
   - `ReasoningContent` — Agent's internal reasoning/thinking (if exposed by the model).
+  - `CommandExecution` — Server-observed shell execution stream for `Exec`-style tools. Payload includes command metadata and aggregated output.
   - `ToolCall` — Agent invokes a tool. Payload includes tool name and arguments.
   - `ToolResult` — Result of a tool invocation. Payload includes result text and success/failure.
   - `ApprovalRequest` — Agent requests user approval for a sensitive operation.
@@ -340,6 +341,21 @@ Delta payload (during streaming):
   "callId": string,       // Matches the ToolCall.callId
   "result": string,       // Textual result
   "success": boolean      // Whether the tool execution succeeded
+}
+```
+
+#### CommandExecution
+
+```
+{
+  "callId": string,               // Correlates to the underlying Exec-style tool call
+  "command": string,              // Shell command text
+  "workingDirectory": string,     // Effective working directory
+  "source": string,               // "host" or "sandbox"
+  "status": string,               // "inProgress", "completed", "failed", or "cancelled"
+  "aggregatedOutput": string,     // Full accumulated output shown to the user
+  "exitCode": number | null,      // Process exit code when available
+  "durationMs": number | null     // Total wall-clock duration when available
 }
 ```
 
@@ -493,7 +509,7 @@ Delta payload (during streaming):
 
 **Transitions**:
 
-- `Started` → `Streaming` (optional, only for `AgentMessage` and `ReasoningContent`)
+- `Started` → `Streaming` (optional, for `AgentMessage`, `ReasoningContent`, and runtime-projected `CommandExecution`)
   - Session Core begins receiving incremental content from the agent.
   - Each delta emits an `item/delta` event with the incremental payload.
 
@@ -611,7 +627,7 @@ SessionEvent
   - Adapters should begin rendering immediately (e.g., show a "typing" indicator for AgentMessage, show tool name for ToolCall).
 
 - **`item/delta`**
-  - Emitted for incremental content updates on streaming Items (`AgentMessage`, `ReasoningContent`).
+  - Emitted for incremental content updates on streaming Items (`AgentMessage`, `ReasoningContent`, `CommandExecution`).
   - Payload: the delta-specific payload (e.g., `{ textDelta: "chunk of text" }`).
   - May be emitted many times per Item. Adapters that support streaming should forward these to the user progressively.
   - Adapters that do not support streaming (e.g., GitHubTracker) may ignore deltas and wait for `item/completed`.
@@ -1077,6 +1093,7 @@ All failures surface as:
 - `turn/started` emitted on `SubmitInput`
 - `item/started` emitted for each Item creation
 - `item/delta` emitted for streaming AgentMessage content
+- `item/delta` emitted for streaming CommandExecution output when shell streaming is enabled
 - `item/completed` emitted when Item is finalized
 - `turn/completed` emitted after all Items are complete
 - `turn/failed` emitted on error

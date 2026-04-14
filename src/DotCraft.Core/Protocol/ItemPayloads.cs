@@ -77,6 +77,47 @@ public sealed record ReasoningContentDelta
 }
 
 /// <summary>
+/// Payload for CommandExecution items.
+/// </summary>
+public sealed record CommandExecutionPayload
+{
+    public string Command { get; init; } = string.Empty;
+
+    public string WorkingDirectory { get; init; } = string.Empty;
+
+    /// <summary>
+    /// "host" or "sandbox".
+    /// </summary>
+    public string Source { get; init; } = "host";
+
+    /// <summary>
+    /// "inProgress", "completed", "failed", or "cancelled".
+    /// </summary>
+    public string Status { get; init; } = "inProgress";
+
+    public string AggregatedOutput { get; init; } = string.Empty;
+
+    public int? ExitCode { get; init; }
+
+    public long? DurationMs { get; init; }
+
+    /// <summary>
+    /// Matches the related ToolCall/ToolResult call id when available.
+    /// </summary>
+    public string? CallId { get; init; }
+}
+
+/// <summary>
+/// Delta payload emitted while a command execution is producing output.
+/// </summary>
+public sealed record CommandExecutionOutputDelta
+{
+    public string DeltaKind { get; init; } = "commandExecution";
+
+    public string TextDelta { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// Payload for ToolCall items.
 /// </summary>
 public sealed record ToolCallPayload
