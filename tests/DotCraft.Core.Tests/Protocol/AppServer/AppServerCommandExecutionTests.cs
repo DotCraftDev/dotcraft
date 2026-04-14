@@ -18,6 +18,27 @@ public sealed class AppServerCommandExecutionTests : IDisposable
     public void Dispose() => _h.Dispose();
 
     [Fact]
+    public async Task CommandList_DoesNotExposeClientOnlyClearCommand()
+    {
+        var msg = _h.BuildRequest(AppServerMethods.CommandList, new { });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        var commands = response.RootElement
+            .GetProperty("result")
+            .GetProperty("commands")
+            .EnumerateArray()
+            .Select(e => e.GetProperty("name").GetString())
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .ToList();
+
+        Assert.Contains("/new", commands);
+        Assert.DoesNotContain("/clear", commands);
+    }
+
+    [Fact]
     public async Task CommandExecute_New_ReturnsSessionResetPayloadAndFreshThread()
     {
         var existing = await _h.Service.CreateThreadAsync(_h.Identity);

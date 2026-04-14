@@ -2881,10 +2881,11 @@ Clients must check `capabilities.skillsManagement` before calling any `skills/*`
 
 These methods expose the server-side command registry to wire clients.
 
-- `command/list` returns discoverable command metadata (including custom commands).
+- `command/list` returns discoverable server-registered command metadata (including custom commands).
 - `command/execute` executes a slash command and returns a normalized `CommandResult`.
 
 Command resolution and execution semantics are server-authoritative.
+Client-local UX commands (for example CLI/TUI `/clear`) are intentionally outside this registry surface and do not need to appear in `command/list`.
 
 ### 19.2 `CommandInfo` Wire DTO
 
@@ -2961,7 +2962,7 @@ Execute one slash command through the server-side command pipeline.
 ```json
 {
   "handled": true,
-  "message": "Session cleared.",
+  "message": "Started a new conversation.",
   "isMarkdown": false,
   "expandedPrompt": null,
   "sessionReset": true,

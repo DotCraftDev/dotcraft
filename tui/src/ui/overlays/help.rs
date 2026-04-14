@@ -17,7 +17,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/load <id>", "Resume a thread by ID"),
     ("/plan", "Switch to Plan mode"),
     ("/agent", "Switch to Agent mode"),
-    ("/clear", "Clear the chat display"),
+    ("/clear", "Clear the terminal screen"),
     ("/cron", "List cron jobs"),
     ("/heartbeat", "Trigger heartbeat run"),
     ("/model [name|default]", "Open model picker or set model directly"),

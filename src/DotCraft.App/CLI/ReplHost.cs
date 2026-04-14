@@ -437,6 +437,8 @@ public sealed class ReplHost(
                 return (true, false, null);
 
             case "/clear":
+                // Client-local UI command: clear the screen only.
+                // Do not call Session Core or command/execute for /clear.
                 AnsiConsole.Clear();
                 ShowWelcomeScreen(_currentSessionId);
                 return (true, false, null);

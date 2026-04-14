@@ -405,15 +405,21 @@ async fn handle_terminal_event(
                     if text.is_empty() {
                         return Ok(false);
                     }
-                    state.streaming.clear();
-
                     if let Some(cmd) = commands::parse(&text) {
-                        let quit =
-                            handle_slash_command(wire, state, strings, deferred_tx, cmd).await?;
+                        let quit = handle_slash_command(
+                            terminal,
+                            wire,
+                            state,
+                            strings,
+                            deferred_tx,
+                            cmd,
+                        )
+                        .await?;
                         if quit {
                             return Ok(true);
                         }
                     } else {
+                        state.streaming.clear();
                         submit_turn(wire, state, text).await?;
                     }
                 }
@@ -1160,6 +1166,7 @@ fn format_cron_list(result: &serde_json::Value, strings: &Strings) -> String {
 }
 
 async fn handle_slash_command(
+    terminal: &mut Term,
     wire: &mut WireClient,
     state: &mut AppState,
     strings: &Strings,
@@ -1169,9 +1176,7 @@ async fn handle_slash_command(
     match cmd {
         SlashCommand::Quit => return Ok(true),
         SlashCommand::Clear => {
-            state.history.clear();
-            state.plan = None;
-            state.subagent_entries.clear();
+            terminal.clear()?;
         }
         SlashCommand::New => {
             state.history.clear();

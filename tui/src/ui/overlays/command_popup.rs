@@ -18,7 +18,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/load", "Resume a thread by ID"),
     ("/plan", "Switch to Plan mode"),
     ("/agent", "Switch to Agent mode"),
-    ("/clear", "Clear chat display"),
+    ("/clear", "Clear terminal screen"),
     ("/cron", "List cron jobs"),
     ("/heartbeat", "Trigger heartbeat"),
     ("/model", "Select or set model"),
