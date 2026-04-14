@@ -7,6 +7,7 @@ import { initConnectionStore, useConnectionStore } from './stores/connectionStor
 import { useThreadStore } from './stores/threadStore'
 import { useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
+import { useCustomCommandCatalog } from './hooks/useCustomCommandCatalog'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
 import { AutomationsView } from './components/automations/AutomationsView'
@@ -33,6 +34,7 @@ import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
+import { resolveCustomCommandExecution } from './utils/customCommandExecution'
 import './styles/tokens.css'
 
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
@@ -80,6 +82,13 @@ export function App(): JSX.Element {
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
   const { status, errorType, errorMessage } = useConnectionStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const canUseCommandExecution = capabilities?.commandManagement === true
+  const { commands: customCommands } = useCustomCommandCatalog({
+    enabled: canUseCommandExecution,
+    locale
+  })
+  const customCommandsRef = useRef(customCommands)
+  customCommandsRef.current = customCommands
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
   const activeMainView = useUIStore((s) => s.activeMainView)
   const {
@@ -324,10 +333,32 @@ export function App(): JSX.Element {
               const activeId = useThreadStore.getState().activeThreadId
               if (activeId) {
                 const path = workspacePathRef.current
-                void window.api.appServer
-                  .sendRequest('turn/start', {
+                void (async () => {
+                  let effectiveThreadId = activeId
+                  let effectiveText = pending
+                  const commandResult = await resolveCustomCommandExecution({
+                    text: pending,
                     threadId: activeId,
-                    input: [{ type: 'text', text: pending }],
+                    commands: customCommandsRef.current,
+                    sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
+                  })
+                  if (commandResult.message) {
+                    addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
+                  }
+                  if (commandResult.sessionResetThreadSummary) {
+                    useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
+                  }
+                  if (commandResult.sessionResetThreadId) {
+                    effectiveThreadId = commandResult.sessionResetThreadId
+                    useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
+                  }
+                  if (commandResult.matchedCustomCommand) {
+                    if (!commandResult.shouldSendTurn) return
+                    effectiveText = commandResult.textForTurn.trim()
+                  }
+                  await window.api.appServer.sendRequest('turn/start', {
+                    threadId: effectiveThreadId,
+                    input: [{ type: 'text', text: effectiveText }],
                     identity: {
                       channelName: 'dotcraft-desktop',
                       userId: 'local',
@@ -335,9 +366,9 @@ export function App(): JSX.Element {
                       workspacePath: path
                     }
                   })
-                  .catch((err: unknown) =>
-                    console.error('Auto-send pending message failed:', err)
-                  )
+                })().catch((err: unknown) =>
+                  console.error('Auto-send pending message failed:', err)
+                )
               }
               // Clear the pending message now that we've sent it
               useConversationStore.getState().setPendingMessage(null)
@@ -807,6 +838,8 @@ export function App(): JSX.Element {
             const path = workspacePathRef.current
             const pendingText = pendingWelcome.text.trim()
             const pendingImages = pendingWelcome.images
+            let effectiveThreadId = threadId
+            let effectivePendingText = pendingText
             const welcomeMode = pendingWelcome.mode ?? 'agent'
             const rawWelcomeModel =
               typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
@@ -842,13 +875,42 @@ export function App(): JSX.Element {
                 console.error('thread/mode/set (welcome) failed:', modeErr)
               }
             }
-            const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
+            if (pendingText.length > 0) {
+              try {
+                const commandResult = await resolveCustomCommandExecution({
+                  text: pendingText,
+                  threadId,
+                  commands: customCommandsRef.current,
+                  sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
+                })
+                if (commandResult.message) {
+                  addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
+                }
+                if (commandResult.sessionResetThreadSummary) {
+                  useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
+                }
+                if (commandResult.sessionResetThreadId) {
+                  effectiveThreadId = commandResult.sessionResetThreadId
+                  useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
+                }
+                if (commandResult.matchedCustomCommand) {
+                  if (!commandResult.shouldSendTurn) {
+                    return
+                  }
+                  effectivePendingText = commandResult.textForTurn.trim()
+                }
+              } catch (commandErr: unknown) {
+                console.error('Welcome custom command execution failed:', commandErr)
+                return
+              }
+            }
+            const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === effectiveThreadId)
             if (!threadEntry?.displayName) {
               const autoName =
-                pendingText.length > 50
-                  ? pendingText.slice(0, 50) + '...'
-                  : pendingText || translate(localeRef.current, 'toast.imageMessage')
-              useThreadStore.getState().renameThread(threadId, autoName)
+                effectivePendingText.length > 50
+                  ? effectivePendingText.slice(0, 50) + '...'
+                  : effectivePendingText || translate(localeRef.current, 'toast.imageMessage')
+              useThreadStore.getState().renameThread(effectiveThreadId, autoName)
             }
             const optimisticItemId = `local-${Date.now()}`
             const optimisticTurnId = `local-turn-${Date.now()}`
@@ -857,14 +919,14 @@ export function App(): JSX.Element {
               id: optimisticItemId,
               type: 'userMessage',
               status: 'completed',
-              text: pendingText,
+              text: effectivePendingText,
               imageDataUrls: pendingImages?.map((i) => i.dataUrl),
               createdAt: optimisticNow,
               completedAt: optimisticNow
             }
             const optimisticTurn: ConversationTurn = {
               id: optimisticTurnId,
-              threadId,
+              threadId: effectiveThreadId,
               status: 'running',
               items: [userItem],
               startedAt: optimisticNow
@@ -872,8 +934,8 @@ export function App(): JSX.Element {
             useConversationStore.getState().addOptimisticTurn(optimisticTurn)
 
             const inputParts: Array<{ type: string; text?: string; path?: string }> = []
-            if (pendingText.length > 0) {
-              inputParts.push({ type: 'text', text: pendingText })
+            if (effectivePendingText.length > 0) {
+              inputParts.push({ type: 'text', text: effectivePendingText })
             }
             for (const img of pendingImages ?? []) {
               inputParts.push({ type: 'localImage', path: img.tempPath })
@@ -883,7 +945,7 @@ export function App(): JSX.Element {
             } else {
               void window.api.appServer
                 .sendRequest('turn/start', {
-                  threadId,
+                  threadId: effectiveThreadId,
                   input: inputParts,
                   identity: {
                     channelName: 'dotcraft-desktop',
