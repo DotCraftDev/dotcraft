@@ -130,6 +130,7 @@ public static class ToolRegistry
             "GrepFiles" => CoreToolDisplays.GrepFilesResult(result),
             "FindFiles" => CoreToolDisplays.FindFilesResult(result),
             "Exec" => CoreToolDisplays.ExecResult(result),
+            "LSP" => CoreToolDisplays.LspResult(result),
             "Cron" => CronToolDisplays.CronResult(result),
             _ => null
         };

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
+using DotCraft.Lsp;
 using DotCraft.Security;
 using Microsoft.Extensions.AI;
 
@@ -15,7 +16,8 @@ public sealed class FileTools(
     int maxFileSize = 10 * 1024 * 1024,
     IApprovalService? approvalService = null,
     PathBlacklist? blacklist = null,
-    IReadOnlyList<string>? trustedReadPaths = null)
+    IReadOnlyList<string>? trustedReadPaths = null,
+    LspServerManager? lspServerManager = null)
 {
     private const int DefaultReadLimit = 2000;
     
@@ -183,6 +185,7 @@ public sealed class FileTools(
                 content = NormalizeToLf(content);
             }
             await File.WriteAllTextAsync(fullPath, content, encoding);
+            await NotifyLspFileChangedAsync(fullPath, content);
             var lineCount = content.Split('\n').Length;
             return $"Successfully wrote {content.Length} bytes ({lineCount} lines) to {path}";
         }
@@ -222,7 +225,14 @@ public sealed class FileTools(
                 return "Error: oldText is required. Provide the exact snippet to find and replace.";
 
             oldText = UnescapeUnicodeSequences(oldText);
-            return await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding, replaceAll);
+            var result = await ApplySearchReplaceEdit(fullPath, path, content, oldText, newText, encoding, replaceAll);
+            if (result.StartsWith("Successfully", StringComparison.Ordinal))
+            {
+                var latest = await File.ReadAllTextAsync(fullPath, encoding);
+                await NotifyLspFileChangedAsync(fullPath, latest);
+            }
+
+            return result;
         }
         catch (UnauthorizedAccessException)
         {
@@ -515,6 +525,22 @@ public sealed class FileTools(
 
     private async Task<string?> ValidatePathAsync(string fullPath, string operation, string originalPath)
         => await _fileAccessGuard.ValidatePathAsync(fullPath, operation, originalPath);
+
+    private async Task NotifyLspFileChangedAsync(string fullPath, string content)
+    {
+        if (lspServerManager == null)
+            return;
+
+        try
+        {
+            await lspServerManager.ChangeFileAsync(fullPath, content);
+            await lspServerManager.SaveFileAsync(fullPath);
+        }
+        catch
+        {
+            // LSP sync is best-effort and should not fail write/edit operations.
+        }
+    }
 
     private static async Task<string> ApplySearchReplaceEdit(
         string fullPath, string displayPath, string content, string oldText, string newText,

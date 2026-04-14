@@ -175,6 +175,8 @@ Examples:
 | `Tools.Web.Timeout` | Web request timeout (seconds) | `300` |
 | `Tools.Web.SearchMaxResults` | Web search default result count (1-10) | `5` |
 | `Tools.Web.SearchProvider` | Search engine provider: `Bing` (default, globally available), `Exa` (AI-optimized, free MCP interface) | `Exa` |
+| `Tools.Lsp.Enabled` | Enable built-in LSP tool (`LSP`) | `false` |
+| `Tools.Lsp.MaxFileSize` | Maximum file size (bytes) allowed for LSP open/sync | `10485760` (10MB) |
 
 ### Sandbox Mode (OpenSandbox)
 
@@ -289,7 +291,7 @@ API mode exposes DotCraft as an OpenAI-compatible HTTP service. See [API Mode Gu
 | `Api.ApiKey` | API access key (Bearer Token), no verification when empty | empty |
 | `Api.AutoApprove` | Auto-approve all file/Shell operations when true; auto-reject when false | `true` |
 
-Root-level `EnabledTools` field controls globally available tools (enables all when empty): `SpawnSubagent`, `ReadFile`, `WriteFile`, `EditFile`, `GrepFiles`, `FindFiles`, `Exec`, `WebSearch`, `WebFetch`, `Cron`, `WeComNotify`.
+Root-level `EnabledTools` field controls globally available tools (enables all when empty): `SpawnSubagent`, `ReadFile`, `WriteFile`, `EditFile`, `GrepFiles`, `FindFiles`, `Exec`, `WebSearch`, `WebFetch`, `LSP`, `Cron`, `WeComNotify`.
 
 ---
 
@@ -407,6 +409,92 @@ When MCP tool count is high, enable deferred loading to reduce token overhead:
 | `Tools.DeferredLoading.AlwaysLoadedTools` | MCP tool names to always load upfront | `[]` |
 | `Tools.DeferredLoading.MaxSearchResults` | Maximum results per `SearchTools` call | `5` |
 | `Tools.DeferredLoading.DeferThreshold` | Skip deferred loading if tool count is below this | `10` |
+
+---
+
+## LSP Service Integration
+
+DotCraft supports local Language Servers (for example `typescript-language-server` and `csharp-ls`) via the `LSP` tool, enabling definition lookup, references, hover, document/workspace symbols, and call hierarchy operations.
+
+### Enable Steps
+
+1. Set `Tools.Lsp.Enabled = true`
+2. Configure one or more servers in `LspServers`
+3. (Optional) Control access to `LSP` via root-level `EnabledTools`
+
+> Note: `LspServers` currently supports only `stdio` transport. DotCraft routes requests by file extension and automatically sends `didChange + didSave` after `WriteFile` / `EditFile`.
+
+### `LspServers` Fields
+
+`LspServers` is recommended in object-map form (keys are server names):
+
+```json
+{
+  "LspServers": {
+    "ts": {
+      "Enabled": true,
+      "Command": "typescript-language-server",
+      "Arguments": ["--stdio"],
+      "ExtensionToLanguage": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact",
+        ".js": "javascript",
+        ".jsx": "javascriptreact"
+      }
+    }
+  }
+}
+```
+
+Field reference:
+
+| Config Item | Description | Default |
+|-------------|-------------|---------|
+| `Name` | Server name (provided by key in object-map form) | empty |
+| `Enabled` | Whether this LSP server is enabled | `true` |
+| `Command` | Server start command | empty |
+| `Arguments` | Command arguments list (alias `Args` is also supported) | `[]` |
+| `ExtensionToLanguage` | File extension to language-id map (for example `.cs -> csharp`) | `{}` |
+| `Transport` | Transport mode (currently only `stdio`) | `stdio` |
+| `EnvironmentVariables` | Process environment variables (alias `Env` is also supported) | `{}` |
+| `WorkspaceFolder` | Server working folder (optional, supports workspace-relative path) | empty |
+| `InitializationOptions` | Extra JSON for the `initialize` request | empty |
+| `Settings` | Settings JSON sent through `workspace/didChangeConfiguration` | empty |
+| `StartupTimeoutMs` | Startup and initialize timeout in milliseconds | `30000` |
+| `MaxRestarts` | Maximum crash-restart attempts | `3` |
+
+### Complete Example
+
+```json
+{
+  "Tools": {
+    "Lsp": {
+      "Enabled": true,
+      "MaxFileSize": 10485760
+    }
+  },
+  "EnabledTools": ["ReadFile", "WriteFile", "EditFile", "Exec", "LSP"],
+  "LspServers": {
+    "csharp": {
+      "Enabled": true,
+      "Command": "csharp-ls",
+      "Arguments": [],
+      "ExtensionToLanguage": {
+        ".cs": "csharp"
+      }
+    },
+    "typescript": {
+      "Enabled": true,
+      "Command": "typescript-language-server",
+      "Arguments": ["--stdio"],
+      "ExtensionToLanguage": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact"
+      }
+    }
+  }
+}
+```
 
 ---
 

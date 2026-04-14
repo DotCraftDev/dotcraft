@@ -6,6 +6,7 @@ using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Security;
 using DotCraft.Skills;
+using DotCraft.Lsp;
 using DotCraft.Tools;
 using OpenAI.Chat;
 
@@ -76,6 +77,11 @@ public sealed class ToolProviderContext
     /// Optional MCP client manager for external tool integration.
     /// </summary>
     public McpClientManager? McpClientManager { get; init; }
+
+    /// <summary>
+    /// Optional LSP server manager for language-intelligence tools.
+    /// </summary>
+    public LspServerManager? LspServerManager { get; init; }
 
     /// <summary>
     /// Registry for deferred MCP tools. Populated by <see cref="DeferredToolProvider"/>

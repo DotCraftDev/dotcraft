@@ -9,6 +9,7 @@ using DotCraft.Tracing;
 using DotCraft.Heartbeat;
 using DotCraft.Hosting;
 using DotCraft.Hooks;
+using DotCraft.Lsp;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
@@ -43,6 +44,7 @@ public sealed class AGUIChannelService(
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
     McpClientManager mcpClientManager,
+    LspServerManager lspServerManager,
     ModuleRegistry moduleRegistry)
     : IChannelService, IWebHostingChannel
 {
@@ -259,6 +261,7 @@ public sealed class AGUIChannelService(
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                LspServerManager = lspServerManager,
                 TraceCollector = traceCollector
             },
             traceCollector: traceCollector,

@@ -11,6 +11,7 @@ using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
+using DotCraft.Lsp;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
@@ -37,6 +38,7 @@ public sealed class QQChannelService(
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
     McpClientManager mcpClientManager,
+    LspServerManager lspServerManager,
     QQBotClient qqClient,
     QQPermissionService permissionService,
     QQApprovalService qqApprovalService,
@@ -239,6 +241,7 @@ public sealed class QQChannelService(
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                LspServerManager = lspServerManager,
                 TraceCollector = traceCollector
             },
             traceCollector: traceCollector,

@@ -77,6 +77,15 @@ public static class CoreToolDisplays
     public static string Exec(IDictionary<string, object?>? args)
         => $"{ToolDisplayHelpers.Truncate(ToolDisplayHelpers.GetString(args, "command") ?? "command", 80)}";
 
+    public static string LSP(IDictionary<string, object?>? args)
+    {
+        var operation = ToolDisplayHelpers.GetString(args, "operation") ?? "operation";
+        var path = ToolDisplayHelpers.GetString(args, "filePath") ?? "?";
+        var line = ToolDisplayHelpers.GetInt(args, "line");
+        var character = ToolDisplayHelpers.GetInt(args, "character");
+        return $"LSP {operation} {path}:{line}:{character}";
+    }
+
     public static string SearchTools(IDictionary<string, object?>? args)
         => $"Searched tools: \"{ToolDisplayHelpers.Truncate(ToolDisplayHelpers.GetString(args, "query") ?? "", 60)}\"";
 
@@ -490,6 +499,18 @@ public static class CoreToolDisplays
         if (string.IsNullOrEmpty(firstLine)) return null;
 
         return [firstLine];
+    }
+
+    public static IReadOnlyList<string>? LspResult(string? result)
+    {
+        if (string.IsNullOrWhiteSpace(result))
+            return null;
+
+        var firstLine = result.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(firstLine))
+            return null;
+
+        return [ToolDisplayHelpers.Truncate(firstLine.Trim(), 120)];
     }
 
 }

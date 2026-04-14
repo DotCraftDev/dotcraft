@@ -10,6 +10,7 @@ using DotCraft.Cron;
 using DotCraft.Heartbeat;
 using DotCraft.Logging;
 using DotCraft.Hosting;
+using DotCraft.Lsp;
 using DotCraft.Memory;
 using DotCraft.Mcp;
 using DotCraft.Modules;
@@ -48,6 +49,7 @@ public sealed class AppServerHost(
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
     McpClientManager mcpClientManager,
+    LspServerManager lspServerManager,
     ModuleRegistry moduleRegistry,
     ExternalChannelRegistry? externalChannelRegistry = null) : IDotCraftHost
 {
@@ -132,6 +134,7 @@ public sealed class AppServerHost(
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                LspServerManager = lspServerManager,
                 TraceCollector = traceCollector,
                 AcpExtensionProxy = _wireAcpExtensionProxy
             },
