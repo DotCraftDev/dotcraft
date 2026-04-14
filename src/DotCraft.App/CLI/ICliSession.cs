@@ -15,6 +15,11 @@ public interface ICliSession : IAsyncDisposable
     Task<string> CreateThreadAsync(SessionIdentity identity, CancellationToken ct = default);
 
     /// <summary>
+    /// Resets the conversation for an identity ("/new"): archive reusable threads and return a fresh thread id.
+    /// </summary>
+    Task<string> ResetConversationAsync(SessionIdentity identity, string? currentThreadId, CancellationToken ct = default);
+
+    /// <summary>
     /// Resumes a thread and returns the full wire thread object (including turn history) for history display.
     /// </summary>
     Task<SessionWireThread> ResumeThreadAsync(string threadId, CancellationToken ct = default);

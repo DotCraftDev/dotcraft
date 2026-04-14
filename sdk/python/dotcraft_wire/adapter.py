@@ -278,6 +278,14 @@ class ChannelAdapter(ABC):
                             text = expanded_prompt
                             effective_skip_command = True
                         elif command_result.get("handled"):
+                            await self._apply_command_reset_result(
+                                identity_key,
+                                user_id,
+                                channel_context,
+                                workspace_path or self.DEFAULT_WORKSPACE_PATH,
+                                command_name,
+                                command_result,
+                            )
                             message = command_result.get("message")
                             if message:
                                 await self.on_deliver(channel_context, message, {})
@@ -309,6 +317,115 @@ class ChannelAdapter(ABC):
 
     def _identity_key(self, user_id: str, channel_context: str) -> str:
         return f"{user_id}:{channel_context}"
+
+    def _on_threads_archived(self, identity_key: str, archived_thread_ids: list[str]) -> None:
+        """Hook for subclasses to cleanup per-thread local state."""
+        _ = identity_key
+        _ = archived_thread_ids
+
+    async def _apply_command_reset_result(
+        self,
+        identity_key: str,
+        user_id: str,
+        channel_context: str,
+        workspace_path: str,
+        command_name: str,
+        command_result: dict,
+    ) -> None:
+        archived_ids = [str(v) for v in (command_result.get("archivedThreadIds") or []) if v]
+        if archived_ids:
+            self._on_threads_archived(identity_key, archived_ids)
+
+        reset_thread = command_result.get("thread")
+        session_reset = bool(command_result.get("sessionReset")) or isinstance(reset_thread, dict)
+        if session_reset:
+            if isinstance(reset_thread, dict) and reset_thread.get("id"):
+                self._thread_map[identity_key] = str(reset_thread.get("id"))
+            else:
+                self._thread_map.pop(identity_key, None)
+            return
+
+        # Backward compatibility with servers that handle /new but do not return reset payload.
+        if command_name.strip().lower() == "/new":
+            await self._reset_identity_threads(user_id, channel_context, workspace_path)
+
+    async def _reset_identity_threads(
+        self,
+        user_id: str,
+        channel_context: str,
+        workspace_path: str,
+    ) -> list[str]:
+        identity_key = self._identity_key(user_id, channel_context)
+        archived_ids: set[str] = set()
+        cached = self._thread_map.pop(identity_key, None)
+        if cached:
+            archived_ids.add(cached)
+
+        threads = await self._client.thread_list(
+            channel_name=self._channel_name,
+            user_id=user_id,
+            channel_context=channel_context,
+            workspace_path=workspace_path,
+        )
+        for thread in threads:
+            if thread.status in ("active", "paused"):
+                archived_ids.add(thread.id)
+
+        for thread_id in archived_ids:
+            try:
+                await self._client.thread_archive(thread_id)
+            except DotCraftError as e:
+                logger.warning("Could not archive thread %s: %s", thread_id, e)
+        archived = sorted(archived_ids)
+        if archived:
+            self._on_threads_archived(identity_key, archived)
+        return archived
+
+    async def _recover_thread_after_not_active(
+        self,
+        identity_key: str,
+        user_id: str,
+        channel_context: str,
+        workspace_path: str,
+        stale_thread_id: str,
+    ) -> Thread:
+        try:
+            latest = await self._client.thread_read(stale_thread_id)
+            if latest.status == "paused":
+                resumed = await self._client.thread_resume(stale_thread_id)
+                self._thread_map[identity_key] = resumed.id
+                return resumed
+            if latest.status == "active":
+                self._thread_map[identity_key] = latest.id
+                return latest
+        except DotCraftError:
+            pass
+
+        self._thread_map.pop(identity_key, None)
+        threads = await self._client.thread_list(
+            channel_name=self._channel_name,
+            user_id=user_id,
+            channel_context=channel_context,
+            workspace_path=workspace_path,
+        )
+        active = [t for t in threads if t.status in ("active", "paused")]
+        if active:
+            thread = active[0]
+            if thread.status == "paused":
+                thread = await self._client.thread_resume(thread.id)
+            else:
+                thread = await self._client.thread_read(thread.id)
+            self._thread_map[identity_key] = thread.id
+            return thread
+
+        thread = await self._client.thread_start(
+            channel_name=self._channel_name,
+            user_id=user_id,
+            channel_context=channel_context,
+            workspace_path=workspace_path,
+        )
+        self._thread_map[identity_key] = thread.id
+        return thread
 
     async def _thread_worker(self, identity_key: str) -> None:
         """Worker that processes messages for one identity serially."""
@@ -367,6 +484,14 @@ class ChannelAdapter(ABC):
             if expanded_prompt:
                 text = expanded_prompt
             elif command_result.get("handled"):
+                await self._apply_command_reset_result(
+                    identity_key,
+                    user_id,
+                    channel_context,
+                    workspace_path,
+                    command_name,
+                    command_result,
+                )
                 message = command_result.get("message")
                 if message:
                     await self.on_deliver(channel_context, message, {})
@@ -395,9 +520,14 @@ class ChannelAdapter(ABC):
                 )
                 return
             if e.code == ERR_THREAD_NOT_ACTIVE:
-                # Thread was paused or archived; resume it
-                logger.info("Thread %s not active, resuming", thread.id)
-                await self._client.thread_resume(thread.id)
+                logger.info("Thread %s not active, resolving replacement", thread.id)
+                thread = await self._recover_thread_after_not_active(
+                    identity_key,
+                    user_id,
+                    channel_context,
+                    workspace_path,
+                    thread.id,
+                )
                 turn = await self._client.turn_start(
                     thread.id,
                     input=[{"type": "text", "text": text}],
@@ -525,23 +655,17 @@ class ChannelAdapter(ABC):
         logger.info("Created thread %s for identity %s", thread.id, identity_key)
         return thread
 
-    async def new_thread(self, user_id: str, channel_context: str = "") -> Thread:
+    async def new_thread(self, user_id: str, channel_context: str = "") -> None:
         """
         Archive the existing thread (if any) and start a fresh one.
 
         Call this when the user issues a /new command.
         """
-        identity_key = self._identity_key(user_id, channel_context)
-        old_thread_id = self._thread_map.pop(identity_key, None)
-        if old_thread_id:
-            try:
-                await self._client.thread_archive(old_thread_id)
-                logger.info("Archived thread %s for %s", old_thread_id, identity_key)
-            except DotCraftError as e:
-                logger.warning("Could not archive thread %s: %s", old_thread_id, e)
-
-        # Return the placeholder — next handle_message() call will create it
-        return None  # type: ignore[return-value]
+        await self._reset_identity_threads(
+            user_id=user_id,
+            channel_context=channel_context,
+            workspace_path=self.DEFAULT_WORKSPACE_PATH,
+        )
 
     # ------------------------------------------------------------------
     # Server-request handlers

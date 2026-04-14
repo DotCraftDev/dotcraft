@@ -58,6 +58,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, McpClientManager> _threadMcpManagers = new();
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
+    private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
@@ -109,11 +110,35 @@ public sealed class SessionService(
         if (config != null || channelRuntimeToolProvider != null)
             _threadAgents[thread.Id] = await BuildAgentForThreadAsync(thread, ct);
 
-        await threadStore.SaveThreadAsync(thread, ct);
         broker.PublishThreadEvent(SessionEventType.ThreadCreated, thread);
         ThreadCreatedForBroadcast?.Invoke(thread);
 
         return thread;
+    }
+
+    /// <inheritdoc/>
+    public async Task<ThreadResetResult> ResetConversationAsync(
+        SessionIdentity identity,
+        ThreadConfiguration? config = null,
+        HistoryMode historyMode = HistoryMode.Server,
+        string? displayName = null,
+        CancellationToken ct = default)
+    {
+        var summaries = await FindThreadsAsync(identity, includeArchived: false, crossChannelOrigins: null, ct);
+        var archivedIds = new List<string>();
+        foreach (var summary in summaries.Where(s => s.Status is ThreadStatus.Active or ThreadStatus.Paused))
+        {
+            await ArchiveThreadAsync(summary.Id, ct);
+            archivedIds.Add(summary.Id);
+        }
+
+        var thread = await CreateThreadAsync(identity, config, historyMode, displayName: displayName, ct: ct);
+        return new ThreadResetResult
+        {
+            Thread = thread,
+            ArchivedThreadIds = archivedIds,
+            CreatedLazily = true
+        };
     }
 
     /// <inheritdoc/>
@@ -129,7 +154,7 @@ public sealed class SessionService(
                 var previousStatus = cached.Status;
                 cached.Status = ThreadStatus.Active;
                 cached.LastActiveAt = DateTimeOffset.UtcNow;
-                await threadStore.SaveThreadAsync(cached, ct);
+                await PersistThreadIfMaterializedAsync(cached, ct);
                 GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, cached.Status);
             }
 
@@ -155,7 +180,7 @@ public sealed class SessionService(
 
         await EnsurePerThreadAgentIfMissingAsync(thread.Id, thread, ct);
 
-        await threadStore.SaveThreadAsync(thread, ct);
+        await PersistThreadWithMaterializationAsync(thread, ct);
         var resumedBy = ChannelSessionScope.Current?.Channel ?? thread.OriginChannel;
         broker.PublishThreadEvent(SessionEventType.ThreadResumed,
             new ThreadResumedPayload { Thread = thread, ResumedBy = resumedBy });
@@ -220,6 +245,7 @@ public sealed class SessionService(
         _threadAgents.TryRemove(threadId, out _);
         _threadModeManagers.TryRemove(threadId, out _);
         _threadEventBrokers.TryRemove(threadId, out _);
+        _materializedThreads.TryRemove(threadId, out _);
         if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
             await mcpManager.DisposeAsync();
 
@@ -239,8 +265,14 @@ public sealed class SessionService(
     {
         var all = await threadStore.LoadIndexAsync(ct);
         var hasCross = crossChannelOrigins is { Count: > 0 };
+        var mergedById = new Dictionary<string, ThreadSummary>(StringComparer.OrdinalIgnoreCase);
+        foreach (var summary in all)
+            mergedById[summary.Id] = summary;
+        foreach (var thread in _threads.Values)
+            mergedById[thread.Id] = ThreadSummary.FromThread(thread);
+        var merged = mergedById.Values;
 
-        return all
+        return merged
             .Where(s =>
             {
                 if (!(includeArchived || s.Status != ThreadStatus.Archived))
@@ -899,7 +931,7 @@ public sealed class SessionService(
 
                 try
                 {
-                    await threadStore.SaveThreadAsync(thread, CancellationToken.None);
+                    await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
@@ -979,7 +1011,7 @@ public sealed class SessionService(
 
         _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
 
-        await threadStore.SaveThreadAsync(thread, ct);
+        await PersistThreadWithMaterializationAsync(thread, ct);
     }
 
     /// <inheritdoc/>
@@ -991,7 +1023,7 @@ public sealed class SessionService(
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         thread.Configuration = config;
         _threadAgents[threadId] = await BuildAgentForThreadAsync(thread, ct);
-        await threadStore.SaveThreadAsync(thread, ct);
+        await PersistThreadWithMaterializationAsync(thread, ct);
     }
 
     /// <inheritdoc/>
@@ -1000,7 +1032,7 @@ public sealed class SessionService(
         var thread = await GetOrLoadThreadAsync(threadId, ct);
         var previous = thread.DisplayName;
         thread.DisplayName = displayName;
-        await threadStore.SaveThreadAsync(thread, ct);
+        await PersistThreadWithMaterializationAsync(thread, ct);
         if (previous != displayName)
             ThreadRenamedForBroadcast?.Invoke(thread);
     }
@@ -1018,6 +1050,7 @@ public sealed class SessionService(
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
 
         _threads[thread.Id] = thread;
+        _materializedThreads[thread.Id] = 0;
         _ = GetOrCreateBroker(thread.Id);
         return thread;
     }
@@ -1031,7 +1064,7 @@ public sealed class SessionService(
 
     private async Task PersistThreadStatusAsync(SessionThread thread, CancellationToken ct)
     {
-        await threadStore.SaveThreadAsync(thread, ct);
+        await PersistThreadIfMaterializedAsync(thread, ct);
     }
 
     private ThreadEventBroker GetOrCreateBroker(string threadId) =>
@@ -1133,12 +1166,27 @@ public sealed class SessionService(
     {
         try
         {
-            await threadStore.SaveThreadAsync(thread, CancellationToken.None);
+            await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
         }
         catch (Exception ex)
         {
             logger?.LogError(ex, "Failed to persist thread state for thread {ThreadId}", thread.Id);
         }
+    }
+
+    private bool IsMaterialized(string threadId) => _materializedThreads.ContainsKey(threadId);
+
+    private async Task PersistThreadWithMaterializationAsync(SessionThread thread, CancellationToken ct)
+    {
+        await threadStore.SaveThreadAsync(thread, ct);
+        _materializedThreads[thread.Id] = 0;
+    }
+
+    private async Task PersistThreadIfMaterializedAsync(SessionThread thread, CancellationToken ct)
+    {
+        if (!IsMaterialized(thread.Id))
+            return;
+        await PersistThreadWithMaterializationAsync(thread, ct);
     }
 
     private static SessionItem CreateErrorItem(

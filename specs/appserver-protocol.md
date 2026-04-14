@@ -2891,7 +2891,7 @@ Command resolution and execution semantics are server-authoritative.
 ```json
 {
   "name": "/new",
-  "aliases": ["/clear"],
+  "aliases": [],
   "description": "Create a new conversation",
   "category": "builtin",
   "requiresAdmin": false
@@ -2925,7 +2925,7 @@ List all available commands for the current workspace/runtime.
   "commands": [
     {
       "name": "/new",
-      "aliases": ["/clear"],
+      "aliases": [],
       "description": "Create a new conversation",
       "category": "builtin",
       "requiresAdmin": false
@@ -2961,13 +2961,21 @@ Execute one slash command through the server-side command pipeline.
 ```json
 {
   "handled": true,
-  "message": "Agent stopped.",
+  "message": "Session cleared.",
   "isMarkdown": false,
-  "expandedPrompt": null
+  "expandedPrompt": null,
+  "sessionReset": true,
+  "thread": {
+    "id": "thread_20260414_ab12cd"
+  },
+  "archivedThreadIds": ["thread_20260414_old001"],
+  "createdLazily": true
 }
 ```
 
 When `expandedPrompt` is non-null, the command resolved to a prompt expansion and the caller may submit that text with `turn/start`.
+
+When `sessionReset` is `true` (for `/new`), clients should switch their active thread pointer to `thread.id` immediately. `createdLazily = true` means the new thread id is valid, but its thread file may not be materialized on disk until the first turn is submitted.
 
 ### 19.5 Error Codes
 

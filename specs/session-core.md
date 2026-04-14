@@ -1353,8 +1353,7 @@ Slash commands are modeled as a managed subsystem with a single server-side comm
 | Command | Maps To | Scope |
 |---------|---------|-------|
 | `/stop` | `ISessionService.CancelTurn(turnId)` | Session Core |
-| `/new` | `ISessionService.ArchiveThread(threadId)` + `CreateThread(identity)` | Session Core |
-| `/clear` | Archive current Thread, create new one | Session Core |
+| `/new` | `ISessionService.ResetConversation(identity)` (archive reusable threads + create fresh thread) | Session Core |
 | `/load`, `/sessions` | `ISessionService.FindThreads(identity)` + `ResumeThread` | Session Core |
 | `/help` | Managed command metadata listing | Session Core + Adapter rendering |
 | `/heartbeat` | `HeartbeatService.TriggerNowAsync()` | AppServer-hosted service |
@@ -1364,6 +1363,7 @@ Slash commands are modeled as a managed subsystem with a single server-side comm
 
 The registry is authoritative for command discovery, permission hints, and execution routing.
 Adapters may still provide platform-specific UX (for example native command menus), but they must not fork command semantics.
+`/clear` is intentionally excluded from Session Core semantics and should be treated as a client-local UI command (clear screen) rather than a thread lifecycle command.
 
 ### 17.4 Active Run Cancellation
 

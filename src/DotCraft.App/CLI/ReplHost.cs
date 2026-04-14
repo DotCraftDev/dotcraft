@@ -361,15 +361,14 @@ public sealed class ReplHost(
     }
 
     /// <summary>
-    /// Create a new session (lazy: thread is deferred until first input).
+    /// Create a new session by resetting the current identity to a fresh thread.
     /// </summary>
     private async Task NewSession(CancellationToken cancellationToken)
     {
         try
         {
-            // Lazy: reset to pending state; thread is created on first input.
-            _currentThreadId = null;
-            _currentSessionId = string.Empty;
+            _currentThreadId = await session.ResetConversationAsync(_cliIdentity, _currentThreadId, cancellationToken);
+            _currentSessionId = _currentThreadId;
             _threadModelOverride = null;
 
             await RunSessionStartHooksAsync(_currentSessionId, cancellationToken);

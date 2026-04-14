@@ -25,6 +25,26 @@ public sealed class CommandResult
     /// The caller should feed this prompt to the agent instead of replying directly.
     /// </summary>
     public string? ExpandedPrompt { get; init; }
+
+    /// <summary>
+    /// True when handling this command reset the active conversation state.
+    /// </summary>
+    public bool SessionReset { get; init; }
+
+    /// <summary>
+    /// Optional new thread id created by a session reset command.
+    /// </summary>
+    public string? NewThreadId { get; init; }
+
+    /// <summary>
+    /// Optional list of thread ids archived by a session reset command.
+    /// </summary>
+    public IReadOnlyList<string>? ArchivedThreadIds { get; init; }
+
+    /// <summary>
+    /// Whether the new thread is lazily materialized on disk.
+    /// </summary>
+    public bool? CreatedLazily { get; init; }
     
     /// <summary>
     /// Creates a result indicating the command was handled.
@@ -37,6 +57,26 @@ public sealed class CommandResult
     /// </summary>
     public static CommandResult PromptExpansion(string expandedPrompt)
         => new() { Handled = true, ExpandedPrompt = expandedPrompt };
+
+    /// <summary>
+    /// Creates a result for commands that reset the current conversation (for example <c>/new</c>).
+    /// </summary>
+    public static CommandResult SessionResetResult(
+        string newThreadId,
+        IReadOnlyList<string> archivedThreadIds,
+        bool createdLazily,
+        string? message = null,
+        bool isMarkdown = false)
+        => new()
+        {
+            Handled = true,
+            Message = message,
+            IsMarkdown = isMarkdown,
+            SessionReset = true,
+            NewThreadId = newThreadId,
+            ArchivedThreadIds = archivedThreadIds,
+            CreatedLazily = createdLazily
+        };
     
     /// <summary>
     /// Creates a result indicating the command was not handled.

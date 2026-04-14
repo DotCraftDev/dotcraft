@@ -656,3 +656,28 @@ test("getOrCreateThread forces a fresh thread after newThread", async () => {
   assert.deepEqual(archived, ["thread-cached", "thread-hidden"]);
   assert.equal((adapter as unknown as { threadMap: Map<string, string> }).threadMap.get("u:c"), "thread-fresh");
 });
+
+test("command /new sessionReset payload updates identity thread mapping", async () => {
+  const adapter = new RecordingAdapter();
+  const map = (adapter as unknown as { threadMap: Map<string, string> }).threadMap;
+  map.set("u:c", "thread-old");
+
+  await (adapter as unknown as {
+    applyCommandResetResult: (
+      identityKey: string,
+      userId: string,
+      channelContext: string,
+      workspacePath: string,
+      commandName: string,
+      commandResult: Record<string, unknown>,
+    ) => Promise<void>;
+  }).applyCommandResetResult("u:c", "u", "c", "/workspace", "/new", {
+    handled: true,
+    sessionReset: true,
+    thread: { id: "thread-new", status: "active" },
+    archivedThreadIds: ["thread-old"],
+    createdLazily: true,
+  });
+
+  assert.equal(map.get("u:c"), "thread-new");
+});

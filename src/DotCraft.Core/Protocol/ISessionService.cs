@@ -35,6 +35,17 @@ public interface ISessionService
         CancellationToken ct = default);
 
     /// <summary>
+    /// Archives reusable threads for the identity and creates a fresh thread.
+    /// Used by <c>/new</c> semantics.
+    /// </summary>
+    Task<ThreadResetResult> ResetConversationAsync(
+        SessionIdentity identity,
+        ThreadConfiguration? config = null,
+        HistoryMode historyMode = HistoryMode.Server,
+        string? displayName = null,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Resumes a Paused or previously inactive Thread.
     /// Loads Thread state and reconstructs agent session from persistence.
     /// </summary>

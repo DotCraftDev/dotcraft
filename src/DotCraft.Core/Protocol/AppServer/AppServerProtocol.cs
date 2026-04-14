@@ -711,6 +711,30 @@ public sealed class CommandExecuteResult
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ExpandedPrompt { get; set; }
+
+    /// <summary>
+    /// True when command handling reset the conversation and switched to a new thread.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SessionReset { get; set; }
+
+    /// <summary>
+    /// Fresh thread metadata returned by reset-style commands (for example <c>/new</c>).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SessionWireThread? Thread { get; set; }
+
+    /// <summary>
+    /// Thread ids archived as part of reset-style commands.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? ArchivedThreadIds { get; set; }
+
+    /// <summary>
+    /// Whether the newly created thread is lazily materialized on disk.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? CreatedLazily { get; set; }
 }
 
 // ───── item/approval/request (Server → Client request) ─────

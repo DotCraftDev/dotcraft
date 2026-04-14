@@ -6,20 +6,19 @@ using Spectre.Console;
 namespace DotCraft.Commands.Handlers;
 
 /// <summary>
-/// Handles /new and /clear commands to clear the current session.
+/// Handles /new command to archive existing threads for an identity and switch to a fresh thread.
 /// </summary>
 public sealed class NewCommandHandler : ICommandHandler
 {
     /// <inheritdoc />
-    public string[] Commands => ["/new", "/clear"];
+    public string[] Commands => ["/new"];
     
     /// <inheritdoc />
     public async Task<CommandResult> HandleAsync(CommandContext context, ICommandResponder responder)
     {
+        ThreadResetResult? reset = null;
         if (context.SessionService != null)
         {
-            // Look up the active thread(s) for this user/channel identity instead of using
-            // the channel-format session key, which is not a valid Session Protocol thread ID.
             var identity = new SessionIdentity
             {
                 ChannelName = context.Source.ToLowerInvariant(),
@@ -27,15 +26,24 @@ public sealed class NewCommandHandler : ICommandHandler
                 ChannelContext = context.ChannelContext,
                 WorkspacePath = context.WorkspacePath
             };
-            var threads = await context.SessionService.FindThreadsAsync(identity);
-            foreach (var t in threads)
-                await context.SessionService.ArchiveThreadAsync(t.Id);
+
+            reset = await context.SessionService.ResetConversationAsync(identity);
+            context.AgentFactory?.RemoveTokenTracker(context.SessionId);
+            context.AgentFactory?.RemoveTokenTracker(reset.Thread.Id);
         }
-        context.AgentFactory?.RemoveTokenTracker(context.SessionId);
         
         await responder.SendTextAsync(Strings.CommandNewCleared);
-        AnsiConsole.MarkupLine($"[grey][[{context.Source}]][/] [green]Session cleared:[/] {Markup.Escape(context.SessionId)}");
-        
+        var sessionLabel = reset?.Thread.Id ?? context.SessionId;
+        AnsiConsole.MarkupLine($"[grey][[{context.Source}]][/] [green]Session cleared:[/] {Markup.Escape(sessionLabel)}");
+
+        if (reset != null)
+        {
+            return CommandResult.SessionResetResult(
+                reset.Thread.Id,
+                reset.ArchivedThreadIds,
+                reset.CreatedLazily);
+        }
+
         return CommandResult.HandledResult();
     }
 }

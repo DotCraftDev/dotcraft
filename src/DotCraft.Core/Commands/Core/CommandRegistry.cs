@@ -159,7 +159,6 @@ public sealed class CommandRegistry
         registry.RegisterHandler(new NewCommandHandler(), new CommandRegistration
         {
             Name = "/new",
-            Aliases = ["/clear"],
             DescriptionKey = "cmd.new"
         });
         registry.RegisterHandler(new DebugCommandHandler(), new CommandRegistration
