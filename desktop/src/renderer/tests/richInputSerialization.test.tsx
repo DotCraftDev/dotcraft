@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FILE_REF_CLASS } from '../components/conversation/richInputConstants'
+import { COMMAND_REF_CLASS, FILE_REF_CLASS } from '../components/conversation/richInputConstants'
 import { serializeEditor, truncateEditorDomToSerializedLength } from '../components/conversation/richInputSerialization'
 
 function makeFileRef(relativePath: string): HTMLSpanElement {
@@ -7,6 +7,14 @@ function makeFileRef(relativePath: string): HTMLSpanElement {
   s.className = FILE_REF_CLASS
   s.setAttribute('data-relative-path', relativePath)
   s.textContent = '📄 x'
+  return s
+}
+
+function makeCommandRef(command: string): HTMLSpanElement {
+  const s = document.createElement('span')
+  s.className = COMMAND_REF_CLASS
+  s.setAttribute('data-command', command)
+  s.textContent = command
   return s
 }
 
@@ -42,5 +50,22 @@ describe('truncateEditorDomToSerializedLength', () => {
     truncateEditorDomToSerializedLength(root, 100)
     expect(root.querySelectorAll(`.${FILE_REF_CLASS}`).length).toBe(1)
     expect(serializeEditor(root)).toBe('@x')
+  })
+
+  it('serializes command refs to slash command text', () => {
+    const root = document.createElement('div')
+    root.appendChild(makeCommandRef('/create-skill'))
+    root.appendChild(document.createTextNode(' with args'))
+    expect(serializeEditor(root)).toBe('/create-skill with args')
+  })
+
+  it('drops command refs that do not fit entirely before the cut', () => {
+    const root = document.createElement('div')
+    root.appendChild(document.createTextNode('x'))
+    root.appendChild(makeCommandRef('/toolong'))
+    root.appendChild(document.createTextNode('tail'))
+    truncateEditorDomToSerializedLength(root, 5)
+    expect(serializeEditor(root)).toBe('x')
+    expect(root.querySelectorAll(`.${COMMAND_REF_CLASS}`).length).toBe(0)
   })
 })

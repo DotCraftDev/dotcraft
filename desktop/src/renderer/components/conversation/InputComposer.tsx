@@ -1,14 +1,17 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { addToast } from '../../stores/toastStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useConnectionStore } from '../../stores/connectionStore'
+import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import type { ConversationItem, ConversationTurn, ImageAttachment } from '../../types/conversation'
 import { PendingMessageIndicator } from './PendingMessageIndicator'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 import { ImageStrip } from './ImageStrip'
 import { FileSearchPopover } from './FileSearchPopover'
+import { CommandSearchPopover } from './CommandSearchPopover'
 
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
@@ -56,6 +59,8 @@ export function InputComposer({
   const [images, setImages] = useState<ImageAttachment[]>([])
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [mentionDismissed, setMentionDismissed] = useState(false)
+  const [slashQuery, setSlashQuery] = useState<string | null>(null)
+  const [slashDismissed, setSlashDismissed] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   /** Bumps on rich-input edits so `canSend` re-evaluates from ref (contentEditable has no React state). */
   const [contentRevision, setContentRevision] = useState(0)
@@ -68,15 +73,28 @@ export function InputComposer({
   const setPendingMessage = useConversationStore((s) => s.setPendingMessage)
   const setThreadMode = useConversationStore((s) => s.setThreadMode)
   const composerPrefill = useUIStore((s) => s.composerPrefill)
+  const capabilities = useConnectionStore((s) => s.capabilities)
+  const locale = useLocale()
 
   const isRunning = turnStatus === 'running'
   const isWaitingApproval = turnStatus === 'waitingApproval'
+  const canUseCommandPicker = capabilities?.commandManagement === true
 
   const showMentionPopover = atQuery !== null && !mentionDismissed
+  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseCommandPicker
+  const { commands: customCommands, status: customCommandStatus } = useCustomCommandCatalog({
+    enabled: canUseCommandPicker,
+    locale
+  })
 
   const handleAtQuery = useCallback((q: string | null): void => {
     setAtQuery(q)
     if (q !== null) setMentionDismissed(false)
+  }, [])
+
+  const handleSlashQuery = useCallback((q: string | null): void => {
+    setSlashQuery(q)
+    if (q !== null) setSlashDismissed(false)
   }, [])
 
   // Consume any pending prefill text when InputComposer mounts
@@ -326,6 +344,10 @@ export function InputComposer({
     []
   )
 
+  const onSelectCommand = useCallback((commandName: string): void => {
+    richRef.current?.insertCommandTag(commandName)
+  }, [])
+
   return (
     <div style={{ flexShrink: 0 }}>
       {pendingMessage && <PendingMessageIndicator message={pendingMessage} />}
@@ -368,6 +390,16 @@ export function InputComposer({
 
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
             <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+              <CommandSearchPopover
+                query={slashQuery ?? ''}
+                visible={showSlashPopover}
+                loading={customCommandStatus === 'loading'}
+                commands={customCommands}
+                onSelect={onSelectCommand}
+                onDismiss={() => {
+                  setSlashDismissed(true)
+                }}
+              />
               <FileSearchPopover
                 query={atQuery ?? ''}
                 visible={showMentionPopover}
@@ -380,7 +412,7 @@ export function InputComposer({
               <RichInputArea
                 ref={richRef}
                 disabled={isWaitingApproval}
-                suppressSubmit={showMentionPopover || modelLoading}
+                suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
                 onToggleModeShortcut={() => {
                   void toggleMode()
                 }}
@@ -391,6 +423,7 @@ export function InputComposer({
                   void sendMessage()
                 }}
                 onAtQuery={handleAtQuery}
+                onSlashQuery={handleSlashQuery}
                 onContentChange={() => {
                   setContentRevision((n) => n + 1)
                 }}

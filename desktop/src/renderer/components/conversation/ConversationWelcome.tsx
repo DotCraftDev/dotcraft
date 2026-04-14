@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useModelCatalogStore } from '../../stores/modelCatalogStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
 import { addToast } from '../../stores/toastStore'
+import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import type { ImageAttachment, ThreadMode } from '../../types/conversation'
 import type { ThreadSummary } from '../../types/thread'
+import { CommandSearchPopover } from './CommandSearchPopover'
 import { FileSearchPopover } from './FileSearchPopover'
 import { ImageStrip } from './ImageStrip'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
@@ -52,6 +54,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [starting, setStarting] = useState(false)
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [mentionDismissed, setMentionDismissed] = useState(false)
+  const [slashQuery, setSlashQuery] = useState<string | null>(null)
+  const [slashDismissed, setSlashDismissed] = useState(false)
   /** Agent/plan before a thread exists; applied when the first thread is created. */
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
   const [modelName, setModelName] = useState<string>('Default')
@@ -60,6 +64,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const locale = useLocale()
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
@@ -68,6 +73,12 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
   const showMentionPopover = atQuery !== null && !mentionDismissed
+  const canUseCommandPicker = capabilities?.commandManagement === true
+  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseCommandPicker
+  const { commands: customCommands, status: customCommandStatus } = useCustomCommandCatalog({
+    enabled: canUseCommandPicker,
+    locale
+  })
   const modelApiAvailable =
     isConnected &&
     capabilities?.modelCatalogManagement === true &&
@@ -131,8 +142,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     if (q !== null) setMentionDismissed(false)
   }, [])
 
+  const handleSlashQuery = useCallback((q: string | null): void => {
+    setSlashQuery(q)
+    if (q !== null) setSlashDismissed(false)
+  }, [])
+
   const onSelectFile = useCallback((relativePath: string): void => {
     richRef.current?.insertFileTag(relativePath)
+  }, [])
+
+  const onSelectCommand = useCallback((commandName: string): void => {
+    richRef.current?.insertCommandTag(commandName)
   }, [])
 
   useEffect(() => {
@@ -500,6 +520,16 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
             />
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
             <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+              <CommandSearchPopover
+                query={slashQuery ?? ''}
+                visible={showSlashPopover}
+                loading={customCommandStatus === 'loading'}
+                commands={customCommands}
+                onSelect={onSelectCommand}
+                onDismiss={() => {
+                  setSlashDismissed(true)
+                }}
+              />
               <FileSearchPopover
                 query={atQuery ?? ''}
                 visible={showMentionPopover}
@@ -512,7 +542,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               <RichInputArea
                 ref={richRef}
                 disabled={busy}
-                suppressSubmit={showMentionPopover || modelLoading}
+                suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
                 onToggleModeShortcut={toggleWelcomeMode}
                 placeholder={
                   isConnected
@@ -523,6 +553,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   void sendFromWelcome()
                 }}
                 onAtQuery={handleAtQuery}
+                onSlashQuery={handleSlashQuery}
                 onContentChange={() => {
                   setContentRevision((n) => n + 1)
                 }}
