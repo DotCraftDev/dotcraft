@@ -67,6 +67,7 @@ export function InputComposer({
   const [contentRevision, setContentRevision] = useState(0)
   const richRef = useRef<RichInputAreaHandle>(null)
   const composerWrapRef = useRef<HTMLDivElement>(null)
+  const sendInFlightRef = useRef(false)
 
   const turnStatus = useConversationStore((s) => s.turnStatus)
   const pendingMessage = useConversationStore((s) => s.pendingMessage)
@@ -238,101 +239,107 @@ export function InputComposer({
       return
     }
 
-    let effectiveText = trimmed
-    let effectiveThreadId = threadId
+    if (sendInFlightRef.current) return
+    sendInFlightRef.current = true
     try {
-      const commandResult = await resolveCustomCommandExecution({
-        text: trimmed,
-        threadId,
-        commands: customCommands,
-        sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
-      })
-      if (commandResult.message) {
-        addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
-      }
-      if (commandResult.sessionResetThreadSummary != null) {
-        useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
-      }
-      if (commandResult.sessionResetThreadId != null) {
-        effectiveThreadId = commandResult.sessionResetThreadId
-        useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
-      }
-      if (commandResult.matchedCustomCommand) {
-        if (!commandResult.shouldSendTurn) {
-          richRef.current?.clear()
-          setImages([])
-          return
+      let effectiveText = trimmed
+      let effectiveThreadId = threadId
+      try {
+        const commandResult = await resolveCustomCommandExecution({
+          text: trimmed,
+          threadId,
+          commands: customCommands,
+          sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
+        })
+        if (commandResult.message) {
+          addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
         }
-        effectiveText = commandResult.textForTurn.trim()
+        if (commandResult.sessionResetThreadSummary != null) {
+          useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
+        }
+        if (commandResult.sessionResetThreadId != null) {
+          effectiveThreadId = commandResult.sessionResetThreadId
+          useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
+        }
+        if (commandResult.matchedCustomCommand) {
+          if (!commandResult.shouldSendTurn) {
+            richRef.current?.clear()
+            setImages([])
+            return
+          }
+          effectiveText = commandResult.textForTurn.trim()
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        addToast(msg, 'error')
+        return
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      addToast(msg, 'error')
-      return
-    }
 
-    const capturedImages = [...images]
-    richRef.current?.clear()
-    setImages([])
+      const capturedImages = [...images]
+      richRef.current?.clear()
+      setImages([])
 
-    const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === effectiveThreadId)
-    if (!threadEntry?.displayName) {
-      const autoName =
-        effectiveText.length > 50 ? effectiveText.slice(0, 50) + '...' : effectiveText || t('toast.imageMessage')
-      useThreadStore.getState().renameThread(effectiveThreadId, autoName)
-    }
+      const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === effectiveThreadId)
+      if (!threadEntry?.displayName) {
+        const autoName =
+          effectiveText.length > 50 ? effectiveText.slice(0, 50) + '...' : effectiveText || t('toast.imageMessage')
+        useThreadStore.getState().renameThread(effectiveThreadId, autoName)
+      }
 
-    const optimisticItemId = `local-${Date.now()}`
-    const optimisticTurnId = `local-turn-${Date.now()}`
-    const optimisticNow = new Date().toISOString()
-    const userItem: ConversationItem = {
-      id: optimisticItemId,
-      type: 'userMessage',
-      status: 'completed',
-      text: effectiveText,
-      imageDataUrls: capturedImages.map((i) => i.dataUrl),
-      createdAt: optimisticNow,
-      completedAt: optimisticNow
-    }
-    const optimisticTurn: ConversationTurn = {
-      id: optimisticTurnId,
-      threadId: effectiveThreadId,
-      status: 'running',
-      items: [userItem],
-      startedAt: optimisticNow
-    }
-    useConversationStore.getState().addOptimisticTurn(optimisticTurn)
-
-    const inputParts: Array<{ type: string; text?: string; path?: string }> = []
-    if (effectiveText.length > 0) {
-      inputParts.push({ type: 'text', text: effectiveText })
-    }
-    for (const img of capturedImages) {
-      inputParts.push({ type: 'localImage', path: img.tempPath })
-    }
-    if (inputParts.length === 0) {
-      useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
-      return
-    }
-
-    try {
-      const result = await window.api.appServer.sendRequest('turn/start', {
+      const optimisticItemId = `local-${Date.now()}`
+      const optimisticTurnId = `local-turn-${Date.now()}`
+      const optimisticNow = new Date().toISOString()
+      const userItem: ConversationItem = {
+        id: optimisticItemId,
+        type: 'userMessage',
+        status: 'completed',
+        text: effectiveText,
+        imageDataUrls: capturedImages.map((i) => i.dataUrl),
+        createdAt: optimisticNow,
+        completedAt: optimisticNow
+      }
+      const optimisticTurn: ConversationTurn = {
+        id: optimisticTurnId,
         threadId: effectiveThreadId,
-        input: inputParts,
-        identity: {
-          channelName: 'dotcraft-desktop',
-          userId: 'local',
-          channelContext: `workspace:${workspacePath}`,
-          workspacePath
-        }
-      })
-      const res = result as { turn?: { id?: string } }
-      if (res.turn?.id) {
-        useConversationStore.getState().promoteOptimisticTurn(optimisticTurnId, res.turn.id)
+        status: 'running',
+        items: [userItem],
+        startedAt: optimisticNow
       }
-    } catch (err) {
-      console.error('turn/start failed:', err)
-      useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
+      useConversationStore.getState().addOptimisticTurn(optimisticTurn)
+
+      const inputParts: Array<{ type: string; text?: string; path?: string }> = []
+      if (effectiveText.length > 0) {
+        inputParts.push({ type: 'text', text: effectiveText })
+      }
+      for (const img of capturedImages) {
+        inputParts.push({ type: 'localImage', path: img.tempPath })
+      }
+      if (inputParts.length === 0) {
+        useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
+        return
+      }
+
+      try {
+        const result = await window.api.appServer.sendRequest('turn/start', {
+          threadId: effectiveThreadId,
+          input: inputParts,
+          identity: {
+            channelName: 'dotcraft-desktop',
+            userId: 'local',
+            channelContext: `workspace:${workspacePath}`,
+            workspacePath
+          }
+        })
+        const res = result as { turn?: { id?: string } }
+        if (res.turn?.id) {
+          useConversationStore.getState().promoteOptimisticTurn(optimisticTurnId, res.turn.id)
+        }
+      } catch (err) {
+        console.error('turn/start failed:', err)
+        useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
+      }
+    } finally {
+      sendInFlightRef.current = false
     }
   }, [customCommands, images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
 

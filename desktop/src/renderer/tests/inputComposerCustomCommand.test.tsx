@@ -120,4 +120,59 @@ describe('InputComposer custom command expansion', () => {
       )
     })
   })
+
+  it('prevents duplicate send while command resolution is in flight', async () => {
+    let resolveCommandExecute: ((value: unknown) => void) | null = null
+    appServerSendRequest.mockImplementation((method: string) => {
+      if (method === 'command/list') {
+        return Promise.resolve({
+          commands: [
+            {
+              name: '/code-review',
+              aliases: ['/cr'],
+              description: 'Review files',
+              category: 'custom',
+              requiresAdmin: false
+            }
+          ]
+        })
+      }
+      if (method === 'command/execute') {
+        return new Promise((resolve) => {
+          resolveCommandExecute = resolve
+        })
+      }
+      if (method === 'turn/start') {
+        return Promise.resolve({ turn: { id: 'turn-1' } })
+      }
+      return Promise.resolve({})
+    })
+
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('command/list', { language: 'en' })
+    })
+
+    const textbox = screen.getByRole('textbox')
+    textbox.textContent = '/code-review'
+    fireEvent.input(textbox)
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+
+    await waitFor(() => {
+      const commandCalls = appServerSendRequest.mock.calls.filter((call) => call[0] === 'command/execute')
+      expect(commandCalls).toHaveLength(1)
+    })
+
+    resolveCommandExecute?.({
+      handled: true,
+      expandedPrompt: 'Expanded review prompt'
+    })
+
+    await waitFor(() => {
+      const turnStartCalls = appServerSendRequest.mock.calls.filter((call) => call[0] === 'turn/start')
+      expect(turnStartCalls).toHaveLength(1)
+    })
+  })
 })
