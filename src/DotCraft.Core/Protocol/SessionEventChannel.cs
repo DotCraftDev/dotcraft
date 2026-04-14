@@ -10,7 +10,8 @@ internal sealed class SessionEventChannel(
     string id,
     string turnId,
     Func<string>? nextEventId = null,
-    Action<SessionEvent>? publish = null)
+    Action<SessionEvent>? publish = null,
+    Action<SessionEvent>? debugTap = null)
 {
     private readonly Channel<SessionEvent> _channel = Channel.CreateUnbounded<SessionEvent>(new UnboundedChannelOptions
     {
@@ -40,6 +41,7 @@ internal sealed class SessionEventChannel(
             Payload = payload
         };
         _channel.Writer.TryWrite(evt);
+        debugTap?.Invoke(evt);
         publish?.Invoke(evt);
     }
 
@@ -56,6 +58,7 @@ internal sealed class SessionEventChannel(
             Payload = payload
         };
         _channel.Writer.TryWrite(evt);
+        debugTap?.Invoke(evt);
         publish?.Invoke(evt);
     }
 

@@ -8,6 +8,7 @@ using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.Heartbeat;
+using DotCraft.Logging;
 using DotCraft.Hosting;
 using DotCraft.Memory;
 using DotCraft.Mcp;
@@ -372,7 +373,8 @@ public sealed class AppServerHost(
             channelStatusProvider: _channelRunner,
             mcpClientManager: mcpClientManager,
             broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-            protocolExtensions: ProtocolExtensions);
+            protocolExtensions: ProtocolExtensions,
+            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -436,7 +438,8 @@ public sealed class AppServerHost(
             channelStatusProvider: _channelRunner,
             mcpClientManager: mcpClientManager,
             broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-            protocolExtensions: ProtocolExtensions);
+            protocolExtensions: ProtocolExtensions,
+            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -522,7 +525,8 @@ public sealed class AppServerHost(
                     channelStatusProvider: _channelRunner,
                     mcpClientManager: mcpClientManager,
                     broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
-                    protocolExtensions: ProtocolExtensions);
+                    protocolExtensions: ProtocolExtensions,
+                    streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //

@@ -81,6 +81,12 @@ export class WebSocketTransport implements Transport {
   private readonly token: string | null | undefined;
   private ws: WebSocket | null = null;
   private closed = false;
+  private receivedFrames: string[] = [];
+  private waitingReaders: Array<{
+    resolve: (msg: Record<string, unknown>) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  private terminalError: unknown = null;
 
   constructor(opts: WebSocketTransportOptions) {
     this.baseUrl = opts.url;
@@ -95,42 +101,50 @@ export class WebSocketTransport implements Transport {
 
   async connect(): Promise<void> {
     if (this.closed) throw new TransportClosed();
+    if (this.ws !== null) return;
     this.ws = new WebSocket(this.urlWithToken);
     await new Promise<void>((resolve, reject) => {
       const w = this.ws!;
-      w.once("open", () => resolve());
-      w.once("error", (e) => reject(e));
+      const onOpen = () => {
+        cleanup();
+        this.attachSocketHandlers(w);
+        resolve();
+      };
+      const onError = (e: Error) => {
+        cleanup();
+        this.terminalError = e;
+        reject(e);
+      };
+      const onClose = () => {
+        cleanup();
+        const err = new TransportClosed("WebSocket closed");
+        this.terminalError = err;
+        reject(err);
+      };
+      const cleanup = () => {
+        w.off("open", onOpen);
+        w.off("error", onError);
+        w.off("close", onClose);
+      };
+      w.once("open", onOpen);
+      w.once("error", onError);
+      w.once("close", onClose);
     });
   }
 
   async readMessage(): Promise<Record<string, unknown>> {
     if (this.closed) throw new TransportClosed();
     if (this.ws === null) await this.connect();
-    const raw = await new Promise<string | Buffer>((resolve, reject) => {
-      const w = this.ws!;
-      const onMsg = (data: WebSocket.RawData) => {
-        cleanup();
-        resolve(data as string | Buffer);
-      };
-      const onClose = () => {
-        cleanup();
-        reject(new TransportClosed("WebSocket closed"));
-      };
-      const onErr = (e: Error) => {
-        cleanup();
-        reject(e);
-      };
-      const cleanup = () => {
-        w.off("message", onMsg);
-        w.off("close", onClose);
-        w.off("error", onErr);
-      };
-      w.on("message", onMsg);
-      w.once("close", onClose);
-      w.once("error", onErr);
+    if (this.receivedFrames.length > 0) {
+      const frame = this.receivedFrames.shift()!;
+      return JSON.parse(frame) as Record<string, unknown>;
+    }
+    if (this.terminalError) {
+      throw this.terminalError;
+    }
+    return await new Promise<Record<string, unknown>>((resolve, reject) => {
+      this.waitingReaders.push({ resolve, reject });
     });
-    const text = typeof raw === "string" ? raw : raw.toString("utf-8");
-    return JSON.parse(text) as Record<string, unknown>;
   }
 
   async writeMessage(msg: Record<string, unknown>): Promise<void> {
@@ -144,9 +158,60 @@ export class WebSocketTransport implements Transport {
 
   async close(): Promise<void> {
     this.closed = true;
+    const closeError = new TransportClosed("Transport closed");
+    this.terminalError = closeError;
+    this.receivedFrames = [];
+    this.rejectWaitingReaders(closeError);
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+  }
+
+  private attachSocketHandlers(ws: WebSocket): void {
+    ws.on("message", (data: WebSocket.RawData) => {
+      const text = this.rawDataToUtf8(data);
+      if (this.waitingReaders.length > 0) {
+        const waiter = this.waitingReaders.shift()!;
+        try {
+          waiter.resolve(JSON.parse(text) as Record<string, unknown>);
+        } catch (error) {
+          waiter.reject(error);
+        }
+        return;
+      }
+      this.receivedFrames.push(text);
+    });
+    ws.on("close", () => {
+      if (this.closed) return;
+      this.closed = true;
+      this.ws = null;
+      const err = new TransportClosed("WebSocket closed");
+      this.terminalError = err;
+      this.receivedFrames = [];
+      this.rejectWaitingReaders(err);
+    });
+    ws.on("error", (error: Error) => {
+      this.terminalError = error;
+      this.rejectWaitingReaders(error);
+    });
+  }
+
+  private rejectWaitingReaders(error: unknown): void {
+    if (this.waitingReaders.length === 0) return;
+    const readers = this.waitingReaders;
+    this.waitingReaders = [];
+    for (const reader of readers) {
+      reader.reject(error);
+    }
+  }
+
+  private rawDataToUtf8(data: WebSocket.RawData): string {
+    if (typeof data === "string") return data;
+    if (data instanceof Buffer) return data.toString("utf-8");
+    if (Array.isArray(data)) return Buffer.concat(data).toString("utf-8");
+    if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString("utf-8");
+    if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf-8");
+    throw new TransportError("Unsupported WebSocket raw data format");
   }
 }

@@ -8,6 +8,7 @@ using DotCraft.Modules;
 using DotCraft.Processes;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Protocol;
+using DotCraft.Logging;
 using DotCraft.Security;
 using Spectre.Console;
 
@@ -32,6 +33,7 @@ public sealed class ExternalChannelHost : IChannelService
     private readonly string _workspaceCraftPath;
     private readonly ExternalChannelDeliveryDependencies _delivery;
     private readonly Func<ProcessStartInfo, ManagedChildProcess> _managedChildProcessFactory;
+    private readonly SessionStreamDebugLogger? _streamDebugLogger;
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -69,7 +71,8 @@ public sealed class ExternalChannelHost : IChannelService
         string hostWorkspacePath,
         PathBlacklist? pathBlacklist = null,
         IApprovalService? approvalService = null,
-        Func<string, object>? deliveryDependenciesFactory = null)
+        Func<string, object>? deliveryDependenciesFactory = null,
+        SessionStreamDebugLogger? streamDebugLogger = null)
         : this(
             config,
             sessionService,
@@ -79,7 +82,8 @@ public sealed class ExternalChannelHost : IChannelService
             pathBlacklist,
             approvalService,
             deliveryDependenciesFactory,
-            ManagedChildProcess.Start)
+            ManagedChildProcess.Start,
+            streamDebugLogger)
     {
     }
 
@@ -90,7 +94,8 @@ public sealed class ExternalChannelHost : IChannelService
         ModuleRegistry moduleRegistry,
         string hostWorkspacePath,
         Func<string, object>? deliveryDependenciesFactory,
-        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory)
+        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory,
+        SessionStreamDebugLogger? streamDebugLogger = null)
         : this(
             config,
             sessionService,
@@ -100,7 +105,8 @@ public sealed class ExternalChannelHost : IChannelService
             pathBlacklist: null,
             approvalService: null,
             deliveryDependenciesFactory,
-            managedChildProcessFactory)
+            managedChildProcessFactory,
+            streamDebugLogger)
     {
     }
 
@@ -113,7 +119,8 @@ public sealed class ExternalChannelHost : IChannelService
         PathBlacklist? pathBlacklist,
         IApprovalService? approvalService,
         Func<string, object>? deliveryDependenciesFactory,
-        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory)
+        Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory,
+        SessionStreamDebugLogger? streamDebugLogger = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
@@ -123,6 +130,7 @@ public sealed class ExternalChannelHost : IChannelService
         _workspaceCraftPath = Path.Combine(_hostWorkspacePath, ".craft");
         _delivery = CreateDeliveryDependencies(_hostWorkspacePath, pathBlacklist, approvalService, deliveryDependenciesFactory);
         _managedChildProcessFactory = managedChildProcessFactory ?? throw new ArgumentNullException(nameof(managedChildProcessFactory));
+        _streamDebugLogger = streamDebugLogger;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -380,7 +388,8 @@ public sealed class ExternalChannelHost : IChannelService
             cronService: CronService,
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
-            hostWorkspacePath: _hostWorkspacePath);
+            hostWorkspacePath: _hostWorkspacePath,
+            streamDebugLogger: _streamDebugLogger);
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -502,7 +511,8 @@ public sealed class ExternalChannelHost : IChannelService
             cronService: CronService,
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
-            hostWorkspacePath: _hostWorkspacePath);
+            hostWorkspacePath: _hostWorkspacePath,
+            streamDebugLogger: _streamDebugLogger);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +

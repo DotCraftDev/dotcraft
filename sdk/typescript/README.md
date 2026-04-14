@@ -160,6 +160,13 @@ Use PascalCase for channel tool names. For display metadata, prefer setting `cha
 - `examples/weixin/` for a Weixin adapter
 - `examples/feishu/` for a Feishu/Lark adapter with structured delivery and channel tools
 
+## Debugging
+
+- Pass `debugStream: true` in [`ChannelAdapter`](src/adapter.ts) options (6th constructor argument). Logs use the prefix `[dotcraft-wire:adapter-stream]`.
+- Call `configureTextMergeDebug(true)` from [`turnReply.ts`](src/turnReply.ts) for merge traces (`[dotcraft-wire:text-merge]`).
+
+The Feishu example wires both from [`examples/feishu/adapter_config.json`](examples/feishu/adapter_config.json) under `feishu.debug.adapterStream` and `feishu.debug.textMerge`.
+
 ## License
 
 MIT

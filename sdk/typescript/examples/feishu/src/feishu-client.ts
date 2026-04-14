@@ -271,6 +271,28 @@ export class FeishuClient {
     };
   }
 
+  async addMessageReaction(messageId: string, emojiType: string): Promise<void> {
+    const normalizedMessageId = messageId.trim();
+    const normalizedEmojiType = emojiType.trim();
+    if (!normalizedMessageId) {
+      throw new Error("Feishu message reaction requires a messageId.");
+    }
+    if (!normalizedEmojiType) {
+      throw new Error("Feishu message reaction requires an emojiType.");
+    }
+
+    await this.sdk.im.messageReaction.create({
+      path: {
+        message_id: normalizedMessageId,
+      },
+      data: {
+        reaction_type: {
+          emoji_type: normalizedEmojiType,
+        },
+      },
+    });
+  }
+
   async updateInteractiveCard(messageId: string, card: Record<string, unknown>): Promise<void> {
     assertCardPayloadShape(card);
     await (this.sdk as unknown as {

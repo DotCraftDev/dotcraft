@@ -261,10 +261,14 @@ export class DotCraftClient {
     this.approvalHandler = fn;
   }
 
-  async *streamEvents(
+  /**
+   * Subscribe to thread-scoped notifications before starting a turn so early deltas are not lost.
+   * Handlers are registered when this method returns; call before {@link turnStart}.
+   */
+  streamEvents(
     threadId: string,
     terminalMethods: readonly string[] = ["turn/completed", "turn/failed", "turn/cancelled"],
-  ): AsyncGenerator<JsonRpcMessage> {
+  ): AsyncIterableIterator<JsonRpcMessage> {
     const queue: JsonRpcMessage[] = [];
     let resolveWait: (() => void) | null = null;
     const allMethods = [
@@ -299,22 +303,38 @@ export class DotCraftClient {
       this.registerHandler(methodName, fn);
     }
 
-    try {
-      while (true) {
+    let finished = false;
+    const cleanup = (): void => {
+      if (finished) return;
+      finished = true;
+      for (const { method, fn } of handlers) {
+        this.unregisterHandler(method, fn);
+      }
+    };
+
+    const iterator: AsyncIterableIterator<JsonRpcMessage> = {
+      next: async (): Promise<IteratorResult<JsonRpcMessage>> => {
         while (queue.length === 0) {
           await new Promise<void>((r) => {
             resolveWait = r;
           });
         }
         const msg = queue.shift()!;
-        yield msg;
-        if (msg.method && terminalMethods.includes(msg.method)) break;
-      }
-    } finally {
-      for (const { method, fn } of handlers) {
-        this.unregisterHandler(method, fn);
-      }
-    }
+        if (msg.method && terminalMethods.includes(msg.method)) {
+          cleanup();
+        }
+        return { value: msg, done: false };
+      },
+      return: async (): Promise<IteratorResult<JsonRpcMessage>> => {
+        cleanup();
+        return { value: undefined, done: true };
+      },
+      [Symbol.asyncIterator](): AsyncIterableIterator<JsonRpcMessage> {
+        return this;
+      },
+    };
+
+    return iterator;
   }
 
   private nextRequestId(): number {

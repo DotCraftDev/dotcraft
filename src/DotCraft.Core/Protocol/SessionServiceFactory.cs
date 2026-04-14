@@ -1,6 +1,7 @@
 using DotCraft.Agents;
 using DotCraft.Abstractions;
 using DotCraft.Hooks;
+using DotCraft.Logging;
 using DotCraft.Security;
 using DotCraft.Sessions;
 using DotCraft.Tracing;
@@ -40,6 +41,7 @@ public static class SessionServiceFactory
             approvalTimeout,
             logger: loggerFactory?.CreateLogger<SessionService>(),
             approvalStore: sp.GetService<ApprovalStore>(),
-            toolProfileRegistry: sp.GetService<IToolProfileRegistry>());
+            toolProfileRegistry: sp.GetService<IToolProfileRegistry>(),
+            sessionStreamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
     }
 }

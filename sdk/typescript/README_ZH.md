@@ -36,6 +36,13 @@ const transport = new WebSocketTransport({
 - `examples/weixin/`：微信适配器
 - `examples/feishu/`：飞书 / Lark 适配器
 
+## 调试
+
+- 在 `ChannelAdapter` 构造选项中传入 `debugStream: true`（流式事件，前缀 `[dotcraft-wire:adapter-stream]`）。
+- 调用 `configureTextMergeDebug(true)`（合并分支，前缀 `[dotcraft-wire:text-merge]`）。
+
+飞书示例在 `adapter_config.json` 的 `feishu.debug.adapterStream` / `feishu.debug.textMerge` 中配置。
+
 ## 许可证
 
 MIT

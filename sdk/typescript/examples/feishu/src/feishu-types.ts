@@ -9,7 +9,15 @@ export interface AppConfig {
     brand?: "feishu" | "lark" | string;
     approvalTimeoutMs?: number;
     groupMentionRequired?: boolean;
+    ackReactionEmoji?: string;
     downloadDir?: string;
+    /** Debug logging to stderr; only keys set to `true` enable tracing. */
+    debug?: {
+      /** Verbose `consumeTurnEventStream` traces (adapter stream). */
+      adapterStream?: boolean;
+      /** Traces inside `mergeReplyTextFromDeltaAndSnapshot`. */
+      textMerge?: boolean;
+    };
   };
 }
 

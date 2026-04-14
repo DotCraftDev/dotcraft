@@ -31,6 +31,30 @@ export function buildProgressCard(text: string): Record<string, unknown> {
   ]);
 }
 
+export function buildTranscriptCard(text: string, isFinal: boolean): Record<string, unknown> {
+  return buildV2Card("DotCraft", isFinal ? "blue" : "turquoise", [
+    {
+      tag: "markdown",
+      content: normalizeMarkdownForFeishu(text),
+    },
+  ]);
+}
+
+export function buildFileCaptionCard(caption: string, fileName?: string): Record<string, unknown> {
+  const normalizedCaption = normalizeMarkdownForFeishu(caption);
+  const normalizedFileName = (fileName ?? "").trim();
+  const content = normalizedFileName
+    ? `File: \`${normalizeMarkdownForFeishu(normalizedFileName)}\`\n\n${normalizedCaption}`
+    : normalizedCaption;
+
+  return buildV2Card("File Note", "indigo", [
+    {
+      tag: "markdown",
+      content,
+    },
+  ]);
+}
+
 export function buildApprovalCard(params: {
   requestId: string;
   approvalType: string;
@@ -41,27 +65,51 @@ export function buildApprovalCard(params: {
 }): Record<string, unknown> {
   const summary = summarizeApprovalOperation(params.approvalType, params.operation, params.target);
   const reasonBlock = params.reason ? `\nReason: ${params.reason}` : "";
+  const requestHint = params.requestId ? `\nRequest: ${params.requestId}` : "";
   const buttons = [
-    buildApprovalButton("Approve", "primary", "approval_accept", params.requestId, DECISION_ACCEPT),
+    buildApprovalButton("Approve", "primary", `approval_accept_${params.requestId}`, params.requestId, DECISION_ACCEPT),
     buildApprovalButton(
       "Approve Session",
       "default",
-      "approval_accept_session",
+      `approval_accept_session_${params.requestId}`,
       params.requestId,
       DECISION_ACCEPT_FOR_SESSION,
     ),
-    buildApprovalButton("Decline", "danger", "approval_decline", params.requestId, DECISION_DECLINE),
-    buildApprovalButton("Cancel", "default", "approval_cancel", params.requestId, DECISION_CANCEL),
+    buildApprovalButton("Decline", "danger", `approval_decline_${params.requestId}`, params.requestId, DECISION_DECLINE),
+    buildApprovalButton("Cancel", "default", `approval_cancel_${params.requestId}`, params.requestId, DECISION_CANCEL),
   ];
 
   return buildV2Card("Approval Required", "orange", [
     {
       tag: "markdown",
       content:
-        `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}\n\n` +
+        `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}${requestHint}\n\n` +
         `Timeout: ${params.timeoutSeconds}s`,
     },
     ...buttons,
+  ]);
+}
+
+export function buildApprovalResolvedCard(params: {
+  requestId: string;
+  decision: string;
+  message?: string;
+}): Record<string, unknown> {
+  const detail = params.message ? `\n${params.message}` : "";
+  return buildV2Card("Approval Resolved", "green", [
+    {
+      tag: "markdown",
+      content: `Request: ${params.requestId}\nDecision: ${params.decision}${detail}`,
+    },
+  ]);
+}
+
+export function buildApprovalTimeoutCard(params: { requestId: string; timeoutSeconds: number }): Record<string, unknown> {
+  return buildV2Card("Approval Timed Out", "red", [
+    {
+      tag: "markdown",
+      content: `Request: ${params.requestId}\nDecision: cancel\nTimeout: ${params.timeoutSeconds}s`,
+    },
   ]);
 }
 
