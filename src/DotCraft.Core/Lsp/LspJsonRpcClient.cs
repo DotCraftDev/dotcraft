@@ -6,7 +6,33 @@ using Microsoft.Extensions.Logging;
 
 namespace DotCraft.Lsp;
 
-internal sealed class LspJsonRpcClient(string serverName, ILogger? logger = null)
+internal interface ILspJsonRpcClient
+{
+    bool IsStarted { get; }
+
+    Task StartAsync(
+        string command,
+        IReadOnlyList<string> args,
+        IReadOnlyDictionary<string, string>? environmentVariables,
+        string? cwd,
+        CancellationToken cancellationToken);
+
+    Task StopAsync();
+
+    Task<JsonElement> SendRequestAsync(
+        string method,
+        object? @params,
+        TimeSpan timeout,
+        CancellationToken cancellationToken);
+
+    Task SendNotificationAsync(string method, object? @params, CancellationToken cancellationToken);
+
+    void OnNotification(string method, Action<JsonElement> handler);
+
+    void OnRequest(string method, Func<JsonElement, Task<object?>> handler);
+}
+
+internal sealed class LspJsonRpcClient(string serverName, ILogger? logger = null) : ILspJsonRpcClient
 {
     internal sealed class LspProtocolException(string message, int? errorCode = null) : Exception(message)
     {

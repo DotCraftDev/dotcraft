@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -14,8 +17,10 @@ public sealed class LspServerInstance
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private readonly List<(string Method, Action<JsonElement> Handler)> _notificationHandlers = [];
     private readonly List<(string Method, Func<JsonElement, Task<object?>> Handler)> _requestHandlers = [];
+    private readonly Func<ILspJsonRpcClient> _clientFactory;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
 
-    private LspJsonRpcClient? _client;
+    private ILspJsonRpcClient? _client;
     private LspServerState _state = LspServerState.Stopped;
     private DateTimeOffset? _startTime;
     private Exception? _lastError;
@@ -23,11 +28,24 @@ public sealed class LspServerInstance
     private int _crashRecoveryCount;
 
     public LspServerInstance(string name, LspServerConfig config, string workspacePath, ILogger? logger = null)
+        : this(name, config, workspacePath, logger, null, null)
+    {
+    }
+
+    internal LspServerInstance(
+        string name,
+        LspServerConfig config,
+        string workspacePath,
+        ILogger? logger,
+        Func<ILspJsonRpcClient>? clientFactory,
+        Func<TimeSpan, CancellationToken, Task>? delayAsync)
     {
         Name = name;
         Config = config;
         _workspacePath = workspacePath;
         _logger = logger;
+        _clientFactory = clientFactory ?? (() => new LspJsonRpcClient(Name, _logger));
+        _delayAsync = delayAsync ?? Task.Delay;
     }
 
     public string Name { get; }
@@ -59,10 +77,11 @@ public sealed class LspServerInstance
                     $"LSP server '{Name}' exceeded max crash recovery attempts ({maxRestarts}).");
             }
 
+            await StopClientQuietlyAsync();
             _state = LspServerState.Starting;
             _lastError = null;
 
-            var client = new LspJsonRpcClient(Name, _logger);
+            var client = _clientFactory();
             _client = client;
 
             foreach (var (method, handler) in _notificationHandlers)
@@ -170,8 +189,7 @@ public sealed class LspServerInstance
             }
             catch (Exception ex)
             {
-                _state = LspServerState.Error;
-                _lastError = ex;
+                SetErrorStateUnderLock(ex);
                 _crashRecoveryCount++;
                 await StopClientQuietlyAsync();
                 throw;
@@ -214,7 +232,8 @@ public sealed class LspServerInstance
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
-        if (!IsHealthy() || _client == null)
+        var client = _client;
+        if (!IsHealthy() || client == null)
             throw new InvalidOperationException(
                 $"Cannot send request to LSP server '{Name}': server is {_state}.");
 
@@ -223,14 +242,14 @@ public sealed class LspServerInstance
         {
             try
             {
-                return await _client.SendRequestAsync(method, @params, timeout, cancellationToken);
+                return await client.SendRequestAsync(method, @params, timeout, cancellationToken);
             }
             catch (LspJsonRpcClient.LspProtocolException ex)
                 when (ex.ErrorCode == ContentModifiedErrorCode && attempt < MaxTransientRetries)
             {
                 lastError = ex;
                 var delay = RetryBaseDelayMs * (int)Math.Pow(2, attempt);
-                await Task.Delay(delay, cancellationToken);
+                await _delayAsync(TimeSpan.FromMilliseconds(delay), cancellationToken);
             }
             catch (Exception ex)
             {
@@ -239,11 +258,17 @@ public sealed class LspServerInstance
             }
         }
 
-        _state = LspServerState.Error;
-        _lastError = lastError;
-        throw new InvalidOperationException(
-            $"LSP request '{method}' failed for server '{Name}': {lastError?.Message ?? "unknown error"}",
-            lastError);
+        if (lastError == null)
+        {
+            throw new InvalidOperationException(
+                $"LSP request '{method}' failed for server '{Name}' without an error.");
+        }
+
+        if (ShouldTransitionToError(client, lastError))
+            await SetErrorStateAsync(lastError);
+
+        ExceptionDispatchInfo.Capture(lastError).Throw();
+        throw new UnreachableException("ExceptionDispatchInfo.Throw should have rethrown the captured exception.");
     }
 
     public async Task SendNotificationAsync(
@@ -287,5 +312,41 @@ public sealed class LspServerInstance
         {
             _client = null;
         }
+    }
+
+    private void SetErrorStateUnderLock(Exception ex)
+    {
+        _state = LspServerState.Error;
+        _lastError = ex;
+    }
+
+    private async Task SetErrorStateAsync(Exception ex)
+    {
+        await _stateLock.WaitAsync();
+        try
+        {
+            SetErrorStateUnderLock(ex);
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
+    private static bool ShouldTransitionToError(ILspJsonRpcClient client, Exception ex)
+    {
+        if (!client.IsStarted)
+            return true;
+
+        return ex switch
+        {
+            TimeoutException => false,
+            LspJsonRpcClient.LspProtocolException { ErrorCode: not null } => false,
+            LspJsonRpcClient.LspProtocolException => true,
+            ObjectDisposedException => true,
+            InvalidOperationException => true,
+            IOException => true,
+            _ => false
+        };
     }
 }
