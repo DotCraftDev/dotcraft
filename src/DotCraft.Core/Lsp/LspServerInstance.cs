@@ -326,7 +326,8 @@ public sealed class LspServerInstance
         await _stateLock.WaitAsync();
         try
         {
-            SetErrorStateUnderLock(ex);
+            if (_state == LspServerState.Running)
+                SetErrorStateUnderLock(ex);
         }
         finally
         {
