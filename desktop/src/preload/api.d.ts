@@ -1,6 +1,9 @@
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
+export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
+export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
+export type WorkspaceLanguage = 'Chinese' | 'English'
 
 export interface NotificationPayload {
   method: string
@@ -31,6 +34,40 @@ export interface ServerRequestPayload {
   method: string
   params: unknown
 }
+
+export interface WorkspaceStatusPayload {
+  status: WorkspaceSetupState
+  workspacePath: string
+  hasUserConfig: boolean
+  userConfigDefaults?: {
+    language?: WorkspaceLanguage
+    endpoint?: string
+    model?: string
+    apiKeyPresent: boolean
+  }
+}
+
+export interface WorkspaceSetupRequest {
+  language: WorkspaceLanguage
+  model: string
+  endpoint: string
+  apiKey: string
+  profile: WorkspaceBootstrapProfile
+  saveToUserConfig: boolean
+  preferExistingUserConfig: boolean
+}
+
+export interface WorkspaceSetupModelListRequest {
+  endpoint: string
+  apiKey: string
+  preferExistingUserConfig: boolean
+}
+
+export type WorkspaceSetupModelListResult =
+  | { kind: 'success'; models: string[] }
+  | { kind: 'unsupported' }
+  | { kind: 'missing-key' }
+  | { kind: 'error' }
 
 declare global {
   interface Window {
@@ -84,7 +121,16 @@ declare global {
       workspace: {
         pickFolder(): Promise<string | null>
         switch(newPath: string): Promise<void>
+        clearSelection(): Promise<void>
         getRecent(): Promise<Array<{ path: string; name: string; lastOpenedAt: string }>>
+        getStatus(): Promise<WorkspaceStatusPayload>
+        onStatusChange(
+          callback: (status: WorkspaceStatusPayload) => void
+        ): UnsubscribeFn
+        listSetupModels(
+          request: WorkspaceSetupModelListRequest
+        ): Promise<WorkspaceSetupModelListResult>
+        runSetup(request: WorkspaceSetupRequest): Promise<void>
         openNewWindow(): Promise<void>
         checkLock(wsPath: string): Promise<{ locked: boolean; pid?: number }>
         saveImageToTemp(params: { dataUrl: string; fileName?: string }): Promise<{ path: string }>

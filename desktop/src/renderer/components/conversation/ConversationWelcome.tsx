@@ -95,7 +95,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     if (!workspaceConfigPath) return {}
     const raw = await window.api.file.readFile(workspaceConfigPath)
     if (!raw.trim()) return {}
-    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as Record<string, unknown>
     return parsed && typeof parsed === 'object' ? parsed : {}
   }, [workspaceConfigPath])
 

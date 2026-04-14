@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -24,14 +25,29 @@ public static class InitHelper
     /// <summary>
     /// 从嵌入资源读取模板内容
     /// </summary>
-    /// <param name="templateName">模板名称（如 AGENTS, USER, MEMORY, gitignore）</param>
-    /// <param name="language">语言</param>
-    /// <returns>模板内容</returns>
-    private static string GetTemplateContent(string templateName, Language language)
+    private static string GetTemplateContent(
+        string templateName,
+        Language language,
+        WorkspaceBootstrapProfile profile = WorkspaceBootstrapProfile.Default)
     {
         var langSuffix = language == Language.Chinese ? "zh" : "en";
-        var extension = templateName == "gitignore" ? "" : ".md";
-        var resourceName = $"DotCraft.Resources.Templates.{templateName}_{langSuffix}{extension}";
+        var extension = templateName == "gitignore" ? string.Empty : ".md";
+        string resourceName;
+
+        if (profile == WorkspaceBootstrapProfile.Default)
+        {
+            resourceName = $"DotCraft.Resources.Templates.{templateName}_{langSuffix}{extension}";
+        }
+        else
+        {
+            var profileSuffix = profile switch
+            {
+                WorkspaceBootstrapProfile.Developer => "developer",
+                WorkspaceBootstrapProfile.PersonalAssistant => "personal_assistant",
+                _ => "default"
+            };
+            resourceName = $"DotCraft.Resources.Templates.{templateName}_{profileSuffix}_{langSuffix}{extension}";
+        }
 
         var assembly = Assembly.GetExecutingAssembly();
         using var stream = assembly.GetManifestResourceStream(resourceName);
@@ -45,12 +61,130 @@ public static class InitHelper
         return reader.ReadToEnd();
     }
 
+    private static JsonObject LoadJsonObject(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return [];
+        }
+
+        return JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)) as JsonObject ?? [];
+    }
+
+    private static void SaveJsonObject(string path, JsonObject node)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(path, node.ToJsonString(JsonOptions), Encoding.UTF8);
+    }
+
+    private static void EnsureWorkspaceStructure(string craftPath, List<(string Status, string Path)>? createdItems = null)
+    {
+        var directories = new[]
+        {
+            craftPath,
+            Path.Combine(craftPath, "memory"),
+            Path.Combine(craftPath, "skills"),
+            Path.Combine(craftPath, "security")
+        };
+
+        foreach (var dir in directories)
+        {
+            Directory.CreateDirectory(dir);
+            createdItems?.Add(("[green]✓[/]", dir.EscapeMarkup()));
+        }
+    }
+
+    private static void WriteWorkspaceTemplates(
+        string craftPath,
+        Language language,
+        WorkspaceBootstrapProfile profile,
+        List<(string Status, string Path)>? createdItems = null)
+    {
+        var agentsPath = Path.Combine(craftPath, "AGENTS.md");
+        File.WriteAllText(agentsPath, GetTemplateContent("AGENTS", language, profile), Encoding.UTF8);
+        createdItems?.Add(("[green]✓[/]", "AGENTS.md"));
+
+        var userPath = Path.Combine(craftPath, "USER.md");
+        File.WriteAllText(userPath, GetTemplateContent("USER", language, profile), Encoding.UTF8);
+        createdItems?.Add(("[green]✓[/]", "USER.md"));
+
+        var memoryPath = Path.Combine(craftPath, "memory", "MEMORY.md");
+        File.WriteAllText(memoryPath, GetTemplateContent("MEMORY", language), Encoding.UTF8);
+        createdItems?.Add(("[green]✓[/]", "memory/MEMORY.md"));
+
+        var gitignorePath = Path.Combine(craftPath, ".gitignore");
+        File.WriteAllText(gitignorePath, GetTemplateContent("gitignore", language), Encoding.UTF8);
+        createdItems?.Add(("[green]✓[/]", ".gitignore"));
+    }
+
+    private static void ApplyCoreConfigFields(JsonObject node, Language language, string apiKey, string endPoint, string model)
+    {
+        node["Language"] = language.ToString();
+        node["ApiKey"] = apiKey;
+        node["EndPoint"] = endPoint;
+        node["Model"] = model;
+    }
+
+    private static void RemoveCoreConfigFields(JsonObject node)
+    {
+        node.Remove("Language");
+        node.Remove("ApiKey");
+        node.Remove("EndPoint");
+        node.Remove("Model");
+    }
+
+    private static void ApplyWorkspaceOverridesFromGlobal(
+        JsonObject workspaceNode,
+        JsonObject globalNode,
+        WorkspaceSetupRequest request)
+    {
+        static string? ReadTrimmedString(JsonObject node, string key)
+        {
+            return node[key]?.GetValue<string>()?.Trim();
+        }
+
+        var globalLanguage = ReadTrimmedString(globalNode, "Language");
+        if (!string.Equals(globalLanguage, request.Language.ToString(), StringComparison.Ordinal))
+            workspaceNode["Language"] = request.Language.ToString();
+        else
+            workspaceNode.Remove("Language");
+
+        var globalEndpoint = ReadTrimmedString(globalNode, "EndPoint");
+        if (!string.Equals(globalEndpoint, request.EndPoint, StringComparison.Ordinal))
+            workspaceNode["EndPoint"] = request.EndPoint;
+        else
+            workspaceNode.Remove("EndPoint");
+
+        var globalModel = ReadTrimmedString(globalNode, "Model");
+        if (!string.Equals(globalModel, request.Model, StringComparison.Ordinal))
+            workspaceNode["Model"] = request.Model;
+        else
+            workspaceNode.Remove("Model");
+
+        var apiKey = request.ApiKey.Trim();
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            workspaceNode.Remove("ApiKey");
+            return;
+        }
+
+        var globalApiKey = ReadTrimmedString(globalNode, "ApiKey");
+        if (!string.Equals(globalApiKey, apiKey, StringComparison.Ordinal))
+            workspaceNode["ApiKey"] = apiKey;
+        else
+            workspaceNode.Remove("ApiKey");
+    }
+
     /// <summary>
     /// 选择语言
     /// </summary>
     public static Language SelectLanguage()
     {
-        // 显示欢迎面板
         Console.WriteLine();
         var welcomePanel = new Panel(
             new Markup(
@@ -79,7 +213,7 @@ public static class InitHelper
     {
         var yesOption = Strings.InitAskYes;
         var noOption = Strings.InitAskNo;
-        
+
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
                 .Title(title)
@@ -91,9 +225,11 @@ public static class InitHelper
     /// <summary>
     /// 初始化工作区（多语言支持）
     /// </summary>
-    public static int InitializeWorkspace(string workspacePath, Language language = Language.Chinese)
+    public static int InitializeWorkspace(
+        string craftPath,
+        Language language = Language.Chinese,
+        WorkspaceBootstrapProfile profile = WorkspaceBootstrapProfile.Default)
     {
-        // Ensure LanguageService.Current is set for the init flow
         if (LanguageService.Current.CurrentLanguage != language)
         {
             LanguageService.Current = new LanguageService(language);
@@ -101,73 +237,33 @@ public static class InitHelper
 
         AnsiConsole.MarkupLine($"[blue]🚀 {Strings.InitInitializing}[/]");
 
-        // 收集创建的文件用于表格显示
         var createdItems = new List<(string Status, string Path)>();
 
         try
         {
-            // 创建工作区目录结构
-            var directories = new[]
-            {
-                workspacePath,
-                Path.Combine(workspacePath, "memory"),
-                Path.Combine(workspacePath, "skills"),
-                Path.Combine(workspacePath, "security")
-            };
+            EnsureWorkspaceStructure(craftPath, createdItems);
 
-            foreach (var dir in directories)
-            {
-                Directory.CreateDirectory(dir);
-                createdItems.Add(("[green]✓[/]", dir.EscapeMarkup()));
-            }
-
-            // 创建配置文件（只保存用户设置的字段，避免覆盖全局配置）
             var workspaceNode = new JsonObject
             {
                 ["Language"] = language.ToString()
             };
 
-            // 过滤：移除全局配置中已有的字段（避免覆盖）
             var globalConfigPath = GetGlobalConfigPath();
             if (File.Exists(globalConfigPath))
             {
-                if (JsonNode.Parse(File.ReadAllText(globalConfigPath)) is JsonObject globalNode)
+                var globalNode = LoadJsonObject(globalConfigPath);
+                foreach (var prop in globalNode.ToList())
                 {
-                    foreach (var prop in globalNode.ToList())
-                    {
-                        workspaceNode.Remove(prop.Key);
-                    }
+                    workspaceNode.Remove(prop.Key);
                 }
             }
 
-            var json = workspaceNode.ToJsonString(JsonOptions);
-            string configPath = Path.Combine(workspacePath, "config.json");
-            File.WriteAllText(configPath, json, System.Text.Encoding.UTF8);
+            var configPath = Path.Combine(craftPath, "config.json");
+            SaveJsonObject(configPath, workspaceNode);
             createdItems.Add(("[green]✓[/]", configPath.EscapeMarkup()));
 
-            // 创建模板文件
-            var agentsContent = GetTemplateContent("AGENTS", language);
-            var agentsPath = Path.Combine(workspacePath, "AGENTS.md");
-            File.WriteAllText(agentsPath, agentsContent, System.Text.Encoding.UTF8);
-            createdItems.Add(("[green]✓[/]", "AGENTS.md"));
+            WriteWorkspaceTemplates(craftPath, language, profile, createdItems);
 
-            var userContent = GetTemplateContent("USER", language);
-            var userPath = Path.Combine(workspacePath, "USER.md");
-            File.WriteAllText(userPath, userContent, System.Text.Encoding.UTF8);
-            createdItems.Add(("[green]✓[/]", "USER.md"));
-
-            var memoryContent = GetTemplateContent("MEMORY", language);
-            var memoryDir = Path.Combine(workspacePath, "memory");
-            var memoryPath = Path.Combine(memoryDir, "MEMORY.md");
-            File.WriteAllText(memoryPath, memoryContent, System.Text.Encoding.UTF8);
-            createdItems.Add(("[green]✓[/]", "memory/MEMORY.md"));
-
-            var gitignoreContent = GetTemplateContent("gitignore", language);
-            var gitignorePath = Path.Combine(workspacePath, ".gitignore");
-            File.WriteAllText(gitignorePath, gitignoreContent, System.Text.Encoding.UTF8);
-            createdItems.Add(("[green]✓[/]", ".gitignore"));
-
-            // 使用表格显示创建的文件
             var table = new Table()
                 .Border(TableBorder.Rounded)
                 .BorderColor(Color.Grey)
@@ -180,7 +276,6 @@ public static class InitHelper
             }
 
             AnsiConsole.Write(table);
-
             return 0;
         }
         catch (Exception ex)
@@ -189,6 +284,49 @@ public static class InitHelper
             AnsiConsole.MarkupLine($"[red]✗ {Strings.InitFailedShort}: {ex.Message.EscapeMarkup()}[/]");
             return 1;
         }
+    }
+
+    public static int RunSetup(string craftPath, WorkspaceSetupRequest request)
+    {
+        return RunSetup(craftPath, request, GetGlobalConfigPath());
+    }
+
+    internal static int RunSetup(string craftPath, WorkspaceSetupRequest request, string globalConfigPath)
+    {
+        EnsureWorkspaceStructure(craftPath);
+
+        if (request.SaveToUserConfig && request.PreferExistingUserConfig)
+            throw new InvalidOperationException("SaveToUserConfig and PreferExistingUserConfig cannot both be enabled.");
+
+        if (request.SaveToUserConfig)
+        {
+            var globalNode = LoadJsonObject(globalConfigPath);
+            ApplyCoreConfigFields(globalNode, request.Language, request.ApiKey, request.EndPoint, request.Model);
+            SaveJsonObject(globalConfigPath, globalNode);
+        }
+
+        var workspaceConfigPath = Path.Combine(craftPath, "config.json");
+        var workspaceNode = LoadJsonObject(workspaceConfigPath);
+        if (request.SaveToUserConfig)
+        {
+            RemoveCoreConfigFields(workspaceNode);
+        }
+        else if (request.PreferExistingUserConfig)
+        {
+            if (!File.Exists(globalConfigPath))
+                throw new InvalidOperationException("User config was not found.");
+
+            var globalNode = LoadJsonObject(globalConfigPath);
+            ApplyWorkspaceOverridesFromGlobal(workspaceNode, globalNode, request);
+        }
+        else
+        {
+            ApplyCoreConfigFields(workspaceNode, request.Language, request.ApiKey, request.EndPoint, request.Model);
+        }
+
+        SaveJsonObject(workspaceConfigPath, workspaceNode);
+        WriteWorkspaceTemplates(craftPath, request.Language, request.Profile);
+        return 0;
     }
 
     /// <summary>
@@ -217,18 +355,8 @@ public static class InitHelper
     /// </summary>
     public static void CreateGlobalConfig(string configPath, string apiKey, Language language)
     {
-        var configDir = Path.GetDirectoryName(configPath)!;
-        Directory.CreateDirectory(configDir);
-
-        var configNode = new JsonObject
-        {
-            ["ApiKey"] = apiKey,
-            ["Model"] = "gpt-4o-mini",
-            ["EndPoint"] = "https://api.openai.com/v1",
-            ["Language"] = language.ToString()
-        };
-
-        var json = configNode.ToJsonString(JsonOptions);
-        File.WriteAllText(configPath, json, System.Text.Encoding.UTF8);
+        var configNode = new JsonObject();
+        ApplyCoreConfigFields(configNode, language, apiKey, "https://api.openai.com/v1", "gpt-4o-mini");
+        SaveJsonObject(configPath, configNode);
     }
 }

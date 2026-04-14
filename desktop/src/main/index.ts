@@ -9,6 +9,7 @@ import {
   registerIpcHandlers,
   unregisterIpcHandlers,
   broadcastConnectionStatus,
+  broadcastWorkspaceStatus,
   broadcastNotification,
   broadcastServerRequest,
   createServerRequestBridge,
@@ -27,6 +28,14 @@ import {
   type ConnectionMode
 } from './settings'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
+import {
+  getWorkspaceStatus,
+  runWorkspaceSetup,
+  listSetupModels,
+  type WorkspaceStatusPayload,
+  type WorkspaceSetupRequest,
+  type WorkspaceSetupModelListRequest
+} from './workspaceSetup'
 import {
   TITLE_BAR_OVERLAY_BY_THEME,
   TITLE_BAR_OVERLAY_HEIGHT
@@ -53,6 +62,11 @@ let crashRetries = 0
 /** Last DashBoard URL from a successful initialize (for View menu). */
 let lastDashboardUrl: string | null = null
 let lastConnectionStatus: ConnectionStatusPayload = { status: 'disconnected' }
+let lastWorkspaceStatus: WorkspaceStatusPayload = {
+  status: 'no-workspace',
+  workspacePath: '',
+  hasUserConfig: false
+}
 let crashRetryTimer: ReturnType<typeof setTimeout> | null = null
 let isAppQuitting = false
 let ipcHandlersRegistered = false
@@ -464,13 +478,34 @@ function buildCallbacks(): IpcHandlerCallbacks {
     onSwitchWorkspace: async (newPath: string) => {
       addRecentWorkspace(sharedSettings, newPath)
       saveSettings(sharedSettings)
-      await connectToAppServer(newPath)
+      const workspaceStatus = getWorkspaceStatus(newPath)
+      if (workspaceStatus.status === 'needs-setup') {
+        await openWorkspaceWithoutConnection(newPath)
+      } else {
+        await connectToAppServer(newPath)
+      }
       if (mainWindow && !mainWindow.isDestroyed()) {
         const loc = normalizeLocale(sharedSettings.locale)
         mainWindow.setTitle(
           translate(loc, 'app.titleWithWorkspace', { name: basename(newPath) })
         )
       }
+    },
+    onClearWorkspaceSelection: async () => {
+      await clearWorkspaceSelection()
+    },
+    onRunWorkspaceSetup: async (request: WorkspaceSetupRequest) => {
+      if (!currentWorkspacePath) {
+        throw new Error('Open a workspace before running setup.')
+      }
+      await runWorkspaceSetup(currentWorkspacePath, request, sharedSettings)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        emitWorkspaceStatus(mainWindow, getWorkspaceStatus(currentWorkspacePath))
+      }
+      await connectToAppServer(currentWorkspacePath)
+    },
+    onListSetupModels: async (request: WorkspaceSetupModelListRequest) => {
+      return listSetupModels(request)
     },
     onOpenNewWindow: () => {
       openNewProcess()
@@ -501,13 +536,66 @@ function buildCallbacks(): IpcHandlerCallbacks {
       }
     },
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
-    getConnectionStatus: () => lastConnectionStatus
+    getConnectionStatus: () => lastConnectionStatus,
+    getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath)
   }
 }
 
 /** Re-register IPC handlers with the current workspace path (used on workspace switch). */
 function reregisterIpcForWorkspace(workspacePath: string): void {
   registerDesktopIpcHandlers(workspacePath, () => wireClient)
+}
+
+async function openWorkspaceWithoutConnection(workspacePath: string): Promise<void> {
+  if (isAppQuitting) {
+    return
+  }
+
+  const lockResult = acquireWorkspaceLock(workspacePath)
+  if (!lockResult.ok) {
+    const loc = normalizeLocale(sharedSettings.locale)
+    throw new Error(
+      WORKSPACE_LOCKED_IPC_PREFIX +
+        translate(loc, 'main.error.workspaceLocked', { pid: lockResult.pid ?? 0 })
+    )
+  }
+
+  if (currentWorkspacePath && currentWorkspacePath !== workspacePath) {
+    releaseWorkspaceLock(currentWorkspacePath)
+  }
+
+  teardownRuntime('switch to setup-required workspace')
+  currentWorkspacePath = workspacePath
+  reregisterIpcForWorkspace(workspacePath)
+
+  const win = mainWindow
+  if (!win || win.isDestroyed()) {
+    return
+  }
+
+  emitWorkspaceStatus(win, getWorkspaceStatus(workspacePath))
+  emitConnectionStatus(win, { status: 'disconnected' })
+}
+
+async function clearWorkspaceSelection(): Promise<void> {
+  if (currentWorkspacePath) {
+    teardownRuntime('clear workspace selection', { releaseWorkspaceLock: true })
+  }
+
+  currentWorkspacePath = ''
+  delete sharedSettings.lastWorkspacePath
+  saveSettings(sharedSettings)
+
+  const win = mainWindow
+  if (!win || win.isDestroyed()) {
+    return
+  }
+
+  reregisterIpcForWorkspace('')
+  const loc = normalizeLocale(sharedSettings.locale)
+  win.setTitle(translate(loc, 'app.brandSubtitle'))
+  emitWorkspaceStatus(win, getWorkspaceStatus(''))
+  emitConnectionStatus(win, { status: 'disconnected' })
 }
 
 async function connectToAppServer(workspacePath: string): Promise<void> {
@@ -535,6 +623,9 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   teardownRuntime('switch/reconnect before new connect')
 
   currentWorkspacePath = workspacePath
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    emitWorkspaceStatus(mainWindow, getWorkspaceStatus(workspacePath))
+  }
 
   // --remote ws://host:port/ws?token=xxx  → skip AppServerManager, connect via WebSocket
   const remoteIdx = process.argv.indexOf('--remote')
@@ -801,6 +892,11 @@ function emitConnectionStatus(win: BrowserWindow, payload: ConnectionStatusPaylo
   refreshAppMenu()
 }
 
+function emitWorkspaceStatus(win: BrowserWindow, payload: WorkspaceStatusPayload): void {
+  lastWorkspaceStatus = payload
+  broadcastWorkspaceStatus(win, payload)
+}
+
 function registerMenuPopupIpc(): void {
   ipcMain.removeHandler('menu:popup-top-level')
   ipcMain.handle(
@@ -856,6 +952,8 @@ app.whenReady().then(() => {
     }
   }
 
+  const initialWorkspaceStatus = getWorkspaceStatus(workspacePath)
+  lastWorkspaceStatus = initialWorkspaceStatus
   const win = createWindow(workspacePath)
   mainWindow = win
   currentWorkspacePath = workspacePath ?? ''
@@ -872,7 +970,8 @@ app.whenReady().then(() => {
   }
 
   win.webContents.once('did-finish-load', () => {
-    if (workspacePath) {
+    emitWorkspaceStatus(win, initialWorkspaceStatus)
+    if (workspacePath && initialWorkspaceStatus.status === 'ready') {
       void connectToAppServer(workspacePath)
     } else {
       emitConnectionStatus(win, { status: 'disconnected' })
@@ -883,7 +982,18 @@ app.whenReady().then(() => {
     const windows = BrowserWindow.getAllWindows()
     if (windows.length === 0) {
       sharedSettings = loadSettings()
-      const wsPath = resolveWorkspacePath(sharedSettings)
+      let wsPath = resolveWorkspacePath(sharedSettings)
+      if (wsPath) {
+        const lockCheck = acquireWorkspaceLock(wsPath)
+        if (!lockCheck.ok) {
+          wsPath = null
+        } else {
+          addRecentWorkspace(sharedSettings, wsPath)
+          saveSettings(sharedSettings)
+        }
+      }
+      const workspaceStatus = getWorkspaceStatus(wsPath)
+      lastWorkspaceStatus = workspaceStatus
       const newWin = createWindow(wsPath)
       mainWindow = newWin
       currentWorkspacePath = wsPath ?? ''
@@ -901,7 +1011,8 @@ app.whenReady().then(() => {
       }
 
       newWin.webContents.once('did-finish-load', () => {
-        if (wsPath) {
+        emitWorkspaceStatus(newWin, workspaceStatus)
+        if (wsPath && workspaceStatus.status === 'ready') {
           void connectToAppServer(wsPath)
         } else {
           emitConnectionStatus(newWin, { status: 'disconnected' })

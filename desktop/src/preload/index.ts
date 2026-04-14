@@ -8,6 +8,9 @@ import type { TopLevelMenuId } from '../shared/locales/types'
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
+export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
+export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
+export type WorkspaceLanguage = 'Chinese' | 'English'
 
 export interface NotificationPayload {
   method: string
@@ -38,6 +41,40 @@ export interface ServerRequestPayload {
   method: string
   params: unknown
 }
+
+export interface WorkspaceStatusPayload {
+  status: WorkspaceSetupState
+  workspacePath: string
+  hasUserConfig: boolean
+  userConfigDefaults?: {
+    language?: WorkspaceLanguage
+    endpoint?: string
+    model?: string
+    apiKeyPresent: boolean
+  }
+}
+
+export interface WorkspaceSetupRequest {
+  language: WorkspaceLanguage
+  model: string
+  endpoint: string
+  apiKey: string
+  profile: WorkspaceBootstrapProfile
+  saveToUserConfig: boolean
+  preferExistingUserConfig: boolean
+}
+
+export interface WorkspaceSetupModelListRequest {
+  endpoint: string
+  apiKey: string
+  preferExistingUserConfig: boolean
+}
+
+export type WorkspaceSetupModelListResult =
+  | { kind: 'success'; models: string[] }
+  | { kind: 'unsupported' }
+  | { kind: 'missing-key' }
+  | { kind: 'error' }
 
 // ---------------------------------------------------------------------------
 // Single-listener dispatcher for notifications and connection status.
@@ -82,6 +119,15 @@ ipcRenderer.on(
   'appserver:server-request',
   (_event: Electron.IpcRendererEvent, payload: ServerRequestPayload) => {
     activeServerRequestCallback?.(payload)
+  }
+)
+
+let workspaceStatusToken = 0
+let activeWorkspaceStatusCallback: ((status: WorkspaceStatusPayload) => void) | null = null
+ipcRenderer.on(
+  'workspace:status-changed',
+  (_event: Electron.IpcRendererEvent, status: WorkspaceStatusPayload) => {
+    activeWorkspaceStatusCallback?.(status)
   }
 )
 
@@ -281,11 +327,35 @@ const api = {
       return ipcRenderer.invoke('workspace:switch', newPath)
     },
 
+    clearSelection(): Promise<void> {
+      return ipcRenderer.invoke('workspace:clear-selection')
+    },
+
     /**
      * Returns the list of recently opened workspaces (up to 20).
      */
     getRecent(): Promise<Array<{ path: string; name: string; lastOpenedAt: string }>> {
       return ipcRenderer.invoke('workspace:get-recent')
+    },
+
+    getStatus(): Promise<WorkspaceStatusPayload> {
+      return ipcRenderer.invoke('workspace:get-status')
+    },
+
+    onStatusChange(callback: (status: WorkspaceStatusPayload) => void): UnsubscribeFn {
+      const token = ++workspaceStatusToken
+      activeWorkspaceStatusCallback = callback
+      return () => {
+        if (workspaceStatusToken === token) activeWorkspaceStatusCallback = null
+      }
+    },
+
+    listSetupModels(request: WorkspaceSetupModelListRequest): Promise<WorkspaceSetupModelListResult> {
+      return ipcRenderer.invoke('workspace:list-setup-models', request)
+    },
+
+    runSetup(request: WorkspaceSetupRequest): Promise<void> {
+      return ipcRenderer.invoke('workspace:run-setup', request)
     },
 
     /**

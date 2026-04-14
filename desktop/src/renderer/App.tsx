@@ -23,6 +23,8 @@ import { ConversationPanel } from './components/layout/ConversationPanel'
 import { DetailPanel } from './components/layout/DetailPanel'
 import { ErrorScreen } from './components/ErrorScreen'
 import { WelcomeScreen } from './components/WelcomeScreen'
+import { WorkspaceSetupInterstitial } from './components/WorkspaceSetupInterstitial'
+import { WorkspaceSetupWizard } from './components/WorkspaceSetupWizard'
 import { ConfirmDialogHost } from './components/ui/ConfirmDialog'
 import { ToastContainer } from './components/ui/ToastContainer'
 import { SettingsView } from './components/settings/SettingsView'
@@ -35,6 +37,7 @@ import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { resolveCustomCommandExecution } from './utils/customCommandExecution'
+import type { WorkspaceStatusPayload } from '../preload/api.d'
 import './styles/tokens.css'
 
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
@@ -80,6 +83,12 @@ export function App(): JSX.Element {
 
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
+  const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceStatusPayload>({
+    status: 'no-workspace',
+    workspacePath: '',
+    hasUserConfig: false
+  })
+  const [showSetupWizard, setShowSetupWizard] = useState(false)
   const { status, errorType, errorMessage } = useConnectionStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
   const canUseCommandExecution = capabilities?.commandManagement === true
@@ -125,21 +134,33 @@ export function App(): JSX.Element {
   // -------------------------------------------------------------------------
   // Bootstrap: workspace path + connection store
   // -------------------------------------------------------------------------
+  const syncWorkspaceStatus = useCallback((payload: WorkspaceStatusPayload): void => {
+    const path = payload.workspacePath ?? ''
+    workspacePathRef.current = path
+    setWorkspacePath(path)
+    setWorkspaceStatus(payload)
+    setWorkspaceName(path ? basename(path) : 'DotCraft')
+  }, [])
+
   useEffect(() => {
     performance.mark('app:bootstrap-start')
     const unsubscribe = initConnectionStore()
-
-    window.api.window.getWorkspacePath().then((path) => {
-      workspacePathRef.current = path
-      setWorkspacePath(path)
-      if (path) {
-        const name = basename(path)
-        setWorkspaceName(name)
-      }
+    const unsubscribeWorkspace = window.api.workspace.onStatusChange((payload) => {
+      syncWorkspaceStatus(payload)
     })
 
-    return unsubscribe
-  }, [])
+    void window.api.workspace
+      .getStatus()
+      .then((payload) => {
+        syncWorkspaceStatus(payload)
+      })
+      .catch(() => {})
+
+    return () => {
+      unsubscribeWorkspace()
+      unsubscribe()
+    }
+  }, [syncWorkspaceStatus])
 
   useEffect(() => {
     if (workspacePath) {
@@ -178,6 +199,12 @@ export function App(): JSX.Element {
       useConversationStore.getState().setWorkspacePath(workspacePath)
     }
   }, [workspacePath])
+
+  useEffect(() => {
+    if (workspaceStatus.status !== 'needs-setup') {
+      setShowSetupWizard(false)
+    }
+  }, [workspaceStatus.status])
 
   // -------------------------------------------------------------------------
   // Load thread list when connection becomes "connected"
@@ -218,17 +245,6 @@ export function App(): JSX.Element {
       useUIStore.getState().setPendingWelcomeTurn(null)
     }
 
-    // On workspace switch (connecting), update workspace path from Main
-    if (status === 'connecting') {
-      window.api.window.getWorkspacePath().then((path) => {
-        if (path) {
-          workspacePathRef.current = path
-          setWorkspacePath(path)
-          const name = basename(path)
-          setWorkspaceName(name)
-        }
-      }).catch(() => {})
-    }
     prevStatusRef.current = status
   }, [status, reloadThreadList])
 
@@ -1008,6 +1024,16 @@ export function App(): JSX.Element {
 
   // No workspace configured yet (first launch or welcome screen)
   const showWelcome = !workspacePath && !isFatalError
+  const showSetupInterstitial =
+    workspacePath !== '' &&
+    workspaceStatus.status === 'needs-setup' &&
+    !showSetupWizard &&
+    !isFatalError
+  const showSetupFlow =
+    workspacePath !== '' &&
+    workspaceStatus.status === 'needs-setup' &&
+    showSetupWizard &&
+    !isFatalError
 
   if (isFatalError) {
     return (
@@ -1027,6 +1053,52 @@ export function App(): JSX.Element {
         <>
           <ToastContainer />
           <WelcomeScreen />
+        </>
+      </AppChrome>
+    )
+  }
+
+  if (showSetupInterstitial) {
+    return (
+      <AppChrome>
+        <>
+          <ToastContainer />
+          <WorkspaceSetupInterstitial
+            workspacePath={workspacePath}
+            onStart={() => {
+              void window.api.workspace
+                .getStatus()
+                .then((payload) => {
+                  syncWorkspaceStatus(payload)
+                  if (payload.status === 'needs-setup') {
+                    setShowSetupWizard(true)
+                  }
+                })
+                .catch(() => {
+                  setShowSetupWizard(true)
+                })
+            }}
+            onChooseDifferentWorkspace={() => {
+              void window.api.workspace.clearSelection()
+            }}
+          />
+        </>
+      </AppChrome>
+    )
+  }
+
+  if (showSetupFlow) {
+    return (
+      <AppChrome>
+        <>
+          <ToastContainer />
+          <WorkspaceSetupWizard
+            workspacePath={workspacePath}
+            workspaceStatus={workspaceStatus}
+            onCancel={() => {
+              setShowSetupWizard(false)
+            }}
+          />
         </>
       </AppChrome>
     )

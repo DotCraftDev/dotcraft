@@ -169,6 +169,82 @@ const MESSAGES_EN = {
   'welcome.sendTitle': 'Send (Enter)',
   'welcome.sendAria': 'Send message',
 
+  // Workspace setup
+  'setupInterstitial.title': 'Set up this workspace for DotCraft',
+  'setupInterstitial.description':
+    'This folder has not been initialized yet. Complete a short setup once, then DotCraft Desktop can open it normally next time.',
+  'setupInterstitial.start': 'Start Setup',
+  'setupInterstitial.chooseDifferent': 'Choose a Different Folder',
+  'setupWizard.title': 'Workspace setup',
+  'setupWizard.done': 'Done',
+  'setupWizard.stepCount': 'Step {{n}}',
+  'setupWizard.step.welcome': 'Welcome',
+  'setupWizard.step.profile': 'Profile',
+  'setupWizard.step.config': 'Configuration',
+  'setupWizard.step.confirm': 'Confirm',
+  'setupWizard.welcome.title': 'Let’s prepare this workspace',
+  'setupWizard.welcome.description':
+    'You only need to do this once. DotCraft will create the workspace files it needs and apply your initial AI settings.',
+  'setupWizard.welcome.note':
+    'You can change these settings later from configuration files or advanced settings.',
+  'setupWizard.profile.title': 'Choose a starting profile',
+  'setupWizard.profile.description':
+    'Choose DotCraft’s default collaboration style for this workspace.',
+  'setupWizard.profile.default.title': 'Default',
+  'setupWizard.profile.default.description':
+    'Balanced defaults for general-purpose help. A good choice if you are not sure yet.',
+  'setupWizard.profile.developer.title': 'Developer',
+  'setupWizard.profile.developer.description':
+    'Optimized for coding, architecture, debugging, and code review workflows.',
+  'setupWizard.profile.personal.title': 'Personal assistant',
+  'setupWizard.profile.personal.description':
+    'Optimized for planning, summarizing, organizing information, and day-to-day assistance.',
+  'setupWizard.config.title': 'Configure your AI settings',
+  'setupWizard.config.description':
+    'These settings let DotCraft talk to your model provider. You can keep them only in this workspace or save them for future workspaces later.',
+  'setupWizard.config.userConfigDetected':
+    'User settings detected. Fields are prefilled.',
+  'setupWizard.config.inheritedFieldHint':
+    'Inherited from your user settings. Editing this value only overrides this workspace.',
+  'setupWizard.config.apiKeyInheritedHint':
+    'Leave this blank to keep using the API key from your user settings.',
+  'setupWizard.config.apiKeyMissingHint':
+    'No API key was found in your user settings yet. Enter one here to continue.',
+  'setupWizard.field.language': 'Language',
+  'setupWizard.field.apiKey': 'API key',
+  'setupWizard.field.endpoint': 'API endpoint',
+  'setupWizard.field.model': 'Model',
+  'setupWizard.placeholder.apiKey': 'Enter your provider API key',
+  'setupWizard.placeholder.apiKeyInherited': 'Using the API key from your user settings',
+  'setupWizard.modelListLoading': 'Loading available models...',
+  'setupWizard.language.english': 'English',
+  'setupWizard.language.chinese': 'Chinese',
+  'setupWizard.validation.endpoint': 'Enter a valid http(s) API endpoint URL.',
+  'setupWizard.confirm.title': 'Review and create',
+  'setupWizard.confirm.description':
+    'Check the choices below, then create the workspace setup. DotCraft will write the required files for you.',
+  'setupWizard.summary.profile': 'Profile',
+  'setupWizard.summary.language': 'Language',
+  'setupWizard.summary.endpoint': 'Endpoint',
+  'setupWizard.summary.model': 'Model',
+  'setupWizard.summary.apiKey': 'API key',
+  'setupWizard.summary.apiKeySet': 'Configured',
+  'setupWizard.summary.apiKeyInherited': 'Inherited from user settings',
+  'setupWizard.summary.apiKeyMissing': 'Missing',
+  'setupWizard.profileSummary.default': 'Default',
+  'setupWizard.profileSummary.developer': 'Developer',
+  'setupWizard.profileSummary.personal-assistant': 'Personal assistant',
+  'setupWizard.saveScope.title': 'Save language and AI settings to my user configuration',
+  'setupWizard.saveScope.description':
+    'When enabled, DotCraft stores language, API key, endpoint, and model in your user config so future workspaces can inherit them.',
+  'setupWizard.confirm.userConfigDetected':
+    'This workspace will reuse your existing user-level settings by default. Any changes above will be written only to this workspace.',
+  'setupWizard.button.cancel': 'Cancel',
+  'setupWizard.button.back': 'Back',
+  'setupWizard.button.next': 'Next',
+  'setupWizard.button.create': 'Create Workspace',
+  'setupWizard.button.creating': 'Creating...',
+
   // Error screen
   'error.title.binary': 'DotCraft AppServer Not Found',
   'error.title.timeout': 'AppServer Not Responding',
@@ -743,6 +819,76 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'welcome.suggestion.docs': '生成文档',
   'welcome.sendTitle': '发送 (Enter)',
   'welcome.sendAria': '发送消息',
+
+  'setupInterstitial.title': '为这个工作区完成 DotCraft 初始化',
+  'setupInterstitial.description':
+    '这个文件夹还没有初始化。完成一次简短设置后，DotCraft Desktop 之后就可以像普通工作区一样直接打开它。',
+  'setupInterstitial.start': '开始初始化',
+  'setupInterstitial.chooseDifferent': '重新选择文件夹',
+  'setupWizard.title': '工作区初始化',
+  'setupWizard.done': '完成',
+  'setupWizard.stepCount': '第 {{n}} 步',
+  'setupWizard.step.welcome': '欢迎',
+  'setupWizard.step.profile': '角色模板',
+  'setupWizard.step.config': '基础配置',
+  'setupWizard.step.confirm': '确认创建',
+  'setupWizard.welcome.title': '先准备好这个工作区',
+  'setupWizard.welcome.description':
+    '这一步只需要做一次。DotCraft 会创建所需的工作区文件，并应用你的初始 AI 设置。',
+  'setupWizard.welcome.note': '这些设置之后仍然可以通过配置文件或高级设置继续调整。',
+  'setupWizard.profile.title': '选择一个起始角色模板',
+  'setupWizard.profile.description':
+    '选择 DotCraft 在这个工作区里的默认协作风格。',
+  'setupWizard.profile.default.title': '默认',
+  'setupWizard.profile.default.description': '适合大多数通用场景。如果你暂时不确定，从这里开始最稳妥。',
+  'setupWizard.profile.developer.title': '开发者',
+  'setupWizard.profile.developer.description': '更适合代码阅读、架构分析、调试和代码审查。',
+  'setupWizard.profile.personal.title': '个人助理',
+  'setupWizard.profile.personal.description': '更适合计划整理、总结归纳、信息组织和日常协助。',
+  'setupWizard.config.title': '配置你的 AI 设置',
+  'setupWizard.config.description':
+    '这些设置用于让 DotCraft 连接到你的模型服务。你可以只保存在当前工作区，也可以稍后选择保存到用户级配置。',
+  'setupWizard.config.userConfigDetected':
+    '已检测到用户配置，已自动填写。',
+  'setupWizard.config.inheritedFieldHint':
+    '当前值来自你的用户级设置。你现在修改它，只会覆盖当前工作区。',
+  'setupWizard.config.apiKeyInheritedHint':
+    '留空即可继续使用用户级设置中的 API Key。',
+  'setupWizard.config.apiKeyMissingHint':
+    '用户级设置里还没有检测到 API Key，请先在这里填写后继续。',
+  'setupWizard.field.language': '语言',
+  'setupWizard.field.apiKey': 'API Key',
+  'setupWizard.field.endpoint': 'API Endpoint',
+  'setupWizard.field.model': '模型',
+  'setupWizard.placeholder.apiKey': '输入你的模型服务 API Key',
+  'setupWizard.placeholder.apiKeyInherited': '将继续使用用户级设置中的 API Key',
+  'setupWizard.modelListLoading': '正在加载可用模型…',
+  'setupWizard.language.english': 'English',
+  'setupWizard.language.chinese': 'Chinese',
+  'setupWizard.validation.endpoint': '请输入有效的 http(s) API Endpoint 地址。',
+  'setupWizard.confirm.title': '确认并创建',
+  'setupWizard.confirm.description': '确认下面的选项后创建工作区。DotCraft 会为你写入所需的初始化文件。',
+  'setupWizard.summary.profile': '角色模板',
+  'setupWizard.summary.language': '语言',
+  'setupWizard.summary.endpoint': 'Endpoint',
+  'setupWizard.summary.model': '模型',
+  'setupWizard.summary.apiKey': 'API Key',
+  'setupWizard.summary.apiKeySet': '已配置',
+  'setupWizard.summary.apiKeyInherited': '沿用用户级设置',
+  'setupWizard.summary.apiKeyMissing': '未配置',
+  'setupWizard.profileSummary.default': '默认',
+  'setupWizard.profileSummary.developer': '开发者',
+  'setupWizard.profileSummary.personal-assistant': '个人助理',
+  'setupWizard.saveScope.title': '将语言和 AI 设置保存到我的用户级配置',
+  'setupWizard.saveScope.description':
+    '启用后，DotCraft 会把语言、API Key、Endpoint 和模型写入用户级配置，后续新工作区可以直接继承。',
+  'setupWizard.confirm.userConfigDetected':
+    '当前工作区会默认复用你已有的用户级设置。上面填写或修改的值只会写入当前工作区。',
+  'setupWizard.button.cancel': '取消',
+  'setupWizard.button.back': '返回',
+  'setupWizard.button.next': '下一步',
+  'setupWizard.button.create': '创建工作区',
+  'setupWizard.button.creating': '正在创建…',
 
   'error.title.binary': '未找到 DotCraft AppServer',
   'error.title.timeout': 'AppServer 无响应',

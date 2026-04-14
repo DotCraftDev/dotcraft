@@ -16,6 +16,12 @@ import {
   searchWorkspaceFiles,
   warmFileSearchIndex
 } from './workspaceComposerIpc'
+import type {
+  WorkspaceSetupRequest,
+  WorkspaceStatusPayload,
+  WorkspaceSetupModelListRequest,
+  WorkspaceSetupModelListResult
+} from './workspaceSetup'
 import { translate, normalizeLocale, DEFAULT_LOCALE, type AppLocale } from '../shared/locales'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -117,6 +123,14 @@ export function createServerRequestBridge(): { bridgeId: string; promise: Promis
 export interface IpcHandlerCallbacks {
   /** Called when the renderer requests a workspace switch. */
   onSwitchWorkspace: (newPath: string) => Promise<void>
+  /** Clears the current workspace selection and returns to the welcome screen. */
+  onClearWorkspaceSelection: () => Promise<void>
+  /** Runs the one-shot `dotcraft setup` workflow for the current workspace. */
+  onRunWorkspaceSetup: (request: WorkspaceSetupRequest) => Promise<void>
+  /** Lists available models for setup using explicit or inherited key. */
+  onListSetupModels: (
+    request: WorkspaceSetupModelListRequest
+  ) => Promise<WorkspaceSetupModelListResult>
   /** Called when the renderer requests a new window. */
   onOpenNewWindow: () => void
   /** Restarts the Desktop-managed AppServer subprocess for the current workspace. */
@@ -129,6 +143,8 @@ export interface IpcHandlerCallbacks {
   getRecentWorkspaces: () => RecentWorkspace[]
   /** Returns the latest known connection status snapshot. */
   getConnectionStatus: () => ConnectionStatusPayload
+  /** Returns the latest known workspace selection/setup snapshot. */
+  getWorkspaceStatus: () => WorkspaceStatusPayload
 }
 
 /**
@@ -148,7 +164,10 @@ export interface IpcHandlerCallbacks {
  * - `window:get-workspace-path`   (renderer -> main, invoke) -> returns workspace path
  * - `workspace:pick-folder`       (renderer -> main, invoke) -> opens native folder picker
  * - `workspace:switch`            (renderer -> main, invoke) -> triggers workspace switch
+ * - `workspace:clear-selection`   (renderer -> main, invoke) -> returns to the welcome screen
  * - `workspace:get-recent`        (renderer -> main, invoke) -> returns recent workspaces
+ * - `workspace:get-status`        (renderer -> main, invoke) -> returns current workspace setup state
+ * - `workspace:run-setup`         (renderer -> main, invoke) -> runs the one-shot setup command
  * - `workspace:open-new-window`   (renderer -> main, invoke) -> opens a new window
  * - `workspace:check-lock`        (renderer -> main, invoke) -> checks if workspace is locked
  * - `settings:get`                (renderer -> main, invoke) -> returns current settings
@@ -388,10 +407,32 @@ export function registerIpcHandlers(
     }
   })
 
+  handleSafe('workspace:clear-selection', async () => {
+    await callbacks?.onClearWorkspaceSelection()
+  })
+
   // Renderer -> Main: get recent workspaces
   handleSafe('workspace:get-recent', () => {
     return callbacks?.getRecentWorkspaces() ?? []
   })
+
+  handleSafe('workspace:get-status', () => {
+    return callbacks?.getWorkspaceStatus() ?? { status: 'no-workspace', workspacePath: '', hasUserConfig: false }
+  })
+
+  handleSafe('workspace:run-setup', async (_event, request: WorkspaceSetupRequest) => {
+    await callbacks?.onRunWorkspaceSetup(request)
+  })
+
+  handleSafe(
+    'workspace:list-setup-models',
+    async (_event, request: WorkspaceSetupModelListRequest) => {
+      if (!callbacks?.onListSetupModels) {
+        return { kind: 'error' } satisfies WorkspaceSetupModelListResult
+      }
+      return callbacks.onListSetupModels(request)
+    }
+  )
 
   // Renderer -> Main: open a new independent window
   handleSafe('workspace:open-new-window', () => {
@@ -467,6 +508,15 @@ export function broadcastConnectionStatus(
 ): void {
   if (!win.isDestroyed()) {
     win.webContents.send('appserver:connection-status', payload)
+  }
+}
+
+export function broadcastWorkspaceStatus(
+  win: BrowserWindow,
+  payload: WorkspaceStatusPayload
+): void {
+  if (!win.isDestroyed()) {
+    win.webContents.send('workspace:status-changed', payload)
   }
 }
 
@@ -548,7 +598,11 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('git:commit')
   ipcMain.removeHandler('workspace:pick-folder')
   ipcMain.removeHandler('workspace:switch')
+  ipcMain.removeHandler('workspace:clear-selection')
   ipcMain.removeHandler('workspace:get-recent')
+  ipcMain.removeHandler('workspace:get-status')
+  ipcMain.removeHandler('workspace:run-setup')
+  ipcMain.removeHandler('workspace:list-setup-models')
   ipcMain.removeHandler('workspace:open-new-window')
   ipcMain.removeHandler('workspace:check-lock')
   ipcMain.removeHandler('workspace:save-image-to-temp')
