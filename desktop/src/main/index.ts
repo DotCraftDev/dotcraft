@@ -982,7 +982,16 @@ app.whenReady().then(() => {
     const windows = BrowserWindow.getAllWindows()
     if (windows.length === 0) {
       sharedSettings = loadSettings()
-      const wsPath = resolveWorkspacePath(sharedSettings)
+      let wsPath = resolveWorkspacePath(sharedSettings)
+      if (wsPath) {
+        const lockCheck = acquireWorkspaceLock(wsPath)
+        if (!lockCheck.ok) {
+          wsPath = null
+        } else {
+          addRecentWorkspace(sharedSettings, wsPath)
+          saveSettings(sharedSettings)
+        }
+      }
       const workspaceStatus = getWorkspaceStatus(wsPath)
       lastWorkspaceStatus = workspaceStatus
       const newWin = createWindow(wsPath)
