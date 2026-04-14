@@ -47,12 +47,26 @@ public sealed class CoreToolProvider : IAgentToolProvider
             context.Config.Tools.File.MaxFileSize,
             context.ApprovalService,
             context.PathBlacklist,
-            trustedReadPaths: [userDotCraftPath]);
+            trustedReadPaths: [userDotCraftPath],
+            lspServerManager: context.LspServerManager);
         tools.Add(AIFunctionFactory.Create(fileTools.ReadFile));
         tools.Add(AIFunctionFactory.Create(fileTools.WriteFile));
         tools.Add(AIFunctionFactory.Create(fileTools.EditFile));
         tools.Add(AIFunctionFactory.Create(fileTools.GrepFiles));
         tools.Add(AIFunctionFactory.Create(fileTools.FindFiles));
+
+        // LSP tool
+        if (context.Config.Tools.Lsp.Enabled && context.LspServerManager != null)
+        {
+            var lspTool = new LspTool(
+                context.WorkspacePath,
+                context.LspServerManager,
+                requireOutside,
+                context.Config.Tools.Lsp.MaxFileSize,
+                context.ApprovalService,
+                context.PathBlacklist);
+            tools.Add(AIFunctionFactory.Create(lspTool.LSP));
+        }
 
         // Shell tools
         var shellTools = new ShellTools(

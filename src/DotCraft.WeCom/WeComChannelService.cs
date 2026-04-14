@@ -11,6 +11,7 @@ using DotCraft.Sessions;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
+using DotCraft.Lsp;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
@@ -40,6 +41,7 @@ public sealed class WeComChannelService(
     SkillsLoader skillsLoader,
     PathBlacklist blacklist,
     McpClientManager mcpClientManager,
+    LspServerManager lspServerManager,
     WeComBotRegistry registry,
     WeComPermissionService permissionService,
     WeComApprovalService wecomApprovalService,
@@ -227,6 +229,7 @@ public sealed class WeComChannelService(
                 PathBlacklist = blacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                LspServerManager = lspServerManager,
                 TraceCollector = traceCollector
             },
             traceCollector: traceCollector,

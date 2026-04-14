@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using DotCraft.Localization;
+using DotCraft.Lsp;
 using DotCraft.Mcp;
 using Microsoft.Extensions.AI;
 
@@ -120,6 +121,10 @@ public sealed class AppConfig
     [ConfigField(Ignore = true)]
     [JsonConverter(typeof(McpServerConfigListConverter))]
     public List<McpServerConfig> McpServers { get; set; } = [];
+
+    [ConfigField(Ignore = true)]
+    [JsonConverter(typeof(LspServerConfigListConverter))]
+    public List<LspServerConfig> LspServers { get; set; } = [];
 
     [ConfigField(Ignore = true)]
     [JsonConverter(typeof(ExternalChannelConfigListConverter))]
@@ -524,6 +529,21 @@ public sealed class AppConfig
         ];
     }
 
+    [ConfigSection("Tools.Lsp", DisplayName = "Tools > LSP", Order = 24)]
+    public sealed class LspToolsConfig
+    {
+        /// <summary>
+        /// Enables the built-in LSP tool.
+        /// </summary>
+        public bool Enabled { get; set; } = false;
+
+        /// <summary>
+        /// Maximum file size in bytes read before opening the document in LSP.
+        /// </summary>
+        [ConfigField(Min = 1, Hint = "bytes, default 10485760 (10 MB)")]
+        public int MaxFileSize { get; set; } = 10 * 1024 * 1024;
+    }
+
     [ConfigSection("Tools.DeferredLoading", DisplayName = "Tools > Deferred Loading", Order = 24)]
     public sealed class DeferredLoadingConfig
     {
@@ -563,6 +583,8 @@ public sealed class AppConfig
         public WebToolsConfig Web { get; set; } = new();
 
         public SandboxConfig Sandbox { get; set; } = new();
+
+        public LspToolsConfig Lsp { get; set; } = new();
 
         public DeferredLoadingConfig DeferredLoading { get; set; } = new();
 

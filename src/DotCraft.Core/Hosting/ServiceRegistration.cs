@@ -7,6 +7,7 @@ using DotCraft.Tracing;
 using DotCraft.Logging;
 using DotCraft.Sessions;
 using DotCraft.Localization;
+using DotCraft.Lsp;
 using DotCraft.Mcp;
 using DotCraft.Memory;
 using DotCraft.Modules;
@@ -102,6 +103,7 @@ public static class ServiceRegistration
 
         services.AddSingleton(sp =>
             new McpClientManager(sp.GetService<ILoggerFactory>()?.CreateLogger<McpClientManager>()));
+        services.AddSingleton<LspServerManager>();
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
         services.AddSingleton<ActiveRunRegistry>();
         services.AddSingleton(new ThreadStore(botPath));
@@ -158,10 +160,13 @@ public static class ServiceProviderExtensions
     {
         var config = provider.GetRequiredService<AppConfig>();
         var mcpManager = provider.GetRequiredService<McpClientManager>();
+        var lspManager = provider.GetRequiredService<LspServerManager>();
         if (config.McpServers.Count > 0)
         {
             await mcpManager.ConnectAsync(config.McpServers);
         }
+
+        await lspManager.InitializeAsync();
     }
 
     /// <summary>
@@ -175,5 +180,8 @@ public static class ServiceProviderExtensions
 
         var mcpManager = provider.GetRequiredService<McpClientManager>();
         await mcpManager.DisposeAsync();
+
+        var lspManager = provider.GetRequiredService<LspServerManager>();
+        await lspManager.DisposeAsync();
     }
 }

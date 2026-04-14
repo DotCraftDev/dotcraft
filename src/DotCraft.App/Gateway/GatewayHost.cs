@@ -9,6 +9,7 @@ using DotCraft.Tracing;
 using DotCraft.Heartbeat;
 using DotCraft.Hooks;
 using DotCraft.Hosting;
+using DotCraft.Lsp;
 using DotCraft.Memory;
 using DotCraft.Modules;
 using DotCraft.Protocol;
@@ -176,6 +177,7 @@ public sealed class GatewayHost : IDotCraftHost
         var memoryStore = _sp.GetRequiredService<MemoryStore>();
         var pathBlacklist = _sp.GetRequiredService<PathBlacklist>();
         var mcpClientManager = _sp.GetRequiredService<Mcp.McpClientManager>();
+        var lspServerManager = _sp.GetRequiredService<LspServerManager>();
         var cronTools = _sp.GetService<CronTools>();
         var traceCollector = _sp.GetService<TraceCollector>();
         var hookRunner = _sp.GetService<HookRunner>();
@@ -218,6 +220,7 @@ public sealed class GatewayHost : IDotCraftHost
                 PathBlacklist = pathBlacklist,
                 CronTools = cronTools,
                 McpClientManager = mcpClientManager.Tools.Count > 0 ? mcpClientManager : null,
+                LspServerManager = lspServerManager,
                 TraceCollector = traceCollector
             },
             traceCollector: traceCollector,
