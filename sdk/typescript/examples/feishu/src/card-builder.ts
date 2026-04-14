@@ -40,6 +40,21 @@ export function buildTranscriptCard(text: string, isFinal: boolean): Record<stri
   ]);
 }
 
+export function buildFileCaptionCard(caption: string, fileName?: string): Record<string, unknown> {
+  const normalizedCaption = normalizeMarkdownForFeishu(caption);
+  const normalizedFileName = (fileName ?? "").trim();
+  const content = normalizedFileName
+    ? `File: \`${normalizeMarkdownForFeishu(normalizedFileName)}\`\n\n${normalizedCaption}`
+    : normalizedCaption;
+
+  return buildV2Card("File Note", "indigo", [
+    {
+      tag: "markdown",
+      content,
+    },
+  ]);
+}
+
 export function buildApprovalCard(params: {
   requestId: string;
   approvalType: string;

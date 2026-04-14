@@ -67,6 +67,18 @@ function latestTranscriptText(mock: MockFeishuClient): string {
   return "";
 }
 
+function latestCardByTitle(mock: MockFeishuClient, title: string): Record<string, unknown> | null {
+  for (let idx = mock.updatedCards.length - 1; idx >= 0; idx -= 1) {
+    const card = mock.updatedCards[idx]?.card;
+    if (card && getCardTitle(card) === title) return card;
+  }
+  for (let idx = mock.sentCards.length - 1; idx >= 0; idx -= 1) {
+    const card = mock.sentCards[idx]?.card;
+    if (card && getCardTitle(card) === title) return card;
+  }
+  return null;
+}
+
 test("Feishu adapter keeps one evolving transcript card across a multi-segment flow", async () => {
   const mockFeishu = new MockFeishuClient();
   const adapter = new FeishuAdapter({
@@ -129,4 +141,49 @@ test("Feishu adapter keeps approval card separate from transcript content", asyn
   assert.equal(decision, DECISION_ACCEPT);
   assert.ok(mockFeishu.updatedCards.length >= 1);
   assert.equal(latestTranscriptText(mockFeishu), normalizeMarkdownForFeishu("这是正文 transcript。"));
+});
+
+test("Feishu adapter sends file caption in a separate card and keeps transcript clean", async () => {
+  const mockFeishu = new MockFeishuClient();
+  const adapter = new FeishuAdapter({
+    wsUrl: "ws://localhost:9100/ws",
+    approvalTimeoutMs: 2000,
+    feishu: mockFeishu as unknown as FeishuClient,
+  });
+
+  await (adapter as unknown as {
+    onSegmentCompleted: (
+      threadId: string,
+      turnId: string,
+      segmentText: string,
+      isFinal: boolean,
+      channelContext: string,
+    ) => Promise<void>;
+  }).onSegmentCompleted("thread-caption", "turn-caption", "这是 agent 正文。", false, "dm:test-user");
+
+  const result = await (adapter as unknown as {
+    onSend: (target: string, message: Record<string, unknown>, metadata: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  }).onSend(
+    "dm:test-user",
+    {
+      kind: "file",
+      fileName: "Untitled.xml",
+      caption: "这是文件说明 caption。",
+      source: {
+        kind: "dataBase64",
+        dataBase64: Buffer.from("<xml/>", "utf-8").toString("base64"),
+      },
+    },
+    {},
+  );
+
+  assert.equal(Boolean(result.delivered), true);
+  const transcriptText = latestTranscriptText(mockFeishu);
+  assert.equal(transcriptText, normalizeMarkdownForFeishu("这是 agent 正文。"));
+  assert.ok(!transcriptText.includes("caption"));
+
+  const captionCard = latestCardByTitle(mockFeishu, "File Note");
+  assert.ok(captionCard, "expected a separate File Note card");
+  const captionText = getCardMarkdown(captionCard!);
+  assert.ok(captionText.includes("这是文件说明 caption。"));
 });

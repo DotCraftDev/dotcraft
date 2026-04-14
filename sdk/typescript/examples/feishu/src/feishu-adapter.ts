@@ -23,6 +23,7 @@ import {
   buildApprovalResolvedCard,
   buildApprovalTimeoutCard,
   buildErrorCard,
+  buildFileCaptionCard,
   buildTranscriptCard,
 } from "./card-builder.js";
 import { createOrUpdateCard, sendReplyCards, sendSingleCard, updateCard } from "./card-sender.js";
@@ -229,7 +230,7 @@ export class FeishuAdapter extends ChannelAdapter {
         mediaType: inferMediaType(effectiveFileName),
       });
       if (caption) {
-        await this.appendCaptionToActiveTranscript(target, caption, {
+        await this.sendCaptionCard(target, caption, {
           target,
           fileName: effectiveFileName,
           source: "tool",
@@ -349,12 +350,6 @@ export class FeishuAdapter extends ChannelAdapter {
     return `${threadId}\u0000${turnId}`;
   }
 
-  private turnIdFromTranscriptStateKey(stateKey: string): string {
-    const separator = stateKey.lastIndexOf("\u0000");
-    if (separator < 0) return "";
-    return stateKey.slice(separator + 1);
-  }
-
   private getOrInitTurnTranscriptState(
     threadId: string,
     turnId: string,
@@ -424,40 +419,21 @@ export class FeishuAdapter extends ChannelAdapter {
     return mergeReplyTextFromDeltaAndSnapshot(accumulatedText, replyText);
   }
 
-  private async appendCaptionToActiveTranscript(
+  private async sendCaptionCard(
     channelTarget: string,
     caption: string,
     logContext: { target: string; fileName: string; source: "tool" | "structured" },
   ): Promise<void> {
     const normalized = caption.trim();
     if (!normalized) return;
-    const turnId = this.activeTurnByChannelTarget.get(channelTarget);
-    if (!turnId) {
-      logWarn("outbound.send.file.caption_skipped_no_active_turn", {
-        source: logContext.source,
-        target: shortId(logContext.target),
-        fileName: logContext.fileName,
-      });
-      return;
-    }
-    const state = Array.from(this.turnTranscriptStates.entries()).find(([stateKey, current]) => {
-      return this.turnIdFromTranscriptStateKey(stateKey) === turnId && current.channelTarget === channelTarget;
-    })?.[1];
-    if (!state || state.isFinal) {
-      logWarn("outbound.send.file.caption_skipped_missing_state", {
-        source: logContext.source,
-        target: shortId(logContext.target),
-        fileName: logContext.fileName,
-        turnId: shortId(turnId),
-      });
-      return;
-    }
-    const current = state.accumulatedText.trimEnd();
-    if (current.endsWith(normalized)) return;
-    state.accumulatedText = current ? `${current}\n\n${normalized}` : normalized;
-    const card = buildTranscriptCard(state.accumulatedText, false);
-    const sent = await createOrUpdateCard(this.feishu, state.channelTarget, card, state.messageId);
-    state.messageId = sent.messageId;
+    const card = buildFileCaptionCard(normalized, logContext.fileName);
+    await sendSingleCard(this.feishu, channelTarget, card);
+    logInfo("outbound.send.file.caption_card_sent", {
+      source: logContext.source,
+      target: shortId(logContext.target),
+      fileName: logContext.fileName,
+      captionChars: normalized.length,
+    });
   }
 
   protected override async onSegmentCompleted(
@@ -703,7 +679,7 @@ export class FeishuAdapter extends ChannelAdapter {
       });
       const sendResult = await this.feishu.sendFile(target, file);
       if (caption) {
-        await this.appendCaptionToActiveTranscript(target, caption, {
+        await this.sendCaptionCard(target, caption, {
           target,
           fileName: file.fileName,
           source: context.source,
