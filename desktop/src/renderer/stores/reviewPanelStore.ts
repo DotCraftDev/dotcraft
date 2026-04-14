@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ConversationTurn, ConversationItem, TurnStatus } from '../types/conversation'
 import { wireTurnToConversationTurn } from '../types/conversation'
+import { isShellToolName } from '../utils/shellTools'
 import type { AutomationTask } from './automationsStore'
 import { useAutomationsStore } from './automationsStore'
 import type { SubAgentEntry } from '../types/toolCall'
@@ -10,6 +11,41 @@ function sortItemsByCreatedAt(items: ConversationItem[]): ConversationItem[] {
   return [...items].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   )
+}
+
+function mergeCommandExecutionIntoToolCall(
+  item: ConversationItem,
+  commandExecution: Partial<ConversationItem>
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  if (!isShellToolName(item.toolName)) return item
+  if (!commandExecution.toolCallId || item.toolCallId !== commandExecution.toolCallId) return item
+
+  return {
+    ...item,
+    aggregatedOutput: commandExecution.aggregatedOutput ?? item.aggregatedOutput,
+    executionStatus: commandExecution.executionStatus ?? item.executionStatus,
+    exitCode: commandExecution.exitCode ?? item.exitCode,
+    commandSource: commandExecution.commandSource ?? item.commandSource,
+    duration: commandExecution.duration ?? item.duration
+  }
+}
+
+function mergeCommandExecutionAcrossItems(
+  items: ConversationItem[],
+  commandExecution: Partial<ConversationItem>
+): ConversationItem[] {
+  return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
+}
+
+function mergeHistoricalCommandExecutions(turn: ConversationTurn): ConversationTurn {
+  let items = turn.items
+  for (const item of turn.items) {
+    if (item.type === 'commandExecution' && item.toolCallId) {
+      items = mergeCommandExecutionAcrossItems(items, item)
+    }
+  }
+  return { ...turn, items }
 }
 
 export interface ReviewPanelState {
@@ -49,6 +85,7 @@ export interface ReviewPanelState {
   onItemStarted(params: Record<string, unknown>): void
   onAgentMessageDelta(delta: string): void
   onReasoningDelta(delta: string): void
+  onCommandExecutionDelta(params: { threadId?: string; turnId?: string; itemId?: string; delta?: string }): void
   onItemCompleted(params: Record<string, unknown>): void
   onTurnCompleted(rawTurn: Record<string, unknown>): void
   onTurnFailed(rawTurn: Record<string, unknown>, error: string): void
@@ -166,7 +203,7 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
       }
 
       const rawTurns = res.thread?.turns ?? []
-      const turns = rawTurns.map((t) => wireTurnToConversationTurn(t))
+      const turns = rawTurns.map((t) => mergeHistoricalCommandExecutions(wireTurnToConversationTurn(t)))
       const runningTurn = turns.find((t) => t.status === 'running')
       set({
         turns,
@@ -341,6 +378,40 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
+    } else if (type === 'commandExecution') {
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      const newItem: ConversationItem = {
+        id: itemId ?? '',
+        type: 'commandExecution',
+        status: 'started',
+        command: (item?.command as string | undefined) ?? (itemPayload.command as string | undefined) ?? '',
+        workingDirectory: (item?.workingDirectory as string | undefined)
+          ?? (itemPayload.workingDirectory as string | undefined),
+        commandSource: (item?.source as 'host' | 'sandbox' | undefined)
+          ?? (itemPayload.source as 'host' | 'sandbox' | undefined),
+        aggregatedOutput: (item?.aggregatedOutput as string | undefined)
+          ?? (itemPayload.aggregatedOutput as string | undefined)
+          ?? '',
+        exitCode: (item?.exitCode as number | null | undefined)
+          ?? (itemPayload.exitCode as number | null | undefined),
+        // Same as main conversationStore: wire item.status is lifecycle; execution state is payload.status.
+        executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined) ?? 'inProgress',
+        toolCallId: (item?.callId as string | undefined)
+          ?? (itemPayload.callId as string | undefined),
+        createdAt: (item?.createdAt as string) ?? new Date().toISOString()
+      }
+      set((state) => ({
+        turns: state.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  mergeCommandExecutionAcrossItems([...t.items, newItem], newItem)
+                )
+              }
+        )
+      }))
     }
   },
 
@@ -350,6 +421,34 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
 
   onReasoningDelta(delta) {
     set((state) => ({ streamingReasoning: state.streamingReasoning + delta }))
+  },
+
+  onCommandExecutionDelta(params) {
+    const turnId = params.turnId ?? ''
+    const itemId = params.itemId ?? ''
+    const delta = params.delta ?? ''
+    if (!turnId || !itemId || !delta) return
+
+    set((state) => ({
+      turns: state.turns.map((t) =>
+        t.id !== turnId
+          ? t
+          : {
+              ...t,
+              items: sortItemsByCreatedAt((() => {
+                const updatedItems = t.items.map((i) =>
+                  i.id === itemId && i.type === 'commandExecution'
+                    ? { ...i, aggregatedOutput: (i.aggregatedOutput ?? '') + delta }
+                    : i
+                )
+                const commandExecution = updatedItems.find((i) => i.id === itemId && i.type === 'commandExecution')
+                return commandExecution
+                  ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                  : updatedItems
+              })())
+            }
+      )
+    }))
   },
 
   onItemCompleted(params) {
@@ -488,6 +587,61 @@ export const useReviewPanelStore = create<ReviewPanelState>((set, get) => ({
                 )
               }
             : t
+        )
+      }))
+    } else if (type === 'commandExecution') {
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt((() => {
+                  const updatedItems = t.items.map((i) => {
+                    if (i.id !== (item?.id as string) || i.type !== 'commandExecution') return i
+                    const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
+                    const endMs = (item?.completedAt as string)
+                      ? new Date(item.completedAt as string).getTime()
+                      : Date.now()
+                    return {
+                      ...i,
+                      status: 'completed' as const,
+                      command: (item?.command as string | undefined)
+                        ?? (itemPayload.command as string | undefined)
+                        ?? i.command,
+                      workingDirectory: (item?.workingDirectory as string | undefined)
+                        ?? (itemPayload.workingDirectory as string | undefined)
+                        ?? i.workingDirectory,
+                      commandSource: (item?.source as 'host' | 'sandbox' | undefined)
+                        ?? (itemPayload.source as 'host' | 'sandbox' | undefined)
+                        ?? i.commandSource,
+                      aggregatedOutput: (item?.aggregatedOutput as string | undefined)
+                        ?? (itemPayload.aggregatedOutput as string | undefined)
+                        ?? i.aggregatedOutput
+                        ?? '',
+                      exitCode: (item?.exitCode as number | null | undefined)
+                        ?? (itemPayload.exitCode as number | null | undefined)
+                        ?? i.exitCode,
+                      // Prefer payload execution status; do not use wire item.status here.
+                      executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined)
+                        ?? i.executionStatus
+                        ?? 'completed',
+                      toolCallId: (item?.callId as string | undefined)
+                        ?? (itemPayload.callId as string | undefined)
+                        ?? i.toolCallId,
+                      duration: (itemPayload.durationMs as number | undefined) ?? (endMs - startMs),
+                      completedAt: (item?.completedAt as string) ?? new Date().toISOString()
+                    }
+                  })
+                  const commandExecution = updatedItems.find(
+                    (i) => i.id === (item?.id as string) && i.type === 'commandExecution'
+                  )
+                  return commandExecution
+                    ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                    : updatedItems
+                })())
+              }
         )
       }))
     } else if (type === 'externalChannelToolCall') {

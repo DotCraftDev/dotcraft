@@ -9,17 +9,39 @@ interface TerminalCommandBlockProps {
   output: string
   /** Duration in milliseconds */
   duration?: number
+  running?: boolean
+  exitCode?: number | null
+  source?: 'host' | 'sandbox'
 }
 
 /**
  * Renders a single shell command block: header + output.
  * ANSI escape codes in the output are converted to colored HTML spans.
- * Spec §11.5
+ * Spec Section 5.7
  */
-export function TerminalCommandBlock({ command, output, duration }: TerminalCommandBlockProps): JSX.Element {
+export function TerminalCommandBlock({
+  command,
+  output,
+  duration,
+  running = false,
+  exitCode,
+  source
+}: TerminalCommandBlockProps): JSX.Element {
   const elapsedLabel = duration !== undefined && duration > 0
-    ? `(${(duration / 1000).toFixed(1)}s)`
+    ? `${(duration / 1000).toFixed(1)}s`
     : ''
+
+  const statusLabel = running
+    ? 'Running'
+    : exitCode !== undefined && exitCode !== null && exitCode !== 0
+      ? `Exit ${exitCode}`
+      : elapsedLabel
+
+  const statusColor = running
+    ? 'var(--warning)'
+    : exitCode !== undefined && exitCode !== null && exitCode !== 0
+      ? 'var(--danger)'
+      : 'var(--text-dimmed)'
 
   const outputHtml = useMemo(
     () => (output ? ansiConverter.ansi_to_html(output) : ''),
@@ -34,28 +56,34 @@ export function TerminalCommandBlock({ command, output, duration }: TerminalComm
         fontSize: '12px'
       }}
     >
-      {/* Command header */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: '8px',
           padding: '6px 12px 4px',
           color: 'var(--text-primary)'
         }}
       >
-        <span>
-          <span style={{ color: 'var(--success)', userSelect: 'none' }}>$ </span>
-          {command}
-        </span>
-        {elapsedLabel && (
-          <span style={{ color: 'var(--text-dimmed)', fontSize: '11px', flexShrink: 0 }}>
-            {elapsedLabel}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: 'var(--success)', userSelect: 'none' }}>$</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{command}</span>
+          </div>
+          {source && (
+            <div style={{ color: 'var(--text-dimmed)', fontSize: '10px', marginTop: '2px' }}>
+              {source === 'sandbox' ? 'Sandbox' : 'Host'}
+            </div>
+          )}
+        </div>
+        {statusLabel && (
+          <span style={{ color: statusColor, fontSize: '11px', flexShrink: 0 }}>
+            {running ? '● ' : ''}{statusLabel}
           </span>
         )}
       </div>
 
-      {/* Separator */}
       <div
         style={{
           height: '1px',
@@ -64,7 +92,6 @@ export function TerminalCommandBlock({ command, output, duration }: TerminalComm
         }}
       />
 
-      {/* Output with ANSI color support */}
       {output ? (
         <pre
           style={{
@@ -81,7 +108,7 @@ export function TerminalCommandBlock({ command, output, duration }: TerminalComm
         />
       ) : (
         <div style={{ padding: '4px 12px 6px', color: 'var(--text-dimmed)', fontSize: '11px' }}>
-          (no output)
+          {running ? 'Waiting for output...' : '(no output)'}
         </div>
       )}
     </div>

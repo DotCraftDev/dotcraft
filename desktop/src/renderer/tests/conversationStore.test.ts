@@ -62,6 +62,158 @@ describe('turn lifecycle', () => {
     expect(items[0].status).toBe('streaming')
   })
 
+  it('onItemStarted/onCommandExecutionDelta/onItemCompleted track command execution output', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-1',
+        type: 'commandExecution',
+        payload: {
+          callId: 'exec-1',
+          command: 'npm test',
+          workingDirectory: 'C:/repo',
+          source: 'host',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+
+    s().onCommandExecutionDelta({
+      turnId: 'turn-1',
+      itemId: 'cmd-1',
+      delta: 'line 1\n'
+    })
+    s().onCommandExecutionDelta({
+      turnId: 'turn-1',
+      itemId: 'cmd-1',
+      delta: 'line 2\n'
+    })
+
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-1',
+        type: 'commandExecution',
+        completedAt: new Date().toISOString(),
+        payload: {
+          callId: 'exec-1',
+          command: 'npm test',
+          workingDirectory: 'C:/repo',
+          source: 'host',
+          status: 'completed',
+          aggregatedOutput: 'line 1\nline 2\n',
+          exitCode: 0,
+          durationMs: 1500
+        }
+      }
+    })
+
+    const item = s().turns[0].items.find((i) => i.id === 'cmd-1')
+    expect(item?.type).toBe('commandExecution')
+    expect(item?.aggregatedOutput).toBe('line 1\nline 2\n')
+    expect(item?.status).toBe('completed')
+    expect(item?.executionStatus).toBe('completed')
+    expect(item?.exitCode).toBe(0)
+    expect(item?.duration).toBe(1500)
+  })
+
+  it('maps commandExecution executionStatus from payload.status, not wire item lifecycle status', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-wire',
+        type: 'commandExecution',
+        status: 'started',
+        payload: {
+          callId: 'exec-wire',
+          command: 'ping',
+          workingDirectory: 'C:/repo',
+          source: 'host',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+
+    const cmd = s().turns[0].items.find((i) => i.id === 'cmd-wire')
+    expect(cmd?.type).toBe('commandExecution')
+    expect(cmd?.executionStatus).toBe('inProgress')
+  })
+
+  it('mirrors command execution output onto the matching Exec toolCall item', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-1',
+        type: 'toolCall',
+        payload: {
+          callId: 'exec-2',
+          toolName: 'Exec',
+          arguments: { command: 'npm test' }
+        }
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-2',
+        type: 'commandExecution',
+        payload: {
+          callId: 'exec-2',
+          command: 'npm test',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+    s().onCommandExecutionDelta({ turnId: 'turn-1', itemId: 'cmd-2', delta: 'chunk\n' })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool-1')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.aggregatedOutput).toBe('chunk\n')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+  })
+
+  it('mirrors command execution onto matching RunCommand toolCall (not only Exec)', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-rc',
+        type: 'toolCall',
+        payload: {
+          callId: 'run-1',
+          toolName: 'RunCommand',
+          arguments: { command: 'echo hi' }
+        }
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-rc',
+        type: 'commandExecution',
+        payload: {
+          callId: 'run-1',
+          command: 'echo hi',
+          status: 'inProgress',
+          aggregatedOutput: ''
+        }
+      }
+    })
+    s().onCommandExecutionDelta({ turnId: 'turn-1', itemId: 'cmd-rc', delta: 'out\n' })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool-rc')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.toolName).toBe('RunCommand')
+    expect(toolItem?.aggregatedOutput).toBe('out\n')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+  })
+
   it('onItemCompleted (agentMessage) updates placeholder in place and clears buffer', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({ turnId: 'turn-1', item: { id: 'item-1', type: 'agentMessage' } })

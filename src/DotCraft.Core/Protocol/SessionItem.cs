@@ -48,6 +48,10 @@ public sealed class SessionItem
         Payload as ReasoningContentPayload;
 
     [JsonIgnore]
+    public CommandExecutionPayload? AsCommandExecution =>
+        Payload as CommandExecutionPayload;
+
+    [JsonIgnore]
     public ToolCallPayload? AsToolCall =>
         Payload as ToolCallPayload;
 

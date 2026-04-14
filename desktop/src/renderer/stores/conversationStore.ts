@@ -8,6 +8,7 @@ import type {
   ApprovalState
 } from '../types/conversation'
 import { wireTurnToConversationTurn } from '../types/conversation'
+import { isShellToolName } from '../utils/shellTools'
 import type { FileDiff, SubAgentEntry } from '../types/toolCall'
 import {
   mergeFileDiffIncrement,
@@ -107,6 +108,8 @@ interface ConversationActions {
   onAgentMessageDelta(delta: string): void
   /** item/reasoning/delta notification */
   onReasoningDelta(delta: string): void
+  /** item/commandExecution/outputDelta notification */
+  onCommandExecutionDelta(params: { threadId?: string; turnId?: string; itemId?: string; delta?: string }): void
   /** item/completed notification */
   onItemCompleted(params: Record<string, unknown>): void
   /** item/usage/delta notification */
@@ -209,6 +212,31 @@ function sortItemsByCreatedAt(items: ConversationItem[]): ConversationItem[] {
   )
 }
 
+function mergeCommandExecutionIntoToolCall(
+  item: ConversationItem,
+  commandExecution: Partial<ConversationItem>
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  if (!isShellToolName(item.toolName)) return item
+  if (!commandExecution.toolCallId || item.toolCallId !== commandExecution.toolCallId) return item
+
+  return {
+    ...item,
+    aggregatedOutput: commandExecution.aggregatedOutput ?? item.aggregatedOutput,
+    executionStatus: commandExecution.executionStatus ?? item.executionStatus,
+    exitCode: commandExecution.exitCode ?? item.exitCode,
+    commandSource: commandExecution.commandSource ?? item.commandSource,
+    duration: commandExecution.duration ?? item.duration
+  }
+}
+
+function mergeCommandExecutionAcrossItems(
+  items: ConversationItem[],
+  commandExecution: Partial<ConversationItem>
+): ConversationItem[] {
+  return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
+}
+
 const SYSTEM_LABELS: Record<string, string | null> = {
   compacting: 'Compacting context...',
   consolidating: 'Consolidating memory...',
@@ -247,18 +275,27 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     const rehydratedTurns = converted.map((turn) => {
       // Build a callId -> toolResult lookup for this turn
       const resultByCallId = new Map<string, ConversationItem>()
+      const commandExecutionByCallId = new Map<string, ConversationItem>()
       for (const item of turn.items) {
         if (item.type === 'toolResult' && item.toolCallId) {
           resultByCallId.set(item.toolCallId, item)
         }
+        if (item.type === 'commandExecution' && item.toolCallId) {
+          commandExecutionByCallId.set(item.toolCallId, item)
+        }
       }
-      if (resultByCallId.size === 0) return turn
+      if (resultByCallId.size === 0 && commandExecutionByCallId.size === 0) return turn
 
       // Merge result data into toolCall items and extract diffs
       const mergedItems = turn.items.map((item) => {
         if (item.type !== 'toolCall') return item
         const resultItem = resultByCallId.get(item.toolCallId ?? '')
-        if (!resultItem) return item
+        const commandExecution = commandExecutionByCallId.get(item.toolCallId ?? '')
+        if (!resultItem) {
+          return commandExecution
+            ? mergeCommandExecutionIntoToolCall(item, commandExecution)
+            : item
+        }
 
         const resultText = resultItem.result ?? ''
         const success = resultItem.success !== false
@@ -272,6 +309,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           duration: endMs - startMs,
           completedAt: resultItem.completedAt
         }
+        const mergedWithCommandExecution = commandExecution
+          ? mergeCommandExecutionIntoToolCall(merged, commandExecution)
+          : merged
 
         // Accumulate diffs for file-writing tools (same path may appear multiple times)
         if (item.arguments && (item.toolName === 'WriteFile' || item.toolName === 'EditFile')) {
@@ -302,7 +342,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           }
         }
 
-        return merged
+        return mergedWithCommandExecution
       })
 
       return { ...turn, items: mergedItems }
@@ -509,6 +549,42 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
         )
       }))
+    } else if (type === 'commandExecution') {
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      const newItem: ConversationItem = {
+        id: itemId ?? '',
+        type: 'commandExecution',
+        status: 'started',
+        command: (item?.command as string | undefined) ?? (itemPayload.command as string | undefined) ?? '',
+        workingDirectory: (item?.workingDirectory as string | undefined)
+          ?? (itemPayload.workingDirectory as string | undefined),
+        commandSource: (item?.source as 'host' | 'sandbox' | undefined)
+          ?? (itemPayload.source as 'host' | 'sandbox' | undefined),
+        aggregatedOutput: (item?.aggregatedOutput as string | undefined)
+          ?? (itemPayload.aggregatedOutput as string | undefined)
+          ?? '',
+        exitCode: (item?.exitCode as number | null | undefined)
+          ?? (itemPayload.exitCode as number | null | undefined),
+        // Wire item.status is item lifecycle (started/completed), not shell execution state.
+        // Prefer payload.status (inProgress/completed/failed/cancelled).
+        executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined)
+          ?? 'inProgress',
+        toolCallId: (item?.callId as string | undefined)
+          ?? (itemPayload.callId as string | undefined),
+        createdAt: (item?.createdAt as string) ?? new Date().toISOString()
+      }
+      set((state) => ({
+        turns: state.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt(
+                  mergeCommandExecutionAcrossItems([...t.items, newItem], newItem)
+                )
+              }
+        )
+      }))
     }
   },
 
@@ -518,6 +594,37 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
 
   onReasoningDelta(delta) {
     set((state) => ({ streamingReasoning: state.streamingReasoning + delta }))
+  },
+
+  onCommandExecutionDelta(params) {
+    const turnId = params.turnId ?? ''
+    const itemId = params.itemId ?? ''
+    const delta = params.delta ?? ''
+    if (!turnId || !itemId || !delta) return
+
+    set((state) => ({
+      turns: state.turns.map((t) =>
+        t.id !== turnId
+          ? t
+          : {
+              ...t,
+              items: sortItemsByCreatedAt((() => {
+                const updatedItems = t.items.map((i) =>
+                  i.id === itemId && i.type === 'commandExecution'
+                    ? {
+                        ...i,
+                        aggregatedOutput: (i.aggregatedOutput ?? '') + delta
+                      }
+                    : i
+                )
+                const commandExecution = updatedItems.find((i) => i.id === itemId && i.type === 'commandExecution')
+                return commandExecution
+                  ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                  : updatedItems
+              })())
+            }
+      )
+    }))
   },
 
   onItemCompleted(params) {
@@ -657,6 +764,60 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 )
               }
             : t
+        )
+      }))
+    } else if (type === 'commandExecution') {
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      set((s) => ({
+        turns: s.turns.map((t) =>
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt((() => {
+                  const updatedItems = t.items.map((i) => {
+                    if (i.id !== (item?.id as string) || i.type !== 'commandExecution') return i
+                    const startMs = i.createdAt ? new Date(i.createdAt).getTime() : Date.now()
+                    const endMs = (item?.completedAt as string)
+                      ? new Date(item.completedAt as string).getTime()
+                      : Date.now()
+                    return {
+                      ...i,
+                      status: 'completed' as const,
+                      command: (item?.command as string | undefined)
+                        ?? (itemPayload.command as string | undefined)
+                        ?? i.command,
+                      workingDirectory: (item?.workingDirectory as string | undefined)
+                        ?? (itemPayload.workingDirectory as string | undefined)
+                        ?? i.workingDirectory,
+                      commandSource: (item?.source as 'host' | 'sandbox' | undefined)
+                        ?? (itemPayload.source as 'host' | 'sandbox' | undefined)
+                        ?? i.commandSource,
+                      aggregatedOutput: (item?.aggregatedOutput as string | undefined)
+                        ?? (itemPayload.aggregatedOutput as string | undefined)
+                        ?? i.aggregatedOutput
+                        ?? '',
+                      exitCode: (item?.exitCode as number | null | undefined)
+                        ?? (itemPayload.exitCode as number | null | undefined)
+                        ?? i.exitCode,
+                      executionStatus: (itemPayload.status as ConversationItem['executionStatus'] | undefined)
+                        ?? i.executionStatus
+                        ?? 'completed',
+                      toolCallId: (item?.callId as string | undefined)
+                        ?? (itemPayload.callId as string | undefined)
+                        ?? i.toolCallId,
+                      duration: (itemPayload.durationMs as number | undefined) ?? (endMs - startMs),
+                      completedAt: (item?.completedAt as string) ?? new Date().toISOString()
+                    }
+                  })
+                  const commandExecution = updatedItems.find(
+                    (i) => i.id === (item?.id as string) && i.type === 'commandExecution'
+                  )
+                  return commandExecution
+                    ? mergeCommandExecutionAcrossItems(updatedItems, commandExecution)
+                    : updatedItems
+                })())
+              }
         )
       }))
     } else if (type === 'externalChannelToolCall') {

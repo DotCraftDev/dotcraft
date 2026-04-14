@@ -2,45 +2,27 @@ import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { TerminalCommandBlock } from './TerminalCommandBlock'
 
-/** Tool names treated as shell execution tools */
-const SHELL_TOOLS = new Set(['Exec', 'RunCommand', 'BashCommand'])
-
 /**
- * Terminal tab — shows all Exec/shell tool call results across all turns.
- * Commands appear in chronological order.
- * Spec §11.5
+ * Terminal tab - shows all commandExecution items across all turns.
+ * Commands appear in chronological order and include in-progress output.
  */
 export function TerminalTab(): JSX.Element {
   const t = useT()
   const turns = useConversationStore((s) => s.turns)
 
-  // Collect all completed shell tool calls across all turns
-  const commands: Array<{ id: string; command: string; output: string; duration?: number }> = []
-
-  for (const turn of turns) {
-    for (const item of turn.items) {
-      if (
-        item.type === 'toolCall' &&
-        SHELL_TOOLS.has(item.toolName ?? '') &&
-        item.status === 'completed' &&
-        item.result !== undefined
-      ) {
-        const args = item.arguments as Record<string, unknown> | undefined
-        const command =
-          (args?.command as string | undefined) ??
-          (args?.cmd as string | undefined) ??
-          (args?.bash as string | undefined) ??
-          item.toolName ??
-          'shell'
-        commands.push({
-          id: item.id,
-          command,
-          output: item.result ?? '',
-          duration: item.duration
-        })
-      }
-    }
-  }
+  const commands = turns.flatMap((turn) =>
+    turn.items
+      .filter((item) => item.type === 'commandExecution')
+      .map((item) => ({
+        id: item.id,
+        command: item.command ?? 'shell',
+        output: item.aggregatedOutput ?? '',
+        duration: item.duration,
+        running: item.status !== 'completed' || item.executionStatus === 'inProgress',
+        exitCode: item.exitCode,
+        source: item.commandSource
+      }))
+  )
 
   if (commands.length === 0) {
     return (
@@ -76,6 +58,9 @@ export function TerminalTab(): JSX.Element {
           command={cmd.command}
           output={cmd.output}
           duration={cmd.duration}
+          running={cmd.running}
+          exitCode={cmd.exitCode}
+          source={cmd.source}
         />
       ))}
     </div>

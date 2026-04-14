@@ -304,6 +304,7 @@ public static class SessionWireMapper
     /// <list type="bullet">
     /// <item><see cref="AgentMessageDelta"/> (<c>deltaKind = "agentMessage"</c>) → <c>"item/agentMessage/delta"</c></item>
     /// <item><see cref="ReasoningContentDelta"/> (<c>deltaKind = "reasoningContent"</c>) → <c>"item/reasoning/delta"</c></item>
+    /// <item><see cref="CommandExecutionOutputDelta"/> (<c>deltaKind = "commandExecution"</c>) → <c>"item/commandExecution/outputDelta"</c></item>
     /// </list>
     /// All other mappings are 1:1 with the <see cref="SessionEventType"/> name converted to camelCase slash-notation.
     /// </summary>
@@ -319,6 +320,7 @@ public static class SessionWireMapper
             SessionEventType.TurnCancelled => "turn/cancelled",
             SessionEventType.ItemStarted => "item/started",
             // ItemDelta maps to two different methods depending on payload DeltaKind
+            SessionEventType.ItemDelta when evt.Payload is CommandExecutionOutputDelta => "item/commandExecution/outputDelta",
             SessionEventType.ItemDelta when evt.Payload is ReasoningContentDelta => "item/reasoning/delta",
             SessionEventType.ItemDelta => "item/agentMessage/delta",
             SessionEventType.ItemCompleted => "item/completed",
@@ -360,6 +362,7 @@ public static class SessionWireMapper
                 // Flatten delta payloads to { delta } string per spec Section 6.3
                 AgentMessageDelta agentDelta => new { delta = agentDelta.TextDelta },
                 ReasoningContentDelta reasoningDelta => new { delta = reasoningDelta.TextDelta },
+                CommandExecutionOutputDelta commandDelta => new { delta = commandDelta.TextDelta },
                 // SubAgent progress: pass through the payload as-is (entries array serialized directly)
                 SubAgentProgressPayload => evt.Payload,
                 // System event: pass through the payload as-is (kind + message)
@@ -404,6 +407,8 @@ public static class SessionWireMapper
         {
             AgentMessageDelta => "agentMessageDelta",
             ReasoningContentDelta => "reasoningContentDelta",
+            CommandExecutionOutputDelta => "commandExecutionOutputDelta",
+            CommandExecutionPayload => "commandExecution",
             ApprovalRequestPayload => "approvalRequest",
             ApprovalResponsePayload => "approvalResponse",
             ErrorPayload => "error",

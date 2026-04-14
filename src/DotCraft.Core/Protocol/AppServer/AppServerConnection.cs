@@ -182,6 +182,13 @@ public sealed class AppServerConnection
     public bool SupportsStreaming =>
         _clientCapabilities?.StreamingSupport != false;
 
+    /// <summary>
+    /// Returns <c>true</c> if the client declared command execution streaming support.
+    /// Defaults to false so legacy clients continue to use toolCall/toolResult rendering.
+    /// </summary>
+    public bool SupportsCommandExecutionStreaming =>
+        _clientCapabilities?.CommandExecutionStreaming == true;
+
     // -------------------------------------------------------------------------
     // Thread subscriptions
     // -------------------------------------------------------------------------

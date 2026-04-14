@@ -73,7 +73,10 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)
   const renderableItems = turn.items.filter(
-    (i) => i.type !== 'userMessage' && i.type !== 'toolResult'
+    (i) =>
+      i.type !== 'userMessage'
+      && i.type !== 'toolResult'
+      && i.type !== 'commandExecution'
   )
 
   // Build the ordered render list by walking items in sequence.
