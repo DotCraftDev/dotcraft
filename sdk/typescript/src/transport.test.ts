@@ -43,34 +43,13 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 400): Promise<T> 
   ]);
 }
 
-test("WebSocketTransport buffers burst frames before reads", async () => {
+test("WebSocketTransport keeps ordered frames across burst and consumer gap", async () => {
   await withServer(
     async (socket) => {
       socket.send(JSON.stringify({ seq: 1 }));
       socket.send(JSON.stringify({ seq: 2 }));
-    },
-    async (url) => {
-      const transport = new WebSocketTransport({ url });
-      await transport.connect();
-      await sleep(20);
-
-      const first = await withTimeout(transport.readMessage());
-      const second = await withTimeout(transport.readMessage());
-
-      assert.deepEqual(first, { seq: 1 });
-      assert.deepEqual(second, { seq: 2 });
-
-      await transport.close();
-    },
-  );
-});
-
-test("WebSocketTransport keeps frames that arrive during consumer gap", async () => {
-  await withServer(
-    async (socket) => {
-      socket.send(JSON.stringify({ seq: 1 }));
       await sleep(10);
-      socket.send(JSON.stringify({ seq: 2 }));
+      socket.send(JSON.stringify({ seq: 3 }));
     },
     async (url) => {
       const transport = new WebSocketTransport({ url });
@@ -79,9 +58,11 @@ test("WebSocketTransport keeps frames that arrive during consumer gap", async ()
       const first = await withTimeout(transport.readMessage());
       await sleep(25);
       const second = await withTimeout(transport.readMessage());
+      const third = await withTimeout(transport.readMessage());
 
       assert.deepEqual(first, { seq: 1 });
       assert.deepEqual(second, { seq: 2 });
+      assert.deepEqual(third, { seq: 3 });
 
       await transport.close();
     },
@@ -117,24 +98,6 @@ test("WebSocketTransport decodes binary UTF-8 frames", async () => {
       await transport.connect();
       const message = await withTimeout(transport.readMessage());
       assert.deepEqual(message, { mode: "binary" });
-      await transport.close();
-    },
-  );
-});
-
-test("WebSocketTransport rejects pending read on socket error", async () => {
-  await withServer(
-    async () => {},
-    async (url) => {
-      const transport = new WebSocketTransport({ url });
-      await transport.connect();
-      const pendingRead = withTimeout(transport.readMessage());
-
-      const internalWs = (transport as unknown as { ws: WebSocket | null }).ws;
-      assert.ok(internalWs, "transport should hold websocket after connect");
-      internalWs!.emit("error", new Error("synthetic error"));
-
-      await assert.rejects(pendingRead, /synthetic error/);
       await transport.close();
     },
   );

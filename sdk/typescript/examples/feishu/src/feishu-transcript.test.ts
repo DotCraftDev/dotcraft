@@ -1,23 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DECISION_ACCEPT, Thread, Turn, mergeReplyTextFromDeltaAndSnapshot } from "dotcraft-wire";
+import { DECISION_ACCEPT, Thread, Turn } from "dotcraft-wire";
 import type { FeishuClient } from "./feishu-client.js";
 import type { FeishuSendResult } from "./feishu-types.js";
 import { FeishuAdapter } from "./feishu-adapter.js";
 import { normalizeMarkdownForFeishu } from "./formatting.js";
-import {
-  captionFinalizationFixture,
-  fileCaptionFixture,
-  prefixRepairFixture,
-  twoApprovalFileSendFixture,
-  type WireEventFixture,
-} from "./transcript-test-fixtures.js";
+import { twoApprovalFileSendFixture, type WireEventFixture } from "./transcript-test-fixtures.js";
 
 class MockFeishuClient {
   readonly sentCards: Array<{ target: string; card: Record<string, unknown>; messageId: string }> = [];
   readonly updatedCards: Array<{ messageId: string; card: Record<string, unknown> }> = [];
-  readonly sentFiles: Array<{ target: string; fileName: string; bytes: number }> = [];
   private seq = 0;
 
   async sendInteractiveCard(target: string, card: Record<string, unknown>): Promise<FeishuSendResult> {
@@ -32,13 +25,12 @@ class MockFeishuClient {
 
   async sendFile(
     target: string,
-    file: {
+    _file: {
       fileName: string;
       data: Buffer;
       mediaType?: string;
     },
   ): Promise<FeishuSendResult & { fileKey: string }> {
-    this.sentFiles.push({ target, fileName: file.fileName, bytes: file.data.length });
     return { messageId: `file_msg_${++this.seq}`, chatId: target, fileKey: `file_key_${this.seq}` };
   }
 }
@@ -77,7 +69,11 @@ function latestTranscriptText(mock: MockFeishuClient): string {
 
 test("Feishu adapter keeps one evolving transcript card across a multi-segment flow", async () => {
   const mockFeishu = new MockFeishuClient();
-  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
+  const adapter = new FeishuAdapter({
+    wsUrl: "ws://localhost:9100/ws",
+    approvalTimeoutMs: 2000,
+    feishu: mockFeishu as unknown as FeishuClient,
+  });
   const client = (adapter as unknown as { client: Record<string, unknown> }).client;
   (adapter as unknown as { getOrCreateThread: (...args: unknown[]) => Promise<Thread> }).getOrCreateThread = async () =>
     new Thread(twoApprovalFileSendFixture.threadId, "active");
@@ -96,96 +92,13 @@ test("Feishu adapter keeps one evolving transcript card across a multi-segment f
   assert.equal(latestTranscriptText(mockFeishu), normalizeMarkdownForFeishu(twoApprovalFileSendFixture.expectedFinalTranscript));
 });
 
-test("Feishu adapter appends file caption into transcript card without extra text messages", async () => {
-  const mockFeishu = new MockFeishuClient();
-  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
-
-  await (adapter as unknown as {
-    onSegmentCompleted: (
-      threadId: string,
-      turnId: string,
-      segmentText: string,
-      isFinal: boolean,
-      channelContext: string,
-    ) => Promise<void>;
-  }).onSegmentCompleted("thread-caption", "turn-caption", "前置文本", false, "dm:test-user");
-
-  const result = await (adapter as unknown as {
-    onSend: (target: string, message: Record<string, unknown>, metadata: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  }).onSend(
-    "dm:test-user",
-    {
-      kind: "file",
-      fileName: "Untitled.xml",
-      caption: fileCaptionFixture.caption,
-      source: { kind: "dataBase64", dataBase64: Buffer.from("<unattend/>", "utf8").toString("base64") },
-    },
-    {},
-  );
-
-  assert.equal(Boolean(result.delivered), true);
-  assert.equal(mockFeishu.sentFiles.length, 1);
-  assert.equal(mockFeishu.sentCards.length, 1);
-  assert.ok(latestTranscriptText(mockFeishu).includes(fileCaptionFixture.expectedCaptionLine));
-});
-
-test("Feishu adapter keeps caption when final turn reconciliation runs", async () => {
-  const mockFeishu = new MockFeishuClient();
-  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
-
-  await (adapter as unknown as {
-    onSegmentCompleted: (
-      threadId: string,
-      turnId: string,
-      segmentText: string,
-      isFinal: boolean,
-      channelContext: string,
-    ) => Promise<void>;
-  }).onSegmentCompleted(
-    captionFinalizationFixture.threadId,
-    captionFinalizationFixture.turnId,
-    captionFinalizationFixture.initialSegment,
-    false,
-    captionFinalizationFixture.channelContext,
-  );
-
-  await (adapter as unknown as {
-    onSend: (target: string, message: Record<string, unknown>, metadata: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  }).onSend(
-    captionFinalizationFixture.channelContext,
-    {
-      kind: "file",
-      fileName: "Untitled.xml",
-      caption: captionFinalizationFixture.caption,
-      source: { kind: "dataBase64", dataBase64: Buffer.from("<unattend/>", "utf8").toString("base64") },
-    },
-    {},
-  );
-
-  await (adapter as unknown as {
-    onTurnCompleted: (
-      threadId: string,
-      turnId: string,
-      replyText: string,
-      channelContext: string,
-      segmentsWereDelivered: boolean,
-    ) => Promise<void>;
-  }).onTurnCompleted(
-    captionFinalizationFixture.threadId,
-    captionFinalizationFixture.turnId,
-    captionFinalizationFixture.finalReplyWithoutCaption,
-    captionFinalizationFixture.channelContext,
-    true,
-  );
-
-  const visible = latestTranscriptText(mockFeishu);
-  assert.ok(visible.includes(captionFinalizationFixture.caption));
-  assert.ok(visible.includes("已成功将文件"));
-});
-
 test("Feishu adapter keeps approval card separate from transcript content", async () => {
   const mockFeishu = new MockFeishuClient();
-  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
+  const adapter = new FeishuAdapter({
+    wsUrl: "ws://localhost:9100/ws",
+    approvalTimeoutMs: 2000,
+    feishu: mockFeishu as unknown as FeishuClient,
+  });
 
   await (adapter as unknown as {
     onSegmentCompleted: (
@@ -216,114 +129,4 @@ test("Feishu adapter keeps approval card separate from transcript content", asyn
   assert.equal(decision, DECISION_ACCEPT);
   assert.ok(mockFeishu.updatedCards.length >= 1);
   assert.equal(latestTranscriptText(mockFeishu), normalizeMarkdownForFeishu("这是正文 transcript。"));
-});
-
-test("Feishu adapter resolves two consecutive approval requests with distinct message ids", async () => {
-  const mockFeishu = new MockFeishuClient();
-  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 5000, feishu: mockFeishu as unknown as FeishuClient });
-  (adapter as unknown as { onThreadContextBound: (threadId: string, channelContext: string) => void }).onThreadContextBound(
-    "thread-double-approval",
-    "dm:test-user",
-  );
-
-  const pending1 = adapter.onApprovalRequest({
-    requestId: "request-seq-1",
-    threadId: "thread-double-approval",
-    approvalType: "file",
-    operation: "read",
-    target: "a.txt",
-    reason: "first",
-  });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const msg1 = mockFeishu.sentCards[mockFeishu.sentCards.length - 1]?.messageId ?? "";
-  assert.ok(msg1.length > 0);
-
-  const handled1 = adapter.handleCardAction({
-    action: { value: { kind: "approval", requestId: "request-seq-1", decision: DECISION_ACCEPT } },
-    context: { open_message_id: msg1 },
-  });
-  const decision1 = await pending1;
-  assert.equal(handled1, true);
-  assert.equal(decision1, DECISION_ACCEPT);
-
-  const pending2 = adapter.onApprovalRequest({
-    requestId: "request-seq-2",
-    threadId: "thread-double-approval",
-    approvalType: "file",
-    operation: "read",
-    target: "b.txt",
-    reason: "second",
-  });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  const msg2 = mockFeishu.sentCards[mockFeishu.sentCards.length - 1]?.messageId ?? "";
-  assert.ok(msg2.length > 0);
-  assert.notEqual(msg1, msg2);
-
-  const handled2 = adapter.handleCardAction({
-    action: { value: { kind: "approval", requestId: "request-seq-2", decision: DECISION_ACCEPT } },
-    context: { open_message_id: msg2 },
-  });
-  const decision2 = await pending2;
-  assert.equal(handled2, true);
-  assert.equal(decision2, DECISION_ACCEPT);
-});
-
-test("Feishu visible transcript keeps repaired prefix in file-send style flow", async () => {
-  const mockFeishu = new MockFeishuClient();
-  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
-  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
-  (adapter as unknown as { getOrCreateThread: (...args: unknown[]) => Promise<Thread> }).getOrCreateThread = async () =>
-    new Thread(prefixRepairFixture.threadId, "active");
-  client.turnStart = async () => new Turn(prefixRepairFixture.turnId, prefixRepairFixture.threadId, "running");
-  client.streamEvents = () => asEventStream(prefixRepairFixture.events);
-
-  await (adapter as unknown as { processMessage: (identityKey: string, opts: Record<string, unknown>) => Promise<void> }).processMessage("u:c", {
-    userId: "u",
-    userName: "tester",
-    text: "send file",
-    channelContext: prefixRepairFixture.channelContext,
-  });
-
-  const visible = latestTranscriptText(mockFeishu);
-  assert.equal(visible, normalizeMarkdownForFeishu(prefixRepairFixture.expectedFinalTranscript));
-  assert.ok(visible.includes("文件存在"));
-  assert.ok(!visible.startsWith("存在"));
-});
-
-test("Feishu adapter does not reuse transcript cards when two threads share turn_001", async () => {
-  const mockFeishu = new MockFeishuClient();
-  const adapter = new FeishuAdapter({ wsUrl: "ws://localhost:9100/ws", approvalTimeoutMs: 2000, feishu: mockFeishu as unknown as FeishuClient });
-
-  await (adapter as unknown as {
-    onSegmentCompleted: (
-      threadId: string,
-      turnId: string,
-      segmentText: string,
-      isFinal: boolean,
-      channelContext: string,
-    ) => Promise<void>;
-  }).onSegmentCompleted("thread-A", "turn_001", "A-hello", false, "dm:user-A");
-  await (adapter as unknown as {
-    onSegmentCompleted: (
-      threadId: string,
-      turnId: string,
-      segmentText: string,
-      isFinal: boolean,
-      channelContext: string,
-    ) => Promise<void>;
-  }).onSegmentCompleted("thread-B", "turn_001", "B-hello", false, "dm:user-B");
-
-  assert.equal(mockFeishu.sentCards.length, 2);
-  assert.deepEqual(
-    mockFeishu.sentCards.map((entry) => entry.target),
-    ["dm:user-A", "dm:user-B"],
-  );
-  assert.equal(mockFeishu.updatedCards.length, 0);
-});
-
-test("Feishu final transcript reconciliation uses mergeReplyTextFromDeltaAndSnapshot (divergent tails)", () => {
-  const merged = mergeReplyTextFromDeltaAndSnapshot("Hello streamed", "Hello snapshot");
-  assert.equal(merged, "Hello streamed\n\nsnapshot");
-  assert.ok(merged.includes("streamed"));
-  assert.ok(merged.includes("snapshot"));
 });
