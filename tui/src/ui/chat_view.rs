@@ -17,6 +17,7 @@ use crate::{
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
@@ -101,7 +102,7 @@ impl Widget for ChatView<'_> {
             // Only render inline plan during active streaming or when it's the
             // last entry — otherwise it shows up as committed history.
             if self.state.turn_status == TurnStatus::Running {
-                self.render_inline_plan(plan, render_width, &mut lines);
+                self.render_inline_plan_v2(plan, render_width, &mut lines);
             }
         }
 
@@ -622,6 +623,17 @@ impl ChatView<'_> {
 
     // ── Inline Plan block ────────────────────────────────────────────────────
 
+    fn render_inline_plan_v2(
+        &self,
+        plan: &crate::app::state::PlanSnapshot,
+        width: u16,
+        out: &mut Vec<Line<'static>>,
+    ) {
+        out.extend(render_inline_plan_lines(plan, width, self.theme, self.strings));
+        out.push(Line::default());
+    }
+
+    #[allow(dead_code)]
     fn render_inline_plan(
         &self,
         plan: &crate::app::state::PlanSnapshot,
@@ -657,6 +669,165 @@ impl ChatView<'_> {
 
 /// Truncate `s` to at most `max_cols` display columns. Appends '…' if truncated.
 /// Truncate `s` to at most `max_cols` display columns. Appends '…' if truncated.
+fn render_inline_plan_lines(
+    plan: &crate::app::state::PlanSnapshot,
+    width: u16,
+    theme: &Theme,
+    strings: &Strings,
+) -> Vec<Line<'static>> {
+    let mut lines = render_wrapped_prefixed_lines(
+        &format!("{}{}", strings.plan_title_prefix, plan.title.trim()),
+        "• ",
+        "  ",
+        theme.agent_message.add_modifier(Modifier::BOLD),
+        width,
+    );
+
+    let overview = plan.overview.trim();
+    if !overview.is_empty() {
+        lines.extend(render_wrapped_prefixed_lines(
+            overview,
+            "  ",
+            "  ",
+            theme.dim.add_modifier(Modifier::ITALIC),
+            width,
+        ));
+    }
+
+    for todo in &plan.todos {
+        let (prefix, style) = plan_todo_prefix_and_style(todo.status.as_str(), theme);
+        lines.extend(render_wrapped_prefixed_lines(
+            todo.content.trim(),
+            &format!("  {prefix}"),
+            "      ",
+            style,
+            width,
+        ));
+    }
+
+    lines
+}
+
+fn plan_todo_prefix_and_style(status: &str, theme: &Theme) -> (&'static str, Style) {
+    match status {
+        "completed" => (
+            "[x] ",
+            theme
+                .tool_completed
+                .add_modifier(Modifier::DIM | Modifier::CROSSED_OUT),
+        ),
+        "in_progress" => ("[>] ", theme.tool_active.add_modifier(Modifier::BOLD)),
+        "cancelled" => ("[-] ", theme.dim),
+        _ => ("[ ] ", theme.agent_message),
+    }
+}
+
+fn render_wrapped_prefixed_lines(
+    text: &str,
+    first_prefix: &str,
+    rest_prefix: &str,
+    style: Style,
+    width: u16,
+) -> Vec<Line<'static>> {
+    let available = (width as usize)
+        .saturating_sub(display_width(first_prefix))
+        .max(1);
+
+    wrap_text_display(text, available)
+        .into_iter()
+        .enumerate()
+        .map(|(idx, segment)| {
+            let prefix = if idx == 0 { first_prefix } else { rest_prefix };
+            Line::from(vec![
+                Span::styled(prefix.to_string(), style),
+                Span::styled(segment, style),
+            ])
+        })
+        .collect()
+}
+
+fn wrap_text_display(text: &str, max_cols: usize) -> Vec<String> {
+    if max_cols == 0 {
+        return vec![String::new()];
+    }
+
+    let mut out = Vec::new();
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        let mut current_width = 0usize;
+
+        for word in line.split_whitespace() {
+            let word_width = display_width(word);
+            let separator_width = if current.is_empty() { 0 } else { 1 };
+
+            if current_width + separator_width + word_width <= max_cols {
+                if separator_width == 1 {
+                    current.push(' ');
+                }
+                current.push_str(word);
+                current_width += separator_width + word_width;
+                continue;
+            }
+
+            if !current.is_empty() {
+                out.push(current);
+                current = String::new();
+                current_width = 0;
+            }
+
+            if word_width <= max_cols {
+                current.push_str(word);
+                current_width = word_width;
+            } else {
+                out.extend(split_by_display_width(word, max_cols));
+            }
+        }
+
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+
+    if out.is_empty() {
+        out.push(String::new());
+    }
+
+    out
+}
+
+fn split_by_display_width(text: &str, max_cols: usize) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut width = 0usize;
+
+    for ch in text.chars() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if !current.is_empty() && width + ch_width > max_cols {
+            parts.push(current);
+            current = String::new();
+            width = 0;
+        }
+        current.push(ch);
+        width += ch_width;
+    }
+
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    if parts.is_empty() {
+        parts.push(String::new());
+    }
+
+    parts
+}
+
 fn truncate(s: &str, max_cols: usize) -> String {
     if max_cols == 0 {
         return String::new();
@@ -729,4 +900,109 @@ fn active_shell_output_text(
             }
         })
         .or_else(|| tool.result.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app::state::{PlanSnapshot, PlanTodo},
+        i18n::load,
+    };
+
+    fn plain_text(lines: &[Line<'static>]) -> Vec<String> {
+        lines.iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn inline_plan_renders_checklist_statuses() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let plan = PlanSnapshot {
+            title: "Ship plan UI".to_string(),
+            overview: String::new(),
+            todos: vec![
+                PlanTodo {
+                    id: "1".to_string(),
+                    content: "Done item".to_string(),
+                    priority: "high".to_string(),
+                    status: "completed".to_string(),
+                },
+                PlanTodo {
+                    id: "2".to_string(),
+                    content: "Current item".to_string(),
+                    priority: "high".to_string(),
+                    status: "in_progress".to_string(),
+                },
+                PlanTodo {
+                    id: "3".to_string(),
+                    content: "Next item".to_string(),
+                    priority: "high".to_string(),
+                    status: "pending".to_string(),
+                },
+                PlanTodo {
+                    id: "4".to_string(),
+                    content: "Dropped item".to_string(),
+                    priority: "high".to_string(),
+                    status: "cancelled".to_string(),
+                },
+            ],
+        };
+
+        let lines = render_inline_plan_lines(&plan, 60, &theme, &strings);
+        let text = plain_text(&lines);
+
+        assert_eq!(text[0], "• Plan: Ship plan UI");
+        assert!(text.iter().any(|line| line == "  [x] Done item"));
+        assert!(text.iter().any(|line| line == "  [>] Current item"));
+        assert!(text.iter().any(|line| line == "  [ ] Next item"));
+        assert!(text.iter().any(|line| line == "  [-] Dropped item"));
+
+        let completed_style = &lines[1].spans[1].style;
+        assert!(completed_style.add_modifier.contains(Modifier::CROSSED_OUT));
+    }
+
+    #[test]
+    fn inline_plan_wraps_overview_and_todos_with_alignment() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let plan = PlanSnapshot {
+            title: "A narrow terminal plan title".to_string(),
+            overview: "This overview should wrap into aligned follow-up lines.".to_string(),
+            todos: vec![PlanTodo {
+                id: "1".to_string(),
+                content: "Investigate rendering issues in very narrow terminal widths".to_string(),
+                priority: "high".to_string(),
+                status: "in_progress".to_string(),
+            }],
+        };
+
+        let text = plain_text(&render_inline_plan_lines(&plan, 24, &theme, &strings));
+
+        assert_eq!(text[0], "• Plan: A narrow");
+        assert_eq!(text[1], "  terminal plan title");
+        assert_eq!(text[2], "  This overview should");
+        assert_eq!(text[3], "  wrap into aligned");
+        assert_eq!(text[4], "  follow-up lines.");
+        assert_eq!(text[5], "  [>] Investigate");
+        assert_eq!(text[6], "      rendering issues");
+        assert_eq!(text[7], "      in very narrow");
+        assert_eq!(text[8], "      terminal widths");
+    }
+
+    #[test]
+    fn wrap_text_breaks_long_tokens() {
+        let wrapped = wrap_text_display("supercalifragilisticexpialidocious", 8);
+        assert_eq!(
+            wrapped,
+            vec!["supercal", "ifragili", "sticexpi", "alidocio", "us"]
+        );
+    }
 }
