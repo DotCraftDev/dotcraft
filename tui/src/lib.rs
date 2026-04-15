@@ -791,9 +791,14 @@ fn handle_deferred_result(state: &mut AppState, strings: &Strings, result: Defer
                 .as_deref()
                 .or(state.current_thread_id.as_deref())
                 .unwrap_or("?");
-            state.history.push(HistoryEntry::SystemInfo {
-                message: format!("{} {label}", strings.session_loaded_prefix),
-            });
+            let message = format!("{} {label}", strings.session_loaded_prefix);
+            let is_duplicate = matches!(
+                state.history.last(),
+                Some(HistoryEntry::SystemInfo { message: existing }) if existing == &message
+            );
+            if !is_duplicate {
+                state.history.push(HistoryEntry::SystemInfo { message });
+            }
         }
         DeferredResult::ThreadHistoryLoaded(Err(e)) => {
             state.history.push(HistoryEntry::Error {

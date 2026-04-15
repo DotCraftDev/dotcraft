@@ -37,7 +37,8 @@ pub fn compute(
     } else {
         input_height.clamp(1, 10)
     };
-    let footer_h: u16 = if compact { 0 } else { 1 };
+    // Keep footer visible even on compact terminals so connection/thread state is always visible.
+    let footer_h: u16 = 1;
     let status_h: u16 = if turn_running && !compact {
         status_indicator_lines.max(1)
     } else {
@@ -123,4 +124,22 @@ pub fn input_preferred_height(content_lines: usize) -> u16 {
 /// (header line + wrapped detail lines).
 pub fn status_indicator_height(detail_lines: usize) -> u16 {
     (1 + detail_lines as u16).min(4)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_layout_keeps_footer_visible() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 10,
+        };
+        let zones = compute(area, false, false, 1, 1);
+        assert!(zones.footer.is_some());
+        assert_eq!(zones.footer.expect("footer").height, 1);
+    }
 }
