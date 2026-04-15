@@ -69,6 +69,32 @@ export type WorkspaceSetupModelListResult =
   | { kind: 'missing-key' }
   | { kind: 'error' }
 
+export interface ConfigDescriptorWire {
+  key: string
+  displayLabel: string
+  description: string
+  required: boolean
+  dataKind: string
+  masked: boolean
+  interactiveSetupOnly: boolean
+  defaultValue?: unknown
+  enumValues?: string[]
+}
+
+export interface DiscoveredModule {
+  moduleId: string
+  channelName: string
+  displayName: string
+  packageName: string
+  configFileName: string
+  supportedTransports: string[]
+  requiresInteractiveSetup: boolean
+  variant: string
+  source: 'bundled' | 'user'
+  absolutePath: string
+  configDescriptors: ConfigDescriptorWire[]
+}
+
 declare global {
   interface Window {
     api: {
@@ -140,6 +166,17 @@ declare global {
           limit?: number
         }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }>
       }
+      modules: {
+        list(): Promise<DiscoveredModule[]>
+        rescan(): Promise<DiscoveredModule[]>
+        readConfig(params: {
+          configFileName: string
+        }): Promise<{ exists: boolean; config: Record<string, unknown> | null }>
+        writeConfig(params: {
+          configFileName: string
+          config: Record<string, unknown>
+        }): Promise<{ ok: boolean }>
+      }
       settings: {
         get(): Promise<{
           binarySource?: BinarySource
@@ -154,6 +191,7 @@ declare global {
             url?: string
             token?: string
           }
+          modulesDirectory?: string
           theme?: 'dark' | 'light'
           locale?: 'en' | 'zh-Hans'
           visibleChannels?: string[]
@@ -171,6 +209,7 @@ declare global {
               url?: string
               token?: string
             }
+            modulesDirectory?: string
             theme?: 'dark' | 'light'
             locale?: 'en' | 'zh-Hans'
             visibleChannels?: string[]

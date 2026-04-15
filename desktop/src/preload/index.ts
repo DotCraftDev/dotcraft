@@ -76,6 +76,32 @@ export type WorkspaceSetupModelListResult =
   | { kind: 'missing-key' }
   | { kind: 'error' }
 
+export interface ConfigDescriptorWire {
+  key: string
+  displayLabel: string
+  description: string
+  required: boolean
+  dataKind: string
+  masked: boolean
+  interactiveSetupOnly: boolean
+  defaultValue?: unknown
+  enumValues?: string[]
+}
+
+export interface DiscoveredModule {
+  moduleId: string
+  channelName: string
+  displayName: string
+  packageName: string
+  configFileName: string
+  supportedTransports: string[]
+  requiresInteractiveSetup: boolean
+  variant: string
+  source: 'bundled' | 'user'
+  absolutePath: string
+  configDescriptors: ConfigDescriptorWire[]
+}
+
 // ---------------------------------------------------------------------------
 // Single-listener dispatcher for notifications and connection status.
 //
@@ -393,6 +419,26 @@ const api = {
     }
   },
 
+  modules: {
+    list(): Promise<DiscoveredModule[]> {
+      return ipcRenderer.invoke('modules:list')
+    },
+    rescan(): Promise<DiscoveredModule[]> {
+      return ipcRenderer.invoke('modules:rescan')
+    },
+    readConfig(params: {
+      configFileName: string
+    }): Promise<{ exists: boolean; config: Record<string, unknown> | null }> {
+      return ipcRenderer.invoke('modules:read-config', params)
+    },
+    writeConfig(params: {
+      configFileName: string
+      config: Record<string, unknown>
+    }): Promise<{ ok: boolean }> {
+      return ipcRenderer.invoke('modules:write-config', params)
+    }
+  },
+
   settings: {
     /**
      * Returns the current application settings.
@@ -410,6 +456,7 @@ const api = {
         url?: string
         token?: string
       }
+      modulesDirectory?: string
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]
@@ -432,6 +479,7 @@ const api = {
         url?: string
         token?: string
       }
+      modulesDirectory?: string
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]

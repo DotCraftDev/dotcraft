@@ -9,6 +9,7 @@ const settingsGet = vi.fn()
 const settingsSet = vi.fn()
 const appServerSendRequest = vi.fn()
 const appServerRestartManaged = vi.fn()
+const appServerGetResolvedBinary = vi.fn()
 const appServerOnNotification = vi.fn()
 
 function renderSettingsView(): void {
@@ -34,6 +35,7 @@ describe('SettingsView restart AppServer', () => {
     settingsSet.mockResolvedValue(undefined)
     appServerSendRequest.mockResolvedValue({ channels: [] })
     appServerRestartManaged.mockResolvedValue(undefined)
+    appServerGetResolvedBinary.mockResolvedValue({ source: 'bundled', path: 'dotcraft' })
     appServerOnNotification.mockReturnValue(() => {})
 
     Object.defineProperty(window, 'api', {
@@ -45,6 +47,7 @@ describe('SettingsView restart AppServer', () => {
         },
         appServer: {
           sendRequest: appServerSendRequest,
+          getResolvedBinary: appServerGetResolvedBinary,
           restartManaged: appServerRestartManaged,
           onNotification: appServerOnNotification
         }

@@ -7,6 +7,7 @@ import { CHANNEL_DEFS, type ChannelId } from './channelDefs'
 import { ChannelCard, type ChannelConnectionState } from './ChannelCard'
 import { QQConfigForm } from './QQConfigForm'
 import { WeComConfigForm } from './WeComConfigForm'
+import { ModuleConfigForm } from './ModuleConfigForm'
 import { useChannelConfig } from './useChannelConfig'
 import {
   PRESET_EXTERNAL_CHANNELS,
@@ -18,6 +19,7 @@ import {
   ExternalChannelConfigForm,
   type ExternalChannelConfigWire
 } from './ExternalChannelConfigForm'
+import type { DiscoveredModule } from '../../../preload/api.d'
 
 interface ChannelStatusWire {
   name: string
@@ -30,13 +32,17 @@ interface ChannelInfoWire {
   name: string
 }
 
-type SelectedChannelKey = `native:${ChannelId}` | `external:${string}`
+type SelectedChannelKey = `native:${ChannelId}` | `module:${string}` | `external:${string}`
 
 interface ExternalChannelViewModel {
   name: string
   draft: ExternalChannelConfigWire
   configured: boolean
   preset?: PresetExternalChannel
+}
+
+function moduleLogoPath(channelName: string): string {
+  return new URL(`../../assets/channels/${channelName}.svg`, import.meta.url).toString()
 }
 
 function createEmptyExternalChannel(): ExternalChannelConfigWire {
@@ -126,6 +132,11 @@ export function ChannelsView(): JSX.Element {
   const [externalDraft, setExternalDraft] = useState<ExternalChannelConfigWire>(createEmptyExternalChannel())
   const [savingExternal, setSavingExternal] = useState(false)
   const [deletingExternal, setDeletingExternal] = useState(false)
+  const [modules, setModules] = useState<DiscoveredModule[]>([])
+  const [modulesLoading, setModulesLoading] = useState(false)
+  const [modulesError, setModulesError] = useState<string | null>(null)
+  const [moduleConfig, setModuleConfig] = useState<Record<string, unknown>>({})
+  const [savingModule, setSavingModule] = useState(false)
 
   const externalManagementEnabled = capabilities?.externalChannelManagement === true
 
@@ -195,6 +206,37 @@ export function ChannelsView(): JSX.Element {
       cancelled = true
     }
   }, [capabilities])
+
+  async function reloadModules(rescan = false): Promise<void> {
+    setModulesLoading(true)
+    setModulesError(null)
+    try {
+      const list = rescan ? await window.api.modules.rescan() : await window.api.modules.list()
+      setModules(list)
+    } catch (err) {
+      setModules([])
+      setModulesError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setModulesLoading(false)
+    }
+  }
+
+  async function loadModuleConfig(selectedModule: DiscoveredModule): Promise<void> {
+    try {
+      const result = await window.api.modules.readConfig({
+        configFileName: selectedModule.configFileName
+      })
+      setModuleConfig(result.config ?? {})
+    } catch (err) {
+      setModuleConfig({})
+      addToast(
+        t('channels.loadFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    }
+  }
 
   /**
    * When saving a new external channel, pass `selectedExternalNameOverride` so draft hydration
@@ -287,6 +329,10 @@ export function ChannelsView(): JSX.Element {
     void reloadExternalChannels()
   }, [externalManagementEnabled])
 
+  useEffect(() => {
+    void reloadModules()
+  }, [])
+
   async function handleSave(channelId: ChannelId): Promise<void> {
     try {
       await saveChannel(channelId)
@@ -299,6 +345,26 @@ export function ChannelsView(): JSX.Element {
         }),
         'error'
       )
+    }
+  }
+
+  async function handleSaveModule(selectedModule: DiscoveredModule): Promise<void> {
+    setSavingModule(true)
+    try {
+      await window.api.modules.writeConfig({
+        configFileName: selectedModule.configFileName,
+        config: moduleConfig
+      })
+      addToast(t('channels.savedRestart'), 'success')
+    } catch (err) {
+      addToast(
+        t('channels.saveFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setSavingModule(false)
     }
   }
 
@@ -407,13 +473,29 @@ export function ChannelsView(): JSX.Element {
   const selectedNativeId = selectedChannelKey.startsWith('native:')
     ? (selectedChannelKey.slice('native:'.length) as ChannelId)
     : null
+  const selectedModuleId = selectedChannelKey.startsWith('module:')
+    ? selectedChannelKey.slice('module:'.length)
+    : null
   const selectedExternalName = selectedChannelKey.startsWith('external:')
     ? selectedChannelKey.slice('external:'.length)
     : null
   const selectedDef = selectedNativeId ? CHANNEL_DEFS.find((d) => d.id === selectedNativeId) : null
+  const selectedModule = selectedModuleId
+    ? modules.find((item) => item.moduleId === selectedModuleId) ?? null
+    : null
+  const selectedModuleLogoPath =
+    selectedModule && selectedModule.channelName
+      ? moduleLogoPath(selectedModule.channelName)
+      : undefined
   const selectedExternalCard = selectedExternalName
     ? externalChannelCards.find((item) => item.name.toLowerCase() === selectedExternalName.toLowerCase())
     : null
+
+  useEffect(() => {
+    if (selectedModuleId && !selectedModule) {
+      setSelectedChannelKey('native:qq')
+    }
+  }, [selectedModuleId, selectedModule])
 
   return (
     <div
@@ -471,6 +553,9 @@ export function ChannelsView(): JSX.Element {
             overflowY: 'auto'
           }}
         >
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+            Native
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {CHANNEL_DEFS.map((channel) => {
               const status = statusById.get(channel.id) ?? 'notConfigured'
@@ -486,6 +571,64 @@ export function ChannelsView(): JSX.Element {
                 />
               )
             })}
+          </div>
+
+          <div style={{ marginTop: 18 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 8
+              }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                {t('channels.modules.group')}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void reloadModules(true)
+                }}
+                title={t('channels.modules.refresh')}
+                aria-label={t('channels.modules.refresh')}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--accent)',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  padding: 0
+                }}
+              >
+                ↻
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {modules.map((module) => {
+                const status: ChannelConnectionState = 'notConfigured'
+                return (
+                  <ChannelCard
+                    key={module.moduleId}
+                    logoPath={moduleLogoPath(module.channelName)}
+                    label={module.displayName}
+                    status={status}
+                    statusLabel={t(statusLabelKey(status))}
+                    active={selectedChannelKey === `module:${module.moduleId}`}
+                    onClick={() => {
+                      setSelectedChannelKey(`module:${module.moduleId}`)
+                      void loadModuleConfig(module)
+                    }}
+                  />
+                )
+              })}
+            </div>
+            {!modulesLoading && modules.length === 0 && (
+              <div style={{ marginTop: 10, fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                {t('channels.modules.empty')}
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 18 }}>
@@ -584,6 +727,17 @@ export function ChannelsView(): JSX.Element {
             </div>
           )}
 
+          {!loading && selectedModuleId && selectedModule && (
+            <ModuleConfigForm
+              module={selectedModule}
+              config={moduleConfig}
+              onChange={setModuleConfig}
+              onSave={() => void handleSaveModule(selectedModule)}
+              saving={savingModule}
+              logoPath={selectedModuleLogoPath}
+            />
+          )}
+
           {!loading && selectedExternalName && (
             <div style={{ maxWidth: '640px' }}>
               {!externalManagementEnabled ? (
@@ -638,10 +792,12 @@ export function ChannelsView(): JSX.Element {
             </div>
           )}
 
-          {(error || statusError || externalError) && (
+          {(error || statusError || externalError || modulesError) && (
             <div style={{ marginTop: '16px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
               {error
                 ? t('channels.loadFailed', { error })
+                : modulesError
+                  ? t('channels.loadFailed', { error: modulesError })
                 : externalError
                   ? t('channels.loadFailed', { error: externalError })
                   : t('channels.statusUnavailable')}

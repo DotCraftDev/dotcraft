@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
+import { app, ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
 import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
 import * as path from 'path'
@@ -16,6 +16,7 @@ import {
   searchWorkspaceFiles,
   warmFileSearchIndex
 } from './workspaceComposerIpc'
+import { scanModules, type DiscoveredModule } from './moduleScanner'
 import type {
   WorkspaceSetupRequest,
   WorkspaceStatusPayload,
@@ -95,6 +96,19 @@ export async function openExternalHttpUrl(url: string): Promise<void> {
     throw new Error('Only http(s) URLs are allowed')
   }
   await shell.openExternal(safe)
+}
+
+function isSafeConfigFileName(configFileName: string): boolean {
+  if (configFileName.trim() === '') return false
+  if (configFileName.includes('..')) return false
+  return !configFileName.includes('/') && !configFileName.includes('\\')
+}
+
+function ensureObjectConfig(config: unknown): Record<string, unknown> {
+  if (config == null || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('Config payload must be a JSON object')
+  }
+  return config as Record<string, unknown>
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +210,11 @@ export function registerIpcHandlers(
   ): void => {
     ipcMain.removeHandler(channel)
     ipcMain.handle(channel, listener)
+  }
+  let cachedModules: DiscoveredModule[] | null = null
+  const scanAndCacheModules = async (): Promise<DiscoveredModule[]> => {
+    cachedModules = await scanModules(callbacks?.getSettings() ?? {}, !app.isPackaged)
+    return cachedModules
   }
 
   // Renderer -> Main: send a JSON-RPC request to AppServer
@@ -494,6 +513,57 @@ export function registerIpcHandlers(
     }
   )
 
+  handleSafe('modules:list', async () => {
+    if (cachedModules !== null) return cachedModules
+    return scanAndCacheModules()
+  })
+
+  handleSafe('modules:rescan', async () => scanAndCacheModules())
+
+  handleSafe(
+    'modules:read-config',
+    async (
+      _event,
+      params: { configFileName: string }
+    ): Promise<{ exists: boolean; config: Record<string, unknown> | null }> => {
+      if (!isSafeConfigFileName(params.configFileName)) {
+        throw new Error('Invalid config file name')
+      }
+      const configPath = path.join(workspacePath, '.craft', params.configFileName)
+      try {
+        const raw = await fs.readFile(configPath, 'utf-8')
+        const parsed = JSON.parse(raw) as unknown
+        return { exists: true, config: ensureObjectConfig(parsed) }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code
+        if (code === 'ENOENT') {
+          return { exists: false, config: null }
+        }
+        throw error
+      }
+    }
+  )
+
+  handleSafe(
+    'modules:write-config',
+    async (
+      _event,
+      params: { configFileName: string; config: Record<string, unknown> }
+    ): Promise<{ ok: true }> => {
+      if (!isSafeConfigFileName(params.configFileName)) {
+        throw new Error('Invalid config file name')
+      }
+      const configPath = path.join(workspacePath, '.craft', params.configFileName)
+      await fs.mkdir(path.dirname(configPath), { recursive: true })
+      await fs.writeFile(
+        configPath,
+        `${JSON.stringify(ensureObjectConfig(params.config), null, 2)}\n`,
+        'utf-8'
+      )
+      return { ok: true }
+    }
+  )
+
   if (workspacePath) {
     warmFileSearchIndex(workspacePath)
   }
@@ -609,5 +679,9 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:search-files')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
+  ipcMain.removeHandler('modules:list')
+  ipcMain.removeHandler('modules:rescan')
+  ipcMain.removeHandler('modules:read-config')
+  ipcMain.removeHandler('modules:write-config')
   invalidateFileIndex()
 }
