@@ -309,15 +309,31 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
             {
                 exec.aggregated_output.push_str(&delta);
                 state.at_bottom = true;
+                let output_for_merge = exec.aggregated_output.clone();
+                let call_id_for_merge = exec.call_id.clone();
 
-                if let Some(call_id) = exec.call_id.as_deref() {
+                if let Some(call_id) = call_id_for_merge.as_deref() {
                     if let Some(tool) = state
                         .streaming
                         .active_tools
                         .iter_mut()
                         .find(|t| t.call_id == call_id)
                     {
-                        tool.result = Some(exec.aggregated_output.clone());
+                        tool.result = Some(output_for_merge.clone());
+                    }
+
+                    for entry in state.history.iter_mut().rev() {
+                        if let HistoryEntry::ToolCall {
+                            call_id: ref id,
+                            result: ref mut r,
+                            ..
+                        } = entry
+                        {
+                            if id == call_id {
+                                *r = Some(output_for_merge.clone());
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -852,6 +868,124 @@ mod tests {
         assert_eq!(merged_tool.0, Some("hello\\nworld\\n".to_string()));
         assert!(merged_tool.1);
         assert!(merged_tool.2.is_some());
+    }
+
+    #[test]
+    fn command_execution_output_delta_updates_committed_exec_tool() {
+        let mut state = AppState::new("workspace".to_string());
+        state.streaming.active_tools.push(ActiveToolCall {
+            call_id: "call-2".to_string(),
+            tool_name: "Exec".to_string(),
+            arguments: r#"{"command":"echo hi"}"#.to_string(),
+            completed: false,
+            result: None,
+            success: true,
+            started_at: std::time::Instant::now(),
+            duration: None,
+        });
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/started",
+                serde_json::json!({
+                    "item": {
+                        "id": "cmd-2",
+                        "type": "commandExecution",
+                        "payload": {
+                            "callId": "call-2",
+                            "command": "echo hi",
+                            "workingDirectory": "/tmp",
+                            "source": "host",
+                            "status": "inProgress"
+                        }
+                    }
+                })
+            )
+        ));
+        assert_eq!(state.streaming.active_command_executions.len(), 1);
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/completed",
+                serde_json::json!({
+                    "item": {
+                        "id": "tool-2",
+                        "type": "toolCall",
+                        "payload": {
+                            "callId": "call-2",
+                            "success": true
+                        }
+                    }
+                })
+            )
+        ));
+        assert!(state.streaming.active_tools.is_empty());
+
+        let committed_before_delta = state.history.iter().rev().find_map(|entry| match entry {
+            HistoryEntry::ToolCall {
+                call_id, result, ..
+            } if call_id == "call-2" => Some(result.clone()),
+            _ => None,
+        });
+        assert_eq!(committed_before_delta, Some(None));
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/commandExecution/outputDelta",
+                serde_json::json!({
+                    "threadId": "t1",
+                    "turnId": "turn-1",
+                    "itemId": "cmd-2",
+                    "delta": "live\\n"
+                })
+            )
+        ));
+
+        let committed_after_delta = state.history.iter().rev().find_map(|entry| match entry {
+            HistoryEntry::ToolCall {
+                call_id, result, ..
+            } if call_id == "call-2" => Some(result.clone()),
+            _ => None,
+        });
+        assert_eq!(committed_after_delta, Some(Some("live\\n".to_string())));
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/completed",
+                serde_json::json!({
+                    "item": {
+                        "id": "cmd-2",
+                        "type": "commandExecution",
+                        "payload": {
+                            "callId": "call-2",
+                            "status": "completed",
+                            "exitCode": 0,
+                            "durationMs": 10,
+                            "aggregatedOutput": "live\\nfinal\\n"
+                        }
+                    }
+                })
+            )
+        ));
+
+        let committed_after_completed = state.history.iter().rev().find_map(|entry| match entry {
+            HistoryEntry::ToolCall {
+                call_id,
+                result,
+                success,
+                duration,
+                ..
+            } if call_id == "call-2" => Some((result.clone(), *success, *duration)),
+            _ => None,
+        });
+        assert_eq!(
+            committed_after_completed,
+            Some((Some("live\\nfinal\\n".to_string()), true, Some(std::time::Duration::from_millis(10))))
+        );
     }
 
     #[test]
