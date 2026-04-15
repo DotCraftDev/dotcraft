@@ -324,7 +324,7 @@ pub fn extract_partial_json_string_value(json: &str, key: &str) -> Option<String
         }
         out.push(ch);
     }
-    None
+    Some(out)
 }
 
 fn format_generic_invocation(name: &str, args: &str) -> String {
