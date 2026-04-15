@@ -90,6 +90,7 @@ pub struct Strings {
     // UX polish: footer hints
     pub mode_cycle_hint: &'static str,
     pub shortcuts_hint: &'static str,
+    pub footer_no_thread: &'static str,
 
     // UX polish round 2: welcome, action feedback
     pub welcome_message: &'static str,
@@ -195,6 +196,7 @@ pub fn load(lang: &str) -> Strings {
             welcome_model_label: zh::WELCOME_MODEL_LABEL,
             mode_cycle_hint: zh::MODE_CYCLE_HINT,
             shortcuts_hint: zh::SHORTCUTS_HINT,
+            footer_no_thread: zh::FOOTER_NO_THREAD,
             welcome_message: zh::WELCOME_MESSAGE,
             new_session_hint: zh::NEW_SESSION_HINT,
             session_loaded_prefix: zh::SESSION_LOADED_PREFIX,
@@ -285,6 +287,7 @@ pub fn load(lang: &str) -> Strings {
             welcome_model_label: en::WELCOME_MODEL_LABEL,
             mode_cycle_hint: en::MODE_CYCLE_HINT,
             shortcuts_hint: en::SHORTCUTS_HINT,
+            footer_no_thread: en::FOOTER_NO_THREAD,
             welcome_message: en::WELCOME_MESSAGE,
             new_session_hint: en::NEW_SESSION_HINT,
             session_loaded_prefix: en::SESSION_LOADED_PREFIX,

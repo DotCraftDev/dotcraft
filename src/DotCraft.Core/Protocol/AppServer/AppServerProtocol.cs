@@ -1480,6 +1480,7 @@ public static class AppServerMethods
     public const string ItemAgentMessageDelta = "item/agentMessage/delta";
     public const string ItemReasoningDelta = "item/reasoning/delta";
     public const string ItemCommandExecutionOutputDelta = "item/commandExecution/outputDelta";
+    public const string ItemToolCallArgumentsDelta = "item/toolCall/argumentsDelta";
     public const string ItemCompleted = "item/completed";
     public const string ItemApprovalResolved = "item/approval/resolved";
 

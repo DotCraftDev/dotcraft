@@ -21,7 +21,7 @@ const KEYBINDINGS: &[(&str, &str)] = &[
     ("Esc", "Idle: enter/exit transcript browse; running: interrupt"),
     ("i / Enter", "Switch focus to input (from chat)"),
     ("Tab", "Toggle reasoning visibility (in chat)"),
-    ("e", "Toggle tool call details (in chat)"),
+    ("e", "Reserved (tool output is always visible)"),
     ("y", "Copy last agent message to clipboard (in chat)"),
     ("F1", "Open this help overlay (global)"),
     ("?", "Open this help overlay (in chat)"),

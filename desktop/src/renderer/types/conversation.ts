@@ -71,6 +71,10 @@ export interface ConversationItem {
   executionStatus?: 'inProgress' | 'completed' | 'failed' | 'cancelled'
   /** Tool call arguments from item/started payload for toolCall items */
   arguments?: Record<string, unknown>
+  /** Raw incremental tool-call arguments JSON from item/toolCall/argumentsDelta */
+  argumentsPreview?: string
+  /** Extracted partial file content preview while WriteFile/EditFile is streaming */
+  streamingFileContent?: string
   /** External adapter channel name for externalChannelToolCall items */
   toolChannelName?: string
   /** Tool result text updated on item/completed (toolResult) */

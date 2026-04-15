@@ -588,6 +588,8 @@ public sealed class SessionService(
                 var agentText = string.Empty;
                 var reasoningText = string.Empty;
                 var agentDeltaIndex = 0;
+                Dictionary<int, SessionItem>? streamingToolCallItemsByIndex = null;
+                Dictionary<string, SessionItem>? streamingToolCallItemsByCallId = null;
                 long inputTokens = 0, outputTokens = 0;
                 long lastUsageInput = 0, lastUsageOutput = 0;
 
@@ -708,6 +710,49 @@ public sealed class SessionService(
                                     }
                                     break;
 
+                                case ToolCallArgumentsDeltaContent toolArgsDelta:
+                                {
+                                    if (string.IsNullOrEmpty(toolArgsDelta.ArgumentsDelta))
+                                        break;
+
+                                    streamingToolCallItemsByIndex ??= [];
+                                    if (!streamingToolCallItemsByIndex.TryGetValue(toolArgsDelta.ToolCallIndex, out var streamingToolCallItem))
+                                    {
+                                        streamingToolCallItem = new SessionItem
+                                        {
+                                            Id = SessionIdGenerator.NewItemId(NextItemSeq()),
+                                            TurnId = turn.Id,
+                                            Type = ItemType.ToolCall,
+                                            Status = ItemStatus.Streaming,
+                                            CreatedAt = DateTimeOffset.UtcNow,
+                                            Payload = new ToolCallPayload
+                                            {
+                                                ToolName = toolArgsDelta.ToolName ?? "unknown",
+                                                CallId = toolArgsDelta.CallId ?? string.Empty,
+                                                Arguments = null
+                                            }
+                                        };
+                                        streamingToolCallItemsByIndex[toolArgsDelta.ToolCallIndex] = streamingToolCallItem;
+                                        turn.Items.Add(streamingToolCallItem);
+                                        eventChannel.EmitItemStarted(streamingToolCallItem);
+                                    }
+
+                                    if (!string.IsNullOrWhiteSpace(toolArgsDelta.CallId))
+                                    {
+                                        streamingToolCallItemsByCallId ??= new Dictionary<string, SessionItem>(StringComparer.Ordinal);
+                                        if (!streamingToolCallItemsByCallId.ContainsKey(toolArgsDelta.CallId))
+                                            streamingToolCallItemsByCallId[toolArgsDelta.CallId] = streamingToolCallItem;
+                                    }
+
+                                    eventChannel.EmitItemDelta(streamingToolCallItem, new ToolCallArgumentsDelta
+                                    {
+                                        ToolName = toolArgsDelta.ToolName,
+                                        CallId = toolArgsDelta.CallId,
+                                        Delta = toolArgsDelta.ArgumentsDelta
+                                    });
+                                    break;
+                                }
+
                                 case FunctionCallContent fc:
                                 {
                                     RegisterCommandExecutionIfNeeded(
@@ -718,15 +763,15 @@ public sealed class SessionService(
                                         supportsCommandExecutionStreaming,
                                         effectiveWorkspacePath);
 
-                                    var toolCallItem = new SessionItem
+                                    SessionItem? toolCallItem = null;
+                                    if (!string.IsNullOrWhiteSpace(fc.CallId)
+                                        && streamingToolCallItemsByCallId != null
+                                        && streamingToolCallItemsByCallId.TryGetValue(fc.CallId, out var existingStreamingToolCallItem))
                                     {
-                                        Id = SessionIdGenerator.NewItemId(NextItemSeq()),
-                                        TurnId = turn.Id,
-                                        Type = ItemType.ToolCall,
-                                        Status = ItemStatus.Completed,
-                                        CreatedAt = DateTimeOffset.UtcNow,
-                                        CompletedAt = DateTimeOffset.UtcNow,
-                                        Payload = new ToolCallPayload
+                                        toolCallItem = existingStreamingToolCallItem;
+                                        toolCallItem.Status = ItemStatus.Completed;
+                                        toolCallItem.CompletedAt = DateTimeOffset.UtcNow;
+                                        toolCallItem.Payload = new ToolCallPayload
                                         {
                                             ToolName = fc.Name,
                                             Arguments = fc.Arguments != null
@@ -735,11 +780,38 @@ public sealed class SessionService(
                                                         fc.Arguments)) as JsonObject
                                                 : null,
                                             CallId = fc.CallId
-                                        }
-                                    };
-                                    turn.Items.Add(toolCallItem);
-                                    eventChannel.EmitItemStarted(toolCallItem);
-                                    eventChannel.EmitItemCompleted(toolCallItem);
+                                        };
+                                        eventChannel.EmitItemCompleted(toolCallItem);
+                                        streamingToolCallItemsByCallId.Remove(fc.CallId);
+                                        TryRemoveStreamingToolCallIndexByItemReference(
+                                            streamingToolCallItemsByIndex,
+                                            existingStreamingToolCallItem);
+                                    }
+                                    else
+                                    {
+                                        toolCallItem = new SessionItem
+                                        {
+                                            Id = SessionIdGenerator.NewItemId(NextItemSeq()),
+                                            TurnId = turn.Id,
+                                            Type = ItemType.ToolCall,
+                                            Status = ItemStatus.Completed,
+                                            CreatedAt = DateTimeOffset.UtcNow,
+                                            CompletedAt = DateTimeOffset.UtcNow,
+                                            Payload = new ToolCallPayload
+                                            {
+                                                ToolName = fc.Name,
+                                                Arguments = fc.Arguments != null
+                                                    ? JsonNode.Parse(
+                                                        System.Text.Json.JsonSerializer.Serialize(
+                                                            fc.Arguments)) as JsonObject
+                                                    : null,
+                                                CallId = fc.CallId
+                                            }
+                                        };
+                                        turn.Items.Add(toolCallItem);
+                                        eventChannel.EmitItemStarted(toolCallItem);
+                                        eventChannel.EmitItemCompleted(toolCallItem);
+                                    }
 
                                     // Track SubAgent progress when SpawnSubagent tool calls are detected
                                     if (string.Equals(fc.Name, "SpawnSubagent", StringComparison.Ordinal)
@@ -1394,5 +1466,24 @@ public sealed class SessionService(
             DeferredToolRegistry = source.DeferredToolRegistry
         };
         return cloned;
+    }
+
+    internal static bool TryRemoveStreamingToolCallIndexByItemReference(
+        Dictionary<int, SessionItem>? streamingToolCallItemsByIndex,
+        SessionItem targetItem)
+    {
+        if (streamingToolCallItemsByIndex == null)
+            return false;
+
+        int? matchedIndex = null;
+        foreach (var kvp in streamingToolCallItemsByIndex)
+        {
+            if (!ReferenceEquals(kvp.Value, targetItem))
+                continue;
+            matchedIndex = kvp.Key;
+            break;
+        }
+
+        return matchedIndex.HasValue && streamingToolCallItemsByIndex.Remove(matchedIndex.Value);
     }
 }

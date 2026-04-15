@@ -1,12 +1,17 @@
 //! Human-readable tool invocation and result summaries aligned with DotCraft.Core
 //! `ToolRegistry` / `CoreToolDisplays` (CLI `SessionHistoryPrinter` / `StreamAdapter`).
 
+use crate::app::state::PlanTodo;
 use serde_json::Value;
 use unicode_width::UnicodeWidthChar;
 
 /// Full-sentence invocations from `CoreToolDisplays` (e.g. `Searched "…"`). These must not be
 /// combined with the TUI `Calling`/`Called` prefixes — see [`invocation_needs_calling_called_prefix`].
-fn try_standalone_invocation_sentence(tool_name: &str, args: &str) -> Option<String> {
+fn try_standalone_invocation_sentence(
+    tool_name: &str,
+    args: &str,
+    plan_todos: Option<&[PlanTodo]>,
+) -> Option<String> {
     match tool_name {
         "WebSearch" => parse_query_field(args).map(|q| {
             let t = truncate_chars(&q, 80);
@@ -20,14 +25,42 @@ fn try_standalone_invocation_sentence(tool_name: &str, args: &str) -> Option<Str
             let t = truncate_chars(&q, 60);
             format!("Searched tools: \"{t}\"")
         }),
+        "ReadFile" => format_read_file_label(args),
+        "WriteFile" | "EditFile" => format_file_edit_label(args),
+        "TodoWrite" => format_todo_write_label(args),
+        "UpdateTodos" => format_update_todos_label(args, plan_todos),
         _ => None,
+    }
+}
+
+/// Streaming-friendly sentence for in-flight tool calls.
+/// Unlike committed labels, this prefers present-progress wording for file tools.
+pub fn format_active_invocation_display(
+    tool_name: &str,
+    args: &str,
+    plan_todos: Option<&[PlanTodo]>,
+) -> String {
+    match tool_name {
+        "WriteFile" => format_file_running_label(args, "Writing to", "Writing file"),
+        "EditFile" => format_file_running_label(args, "Editing", "Editing file"),
+        "ReadFile" => format_read_file_running_label(args),
+        _ => format_invocation_display_with_plan(tool_name, args, plan_todos),
     }
 }
 
 /// Format a tool invocation line like `ToolRegistry.FormatToolCall` for known tools;
 /// falls back to the legacy TUI heuristic (single string field or truncated JSON).
 pub fn format_invocation_display(tool_name: &str, args: &str) -> String {
-    try_standalone_invocation_sentence(tool_name, args)
+    format_invocation_display_with_plan(tool_name, args, None)
+}
+
+/// Same as [`format_invocation_display`] but can use plan todos for UpdateTodos summaries.
+pub fn format_invocation_display_with_plan(
+    tool_name: &str,
+    args: &str,
+    plan_todos: Option<&[PlanTodo]>,
+) -> String {
+    try_standalone_invocation_sentence(tool_name, args, plan_todos)
         .unwrap_or_else(|| format_generic_invocation(tool_name, args))
 }
 
@@ -35,7 +68,16 @@ pub fn format_invocation_display(tool_name: &str, args: &str) -> String {
 /// `Calling` / `Called`. When `false`, [`format_invocation_display`] is already a full sentence
 /// (standalone tools), so those prefixes are omitted to avoid double verbs (e.g. `Calling Searched "…"`).
 pub fn invocation_needs_calling_called_prefix(tool_name: &str, args: &str) -> bool {
-    try_standalone_invocation_sentence(tool_name, args).is_none()
+    invocation_needs_calling_called_prefix_with_plan(tool_name, args, None)
+}
+
+/// Same as [`invocation_needs_calling_called_prefix`] with optional plan context.
+pub fn invocation_needs_calling_called_prefix_with_plan(
+    tool_name: &str,
+    args: &str,
+    plan_todos: Option<&[PlanTodo]>,
+) -> bool {
+    try_standalone_invocation_sentence(tool_name, args, plan_todos).is_none()
 }
 
 fn parse_query_field(args: &str) -> Option<String> {
@@ -45,6 +87,244 @@ fn parse_query_field(args: &str) -> Option<String> {
 fn parse_string_field(args: &str, key: &str) -> Option<String> {
     let v: Value = serde_json::from_str(args).ok()?;
     v.get(key)?.as_str().map(str::to_string)
+}
+
+fn parse_json(args: &str) -> Option<Value> {
+    serde_json::from_str(args).ok()
+}
+
+fn extract_filename(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+fn normalize_status(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn parse_positive_int(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(n) => n.as_i64().filter(|n| *n > 0),
+        Value::String(s) => s.trim().parse::<i64>().ok().filter(|n| *n > 0),
+        _ => None,
+    }
+}
+
+fn get_string(v: &Value, key: &str) -> Option<String> {
+    v.get(key)?.as_str().map(str::to_string)
+}
+
+fn get_bool(v: &Value, key: &str) -> Option<bool> {
+    v.get(key)?.as_bool()
+}
+
+fn format_read_file_label(args: &str) -> Option<String> {
+    let parsed = parse_json(args)?;
+    let path = get_string(&parsed, "path")?;
+    let filename = extract_filename(&path);
+
+    let start = parsed.get("offset").and_then(parse_positive_int);
+    let limit = parsed.get("limit").and_then(parse_positive_int);
+
+    if let (Some(s), Some(l)) = (start, limit) {
+        return Some(format!("Read {filename} L{s}-{}", s + l - 1));
+    }
+    if let Some(s) = start {
+        return Some(format!("Read {filename} from L{s}"));
+    }
+    Some(format!("Read {filename}"))
+}
+
+fn format_read_file_running_label(args: &str) -> String {
+    let parsed = match parse_json(args) {
+        Some(v) => v,
+        None => return "Reading file...".to_string(),
+    };
+    let path = match get_string(&parsed, "path") {
+        Some(p) => p,
+        None => return "Reading file...".to_string(),
+    };
+    let filename = extract_filename(&path);
+    let start = parsed.get("offset").and_then(parse_positive_int);
+    let limit = parsed.get("limit").and_then(parse_positive_int);
+    if let (Some(s), Some(l)) = (start, limit) {
+        return format!("Reading {filename} L{s}-{}...", s + l - 1);
+    }
+    if let Some(s) = start {
+        return format!("Reading {filename} from L{s}...");
+    }
+    format!("Reading {filename}...")
+}
+
+fn format_file_edit_label(args: &str) -> Option<String> {
+    let parsed = parse_json(args)?;
+    let path = get_string(&parsed, "path")?;
+    let filename = extract_filename(&path);
+    Some(format!("Edited {filename}"))
+}
+
+fn format_file_running_label(args: &str, action_with_name: &str, action_generic: &str) -> String {
+    let parsed = match parse_json(args) {
+        Some(v) => v,
+        None => return format!("{action_generic}..."),
+    };
+    match get_string(&parsed, "path") {
+        Some(path) => format!("{action_with_name} {}...", extract_filename(&path)),
+        None => format!("{action_generic}..."),
+    }
+}
+
+fn truncate_summary(content: &str) -> String {
+    let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        return String::new();
+    }
+    truncate_chars(&compact, 28)
+}
+
+fn format_todo_write_label(args: &str) -> Option<String> {
+    let parsed = parse_json(args)?;
+    let todos = parsed.get("todos")?.as_array()?;
+    if todos.is_empty() {
+        return None;
+    }
+    let merge = get_bool(&parsed, "merge").unwrap_or(false);
+    let has_in_progress = todos.iter().any(|todo| {
+        todo.get("status")
+            .and_then(|v| v.as_str())
+            .map(normalize_status)
+            .as_deref()
+            == Some("in_progress")
+    });
+    let prefer_started = merge && has_in_progress;
+    let chosen = if prefer_started {
+        todos.iter().find(|todo| {
+            todo.get("status")
+                .and_then(|v| v.as_str())
+                .map(normalize_status)
+                .as_deref()
+                == Some("in_progress")
+        })
+    } else {
+        todos.first()
+    }
+    .or_else(|| todos.first())?;
+
+    let summary = chosen
+        .get("content")
+        .and_then(|v| v.as_str())
+        .map(truncate_summary)
+        .filter(|s| !s.is_empty());
+
+    if !merge {
+        return Some(match summary {
+            Some(s) => format!("Create to-do {s}"),
+            None => "Create to-do".to_string(),
+        });
+    }
+    if has_in_progress {
+        return Some(match summary {
+            Some(s) => format!("Started to-do {s}"),
+            None => "Started to-do".to_string(),
+        });
+    }
+    Some(match summary {
+        Some(s) => format!("Updated to-do {s}"),
+        None => "Updated to-do".to_string(),
+    })
+}
+
+fn format_update_todos_label(args: &str, plan_todos: Option<&[PlanTodo]>) -> Option<String> {
+    let parsed = parse_json(args)?;
+    let updates = parsed.get("updates")?.as_array()?;
+    if updates.is_empty() {
+        return None;
+    }
+    let has_in_progress = updates.iter().any(|todo| {
+        todo.get("status")
+            .and_then(|v| v.as_str())
+            .map(normalize_status)
+            .as_deref()
+            == Some("in_progress")
+    });
+    let chosen = if has_in_progress {
+        updates.iter().find(|todo| {
+            todo.get("status")
+                .and_then(|v| v.as_str())
+                .map(normalize_status)
+                .as_deref()
+                == Some("in_progress")
+        })
+    } else {
+        updates.first()
+    }
+    .or_else(|| updates.first())?;
+
+    let summary = chosen
+        .get("id")
+        .and_then(|v| v.as_str())
+        .and_then(|id| {
+            plan_todos.and_then(|todos| {
+                todos.iter()
+                    .find(|todo| todo.id.trim() == id.trim())
+                    .map(|todo| truncate_summary(&todo.content))
+            })
+        })
+        .filter(|s| !s.is_empty());
+
+    if has_in_progress {
+        return Some(match summary {
+            Some(s) => format!("Started to-do {s}"),
+            None => "Started to-do".to_string(),
+        });
+    }
+    Some(match summary {
+        Some(s) => format!("Updated to-do {s}"),
+        None => "Updated to-do".to_string(),
+    })
+}
+
+/// Best-effort extraction of a string field from partial JSON deltas.
+/// This supports streaming argument buffers that may not be valid JSON yet.
+pub fn extract_partial_json_string_value(json: &str, key: &str) -> Option<String> {
+    let key_pat = format!("\"{key}\"");
+    let key_idx = json.find(&key_pat)?;
+    let after_key = &json[key_idx + key_pat.len()..];
+    let colon_idx = after_key.find(':')?;
+    let after_colon = &after_key[colon_idx + 1..];
+    let quote_start_rel = after_colon.find('"')?;
+    let rest = &after_colon[quote_start_rel + 1..];
+
+    let mut escaped = false;
+    let mut out = String::new();
+    for ch in rest.chars() {
+        if escaped {
+            match ch {
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                'b' => out.push('\u{0008}'),
+                'f' => out.push('\u{000C}'),
+                '\\' => out.push('\\'),
+                '"' => out.push('"'),
+                '/' => out.push('/'),
+                other => {
+                    out.push('\\');
+                    out.push(other);
+                }
+            }
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            return Some(out);
+        }
+        out.push(ch);
+    }
+    Some(out)
 }
 
 fn format_generic_invocation(name: &str, args: &str) -> String {
@@ -321,9 +601,21 @@ mod tests {
     #[test]
     fn invocation_generic_single_string_field() {
         let args = r#"{"path":"src/main.rs"}"#;
+        assert_eq!(format_invocation_display("ReadFile", args), r#"Read main.rs"#);
+    }
+
+    #[test]
+    fn invocation_readfile_with_range() {
+        let args = r#"{"path":"src/main.rs","offset":10,"limit":5}"#;
+        assert_eq!(format_invocation_display("ReadFile", args), "Read main.rs L10-14");
+    }
+
+    #[test]
+    fn invocation_todowrite_started_with_summary() {
+        let args = r#"{"merge":true,"todos":[{"id":"t1","content":"next step is ABCDEFGHIJKLMNOPQRSTUVWXYZ","status":"in_progress"}]}"#;
         assert_eq!(
-            format_invocation_display("ReadFile", args),
-            r#"ReadFile("src/main.rs")"#
+            format_invocation_display("TodoWrite", args),
+            "Started to-do next step is ABCDEFGHIJKLMNO..."
         );
     }
 
@@ -403,10 +695,25 @@ mod tests {
     #[test]
     fn prefix_flag_true_when_standalone_parse_fails_or_generic_tool() {
         assert!(invocation_needs_calling_called_prefix("WebSearch", "{}"));
-        assert!(invocation_needs_calling_called_prefix(
+        assert!(invocation_needs_calling_called_prefix("McpTool", r#"{"x":1}"#));
+    }
+
+    #[test]
+    fn prefix_flag_false_for_readfile_and_todos() {
+        assert!(!invocation_needs_calling_called_prefix(
             "ReadFile",
             r#"{"path":"src/main.rs"}"#
         ));
-        assert!(invocation_needs_calling_called_prefix("McpTool", r#"{"x":1}"#));
+        assert!(!invocation_needs_calling_called_prefix(
+            "TodoWrite",
+            r#"{"merge":false,"todos":[{"id":"t1","content":"first","status":"pending"}]}"#
+        ));
+    }
+
+    #[test]
+    fn partial_json_extractor_reads_path() {
+        let partial = r#"{"path":"src\main.rs","content":"hel"#;
+        let value = extract_partial_json_string_value(partial, "path").expect("path");
+        assert_eq!(value, r#"src\main.rs"#);
     }
 }

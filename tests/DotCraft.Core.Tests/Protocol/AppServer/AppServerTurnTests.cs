@@ -201,6 +201,80 @@ public sealed class AppServerTurnTests : IDisposable
         Assert.Contains(AppServerMethods.TurnCompleted, methods);
     }
 
+    [Fact]
+    public async Task TurnStart_ToolCallArgumentsDelta_EmitsNotificationWithExpectedShape()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        _h.Service.EnqueueSubmitEvents(
+            thread.Id,
+            AppServerTestHarness.BuildStreamingToolCallEventSequence(thread.Id));
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnStart, new
+        {
+            threadId = thread.Id,
+            input = new[] { new { type = "text", text = "Write a file" } }
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var all = await _h.Transport.WaitAndDrainAsync(7, TimeSpan.FromSeconds(10));
+        AssertMethod(all[3], AppServerMethods.ItemToolCallArgumentsDelta);
+        var @params = all[3].RootElement.GetProperty("params");
+        Assert.Equal("toolCallArguments", @params.GetProperty("deltaKind").GetString());
+        Assert.Equal("WriteFile", @params.GetProperty("toolName").GetString());
+        Assert.Equal("call_001", @params.GetProperty("callId").GetString());
+        Assert.True(@params.GetProperty("delta").GetString()?.Length > 0);
+    }
+
+    [Fact]
+    public async Task TurnStart_ToolCallArgumentsDelta_StreamingDisabled_IsSuppressed()
+    {
+        using var harness = new AppServerTestHarness();
+        await harness.InitializeAsync(streamingSupport: false);
+        var thread = await harness.Service.CreateThreadAsync(harness.Identity);
+        harness.Service.EnqueueSubmitEvents(
+            thread.Id,
+            AppServerTestHarness.BuildStreamingToolCallEventSequence(thread.Id));
+
+        var msg = harness.BuildRequest(AppServerMethods.TurnStart, new
+        {
+            threadId = thread.Id,
+            input = new[] { new { type = "text", text = "Write a file" } }
+        });
+        await harness.ExecuteRequestAsync(msg);
+
+        var all = await harness.Transport.WaitAndDrainAsync(5, TimeSpan.FromSeconds(10));
+        var methods = all
+            .Skip(1)
+            .Select(d => d.RootElement.TryGetProperty("method", out var m) ? m.GetString() : null)
+            .ToList();
+        Assert.DoesNotContain(AppServerMethods.ItemToolCallArgumentsDelta, methods);
+    }
+
+    [Fact]
+    public async Task TurnStart_ToolCallArgumentsDelta_NotificationOptOut_IsSuppressed()
+    {
+        using var harness = new AppServerTestHarness();
+        await harness.InitializeAsync(optOutMethods: [AppServerMethods.ItemToolCallArgumentsDelta]);
+        var thread = await harness.Service.CreateThreadAsync(harness.Identity);
+        harness.Service.EnqueueSubmitEvents(
+            thread.Id,
+            AppServerTestHarness.BuildStreamingToolCallEventSequence(thread.Id));
+
+        var msg = harness.BuildRequest(AppServerMethods.TurnStart, new
+        {
+            threadId = thread.Id,
+            input = new[] { new { type = "text", text = "Write a file" } }
+        });
+        await harness.ExecuteRequestAsync(msg);
+
+        var all = await harness.Transport.WaitAndDrainAsync(5, TimeSpan.FromSeconds(10));
+        var methods = all
+            .Skip(1)
+            .Select(d => d.RootElement.TryGetProperty("method", out var m) ? m.GetString() : null)
+            .ToList();
+        Assert.DoesNotContain(AppServerMethods.ItemToolCallArgumentsDelta, methods);
+    }
+
     // -------------------------------------------------------------------------
     // Fix 5: messages field forwarded to SubmitInputAsync
     // -------------------------------------------------------------------------

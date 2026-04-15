@@ -87,6 +87,7 @@ pub const WELCOME_MODEL_LABEL: &str = "Model";
 // UX polish: footer hints
 pub const MODE_CYCLE_HINT: &str = "shift+tab to cycle";
 pub const SHORTCUTS_HINT: &str = "F1 help";
+pub const FOOTER_NO_THREAD: &str = "No thread";
 
 // UX polish round 2: welcome, action feedback
 pub const WELCOME_MESSAGE: &str = "✦ DotCraft v{}\n  Workspace: {}\n  Type a message to start · /help for commands · /sessions for history";

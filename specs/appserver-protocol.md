@@ -114,7 +114,7 @@ Three message kinds:
 - Enums are serialized as **camelCase strings** (e.g., `"active"`, `"running"`, `"toolCall"`, `"waitingApproval"`).
 - Nullable fields are omitted from the JSON when `null`, unless explicitly stated otherwise.
 - Wire DTOs are distinct from the on-disk persistence models. Persisted thread JSON may keep internal compatibility quirks; the wire contract must remain lossless and transport-stable.
-- `item/delta` payloads must carry a `deltaKind` field so clients can distinguish agent text from reasoning text without inspecting surrounding state.
+- AppServer projects Session Core `item/delta` events to specific wire methods (`item/agentMessage/delta`, `item/reasoning/delta`, `item/toolCall/argumentsDelta`, `item/commandExecution/outputDelta`). Delta notifications that can represent multiple logical kinds carry `deltaKind`.
 - `id` fields in JSON-RPC messages may be strings or integers. The server preserves the type and value when responding.
 
 ---
@@ -1015,8 +1015,8 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 |-------------|---------------------|
 | `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. |
 | `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
-| `reasoningContent` | Reasoning deltas stream through `item/reasoningContent/delta`; snapshots still use the canonical payload schema. |
-| `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. |
+| `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
+| `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |
 | `commandExecution` | Command execution payload uses camelCase fields such as `command`, `workingDirectory`, `source`, `status`, `aggregatedOutput`, `exitCode`, `durationMs`, and `callId`. |
 | `externalChannelToolCall` | External channel tool payload uses camelCase fields such as `toolName`, `channelName`, `arguments`, `success`, `errorCode`, and `errorMessage`. |
 | `toolResult` | Result payload uses the canonical fields; transport serialization preserves nested JSON values losslessly. |
@@ -1055,6 +1055,39 @@ Streamed text delta for a `reasoningContent` item.
   "delta": "I need to check the test output first"
 }
 ```
+
+#### `item/toolCall/argumentsDelta`
+
+Streamed arguments delta for a `toolCall` item. Concatenate `delta` values in order to build a progressive JSON-text preview of the tool arguments.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_...",
+  "turnId": "turn_001",
+  "itemId": "item_002",
+  "deltaKind": "toolCallArguments",
+  "toolName": "WriteFile",
+  "callId": "call_001",
+  "delta": "{\"path\":\"a.txt\",\"content\":\"hello"
+}
+```
+
+`toolCall` items with streamed arguments follow this sequence:
+
+1. `item/started` with `item.type = "toolCall"` (payload may contain partial metadata; `arguments` may be omitted or incomplete).
+2. zero or more `item/toolCall/argumentsDelta`.
+3. `item/completed` with the final `toolCall` payload, including complete `payload.arguments`.
+
+Client handling rules:
+
+- `deltaKind` is fixed to `toolCallArguments`.
+- `delta` is a raw JSON text fragment (not JSON Patch and not guaranteed to be parseable mid-stream).
+- `toolName` and `callId` are typically present on the first chunk and may be omitted on subsequent chunks.
+- Clients should merge chunks by `itemId` (or `callId` when useful) and append `delta` in arrival order for preview rendering.
+- The authoritative executable/persisted arguments are the final `item/completed.item.payload.arguments`.
+- Empty deltas are suppressed by the server and are not delivered.
 
 #### `item/completed`
 
@@ -1685,6 +1718,8 @@ This rule applies to all turn-scoped notifications:
 | `item/started` | yes |
 | `item/agentMessage/delta` | yes |
 | `item/reasoning/delta` | yes |
+| `item/toolCall/argumentsDelta` | yes |
+| `item/commandExecution/outputDelta` | yes |
 | `item/completed` | yes |
 | `item/usage/delta` | yes |
 | `subagent/progress` | yes |
@@ -1711,6 +1746,7 @@ Clients can suppress specific notification methods per connection by listing exa
 |--------|-----------------|
 | `item/agentMessage/delta` | Client does not support streaming; will wait for `item/completed`. |
 | `item/reasoning/delta` | Client does not display reasoning content. |
+| `item/toolCall/argumentsDelta` | Client does not need progressive tool-argument preview; waits for final `item/completed` payload. |
 | `thread/started` | Client does not need thread lifecycle events. |
 | `thread/renamed` | Client does not need server-pushed display name updates (e.g. refreshes `thread/list` on a timer only). |
 | `thread/deleted` | Client does not need thread list sync when threads are removed elsewhere (e.g. polls `thread/list` only). |
@@ -1731,7 +1767,8 @@ Clients can suppress specific notification methods per connection by listing exa
     "streamingSupport": false,
     "optOutNotificationMethods": [
       "item/agentMessage/delta",
-      "item/reasoning/delta"
+      "item/reasoning/delta",
+      "item/toolCall/argumentsDelta"
     ]
   }
 }

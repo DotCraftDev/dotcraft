@@ -9,12 +9,15 @@ use crate::{
     theme::Theme,
     ui::markdown,
     ui::tool_format::{
-        format_invocation_display, format_result_summary, invocation_needs_calling_called_prefix,
+        extract_partial_json_string_value, format_active_invocation_display,
+        format_invocation_display_with_plan, format_result_summary,
+        invocation_needs_calling_called_prefix_with_plan,
     },
 };
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
@@ -23,6 +26,10 @@ use unicode_width::UnicodeWidthChar;
 
 /// Maximum result/output lines shown below a completed tool call.
 const TOOL_CALL_MAX_LINES: usize = 5;
+/// Maximum preview lines for in-flight file editing tools.
+const TOOL_ACTIVE_FILE_PREVIEW_MAX_LINES: usize = 8;
+/// Maximum preview lines for in-flight shell output.
+const TOOL_ACTIVE_SHELL_PREVIEW_MAX_LINES: usize = 8;
 
 pub struct ChatView<'a> {
     state: &'a AppState,
@@ -95,7 +102,7 @@ impl Widget for ChatView<'_> {
             // Only render inline plan during active streaming or when it's the
             // last entry — otherwise it shows up as committed history.
             if self.state.turn_status == TurnStatus::Running {
-                self.render_inline_plan(plan, render_width, &mut lines);
+                self.render_inline_plan_v2(plan, render_width, &mut lines);
             }
         }
 
@@ -201,14 +208,15 @@ impl ChatView<'_> {
             }
 
             HistoryEntry::ToolCall {
+                call_id,
                 name,
                 args,
                 result,
                 success,
                 duration,
-                ..
             } => {
                 self.render_committed_tool(
+                    call_id,
                     name,
                     args,
                     result.as_deref(),
@@ -239,9 +247,9 @@ impl ChatView<'_> {
 
     // ── Tool call rendering ────────────────────────────────────────────────
 
-    /// Format tool call arguments as a compact inline invocation (aligned with CLI `ToolRegistry.FormatToolCall`).
-    fn format_invocation(name: &str, args: &str) -> String {
-        format_invocation_display(name, args)
+    /// Format tool call arguments as a compact inline invocation.
+    fn format_invocation(&self, name: &str, args: &str) -> String {
+        format_invocation_display_with_plan(name, args, self.state.plan.as_ref().map(|p| p.todos.as_slice()))
     }
 
     /// Render an active (in-flight) tool call.
@@ -251,9 +259,16 @@ impl ChatView<'_> {
         width: u16,
         out: &mut Vec<Line<'static>>,
     ) {
-        let invocation = Self::format_invocation(&tool.tool_name, &tool.arguments);
-        let need_calling_prefix =
-            invocation_needs_calling_called_prefix(&tool.tool_name, &tool.arguments);
+        let invocation = format_active_invocation_display(
+            &tool.tool_name,
+            &tool.arguments,
+            self.state.plan.as_ref().map(|p| p.todos.as_slice()),
+        );
+        let need_calling_prefix = invocation_needs_calling_called_prefix_with_plan(
+            &tool.tool_name,
+            &tool.arguments,
+            self.state.plan.as_ref().map(|p| p.todos.as_slice()),
+        );
 
         // "• Calling ToolName("arg")" or "• Searched "…"" (no second verb for standalone sentences).
         let prefix = if need_calling_prefix {
@@ -286,11 +301,74 @@ impl ChatView<'_> {
                 ),
             ]));
         }
+
+        if is_shell_tool_name(&tool.tool_name) {
+            if let Some(output) = active_shell_output_text(self.state, tool) {
+                if !output.is_empty() {
+                    let output_lines: Vec<&str> = output.lines().collect();
+                    let show_count = output_lines.len().min(TOOL_ACTIVE_SHELL_PREVIEW_MAX_LINES);
+                    let last_idx = show_count.saturating_sub(1);
+                    for (i, line) in output_lines.iter().take(show_count).enumerate() {
+                        let is_last = i == last_idx;
+                        let truncated_suffix =
+                            if is_last && output_lines.len() > TOOL_ACTIVE_SHELL_PREVIEW_MAX_LINES {
+                                "…"
+                            } else {
+                                ""
+                            };
+                        out.push(Line::from(vec![
+                            Span::styled("    │ ".to_string(), self.theme.dim),
+                            Span::styled(
+                                format!(
+                                    "{}{}",
+                                    truncate(line, width.saturating_sub(8) as usize),
+                                    truncated_suffix
+                                ),
+                                self.theme.dim,
+                            ),
+                        ]));
+                    }
+                }
+            }
+        }
+
+        // File tools: show user-friendly in-flight content preview instead of raw argument deltas.
+        if let Some(preview) = active_file_preview_text(tool) {
+            let preview_lines: Vec<&str> = preview.lines().collect();
+            let show_count = preview_lines.len().min(TOOL_ACTIVE_FILE_PREVIEW_MAX_LINES);
+            let last_idx = show_count.saturating_sub(1);
+            for (i, line) in preview_lines.iter().take(show_count).enumerate() {
+                let is_last = i == last_idx;
+                let truncated_suffix = if is_last && preview_lines.len() > TOOL_ACTIVE_FILE_PREVIEW_MAX_LINES {
+                    "…"
+                } else {
+                    ""
+                };
+                out.push(Line::from(vec![
+                    Span::styled("    │ ".to_string(), self.theme.dim),
+                    Span::styled(
+                        format!(
+                            "{}{}",
+                            truncate(line, width.saturating_sub(8) as usize),
+                            truncated_suffix
+                        ),
+                        self.theme.dim,
+                    ),
+                ]));
+            }
+            if show_count == 0 {
+                out.push(Line::from(vec![
+                    Span::styled("    │ ".to_string(), self.theme.dim),
+                    Span::styled("Waiting for content...".to_string(), self.theme.dim),
+                ]));
+            }
+        }
     }
 
     /// Render a committed (completed or failed) tool call.
     fn render_committed_tool(
         &self,
+        call_id: &str,
         name: &str,
         args: &str,
         result: Option<&str>,
@@ -307,9 +385,14 @@ impl ChatView<'_> {
         };
         let verb = self.strings.called;
 
-        let invocation = Self::format_invocation(name, args);
-        let need_called_prefix = invocation_needs_calling_called_prefix(name, args);
-        let elapsed = duration
+        let invocation = self.format_invocation(name, args);
+        let need_called_prefix = invocation_needs_calling_called_prefix_with_plan(
+            name,
+            args,
+            self.state.plan.as_ref().map(|p| p.todos.as_slice()),
+        );
+        let elapsed = self
+            .committed_tool_elapsed(name, call_id, duration)
             .map(|d| format!(" ({:.1}s)", d.as_secs_f64()))
             .unwrap_or_default();
 
@@ -399,6 +482,26 @@ impl ChatView<'_> {
         }
     }
 
+    fn committed_tool_elapsed(
+        &self,
+        tool_name: &str,
+        call_id: &str,
+        committed_duration: Option<Duration>,
+    ) -> Option<Duration> {
+        if is_shell_tool_name(tool_name) {
+            if let Some(exec) = self
+                .state
+                .streaming
+                .active_command_executions
+                .iter()
+                .find(|exec| exec.call_id.as_deref() == Some(call_id) && !exec.completed)
+            {
+                return Some(exec.started_at.elapsed());
+            }
+        }
+        committed_duration
+    }
+
     // ── Streaming section ───────────────────────────────────────────────────
 
     fn render_streaming(&self, width: u16, out: &mut Vec<Line<'static>>) {
@@ -448,6 +551,7 @@ impl ChatView<'_> {
             ]));
         } else if self.state.streaming.reasoning_buffer.is_empty()
             && self.state.streaming.active_tools.is_empty()
+            && self.state.streaming.active_command_executions.is_empty()
         {
             // Nothing yet — the StatusIndicator above the input shows "Working",
             // so keep a static hint in the chat area instead of another spinner.
@@ -542,6 +646,17 @@ impl ChatView<'_> {
 
     // ── Inline Plan block ────────────────────────────────────────────────────
 
+    fn render_inline_plan_v2(
+        &self,
+        plan: &crate::app::state::PlanSnapshot,
+        width: u16,
+        out: &mut Vec<Line<'static>>,
+    ) {
+        out.extend(render_inline_plan_lines(plan, width, self.theme, self.strings));
+        out.push(Line::default());
+    }
+
+    #[allow(dead_code)]
     fn render_inline_plan(
         &self,
         plan: &crate::app::state::PlanSnapshot,
@@ -577,6 +692,165 @@ impl ChatView<'_> {
 
 /// Truncate `s` to at most `max_cols` display columns. Appends '…' if truncated.
 /// Truncate `s` to at most `max_cols` display columns. Appends '…' if truncated.
+fn render_inline_plan_lines(
+    plan: &crate::app::state::PlanSnapshot,
+    width: u16,
+    theme: &Theme,
+    strings: &Strings,
+) -> Vec<Line<'static>> {
+    let mut lines = render_wrapped_prefixed_lines(
+        &format!("{}{}", strings.plan_title_prefix, plan.title.trim()),
+        "• ",
+        "  ",
+        theme.agent_message.add_modifier(Modifier::BOLD),
+        width,
+    );
+
+    let overview = plan.overview.trim();
+    if !overview.is_empty() {
+        lines.extend(render_wrapped_prefixed_lines(
+            overview,
+            "  ",
+            "  ",
+            theme.dim.add_modifier(Modifier::ITALIC),
+            width,
+        ));
+    }
+
+    for todo in &plan.todos {
+        let (prefix, style) = plan_todo_prefix_and_style(todo.status.as_str(), theme);
+        lines.extend(render_wrapped_prefixed_lines(
+            todo.content.trim(),
+            &format!("  {prefix}"),
+            "      ",
+            style,
+            width,
+        ));
+    }
+
+    lines
+}
+
+fn plan_todo_prefix_and_style(status: &str, theme: &Theme) -> (&'static str, Style) {
+    match status {
+        "completed" => (
+            "[x] ",
+            theme
+                .tool_completed
+                .add_modifier(Modifier::DIM | Modifier::CROSSED_OUT),
+        ),
+        "in_progress" => ("[>] ", theme.tool_active.add_modifier(Modifier::BOLD)),
+        "cancelled" => ("[-] ", theme.dim),
+        _ => ("[ ] ", theme.agent_message),
+    }
+}
+
+fn render_wrapped_prefixed_lines(
+    text: &str,
+    first_prefix: &str,
+    rest_prefix: &str,
+    style: Style,
+    width: u16,
+) -> Vec<Line<'static>> {
+    let available = (width as usize)
+        .saturating_sub(display_width(first_prefix))
+        .max(1);
+
+    wrap_text_display(text, available)
+        .into_iter()
+        .enumerate()
+        .map(|(idx, segment)| {
+            let prefix = if idx == 0 { first_prefix } else { rest_prefix };
+            Line::from(vec![
+                Span::styled(prefix.to_string(), style),
+                Span::styled(segment, style),
+            ])
+        })
+        .collect()
+}
+
+fn wrap_text_display(text: &str, max_cols: usize) -> Vec<String> {
+    if max_cols == 0 {
+        return vec![String::new()];
+    }
+
+    let mut out = Vec::new();
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        let mut current_width = 0usize;
+
+        for word in line.split_whitespace() {
+            let word_width = display_width(word);
+            let separator_width = if current.is_empty() { 0 } else { 1 };
+
+            if current_width + separator_width + word_width <= max_cols {
+                if separator_width == 1 {
+                    current.push(' ');
+                }
+                current.push_str(word);
+                current_width += separator_width + word_width;
+                continue;
+            }
+
+            if !current.is_empty() {
+                out.push(current);
+                current = String::new();
+                current_width = 0;
+            }
+
+            if word_width <= max_cols {
+                current.push_str(word);
+                current_width = word_width;
+            } else {
+                out.extend(split_by_display_width(word, max_cols));
+            }
+        }
+
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+
+    if out.is_empty() {
+        out.push(String::new());
+    }
+
+    out
+}
+
+fn split_by_display_width(text: &str, max_cols: usize) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut width = 0usize;
+
+    for ch in text.chars() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if !current.is_empty() && width + ch_width > max_cols {
+            parts.push(current);
+            current = String::new();
+            width = 0;
+        }
+        current.push(ch);
+        width += ch_width;
+    }
+
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    if parts.is_empty() {
+        parts.push(String::new());
+    }
+
+    parts
+}
+
 fn truncate(s: &str, max_cols: usize) -> String {
     if max_cols == 0 {
         return String::new();
@@ -616,4 +890,205 @@ fn display_width(s: &str) -> usize {
     s.chars()
         .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
         .sum()
+}
+
+fn active_file_preview_text(tool: &crate::app::state::ActiveToolCall) -> Option<String> {
+    match tool.tool_name.as_str() {
+        "WriteFile" => extract_partial_json_string_value(&tool.arguments, "content"),
+        "EditFile" => extract_partial_json_string_value(&tool.arguments, "newText")
+            .or_else(|| extract_partial_json_string_value(&tool.arguments, "content")),
+        _ => None,
+    }
+}
+
+fn is_shell_tool_name(name: &str) -> bool {
+    matches!(name, "Exec" | "RunCommand" | "BashCommand")
+}
+
+fn active_shell_output_text(
+    state: &AppState,
+    tool: &crate::app::state::ActiveToolCall,
+) -> Option<String> {
+    let call_id = tool.call_id.as_str();
+    state
+        .streaming
+        .active_command_executions
+        .iter()
+        .find(|exec| exec.call_id.as_deref() == Some(call_id))
+        .and_then(|exec| {
+            if exec.aggregated_output.is_empty() {
+                None
+            } else {
+                Some(exec.aggregated_output.clone())
+            }
+        })
+        .or_else(|| tool.result.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app::state::{ActiveCommandExecution, HistoryEntry, PlanSnapshot, PlanTodo},
+        i18n::load,
+    };
+
+    fn plain_text(lines: &[Line<'static>]) -> Vec<String> {
+        lines.iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn inline_plan_renders_checklist_statuses() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let plan = PlanSnapshot {
+            title: "Ship plan UI".to_string(),
+            overview: String::new(),
+            todos: vec![
+                PlanTodo {
+                    id: "1".to_string(),
+                    content: "Done item".to_string(),
+                    priority: "high".to_string(),
+                    status: "completed".to_string(),
+                },
+                PlanTodo {
+                    id: "2".to_string(),
+                    content: "Current item".to_string(),
+                    priority: "high".to_string(),
+                    status: "in_progress".to_string(),
+                },
+                PlanTodo {
+                    id: "3".to_string(),
+                    content: "Next item".to_string(),
+                    priority: "high".to_string(),
+                    status: "pending".to_string(),
+                },
+                PlanTodo {
+                    id: "4".to_string(),
+                    content: "Dropped item".to_string(),
+                    priority: "high".to_string(),
+                    status: "cancelled".to_string(),
+                },
+            ],
+        };
+
+        let lines = render_inline_plan_lines(&plan, 60, &theme, &strings);
+        let text = plain_text(&lines);
+
+        assert_eq!(text[0], "• Plan: Ship plan UI");
+        assert!(text.iter().any(|line| line == "  [x] Done item"));
+        assert!(text.iter().any(|line| line == "  [>] Current item"));
+        assert!(text.iter().any(|line| line == "  [ ] Next item"));
+        assert!(text.iter().any(|line| line == "  [-] Dropped item"));
+
+        let completed_style = &lines[1].spans[1].style;
+        assert!(completed_style.add_modifier.contains(Modifier::CROSSED_OUT));
+    }
+
+    #[test]
+    fn inline_plan_wraps_overview_and_todos_with_alignment() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let plan = PlanSnapshot {
+            title: "A narrow terminal plan title".to_string(),
+            overview: "This overview should wrap into aligned follow-up lines.".to_string(),
+            todos: vec![PlanTodo {
+                id: "1".to_string(),
+                content: "Investigate rendering issues in very narrow terminal widths".to_string(),
+                priority: "high".to_string(),
+                status: "in_progress".to_string(),
+            }],
+        };
+
+        let text = plain_text(&render_inline_plan_lines(&plan, 24, &theme, &strings));
+
+        assert_eq!(text[0], "• Plan: A narrow");
+        assert_eq!(text[1], "  terminal plan title");
+        assert_eq!(text[2], "  This overview should");
+        assert_eq!(text[3], "  wrap into aligned");
+        assert_eq!(text[4], "  follow-up lines.");
+        assert_eq!(text[5], "  [>] Investigate");
+        assert_eq!(text[6], "      rendering issues");
+        assert_eq!(text[7], "      in very narrow");
+        assert_eq!(text[8], "      terminal widths");
+    }
+
+    #[test]
+    fn wrap_text_breaks_long_tokens() {
+        let wrapped = wrap_text_display("supercalifragilisticexpialidocious", 8);
+        assert_eq!(
+            wrapped,
+            vec!["supercal", "ifragili", "sticexpi", "alidocio", "us"]
+        );
+    }
+
+    #[test]
+    fn committed_exec_uses_live_elapsed_when_command_still_running() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let mut state = AppState::new("workspace".to_string());
+        state.history.push(HistoryEntry::ToolCall {
+            call_id: "call-live".to_string(),
+            name: "Exec".to_string(),
+            args: r#"{"command":"echo hi"}"#.to_string(),
+            result: Some("chunk".to_string()),
+            success: true,
+            duration: Some(Duration::from_millis(100)),
+        });
+        state
+            .streaming
+            .active_command_executions
+            .push(ActiveCommandExecution {
+                item_id: "cmd-live".to_string(),
+                call_id: Some("call-live".to_string()),
+                command: "echo hi".to_string(),
+                working_directory: None,
+                source: Some("host".to_string()),
+                aggregated_output: "chunk".to_string(),
+                completed: false,
+                started_at: std::time::Instant::now() - Duration::from_secs(3),
+                duration: None,
+                exit_code: None,
+                status: "inProgress".to_string(),
+            });
+
+        let view = ChatView::new(&state, &theme, &strings);
+        let mut out: Vec<Line<'static>> = Vec::new();
+        let entry = state.history.first().expect("tool history exists");
+        view.render_history_entry(entry, 80, &mut out);
+        let text = plain_text(&out).join("\n");
+
+        assert!(text.contains("(3."));
+        assert!(!text.contains("(0.1s)"));
+    }
+
+    #[test]
+    fn committed_exec_falls_back_to_committed_duration_without_active_execution() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let mut state = AppState::new("workspace".to_string());
+        state.history.push(HistoryEntry::ToolCall {
+            call_id: "call-final".to_string(),
+            name: "Exec".to_string(),
+            args: r#"{"command":"echo hi"}"#.to_string(),
+            result: Some("done".to_string()),
+            success: true,
+            duration: Some(Duration::from_secs(2)),
+        });
+
+        let view = ChatView::new(&state, &theme, &strings);
+        let mut out: Vec<Line<'static>> = Vec::new();
+        let entry = state.history.first().expect("tool history exists");
+        view.render_history_entry(entry, 80, &mut out);
+        let text = plain_text(&out).join("\n");
+
+        assert!(text.contains("(2.0s)"));
+    }
 }

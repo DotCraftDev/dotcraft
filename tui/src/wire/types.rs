@@ -60,6 +60,7 @@ pub struct ClientInfo {
 pub struct ClientCapabilities {
     pub approval_support: bool,
     pub streaming_support: bool,
+    pub command_execution_streaming: bool,
     pub opt_out_notification_methods: Vec<String>,
 }
 
@@ -130,4 +131,25 @@ pub struct CommandExecuteResult {
 pub struct CommandExecuteThread {
     pub id: String,
     pub display_name: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClientCapabilities;
+
+    #[test]
+    fn client_capabilities_serialize_command_execution_streaming() {
+        let caps = ClientCapabilities {
+            approval_support: true,
+            streaming_support: true,
+            command_execution_streaming: true,
+            opt_out_notification_methods: vec![],
+        };
+
+        let json = serde_json::to_value(caps).expect("serialize");
+        assert_eq!(
+            json.get("commandExecutionStreaming").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
 }

@@ -5,7 +5,6 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import {
   CRON_TOOL_NAME,
-  formatCronCollapsedLabel,
   formatCronRunningLabel,
   formatCronResultLines
 } from '../../utils/cronToolDisplay'
@@ -19,14 +18,18 @@ import {
 } from '../../utils/webToolDisplay'
 import { InlineDiffView } from './InlineDiffView'
 import { isShellToolName } from '../../utils/shellTools'
+import { MarkdownRenderer } from './MarkdownRenderer'
+import {
+  FILE_WRITE_TOOLS,
+  formatCollapsedToolLabel,
+  formatExpandedInvocation
+} from '../../utils/toolCallDisplay'
 
 interface ToolCallCardProps {
   item: ConversationItem
   turnId: string
 }
 
-const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles', 'ListDirectory'])
-const FILE_WRITE_TOOLS = new Set(['WriteFile', 'EditFile'])
 function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
   if (!isShellTool) return false
   if (item.executionStatus != null) {
@@ -42,40 +45,6 @@ function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): 
   return toolResultPending
 }
 
-function getCollapsedLabel(
-  toolName: string,
-  args: Record<string, unknown> | undefined,
-  locale: AppLocale
-): string {
-  if (EXPLORE_TOOLS.has(toolName)) {
-    const path = (args?.path as string | undefined) ?? (args?.pattern as string | undefined) ?? ''
-    const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename
-      ? translate(locale, 'toolCall.explored', { filename })
-      : translate(locale, 'toolCall.exploredFiles')
-  }
-  if (FILE_WRITE_TOOLS.has(toolName)) {
-    const path = (args?.path as string | undefined) ?? ''
-    const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename
-      ? translate(locale, 'toolCall.edited', { filename })
-      : translate(locale, 'toolCall.editedFile')
-  }
-  if (isShellToolName(toolName)) {
-    const cmd = (args?.command as string | undefined) ?? toolName
-    const short = cmd.length > 40 ? cmd.slice(0, 40) + '…' : cmd
-    return translate(locale, 'toolCall.ran', { cmd: short })
-  }
-  if (toolName === CRON_TOOL_NAME) {
-    return formatCronCollapsedLabel(args, locale)
-  }
-  if (isWebToolName(toolName)) {
-    const inv = formatInvocationDisplay(toolName, args, locale)
-    if (inv) return inv
-  }
-  return translate(locale, 'toolCall.called', { toolName })
-}
-
 export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [expanded, setExpanded] = useState(false)
@@ -84,6 +53,8 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
   const isShellTool = isShellToolName(toolName)
+  const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
+  const canExpandWhileRunning = isShellTool || isStreamingFileTool
   const shellExecutionRunning = isShellExecutionRunning(item, isShellTool)
   const isRunning = isShellTool ? shellExecutionRunning : item.status !== 'completed'
   const shellOutput = item.aggregatedOutput ?? item.result ?? ''
@@ -108,10 +79,12 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const runningElapsedLabel = `${(elapsedMs / 1000).toFixed(1)}s`
 
   const itemDiffs = useConversationStore((s) => s.itemDiffs)
+  const plan = useConversationStore((s) => s.plan)
+  const planTodos = plan?.todos
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
 
   function toggleExpand(): void {
-    if (!isRunning || isShellTool) {
+    if (!isRunning || canExpandWhileRunning) {
       setExpanded((v) => !v)
     }
   }
@@ -140,14 +113,14 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
             color: 'var(--text-secondary)',
             fontSize: '13px',
             textAlign: 'left',
-            cursor: isShellTool ? 'pointer' : 'default'
+            cursor: canExpandWhileRunning ? 'pointer' : 'default'
           }}
         >
           <Spinner />
           <span style={{ flex: 1 }}>
             {isShellTool ? (
               <span style={{ color: 'var(--text-primary)' }}>
-                {getCollapsedLabel(toolName, args, locale)}
+                {formatCollapsedToolLabel(toolName, args, locale, { planTodos })}
               </span>
             ) : toolName === CRON_TOOL_NAME ? (
               <span style={{ color: 'var(--text-primary)' }}>
@@ -167,26 +140,31 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
             {runningElapsedLabel}
           </span>
-          {isShellTool && <Chevron expanded={expanded} />}
+          {canExpandWhileRunning && <Chevron expanded={expanded} />}
         </button>
 
-        {expanded && isShellTool && (
+        {expanded && canExpandWhileRunning && (
           <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
-            <ExpandedContent
-              toolName={toolName}
-              args={args}
-              result={shellOutput}
-              success={!shellFailed}
-              fileDiff={undefined}
-              locale={locale}
-            />
+            {isShellTool ? (
+              <ExpandedContent
+                toolName={toolName}
+                args={args}
+                result={shellOutput}
+                success={!shellFailed}
+                fileDiff={undefined}
+                locale={locale}
+                planTodos={planTodos}
+              />
+            ) : (
+              <RunningFileToolPreview item={item} locale={locale} />
+            )}
           </div>
         )}
       </div>
     )
   }
 
-  const label = getCollapsedLabel(toolName, args, locale)
+  const label = formatCollapsedToolLabel(toolName, args, locale, { planTodos })
 
   return (
     <div
@@ -249,6 +227,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
             success={success}
             fileDiff={fileDiff ? { diff: fileDiff } : undefined}
             locale={locale}
+            planTodos={planTodos}
           />
         </div>
       )}
@@ -263,6 +242,7 @@ interface ExpandedContentProps {
   success: boolean
   fileDiff: { diff: import('../../types/toolCall').FileDiff } | undefined
   locale: AppLocale
+  planTodos?: Array<{ id: string; content: string }>
 }
 
 function ExpandedContent({
@@ -271,7 +251,8 @@ function ExpandedContent({
   result,
   success,
   fileDiff,
-  locale
+  locale,
+  planTodos
 }: ExpandedContentProps): JSX.Element {
   if (FILE_WRITE_TOOLS.has(toolName) && fileDiff) {
     return <InlineDiffView diff={fileDiff.diff} />
@@ -366,12 +347,13 @@ function ExpandedContent({
   const resultLines = resultText.split('\n')
   const preview = resultLines.slice(0, 10)
   const truncated = resultLines.length > 10
+  const invocation = formatExpandedInvocation(toolName, args, locale, { planTodos })
 
   return (
     <div className="selectable" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5' }}>
-      {args && Object.keys(args).length > 0 && (
+      {invocation && (
         <div style={{ color: 'var(--text-dimmed)', marginBottom: '6px', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {toolName}({Object.entries(args).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(', ')})
+          {invocation}
         </div>
       )}
       {resultText && (
@@ -422,5 +404,100 @@ function Spinner(): JSX.Element {
         flexShrink: 0
       }}
     />
+  )
+}
+
+function extractPartialJsonStringValue(json: string, key: string): string | null {
+  const keyPattern = `"${key}"`
+  const keyIndex = json.indexOf(keyPattern)
+  if (keyIndex < 0) return null
+  const colonIndex = json.indexOf(':', keyIndex + keyPattern.length)
+  if (colonIndex < 0) return null
+  const quoteIndex = json.indexOf('"', colonIndex + 1)
+  if (quoteIndex < 0) return null
+
+  let escaped = false
+  let out = ''
+  for (let i = quoteIndex + 1; i < json.length; i += 1) {
+    const ch = json[i]
+    if (escaped) {
+      switch (ch) {
+        case 'n':
+          out += '\n'
+          break
+        case 'r':
+          out += '\r'
+          break
+        case 't':
+          out += '\t'
+          break
+        case 'b':
+          out += '\b'
+          break
+        case 'f':
+          out += '\f'
+          break
+        case '\\':
+          out += '\\'
+          break
+        case '"':
+          out += '"'
+          break
+        case '/':
+          out += '/'
+          break
+        default:
+          out += '\\' + ch
+          break
+      }
+      escaped = false
+      continue
+    }
+    if (ch === '\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      return out
+    }
+    out += ch
+  }
+
+  return out
+}
+
+function RunningFileToolPreview(
+  { item, locale }: { item: ConversationItem; locale: AppLocale }
+): JSX.Element {
+  const contentPreview = item.streamingFileContent ?? ''
+  const pathPreview = extractPartialJsonStringValue(item.argumentsPreview ?? '', 'path')
+  const fileName = pathPreview ? pathPreview.split(/[\\/]/).pop() ?? pathPreview : ''
+  const isEditFile = item.toolName === 'EditFile'
+  const tip = fileName
+    ? translate(locale, isEditFile ? 'toolCall.editingFile' : 'toolCall.writingFile', { filename: fileName })
+    : translate(locale, isEditFile ? 'toolCall.editingGeneric' : 'toolCall.writingGeneric')
+
+  return (
+    <div className="selectable" style={{ fontSize: '12px', lineHeight: '1.5' }}>
+      <div style={{ color: 'var(--text-dimmed)', marginBottom: '6px' }}>
+        {tip}
+      </div>
+      {contentPreview ? (
+        <div
+          style={{
+            margin: 0,
+            maxHeight: '200px',
+            overflow: 'auto',
+            paddingRight: '4px'
+          }}
+        >
+          <MarkdownRenderer content={contentPreview} />
+        </div>
+      ) : (
+        <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>
+          Waiting for content...
+        </div>
+      )}
+    </div>
   )
 }

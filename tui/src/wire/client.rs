@@ -70,6 +70,7 @@ impl WireClient {
             capabilities: ClientCapabilities {
                 approval_support: true,
                 streaming_support: true,
+                command_execution_streaming: true,
                 opt_out_notification_methods: vec![],
             },
         };

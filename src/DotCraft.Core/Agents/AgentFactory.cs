@@ -24,6 +24,9 @@ namespace DotCraft.Agents;
 /// </summary>
 public sealed class AgentFactory : IAsyncDisposable
 {
+    private static readonly IReadOnlySet<string> StreamedToolCallArgumentTools =
+        new HashSet<string>(["WriteFile", "EditFile"], StringComparer.Ordinal);
+
     private readonly AppConfig _config;
     private readonly ChatClient _chatClient;
     private readonly ConcurrentDictionary<string, TokenTracker> _tokenTrackers = new();
@@ -370,7 +373,8 @@ public sealed class AgentFactory : IAsyncDisposable
         var deferredRegistry = ctx.DeferredToolRegistry;
 
         // Reverse middleware control:
-        // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient] => FunctionInvokingChatClient => TracingChatClient
+        // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient]
+        // => StreamingToolCallPreviewChatClient => FunctionInvokingChatClient => TracingChatClient
         var chatClientBuilder = new ChatClientBuilder(ctx.ChatClient.AsIChatClient());
         if (_traceCollector != null)
         {
@@ -387,6 +391,10 @@ public sealed class AgentFactory : IAsyncDisposable
             if (deferredRegistry != null)
                 fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
             return fic;
+        });
+        chatClientBuilder.Use(innerClient => new StreamingToolCallPreviewChatClient(innerClient)
+        {
+            StreamableToolNames = StreamedToolCallArgumentTools
         });
         if (deferredRegistry != null)
         {
@@ -454,7 +462,8 @@ public sealed class AgentFactory : IAsyncDisposable
         var deferredRegistry = _toolProviderContext.DeferredToolRegistry;
 
         // Reverse middleware control:
-        // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient] => FunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
+        // OpenAIChatClient => ImageContentSanitizingChatClient => [DynamicToolInjectionChatClient]
+        // => StreamingToolCallPreviewChatClient => FunctionInvokingChatClient => TracingChatClient => ToolCallFilteringChatClient
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
         chatClientBuilder.Use(innerClient => new ToolCallFilteringChatClient(innerClient));
         if (_traceCollector != null)
@@ -471,6 +480,10 @@ public sealed class AgentFactory : IAsyncDisposable
             if (deferredRegistry != null)
                 fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
             return fic;
+        });
+        chatClientBuilder.Use(innerClient => new StreamingToolCallPreviewChatClient(innerClient)
+        {
+            StreamableToolNames = StreamedToolCallArgumentTools
         });
         if (deferredRegistry != null)
         {

@@ -305,6 +305,7 @@ public static class SessionWireMapper
     /// <item><see cref="AgentMessageDelta"/> (<c>deltaKind = "agentMessage"</c>) → <c>"item/agentMessage/delta"</c></item>
     /// <item><see cref="ReasoningContentDelta"/> (<c>deltaKind = "reasoningContent"</c>) → <c>"item/reasoning/delta"</c></item>
     /// <item><see cref="CommandExecutionOutputDelta"/> (<c>deltaKind = "commandExecution"</c>) → <c>"item/commandExecution/outputDelta"</c></item>
+    /// <item><see cref="ToolCallArgumentsDelta"/> (<c>deltaKind = "toolCallArguments"</c>) → <c>"item/toolCall/argumentsDelta"</c></item>
     /// </list>
     /// All other mappings are 1:1 with the <see cref="SessionEventType"/> name converted to camelCase slash-notation.
     /// </summary>
@@ -322,6 +323,7 @@ public static class SessionWireMapper
             // ItemDelta maps to two different methods depending on payload DeltaKind
             SessionEventType.ItemDelta when evt.Payload is CommandExecutionOutputDelta => "item/commandExecution/outputDelta",
             SessionEventType.ItemDelta when evt.Payload is ReasoningContentDelta => "item/reasoning/delta",
+            SessionEventType.ItemDelta when evt.Payload is ToolCallArgumentsDelta => "item/toolCall/argumentsDelta",
             SessionEventType.ItemDelta => "item/agentMessage/delta",
             SessionEventType.ItemCompleted => "item/completed",
             SessionEventType.ApprovalRequested => "item/approval/request",
@@ -363,6 +365,13 @@ public static class SessionWireMapper
                 AgentMessageDelta agentDelta => new { delta = agentDelta.TextDelta },
                 ReasoningContentDelta reasoningDelta => new { delta = reasoningDelta.TextDelta },
                 CommandExecutionOutputDelta commandDelta => new { delta = commandDelta.TextDelta },
+                ToolCallArgumentsDelta toolCallDelta => new
+                {
+                    deltaKind = toolCallDelta.DeltaKind,
+                    toolName = toolCallDelta.ToolName,
+                    callId = toolCallDelta.CallId,
+                    delta = toolCallDelta.Delta
+                },
                 // SubAgent progress: pass through the payload as-is (entries array serialized directly)
                 SubAgentProgressPayload => evt.Payload,
                 // System event: pass through the payload as-is (kind + message)
@@ -408,6 +417,7 @@ public static class SessionWireMapper
             AgentMessageDelta => "agentMessageDelta",
             ReasoningContentDelta => "reasoningContentDelta",
             CommandExecutionOutputDelta => "commandExecutionOutputDelta",
+            ToolCallArgumentsDelta => "toolCallArgumentsDelta",
             CommandExecutionPayload => "commandExecution",
             ApprovalRequestPayload => "approvalRequest",
             ApprovalResponsePayload => "approvalResponse",
