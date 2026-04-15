@@ -96,6 +96,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
             KeyCode::Tab | KeyCode::Enter if key.modifiers == KeyModifiers::NONE => {
                 if let Some(popup) = state.command_popup.take() {
                     if let Some((cmd, _)) = popup.items.get(popup.selected) {
+                        exit_input_history_recall(state);
                         state.input_text = format!("{cmd} ");
                         state.input_cursor = state.input_text.len();
                     }
@@ -133,6 +134,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
     let action = match key.code {
         // Ctrl+V → paste from system clipboard
         KeyCode::Char('v') if key.modifiers == KeyModifiers::CONTROL => {
+            exit_input_history_recall(state);
             if let Ok(text) = crate::clipboard::read_text() {
                 state.input_text.insert_str(state.input_cursor, &text);
                 state.input_cursor += text.len();
@@ -154,12 +156,14 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
 
         // Shift+Enter → insert newline at cursor
         KeyCode::Enter if key.modifiers == KeyModifiers::SHIFT => {
+            exit_input_history_recall(state);
             state.input_text.insert(state.input_cursor, '\n');
             state.input_cursor += 1;
             InputAction::None
         }
 
         KeyCode::Backspace => {
+            exit_input_history_recall(state);
             if state.input_cursor > 0 {
                 let before = &state.input_text[..state.input_cursor];
                 let char_start = before
@@ -174,6 +178,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
         }
 
         KeyCode::Delete => {
+            exit_input_history_recall(state);
             if state.input_cursor < state.input_text.len() {
                 state.input_text.remove(state.input_cursor);
             }
@@ -242,7 +247,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
 
         // Up → cycle backward through input history
         KeyCode::Up => {
-            if state.input_text.is_empty() {
+            if state.input_text.is_empty() || state.input_history_pos.is_some() {
                 let hist_len = state.input_history.len();
                 if hist_len > 0 {
                     let pos = match state.input_history_pos {
@@ -260,7 +265,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
 
         // Down → cycle forward through input history
         KeyCode::Down => {
-            if state.input_text.is_empty() {
+            if state.input_text.is_empty() || state.input_history_pos.is_some() {
                 match state.input_history_pos {
                     None => {}
                     Some(p) if p + 1 < state.input_history.len() => {
@@ -296,6 +301,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
                 // Queue follow-up text while a turn is running; drained on turn completion.
                 let text = std::mem::take(&mut state.input_text);
                 state.input_cursor = 0;
+                exit_input_history_recall(state);
                 state.command_popup = None;
                 state.pending_input.push(text);
             }
@@ -303,6 +309,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
         }
 
         KeyCode::Char(c) => {
+            exit_input_history_recall(state);
             state.input_text.insert(state.input_cursor, c);
             state.input_cursor += c.len_utf8();
             InputAction::None
@@ -342,10 +349,21 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
     action
 }
 
+fn exit_input_history_recall(state: &mut AppState) {
+    state.input_history_pos = None;
+}
+
 fn handle_chat_view(state: &mut AppState, key: crossterm::event::KeyEvent) -> InputAction {
     use crossterm::event::{KeyCode, KeyModifiers};
 
     match key.code {
+        // Idle: Esc exits transcript browse back to input editor.
+        // Running/WaitingApproval Esc is handled by the global SoftInterrupt branch.
+        KeyCode::Esc => {
+            state.focus = FocusTarget::InputEditor;
+            InputAction::None
+        }
+
         KeyCode::Up => {
             scroll_line_up(state);
             InputAction::None
@@ -409,7 +427,6 @@ fn handle_chat_view(state: &mut AppState, key: crossterm::event::KeyEvent) -> In
             state.focus = FocusTarget::InputEditor;
             InputAction::None
         }
-        KeyCode::Char('?') => InputAction::OpenHelp,
         KeyCode::Char(c)
             if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT =>
         {

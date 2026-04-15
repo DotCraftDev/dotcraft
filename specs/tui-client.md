@@ -409,7 +409,7 @@ Behavioral requirements:
 Composer must support:
 - multi-line editing and submission;
 - mode switching between Agent and Plan;
-- input history recall semantics (`↑/↓` remain input-local under defined conditions);
+- input history recall semantics (`↑/↓` trigger history recall when draft is empty or history recall is already active; otherwise they remain input-local);
 - slash command entry and completion/dispatch;
 - queued follow-up input during active turns;
 - interrupt controls during active turns.
@@ -463,7 +463,7 @@ Additional constraints:
 | `Esc` | Interrupt active turn if active; otherwise enter `TranscriptBrowse` | Exit browse to `InputEditor` | Overlay-specific cancel/close |
 | `PageUp` / `PageDown` / `Home` / `End` | Enter/continue transcript browsing | Navigate transcript | Overlay-local or ignored |
 | Mouse wheel | Scroll transcript and enter/continue browse | Scroll transcript | Overlay-local or ignored |
-| `↑` / `↓` | Input-local behavior (history/caret rules) | Scroll transcript by line | Overlay-local navigation |
+| `↑` / `↓` | History recall when draft is empty or recall is active; otherwise input-local caret/history behavior | Scroll transcript by line | Overlay-local navigation |
 | `Tab` / `Shift+Tab` | Completion/queue and mode toggle | No state switch side effects | Overlay-local or ignored |
 
 ### 9.2 Global Key Bindings

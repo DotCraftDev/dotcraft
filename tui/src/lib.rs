@@ -489,6 +489,7 @@ async fn handle_terminal_event(
             }
         }
         CrosstermEvent::Paste(text) => {
+            state.input_history_pos = None;
             state.input_text.insert_str(state.input_cursor, &text);
             state.input_cursor += text.len();
         }
