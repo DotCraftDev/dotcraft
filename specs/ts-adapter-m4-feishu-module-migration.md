@@ -342,7 +342,7 @@ Hosts must be able to use only `manifest`, `createModule`, and `configDescriptor
 
 ### 13.1 Preserved Tests
 
-All tests from `examples/feishu/src/*.test.*` that passed before M3 must continue to pass after M4. These cover:
+All tests from `packages/channel-feishu/src/*.test.*` that passed before M3 must continue to pass after M4. These cover:
 
 - Transcript rendering.
 - Feishu event handler behavior.

@@ -124,7 +124,7 @@ cd sdk/typescript
 npm install
 npm run build
 
-cd examples/feishu
+cd packages/channel-feishu
 npm install
 npm run build
 ```

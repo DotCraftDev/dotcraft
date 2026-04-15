@@ -15,7 +15,7 @@ Connects [Tencent iLink](https://ilinkai.weixin.qq.com) (WeChat bot API) to DotC
 ```bash
 cd sdk/typescript
 npm install && npm run build
-cd examples/weixin
+cd packages/channel-weixin
 npm install && npm run build
 # Edit adapter_config.json: wsUrl, apiBaseUrl, dataDir
 ```

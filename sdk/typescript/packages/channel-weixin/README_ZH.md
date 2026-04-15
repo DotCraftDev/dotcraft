@@ -14,7 +14,7 @@
 
 ```bash
 cd sdk/typescript && npm install && npm run build
-cd examples/weixin && npm install && npm run build
+cd packages/channel-weixin && npm install && npm run build
 # 编辑 adapter_config.json（仓库已提供，可直接改）
 ```
 

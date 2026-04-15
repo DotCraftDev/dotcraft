@@ -5,16 +5,13 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { waitForQrLogin } from "./auth.js";
 import { runMonitorLoop } from "./monitor.js";
 import type { WeixinCredentials } from "./state.js";
 import { WeixinState } from "./state.js";
 import { WeixinAdapter } from "./weixin-adapter.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface AppConfig {
   dotcraft: { wsUrl: string; token?: string };
@@ -71,7 +68,7 @@ async function ensureCredentials(
   return creds;
 }
 
-async function main(): Promise<void> {
+export async function runCli(): Promise<void> {
   const cfg = loadConfig();
   const dataDir = cfg.weixin.dataDir.startsWith(".")
     ? join(process.cwd(), cfg.weixin.dataDir)
@@ -115,7 +112,18 @@ async function main(): Promise<void> {
   await adapter.stop();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+export async function main(): Promise<void> {
+  await runCli();
+}
+
+export async function runFromCommandLine(): Promise<void> {
+  try {
+    await runCli();
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+}
+
+export { WeixinAdapter };
+export type { WeixinCredentials };

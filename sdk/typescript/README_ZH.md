@@ -16,7 +16,7 @@ cd sdk/typescript && npm install && npm run build
 
 ```json
 "dependencies": {
-  "dotcraft-wire": "file:../typescript"
+  "dotcraft-wire": "*"
 }
 ```
 
@@ -33,15 +33,15 @@ const transport = new WebSocketTransport({
 
 完整示例可参考：
 
-- `examples/weixin/`：微信适配器
-- `examples/feishu/`：飞书 / Lark 适配器
+- `packages/channel-weixin/`：微信适配器
+- `packages/channel-feishu/`：飞书 / Lark 适配器
 
 ## 调试
 
 - 在 `ChannelAdapter` 构造选项中传入 `debugStream: true`（流式事件，前缀 `[dotcraft-wire:adapter-stream]`）。
 - 调用 `configureTextMergeDebug(true)`（合并分支，前缀 `[dotcraft-wire:text-merge]`）。
 
-飞书示例在 `adapter_config.json` 的 `feishu.debug.adapterStream` / `feishu.debug.textMerge` 中配置。
+飞书适配器包通过 `packages/channel-feishu/config.example.json` 的 `feishu.debug.adapterStream` / `feishu.debug.textMerge` 配置调试项。
 
 ## 许可证
 

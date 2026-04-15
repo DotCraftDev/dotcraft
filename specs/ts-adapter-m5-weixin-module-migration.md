@@ -397,7 +397,7 @@ export type { WeixinConfig } from "./weixin-types.js";
 
 ### 15.1 Preserved Tests
 
-All tests from `examples/weixin/src/` that pass after M3 must continue to pass after M5.
+All tests from `packages/channel-weixin/src/` that pass after M3 must continue to pass after M5.
 
 ### 15.2 New Module Conformance Tests
 

@@ -1,6 +1,7 @@
 {
   "name": "dotcraft-wire",
   "version": "0.1.3",
+  "private": true,
   "description": "TypeScript SDK for the DotCraft AppServer Wire Protocol (JSON-RPC 2.0)",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,14 +16,26 @@
     "dist",
     "src"
   ],
+  "workspaces": [
+    ".",
+    "packages/channel-feishu",
+    "packages/channel-weixin"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --test dist/adapter.test.js dist/moduleAdapter.test.js dist/deliveredFrontier.test.js dist/turnReply.test.js dist/transport.test.js",
     "typecheck": "tsc --noEmit",
+    "build:packages": "npm run build --workspace @dotcraft/channel-feishu && npm run build --workspace @dotcraft/channel-weixin",
+    "build:all": "npm run build && npm run build:packages",
+    "test:packages": "npm run test --workspace @dotcraft/channel-feishu && npm run test --workspace @dotcraft/channel-weixin",
+    "test:all": "npm run test && npm run test:packages",
+    "typecheck:packages": "npm run typecheck --workspace @dotcraft/channel-feishu && npm run typecheck --workspace @dotcraft/channel-weixin",
+    "typecheck:all": "npm run typecheck && npm run typecheck:packages",
     "prepublishOnly": "npm run build"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18",
+    "npm": ">=7"
   },
   "dependencies": {
     "ws": "^8.18.0"

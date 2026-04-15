@@ -31,7 +31,7 @@ function loadConfig(): AppConfig {
   return config;
 }
 
-async function main(): Promise<void> {
+export async function runCli(): Promise<void> {
   const config = loadConfig();
   logInfo("startup.config_loaded", {
     brand: config.feishu.brand ?? "feishu",
@@ -116,8 +116,19 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  logError("startup.fatal", { message: errorMessage(error) });
-  console.error(error);
-  process.exit(1);
-});
+export async function main(): Promise<void> {
+  await runCli();
+}
+
+export async function runFromCommandLine(): Promise<void> {
+  try {
+    await runCli();
+  } catch (error) {
+    logError("startup.fatal", { message: errorMessage(error) });
+    console.error(error);
+    process.exit(1);
+  }
+}
+
+export { FeishuAdapter };
+export type { AppConfig };
