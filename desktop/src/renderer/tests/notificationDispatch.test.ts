@@ -324,6 +324,38 @@ describe('notification dispatch payload format', () => {
     expect(item?.status).toBe('streaming')
     expect(item?.argumentsPreview).toContain('"content":"hello\\nworld"')
     expect(item?.streamingFileContent).toBe('hello\nworld')
+
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_edit_1',
+          type: 'toolCall',
+          payload: {
+            callId: 'edit-1',
+            toolName: 'EditFile'
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/toolCall/argumentsDelta',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn_1',
+        itemId: 'tool_edit_1',
+        toolName: 'EditFile',
+        callId: 'edit-1',
+        delta: '{"path":"a.txt","oldText":"before","newText":"## title\\ncontent"}'
+      }
+    })
+
+    const editItem = s().turns[0].items.find((i) => i.id === 'tool_edit_1')
+    expect(editItem?.type).toBe('toolCall')
+    expect(editItem?.status).toBe('streaming')
+    expect(editItem?.argumentsPreview).toContain('"newText":"## title\\ncontent"')
+    expect(editItem?.streamingFileContent).toBe('## title\ncontent')
   })
 
   it('merges finalized toolCall arguments on completion so WriteFile diff is generated', () => {

@@ -19,6 +19,7 @@ import {
 } from '../../utils/webToolDisplay'
 import { InlineDiffView } from './InlineDiffView'
 import { isShellToolName } from '../../utils/shellTools'
+import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -184,7 +185,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
                 locale={locale}
               />
             ) : (
-              <RunningFileToolPreview item={item} />
+              <RunningFileToolPreview item={item} locale={locale} />
             )}
           </div>
         )}
@@ -431,33 +432,96 @@ function Spinner(): JSX.Element {
   )
 }
 
-function RunningFileToolPreview({ item }: { item: ConversationItem }): JSX.Element {
-  const preview = item.streamingFileContent ?? item.argumentsPreview ?? ''
-  const lines = preview.split('\n')
-  const shown = lines.slice(0, 60)
-  const truncated = lines.length > 60
+function extractPartialJsonStringValue(json: string, key: string): string | null {
+  const keyPattern = `"${key}"`
+  const keyIndex = json.indexOf(keyPattern)
+  if (keyIndex < 0) return null
+  const colonIndex = json.indexOf(':', keyIndex + keyPattern.length)
+  if (colonIndex < 0) return null
+  const quoteIndex = json.indexOf('"', colonIndex + 1)
+  if (quoteIndex < 0) return null
+
+  let escaped = false
+  let out = ''
+  for (let i = quoteIndex + 1; i < json.length; i += 1) {
+    const ch = json[i]
+    if (escaped) {
+      switch (ch) {
+        case 'n':
+          out += '\n'
+          break
+        case 'r':
+          out += '\r'
+          break
+        case 't':
+          out += '\t'
+          break
+        case 'b':
+          out += '\b'
+          break
+        case 'f':
+          out += '\f'
+          break
+        case '\\':
+          out += '\\'
+          break
+        case '"':
+          out += '"'
+          break
+        case '/':
+          out += '/'
+          break
+        default:
+          out += ch
+          break
+      }
+      escaped = false
+      continue
+    }
+    if (ch === '\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      return out
+    }
+    out += ch
+  }
+
+  return out
+}
+
+function RunningFileToolPreview(
+  { item, locale }: { item: ConversationItem; locale: AppLocale }
+): JSX.Element {
+  const contentPreview = item.streamingFileContent ?? ''
+  const pathPreview = extractPartialJsonStringValue(item.argumentsPreview ?? '', 'path')
+  const fileName = pathPreview ? pathPreview.split(/[\\/]/).pop() ?? pathPreview : ''
+  const isEditFile = item.toolName === 'EditFile'
+  const tip = fileName
+    ? translate(locale, isEditFile ? 'toolCall.editingFile' : 'toolCall.writingFile', { filename: fileName })
+    : translate(locale, isEditFile ? 'toolCall.editingGeneric' : 'toolCall.writingGeneric')
 
   return (
-    <div className="selectable" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5' }}>
+    <div className="selectable" style={{ fontSize: '12px', lineHeight: '1.5' }}>
       <div style={{ color: 'var(--text-dimmed)', marginBottom: '6px' }}>
-        Streaming arguments...
+        {tip}
       </div>
-      {preview ? (
-        <pre
+      {contentPreview ? (
+        <div
           style={{
             margin: 0,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            color: 'var(--text-secondary)',
             maxHeight: '200px',
-            overflow: 'auto'
+            overflow: 'auto',
+            paddingRight: '4px'
           }}
         >
-          {shown.join('\n')}
-          {truncated && <span style={{ color: 'var(--text-dimmed)' }}>{'\n'}…</span>}
-        </pre>
+          <MarkdownRenderer content={contentPreview} />
+        </div>
       ) : (
-        <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>Waiting for argument chunks...</div>
+        <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>
+          Waiting for content...
+        </div>
       )}
     </div>
   )

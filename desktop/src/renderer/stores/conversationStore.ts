@@ -718,6 +718,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 toolCallId: params.callId ?? i.toolCallId ?? itemId,
                 argumentsPreview: nextArgumentsPreview,
                 streamingFileContent: extractPartialJsonStringValue(nextArgumentsPreview, 'content')
+                  ?? extractPartialJsonStringValue(nextArgumentsPreview, 'newText')
                   ?? i.streamingFileContent
               }
             })
@@ -731,7 +732,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 toolCallId: params.callId ?? itemId,
                 createdAt: new Date().toISOString(),
                 argumentsPreview: delta,
-                streamingFileContent: extractPartialJsonStringValue(delta, 'content') ?? undefined
+                streamingFileContent: extractPartialJsonStringValue(delta, 'content')
+                  ?? extractPartialJsonStringValue(delta, 'newText')
+                  ?? undefined
               }
             ]
 
