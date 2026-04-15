@@ -260,7 +260,7 @@ Fields:
   - `Error` — An error occurred during the Turn.
 - `Status` (enum: `Started`, `Streaming`, `Completed`)
   - `Started` — Item has been created, payload may be partial or empty.
-  - `Streaming` — Item is receiving incremental updates (deltas). Only valid for `AgentMessage` and `ReasoningContent`.
+  - `Streaming` — Item is receiving incremental updates (deltas). Valid for `AgentMessage`, `ReasoningContent`, runtime-projected `CommandExecution`, and AppServer-projected streamed `ToolCall` argument previews.
   - `Completed` — Item is finalized, payload is complete.
 - `Payload` (type-specific object)
   - See Section 4.2 for payload schemas per Item type.
@@ -512,13 +512,15 @@ Delta payload (during streaming):
 - `Started` → `Streaming` (optional, for `AgentMessage`, `ReasoningContent`, and runtime-projected `CommandExecution`)
   - Session Core begins receiving incremental content from the agent.
   - Each delta emits an `item/delta` event with the incremental payload.
+  - For streamed tool arguments, hosts such as AppServer may project these deltas as tool-call argument preview notifications on the wire while the canonical persisted `ToolCall` payload is finalized at completion.
 
 - `Streaming` → `Completed`
   - The agent finishes producing content for this Item.
   - The Item's payload contains the final accumulated value.
 
 - `Started` → `Completed` (for non-streaming items)
-  - Items like `ToolCall`, `ToolResult`, `ApprovalRequest`, `ApprovalResponse`, `Error` are created with their full payload and immediately completed.
+  - Items like `ToolResult`, `ApprovalRequest`, `ApprovalResponse`, `Error` are created with their full payload and immediately completed.
+  - `ToolCall` is usually completed directly, but hosts may expose an intermediate streaming preview of argument construction before the final completed payload is persisted.
 
 **Invariants**:
 
@@ -627,10 +629,11 @@ SessionEvent
   - Adapters should begin rendering immediately (e.g., show a "typing" indicator for AgentMessage, show tool name for ToolCall).
 
 - **`item/delta`**
-  - Emitted for incremental content updates on streaming Items (`AgentMessage`, `ReasoningContent`, `CommandExecution`).
+  - Emitted for incremental content updates on streaming Items (`AgentMessage`, `ReasoningContent`, `CommandExecution`, and streamed `ToolCall` argument previews).
   - Payload: the delta-specific payload (e.g., `{ textDelta: "chunk of text" }`).
   - May be emitted many times per Item. Adapters that support streaming should forward these to the user progressively.
   - Adapters that do not support streaming (e.g., GitHubTracker) may ignore deltas and wait for `item/completed`.
+  - Persistence still uses the final completed Item payload as source of truth; intermediate `ToolCall` argument preview deltas are for progressive rendering.
 
 - **`item/completed`**
   - Emitted when an Item is finalized.
