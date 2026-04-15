@@ -447,7 +447,7 @@ function extractPartialJsonStringValue(json: string, key: string): string | null
           out += '/'
           break
         default:
-          out += ch
+          out += '\\' + ch
           break
       }
       escaped = false
