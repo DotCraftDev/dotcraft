@@ -12,7 +12,7 @@ Rust-native terminal interface for DotCraft, built on [Ratatui](https://ratatui.
 |---------|-------------|
 | **Streaming output** | Agent messages render incrementally with Markdown support (syntax-highlighted code blocks, tables, headings) |
 | **Tool call display** | `• Called ReadFile("src/main.rs") (0.3s)` format with elapsed time and result preview |
-| **StatusIndicator** | Shows `⠋ Working (Ns · esc to interrupt)` with shimmer animation while a turn is running |
+| **StatusIndicator** | Shows `⠋ Working (Ns · esc to interrupt)` as the single busy spinner during active turns/system work |
 | **FooterLine** | Single contextual row: hints, mode indicator, token usage, connection status |
 | **WelcomeScreen** | Startup screen with ASCII logo (size-gated), workspace path, and connection state |
 | **Inline SubAgent progress** | Live SubAgent status rendered inline; collapses to a summary when all complete |
@@ -118,10 +118,15 @@ dotcraft-tui --theme /path/to/theme.toml
 | `Tab` | While running: queue message; idle: slash command completion |
 | `Ctrl+C` | While running: interrupt agent; idle: first press flags quit, second press exits |
 | `Shift+Tab` | Toggle Agent / Plan mode |
-| `↑` / `↓` | Empty input: navigate history; with content: scroll chat |
-| `PageUp` / `PageDown` | Scroll chat by page |
-| `Home` / `End` | Jump to top / bottom of chat |
-| `?` or `/help` | Open key binding help overlay |
+| `Esc` | Running: interrupt; otherwise enter transcript browse mode |
+| `↑` / `↓` | Input mode: history (empty draft); browse mode: scroll chat by line |
+| `PageUp` / `PageDown` | Enter/continue transcript browse by page (no `Esc` required first) |
+| `Home` / `End` | Enter/continue transcript browse and jump top / bottom |
+| `Mouse wheel` | Scroll transcript history directly (input or browse mode) |
+| `i` (in browse mode) | Return to input editor |
+| `F1` or `/help` | Open key binding help overlay |
+| `?` | Open key binding help overlay (in browse/chat) |
+| `Ctrl+A` / `Ctrl+E` | Move to line start / end in input editor |
 | `y` | Copy last agent message to clipboard (requires `clipboard` feature) |
 | `s` | When SubAgents are done: toggle detail / collapsed view |
 | `Ctrl+L` | Force terminal redraw |

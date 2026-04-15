@@ -21,9 +21,6 @@ use ratatui::{
 use std::time::Duration;
 use unicode_width::UnicodeWidthChar;
 
-/// Braille spinner frames for animated tool calls.
-const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
 /// Maximum result/output lines shown below a completed tool call.
 const TOOL_CALL_MAX_LINES: usize = 5;
 
@@ -254,16 +251,15 @@ impl ChatView<'_> {
         width: u16,
         out: &mut Vec<Line<'static>>,
     ) {
-        let frame = SPINNER[self.state.tick_count as usize % SPINNER.len()];
         let invocation = Self::format_invocation(&tool.tool_name, &tool.arguments);
         let need_calling_prefix =
             invocation_needs_calling_called_prefix(&tool.tool_name, &tool.arguments);
 
-        // "⠋ Calling ToolName("arg")" or "⠋ Searched "…"" (no second verb for standalone sentences).
+        // "• Calling ToolName("arg")" or "• Searched "…"" (no second verb for standalone sentences).
         let prefix = if need_calling_prefix {
-            format!("  {frame} {} ", self.strings.calling)
+            format!("  • {} ", self.strings.calling)
         } else {
-            format!("  {frame} ")
+            "  • ".to_string()
         };
         let prefix_w = display_width(&prefix);
         let available = (width as usize).saturating_sub(prefix_w);
@@ -277,9 +273,9 @@ impl ChatView<'_> {
         } else {
             // Overflow: header on one line, invocation wrapped on next with └.
             let header = if need_calling_prefix {
-                format!("  {frame} {}…", self.strings.calling)
+                format!("  • {}…", self.strings.calling)
             } else {
-                format!("  {frame} …")
+                "  • …".to_string()
             };
             out.push(Line::from(Span::styled(header, self.theme.tool_active)));
             out.push(Line::from(vec![
@@ -454,11 +450,10 @@ impl ChatView<'_> {
             && self.state.streaming.active_tools.is_empty()
         {
             // Nothing yet — the StatusIndicator above the input shows "Working",
-            // but we also keep a subtle indicator in the chat area.
-            let frame = SPINNER[self.state.tick_count as usize % SPINNER.len()];
+            // so keep a static hint in the chat area instead of another spinner.
             out.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("{frame}"), self.theme.dim),
+                Span::styled("…", self.theme.dim),
             ]));
         }
     }
@@ -500,7 +495,6 @@ impl ChatView<'_> {
         let header = truncate(&header, rule_w);
         out.push(Line::from(Span::styled(header, self.theme.dim)));
 
-        let tick = self.state.tick_count as usize;
         for entry in entries {
             let (status_span, name_style) = if entry.is_completed {
                 (
@@ -508,17 +502,9 @@ impl ChatView<'_> {
                     self.theme.dim,
                 )
             } else if entry.current_tool.is_some() {
-                let frame = SPINNER[tick % SPINNER.len()];
-                (
-                    Span::styled(format!("{frame}  "), self.theme.tool_active),
-                    self.theme.tool_active,
-                )
+                (Span::styled("•  ".to_string(), self.theme.tool_active), self.theme.tool_active)
             } else {
-                let frame = SPINNER[tick % SPINNER.len()];
-                (
-                    Span::styled(format!("{frame}  "), self.theme.dim),
-                    self.theme.dim,
-                )
+                (Span::styled("•  ".to_string(), self.theme.dim), self.theme.dim)
             };
 
             let tool_text = if entry.is_completed {

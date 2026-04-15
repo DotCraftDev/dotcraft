@@ -7,7 +7,7 @@ pub mod ui;
 pub mod wire;
 
 use anyhow::Result;
-use crossterm::event::{Event as CrosstermEvent, EventStream, KeyEventKind};
+use crossterm::event::{Event as CrosstermEvent, EventStream, KeyEventKind, MouseEventKind};
 use futures::StreamExt;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc as tokio_mpsc;
@@ -489,8 +489,27 @@ async fn handle_terminal_event(
             }
         }
         CrosstermEvent::Paste(text) => {
+            state.input_history_pos = None;
             state.input_text.insert_str(state.input_cursor, &text);
             state.input_cursor += text.len();
+        }
+        CrosstermEvent::Mouse(mouse) => {
+            // Modal overlays own input; wheel should not affect base transcript while active.
+            if state.active_overlay.is_some() {
+                return Ok(false);
+            }
+
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    input_router::enter_transcript_browse(state);
+                    input_router::scroll_line_up(state);
+                }
+                MouseEventKind::ScrollDown => {
+                    input_router::enter_transcript_browse(state);
+                    input_router::scroll_line_down(state);
+                }
+                _ => {}
+            }
         }
         CrosstermEvent::Resize(_w, _h) => {
             // Ratatui redraws at new size automatically on next tick.
@@ -1527,6 +1546,7 @@ fn draw_welcome(
     strings: &Strings,
     version: &str,
 ) -> Result<()> {
+    terminal::prepare_frame(terminal);
     terminal.draw(|frame| {
         let area = frame.area();
         frame.render_widget(
@@ -1550,13 +1570,16 @@ fn draw_welcome(
 }
 
 fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings) -> Result<()> {
+    terminal::prepare_frame(terminal);
     terminal.draw(|frame| {
         let area = frame.area();
-        let is_running = state.turn_status == TurnStatus::Running;
+        let has_active_turn = state.turn_status == TurnStatus::Running
+            || state.turn_status == TurnStatus::WaitingApproval;
+        let show_status_zone = has_active_turn || state.system_status.is_some();
         let has_pending = !state.pending_input.is_empty();
         let input_h = InputEditor::preferred_height(state, area.width);
         let status_h = StatusIndicator::preferred_height(state);
-        let zones = layout::compute(area, is_running, has_pending, input_h, status_h);
+        let zones = layout::compute(area, show_status_zone, has_pending, input_h, status_h);
 
         // ChatView: pass actual available width for correct markdown wrap.
         let chat_width = zones.chat_view.width;
@@ -1590,13 +1613,9 @@ fn draw(terminal: &mut Term, state: &AppState, theme: &Theme, strings: &Strings)
             frame.render_widget(FooterLine::new(state, theme, strings), footer_area);
         }
 
-        // Only show the terminal cursor when the input editor is focused and idle.
-        // During a running turn the 60fps redraws cause the cursor to visibly sweep
-        // left-to-right across the screen before being repositioned; hiding it
-        // eliminates that artifact without any loss of usability (user isn't typing).
+        // Keep the caret visible whenever the input editor has focus and no overlay is active.
         if state.focus == crate::app::state::FocusTarget::InputEditor
             && state.active_overlay.is_none()
-            && state.turn_status == TurnStatus::Idle
         {
             // 2 = gutter width ("❯ " / "✎ ")
             let inner_w = zones.input_editor.width.saturating_sub(2);

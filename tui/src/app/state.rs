@@ -316,7 +316,9 @@ impl AppState {
             focus: FocusTarget::InputEditor,
             scroll_offset: 0,
             at_bottom: true,
-            last_viewport_height: Cell::new(0),
+            // A small non-zero fallback keeps first PageUp/PageDown usable
+            // before ChatView has rendered and measured viewport height.
+            last_viewport_height: Cell::new(10),
             show_reasoning: true,
             tick_count: 0,
             input_text: String::new(),

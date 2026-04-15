@@ -2,7 +2,9 @@
 
 use anyhow::Result;
 use crossterm::{
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -12,13 +14,28 @@ use std::io::{stdout, Stdout};
 /// The concrete terminal type used throughout the TUI.
 pub type Term = Terminal<CrosstermBackend<Stdout>>;
 
+/// Prepare a new frame with cursor hidden.
+///
+/// Ratatui may move the terminal cursor while flushing cell diffs. Hiding it
+/// before each draw avoids visible cursor movement artifacts during high
+/// frequency updates (for example while status text is refreshing). The final
+/// cursor state is still decided by `frame.set_cursor_position(...)`.
+pub fn prepare_frame(terminal: &mut Term) {
+    let _ = terminal.hide_cursor();
+}
+
 /// Enable raw mode, enter the alternate screen, enable bracketed paste,
 /// install a panic hook that restores the terminal before printing the panic,
 /// and return the Ratatui terminal handle.
 pub fn init() -> Result<Term> {
     install_panic_hook();
     enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen, EnableBracketedPaste)?;
+    execute!(
+        stdout(),
+        EnterAlternateScreen,
+        EnableBracketedPaste,
+        EnableMouseCapture
+    )?;
     // Keyboard enhancement (Kitty protocol) is attempted but not required;
     // Windows Terminal and some other terminals do not support it.
     let _ = execute!(
@@ -38,7 +55,12 @@ pub fn init() -> Result<Term> {
 pub fn restore() {
     // Best-effort: ignore individual errors so all steps are attempted.
     let _ = execute!(stdout(), crossterm::event::PopKeyboardEnhancementFlags);
-    let _ = execute!(stdout(), DisableBracketedPaste, LeaveAlternateScreen);
+    let _ = execute!(
+        stdout(),
+        DisableMouseCapture,
+        DisableBracketedPaste,
+        LeaveAlternateScreen
+    );
     let _ = execute!(stdout(), crossterm::cursor::Show);
     let _ = disable_raw_mode();
 }

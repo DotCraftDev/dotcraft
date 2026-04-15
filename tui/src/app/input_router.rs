@@ -76,6 +76,11 @@ pub fn handle_key(state: &mut AppState, key: crossterm::event::KeyEvent) -> Inpu
         return InputAction::ToggleMode;
     }
 
+    // Global: F1 opens help regardless of focus.
+    if key.code == KeyCode::F(1) {
+        return InputAction::OpenHelp;
+    }
+
     match state.focus {
         FocusTarget::InputEditor => handle_input_editor(state, key),
         FocusTarget::ChatView => handle_chat_view(state, key),
@@ -91,6 +96,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
             KeyCode::Tab | KeyCode::Enter if key.modifiers == KeyModifiers::NONE => {
                 if let Some(popup) = state.command_popup.take() {
                     if let Some((cmd, _)) = popup.items.get(popup.selected) {
+                        exit_input_history_recall(state);
                         state.input_text = format!("{cmd} ");
                         state.input_cursor = state.input_text.len();
                     }
@@ -128,6 +134,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
     let action = match key.code {
         // Ctrl+V → paste from system clipboard
         KeyCode::Char('v') if key.modifiers == KeyModifiers::CONTROL => {
+            exit_input_history_recall(state);
             if let Ok(text) = crate::clipboard::read_text() {
                 state.input_text.insert_str(state.input_cursor, &text);
                 state.input_cursor += text.len();
@@ -149,12 +156,14 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
 
         // Shift+Enter → insert newline at cursor
         KeyCode::Enter if key.modifiers == KeyModifiers::SHIFT => {
+            exit_input_history_recall(state);
             state.input_text.insert(state.input_cursor, '\n');
             state.input_cursor += 1;
             InputAction::None
         }
 
         KeyCode::Backspace => {
+            exit_input_history_recall(state);
             if state.input_cursor > 0 {
                 let before = &state.input_text[..state.input_cursor];
                 let char_start = before
@@ -169,6 +178,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
         }
 
         KeyCode::Delete => {
+            exit_input_history_recall(state);
             if state.input_cursor < state.input_text.len() {
                 state.input_text.remove(state.input_cursor);
             }
@@ -196,14 +206,14 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
             InputAction::None
         }
 
-        KeyCode::Home => {
+        KeyCode::Char('a') if key.modifiers == KeyModifiers::CONTROL => {
             let before = &state.input_text[..state.input_cursor];
             let line_start = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
             state.input_cursor = line_start;
             InputAction::None
         }
 
-        KeyCode::End => {
+        KeyCode::Char('e') if key.modifiers == KeyModifiers::CONTROL => {
             let after = &state.input_text[state.input_cursor..];
             let line_end = after
                 .find('\n')
@@ -213,36 +223,62 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
             InputAction::None
         }
 
+        // Page keys enter transcript browsing directly without requiring Esc first.
+        KeyCode::PageUp => {
+            state.focus = FocusTarget::ChatView;
+            scroll_page_up(state);
+            InputAction::None
+        }
+        KeyCode::PageDown => {
+            state.focus = FocusTarget::ChatView;
+            scroll_page_down(state);
+            InputAction::None
+        }
+        KeyCode::Home => {
+            state.focus = FocusTarget::ChatView;
+            scroll_home(state);
+            InputAction::None
+        }
+        KeyCode::End => {
+            state.focus = FocusTarget::ChatView;
+            scroll_end(state);
+            InputAction::None
+        }
+
         // Up → cycle backward through input history
         KeyCode::Up => {
-            let hist_len = state.input_history.len();
-            if hist_len > 0 {
-                let pos = match state.input_history_pos {
-                    None => hist_len - 1,
-                    Some(p) if p > 0 => p - 1,
-                    Some(p) => p,
-                };
-                state.input_history_pos = Some(pos);
-                state.input_text = state.input_history[pos].clone();
-                state.input_cursor = state.input_text.len();
+            if state.input_text.is_empty() || state.input_history_pos.is_some() {
+                let hist_len = state.input_history.len();
+                if hist_len > 0 {
+                    let pos = match state.input_history_pos {
+                        None => hist_len - 1,
+                        Some(p) if p > 0 => p - 1,
+                        Some(p) => p,
+                    };
+                    state.input_history_pos = Some(pos);
+                    state.input_text = state.input_history[pos].clone();
+                    state.input_cursor = state.input_text.len();
+                }
             }
             InputAction::None
         }
 
         // Down → cycle forward through input history
         KeyCode::Down => {
-            match state.input_history_pos {
-                None => {}
-                Some(p) if p + 1 < state.input_history.len() => {
-                    let pos = p + 1;
-                    state.input_history_pos = Some(pos);
-                    state.input_text = state.input_history[pos].clone();
-                    state.input_cursor = state.input_text.len();
-                }
-                Some(_) => {
-                    state.input_history_pos = None;
-                    state.input_text.clear();
-                    state.input_cursor = 0;
+            if state.input_text.is_empty() || state.input_history_pos.is_some() {
+                match state.input_history_pos {
+                    None => {}
+                    Some(p) if p + 1 < state.input_history.len() => {
+                        let pos = p + 1;
+                        state.input_history_pos = Some(pos);
+                        state.input_text = state.input_history[pos].clone();
+                        state.input_cursor = state.input_text.len();
+                    }
+                    Some(_) => {
+                        state.input_history_pos = None;
+                        state.input_text.clear();
+                        state.input_cursor = 0;
+                    }
                 }
             }
             InputAction::None
@@ -265,6 +301,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
                 // Queue follow-up text while a turn is running; drained on turn completion.
                 let text = std::mem::take(&mut state.input_text);
                 state.input_cursor = 0;
+                exit_input_history_recall(state);
                 state.command_popup = None;
                 state.pending_input.push(text);
             }
@@ -272,6 +309,7 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
         }
 
         KeyCode::Char(c) => {
+            exit_input_history_recall(state);
             state.input_text.insert(state.input_cursor, c);
             state.input_cursor += c.len_utf8();
             InputAction::None
@@ -311,55 +349,50 @@ fn handle_input_editor(state: &mut AppState, key: crossterm::event::KeyEvent) ->
     action
 }
 
+fn exit_input_history_recall(state: &mut AppState) {
+    state.input_history_pos = None;
+}
+
 fn handle_chat_view(state: &mut AppState, key: crossterm::event::KeyEvent) -> InputAction {
-    use crossterm::event::KeyCode;
+    use crossterm::event::{KeyCode, KeyModifiers};
 
     match key.code {
+        // Idle: Esc exits transcript browse back to input editor.
+        // Running/WaitingApproval Esc is handled by the global SoftInterrupt branch.
+        KeyCode::Esc => {
+            state.focus = FocusTarget::InputEditor;
+            InputAction::None
+        }
+
         KeyCode::Up => {
-            state.scroll_offset = state.scroll_offset.saturating_add(1);
-            state.at_bottom = false;
+            scroll_line_up(state);
             InputAction::None
         }
 
         KeyCode::Down => {
-            if state.scroll_offset > 0 {
-                state.scroll_offset -= 1;
-            }
-            if state.scroll_offset == 0 {
-                state.at_bottom = true;
-            }
+            scroll_line_down(state);
             InputAction::None
         }
 
         KeyCode::PageUp => {
-            let page = state.last_viewport_height.get().max(1);
-            state.scroll_offset = state.scroll_offset.saturating_add(page);
-            state.at_bottom = false;
+            scroll_page_up(state);
             InputAction::None
         }
 
         KeyCode::PageDown => {
-            let page = state.last_viewport_height.get().max(1);
-            if state.scroll_offset >= page {
-                state.scroll_offset -= page;
-            } else {
-                state.scroll_offset = 0;
-                state.at_bottom = true;
-            }
+            scroll_page_down(state);
             InputAction::None
         }
 
         // Home → jump to top of chat history
         KeyCode::Home => {
-            state.scroll_offset = usize::MAX / 2; // Large value; will be clamped in ChatView
-            state.at_bottom = false;
+            scroll_home(state);
             InputAction::None
         }
 
         // End → jump to bottom of chat history
         KeyCode::End => {
-            state.scroll_offset = 0;
-            state.at_bottom = true;
+            scroll_end(state);
             InputAction::None
         }
 
@@ -394,12 +427,70 @@ fn handle_chat_view(state: &mut AppState, key: crossterm::event::KeyEvent) -> In
             state.focus = FocusTarget::InputEditor;
             InputAction::None
         }
+        KeyCode::Char(c)
+            if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT =>
+        {
+            state.focus = FocusTarget::InputEditor;
+            state.input_text.insert(state.input_cursor, c);
+            state.input_cursor += c.len_utf8();
+            state.input_history_pos = None;
+            InputAction::None
+        }
 
         // F1 or '?' opens the help overlay from chat view.
         KeyCode::F(1) | KeyCode::Char('?') => InputAction::OpenHelp,
 
         _ => InputAction::None,
     }
+}
+
+pub fn enter_transcript_browse(state: &mut AppState) {
+    state.focus = FocusTarget::ChatView;
+}
+
+pub fn scroll_line_up(state: &mut AppState) {
+    state.scroll_offset = state.scroll_offset.saturating_add(1);
+    state.at_bottom = false;
+}
+
+pub fn scroll_line_down(state: &mut AppState) {
+    if state.scroll_offset > 0 {
+        state.scroll_offset -= 1;
+    }
+    if state.scroll_offset == 0 {
+        state.at_bottom = true;
+    }
+}
+
+fn scroll_page_up(state: &mut AppState) {
+    let page = page_step(state);
+    state.scroll_offset = state.scroll_offset.saturating_add(page);
+    state.at_bottom = false;
+}
+
+fn scroll_page_down(state: &mut AppState) {
+    let page = page_step(state);
+    if state.scroll_offset >= page {
+        state.scroll_offset -= page;
+    } else {
+        state.scroll_offset = 0;
+        state.at_bottom = true;
+    }
+}
+
+fn scroll_home(state: &mut AppState) {
+    state.scroll_offset = usize::MAX / 2; // Large value; will be clamped in ChatView
+    state.at_bottom = false;
+}
+
+fn scroll_end(state: &mut AppState) {
+    state.scroll_offset = 0;
+    state.at_bottom = true;
+}
+
+fn page_step(state: &AppState) -> usize {
+    const MIN_PAGE_STEP: usize = 10;
+    state.last_viewport_height.get().max(MIN_PAGE_STEP)
 }
 
 /// Handle key events when the ApprovalOverlay is active.

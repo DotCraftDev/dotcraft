@@ -18,15 +18,18 @@ const KEYBINDINGS: &[(&str, &str)] = &[
     ("Ctrl+D", "Quit"),
     ("Ctrl+L", "Redraw terminal"),
     ("Ctrl+V", "Paste from clipboard (in editor)"),
-    ("Esc", "Switch focus to chat view"),
+    ("Esc", "Idle: enter/exit transcript browse; running: interrupt"),
     ("i / Enter", "Switch focus to input (from chat)"),
     ("Tab", "Toggle reasoning visibility (in chat)"),
     ("e", "Toggle tool call details (in chat)"),
     ("y", "Copy last agent message to clipboard (in chat)"),
-    ("F1 / ?", "Open this help overlay (in chat)"),
+    ("F1", "Open this help overlay (global)"),
+    ("?", "Open this help overlay (in chat)"),
     ("↑/↓", "History (in editor) / scroll lines (in chat)"),
-    ("PageUp/Down", "Scroll by page (in chat)"),
-    ("Home/End", "Top/bottom (chat) or line start/end (editor)"),
+    ("PageUp/Down", "Browse transcript by page (input or chat)"),
+    ("Home/End", "Browse transcript top/bottom (input or chat)"),
+    ("Mouse wheel", "Scroll transcript (input or chat)"),
+    ("Ctrl+A / Ctrl+E", "Move to line start/end (in editor)"),
 ];
 
 pub struct HelpOverlay<'a> {
