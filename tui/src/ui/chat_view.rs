@@ -208,14 +208,15 @@ impl ChatView<'_> {
             }
 
             HistoryEntry::ToolCall {
+                call_id,
                 name,
                 args,
                 result,
                 success,
                 duration,
-                ..
             } => {
                 self.render_committed_tool(
+                    call_id,
                     name,
                     args,
                     result.as_deref(),
@@ -367,6 +368,7 @@ impl ChatView<'_> {
     /// Render a committed (completed or failed) tool call.
     fn render_committed_tool(
         &self,
+        call_id: &str,
         name: &str,
         args: &str,
         result: Option<&str>,
@@ -389,7 +391,8 @@ impl ChatView<'_> {
             args,
             self.state.plan.as_ref().map(|p| p.todos.as_slice()),
         );
-        let elapsed = duration
+        let elapsed = self
+            .committed_tool_elapsed(name, call_id, duration)
             .map(|d| format!(" ({:.1}s)", d.as_secs_f64()))
             .unwrap_or_default();
 
@@ -477,6 +480,26 @@ impl ChatView<'_> {
                 }
             }
         }
+    }
+
+    fn committed_tool_elapsed(
+        &self,
+        tool_name: &str,
+        call_id: &str,
+        committed_duration: Option<Duration>,
+    ) -> Option<Duration> {
+        if is_shell_tool_name(tool_name) {
+            if let Some(exec) = self
+                .state
+                .streaming
+                .active_command_executions
+                .iter()
+                .find(|exec| exec.call_id.as_deref() == Some(call_id) && !exec.completed)
+            {
+                return Some(exec.started_at.elapsed());
+            }
+        }
+        committed_duration
     }
 
     // ── Streaming section ───────────────────────────────────────────────────
@@ -906,7 +929,7 @@ fn active_shell_output_text(
 mod tests {
     use super::*;
     use crate::{
-        app::state::{PlanSnapshot, PlanTodo},
+        app::state::{ActiveCommandExecution, HistoryEntry, PlanSnapshot, PlanTodo},
         i18n::load,
     };
 
@@ -1004,5 +1027,68 @@ mod tests {
             wrapped,
             vec!["supercal", "ifragili", "sticexpi", "alidocio", "us"]
         );
+    }
+
+    #[test]
+    fn committed_exec_uses_live_elapsed_when_command_still_running() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let mut state = AppState::new("workspace".to_string());
+        state.history.push(HistoryEntry::ToolCall {
+            call_id: "call-live".to_string(),
+            name: "Exec".to_string(),
+            args: r#"{"command":"echo hi"}"#.to_string(),
+            result: Some("chunk".to_string()),
+            success: true,
+            duration: Some(Duration::from_millis(100)),
+        });
+        state
+            .streaming
+            .active_command_executions
+            .push(ActiveCommandExecution {
+                item_id: "cmd-live".to_string(),
+                call_id: Some("call-live".to_string()),
+                command: "echo hi".to_string(),
+                working_directory: None,
+                source: Some("host".to_string()),
+                aggregated_output: "chunk".to_string(),
+                completed: false,
+                started_at: std::time::Instant::now() - Duration::from_secs(3),
+                duration: None,
+                exit_code: None,
+                status: "inProgress".to_string(),
+            });
+
+        let view = ChatView::new(&state, &theme, &strings);
+        let mut out: Vec<Line<'static>> = Vec::new();
+        let entry = state.history.first().expect("tool history exists");
+        view.render_history_entry(entry, 80, &mut out);
+        let text = plain_text(&out).join("\n");
+
+        assert!(text.contains("(3."));
+        assert!(!text.contains("(0.1s)"));
+    }
+
+    #[test]
+    fn committed_exec_falls_back_to_committed_duration_without_active_execution() {
+        let theme = Theme::default();
+        let strings = load("en");
+        let mut state = AppState::new("workspace".to_string());
+        state.history.push(HistoryEntry::ToolCall {
+            call_id: "call-final".to_string(),
+            name: "Exec".to_string(),
+            args: r#"{"command":"echo hi"}"#.to_string(),
+            result: Some("done".to_string()),
+            success: true,
+            duration: Some(Duration::from_secs(2)),
+        });
+
+        let view = ChatView::new(&state, &theme, &strings);
+        let mut out: Vec<Line<'static>> = Vec::new();
+        let entry = state.history.first().expect("tool history exists");
+        view.render_history_entry(entry, 80, &mut out);
+        let text = plain_text(&out).join("\n");
+
+        assert!(text.contains("(2.0s)"));
     }
 }
