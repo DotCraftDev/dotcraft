@@ -2,9 +2,21 @@
 
 **中文 | [English](./README.md)**
 
-用于 DotCraft AppServer Wire Protocol（JSON-RPC 2.0，通过 stdio JSONL 或 WebSocket 文本帧）的 TypeScript SDK。
+用于 DotCraft AppServer Wire Protocol 与外部渠道模块契约的 TypeScript SDK（JSON-RPC 2.0，通过 stdio JSONL 或 WebSocket 文本帧）。
 
 与 `sdk/python/` 下的 Python 包 `dotcraft_wire` 相对应。
+
+## TypeScript 包集合
+
+TypeScript 外部渠道能力由以下三个包构成：
+
+- `dotcraft-wire`（共享 SDK：Wire 客户端、适配器基类、模块契约类型）
+- `@dotcraft/channel-feishu`（飞书 / Lark 一方模块包）
+- `@dotcraft/channel-weixin`（微信一方模块包）
+
+宿主侧模块加载与生命周期集成说明见：
+
+- `docs/typescript-channel-module-host-integration.md`
 
 ## 安装
 
@@ -41,7 +53,7 @@ const transport = new WebSocketTransport({
 - 在 `ChannelAdapter` 构造选项中传入 `debugStream: true`（流式事件，前缀 `[dotcraft-wire:adapter-stream]`）。
 - 调用 `configureTextMergeDebug(true)`（合并分支，前缀 `[dotcraft-wire:text-merge]`）。
 
-飞书适配器包通过 `packages/channel-feishu/config.example.json` 的 `feishu.debug.adapterStream` / `feishu.debug.textMerge` 配置调试项。
+飞书适配器包在其 README 示例中提供 `feishu.debug.adapterStream` / `feishu.debug.textMerge` 调试配置项。
 
 ## 许可证
 

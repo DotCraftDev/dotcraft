@@ -75,6 +75,8 @@ export type {
   ToolInvocationContext,
   ToolInvocationResult,
 } from "./capability.js";
+export { runModuleConformanceSuite } from "./conformance.test-helper.js";
+export type { ConformanceSuiteOptions } from "./conformance.test-helper.js";
 
-export const version = "0.1.0";
+export const version = "0.1.3";
 export const sdkContractVersion = "1.0.0";

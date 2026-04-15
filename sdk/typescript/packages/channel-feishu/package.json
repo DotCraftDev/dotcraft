@@ -24,7 +24,7 @@
     "start": "node dist/cli.js --workspace .",
     "build": "tsc -p tsconfig.json",
     "dev": "npm run build && node dist/cli.js --workspace .",
-    "test": "npm run build && node --test dist/feishu-transcript.test.js dist/event-handler.test.js dist/card-action-dedup.test.js dist/module.test.js dist/config.test.js",
+    "test": "npm run build && node --test dist/feishu-transcript.test.js dist/event-handler.test.js dist/card-action-dedup.test.js dist/module.test.js dist/config.test.js dist/conformance.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "engines": {

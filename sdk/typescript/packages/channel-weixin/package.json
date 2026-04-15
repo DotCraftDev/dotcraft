@@ -24,7 +24,7 @@
     "start": "node dist/cli.js --workspace .",
     "build": "tsc -p tsconfig.json",
     "dev": "npm run build && node dist/cli.js --workspace .",
-    "test": "npm run build && node --test dist/module.test.js dist/config.test.js dist/auth.test.js dist/paths.test.js",
+    "test": "npm run build && node --test dist/module.test.js dist/config.test.js dist/auth.test.js dist/paths.test.js dist/conformance.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "engines": {
