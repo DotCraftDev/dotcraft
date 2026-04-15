@@ -17,7 +17,7 @@ public sealed class StreamingToolCallPreviewChatClient(IChatClient innerClient)
     public IReadOnlySet<string>? StreamableToolNames { get; set; }
 
     public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages,
+        IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {

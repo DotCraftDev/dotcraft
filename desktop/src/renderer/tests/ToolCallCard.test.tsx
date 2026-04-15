@@ -129,3 +129,84 @@ describe('ToolCallCard shell rendering', () => {
     vi.useRealTimers()
   })
 })
+
+describe('ToolCallCard todo rendering safety', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        }
+      }
+    })
+  })
+
+  it('renders TodoWrite without crashing when plan is null', () => {
+    const item: ConversationItem = {
+      id: 'todo-write-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'TodoWrite',
+      toolCallId: 'todo-write-call-1',
+      arguments: {
+        merge: false,
+        todos: [{ id: 't1', content: 'Next step is ABCDEFGHIJKLMNOPQRSTUVWXYZ', status: 'pending' }]
+      },
+      result: 'Created task list with 1 item(s).',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText(/Create to-do/)).toBeInTheDocument()
+  })
+
+  it('renders UpdateTodos fallback label when plan is unavailable', () => {
+    const item: ConversationItem = {
+      id: 'todo-update-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'UpdateTodos',
+      toolCallId: 'todo-update-call-1',
+      arguments: {
+        updates: [{ id: 't1', status: 'completed' }]
+      },
+      result: 'Updated plan tasks',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Updated to-do')).toBeInTheDocument()
+  })
+
+  it('does not throw when plan todo ids are non-string values', () => {
+    useConversationStore.getState().onPlanUpdated({
+      title: 'Plan',
+      overview: '',
+      todos: [{ id: 123 as unknown as string, content: 'Bad data shape', status: 'pending' as const }]
+    })
+
+    const item: ConversationItem = {
+      id: 'todo-update-2',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'UpdateTodos',
+      toolCallId: 'todo-update-call-2',
+      arguments: {
+        updates: [{ id: '123', status: 'in_progress' }]
+      },
+      result: 'Updated plan tasks',
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Started to-do')).toBeInTheDocument()
+  })
+})

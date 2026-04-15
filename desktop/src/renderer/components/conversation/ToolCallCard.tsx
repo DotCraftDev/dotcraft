@@ -5,7 +5,6 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import {
   CRON_TOOL_NAME,
-  formatCronCollapsedLabel,
   formatCronRunningLabel,
   formatCronResultLines
 } from '../../utils/cronToolDisplay'
@@ -20,14 +19,17 @@ import {
 import { InlineDiffView } from './InlineDiffView'
 import { isShellToolName } from '../../utils/shellTools'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import {
+  FILE_WRITE_TOOLS,
+  formatCollapsedToolLabel,
+  formatExpandedInvocation
+} from '../../utils/toolCallDisplay'
 
 interface ToolCallCardProps {
   item: ConversationItem
   turnId: string
 }
 
-const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles', 'ListDirectory'])
-const FILE_WRITE_TOOLS = new Set(['WriteFile', 'EditFile'])
 function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
   if (!isShellTool) return false
   if (item.executionStatus != null) {
@@ -41,40 +43,6 @@ function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): 
   // timer until toolResult merges (result + success), or until executionStatus is merged.
   const toolResultPending = item.result === undefined && item.success === undefined
   return toolResultPending
-}
-
-function getCollapsedLabel(
-  toolName: string,
-  args: Record<string, unknown> | undefined,
-  locale: AppLocale
-): string {
-  if (EXPLORE_TOOLS.has(toolName)) {
-    const path = (args?.path as string | undefined) ?? (args?.pattern as string | undefined) ?? ''
-    const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename
-      ? translate(locale, 'toolCall.explored', { filename })
-      : translate(locale, 'toolCall.exploredFiles')
-  }
-  if (FILE_WRITE_TOOLS.has(toolName)) {
-    const path = (args?.path as string | undefined) ?? ''
-    const filename = path ? path.split(/[\\/]/).pop() ?? path : ''
-    return filename
-      ? translate(locale, 'toolCall.edited', { filename })
-      : translate(locale, 'toolCall.editedFile')
-  }
-  if (isShellToolName(toolName)) {
-    const cmd = (args?.command as string | undefined) ?? toolName
-    const short = cmd.length > 40 ? cmd.slice(0, 40) + '…' : cmd
-    return translate(locale, 'toolCall.ran', { cmd: short })
-  }
-  if (toolName === CRON_TOOL_NAME) {
-    return formatCronCollapsedLabel(args, locale)
-  }
-  if (isWebToolName(toolName)) {
-    const inv = formatInvocationDisplay(toolName, args, locale)
-    if (inv) return inv
-  }
-  return translate(locale, 'toolCall.called', { toolName })
 }
 
 export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCallCardProps): JSX.Element {
@@ -111,6 +79,8 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const runningElapsedLabel = `${(elapsedMs / 1000).toFixed(1)}s`
 
   const itemDiffs = useConversationStore((s) => s.itemDiffs)
+  const plan = useConversationStore((s) => s.plan)
+  const planTodos = plan?.todos
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
 
   function toggleExpand(): void {
@@ -150,7 +120,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           <span style={{ flex: 1 }}>
             {isShellTool ? (
               <span style={{ color: 'var(--text-primary)' }}>
-                {getCollapsedLabel(toolName, args, locale)}
+                {formatCollapsedToolLabel(toolName, args, locale, { planTodos })}
               </span>
             ) : toolName === CRON_TOOL_NAME ? (
               <span style={{ color: 'var(--text-primary)' }}>
@@ -183,6 +153,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
                 success={!shellFailed}
                 fileDiff={undefined}
                 locale={locale}
+                planTodos={planTodos}
               />
             ) : (
               <RunningFileToolPreview item={item} locale={locale} />
@@ -193,7 +164,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
     )
   }
 
-  const label = getCollapsedLabel(toolName, args, locale)
+  const label = formatCollapsedToolLabel(toolName, args, locale, { planTodos })
 
   return (
     <div
@@ -256,6 +227,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
             success={success}
             fileDiff={fileDiff ? { diff: fileDiff } : undefined}
             locale={locale}
+            planTodos={planTodos}
           />
         </div>
       )}
@@ -270,6 +242,7 @@ interface ExpandedContentProps {
   success: boolean
   fileDiff: { diff: import('../../types/toolCall').FileDiff } | undefined
   locale: AppLocale
+  planTodos?: Array<{ id: string; content: string }>
 }
 
 function ExpandedContent({
@@ -278,7 +251,8 @@ function ExpandedContent({
   result,
   success,
   fileDiff,
-  locale
+  locale,
+  planTodos
 }: ExpandedContentProps): JSX.Element {
   if (FILE_WRITE_TOOLS.has(toolName) && fileDiff) {
     return <InlineDiffView diff={fileDiff.diff} />
@@ -373,12 +347,13 @@ function ExpandedContent({
   const resultLines = resultText.split('\n')
   const preview = resultLines.slice(0, 10)
   const truncated = resultLines.length > 10
+  const invocation = formatExpandedInvocation(toolName, args, locale, { planTodos })
 
   return (
     <div className="selectable" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5' }}>
-      {args && Object.keys(args).length > 0 && (
+      {invocation && (
         <div style={{ color: 'var(--text-dimmed)', marginBottom: '6px', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {toolName}({Object.entries(args).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(', ')})
+          {invocation}
         </div>
       )}
       {resultText && (
