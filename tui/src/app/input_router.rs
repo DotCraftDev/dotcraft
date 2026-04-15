@@ -409,6 +409,7 @@ fn handle_chat_view(state: &mut AppState, key: crossterm::event::KeyEvent) -> In
             state.focus = FocusTarget::InputEditor;
             InputAction::None
         }
+        KeyCode::Char('?') => InputAction::OpenHelp,
         KeyCode::Char(c)
             if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT =>
         {
