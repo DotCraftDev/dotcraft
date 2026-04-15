@@ -119,6 +119,7 @@ pub struct StreamingState {
     pub reasoning_buffer: String,
     pub is_reasoning: bool,
     pub active_tools: Vec<ActiveToolCall>,
+    pub active_command_executions: Vec<ActiveCommandExecution>,
 }
 
 impl StreamingState {
@@ -127,6 +128,7 @@ impl StreamingState {
         self.reasoning_buffer.clear();
         self.is_reasoning = false;
         self.active_tools.clear();
+        self.active_command_executions.clear();
     }
 }
 
@@ -143,6 +145,21 @@ pub struct ActiveToolCall {
     pub started_at: std::time::Instant,
     /// How long this call took (set on item/completed).
     pub duration: Option<std::time::Duration>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActiveCommandExecution {
+    pub item_id: String,
+    pub call_id: Option<String>,
+    pub command: String,
+    pub working_directory: Option<String>,
+    pub source: Option<String>,
+    pub aggregated_output: String,
+    pub completed: bool,
+    pub started_at: std::time::Instant,
+    pub duration: Option<std::time::Duration>,
+    pub exit_code: Option<i32>,
+    pub status: String,
 }
 
 #[derive(Debug, Clone)]

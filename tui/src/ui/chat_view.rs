@@ -27,6 +27,8 @@ use unicode_width::UnicodeWidthChar;
 const TOOL_CALL_MAX_LINES: usize = 5;
 /// Maximum preview lines for in-flight file editing tools.
 const TOOL_ACTIVE_FILE_PREVIEW_MAX_LINES: usize = 8;
+/// Maximum preview lines for in-flight shell output.
+const TOOL_ACTIVE_SHELL_PREVIEW_MAX_LINES: usize = 8;
 
 pub struct ChatView<'a> {
     state: &'a AppState,
@@ -298,6 +300,36 @@ impl ChatView<'_> {
             ]));
         }
 
+        if is_shell_tool_name(&tool.tool_name) {
+            if let Some(output) = active_shell_output_text(self.state, tool) {
+                if !output.is_empty() {
+                    let output_lines: Vec<&str> = output.lines().collect();
+                    let show_count = output_lines.len().min(TOOL_ACTIVE_SHELL_PREVIEW_MAX_LINES);
+                    let last_idx = show_count.saturating_sub(1);
+                    for (i, line) in output_lines.iter().take(show_count).enumerate() {
+                        let is_last = i == last_idx;
+                        let truncated_suffix =
+                            if is_last && output_lines.len() > TOOL_ACTIVE_SHELL_PREVIEW_MAX_LINES {
+                                "…"
+                            } else {
+                                ""
+                            };
+                        out.push(Line::from(vec![
+                            Span::styled("    │ ".to_string(), self.theme.dim),
+                            Span::styled(
+                                format!(
+                                    "{}{}",
+                                    truncate(line, width.saturating_sub(8) as usize),
+                                    truncated_suffix
+                                ),
+                                self.theme.dim,
+                            ),
+                        ]));
+                    }
+                }
+            }
+        }
+
         // File tools: show user-friendly in-flight content preview instead of raw argument deltas.
         if let Some(preview) = active_file_preview_text(tool) {
             let preview_lines: Vec<&str> = preview.lines().collect();
@@ -495,6 +527,7 @@ impl ChatView<'_> {
             ]));
         } else if self.state.streaming.reasoning_buffer.is_empty()
             && self.state.streaming.active_tools.is_empty()
+            && self.state.streaming.active_command_executions.is_empty()
         {
             // Nothing yet — the StatusIndicator above the input shows "Working",
             // so keep a static hint in the chat area instead of another spinner.
@@ -672,4 +705,28 @@ fn active_file_preview_text(tool: &crate::app::state::ActiveToolCall) -> Option<
             .or_else(|| extract_partial_json_string_value(&tool.arguments, "content")),
         _ => None,
     }
+}
+
+fn is_shell_tool_name(name: &str) -> bool {
+    matches!(name, "Exec" | "RunCommand" | "BashCommand")
+}
+
+fn active_shell_output_text(
+    state: &AppState,
+    tool: &crate::app::state::ActiveToolCall,
+) -> Option<String> {
+    let call_id = tool.call_id.as_str();
+    state
+        .streaming
+        .active_command_executions
+        .iter()
+        .find(|exec| exec.call_id.as_deref() == Some(call_id))
+        .and_then(|exec| {
+            if exec.aggregated_output.is_empty() {
+                None
+            } else {
+                Some(exec.aggregated_output.clone())
+            }
+        })
+        .or_else(|| tool.result.clone())
 }

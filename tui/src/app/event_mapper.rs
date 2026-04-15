@@ -9,8 +9,8 @@
 
 use crate::{
     app::state::{
-        ActiveToolCall, AppState, HistoryEntry, PlanSnapshot, PlanTodo, StreamingState,
-        SubAgentEntry, SystemStatusInfo, TurnStatus,
+        ActiveCommandExecution, ActiveToolCall, AppState, HistoryEntry, PlanSnapshot, PlanTodo,
+        StreamingState, SubAgentEntry, SystemStatusInfo, TurnStatus,
     },
     wire::types::JsonRpcMessage,
 };
@@ -133,6 +133,77 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         duration: None,
                     });
                 }
+                "commandExecution" => {
+                    let payload = item.get("payload").unwrap_or(item);
+                    let item_id = item
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if item_id.is_empty() {
+                        return true;
+                    }
+                    let call_id = payload
+                        .get("callId")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let command = payload
+                        .get("command")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let working_directory = payload
+                        .get("workingDirectory")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let source = payload
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let status = payload
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("inProgress")
+                        .to_string();
+                    let aggregated_output = payload
+                        .get("aggregatedOutput")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    if let Some(exec) = state
+                        .streaming
+                        .active_command_executions
+                        .iter_mut()
+                        .find(|e| e.item_id == item_id)
+                    {
+                        exec.call_id = call_id;
+                        exec.command = command;
+                        exec.working_directory = working_directory;
+                        exec.source = source;
+                        exec.status = status;
+                        if !aggregated_output.is_empty() {
+                            exec.aggregated_output = aggregated_output;
+                        }
+                    } else {
+                        state
+                            .streaming
+                            .active_command_executions
+                            .push(ActiveCommandExecution {
+                                item_id,
+                                call_id,
+                                command,
+                                working_directory,
+                                source,
+                                aggregated_output,
+                                completed: false,
+                                started_at: std::time::Instant::now(),
+                                duration: None,
+                                exit_code: None,
+                                status,
+                            });
+                    }
+                }
                 _ => {}
             }
             true
@@ -215,6 +286,45 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
             true
         }
 
+        "item/commandExecution/outputDelta" => {
+            let item_id = params
+                .get("itemId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let delta = params
+                .get("delta")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if item_id.is_empty() || delta.is_empty() {
+                return true;
+            }
+
+            if let Some(exec) = state
+                .streaming
+                .active_command_executions
+                .iter_mut()
+                .find(|e| e.item_id == item_id)
+            {
+                exec.aggregated_output.push_str(&delta);
+                state.at_bottom = true;
+
+                if let Some(call_id) = exec.call_id.as_deref() {
+                    if let Some(tool) = state
+                        .streaming
+                        .active_tools
+                        .iter_mut()
+                        .find(|t| t.call_id == call_id)
+                    {
+                        tool.result = Some(exec.aggregated_output.clone());
+                    }
+                }
+            }
+
+            true
+        }
+
         "item/completed" => {
             let item = params.get("item").unwrap_or(&serde_json::Value::Null);
             let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -224,6 +334,106 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                     if !text.is_empty() {
                         state.history.push(HistoryEntry::AgentMessage { text });
                     }
+                }
+                "commandExecution" => {
+                    let payload = item.get("payload").unwrap_or(item);
+                    let item_id = item
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let call_id = payload
+                        .get("callId")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let final_output = payload
+                        .get("aggregatedOutput")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let exit_code = payload
+                        .get("exitCode")
+                        .and_then(|v| v.as_i64())
+                        .and_then(|v| i32::try_from(v).ok());
+                    let duration = payload
+                        .get("durationMs")
+                        .and_then(|v| v.as_u64())
+                        .map(std::time::Duration::from_millis);
+                    let status = payload
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("completed")
+                        .to_string();
+
+                    let mut output_for_merge = final_output.clone().unwrap_or_default();
+                    let mut call_id_for_merge = call_id.clone();
+                    if let Some(exec) = state
+                        .streaming
+                        .active_command_executions
+                        .iter_mut()
+                        .find(|e| e.item_id == item_id)
+                    {
+                        exec.completed = true;
+                        exec.status = status;
+                        exec.exit_code = exit_code;
+                        exec.duration = duration.or_else(|| Some(exec.started_at.elapsed()));
+                        if let Some(ref out) = final_output {
+                            exec.aggregated_output = out.clone();
+                        }
+                        if output_for_merge.is_empty() {
+                            output_for_merge = exec.aggregated_output.clone();
+                        }
+                        if call_id_for_merge.is_none() {
+                            call_id_for_merge = exec.call_id.clone();
+                        }
+                    }
+
+                    if let Some(call_id) = call_id_for_merge.as_deref() {
+                        if let Some(tool) = state
+                            .streaming
+                            .active_tools
+                            .iter_mut()
+                            .find(|t| t.call_id == call_id)
+                        {
+                            if !output_for_merge.is_empty() {
+                                tool.result = Some(output_for_merge.clone());
+                            }
+                            if let Some(d) = duration {
+                                tool.duration = Some(d);
+                            }
+                            if let Some(code) = exit_code {
+                                tool.success = code == 0;
+                            }
+                        }
+
+                        for entry in state.history.iter_mut().rev() {
+                            if let HistoryEntry::ToolCall {
+                                call_id: ref id,
+                                result: ref mut r,
+                                success: ref mut s,
+                                duration: ref mut d,
+                                ..
+                            } = entry
+                            {
+                                if id == call_id {
+                                    if !output_for_merge.is_empty() {
+                                        *r = Some(output_for_merge.clone());
+                                    }
+                                    if let Some(code) = exit_code {
+                                        *s = code == 0;
+                                    }
+                                    if duration.is_some() {
+                                        *d = duration;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    state
+                        .streaming
+                        .active_command_executions
+                        .retain(|e| e.item_id != item_id);
                 }
                 "toolCall" | "toolResult" => {
                     // The wire protocol sends two separate item/completed events per tool:
@@ -509,4 +719,156 @@ fn finalize_streaming(state: &mut AppState) {
         state.history.push(HistoryEntry::AgentMessage { text: msg });
     }
     state.streaming = StreamingState::default();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply;
+    use crate::app::state::{ActiveToolCall, AppState, HistoryEntry};
+    use crate::wire::types::JsonRpcMessage;
+
+    fn notification(method: &str, params: serde_json::Value) -> JsonRpcMessage {
+        JsonRpcMessage {
+            jsonrpc: Some("2.0".to_string()),
+            id: None,
+            method: Some(method.to_string()),
+            params: Some(params),
+            result: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn command_execution_lifecycle_merges_into_exec_tool() {
+        let mut state = AppState::new("workspace".to_string());
+        state.streaming.active_tools.push(ActiveToolCall {
+            call_id: "call-1".to_string(),
+            tool_name: "Exec".to_string(),
+            arguments: r#"{"command":"echo hi"}"#.to_string(),
+            completed: false,
+            result: None,
+            success: true,
+            started_at: std::time::Instant::now(),
+            duration: None,
+        });
+        state.history.push(HistoryEntry::ToolCall {
+            call_id: "call-1".to_string(),
+            name: "Exec".to_string(),
+            args: r#"{"command":"echo hi"}"#.to_string(),
+            result: None,
+            success: true,
+            duration: None,
+        });
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/started",
+                serde_json::json!({
+                    "item": {
+                        "id": "cmd-1",
+                        "type": "commandExecution",
+                        "payload": {
+                            "callId": "call-1",
+                            "command": "echo hi",
+                            "workingDirectory": "/tmp",
+                            "source": "host",
+                            "status": "inProgress"
+                        }
+                    }
+                })
+            )
+        ));
+        assert_eq!(state.streaming.active_command_executions.len(), 1);
+
+        state.at_bottom = false;
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/commandExecution/outputDelta",
+                serde_json::json!({
+                    "threadId": "t1",
+                    "turnId": "turn-1",
+                    "itemId": "cmd-1",
+                    "delta": "hello\\n"
+                })
+            )
+        ));
+        assert!(state.at_bottom);
+        assert_eq!(
+            state
+                .streaming
+                .active_command_executions
+                .first()
+                .map(|e| e.aggregated_output.clone()),
+            Some("hello\\n".to_string())
+        );
+        assert_eq!(
+            state
+                .streaming
+                .active_tools
+                .first()
+                .and_then(|t| t.result.clone()),
+            Some("hello\\n".to_string())
+        );
+
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/completed",
+                serde_json::json!({
+                    "item": {
+                        "id": "cmd-1",
+                        "type": "commandExecution",
+                        "payload": {
+                            "callId": "call-1",
+                            "status": "completed",
+                            "exitCode": 0,
+                            "durationMs": 12,
+                            "aggregatedOutput": "hello\\nworld\\n"
+                        }
+                    }
+                })
+            )
+        ));
+
+        assert!(state.streaming.active_command_executions.is_empty());
+
+        let merged_tool = state
+            .history
+            .iter()
+            .rev()
+            .find_map(|entry| match entry {
+                HistoryEntry::ToolCall {
+                    call_id,
+                    result,
+                    success,
+                    duration,
+                    ..
+                } if call_id == "call-1" => Some((result.clone(), *success, *duration)),
+                _ => None,
+            })
+            .expect("merged exec tool");
+        assert_eq!(merged_tool.0, Some("hello\\nworld\\n".to_string()));
+        assert!(merged_tool.1);
+        assert!(merged_tool.2.is_some());
+    }
+
+    #[test]
+    fn command_execution_output_delta_unknown_item_is_ignored() {
+        let mut state = AppState::new("workspace".to_string());
+        assert!(apply(
+            &mut state,
+            &notification(
+                "item/commandExecution/outputDelta",
+                serde_json::json!({
+                    "threadId": "t1",
+                    "turnId": "turn-1",
+                    "itemId": "unknown",
+                    "delta": "chunk"
+                })
+            )
+        ));
+        assert!(state.streaming.active_command_executions.is_empty());
+    }
 }
