@@ -208,6 +208,16 @@ public sealed class AppServerEventDispatcher
             deltaKind = reasoning.DeltaKind,
             delta = reasoning.TextDelta
         },
+        SessionEventType.ItemDelta when evt.ToolCallArgumentsDeltaPayload is { } toolCallDelta => new
+        {
+            threadId = evt.ThreadId,
+            turnId = evt.TurnId,
+            itemId = evt.ItemId,
+            deltaKind = toolCallDelta.DeltaKind,
+            toolName = toolCallDelta.ToolName,
+            callId = toolCallDelta.CallId,
+            delta = toolCallDelta.Delta
+        },
         SessionEventType.ItemCompleted => new
         {
             threadId = evt.ThreadId,
@@ -380,7 +390,8 @@ public sealed class AppServerEventDispatcher
         evt.EventType == SessionEventType.ItemDelta &&
         (evt.DeltaPayload is { } d ? string.IsNullOrEmpty(d.TextDelta)
             : evt.CommandExecutionDeltaPayload is { } c ? string.IsNullOrEmpty(c.TextDelta)
-            : evt.ReasoningDeltaPayload is { } r && string.IsNullOrEmpty(r.TextDelta));
+            : evt.ReasoningDeltaPayload is { } r ? string.IsNullOrEmpty(r.TextDelta)
+            : evt.ToolCallArgumentsDeltaPayload is { } t && string.IsNullOrEmpty(t.Delta));
 
     private void LogOutboundDelta(SessionEvent evt, string method)
     {
@@ -403,6 +414,11 @@ public sealed class AppServerEventDispatcher
         {
             deltaKind = "commandExecution";
             deltaText = commandDelta.TextDelta;
+        }
+        else if (evt.ToolCallArgumentsDeltaPayload is { } toolCallDelta)
+        {
+            deltaKind = toolCallDelta.DeltaKind;
+            deltaText = toolCallDelta.Delta;
         }
 
         var connectionKind = _connection.IsChannelAdapter

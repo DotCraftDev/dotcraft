@@ -87,6 +87,31 @@ public sealed class SessionEventChannelTests
         Assert.Equal("chunk1", (deltaEvt.Payload as AgentMessageDelta)?.TextDelta);
     }
 
+    [Fact]
+    public async Task EmitItemDelta_ToolCallArgumentsDeltaPayloadOnEvent()
+    {
+        var channel = MakeChannel();
+        var item = MakeItem(ItemType.ToolCall);
+        var delta = new ToolCallArgumentsDelta
+        {
+            ToolName = "WriteFile",
+            CallId = "call_001",
+            Delta = "{\"content\":\"hello\""
+        };
+
+        channel.EmitItemStarted(item);
+        channel.EmitItemDelta(item, delta);
+        channel.Complete();
+
+        var events = await CollectAsync(channel);
+        Assert.Equal(2, events.Count);
+        var deltaEvt = events[1];
+        var payload = Assert.IsType<ToolCallArgumentsDelta>(deltaEvt.Payload);
+        Assert.Equal("toolCallArguments", payload.DeltaKind);
+        Assert.Equal("WriteFile", payload.ToolName);
+        Assert.Equal("call_001", payload.CallId);
+    }
+
     // -------------------------------------------------------------------------
     // Full Turn event sequence
     // -------------------------------------------------------------------------

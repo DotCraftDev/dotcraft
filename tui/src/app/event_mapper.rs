@@ -158,6 +158,63 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
             true
         }
 
+        "item/toolCall/argumentsDelta" => {
+            let delta = params
+                .get("delta")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if delta.is_empty() {
+                return true;
+            }
+
+            let call_id = params
+                .get("callId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let tool_name = params
+                .get("toolName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            if !call_id.is_empty() {
+                if let Some(tool) = state
+                    .streaming
+                    .active_tools
+                    .iter_mut()
+                    .find(|t| t.call_id == call_id)
+                {
+                    tool.arguments.push_str(&delta);
+                } else {
+                    state.streaming.active_tools.push(ActiveToolCall {
+                        call_id,
+                        tool_name,
+                        arguments: delta,
+                        completed: false,
+                        result: None,
+                        success: true,
+                        started_at: std::time::Instant::now(),
+                        duration: None,
+                    });
+                }
+            } else if let Some(tool) = state
+                .streaming
+                .active_tools
+                .iter_mut()
+                .rev()
+                .find(|t| !t.completed)
+            {
+                if tool.tool_name.is_empty() && !tool_name.is_empty() {
+                    tool.tool_name = tool_name;
+                }
+                tool.arguments.push_str(&delta);
+            }
+
+            true
+        }
+
         "item/completed" => {
             let item = params.get("item").unwrap_or(&serde_json::Value::Null);
             let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");

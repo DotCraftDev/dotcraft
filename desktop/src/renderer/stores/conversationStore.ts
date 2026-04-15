@@ -110,6 +110,15 @@ interface ConversationActions {
   onReasoningDelta(delta: string): void
   /** item/commandExecution/outputDelta notification */
   onCommandExecutionDelta(params: { threadId?: string; turnId?: string; itemId?: string; delta?: string }): void
+  /** item/toolCall/argumentsDelta notification */
+  onToolCallArgumentsDelta(params: {
+    threadId?: string
+    turnId?: string
+    itemId?: string
+    delta?: string
+    toolName?: string
+    callId?: string
+  }): void
   /** item/completed notification */
   onItemCompleted(params: Record<string, unknown>): void
   /** item/usage/delta notification */
@@ -243,6 +252,37 @@ const SYSTEM_LABELS: Record<string, string | null> = {
   compacted: null,
   compactSkipped: null,
   consolidated: null
+}
+
+function extractPartialJsonStringValue(json: string, key: string): string | null {
+  const keyPattern = `"${key}"`
+  const keyIndex = json.indexOf(keyPattern)
+  if (keyIndex < 0) return null
+  const colonIndex = json.indexOf(':', keyIndex + keyPattern.length)
+  if (colonIndex < 0) return null
+  const quoteIndex = json.indexOf('"', colonIndex + 1)
+  if (quoteIndex < 0) return null
+
+  let escaped = false
+  let out = ''
+  for (let i = quoteIndex + 1; i < json.length; i += 1) {
+    const ch = json[i]
+    if (escaped) {
+      out += ch
+      escaped = false
+      continue
+    }
+    if (ch === '\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      return out
+    }
+    out += ch
+  }
+
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +664,50 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
               })())
             }
       )
+    }))
+  },
+
+  onToolCallArgumentsDelta(params) {
+    const turnId = params.turnId ?? ''
+    const itemId = params.itemId ?? ''
+    const delta = params.delta ?? ''
+    if (!turnId || !itemId || !delta) return
+
+    set((state) => ({
+      turns: state.turns.map((t) => {
+        if (t.id !== turnId) return t
+        const existing = t.items.find((i) => i.id === itemId)
+        const nextItems = existing
+          ? t.items.map((i) => {
+              if (i.id !== itemId) return i
+              const nextArgumentsPreview = (i.argumentsPreview ?? '') + delta
+              return {
+                ...i,
+                type: 'toolCall' as const,
+                status: 'streaming' as const,
+                toolName: params.toolName ?? i.toolName ?? 'tool',
+                toolCallId: params.callId ?? i.toolCallId ?? itemId,
+                argumentsPreview: nextArgumentsPreview,
+                streamingFileContent: extractPartialJsonStringValue(nextArgumentsPreview, 'content')
+                  ?? i.streamingFileContent
+              }
+            })
+          : [
+              ...t.items,
+              {
+                id: itemId,
+                type: 'toolCall' as const,
+                status: 'streaming' as const,
+                toolName: params.toolName ?? 'tool',
+                toolCallId: params.callId ?? itemId,
+                createdAt: new Date().toISOString(),
+                argumentsPreview: delta,
+                streamingFileContent: extractPartialJsonStringValue(delta, 'content') ?? undefined
+              }
+            ]
+
+        return { ...t, items: sortItemsByCreatedAt(nextItems) }
+      })
     }))
   },
 

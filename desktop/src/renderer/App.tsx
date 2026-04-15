@@ -505,6 +505,17 @@ export function App(): JSX.Element {
             }
             break
 
+          case 'item/toolCall/argumentsDelta':
+            conv.onToolCallArgumentsDelta({
+              threadId: (p.threadId as string | undefined),
+              turnId: (p.turnId as string | undefined),
+              itemId: (p.itemId as string | undefined),
+              toolName: (p.toolName as string | undefined),
+              callId: (p.callId as string | undefined),
+              delta: (p.delta as string | undefined)
+            })
+            break
+
           case 'item/completed':
             conv.onItemCompleted(p)
             {

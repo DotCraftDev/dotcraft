@@ -92,6 +92,17 @@ function dispatch(payload: { method: string; params: unknown }): void {
       })
       break
 
+    case 'item/toolCall/argumentsDelta':
+      conv.onToolCallArgumentsDelta({
+        threadId: (p.threadId as string | undefined),
+        turnId: (p.turnId as string | undefined),
+        itemId: (p.itemId as string | undefined),
+        toolName: (p.toolName as string | undefined),
+        callId: (p.callId as string | undefined),
+        delta: (p.delta as string | undefined)
+      })
+      break
+
     case 'item/completed':
       conv.onItemCompleted(p)
       break
@@ -278,6 +289,41 @@ describe('notification dispatch payload format', () => {
     expect(item?.aggregatedOutput).toBe('chunk\n')
     expect(item?.executionStatus).toBe('completed')
     expect(item?.exitCode).toBe(0)
+  })
+
+  it('dispatches tool call argument deltas into the matching tool call item', () => {
+    dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_write_1',
+          type: 'toolCall',
+          payload: {
+            callId: 'write-1',
+            toolName: 'WriteFile'
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/toolCall/argumentsDelta',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn_1',
+        itemId: 'tool_write_1',
+        toolName: 'WriteFile',
+        callId: 'write-1',
+        delta: '{"path":"a.txt","content":"hello'
+      }
+    })
+
+    const item = s().turns[0].items.find((i) => i.id === 'tool_write_1')
+    expect(item?.type).toBe('toolCall')
+    expect(item?.status).toBe('streaming')
+    expect(item?.argumentsPreview).toContain('"content":"hello')
+    expect(item?.streamingFileContent).toBe('hello')
   })
 
   it('updates the existing Exec toolCall instead of requiring a standalone terminal block', () => {

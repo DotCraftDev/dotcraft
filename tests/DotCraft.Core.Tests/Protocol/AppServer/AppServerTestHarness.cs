@@ -232,6 +232,113 @@ internal sealed class AppServerTestHarness : IDisposable
         ];
     }
 
+    /// <summary>
+    /// Builds a turn event sequence containing streaming tool-call argument deltas.
+    /// </summary>
+    public static SessionEvent[] BuildStreamingToolCallEventSequence(string threadId, string turnId = "turn_001")
+    {
+        var turn = MakeTurn(threadId, turnId);
+        var completedTurn = MakeCompletedTurn(threadId, turnId);
+        var toolCallItem = new SessionItem
+        {
+            Id = "item_tool_001",
+            TurnId = turnId,
+            Type = ItemType.ToolCall,
+            Status = ItemStatus.Streaming,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolCallPayload
+            {
+                ToolName = "WriteFile",
+                CallId = "call_001"
+            }
+        };
+        var completedToolCall = new SessionItem
+        {
+            Id = "item_tool_001",
+            TurnId = turnId,
+            Type = ItemType.ToolCall,
+            Status = ItemStatus.Completed,
+            CreatedAt = toolCallItem.CreatedAt,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new ToolCallPayload
+            {
+                ToolName = "WriteFile",
+                CallId = "call_001"
+            }
+        };
+        var now = DateTimeOffset.UtcNow;
+
+        return
+        [
+            new SessionEvent
+            {
+                EventId = "e1",
+                EventType = SessionEventType.TurnStarted,
+                ThreadId = threadId,
+                TurnId = turnId,
+                Timestamp = now,
+                Payload = turn
+            },
+            new SessionEvent
+            {
+                EventId = "e2",
+                EventType = SessionEventType.ItemStarted,
+                ThreadId = threadId,
+                TurnId = turnId,
+                ItemId = toolCallItem.Id,
+                Timestamp = now,
+                Payload = toolCallItem
+            },
+            new SessionEvent
+            {
+                EventId = "e3",
+                EventType = SessionEventType.ItemDelta,
+                ThreadId = threadId,
+                TurnId = turnId,
+                ItemId = toolCallItem.Id,
+                Timestamp = now,
+                Payload = new ToolCallArgumentsDelta
+                {
+                    ToolName = "WriteFile",
+                    CallId = "call_001",
+                    Delta = "{\"path\":\"foo.txt\",\"content\":\"hel"
+                }
+            },
+            new SessionEvent
+            {
+                EventId = "e4",
+                EventType = SessionEventType.ItemDelta,
+                ThreadId = threadId,
+                TurnId = turnId,
+                ItemId = toolCallItem.Id,
+                Timestamp = now,
+                Payload = new ToolCallArgumentsDelta
+                {
+                    Delta = "lo\"}"
+                }
+            },
+            new SessionEvent
+            {
+                EventId = "e5",
+                EventType = SessionEventType.ItemCompleted,
+                ThreadId = threadId,
+                TurnId = turnId,
+                ItemId = completedToolCall.Id,
+                Timestamp = now,
+                Payload = completedToolCall
+            },
+            new SessionEvent
+            {
+                EventId = "e6",
+                EventType = SessionEventType.TurnCompleted,
+                ThreadId = threadId,
+                TurnId = turnId,
+                Timestamp = now,
+                Payload = completedTurn
+            }
+        ];
+    }
+
     public static SessionEvent[] BuildApprovalEventSequence(
         string threadId, string turnId = "turn_001", string requestId = "req_001")
     {

@@ -118,6 +118,29 @@ public sealed record CommandExecutionOutputDelta
 }
 
 /// <summary>
+/// Delta payload emitted while tool-call arguments are still streaming.
+/// </summary>
+public sealed record ToolCallArgumentsDelta
+{
+    public string DeltaKind { get; init; } = "toolCallArguments";
+
+    /// <summary>
+    /// Tool name (typically present on the first chunk).
+    /// </summary>
+    public string? ToolName { get; init; }
+
+    /// <summary>
+    /// Tool call id (typically present on the first chunk).
+    /// </summary>
+    public string? CallId { get; init; }
+
+    /// <summary>
+    /// Raw JSON fragment emitted by the model for the tool-call arguments.
+    /// </summary>
+    public string Delta { get; init; } = string.Empty;
+}
+
+/// <summary>
 /// Payload for ToolCall items.
 /// </summary>
 public sealed record ToolCallPayload

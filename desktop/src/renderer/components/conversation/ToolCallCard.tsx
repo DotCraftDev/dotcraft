@@ -84,6 +84,8 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
   const isShellTool = isShellToolName(toolName)
+  const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
+  const canExpandWhileRunning = isShellTool || isStreamingFileTool
   const shellExecutionRunning = isShellExecutionRunning(item, isShellTool)
   const isRunning = isShellTool ? shellExecutionRunning : item.status !== 'completed'
   const shellOutput = item.aggregatedOutput ?? item.result ?? ''
@@ -111,7 +113,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
 
   function toggleExpand(): void {
-    if (!isRunning || isShellTool) {
+    if (!isRunning || canExpandWhileRunning) {
       setExpanded((v) => !v)
     }
   }
@@ -140,7 +142,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
             color: 'var(--text-secondary)',
             fontSize: '13px',
             textAlign: 'left',
-            cursor: isShellTool ? 'pointer' : 'default'
+            cursor: canExpandWhileRunning ? 'pointer' : 'default'
           }}
         >
           <Spinner />
@@ -167,19 +169,23 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
             {runningElapsedLabel}
           </span>
-          {isShellTool && <Chevron expanded={expanded} />}
+          {canExpandWhileRunning && <Chevron expanded={expanded} />}
         </button>
 
-        {expanded && isShellTool && (
+        {expanded && canExpandWhileRunning && (
           <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
-            <ExpandedContent
-              toolName={toolName}
-              args={args}
-              result={shellOutput}
-              success={!shellFailed}
-              fileDiff={undefined}
-              locale={locale}
-            />
+            {isShellTool ? (
+              <ExpandedContent
+                toolName={toolName}
+                args={args}
+                result={shellOutput}
+                success={!shellFailed}
+                fileDiff={undefined}
+                locale={locale}
+              />
+            ) : (
+              <RunningFileToolPreview item={item} />
+            )}
           </div>
         )}
       </div>
@@ -422,5 +428,37 @@ function Spinner(): JSX.Element {
         flexShrink: 0
       }}
     />
+  )
+}
+
+function RunningFileToolPreview({ item }: { item: ConversationItem }): JSX.Element {
+  const preview = item.streamingFileContent ?? item.argumentsPreview ?? ''
+  const lines = preview.split('\n')
+  const shown = lines.slice(0, 60)
+  const truncated = lines.length > 60
+
+  return (
+    <div className="selectable" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.5' }}>
+      <div style={{ color: 'var(--text-dimmed)', marginBottom: '6px' }}>
+        Streaming arguments...
+      </div>
+      {preview ? (
+        <pre
+          style={{
+            margin: 0,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            color: 'var(--text-secondary)',
+            maxHeight: '200px',
+            overflow: 'auto'
+          }}
+        >
+          {shown.join('\n')}
+          {truncated && <span style={{ color: 'var(--text-dimmed)' }}>{'\n'}…</span>}
+        </pre>
+      ) : (
+        <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>Waiting for argument chunks...</div>
+      )}
+    </div>
   )
 }
