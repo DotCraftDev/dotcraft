@@ -116,6 +116,57 @@ public sealed class StreamingToolCallPreviewChatClientTests
     }
 
     [Fact]
+    public async Task GetStreamingResponseAsync_MultiRound_ResetsTrackers()
+    {
+        var updates = new[]
+        {
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r1-a")])
+            {
+                RawRepresentation = new FakeRawDeltaSource(
+                    new ToolCallDeltaChunk(0, "WriteFile", "call-1", "{\"content\":\"hel"))
+            },
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r1-b")])
+            {
+                RawRepresentation = new FakeRawDeltaSource(
+                    new ToolCallDeltaChunk(0, null, null, "lo\"}"))
+            },
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r2-a")])
+            {
+                RawRepresentation = new FakeRawDeltaSource(
+                    new ToolCallDeltaChunk(0, "EditFile", "call-2", "{\"old\":\"a"))
+            },
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("r2-b")])
+            {
+                RawRepresentation = new FakeRawDeltaSource(
+                    new ToolCallDeltaChunk(0, null, null, "b\"}"))
+            }
+        };
+        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates));
+
+        var deltas = new List<ToolCallArgumentsDeltaContent>();
+        await foreach (var update in client.GetStreamingResponseAsync([]))
+            deltas.AddRange(update.Contents.OfType<ToolCallArgumentsDeltaContent>());
+
+        Assert.Equal(4, deltas.Count);
+
+        Assert.Equal(0, deltas[0].ToolCallIndex);
+        Assert.Equal("WriteFile", deltas[0].ToolName);
+        Assert.Equal("call-1", deltas[0].CallId);
+
+        Assert.Equal(0, deltas[1].ToolCallIndex);
+        Assert.Null(deltas[1].ToolName);
+        Assert.Null(deltas[1].CallId);
+
+        Assert.Equal(0, deltas[2].ToolCallIndex);
+        Assert.Equal("EditFile", deltas[2].ToolName);
+        Assert.Equal("call-2", deltas[2].CallId);
+
+        Assert.Equal(0, deltas[3].ToolCallIndex);
+        Assert.Null(deltas[3].ToolName);
+        Assert.Null(deltas[3].CallId);
+    }
+
+    [Fact]
     public async Task GetResponseAsync_PassthroughUnchanged()
     {
         var expected = new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent("ok")])]);

@@ -28,6 +28,17 @@ public sealed class StreamingToolCallPreviewChatClient(IChatClient innerClient)
             foreach (var delta in ExtractDeltas(update.RawRepresentation))
             {
                 trackers ??= [];
+
+                // FunctionInvokingChatClient may stream multiple model rounds in one enumerable.
+                // OpenAI resets tool-call indices per round, so reset trackers on index-0 CallId rollover.
+                if (delta.Index == 0
+                    && delta.CallId is not null
+                    && trackers.TryGetValue(0, out var existingTracker)
+                    && existingTracker.CallId != delta.CallId)
+                {
+                    trackers.Clear();
+                }
+
                 if (!trackers.TryGetValue(delta.Index, out var tracker))
                 {
                     tracker = new ToolCallTracker();
