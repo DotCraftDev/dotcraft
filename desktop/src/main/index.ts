@@ -9,7 +9,7 @@ import {
   registerIpcHandlers,
   unregisterIpcHandlers,
   getModuleProcessManager,
-  autoStartModuleProcesses,
+  autoStartModuleProcessesByChannelName,
   broadcastConnectionStatus,
   broadcastWorkspaceStatus,
   broadcastNotification,
@@ -239,12 +239,18 @@ function unregisterDesktopIpcHandlers(): boolean {
 }
 
 async function autoStartEnabledModules(): Promise<void> {
-  const enabledModuleIds = [...new Set(sharedSettings.enabledModules ?? [])].filter(
-    (id) => typeof id === 'string' && id.trim() !== ''
-  )
-  if (enabledModuleIds.length === 0) return
+  const client = wireClient
+  if (!client) return
   try {
-    await autoStartModuleProcesses(enabledModuleIds)
+    const response = await client.sendRequest<{ channels?: Array<{ name?: string; enabled?: boolean; transport?: string | null }> }>(
+      'externalChannel/list',
+      {}
+    )
+    const enabledChannelNames = (response.channels ?? [])
+      .filter((channel) => channel.enabled === true && channel.transport === 'websocket')
+      .map((channel) => channel.name?.trim() ?? '')
+      .filter(Boolean)
+    await autoStartModuleProcessesByChannelName(enabledChannelNames)
   } catch (error) {
     console.warn('[desktop] failed to auto-start persisted modules', error)
   }
@@ -266,9 +272,7 @@ function teardownRuntime(
   const hadAppServer = appServerManager !== null
   const hadWireClient = wireClient !== null
   if (moduleManager) {
-    sharedSettings.enabledModules = moduleManager.getRunningModuleIds()
-    saveSettings(sharedSettings)
-    void moduleManager.stopAll().catch((error) => {
+    void moduleManager.stopAll({ preserveExternalChannels: true }).catch((error) => {
       console.warn('[desktop] failed to stop channel modules during teardown', error)
     })
   }

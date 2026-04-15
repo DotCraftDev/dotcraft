@@ -195,14 +195,14 @@ export class ModuleProcessManager {
     if (!entry) {
       return { ok: true }
     }
-    await this.stopInternal(entry)
+    await this.stopInternal(entry, { preserveExternalChannels: false })
     return { ok: true }
   }
 
-  async stopAll(): Promise<void> {
+  async stopAll(options?: { preserveExternalChannels?: boolean }): Promise<void> {
     const tasks: Promise<void>[] = []
     for (const entry of this.managed.values()) {
-      tasks.push(this.stopInternal(entry))
+      tasks.push(this.stopInternal(entry, options))
     }
     await Promise.all(tasks)
     this.stopPollerIfIdle()
@@ -285,7 +285,10 @@ export class ModuleProcessManager {
     }
   }
 
-  private async stopInternal(entry: ManagedModuleProcess): Promise<void> {
+  private async stopInternal(
+    entry: ManagedModuleProcess,
+    options?: { preserveExternalChannels?: boolean }
+  ): Promise<void> {
     if (entry.state === 'stopped' && !entry.process) {
       entry.expectedStop = false
       this.lastPolledConnected.set(entry.moduleId, false)
@@ -307,7 +310,9 @@ export class ModuleProcessManager {
     this.stopWaiters.set(entry.moduleId, stopPromise)
     try {
       await stopPromise
-      await this.removeExternalChannel(entry.channelName)
+      if (options?.preserveExternalChannels !== true) {
+        await this.removeExternalChannel(entry.channelName)
+      }
     } finally {
       this.stopWaiters.delete(entry.moduleId)
       this.stopPollerIfIdle()

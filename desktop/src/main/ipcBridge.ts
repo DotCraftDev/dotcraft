@@ -208,12 +208,19 @@ export function getModuleProcessManager(): ModuleProcessManager | null {
   return moduleProcessManager
 }
 
-export async function autoStartModuleProcesses(enabledModuleIds: string[]): Promise<void> {
-  if (enabledModuleIds.length === 0) return
-  if (ensureModulesScanned) {
-    await ensureModulesScanned()
-  }
-  await moduleProcessManager?.autoStartModules(enabledModuleIds)
+export async function autoStartModuleProcessesByChannelName(
+  enabledChannelNames: string[]
+): Promise<void> {
+  if (enabledChannelNames.length === 0) return
+  const discoveredModules = ensureModulesScanned ? await ensureModulesScanned() : []
+  const enabledNames = new Set(
+    enabledChannelNames.map((name) => name.trim().toLowerCase()).filter(Boolean)
+  )
+  const moduleIdsToStart = discoveredModules
+    .filter((module) => enabledNames.has(module.channelName.toLowerCase()))
+    .map((module) => module.moduleId)
+  if (moduleIdsToStart.length === 0) return
+  await moduleProcessManager?.autoStartModules(moduleIdsToStart)
 }
 
 export function registerIpcHandlers(

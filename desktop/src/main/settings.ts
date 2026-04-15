@@ -26,7 +26,6 @@ export interface RemoteConnectionSettings {
 export interface AppSettings {
   lastWorkspacePath?: string
   modulesDirectory?: string
-  enabledModules?: string[]
   binarySource?: BinarySource
   appServerBinaryPath?: string
   connectionMode?: ConnectionMode

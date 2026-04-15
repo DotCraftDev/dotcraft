@@ -13,6 +13,7 @@ interface ModuleConfigFormProps {
   saving: boolean
   logoPath?: string
   moduleStatus?: ModuleStatusEntry
+  persistedEnabled: boolean
   onStart: () => void
   onStop: () => void
   starting: boolean
@@ -72,11 +73,18 @@ function applyValueChange(
   return setNestedValue(config, key, value)
 }
 
-function resolveModulePill(status: ModuleStatusEntry | undefined, t: (key: string) => string): {
+function resolveModulePill(
+  status: ModuleStatusEntry | undefined,
+  persistedEnabled: boolean,
+  t: (key: string) => string
+): {
   status: ChannelConnectionState
   label: string
 } {
   if (!status) {
+    if (persistedEnabled) {
+      return { status: 'stopped', label: t('channels.modules.stopped') }
+    }
     return { status: 'notConfigured', label: t('channels.status.notConfigured') }
   }
   if (status.processState === 'crashed') {
@@ -92,7 +100,10 @@ function resolveModulePill(status: ModuleStatusEntry | undefined, t: (key: strin
     return { status: 'enabledNotConnected', label: t('channels.status.enabledNotConnected') }
   }
   if (status.processState === 'stopped') {
-    return { status: 'stopped', label: t('channels.modules.stopped') }
+    if (persistedEnabled) {
+      return { status: 'stopped', label: t('channels.modules.stopped') }
+    }
+    return { status: 'notConfigured', label: t('channels.status.notConfigured') }
   }
   return { status: 'notConfigured', label: t('channels.status.notConfigured') }
 }
@@ -105,6 +116,7 @@ export function ModuleConfigForm({
   saving,
   logoPath,
   moduleStatus,
+  persistedEnabled,
   onStart,
   onStop,
   starting
@@ -117,8 +129,9 @@ export function ModuleConfigForm({
     () => module.configDescriptors.filter((descriptor) => descriptor.interactiveSetupOnly !== true),
     [module.configDescriptors]
   )
-  const pill = resolveModulePill(moduleStatus, t)
+  const pill = resolveModulePill(moduleStatus, persistedEnabled, t)
   const enableChecked =
+    persistedEnabled ||
     moduleStatus?.connected === true ||
     moduleStatus?.processState === 'starting' ||
     moduleStatus?.processState === 'running'

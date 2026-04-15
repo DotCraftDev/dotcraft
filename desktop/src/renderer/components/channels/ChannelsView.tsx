@@ -84,14 +84,18 @@ function moduleStatusLabelKey(status: ChannelConnectionState): string {
   return statusLabelKey(status)
 }
 
-function deriveModuleStatus(moduleId: string, statusMap: ModuleStatusMap): ChannelConnectionState {
+function deriveModuleStatus(
+  moduleId: string,
+  statusMap: ModuleStatusMap,
+  persistedEnabled: boolean
+): ChannelConnectionState {
   const entry = statusMap[moduleId]
-  if (!entry) return 'notConfigured'
+  if (!entry) return persistedEnabled ? 'stopped' : 'notConfigured'
   if (entry.processState === 'crashed') return 'error'
   if (entry.connected) return 'connected'
   if (entry.processState === 'starting') return 'connecting'
   if (entry.processState === 'running') return 'enabledNotConnected'
-  if (entry.processState === 'stopped') return 'stopped'
+  if (entry.processState === 'stopped') return persistedEnabled ? 'stopped' : 'notConfigured'
   return 'notConfigured'
 }
 
@@ -560,6 +564,17 @@ export function ChannelsView(): JSX.Element {
     return map
   }, [externalChannelCards, externalDraft.enabled, channelStatusMap, fallbackConnected, selectedChannelKey])
 
+  const persistedModuleEnabledByChannelName = useMemo(() => {
+    const enabledByChannel = new Map<string, boolean>()
+    for (const channel of externalChannels) {
+      enabledByChannel.set(
+        channel.name.toLowerCase(),
+        channel.enabled === true && channel.transport === 'websocket'
+      )
+    }
+    return enabledByChannel
+  }, [externalChannels])
+
   const selectedNativeId = selectedChannelKey.startsWith('native:')
     ? (selectedChannelKey.slice('native:'.length) as ChannelId)
     : null
@@ -697,7 +712,9 @@ export function ChannelsView(): JSX.Element {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {modules.map((module) => {
-                const status = deriveModuleStatus(module.moduleId, moduleStatusMap)
+                const persistedEnabled =
+                  persistedModuleEnabledByChannelName.get(module.channelName.toLowerCase()) === true
+                const status = deriveModuleStatus(module.moduleId, moduleStatusMap, persistedEnabled)
                 return (
                   <ChannelCard
                     key={module.moduleId}
@@ -826,6 +843,9 @@ export function ChannelsView(): JSX.Element {
               saving={savingModule}
               logoPath={selectedModuleLogoPath}
               moduleStatus={moduleStatusMap[selectedModule.moduleId] as ModuleStatusEntry | undefined}
+              persistedEnabled={
+                persistedModuleEnabledByChannelName.get(selectedModule.channelName.toLowerCase()) === true
+              }
               onStart={() => {
                 void handleStartModule(selectedModule.moduleId)
               }}
