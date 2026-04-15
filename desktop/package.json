@@ -79,6 +79,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/modules",
+        "to": "modules",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

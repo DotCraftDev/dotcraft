@@ -30,6 +30,7 @@
     "test:all": "npm run test && npm run test:packages",
     "typecheck:packages": "npm run typecheck --workspace @dotcraft/channel-feishu && npm run typecheck --workspace @dotcraft/channel-weixin",
     "typecheck:all": "npm run typecheck && npm run typecheck:packages",
+    "generate:manifests": "node scripts/generate-manifest.mjs packages/channel-feishu && node scripts/generate-manifest.mjs packages/channel-weixin",
     "pack:verify": "npm pack --dry-run && npm pack --dry-run --workspace @dotcraft/channel-feishu && npm pack --dry-run --workspace @dotcraft/channel-weixin",
     "prepublishOnly": "npm run build"
   },

@@ -68,6 +68,31 @@ cd ../..
 
 echo.
 echo =====================================
+echo  Staging Desktop bundled modules...
+echo =====================================
+echo.
+
+if not exist "desktop\resources\modules\channel-feishu" mkdir "desktop\resources\modules\channel-feishu"
+if not exist "desktop\resources\modules\channel-weixin" mkdir "desktop\resources\modules\channel-weixin"
+
+if exist "sdk\typescript\packages\channel-feishu\manifest.json" (
+    copy /Y "sdk\typescript\packages\channel-feishu\manifest.json" "desktop\resources\modules\channel-feishu\manifest.json" >nul
+    copy /Y "sdk\typescript\packages\channel-feishu\package.json" "desktop\resources\modules\channel-feishu\package.json" >nul
+    xcopy /E /I /Y "sdk\typescript\packages\channel-feishu\dist" "desktop\resources\modules\channel-feishu\dist" >nul
+) else (
+    echo WARNING: channel-feishu manifest.json not found. Run sdk\typescript build first.
+)
+
+if exist "sdk\typescript\packages\channel-weixin\manifest.json" (
+    copy /Y "sdk\typescript\packages\channel-weixin\manifest.json" "desktop\resources\modules\channel-weixin\manifest.json" >nul
+    copy /Y "sdk\typescript\packages\channel-weixin\package.json" "desktop\resources\modules\channel-weixin\package.json" >nul
+    xcopy /E /I /Y "sdk\typescript\packages\channel-weixin\dist" "desktop\resources\modules\channel-weixin\dist" >nul
+) else (
+    echo WARNING: channel-weixin manifest.json not found. Run sdk\typescript build first.
+)
+
+echo.
+echo =====================================
 echo  Packaging...
 echo =====================================
 echo.

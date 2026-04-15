@@ -126,12 +126,24 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
-        cache-dependency-path: desktop/package-lock.json
+        cache-dependency-path: |
+          desktop/package-lock.json
+          sdk/typescript/package-lock.json
 
     - name: Install desktop dependencies
       if: runner.os != 'Linux'
       run: npm ci
       working-directory: desktop
+
+    - name: Install TypeScript SDK dependencies
+      if: runner.os != 'Linux'
+      run: npm ci
+      working-directory: sdk/typescript
+
+    - name: Build TypeScript SDK
+      if: runner.os != 'Linux'
+      run: npm run build:all
+      working-directory: sdk/typescript
 
     - name: Stage embedded binary for desktop - Windows
       if: runner.os == 'Windows'
@@ -146,6 +158,33 @@ jobs:
       run: |
         mkdir -p desktop/resources/bin
         cp publish/${{ matrix.output_name }}/dotcraft desktop/resources/bin/dotcraft
+
+    - name: Stage bundled modules for desktop - Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $modules = @('channel-feishu', 'channel-weixin')
+        foreach ($mod in $modules) {
+          $src = "sdk/typescript/packages/$mod"
+          $dst = "desktop/resources/modules/$mod"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Path "$src/manifest.json" -Destination "$dst/manifest.json" -Force
+          Copy-Item -Path "$src/package.json" -Destination "$dst/package.json" -Force
+          Copy-Item -Path "$src/dist" -Destination "$dst/dist" -Recurse -Force
+        }
+
+    - name: Stage bundled modules for desktop - macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        for mod in channel-feishu channel-weixin; do
+          src="sdk/typescript/packages/$mod"
+          dst="desktop/resources/modules/$mod"
+          mkdir -p "$dst"
+          cp "$src/manifest.json" "$dst/manifest.json"
+          cp "$src/package.json" "$dst/package.json"
+          cp -r "$src/dist" "$dst/dist"
+        done
 
     # Match build.bat: avoid stale dist confusing electron-builder; safe on fresh checkouts too.
     - name: Clean desktop dist

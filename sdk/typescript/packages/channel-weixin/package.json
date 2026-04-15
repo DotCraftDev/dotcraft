@@ -17,12 +17,14 @@
   },
   "files": [
     "dist",
+    "manifest.json",
     "README.md",
     "README_ZH.md"
   ],
   "scripts": {
     "start": "node dist/cli.js --workspace .",
-    "build": "tsc -p tsconfig.json",
+    "generate:manifest": "node ../../scripts/generate-manifest.mjs .",
+    "build": "tsc -p tsconfig.json && npm run generate:manifest",
     "dev": "npm run build && node dist/cli.js --workspace .",
     "test": "npm run build && node --test dist/module.test.js dist/config.test.js dist/auth.test.js dist/paths.test.js dist/conformance.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
