@@ -1,3 +1,5 @@
+import type { SubAgentEntry } from './toolCall'
+
 /**
  * Conversation-level types for M3.
  * These expand on the minimal Turn/Item stubs used in M2 and map directly
@@ -107,6 +109,8 @@ export interface ConversationTurn {
   error?: string
   /** Reason set when status === 'cancelled' */
   cancelReason?: string
+  /** Final subagent snapshot for this turn (used by inline summary rendering) */
+  subAgentEntries?: SubAgentEntry[]
 }
 
 /** Supported input part types for turn/start */

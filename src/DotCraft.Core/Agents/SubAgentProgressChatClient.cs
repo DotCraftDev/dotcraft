@@ -38,7 +38,7 @@ internal sealed class SubAgentProgressChatClient(
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        long inputTokens = 0, outputTokens = 0;
+        long reportedInputTokens = 0, reportedOutputTokens = 0;
 
         await foreach (var update in base.GetStreamingResponseAsync(chatMessages, options, cancellationToken)
                            .WithCancellation(cancellationToken))
@@ -48,16 +48,29 @@ internal sealed class SubAgentProgressChatClient(
                 if (content is UsageContent usage)
                 {
                     if (usage.Details.InputTokenCount.HasValue)
-                        inputTokens = usage.Details.InputTokenCount.Value;
+                    {
+                        var inputTokens = usage.Details.InputTokenCount.Value;
+                        var deltaInputTokens = inputTokens - reportedInputTokens;
+                        if (deltaInputTokens > 0)
+                        {
+                            progressEntry.AddTokens(deltaInputTokens, 0);
+                            reportedInputTokens = inputTokens;
+                        }
+                    }
                     if (usage.Details.OutputTokenCount.HasValue)
-                        outputTokens = usage.Details.OutputTokenCount.Value;
+                    {
+                        var outputTokens = usage.Details.OutputTokenCount.Value;
+                        var deltaOutputTokens = outputTokens - reportedOutputTokens;
+                        if (deltaOutputTokens > 0)
+                        {
+                            progressEntry.AddTokens(0, deltaOutputTokens);
+                            reportedOutputTokens = outputTokens;
+                        }
+                    }
                 }
             }
 
             yield return update;
         }
-
-        if (inputTokens > 0 || outputTokens > 0)
-            progressEntry.AddTokens(inputTokens, outputTokens);
     }
 }

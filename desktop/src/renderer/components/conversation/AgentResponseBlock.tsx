@@ -67,8 +67,13 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
 }: AgentResponseBlockProps): JSX.Element {
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
   const activeItemIdFromStore = useConversationStore((s) => s.activeItemId)
+  const liveSubAgentEntries = useConversationStore((s) => s.subAgentEntries)
   const activeItemId =
     activeItemIdOverride !== undefined ? activeItemIdOverride : activeItemIdFromStore
+  const resolvedSubAgentEntries = subAgentEntriesOverride
+    ?? (isActiveTurn
+      ? liveSubAgentEntries
+      : (turn.subAgentEntries ?? (isLastTurn ? liveSubAgentEntries : [])))
 
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)
@@ -83,6 +88,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   // Consecutive toolCall items are grouped so the aggregation utility can merge
   // "Explored N files" runs, while respecting the chronological position.
   const renderNodes: React.ReactNode[] = []
+  let subAgentBlockInserted = false
   let i = 0
 
   while (i < renderableItems.length) {
@@ -104,6 +110,17 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         renderNodes.push(
           renderAggregatedEntry(entry, turn.id, renderNodes.length)
         )
+      }
+
+      const hasSpawnSubagent = toolRun.some((toolItem) => toolItem.toolName === 'SpawnSubagent')
+      if (!subAgentBlockInserted && hasSpawnSubagent) {
+        renderNodes.push(
+          <SubAgentProgressBlock
+            key={`subagent-progress-${turn.id}`}
+            entries={resolvedSubAgentEntries}
+          />
+        )
+        subAgentBlockInserted = true
       }
     } else if (item.type === 'reasoningContent') {
       const isLiveStreaming =
@@ -143,16 +160,9 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
     i++
   }
 
-  const showSubAgentProgress = isActiveTurn || isLastTurn
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       {renderNodes}
-
-      {/* SubAgent progress — thread-level snapshot; one mount per stream (active or last turn) */}
-      {showSubAgentProgress ? (
-        <SubAgentProgressBlock entries={subAgentEntriesOverride} />
-      ) : null}
 
       {/* Turn-level failure */}
       {turn.status === 'failed' && turn.error && (

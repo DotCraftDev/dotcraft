@@ -253,6 +253,7 @@ pub struct AppState {
 
     // SubAgents
     pub subagent_entries: Vec<SubAgentEntry>,
+    pub last_subagent_entries: Vec<SubAgentEntry>,
 
     // Plan
     pub plan: Option<PlanSnapshot>,
@@ -326,6 +327,7 @@ impl AppState {
             history: Vec::new(),
             streaming: StreamingState::default(),
             subagent_entries: Vec::new(),
+            last_subagent_entries: Vec::new(),
             plan: None,
             token_tracker: TokenTracker::new(),
             system_status: None,

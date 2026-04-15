@@ -3,7 +3,7 @@
 // default-visible result summaries, inline SubAgent block, inline Plan block.
 
 use crate::{
-    app::state::{AppState, HistoryEntry, TurnStatus},
+    app::state::{ActiveToolCall, AppState, HistoryEntry, SubAgentEntry, TurnStatus},
     app::token_tracker::format_token_count,
     i18n::Strings,
     theme::Theme,
@@ -61,6 +61,7 @@ impl Widget for ChatView<'_> {
         let render_width = area.width.saturating_sub(4).max(20);
 
         let mut lines: Vec<Line<'static>> = Vec::new();
+        let mut subagent_block_rendered = false;
 
         // ── Committed history entries ──────────────────────────────────────
         let history = &self.state.history;
@@ -76,6 +77,17 @@ impl Widget for ChatView<'_> {
             }
 
             self.render_history_entry(entry, render_width, &mut lines);
+
+            if !subagent_block_rendered
+                && Self::is_spawn_subagent_history_entry(entry)
+                && !Self::next_history_entry_is_spawn_subagent(history, i)
+            {
+                let subagent_entries = self.current_inline_subagent_entries();
+                if !subagent_entries.is_empty() {
+                    self.render_inline_subagents(subagent_entries, render_width, &mut lines);
+                    subagent_block_rendered = true;
+                }
+            }
         }
 
         // ── Active streaming section ───────────────────────────────────────
@@ -86,15 +98,29 @@ impl Widget for ChatView<'_> {
         }
 
         // ── Active tool calls ──────────────────────────────────────────────
-        for tool in &self.state.streaming.active_tools {
-            if !tool.completed {
-                self.render_active_tool(tool, render_width, &mut lines);
-            }
-        }
+        let active_tools: Vec<&ActiveToolCall> = self
+            .state
+            .streaming
+            .active_tools
+            .iter()
+            .filter(|tool| !tool.completed)
+            .collect();
+        for (idx, tool) in active_tools.iter().enumerate() {
+            self.render_active_tool(tool, render_width, &mut lines);
 
-        // ── Inline SubAgent block ──────────────────────────────────────────
-        if !self.state.subagent_entries.is_empty() {
-            self.render_inline_subagents(render_width, &mut lines);
+            if !subagent_block_rendered
+                && Self::is_spawn_subagent_tool_name(&tool.tool_name)
+                && match active_tools.get(idx + 1) {
+                    Some(next) => !Self::is_spawn_subagent_tool_name(&next.tool_name),
+                    None => true,
+                }
+            {
+                let subagent_entries = self.current_inline_subagent_entries();
+                if !subagent_entries.is_empty() {
+                    self.render_inline_subagents(subagent_entries, render_width, &mut lines);
+                    subagent_block_rendered = true;
+                }
+            }
         }
 
         // ── Inline Plan block ─────────────────────────────────────────────
@@ -564,8 +590,12 @@ impl ChatView<'_> {
 
     // ── Inline SubAgent block ───────────────────────────────────────────────
 
-    fn render_inline_subagents(&self, width: u16, out: &mut Vec<Line<'static>>) {
-        let entries = &self.state.subagent_entries;
+    fn render_inline_subagents(
+        &self,
+        entries: &[SubAgentEntry],
+        width: u16,
+        out: &mut Vec<Line<'static>>,
+    ) {
         if entries.is_empty() {
             return;
         }
@@ -642,6 +672,37 @@ impl ChatView<'_> {
                 Span::styled(tokens, self.theme.dim),
             ]));
         }
+    }
+
+    fn current_inline_subagent_entries(&self) -> &[SubAgentEntry] {
+        if self.state.turn_status == TurnStatus::Running
+            || self.state.turn_status == TurnStatus::WaitingApproval
+        {
+            return &self.state.subagent_entries;
+        }
+
+        if !self.state.last_subagent_entries.is_empty() {
+            return &self.state.last_subagent_entries;
+        }
+
+        &self.state.subagent_entries
+    }
+
+    fn is_spawn_subagent_tool_name(tool_name: &str) -> bool {
+        tool_name == "SpawnSubagent"
+    }
+
+    fn is_spawn_subagent_history_entry(entry: &HistoryEntry) -> bool {
+        match entry {
+            HistoryEntry::ToolCall { name, .. } => Self::is_spawn_subagent_tool_name(name),
+            _ => false,
+        }
+    }
+
+    fn next_history_entry_is_spawn_subagent(history: &[HistoryEntry], index: usize) -> bool {
+        history
+            .get(index + 1)
+            .is_some_and(Self::is_spawn_subagent_history_entry)
     }
 
     // ── Inline Plan block ────────────────────────────────────────────────────

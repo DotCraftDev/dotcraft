@@ -1,4 +1,3 @@
-import { useConversationStore } from '../../stores/conversationStore'
 import type { SubAgentEntry } from '../../types/toolCall'
 
 /**
@@ -19,19 +18,13 @@ function formatTokenCount(count: number): string {
  * Spec §M4-9 through M4-11.
  */
 export interface SubAgentProgressBlockProps {
-  /**
-   * When set (including empty array), use this list instead of the global conversation store
-   * (e.g. automation review panel for a specific thread).
-   */
-  entries?: SubAgentEntry[]
+  /** SubAgent entries to render for the current turn position. */
+  entries: SubAgentEntry[]
 }
 
 export function SubAgentProgressBlock({
-  entries: entriesProp
-}: SubAgentProgressBlockProps = {}): JSX.Element | null {
-  const subAgentEntriesFromStore = useConversationStore((s) => s.subAgentEntries)
-  const subAgentEntries = entriesProp !== undefined ? entriesProp : subAgentEntriesFromStore
-
+  entries: subAgentEntries
+}: SubAgentProgressBlockProps): JSX.Element | null {
   if (subAgentEntries.length === 0) return null
 
   const allCompleted = subAgentEntries.every((e) => e.isCompleted)
