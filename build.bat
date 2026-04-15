@@ -78,6 +78,27 @@ cd ../..
 
 echo.
 echo =====================================
+echo  Building TypeScript SDK...
+echo =====================================
+echo.
+
+cd sdk\typescript
+call npm ci --prefer-offline
+if %ERRORLEVEL% neq 0 (
+    echo TypeScript SDK npm ci failed with exit code %ERRORLEVEL%.
+    cd ..\..
+    goto :failure
+)
+call npm run build:all
+if %ERRORLEVEL% neq 0 (
+    echo TypeScript SDK build failed with exit code %ERRORLEVEL%.
+    cd ..\..
+    goto :failure
+)
+cd ..\..
+
+echo.
+echo =====================================
 echo  Building TUI (dotcraft-tui)...
 echo =====================================
 echo.
