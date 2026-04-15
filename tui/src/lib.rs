@@ -432,6 +432,7 @@ async fn handle_terminal_event(
                         if quit {
                             return Ok(true);
                         }
+                        terminal.clear()?;
                     } else {
                         state.streaming.clear();
                         submit_turn(wire, state, text).await?;

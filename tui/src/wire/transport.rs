@@ -106,11 +106,33 @@ impl StdioTransport {
             .arg("app-server")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .spawn()?;
 
         let stdout = child.stdout.take().expect("stdout must be piped");
         let stdin = child.stdin.take().expect("stdin must be piped");
+        let stderr = child.stderr.take().expect("stderr must be piped");
+
+        tokio::spawn(async move {
+            let mut stderr_reader = BufReader::new(stderr);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match stderr_reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let text = line.trim();
+                        if !text.is_empty() {
+                            tracing::debug!(target: "dotcraft_tui::server_stderr", "{text}");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::debug!(target: "dotcraft_tui::server_stderr", "stderr drain failed: {error}");
+                        break;
+                    }
+                }
+            }
+        });
 
         Ok(Self {
             child,
