@@ -21,7 +21,7 @@ out
 .vscode
 .claude
 .craft
-.cursor
+.cursor/*
 .ai
 /references
 __pycache__
