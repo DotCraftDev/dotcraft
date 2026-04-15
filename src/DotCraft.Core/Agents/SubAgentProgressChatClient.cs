@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
+using DotCraft.Protocol;
 
 namespace DotCraft.Agents;
 
@@ -15,6 +16,9 @@ internal sealed class SubAgentProgressChatClient(
     IChatClient innerClient,
     SubAgentProgressBridge.ProgressEntry progressEntry) : DelegatingChatClient(innerClient)
 {
+    private long _lastSnapshotInput;
+    private long _lastSnapshotOutput;
+
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> chatMessages,
         ChatOptions? options = null,
@@ -24,10 +28,21 @@ internal sealed class SubAgentProgressChatClient(
 
         if (response.Usage != null)
         {
-            var input = response.Usage.InputTokenCount ?? 0;
-            var output = response.Usage.OutputTokenCount ?? 0;
-            if (input > 0 || output > 0)
-                progressEntry.AddTokens(input, output);
+            var curIn = response.Usage.InputTokenCount ?? 0;
+            var curOut = response.Usage.OutputTokenCount ?? 0;
+            if (curIn > 0 || curOut > 0)
+            {
+                UsageSnapshotDelta.Compute(
+                    curIn,
+                    curOut,
+                    ref _lastSnapshotInput,
+                    ref _lastSnapshotOutput,
+                    out var deltaIn,
+                    out var deltaOut);
+
+                if (deltaIn > 0 || deltaOut > 0)
+                    progressEntry.AddTokens(deltaIn, deltaOut);
+            }
         }
 
         return response;
@@ -38,8 +53,6 @@ internal sealed class SubAgentProgressChatClient(
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        long reportedInputTokens = 0, reportedOutputTokens = 0;
-
         await foreach (var update in base.GetStreamingResponseAsync(chatMessages, options, cancellationToken)
                            .WithCancellation(cancellationToken))
         {
@@ -47,25 +60,20 @@ internal sealed class SubAgentProgressChatClient(
             {
                 if (content is UsageContent usage)
                 {
-                    if (usage.Details.InputTokenCount.HasValue)
+                    var curIn = usage.Details.InputTokenCount ?? 0;
+                    var curOut = usage.Details.OutputTokenCount ?? 0;
+                    if (curIn > 0 || curOut > 0)
                     {
-                        var inputTokens = usage.Details.InputTokenCount.Value;
-                        var deltaInputTokens = inputTokens - reportedInputTokens;
-                        if (deltaInputTokens > 0)
-                        {
-                            progressEntry.AddTokens(deltaInputTokens, 0);
-                            reportedInputTokens = inputTokens;
-                        }
-                    }
-                    if (usage.Details.OutputTokenCount.HasValue)
-                    {
-                        var outputTokens = usage.Details.OutputTokenCount.Value;
-                        var deltaOutputTokens = outputTokens - reportedOutputTokens;
-                        if (deltaOutputTokens > 0)
-                        {
-                            progressEntry.AddTokens(0, deltaOutputTokens);
-                            reportedOutputTokens = outputTokens;
-                        }
+                        UsageSnapshotDelta.Compute(
+                            curIn,
+                            curOut,
+                            ref _lastSnapshotInput,
+                            ref _lastSnapshotOutput,
+                            out var deltaIn,
+                            out var deltaOut);
+
+                        if (deltaIn > 0 || deltaOut > 0)
+                            progressEntry.AddTokens(deltaIn, deltaOut);
                     }
                 }
             }
