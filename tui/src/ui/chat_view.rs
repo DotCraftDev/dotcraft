@@ -9,7 +9,9 @@ use crate::{
     theme::Theme,
     ui::markdown,
     ui::tool_format::{
-        format_invocation_display, format_result_summary, invocation_needs_calling_called_prefix,
+        extract_partial_json_string_value, format_active_invocation_display,
+        format_invocation_display_with_plan, format_result_summary,
+        invocation_needs_calling_called_prefix_with_plan,
     },
 };
 use ratatui::{
@@ -23,6 +25,8 @@ use unicode_width::UnicodeWidthChar;
 
 /// Maximum result/output lines shown below a completed tool call.
 const TOOL_CALL_MAX_LINES: usize = 5;
+/// Maximum preview lines for in-flight file editing tools.
+const TOOL_ACTIVE_FILE_PREVIEW_MAX_LINES: usize = 8;
 
 pub struct ChatView<'a> {
     state: &'a AppState,
@@ -239,9 +243,9 @@ impl ChatView<'_> {
 
     // ── Tool call rendering ────────────────────────────────────────────────
 
-    /// Format tool call arguments as a compact inline invocation (aligned with CLI `ToolRegistry.FormatToolCall`).
-    fn format_invocation(name: &str, args: &str) -> String {
-        format_invocation_display(name, args)
+    /// Format tool call arguments as a compact inline invocation.
+    fn format_invocation(&self, name: &str, args: &str) -> String {
+        format_invocation_display_with_plan(name, args, self.state.plan.as_ref().map(|p| p.todos.as_slice()))
     }
 
     /// Render an active (in-flight) tool call.
@@ -251,9 +255,16 @@ impl ChatView<'_> {
         width: u16,
         out: &mut Vec<Line<'static>>,
     ) {
-        let invocation = Self::format_invocation(&tool.tool_name, &tool.arguments);
-        let need_calling_prefix =
-            invocation_needs_calling_called_prefix(&tool.tool_name, &tool.arguments);
+        let invocation = format_active_invocation_display(
+            &tool.tool_name,
+            &tool.arguments,
+            self.state.plan.as_ref().map(|p| p.todos.as_slice()),
+        );
+        let need_calling_prefix = invocation_needs_calling_called_prefix_with_plan(
+            &tool.tool_name,
+            &tool.arguments,
+            self.state.plan.as_ref().map(|p| p.todos.as_slice()),
+        );
 
         // "• Calling ToolName("arg")" or "• Searched "…"" (no second verb for standalone sentences).
         let prefix = if need_calling_prefix {
@@ -286,6 +297,38 @@ impl ChatView<'_> {
                 ),
             ]));
         }
+
+        // File tools: show user-friendly in-flight content preview instead of raw argument deltas.
+        if let Some(preview) = active_file_preview_text(tool) {
+            let preview_lines: Vec<&str> = preview.lines().collect();
+            let show_count = preview_lines.len().min(TOOL_ACTIVE_FILE_PREVIEW_MAX_LINES);
+            let last_idx = show_count.saturating_sub(1);
+            for (i, line) in preview_lines.iter().take(show_count).enumerate() {
+                let is_last = i == last_idx;
+                let truncated_suffix = if is_last && preview_lines.len() > TOOL_ACTIVE_FILE_PREVIEW_MAX_LINES {
+                    "…"
+                } else {
+                    ""
+                };
+                out.push(Line::from(vec![
+                    Span::styled("    │ ".to_string(), self.theme.dim),
+                    Span::styled(
+                        format!(
+                            "{}{}",
+                            truncate(line, width.saturating_sub(8) as usize),
+                            truncated_suffix
+                        ),
+                        self.theme.dim,
+                    ),
+                ]));
+            }
+            if show_count == 0 {
+                out.push(Line::from(vec![
+                    Span::styled("    │ ".to_string(), self.theme.dim),
+                    Span::styled("Waiting for content...".to_string(), self.theme.dim),
+                ]));
+            }
+        }
     }
 
     /// Render a committed (completed or failed) tool call.
@@ -307,8 +350,12 @@ impl ChatView<'_> {
         };
         let verb = self.strings.called;
 
-        let invocation = Self::format_invocation(name, args);
-        let need_called_prefix = invocation_needs_calling_called_prefix(name, args);
+        let invocation = self.format_invocation(name, args);
+        let need_called_prefix = invocation_needs_calling_called_prefix_with_plan(
+            name,
+            args,
+            self.state.plan.as_ref().map(|p| p.todos.as_slice()),
+        );
         let elapsed = duration
             .map(|d| format!(" ({:.1}s)", d.as_secs_f64()))
             .unwrap_or_default();
@@ -616,4 +663,13 @@ fn display_width(s: &str) -> usize {
     s.chars()
         .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
         .sum()
+}
+
+fn active_file_preview_text(tool: &crate::app::state::ActiveToolCall) -> Option<String> {
+    match tool.tool_name.as_str() {
+        "WriteFile" => extract_partial_json_string_value(&tool.arguments, "content"),
+        "EditFile" => extract_partial_json_string_value(&tool.arguments, "newText")
+            .or_else(|| extract_partial_json_string_value(&tool.arguments, "content")),
+        _ => None,
+    }
 }
