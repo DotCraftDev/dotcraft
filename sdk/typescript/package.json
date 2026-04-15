@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test dist/adapter.test.js dist/deliveredFrontier.test.js dist/turnReply.test.js dist/transport.test.js",
+    "test": "npm run build && node --test dist/adapter.test.js dist/moduleAdapter.test.js dist/deliveredFrontier.test.js dist/turnReply.test.js dist/transport.test.js",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },

@@ -48,6 +48,14 @@ export {
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
 export { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
+export {
+  ConfigValidationError,
+  loadJsonConfig,
+  ModuleChannelAdapter,
+  resolveConfigPath,
+  resolveModuleStatePath,
+  resolveModuleTempPath,
+} from "./moduleAdapter.js";
 export type {
   ModuleFactory,
   ModuleInstance,
