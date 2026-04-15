@@ -9,6 +9,7 @@ import {
   registerIpcHandlers,
   unregisterIpcHandlers,
   getModuleProcessManager,
+  autoStartModuleProcesses,
   broadcastConnectionStatus,
   broadcastWorkspaceStatus,
   broadcastNotification,
@@ -237,6 +238,18 @@ function unregisterDesktopIpcHandlers(): boolean {
   return true
 }
 
+async function autoStartEnabledModules(): Promise<void> {
+  const enabledModuleIds = [...new Set(sharedSettings.enabledModules ?? [])].filter(
+    (id) => typeof id === 'string' && id.trim() !== ''
+  )
+  if (enabledModuleIds.length === 0) return
+  try {
+    await autoStartModuleProcesses(enabledModuleIds)
+  } catch (error) {
+    console.warn('[desktop] failed to auto-start persisted modules', error)
+  }
+}
+
 function teardownRuntime(
   reason: string,
   options?: {
@@ -245,14 +258,16 @@ function teardownRuntime(
     cleanupIpcHandlers?: boolean
   }
 ): void {
+  const moduleManager = getModuleProcessManager()
   const clearedCrashRetry = clearCrashRetryTimer()
   const cleanedIpc = options?.cleanupIpcHandlers
     ? unregisterDesktopIpcHandlers()
     : false
   const hadAppServer = appServerManager !== null
   const hadWireClient = wireClient !== null
-  const moduleManager = getModuleProcessManager()
   if (moduleManager) {
+    sharedSettings.enabledModules = moduleManager.getRunningModuleIds()
+    saveSettings(sharedSettings)
     void moduleManager.stopAll().catch((error) => {
       console.warn('[desktop] failed to stop channel modules during teardown', error)
     })
@@ -458,6 +473,7 @@ async function connectViaWebSocket(
         dashboardUrl: result.dashboardUrl
       })
     }
+    void autoStartEnabledModules()
   }
   client.on('ready', (result: InitializeResult) => emitConnected(result))
   client.on('reconnected', (result: InitializeResult) => emitConnected(result))
@@ -769,6 +785,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
           dashboardUrl: result.dashboardUrl
         })
       }
+      await autoStartEnabledModules()
     } catch (err) {
       console.error('[desktop] appserver initialize failed', err)
       const message = err instanceof Error ? err.message : String(err)

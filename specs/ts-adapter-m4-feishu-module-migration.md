@@ -125,7 +125,7 @@ The exported `manifest` must be a `ModuleManifest` value (type from M1) with the
 |-------|-------|
 | `moduleId` | `"feishu-standard"` |
 | `channelName` | `"feishu"` |
-| `displayName` | `"Feishu (Lark)"` |
+| `displayName` | `"飞书"` |
 | `packageName` | `"@dotcraft/channel-feishu"` |
 | `configFileName` | `"feishu.json"` |
 | `supportedTransports` | `["websocket"]` |

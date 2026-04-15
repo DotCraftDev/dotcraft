@@ -76,7 +76,7 @@ Multiple module packages can share the same `channelName` but have different `mo
 
 | moduleId | channelName | variant | displayName |
 |----------|-------------|---------|-------------|
-| feishu-standard | feishu | standard | Feishu (Lark) |
+| feishu-standard | feishu | standard | 飞书 |
 | feishu-enterprise | feishu | enterprise | Feishu Enterprise |
 
 Only one variant per `channelName` can be active at a time.
@@ -110,7 +110,7 @@ When a `channelName` has multiple modules:
 ### 5.4 Variant Selector
 
 Inside `ModuleConfigForm`, when the active module has variants:
-- A dropdown appears below the header: "Active variant: Feishu (Lark) [Standard] ▼"
+- A dropdown appears below the header: "Active variant: 飞书 [Standard] ▼"
 - The dropdown lists all discovered modules for that `channelName`, showing `displayName` and `variant` label.
 - Selecting a different variant:
   1. Stops the currently running subprocess (if any).

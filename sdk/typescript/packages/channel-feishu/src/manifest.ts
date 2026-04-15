@@ -4,7 +4,7 @@ import type { ModuleManifest } from "dotcraft-wire";
 export const manifest: ModuleManifest = {
   moduleId: "feishu-standard",
   channelName: "feishu",
-  displayName: "Feishu (Lark)",
+  displayName: "飞书",
   packageName: "@dotcraft/channel-feishu",
   configFileName: "feishu.json",
   supportedTransports: ["websocket"],

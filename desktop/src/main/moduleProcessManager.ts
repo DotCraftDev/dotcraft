@@ -48,6 +48,7 @@ const PROMOTE_TO_RUNNING_MS = 5_000
 const STABLE_RESTART_MIN_MS = 10_000
 const STABLE_RESET_RESTART_MS = 60_000
 const STOP_GRACE_MS = 5_000
+const AUTO_START_STAGGER_MS = 500
 
 function isNodeSpawnError(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | null)?.code
@@ -219,6 +220,30 @@ export class ModuleProcessManager {
       }
     }
     return status
+  }
+
+  getRunningModuleIds(): string[] {
+    const ids: string[] = []
+    for (const [moduleId, entry] of this.managed) {
+      if (entry.state === 'starting' || entry.state === 'running') {
+        ids.push(moduleId)
+      }
+    }
+    return ids
+  }
+
+  async autoStartModules(enabledIds: string[]): Promise<void> {
+    for (let index = 0; index < enabledIds.length; index += 1) {
+      const moduleId = enabledIds[index]
+      try {
+        await this.start(moduleId)
+      } catch (error) {
+        console.warn(`[module:${moduleId}] auto-start failed`, error)
+      }
+      if (index < enabledIds.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, AUTO_START_STAGGER_MS))
+      }
+    }
   }
 
   private async handleExit(moduleId: string, code: number | null): Promise<void> {

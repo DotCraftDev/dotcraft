@@ -4,7 +4,7 @@ import type { ModuleManifest } from "dotcraft-wire";
 export const manifest: ModuleManifest = {
   moduleId: "weixin-standard",
   channelName: "weixin",
-  displayName: "Weixin (iLink/企业微信)",
+  displayName: "微信",
   packageName: "@dotcraft/channel-weixin",
   configFileName: "weixin.json",
   supportedTransports: ["websocket"],

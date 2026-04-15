@@ -14,31 +14,67 @@ Purpose: Migrate `@dotcraft/channel-weixin` from a plain CLI adapter into a full
 
 ## Table of Contents
 
-- [1. Overview](#1-overview)
-- [2. Goal](#2-goal)
-- [3. Scope](#3-scope)
-- [4. Non-Goals](#4-non-goals)
-- [5. User Experience and Behavioral Contract](#5-user-experience-and-behavioral-contract)
-- [6. Manifest Contract](#6-manifest-contract)
-- [7. Module Factory and Instance Contract](#7-module-factory-and-instance-contract)
-- [8. Config Contract](#8-config-contract)
-- [9. State and Temp Layout Contract](#9-state-and-temp-layout-contract)
-- [10. Interactive Setup Lifecycle Contract](#10-interactive-setup-lifecycle-contract)
-- [11. Lifecycle Contract](#11-lifecycle-contract)
-- [12. Tool Registration Contract](#12-tool-registration-contract)
-- [13. CLI Contract](#13-cli-contract)
-- [14. Package Exports Contract](#14-package-exports-contract)
-- [15. Test Contract](#15-test-contract)
-- [16. Documentation Contract](#16-documentation-contract)
-- [17. Constraints and Compatibility](#17-constraints-and-compatibility)
-- [18. Acceptance Checklist](#18-acceptance-checklist)
-- [19. Open Questions](#19-open-questions)
+- [DotCraft TypeScript Adapter SDK — M5: Weixin Module Migration](#dotcraft-typescript-adapter-sdk--m5-weixin-module-migration)
+  - [Table of Contents](#table-of-contents)
+  - [1. Overview](#1-overview)
+  - [2. Goal](#2-goal)
+  - [3. Scope](#3-scope)
+  - [4. Non-Goals](#4-non-goals)
+  - [5. User Experience and Behavioral Contract](#5-user-experience-and-behavioral-contract)
+    - [5.1 First-Time Host Integration Flow](#51-first-time-host-integration-flow)
+    - [5.2 Restart with Saved Credentials Flow](#52-restart-with-saved-credentials-flow)
+    - [5.3 Auth Expiry Flow](#53-auth-expiry-flow)
+    - [5.4 CLI Flow](#54-cli-flow)
+    - [5.5 Preserved Behaviors](#55-preserved-behaviors)
+  - [6. Manifest Contract](#6-manifest-contract)
+  - [7. Module Factory and Instance Contract](#7-module-factory-and-instance-contract)
+  - [8. Config Contract](#8-config-contract)
+    - [8.1 Config File Location](#81-config-file-location)
+    - [8.2 Config Schema](#82-config-schema)
+    - [8.3 Config Descriptors](#83-config-descriptors)
+    - [8.4 Config Validation](#84-config-validation)
+  - [9. State and Temp Layout Contract](#9-state-and-temp-layout-contract)
+    - [9.1 State Directory](#91-state-directory)
+    - [9.2 Temp Directory](#92-temp-directory)
+    - [9.3 Directory Creation](#93-directory-creation)
+    - [9.4 State Migration Rule](#94-state-migration-rule)
+  - [10. Interactive Setup Lifecycle Contract](#10-interactive-setup-lifecycle-contract)
+    - [10.1 Purpose](#101-purpose)
+    - [10.2 Detection of Auth Requirement](#102-detection-of-auth-requirement)
+    - [10.3 authRequired State Behavior](#103-authrequired-state-behavior)
+    - [10.4 Transition from authRequired to ready](#104-transition-from-authrequired-to-ready)
+    - [10.5 Auth Expiry During Operation](#105-auth-expiry-during-operation)
+    - [10.6 UI-Neutral Requirement](#106-ui-neutral-requirement)
+  - [11. Lifecycle Contract](#11-lifecycle-contract)
+    - [11.1 Startup Transitions](#111-startup-transitions)
+    - [11.2 Auth Expiry After Ready](#112-auth-expiry-after-ready)
+    - [11.3 Shutdown](#113-shutdown)
+    - [11.4 Fatal Runtime Error](#114-fatal-runtime-error)
+  - [12. Tool Registration Contract](#12-tool-registration-contract)
+  - [13. CLI Contract](#13-cli-contract)
+    - [13.1 Entry Point](#131-entry-point)
+    - [13.2 Arguments](#132-arguments)
+    - [13.3 QR in CLI Context](#133-qr-in-cli-context)
+    - [13.4 Machine-Readable Startup Failure](#134-machine-readable-startup-failure)
+  - [14. Package Exports Contract](#14-package-exports-contract)
+  - [15. Test Contract](#15-test-contract)
+    - [15.1 Preserved Tests](#151-preserved-tests)
+    - [15.2 New Module Conformance Tests](#152-new-module-conformance-tests)
+    - [15.3 Config Validation Tests](#153-config-validation-tests)
+    - [15.4 Login State Tests](#154-login-state-tests)
+    - [15.5 State Path Tests](#155-state-path-tests)
+  - [16. Documentation Contract](#16-documentation-contract)
+    - [16.1 README.md](#161-readmemd)
+    - [16.2 README\_ZH.md](#162-readme_zhmd)
+  - [17. Constraints and Compatibility](#17-constraints-and-compatibility)
+  - [18. Acceptance Checklist](#18-acceptance-checklist)
+  - [19. Open Questions](#19-open-questions)
 
 ---
 
 ## 1. Overview
 
-Weixin (iLink/企业微信) is structurally similar to Feishu but has two significant differences that affect the module contract:
+微信 is structurally similar to Feishu but has two significant differences that affect the module contract:
 
 1. **Interactive setup**: Weixin requires a QR login step before the adapter can begin processing messages. This is an ongoing requirement — if the session expires, the QR login must be repeated. This maps directly to the `authRequired` and `authExpired` lifecycle states from M1/M2.
 
@@ -142,7 +178,7 @@ When auth is required, the CLI renders a QR code to the terminal (existing behav
 |-------|-------|
 | `moduleId` | `"weixin-standard"` |
 | `channelName` | `"weixin"` |
-| `displayName` | `"Weixin (iLink/企业微信)"` |
+| `displayName` | `"微信"` |
 | `packageName` | `"@dotcraft/channel-weixin"` |
 | `configFileName` | `"weixin.json"` |
 | `supportedTransports` | `["websocket"]` |

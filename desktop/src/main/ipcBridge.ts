@@ -202,9 +202,18 @@ function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
 }
 
 let moduleProcessManager: ModuleProcessManager | null = null
+let ensureModulesScanned: (() => Promise<DiscoveredModule[]>) | null = null
 
 export function getModuleProcessManager(): ModuleProcessManager | null {
   return moduleProcessManager
+}
+
+export async function autoStartModuleProcesses(enabledModuleIds: string[]): Promise<void> {
+  if (enabledModuleIds.length === 0) return
+  if (ensureModulesScanned) {
+    await ensureModulesScanned()
+  }
+  await moduleProcessManager?.autoStartModules(enabledModuleIds)
 }
 
 export function registerIpcHandlers(
@@ -226,6 +235,7 @@ export function registerIpcHandlers(
     cachedModules = await scanModules(callbacks?.getSettings() ?? {}, !app.isPackaged)
     return cachedModules
   }
+  ensureModulesScanned = scanAndCacheModules
   moduleProcessManager = new ModuleProcessManager({
     workspacePath,
     getWireClient,
@@ -743,5 +753,6 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('modules:stop')
   ipcMain.removeHandler('modules:running')
   moduleProcessManager = null
+  ensureModulesScanned = null
   invalidateFileIndex()
 }

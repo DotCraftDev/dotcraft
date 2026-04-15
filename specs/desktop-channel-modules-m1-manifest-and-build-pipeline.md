@@ -94,7 +94,7 @@ Each module package produces a `manifest.json` at the package root directory (al
 {
   "moduleId": "feishu-standard",
   "channelName": "feishu",
-  "displayName": "Feishu (Lark)",
+  "displayName": "飞书",
   "packageName": "@dotcraft/channel-feishu",
   "configFileName": "feishu.json",
   "supportedTransports": ["websocket"],
