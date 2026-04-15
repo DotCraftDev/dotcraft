@@ -783,6 +783,9 @@ public sealed class SessionService(
                                         };
                                         eventChannel.EmitItemCompleted(toolCallItem);
                                         streamingToolCallItemsByCallId.Remove(fc.CallId);
+                                        TryRemoveStreamingToolCallIndexByItemReference(
+                                            streamingToolCallItemsByIndex,
+                                            existingStreamingToolCallItem);
                                     }
                                     else
                                     {
@@ -1463,5 +1466,24 @@ public sealed class SessionService(
             DeferredToolRegistry = source.DeferredToolRegistry
         };
         return cloned;
+    }
+
+    internal static bool TryRemoveStreamingToolCallIndexByItemReference(
+        Dictionary<int, SessionItem>? streamingToolCallItemsByIndex,
+        SessionItem targetItem)
+    {
+        if (streamingToolCallItemsByIndex == null)
+            return false;
+
+        int? matchedIndex = null;
+        foreach (var kvp in streamingToolCallItemsByIndex)
+        {
+            if (!ReferenceEquals(kvp.Value, targetItem))
+                continue;
+            matchedIndex = kvp.Key;
+            break;
+        }
+
+        return matchedIndex.HasValue && streamingToolCallItemsByIndex.Remove(matchedIndex.Value);
     }
 }

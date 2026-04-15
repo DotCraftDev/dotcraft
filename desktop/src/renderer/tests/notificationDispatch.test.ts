@@ -291,7 +291,7 @@ describe('notification dispatch payload format', () => {
     expect(item?.exitCode).toBe(0)
   })
 
-  it('dispatches tool call argument deltas into the matching tool call item', () => {
+  it('dispatches tool call argument deltas into the matching tool call item and decodes escapes', () => {
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
     dispatch({
       method: 'item/started',
@@ -315,15 +315,77 @@ describe('notification dispatch payload format', () => {
         itemId: 'tool_write_1',
         toolName: 'WriteFile',
         callId: 'write-1',
-        delta: '{"path":"a.txt","content":"hello'
+        delta: '{"path":"a.txt","content":"hello\\nworld"}'
       }
     })
 
     const item = s().turns[0].items.find((i) => i.id === 'tool_write_1')
     expect(item?.type).toBe('toolCall')
     expect(item?.status).toBe('streaming')
-    expect(item?.argumentsPreview).toContain('"content":"hello')
-    expect(item?.streamingFileContent).toBe('hello')
+    expect(item?.argumentsPreview).toContain('"content":"hello\\nworld"')
+    expect(item?.streamingFileContent).toBe('hello\nworld')
+  })
+
+  it('merges finalized toolCall arguments on completion so WriteFile diff is generated', () => {
+    dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_write_2',
+          type: 'toolCall',
+          payload: {
+            callId: 'write-2',
+            toolName: 'WriteFile'
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/completed',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_write_2',
+          type: 'toolCall',
+          payload: {
+            callId: 'write-2',
+            toolName: 'WriteFile',
+            arguments: {
+              path: 'a.txt',
+              content: 'line1\nline2'
+            }
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/completed',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_result_2',
+          type: 'toolResult',
+          payload: {
+            callId: 'write-2',
+            success: true,
+            result: 'Successfully wrote 11 bytes (2 lines) to a.txt'
+          }
+        }
+      }
+    })
+
+    const item = s().turns[0].items.find((i) => i.id === 'tool_write_2')
+    expect(item?.type).toBe('toolCall')
+    expect(item?.status).toBe('completed')
+    expect(item?.arguments?.path).toBe('a.txt')
+    expect(item?.arguments?.content).toBe('line1\nline2')
+
+    const itemDiff = s().itemDiffs.get('tool_write_2')
+    expect(itemDiff).toBeDefined()
+    expect(itemDiff?.filePath).toBe('a.txt')
+    expect(itemDiff?.additions).toBe(2)
   })
 
   it('updates the existing Exec toolCall instead of requiring a standalone terminal block', () => {

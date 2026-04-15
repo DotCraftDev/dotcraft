@@ -268,7 +268,36 @@ function extractPartialJsonStringValue(json: string, key: string): string | null
   for (let i = quoteIndex + 1; i < json.length; i += 1) {
     const ch = json[i]
     if (escaped) {
-      out += ch
+      switch (ch) {
+        case 'n':
+          out += '\n'
+          break
+        case 'r':
+          out += '\r'
+          break
+        case 't':
+          out += '\t'
+          break
+        case 'b':
+          out += '\b'
+          break
+        case 'f':
+          out += '\f'
+          break
+        case '\\':
+          out += '\\'
+          break
+        case '"':
+          out += '"'
+          break
+        case '/':
+          out += '/'
+          break
+        default:
+          // Keep unknown escapes as-is so partial streams remain readable.
+          out += ch
+          break
+      }
       escaped = false
       continue
     }
@@ -833,7 +862,15 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         )
       }))
     } else if (type === 'toolCall') {
-      // Mark the tool call item itself as completed
+      // Mark the tool call item itself as completed and merge finalized payload fields.
+      const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
+      const itemId = (item?.id as string) ?? ''
+      const completedArgs = (item?.arguments as Record<string, unknown> | undefined)
+        ?? (itemPayload.arguments as Record<string, unknown> | undefined)
+      const completedToolName = (item?.toolName as string | undefined)
+        ?? (itemPayload.toolName as string | undefined)
+      const completedCallId = (item?.toolCallId as string | undefined)
+        ?? (itemPayload.callId as string | undefined)
       set((s) => ({
         turns: s.turns.map((t) =>
           t.id === turnId
@@ -841,8 +878,15 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 ...t,
                 items: sortItemsByCreatedAt(
                   t.items.map((i) =>
-                    i.id === (item?.id as string)
-                      ? { ...i, status: 'completed' as const, completedAt: (item?.completedAt as string) }
+                    i.id === itemId
+                      ? {
+                          ...i,
+                          status: 'completed' as const,
+                          completedAt: (item?.completedAt as string),
+                          arguments: completedArgs ?? i.arguments,
+                          toolName: completedToolName ?? i.toolName,
+                          toolCallId: completedCallId ?? i.toolCallId
+                        }
                       : i
                   )
                 )
