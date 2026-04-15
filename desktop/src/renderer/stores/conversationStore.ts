@@ -295,7 +295,7 @@ function extractPartialJsonStringValue(json: string, key: string): string | null
           break
         default:
           // Keep unknown escapes as-is so partial streams remain readable.
-          out += ch
+          out += '\\' + ch
           break
       }
       escaped = false
