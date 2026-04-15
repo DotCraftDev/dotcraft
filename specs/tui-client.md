@@ -7,7 +7,7 @@
 | **Date** | 2026-03-19 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) |
 
-Purpose: Define the architecture, UI structure, event mapping, and behavioral contract for `dotcraft-tui`, a Rust-based terminal user interface built on [Ratatui](https://ratatui.rs/) that connects to the DotCraft AppServer via the Wire Protocol. This TUI is a standalone alternative to the built-in C# CLI, offering richer interaction, higher rendering performance, and cross-platform single-binary distribution.
+Purpose: Define the architecture, interaction model, event mapping, and behavioral contract for `dotcraft-tui`, a terminal client that connects to the DotCraft AppServer via the Wire Protocol.
 
 ## Credits
 
@@ -25,16 +25,16 @@ We thank the Codex team for their pioneering work in terminal AI agent UX.
 - [4. Architecture](#4-architecture)
 - [5. Connection Modes](#5-connection-modes)
 - [6. Wire Protocol Event Mapping](#6-wire-protocol-event-mapping)
-- [7. UI Structure](#7-ui-structure)
-- [8. Widget Specifications](#8-widget-specifications)
-  - [8.1 WelcomeScreen](#81-welcomescreen)
-  - [8.2 FooterLine](#82-footerline)
-  - [8.3 ChatView](#83-chatview)
-  - [8.4 BottomPane](#84-bottompane)
+- [7. Interaction Surface](#7-interaction-surface)
+- [8. Interaction Contracts](#8-interaction-contracts)
+  - [8.1 Startup and Ready States](#81-startup-and-ready-states)
+  - [8.2 Context Hint Contract](#82-context-hint-contract)
+  - [8.3 Transcript Contract](#83-transcript-contract)
+  - [8.4 Composer Contract](#84-composer-contract)
   - [8.5 Slash Commands](#85-slash-commands)
 - [9. Input Handling](#9-input-handling)
-- [10. Approval Flow UI](#10-approval-flow-ui)
-- [11. Theme System](#11-theme-system)
+- [10. Approval Flow](#10-approval-flow)
+- [11. Presentation Customization](#11-presentation-customization)
 - [12. Crate Structure](#12-crate-structure)
 
 ---
@@ -44,12 +44,12 @@ We thank the Codex team for their pioneering work in terminal AI agent UX.
 ### 1.1 What This Spec Defines
 
 - The process architecture: how `dotcraft-tui` launches and communicates with a DotCraft AppServer.
-- The UI layout: how the terminal screen is divided into functional zones.
+- The interaction surface: what information areas exist and their responsibilities.
 - The event mapping: how Wire Protocol notifications are transformed into UI state updates.
-- The widget specifications: what each visual component renders and how it behaves.
+- The interaction contracts: behavioral rules for startup, transcript, composer, hints, and overlays.
 - The input model: how keyboard events are captured, routed, and dispatched.
 - The approval flow: how the TUI presents approval dialogs and sends decisions back to the server.
-- The theme system: how colors and styles are configured and applied.
+- Presentation customization boundaries (high-level).
 - The crate structure: how the Rust project is organized.
 
 ### 1.2 What This Spec Does Not Define
@@ -57,7 +57,7 @@ We thank the Codex team for their pioneering work in terminal AI agent UX.
 - **Wire protocol semantics**: Thread, Turn, and Item lifecycle, message formats, and transport rules are defined in [appserver-protocol.md](appserver-protocol.md). This spec references them but does not redefine them.
 - **Server-side behavior**: Agent execution, tool invocation, hook execution, and session management are server-internal concerns.
 - **Built-in C# CLI behavior**: The existing Spectre.Console CLI remains a separate implementation. This TUI does not replace it; both share the same Wire Protocol surface.
-- **Markdown rendering implementation**: The specific markdown-to-terminal rendering algorithm is an implementation detail. This spec defines what content is rendered, not the parsing pipeline.
+- **Frontend visual design details**: Specific glyphs, colors, spacing, and exact layout rendering belong to implementation and can evolve without changing this spec.
 
 ---
 
@@ -323,286 +323,100 @@ The SubAgent table widget reads `subagent_entries` directly. Because the protoco
 
 ---
 
-## 7. UI Structure
+## 7. Interaction Surface
 
-### 7.1 Layout Zones
+### 7.1 Information Regions
 
-The terminal screen is divided into two primary zones arranged vertically. The top zone grows to fill all available space; the bottom zone is self-sizing based on its content.
+The terminal interaction model contains two logical regions:
 
-```
-┌──────────────────────────────────────────────────┐
-│                                                  │
-│  Chat View                                  [1]  │
-│  (history + streaming + inline plan/subagents)   │
-│  (flex = 1, takes all remaining height)          │
-│                                                  │
-├──────────────────────────────────────────────────┤
-│  Bottom Pane                                [2]  │
-│  ┌──────────────────────────────────────────┐   │
-│  │ Status Indicator  (conditional, 1+ rows) │   │
-│  │ Pending Input Preview  (if queued)       │   │
-│  │ Input Editor   (self-sizing, max 10 rows)│   │
-│  │ Footer Line    (1 row, contextual hints) │   │
-│  └──────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────┘
-```
+| Region | Responsibility |
+|--------|----------------|
+| Transcript region | Shows turn history plus in-flight turn updates (agent output, tool activity, plan snapshots, and subagent progress). |
+| Composer region | Handles drafting and submission, context hints, queued follow-up input, and global run/system status. |
 
-| Zone | Widget | Content |
-|------|--------|---------|
-| [1] Chat View | `ChatView` | Scrollable history of turns: user messages, agent messages (markdown), tool calls, errors, inline plan and SubAgent progress blocks |
-| [2] Bottom Pane | `BottomPane` | Vertical stack: optional `StatusIndicator` (when turn is running) + optional `PendingInputPreview` (when messages are queued) + `InputEditor` + `FooterLine` |
+This spec defines behavior and state transitions, not fixed pixel/row layout or specific widget implementation.
 
-There is no top status bar and no side panel. All status context moves to the `FooterLine` at the bottom. Plan and SubAgent data always render inline in `ChatView`.
+### 7.2 Startup to Ready Transition
 
-### 7.2 Startup Screen
+- Startup state is shown immediately after terminal initialization.
+- Startup state exits when initialization handshake is complete, or on first user interaction.
+- After transition, transcript and composer interactions become available.
 
-Before the chat UI is shown, a `WelcomeScreen` fills the entire terminal area. It renders from the moment the terminal is initialized until the Wire Protocol handshake completes and the first user interaction is possible. It auto-dismisses when the connection is ready, or immediately on any key press.
+### 7.3 Resize and Compact Constraints
 
-See §8.1 for the full `WelcomeScreen` specification.
+- Terminal resize must preserve draft input, transcript position, and active overlay state.
+- On compact terminals, clients may reduce non-essential context rows, but must preserve:
+  - input submission and editing;
+  - interrupt discoverability during active turns;
+  - transcript browsing controls.
 
-### 7.3 Responsive Behavior
+### 7.4 Overlay Precedence
 
-- **Compact terminals** (height < 20 rows): `StatusIndicator` is hidden. `FooterLine` is suppressed. `InputEditor` is clamped to 1 row.
-- **Resize**: Crossterm `Event::Resize` triggers an immediate re-layout. No content is lost; scroll positions are preserved.
+Overlays have strict input priority when present.
 
-### 7.4 Overlay System
+| Overlay type | Trigger |
+|--------------|---------|
+| Approval | `item/approval/request` |
+| Thread/session picker | Slash commands that manage threads/sessions |
+| Help | `/help`, `F1`, or `?` (scope per keybinding rules) |
+| Notification | server-side job/result notifications |
 
-Modal overlays render on top of all zones. Active overlays capture all input until dismissed.
-
-| Overlay | Trigger | Content |
-|---------|---------|---------|
-| `ApprovalOverlay` | `item/approval/request` | Approval prompt with operation details and decision buttons |
-| `ThreadPicker` | `/sessions` command | List of threads with resume/archive/delete actions |
-| `HelpOverlay` | `/help` command or `?` key | Key bindings and slash command reference |
-| `NotificationToast` | `system/jobResult` | Transient toast in top-right corner |
+When an overlay is active, base transcript/composer input must not be mutated unless the overlay explicitly delegates it.
 
 ---
 
-## 8. Widget Specifications
+## 8. Interaction Contracts
 
-### 8.1 WelcomeScreen
+### 8.1 Startup and Ready States
 
-A full-screen startup widget displayed while the Wire Protocol handshake is in progress.
+During startup, the client must communicate:
+- current connection progress;
+- minimal onboarding hints (for example, how to access help and sessions).
 
-#### Layout
+Visual assets (logos, glyphs, color emphasis, animation style) are implementation details.
 
-```
-┌──────────────────────────────────────────────────┐
-│                                                  │
-│   ██████╗  ██████╗ ████████╗ ██████╗██████╗ ██╗ │
-│   ██╔══██╗██╔═══██╗╚══██╔══╝██╔════╝██╔══██╗██║ │
-│   ██║  ██║██║   ██║   ██║   ██║     ██████╔╝██║ │
-│   ██║  ██║██║   ██║   ██║   ██║     ██╔══██╗╚═╝ │
-│   ██████╔╝╚██████╔╝   ██║   ╚██████╗██║  ██║██╗ │
-│   ╚═════╝  ╚═════╝    ╚═╝    ╚═════╝╚═╝  ╚═╝╚═╝ │
-│                                                  │
-│         Welcome to DotCraft v{version}           │
-│         Workspace: {workspace_path}              │
-│                                                  │
-│   Type a message to start                        │
-│   /help for commands · /sessions for history     │
-│                                                  │
-│                    Connecting...                 │
-└──────────────────────────────────────────────────┘
-```
+### 8.2 Context Hint Contract
 
-#### Behavior
+The composer-adjacent hint area exposes state-sensitive guidance with deterministic priority:
 
-- **Size gating**: The ASCII art logo is shown only when the viewport is at least 60 columns wide and 20 rows tall. On smaller terminals, the logo is omitted and only the text lines are shown.
-- **Connection state**: While connecting, the bottom line shows "Connecting…" with an animated spinner. Once the handshake completes, it changes to "Ready — press any key or start typing".
-- **Auto-dismiss**: The WelcomeScreen is replaced by the chat UI as soon as the handshake completes. Any key press also dismisses it immediately.
-- **Brand styling**: "DotCraft" in the text line uses the brand color. The ASCII logo renders in the brand color when the terminal supports true color, or bright magenta otherwise.
+| Priority (high → low) | Condition | Required hint intent |
+|-----------------------|-----------|----------------------|
+| 1 | Quit confirmation window active | Explain second-step exit action |
+| 2 | Active turn + draft exists | Explain queue behavior |
+| 3 | Idle + draft exists | Explain submit/newline behavior |
+| 4 | Active turn + empty draft | Explain interrupt behavior |
+| 5 | Idle + empty draft | Show help/mode-switch discoverability |
 
-### 8.2 FooterLine
+Connection and token context may be displayed when space allows, but behavior must not rely on their visibility.
 
-A single-row widget rendered below the `InputEditor`. Replaces the old top `StatusBar` with contextual, state-aware information.
+### 8.3 Transcript Contract
 
-#### Layout
+Transcript must preserve chronological turn semantics and include:
+- user messages;
+- agent messages (markdown-capable content);
+- tool activity and completion summaries;
+- errors and system info;
+- plan snapshots and subagent progress snapshots.
 
-```
-  ? for shortcuts · Agent (shift+tab to cycle)        ↑1.2k ↓350 tokens · ● Connected
-```
+Behavioral requirements:
+- a single authoritative busy signal for running/system state (no competing animated indicators);
+- tool/subagent progress should be readable without requiring side panels;
+- auto-scroll follows new content only while user is at bottom;
+- explicit browse actions (`PageUp/PageDown/Home/End`, mouse wheel, browse-mode line keys) must consistently mutate the same scroll state.
 
-#### Left side (contextual hints, priority order)
+### 8.4 Composer Contract
 
-The left side shows one of the following depending on the current state (highest priority first):
+Composer must support:
+- multi-line editing and submission;
+- mode switching between Agent and Plan;
+- input history recall semantics (`↑/↓` remain input-local under defined conditions);
+- slash command entry and completion/dispatch;
+- queued follow-up input during active turns;
+- interrupt controls during active turns.
 
-| State | Left content |
-|-------|--------------|
-| Quit reminder active | `press ctrl+c again to quit` (styled warning) |
-| Input has draft, turn running | `tab to queue message` |
-| Input has draft, turn idle | `enter to send · shift+enter newline` |
-| Input empty, turn running | `esc to interrupt` |
-| Input empty, turn idle | `? for shortcuts · {Mode} (shift+tab to cycle)` |
+If both turn status and system status exist, status messaging may be merged, but interrupt discoverability must remain explicit.
 
-#### Right side (context)
-
-```
-↑{input_tokens} ↓{output_tokens} tokens · ● Connected
-```
-
-- Token counts reset between turns and are omitted when zero.
-- Connection: `● Connected` (green) or `○ Disconnected` (red/dim).
-
-#### Width-based progressive collapse
-
-As the terminal narrows, elements are dropped in this order:
-1. Drop `· ● Connected` / `○ Disconnected`.
-2. Drop token counts.
-3. Shorten mode cycle hint from `(shift+tab to cycle)` to nothing.
-4. Drop the shortcut hint entirely.
-
-The footer is fully suppressed on terminals with height < 20 rows.
-
-### 8.3 ChatView
-
-A scrollable viewport displaying the conversation history and the active streaming content. Plan and SubAgent data always render inline here; there is no side panel.
-
-#### History Entries
-
-Each `HistoryEntry` in `AppState.history` is rendered as a block:
-
-| Entry Type | Rendering |
-|------------|-----------|
-| `UserMessage` | Prefixed with `❯` in the user message color. Plain text with continuation indent. |
-| `AgentMessage` | Prefixed with `•` gutter. Markdown rendered to styled terminal text with syntax-highlighted code blocks. |
-| `ToolCall` | See §8.3 Tool Call Rendering below. |
-| `Error` | Red-styled error message with `✗` prefix. |
-| `SystemInfo` | Dim one-liner (e.g., "Context compacted successfully."). |
-
-#### Tool Call Rendering
-
-Tool calls use a Codex-style invocation format with adaptive layout.
-
-**Active (in-flight):**
-```
-  ⠋ Calling ReadFile("src/main.rs")
-```
-
-**Completed (success):**
-```
-  • Called ReadFile("src/main.rs") (0.3s)
-    └ // file content preview, first 1-2 lines, dimmed
-```
-
-**Completed (error):**
-```
-  • Called RunTests() (2.1s)
-    └ Error: 3 tests failed
-```
-
-Rules:
-- The bullet `•` is green on success, red on error. Active tools show an animated Braille spinner.
-- The verb changes: `Calling` (active) → `Called` (completed).
-- Invocation format: `ToolName("arg1", "arg2")` with JSON argument values.
-- **Adaptive layout**: if the full invocation line fits within the available width, it renders inline on the same line as `Calling`/`Called`. If it overflows, the invocation wraps to the next line prefixed with `  └ `.
-- **Elapsed time**: shown in dim parentheses after the completed invocation: `(0.3s)`, `(1.2s)`, `(2m 03s)`.
-- **Result summary**: always shown below the completed invocation, dim, truncated to `TOOL_CALL_MAX_LINES` (default 5 lines). There is no global "expand/collapse" toggle; results are always partially visible.
-- The `tools_expanded` global toggle is removed in favor of always-visible summaries.
-
-#### Active Streaming
-
-While a turn is running, the active area renders below committed history:
-
-- **Reasoning**: Dim italic text, preceded by "💭 Thinking" indicator. Live-updated as `item/reasoning/delta` arrives.
-- **Agent text**: Markdown rendered progressively from `message_buffer`. Prefixed with `•` gutter.
-- **Tool spinners**: Rendered inline as they arrive. Format: `⠋ Calling ToolName("args")`.
-
-#### Inline SubAgent Block
-
-When `subagent_entries` is non-empty, a live-updating block renders below the streaming area (during an active turn) or inline in committed history (after the turn).
-
-**Active (at least one SubAgent running):**
-```
-  ──── SubAgents (3 active, 1 done) ────────────────────
-  ⠋  code-explorer   ReadFile src/main.rs    ↑4.5k ↓1.2k
-  ⠋  test-runner     RunTests               ↑2.0k ↓0.6k
-  ⠙  doc-writer      WriteFile docs.md      ↑1.8k ↓0.3k
-  •  reviewer        Done                   ↑3.2k ↓0.9k
-```
-
-**All complete (collapsed summary):**
-```
-  ✓ 4 SubAgents completed (↑11.5k ↓2.8k tokens)
-```
-
-Rules:
-- Active SubAgents show their `currentTool` or a spinner when `currentTool` is null (thinking).
-- Completed SubAgents show `●  Done` in green.
-- Token counts use compact format: `4.5k`, `1.2M`.
-- When all SubAgents complete, the block collapses to a single summary line.
-- Press `s` to toggle detail visibility when at least one SubAgent is done.
-
-#### Inline Plan Block
-
-When `plan` is non-null, a plan block renders below history entries (always inline, not in a side panel).
-
-```
-  ──── Plan: Implement auth ────────────────────────────
-  ✅  Create User model
-  🔄  Implement login endpoint
-  ⬜  Add JWT middleware
-  ⬜  Write integration tests
-```
-
-Status icons: `✅` completed, `🔄` in_progress, `⬜` pending, `🚫` cancelled.
-
-#### Scrolling
-
-- **Auto-scroll**: When the user is at the bottom, new content auto-scrolls. When the user has scrolled up, auto-scroll is disabled until they return to the bottom.
-- **Key bindings**: `↑`/`↓` scroll by line (when input is not focused), `PageUp`/`PageDown` scroll by page, `Home`/`End` jump to top/bottom.
-
-### 8.4 BottomPane
-
-The `BottomPane` is the vertically-stacked composite widget at the bottom of the screen. Its height is the sum of its visible children.
-
-#### 8.4.1 StatusIndicator
-
-Appears above the `InputEditor` only while `turn_status == Running`. Disappears as soon as the turn completes.
-
-```
-  ⠋ Working  (12s · esc to interrupt)
-```
-
-- Braille spinner on the left.
-- "Working" label with a shimmer animation: each character's brightness oscillates based on `(char_index + tick_count) % period`, creating a traveling wave effect.
-- Elapsed time in dim parentheses, updated every second.
-- Interrupt hint: `esc to interrupt`.
-- If a system status event is active (`compacting` / `consolidating`), the label changes to the system status description.
-- On terminals with height < 20 rows, the `StatusIndicator` is hidden.
-
-#### 8.4.2 PendingInputPreview
-
-Appears between `StatusIndicator` and `InputEditor` when the user has queued follow-up messages (via `Tab` while a turn is running).
-
-```
-  ┄ Queued: "run the tests again"
-```
-
-- Shows the queued message text truncated to one line.
-- Dim styling. Hidden when `pending_input` is empty.
-
-#### 8.4.3 InputEditor
-
-A multi-line text input.
-
-```
-❯ Type a message or /help...
-```
-
-Features:
-- **Mode gutter**: `❯` (Agent mode, green) or `✎` (Plan mode, blue) on the left of the first text line. Continuation lines have `  ` (two spaces).
-- **Placeholder**: When the input is empty, dim placeholder text "Type a message or /help..." is shown in the gutter area.
-- **No top separator**: The old horizontal separator line above the input is removed. The FooterLine below replaces its hint content.
-- **Self-sizing height**: Grows with content (1 row per input line). Maximum 10 rows. On terminals with height < 20 rows, clamped to 1 row.
-- **History**: `↑`/`↓` (when input is empty) cycles through previous user messages.
-- **Tab completion**: `Tab` triggers slash command completion popup when input starts with `/`. When a turn is running, `Tab` queues the current input as a pending message instead of cycling slash commands.
-- **Submit**: `Enter` submits. `Shift+Enter` inserts a newline.
-- **Interrupt**: `Ctrl+C` while a turn is running sends `turn/interrupt`. Double `Ctrl+C` within 1 second exits the TUI.
-
-#### 8.4.4 FooterLine
-
-See §8.2.
+### 8.5 Slash Commands
 
 ### 8.5 Slash Commands
 
@@ -610,7 +424,7 @@ Slash commands are typed in the InputEditor and processed locally (not sent to t
 
 | Command | Action |
 |---------|--------|
-| `/help` | Show HelpOverlay with all commands and key bindings. |
+| `/help` | Show help overlay with all commands and key bindings. |
 | `/sessions` | Open ThreadPicker overlay. List threads via `thread/list`. |
 | `/new` | Start a new thread via `thread/start`. |
 | `/load <id>` | Resume a thread via `thread/resume`. |
@@ -625,16 +439,34 @@ Slash commands are typed in the InputEditor and processed locally (not sent to t
 
 ## 9. Input Handling
 
-### 9.1 Focus Model
+### 9.1 Interaction State Model
 
-The TUI has two focus targets:
+The TUI has three interaction states:
 
-| Focus | Receives key events | Behavior |
+| State | Receives key events | Behavior |
 |-------|---------------------|----------|
-| `InputEditor` | Default focus. All printable keys, Enter, Backspace, arrow keys for cursor movement. | Text editing. |
-| `ChatView` | Focus acquired when user presses `Esc` from InputEditor or scrolls. | Scroll navigation. `Enter` or `i` returns focus to InputEditor. |
+| `InputEditor` | Default state. All printable keys, Enter, Backspace, and input-editing keys. | Draft editing and submission. Input context remains available in both `Idle` and active turn states. |
+| `TranscriptBrowse` | Entered by explicit browse actions (`Esc`, `PageUp`, `PageDown`, `Home`, `End`) when no overlay is active. | Transcript navigation. `Enter`, `i`, or any printable input returns to `InputEditor`. |
+| `Overlay` | Any modal overlay (`ApprovalOverlay`, `ThreadPicker`, `HelpOverlay`, etc.). | Overlay owns all input until dismissed/resolved. |
 
-When an overlay is active, it captures all input.
+Additional constraints:
+
+- `Running` is not a focus state. It must not implicitly remove input editing context.
+- Caret visibility follows focus: when `InputEditor` is active and no overlay is shown, caret remains visible in both `Idle` and `Running`.
+- Rendering note: clients may hide the terminal cursor while painting a frame and only re-show/reposition it at frame end to avoid visible cursor sweep/flicker.
+- `Esc` behavior is stateful: interrupt active turn when applicable; otherwise it enters/exits transcript browsing.
+
+### 9.1.1 Interaction State Matrix
+
+| Key | `InputEditor` | `TranscriptBrowse` | `Overlay` |
+|-----|---------------|--------------------|-----------|
+| `Enter` | Submit draft (or newline with modifiers) | Return to `InputEditor` | Overlay-specific confirm |
+| Printable char | Edit draft | Return to `InputEditor` and apply to draft | Overlay-specific input |
+| `Esc` | Interrupt active turn if active; otherwise enter `TranscriptBrowse` | Exit browse to `InputEditor` | Overlay-specific cancel/close |
+| `PageUp` / `PageDown` / `Home` / `End` | Enter/continue transcript browsing | Navigate transcript | Overlay-local or ignored |
+| Mouse wheel | Scroll transcript and enter/continue browse | Scroll transcript | Overlay-local or ignored |
+| `↑` / `↓` | Input-local behavior (history/caret rules) | Scroll transcript by line | Overlay-local navigation |
+| `Tab` / `Shift+Tab` | Completion/queue and mode toggle | No state switch side effects | Overlay-local or ignored |
 
 ### 9.2 Global Key Bindings
 
@@ -645,8 +477,12 @@ These bindings are active regardless of focus:
 | `Ctrl+C` | Interrupt running turn, or exit (double-press). |
 | `Ctrl+D` | Exit the TUI (equivalent to `/quit`). |
 | `Ctrl+L` | Redraw the terminal. |
-| `Tab` (in InputEditor) | Toggle between Agent and Plan mode. |
-| `F1` or `?` (in ChatView) | Show HelpOverlay. |
+| `Shift+Tab` | Toggle between Agent and Plan mode. |
+| `PageUp` / `PageDown` / `Home` / `End` | Enter/continue transcript browsing when no overlay is active. |
+| `F1` | Show HelpOverlay (global). |
+| `?` (in transcript browse context) | Show HelpOverlay. |
+
+`Tab` behavior in `InputEditor` is reserved for slash completion or queueing follow-up input during active turns (§8.4).
 
 ### 9.3 Terminal Compatibility
 
@@ -654,11 +490,11 @@ Crossterm handles cross-platform differences. The TUI detects terminal capabilit
 
 - **Bracketed paste**: Enabled when supported. Allows multi-line paste without triggering Submit.
 - **Kitty keyboard protocol**: Used when available for unambiguous modifier detection.
-- **Mouse support**: Disabled in v1. May be enabled in future for click-to-expand on tool calls.
+- **Mouse support**: Wheel scrolling is enabled for transcript navigation. Other mouse interactions remain out of scope for v1.
 
 ---
 
-## 10. Approval Flow UI
+## 10. Approval Flow
 
 When the server sends an `item/approval/request`, the TUI must:
 
@@ -667,25 +503,15 @@ When the server sends an `item/approval/request`, the TUI must:
 3. Block normal input until the user makes a decision.
 4. Send the decision as a JSON-RPC response.
 
-### 10.1 ApprovalOverlay Layout
+### 10.1 Approval Interaction Contract
 
-```
-┌─ Approval Required ──────────────────────────────────┐
-│                                                       │
-│  🔧 Shell Command                                    │
-│  Command:  npm test                                   │
-│  Directory: /home/dev/myproject                       │
-│                                                       │
-│  Reason: Agent wants to execute a shell command       │
-│                                                       │
-│  ► [a] Accept           Accept this operation         │
-│    [s] Accept Session   Accept similar operations     │
-│    [!] Accept Always    Remember permanently          │
-│    [d] Decline          Reject this operation         │
-│    [c] Cancel           Cancel the entire turn        │
-│                                                       │
-└───────────────────────────────────────────────────────┘
-```
+The approval UI must show:
+- approval type;
+- operation summary;
+- rationale/reason text when available;
+- all currently permitted decisions.
+
+Exact visual arrangement, icons, and highlighting style are implementation details.
 
 ### 10.2 Decision Key Bindings
 
@@ -699,55 +525,36 @@ When the server sends an `item/approval/request`, the TUI must:
 
 Arrow keys move the selection highlight. `Enter` confirms the highlighted option.
 
-### 10.3 Approval Type Display
+### 10.3 Approval Type Mapping
 
-| `approvalType` | Icon | Label |
-|----------------|------|-------|
-| `"shell"` | `🔧` | "Shell Command" |
-| `"file"` | `📄` | "File Operation" |
+| `approvalType` | Required label intent |
+|----------------|-----------------------|
+| `"shell"` | Shell command execution |
+| `"file"` | File operation |
 
-The `operation` field is displayed as the detail line. For shell approvals, this is the command text. For file approvals, this is the operation type and file path.
+The `operation` field must be presented as human-readable details.
 
 ---
 
-## 11. Theme System
+## 11. Presentation Customization
 
-### 11.1 Theme Configuration
+### 11.1 Configuration Sources
 
-Themes are defined in TOML files. The TUI loads the theme from (in priority order):
+Presentation customization is loaded from (in priority order):
 
 1. `--theme <path>` CLI argument.
 2. `.craft/tui-theme.toml` in the workspace.
 3. `~/.config/dotcraft/tui-theme.toml` (user-global).
 4. Built-in default theme.
 
-### 11.2 Theme Schema
+### 11.2 Customization Boundaries
 
-```toml
-[colors]
-brand = "#7C3AED"         # DotCraft brand color (used in FooterLine, WelcomeScreen)
-user_message = "white"
-agent_message = "white"
-reasoning = "cyan"
-tool_active = "yellow"
-tool_completed = "gray"
-tool_error = "red"
-error = "red"
-success = "green"
-dim = "dark_gray"
-mode_agent = "green"
-mode_plan = "blue"
-approval_border = "yellow"
-status_indicator = "yellow"   # "Working" label and spinner color
+This spec does not standardize concrete color tokens, icon sets, or typography choices.
 
-[footer]
-foreground = "dark_gray"      # Footer line hint text
-context_color = "dark_gray"   # Token counts and connection status
-```
-
-The `[status_bar]` and `[side_panel]` sections from v0.1.0 are removed. They are replaced by `[footer]` and `status_indicator`.
-
-Colors accept Ratatui color names (`"red"`, `"cyan"`, `"dark_gray"`) or hex codes (`"#7C3AED"`). Hex colors require a terminal that supports 24-bit true color; the TUI falls back gracefully to the nearest 256-color equivalent.
+Customization must not alter protocol or interaction semantics. In particular:
+- keybinding behavior and interaction state transitions remain unchanged;
+- warning/error/success states remain distinguishable;
+- compact-mode fallback keeps essential interaction affordances available.
 
 ---
 
@@ -761,8 +568,8 @@ The TUI crate is organized into five top-level modules:
 |--------|---------------|
 | `wire` | Wire Protocol client layer: JSON-RPC 2.0 client with request/response correlation, transport abstraction (stdio and WebSocket), Wire DTO types, and error handling. |
 | `app` | Application state and event handling: the `AppState` struct and its mutations, Wire notification → state mapping (§6), terminal event → state mapping, slash command parsing/dispatch, and token accounting. |
-| `ui` | Ratatui widget implementations: screen layout computation (§7.1), all widgets (`WelcomeScreen`, `ChatView`, `InputEditor`, `StatusIndicator`, `FooterLine`), inline panel renderers (`InlineSubAgentBlock`, `InlinePlanBlock`), modal overlays (approval, thread picker, help, notification), and markdown-to-styled-text rendering. The old `StatusBar`, `SidePanel`, `SubAgentTable`, and `PlanPanel` widgets are removed or merged into inline renderers. |
-| `theme` | Theme loading and application: TOML configuration deserialization and the built-in default theme. |
+| `ui` | Rendering and interaction surface implementation: transcript/composer regions, overlays, and markdown-capable message presentation. |
+| `theme` | Presentation customization loading and application. |
 | `i18n` | Internationalization: bilingual string tables for English and Chinese. |
 
 ### 12.2 Key Dependencies

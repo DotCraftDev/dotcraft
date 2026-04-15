@@ -1,6 +1,6 @@
 // StatusIndicator widget (§8.4.1 of specs/tui-client.md).
 // Shows "Working (Ns · esc to interrupt)" above the InputEditor while a turn is running.
-// Includes a shimmer animation on the "Working" label text.
+// Uses a static "Working" label (no shimmer animation).
 
 use crate::{
     app::state::{AppState, TurnStatus},
@@ -10,16 +10,12 @@ use crate::{
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Modifier,
     text::{Line, Span},
     widgets::{Paragraph, Widget},
 };
 
 /// Braille spinner frames.
 const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-/// Number of ticks for one full shimmer wave cycle.
-const SHIMMER_PERIOD: u64 = 12;
 
 pub struct StatusIndicator<'a> {
     state: &'a AppState,
@@ -38,7 +34,10 @@ impl<'a> StatusIndicator<'a> {
 
     /// Returns how many rows this widget needs. 0 if it should not be shown.
     pub fn preferred_height(state: &AppState) -> u16 {
-        if state.turn_status == TurnStatus::Running || state.system_status.is_some() {
+        if state.turn_status == TurnStatus::Running
+            || state.turn_status == TurnStatus::WaitingApproval
+            || state.system_status.is_some()
+        {
             1
         } else {
             0
@@ -74,26 +73,14 @@ impl Widget for StatusIndicator<'_> {
             self.strings.working
         };
 
-        // Build spans: spinner + shimmer label + elapsed + interrupt hint.
+        // Build spans: spinner + static label + elapsed + interrupt hint.
         let mut spans: Vec<Span<'static>> = Vec::new();
         spans.push(Span::raw("  "));
         spans.push(Span::styled(
             format!("{frame} "),
             self.theme.status_indicator,
         ));
-
-        // Shimmer: each character of the label gets a brightness based on position + tick.
-        for (i, ch) in label.chars().enumerate() {
-            let phase = ((i as u64 + tick) % SHIMMER_PERIOD) as f32 / SHIMMER_PERIOD as f32;
-            // Sine-like brightness: oscillate between dim (0.4) and bright (1.0).
-            let t = (phase * std::f32::consts::TAU).sin() * 0.5 + 0.5; // 0..1
-            let style = if t > 0.65 {
-                self.theme.status_indicator.add_modifier(Modifier::BOLD)
-            } else {
-                self.theme.status_indicator
-            };
-            spans.push(Span::styled(ch.to_string(), style));
-        }
+        spans.push(Span::styled(label.to_string(), self.theme.status_indicator));
 
         // Elapsed + interrupt hint in dim parentheses.
         let hint = format!("  ({elapsed_str} · {})", self.strings.esc_to_interrupt);

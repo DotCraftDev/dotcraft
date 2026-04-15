@@ -65,7 +65,8 @@ impl Widget for FooterLine<'_> {
         };
 
         // ── Left side: contextual hint ───────────────────────────────────────
-        let is_running = self.state.turn_status == TurnStatus::Running;
+        let is_running = self.state.turn_status == TurnStatus::Running
+            || self.state.turn_status == TurnStatus::WaitingApproval;
         let has_draft = !self.state.input_text.is_empty();
         let quit_pending = self
             .state

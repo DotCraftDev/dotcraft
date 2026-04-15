@@ -86,7 +86,7 @@ pub const WELCOME_MODEL_LABEL: &str = "模型";
 
 // UX polish: footer hints
 pub const MODE_CYCLE_HINT: &str = "shift+tab 切换";
-pub const SHORTCUTS_HINT: &str = "? 查看快捷键";
+pub const SHORTCUTS_HINT: &str = "F1 帮助";
 
 // UX polish round 2: welcome, action feedback
 pub const WELCOME_MESSAGE: &str =
