@@ -1,62 +1,146 @@
-# DotCraft Weixin external channel example
+# DotCraft Weixin Channel Adapter
 
 **[中文](./README_ZH.md) | English**
 
-Connects [Tencent iLink](https://ilinkai.weixin.qq.com) (WeChat bot API) to DotCraft via the **WebSocket** external channel transport.
+`@dotcraft/channel-weixin` connects Tencent iLink (WeChat bot API) to DotCraft via the external channel protocol over WebSocket.
 
-## Prerequisites
+## Feature Summary
 
-1. **DotCraft workspace config**: merge `config.example.json` into your `.craft/config.json` (or equivalent) so `ExternalChannels.weixin` is enabled with `transport: "websocket"`. This mirrors how the Telegram example ships a **workspace** snippet, not the adapter runtime config.
-2. **GatewayModule** services: `ExternalChannelRegistry` is registered when the Gateway module is enabled (e.g. enable `Automations` or any channel, or enable `ExternalChannels`).
-3. **AppServerHost** bootstraps WebSocket external channels when `app-server` is the primary module (fixed in this repo).
+- WebSocket transport to DotCraft AppServer
+- QR-based interactive setup for first login
+- Session persistence under module-scoped state directory
+- Streaming turn delivery and approval handling
+- `/new` command support to start a fresh conversation
+- Structured channel tool: `WeixinSendFilePreviewToCurrentChat`
 
-## Setup
+## Installation
 
 ```bash
 cd sdk/typescript
-npm install && npm run build
-cd packages/channel-weixin
-npm install && npm run build
-# Edit adapter_config.json: wsUrl, apiBaseUrl, dataDir
+npm install
+npm run build:all
 ```
 
-Start DotCraft (`app-server` / `stdioAndWebSocket`), then:
+## 1) Workspace Config (`.craft/config.json`)
+
+Merge `config.example.json` into workspace `.craft/config.json` to enable the `weixin` external channel:
+
+```json
+{
+  "AppServer": {
+    "Mode": "stdioAndWebSocket",
+    "WebSocket": {
+      "Host": "127.0.0.1",
+      "Port": 9100,
+      "Token": ""
+    }
+  },
+  "ExternalChannels": {
+    "weixin": {
+      "enabled": true,
+      "transport": "websocket"
+    }
+  }
+}
+```
+
+## 2) Adapter Config (`.craft/weixin.json`)
+
+Create `.craft/weixin.json` in your target workspace:
+
+```json
+{
+  "dotcraft": {
+    "wsUrl": "ws://127.0.0.1:9100/ws",
+    "token": ""
+  },
+  "weixin": {
+    "apiBaseUrl": "https://ilinkai.weixin.qq.com",
+    "pollIntervalMs": 3000,
+    "pollTimeoutMs": 30000,
+    "approvalTimeoutMs": 120000,
+    "botType": "3"
+  }
+}
+```
+
+Field notes:
+
+- `dotcraft.wsUrl`: DotCraft AppServer WebSocket endpoint
+- `dotcraft.token`: optional AppServer token
+- `weixin.apiBaseUrl`: iLink API base URL
+- `weixin.pollIntervalMs`: optional interval between polling cycles
+- `weixin.pollTimeoutMs`: optional long-poll timeout
+- `weixin.approvalTimeoutMs`: optional approval timeout
+- `weixin.botType`: optional bot type for QR login API
+
+## 3) CLI Usage
+
+Primary mode:
 
 ```bash
-npm start
-# or: node dist/index.js
+npx dotcraft-channel-weixin --workspace /path/to/workspace
 ```
 
-(If you omit the path, the CLI defaults to `adapter_config.json` in the current working directory.)
+Optional config override:
 
-First run opens a **QR code** in the terminal; scan with WeChat. Credentials are saved under `dataDir`.
+```bash
+npx dotcraft-channel-weixin --workspace /path/to/workspace --config /custom/weixin.json
+```
 
-## Configuration files
+## 4) Interactive Setup (QR Login)
 
-| File | Role |
-|------|------|
-| `config.example.json` | Snippet for **DotCraft** `.craft/config.json`: enables `ExternalChannels.weixin` with WebSocket transport. |
-| `adapter_config.json` | **Weixin adapter** runtime config (checked in; edit in place). |
+- First run with no saved session transitions to `authRequired`
+- In CLI mode, QR is rendered in terminal
+- After scan confirmation, adapter transitions to `ready`
+- When session expires, lifecycle transitions `authExpired -> authRequired`, then QR login is required again
 
-### Adapter config (`adapter_config.json`)
+## 5) State and Temp Layout
 
-| Field | Description |
-|-------|-------------|
-| `dotcraft.wsUrl` | e.g. `ws://127.0.0.1:9100/ws` |
-| `dotcraft.token` | Optional `?token=` if `AppServer.WebSocket.Token` is set |
-| `weixin.apiBaseUrl` | Default `https://ilinkai.weixin.qq.com` |
-| `weixin.dataDir` | Directory for credentials and sync cursor |
-| `weixin.approvalTimeoutMs` | Approval prompt timeout (default 120000) |
+The module stores data under workspace `.craft/`:
 
-Threads created by this adapter do not send a workspace path in `thread/start`; the DotCraft AppServer substitutes the host process workspace root so Desktop and other clients list them under the same project.
+- Persistent state: `.craft/state/weixin-standard/`
+  - credentials, sync cursor, context tokens
+- Temporary artifacts: `.craft/tmp/weixin-standard/`
+  - QR URL and QR image artifacts
 
-## Commands
+## 6) Host Integration
 
-Send **`/new`** in the chat (exact message, case-insensitive) to archive the current DotCraft thread and start a new conversation on the next message—same idea as the Telegram example’s `/new`.
+Hosts should import module contract exports and observe lifecycle:
 
-## Approval flow
+```typescript
+import { manifest, createModule } from "@dotcraft/channel-weixin";
 
-WeChat does not support inline buttons like Telegram. Approvals use **plain-text keywords** (same idea as QQ/WeCom): `同意` / `yes`, `同意全部` / `yes all`, `拒绝` / `no`, etc. The prompt text sent to the user is **Chinese**, aligned with the QQ/WeCom session-protocol wording.
+const instance = createModule({
+  workspaceRoot: "/path/to/workspace",
+  craftPath: "/path/to/workspace/.craft",
+  channelName: "weixin",
+  moduleId: "weixin-standard",
+});
+
+instance.onStatusChange((status, error) => {
+  // status: configMissing | configInvalid | starting | authRequired | authExpired | ready | stopped
+});
+
+await instance.start();
+```
+
+## 7) Migration Notes
+
+- Legacy `adapter_config.json` and `weixin.dataDir` are deprecated
+- No automatic state migration from old `dataDir` paths is performed
+- Existing users should re-authenticate once under the new module-scoped state path
+
+## 8) Development Notes
+
+- Build all TypeScript packages:
+  - `cd sdk/typescript && npm run build:all`
+- Run all tests:
+  - `cd sdk/typescript && npm run test:all`
+- Run this package tests only:
+  - `npm run test --workspace @dotcraft/channel-weixin`
+- Dry-run package contents:
+  - `cd sdk/typescript/packages/channel-weixin && npm pack --dry-run`
 
 ## Credits
 

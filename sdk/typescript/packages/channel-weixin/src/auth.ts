@@ -62,14 +62,21 @@ export async function waitForQrLogin(opts: {
   onQrUrl: (url: string) => void;
   onStatus?: (s: string) => void;
   deadlineMs?: number;
+  abortSignal?: AbortSignal;
 }): Promise<WeixinCredentials> {
   const deadline = Date.now() + (opts.deadlineMs ?? 480_000);
+  if (opts.abortSignal?.aborted) {
+    throw new Error("QR login aborted");
+  }
   const qr = await fetchQrCode(opts.apiBaseUrl, opts.botType);
   opts.onQrUrl(qr.qrcode_img_content);
   let qrcode = qr.qrcode;
   let scannedPrinted = false;
 
   while (Date.now() < deadline) {
+    if (opts.abortSignal?.aborted) {
+      throw new Error("QR login aborted");
+    }
     const st = await pollQrStatus(opts.apiBaseUrl, qrcode);
     opts.onStatus?.(st.status);
 
@@ -98,8 +105,27 @@ export async function waitForQrLogin(opts: {
       };
     }
 
-    await new Promise((r) => setTimeout(r, 1000));
+    await sleep(1000, opts.abortSignal);
   }
 
   throw new Error("QR login timed out");
+}
+
+function sleep(ms: number, abortSignal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      abortSignal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      abortSignal?.removeEventListener("abort", onAbort);
+      reject(new Error("QR login aborted"));
+    };
+
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
 }

@@ -1,50 +1,146 @@
-# DotCraft 微信外部渠道示例
+# DotCraft 微信渠道适配器
 
 **中文 | [English](./README.md)**
 
-通过 **WebSocket** 外部渠道将 [腾讯iLink](https://ilinkai.weixin.qq.com)（微信机器人API）连接到 DotCraft。
+`@dotcraft/channel-weixin` 通过 WebSocket 外部渠道协议，将腾讯 iLink（微信机器人 API）接入 DotCraft。
 
-## 前置条件
+## 功能概览
 
-1. **DotCraft 工作区配置**：将本目录下的 `config.example.json` 片段合并到 `.craft/config.json`（或等价配置）中，启用 `ExternalChannels.weixin` 且 `transport` 为 `websocket`。这与 Telegram 示例一致：`config.example.json` 表示**工作区**配置，而非适配器自身配置。
-2. 需启用 Gateway 相关 DI（例如开启 `Automations` 或任意会启用 `GatewayModule` 的模块），以便注册 `ExternalChannelRegistry`。
-3. 本仓库已在 `AppServerHost` 中于 **app-server 为主模块** 时启动 WebSocket 外部渠道宿主。
+- 通过 WebSocket 连接 DotCraft AppServer
+- 首次登录采用二维码交互认证
+- 会话状态持久化到模块专属状态目录
+- 支持流式回合回复与审批处理
+- 支持 `/new` 新建会话命令
+- 提供结构化渠道工具 `WeixinSendFilePreviewToCurrentChat`
 
-## 使用
-
-```bash
-cd sdk/typescript && npm install && npm run build
-cd packages/channel-weixin && npm install && npm run build
-# 编辑 adapter_config.json（仓库已提供，可直接改）
-```
-
-启动 DotCraft 后执行：
+## 安装
 
 ```bash
-npm start
-# 或: node dist/index.js
+cd sdk/typescript
+npm install
+npm run build:all
 ```
 
-不传参数时，CLI 默认读取当前目录下的 `adapter_config.json`。
+## 1）工作区配置（`.craft/config.json`）
 
-首次运行需 **扫码登录**；凭据保存在 `dataDir`。
+将本目录的 `config.example.json` 合并到工作区 `.craft/config.json`，启用 `weixin` 外部渠道：
 
-## 配置文件说明
+```json
+{
+  "AppServer": {
+    "Mode": "stdioAndWebSocket",
+    "WebSocket": {
+      "Host": "127.0.0.1",
+      "Port": 9100,
+      "Token": ""
+    }
+  },
+  "ExternalChannels": {
+    "weixin": {
+      "enabled": true,
+      "transport": "websocket"
+    }
+  }
+}
+```
 
-| 文件 | 用途 |
-|------|------|
-| `config.example.json` | **DotCraft** 工作区配置片段：启用 `ExternalChannels.weixin`（WebSocket）。 |
-| `adapter_config.json` | **微信适配器**运行时配置（随仓库提供，直接编辑）。 |
+## 2）适配器配置（`.craft/weixin.json`）
 
-本适配器在 `thread/start` 中不传工作区路径；DotCraft AppServer 会将空身份中的工作区替换为宿主进程的工作区根目录，因此 Desktop 等客户端可在同一项目下列出这些线程。
+在目标工作区创建 `.craft/weixin.json`：
 
-## 命令
+```json
+{
+  "dotcraft": {
+    "wsUrl": "ws://127.0.0.1:9100/ws",
+    "token": ""
+  },
+  "weixin": {
+    "apiBaseUrl": "https://ilinkai.weixin.qq.com",
+    "pollIntervalMs": 3000,
+    "pollTimeoutMs": 30000,
+    "approvalTimeoutMs": 120000,
+    "botType": "3"
+  }
+}
+```
 
-在对话中发送 **`/new`**（整段消息仅为此命令，不区分大小写）可结束当前会话线程并开启新对话，下一条消息会进入新线程；与 Telegram 示例中的 `/new` 一致。若当时有待处理的审批，会先按取消处理。
+字段说明：
 
-## 审批
+- `dotcraft.wsUrl`：DotCraft AppServer WebSocket 地址
+- `dotcraft.token`：可选 AppServer 鉴权令牌
+- `weixin.apiBaseUrl`：iLink API 基础地址
+- `weixin.pollIntervalMs`：可选轮询间隔
+- `weixin.pollTimeoutMs`：可选长轮询超时
+- `weixin.approvalTimeoutMs`：可选审批超时时间
+- `weixin.botType`：可选二维码登录 bot 类型
 
-微信侧无 Telegram 那样的按钮，审批通过 **文本关键词**（与 QQ/企业微信类似）：`同意` / `yes`、`同意全部` / `yes all`、`拒绝` / `no` 等。发给用户的审批说明为**中文**，与企业微信 / QQ 会话协议侧文案风格一致。
+## 3）CLI 使用方式
+
+推荐方式：
+
+```bash
+npx dotcraft-channel-weixin --workspace /path/to/workspace
+```
+
+可选配置覆盖：
+
+```bash
+npx dotcraft-channel-weixin --workspace /path/to/workspace --config /custom/weixin.json
+```
+
+## 4）交互式初始化（二维码登录）
+
+- 首次运行若无已保存会话，会进入 `authRequired`
+- CLI 模式会在终端渲染二维码
+- 用户扫码确认后，适配器进入 `ready`
+- 会话过期时生命周期为 `authExpired -> authRequired`，需要重新扫码
+
+## 5）状态与临时目录布局
+
+模块数据统一存储在工作区 `.craft/` 下：
+
+- 持久状态：`.craft/state/weixin-standard/`
+  - 凭据、同步游标、上下文 token
+- 临时文件：`.craft/tmp/weixin-standard/`
+  - 二维码 URL 与二维码图片产物
+
+## 6）宿主集成方式
+
+宿主通过模块契约导入并监听生命周期：
+
+```typescript
+import { manifest, createModule } from "@dotcraft/channel-weixin";
+
+const instance = createModule({
+  workspaceRoot: "/path/to/workspace",
+  craftPath: "/path/to/workspace/.craft",
+  channelName: "weixin",
+  moduleId: "weixin-standard",
+});
+
+instance.onStatusChange((status, error) => {
+  // status: configMissing | configInvalid | starting | authRequired | authExpired | ready | stopped
+});
+
+await instance.start();
+```
+
+## 7）迁移说明
+
+- 旧版 `adapter_config.json` 与 `weixin.dataDir` 已废弃
+- 不会自动迁移旧 `dataDir` 路径中的历史状态
+- 迁移后首次运行需要在新状态目录下重新扫码登录
+
+## 8）开发说明
+
+- 构建所有 TypeScript 包：
+  - `cd sdk/typescript && npm run build:all`
+- 运行全部测试：
+  - `cd sdk/typescript && npm run test:all`
+- 仅运行本包测试：
+  - `npm run test --workspace @dotcraft/channel-weixin`
+- 预览打包产物：
+  - `cd sdk/typescript/packages/channel-weixin && npm pack --dry-run`
 
 ## 致谢
 

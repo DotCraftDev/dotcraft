@@ -21,10 +21,10 @@
     "README_ZH.md"
   ],
   "scripts": {
-    "start": "node dist/cli.js adapter_config.json",
+    "start": "node dist/cli.js --workspace .",
     "build": "tsc -p tsconfig.json",
-    "dev": "npm run build && node dist/cli.js adapter_config.json",
-    "test": "npm run build",
+    "dev": "npm run build && node dist/cli.js --workspace .",
+    "test": "npm run build && node --test dist/module.test.js dist/config.test.js dist/auth.test.js dist/paths.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "engines": {
