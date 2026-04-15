@@ -1,4 +1,10 @@
-export type ChannelConnectionState = 'connected' | 'enabledNotConnected' | 'notConfigured'
+export type ChannelConnectionState =
+  | 'connected'
+  | 'enabledNotConnected'
+  | 'notConfigured'
+  | 'connecting'
+  | 'error'
+  | 'stopped'
 
 interface ChannelCardProps {
   logoPath?: string
@@ -11,7 +17,8 @@ interface ChannelCardProps {
 
 function stateColor(status: ChannelConnectionState): string {
   if (status === 'connected') return 'var(--success)'
-  if (status === 'enabledNotConnected') return 'var(--warning)'
+  if (status === 'enabledNotConnected' || status === 'connecting') return 'var(--warning)'
+  if (status === 'error') return 'var(--error, #ff453a)'
   return 'var(--text-dimmed)'
 }
 

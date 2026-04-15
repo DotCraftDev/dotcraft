@@ -80,6 +80,9 @@ interface StatusPillProps {
 const pillColors: Record<ChannelConnectionState, { bg: string; text: string }> = {
   connected: { bg: 'rgba(52, 199, 89, 0.15)', text: 'var(--success)' },
   enabledNotConnected: { bg: 'rgba(255, 149, 0, 0.15)', text: 'var(--warning)' },
+  connecting: { bg: 'rgba(255, 149, 0, 0.15)', text: 'var(--warning)' },
+  error: { bg: 'rgba(255, 69, 58, 0.15)', text: 'var(--error, #ff453a)' },
+  stopped: { bg: 'var(--bg-tertiary)', text: 'var(--text-dimmed)' },
   notConfigured: { bg: 'var(--bg-tertiary)', text: 'var(--text-dimmed)' }
 }
 

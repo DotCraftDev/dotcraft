@@ -1,0 +1,129 @@
+{
+  "moduleId": "feishu-standard",
+  "channelName": "feishu",
+  "displayName": "飞书",
+  "packageName": "@dotcraft/channel-feishu",
+  "configFileName": "feishu.json",
+  "supportedTransports": [
+    "websocket"
+  ],
+  "requiresInteractiveSetup": false,
+  "capabilitySummary": {
+    "hasChannelTools": true,
+    "hasStructuredDelivery": true,
+    "requiresInteractiveSetup": false,
+    "capabilitySetMayVaryByEnvironment": false
+  },
+  "sdkContractVersion": "1.0.0",
+  "supportedProtocolVersions": [
+    "0.2"
+  ],
+  "variant": "standard",
+  "launcher": {
+    "bin": "dotcraft-channel-feishu",
+    "supportsWorkspaceFlag": true,
+    "supportsConfigOverrideFlag": true
+  },
+  "configDescriptors": [
+    {
+      "key": "dotcraft.wsUrl",
+      "displayLabel": "DotCraft WebSocket URL",
+      "description": "AppServer WebSocket endpoint (ws:// or wss://).",
+      "required": true,
+      "dataKind": "string",
+      "masked": false,
+      "interactiveSetupOnly": false,
+      "defaultValue": "ws://127.0.0.1:9100/ws"
+    },
+    {
+      "key": "dotcraft.token",
+      "displayLabel": "DotCraft Token",
+      "description": "Optional bearer token for the DotCraft AppServer.",
+      "required": false,
+      "dataKind": "secret",
+      "masked": true,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.appId",
+      "displayLabel": "Feishu App ID",
+      "description": "App ID for Feishu/Lark bot.",
+      "required": true,
+      "dataKind": "string",
+      "masked": false,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.appSecret",
+      "displayLabel": "Feishu App Secret",
+      "description": "App secret for Feishu/Lark bot.",
+      "required": true,
+      "dataKind": "secret",
+      "masked": true,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.brand",
+      "displayLabel": "Brand",
+      "description": "Brand label used in outbound cards (e.g. feishu, lark).",
+      "required": false,
+      "dataKind": "string",
+      "masked": false,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.approvalTimeoutMs",
+      "displayLabel": "Approval Timeout (ms)",
+      "description": "Timeout before approval requests auto-cancel.",
+      "required": false,
+      "dataKind": "number",
+      "masked": false,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.groupMentionRequired",
+      "displayLabel": "Require @mention in Groups",
+      "description": "Only process group messages that mention the bot.",
+      "required": false,
+      "dataKind": "boolean",
+      "masked": false,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.ackReactionEmoji",
+      "displayLabel": "Ack Reaction Emoji",
+      "description": "Emoji type used for inbound acknowledgement.",
+      "required": false,
+      "dataKind": "string",
+      "masked": false,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.downloadDir",
+      "displayLabel": "Download Directory",
+      "description": "Local directory for downloaded message attachments.",
+      "required": false,
+      "dataKind": "path",
+      "masked": false,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.debug.adapterStream",
+      "displayLabel": "Debug Adapter Stream",
+      "description": "Enable detailed adapter stream diagnostics.",
+      "required": false,
+      "dataKind": "boolean",
+      "masked": false,
+      "interactiveSetupOnly": false
+    },
+    {
+      "key": "feishu.debug.textMerge",
+      "displayLabel": "Debug Text Merge",
+      "description": "Enable transcript merge debug logs.",
+      "required": false,
+      "dataKind": "boolean",
+      "masked": false,
+      "interactiveSetupOnly": false
+    }
+  ]
+}

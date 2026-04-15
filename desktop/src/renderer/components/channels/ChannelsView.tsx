@@ -19,7 +19,11 @@ import {
   ExternalChannelConfigForm,
   type ExternalChannelConfigWire
 } from './ExternalChannelConfigForm'
-import type { DiscoveredModule } from '../../../preload/api.d'
+import type {
+  DiscoveredModule,
+  ModuleStatusEntry,
+  ModuleStatusMap
+} from '../../../preload/api.d'
 
 interface ChannelStatusWire {
   name: string
@@ -71,6 +75,24 @@ function statusLabelKey(status: ChannelConnectionState): string {
     : status === 'enabledNotConnected'
       ? 'channels.status.enabledNotConnected'
       : 'channels.status.notConfigured'
+}
+
+function moduleStatusLabelKey(status: ChannelConnectionState): string {
+  if (status === 'connecting') return 'channels.modules.connecting'
+  if (status === 'error') return 'channels.modules.error'
+  if (status === 'stopped') return 'channels.modules.stopped'
+  return statusLabelKey(status)
+}
+
+function deriveModuleStatus(moduleId: string, statusMap: ModuleStatusMap): ChannelConnectionState {
+  const entry = statusMap[moduleId]
+  if (!entry) return 'notConfigured'
+  if (entry.processState === 'crashed') return 'error'
+  if (entry.connected) return 'connected'
+  if (entry.processState === 'starting') return 'connecting'
+  if (entry.processState === 'running') return 'enabledNotConnected'
+  if (entry.processState === 'stopped') return 'stopped'
+  return 'notConfigured'
 }
 
 function deriveNativeStatus(
@@ -137,6 +159,8 @@ export function ChannelsView(): JSX.Element {
   const [modulesError, setModulesError] = useState<string | null>(null)
   const [moduleConfig, setModuleConfig] = useState<Record<string, unknown>>({})
   const [savingModule, setSavingModule] = useState(false)
+  const [moduleStatusMap, setModuleStatusMap] = useState<ModuleStatusMap>({})
+  const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null)
 
   const externalManagementEnabled = capabilities?.externalChannelManagement === true
 
@@ -288,6 +312,7 @@ export function ChannelsView(): JSX.Element {
   const externalChannelCards = useMemo<ExternalChannelViewModel[]>(() => {
     if (!externalManagementEnabled) return []
 
+    const moduleChannelNames = new Set(modules.map((module) => module.channelName.toLowerCase()))
     const persistedByName = new Map<string, ExternalChannelConfigWire>()
     for (const channel of externalChannels) {
       persistedByName.set(channel.name.toLowerCase(), channel)
@@ -295,6 +320,7 @@ export function ChannelsView(): JSX.Element {
 
     const merged: ExternalChannelViewModel[] = []
     for (const preset of PRESET_EXTERNAL_CHANNELS) {
+      if (moduleChannelNames.has(preset.name.toLowerCase())) continue
       const persisted = persistedByName.get(preset.name.toLowerCase())
       if (persisted) {
         merged.push({
@@ -314,6 +340,7 @@ export function ChannelsView(): JSX.Element {
     }
 
     for (const channel of externalChannels) {
+      if (moduleChannelNames.has(channel.name.toLowerCase())) continue
       if (PRESET_EXTERNAL_CHANNELS_BY_NAME.has(channel.name.toLowerCase())) continue
       merged.push({
         name: channel.name,
@@ -323,7 +350,7 @@ export function ChannelsView(): JSX.Element {
     }
 
     return merged
-  }, [externalChannels, externalManagementEnabled])
+  }, [externalChannels, externalManagementEnabled, modules])
 
   useEffect(() => {
     void reloadExternalChannels()
@@ -331,6 +358,27 @@ export function ChannelsView(): JSX.Element {
 
   useEffect(() => {
     void reloadModules()
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    window.api.modules
+      .running()
+      .then((statusMap) => {
+        if (!disposed) {
+          setModuleStatusMap(statusMap)
+        }
+      })
+      .catch(() => {})
+
+    const unsubscribe = window.api.modules.onStatusChanged((statusMap) => {
+      if (disposed) return
+      setModuleStatusMap(statusMap)
+    })
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }, [])
 
   async function handleSave(channelId: ChannelId): Promise<void> {
@@ -355,7 +403,9 @@ export function ChannelsView(): JSX.Element {
         configFileName: selectedModule.configFileName,
         config: moduleConfig
       })
-      addToast(t('channels.savedRestart'), 'success')
+      const processState = moduleStatusMap[selectedModule.moduleId]?.processState
+      const running = processState === 'starting' || processState === 'running'
+      addToast(t(running ? 'channels.modules.configSavedRestart' : 'channels.savedRestart'), 'success')
     } catch (err) {
       addToast(
         t('channels.saveFailed', {
@@ -365,6 +415,46 @@ export function ChannelsView(): JSX.Element {
       )
     } finally {
       setSavingModule(false)
+    }
+  }
+
+  async function handleStartModule(moduleId: string): Promise<void> {
+    setTogglingModuleId(moduleId)
+    try {
+      const result = await window.api.modules.start({ moduleId })
+      if (!result.ok) {
+        const nodeMissing = /node|enoent/i.test(result.error ?? '')
+        addToast(
+          nodeMissing
+            ? t('channels.modules.nodeNotFound')
+            : t('channels.saveFailed', { error: result.error ?? 'Failed to start module process' }),
+          'error'
+        )
+      }
+    } catch (err) {
+      addToast(
+        t('channels.saveFailed', { error: err instanceof Error ? err.message : String(err) }),
+        'error'
+      )
+    } finally {
+      setTogglingModuleId((prev) => (prev === moduleId ? null : prev))
+    }
+  }
+
+  async function handleStopModule(moduleId: string): Promise<void> {
+    setTogglingModuleId(moduleId)
+    try {
+      const result = await window.api.modules.stop({ moduleId })
+      if (!result.ok) {
+        addToast(t('channels.saveFailed', { error: result.error ?? 'Failed to stop module process' }), 'error')
+      }
+    } catch (err) {
+      addToast(
+        t('channels.saveFailed', { error: err instanceof Error ? err.message : String(err) }),
+        'error'
+      )
+    } finally {
+      setTogglingModuleId((prev) => (prev === moduleId ? null : prev))
     }
   }
 
@@ -607,14 +697,14 @@ export function ChannelsView(): JSX.Element {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {modules.map((module) => {
-                const status: ChannelConnectionState = 'notConfigured'
+                const status = deriveModuleStatus(module.moduleId, moduleStatusMap)
                 return (
                   <ChannelCard
                     key={module.moduleId}
                     logoPath={moduleLogoPath(module.channelName)}
                     label={module.displayName}
                     status={status}
-                    statusLabel={t(statusLabelKey(status))}
+                    statusLabel={t(moduleStatusLabelKey(status))}
                     active={selectedChannelKey === `module:${module.moduleId}`}
                     onClick={() => {
                       setSelectedChannelKey(`module:${module.moduleId}`)
@@ -735,6 +825,14 @@ export function ChannelsView(): JSX.Element {
               onSave={() => void handleSaveModule(selectedModule)}
               saving={savingModule}
               logoPath={selectedModuleLogoPath}
+              moduleStatus={moduleStatusMap[selectedModule.moduleId] as ModuleStatusEntry | undefined}
+              onStart={() => {
+                void handleStartModule(selectedModule.moduleId)
+              }}
+              onStop={() => {
+                void handleStopModule(selectedModule.moduleId)
+              }}
+              starting={togglingModuleId === selectedModule.moduleId}
             />
           )}
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import type { DiscoveredModule } from '../../../preload/api.d'
+import type { DiscoveredModule, ModuleStatusEntry } from '../../../preload/api.d'
 import { useT } from '../../contexts/LocaleContext'
+import type { ChannelConnectionState } from './ChannelCard'
 import { FieldCard, FormActions, StatusPill, formStyles } from './FormShared'
 import { ToggleSwitch } from './ToggleSwitch'
 
@@ -11,6 +12,10 @@ interface ModuleConfigFormProps {
   onSave: () => void
   saving: boolean
   logoPath?: string
+  moduleStatus?: ModuleStatusEntry
+  onStart: () => void
+  onStop: () => void
+  starting: boolean
 }
 
 function toText(value: unknown): string {
@@ -67,13 +72,42 @@ function applyValueChange(
   return setNestedValue(config, key, value)
 }
 
+function resolveModulePill(status: ModuleStatusEntry | undefined, t: (key: string) => string): {
+  status: ChannelConnectionState
+  label: string
+} {
+  if (!status) {
+    return { status: 'notConfigured', label: t('channels.status.notConfigured') }
+  }
+  if (status.processState === 'crashed') {
+    return { status: 'error', label: t('channels.modules.error') }
+  }
+  if (status.connected) {
+    return { status: 'connected', label: t('channels.status.connected') }
+  }
+  if (status.processState === 'starting') {
+    return { status: 'connecting', label: t('channels.modules.connecting') }
+  }
+  if (status.processState === 'running') {
+    return { status: 'enabledNotConnected', label: t('channels.status.enabledNotConnected') }
+  }
+  if (status.processState === 'stopped') {
+    return { status: 'stopped', label: t('channels.modules.stopped') }
+  }
+  return { status: 'notConfigured', label: t('channels.status.notConfigured') }
+}
+
 export function ModuleConfigForm({
   module,
   config,
   onChange,
   onSave,
   saving,
-  logoPath
+  logoPath,
+  moduleStatus,
+  onStart,
+  onStop,
+  starting
 }: ModuleConfigFormProps): JSX.Element {
   const t = useT()
   const [showSecretByKey, setShowSecretByKey] = useState<Record<string, boolean>>({})
@@ -83,6 +117,13 @@ export function ModuleConfigForm({
     () => module.configDescriptors.filter((descriptor) => descriptor.interactiveSetupOnly !== true),
     [module.configDescriptors]
   )
+  const pill = resolveModulePill(moduleStatus, t)
+  const enableChecked =
+    moduleStatus?.connected === true ||
+    moduleStatus?.processState === 'starting' ||
+    moduleStatus?.processState === 'running'
+  const enableDisabled =
+    starting || moduleStatus?.processState === 'starting' || moduleStatus?.processState === 'stopping'
 
   return (
     <div style={{ maxWidth: '720px' }}>
@@ -137,10 +178,61 @@ export function ModuleConfigForm({
                 ? t('channels.modules.source.bundled')
                 : t('channels.modules.source.user')}
             </span>
-            <StatusPill status="notConfigured" label={t('channels.status.notConfigured')} />
+            <StatusPill status={pill.status} label={pill.label} />
           </div>
         </div>
       </div>
+
+      <FieldCard>
+        <ToggleSwitch
+          checked={enableChecked}
+          disabled={enableDisabled}
+          onChange={(checked) => {
+            if (checked) {
+              onStart()
+            } else {
+              onStop()
+            }
+          }}
+          label={t('channels.modules.enable')}
+        />
+      </FieldCard>
+
+      {moduleStatus?.processState === 'crashed' && (
+        <div
+          style={{
+            marginBottom: '12px',
+            border: '1px solid rgba(255, 69, 58, 0.45)',
+            backgroundColor: 'rgba(255, 69, 58, 0.12)',
+            borderRadius: '8px',
+            padding: '10px 12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px'
+          }}
+        >
+          <span style={{ fontSize: '12px', color: 'var(--error, #ff453a)' }}>
+            {t('channels.modules.crashBanner', { code: String(moduleStatus.lastExitCode ?? 'unknown') })}
+          </span>
+          <button
+            type="button"
+            onClick={onStart}
+            style={{
+              border: '1px solid var(--error, #ff453a)',
+              background: 'transparent',
+              color: 'var(--error, #ff453a)',
+              borderRadius: '6px',
+              padding: '4px 10px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            {t('channels.modules.restart')}
+          </button>
+        </div>
+      )}
 
       <FieldCard>
         {descriptors.map((descriptor) => {

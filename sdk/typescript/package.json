@@ -25,7 +25,8 @@
     "test": "npm run build:all && node --test dist/adapter.test.js dist/moduleAdapter.test.js dist/deliveredFrontier.test.js dist/turnReply.test.js dist/transport.test.js dist/conformance-variant.test.js",
     "typecheck": "tsc --noEmit",
     "build:packages": "npm run build --workspace @dotcraft/channel-feishu && npm run build --workspace @dotcraft/channel-weixin",
-    "build:all": "npm run build && npm run build:packages",
+    "bundle:packages": "npm run bundle --workspace @dotcraft/channel-feishu && npm run bundle --workspace @dotcraft/channel-weixin",
+    "build:all": "npm run build && npm run build:packages && npm run bundle:packages",
     "test:packages": "npm run test --workspace @dotcraft/channel-feishu && npm run test --workspace @dotcraft/channel-weixin",
     "test:all": "npm run test && npm run test:packages",
     "typecheck:packages": "npm run typecheck --workspace @dotcraft/channel-feishu && npm run typecheck --workspace @dotcraft/channel-weixin",
@@ -44,6 +45,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.25.11",
     "typescript": "^5.7.0"
   },
   "license": "MIT"

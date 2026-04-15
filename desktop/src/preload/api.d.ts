@@ -95,6 +95,15 @@ export interface DiscoveredModule {
   configDescriptors: ConfigDescriptorWire[]
 }
 
+export interface ModuleStatusEntry {
+  processState: 'starting' | 'running' | 'stopping' | 'stopped' | 'crashed'
+  connected: boolean
+  restartCount: number
+  lastExitCode: number | null
+}
+
+export type ModuleStatusMap = Record<string, ModuleStatusEntry>
+
 declare global {
   interface Window {
     api: {
@@ -176,6 +185,10 @@ declare global {
           configFileName: string
           config: Record<string, unknown>
         }): Promise<{ ok: boolean }>
+        start(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }>
+        stop(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }>
+        running(): Promise<ModuleStatusMap>
+        onStatusChanged(callback: (statusMap: ModuleStatusMap) => void): UnsubscribeFn
       }
       settings: {
         get(): Promise<{

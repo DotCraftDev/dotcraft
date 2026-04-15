@@ -8,6 +8,7 @@ import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
 import {
   registerIpcHandlers,
   unregisterIpcHandlers,
+  getModuleProcessManager,
   broadcastConnectionStatus,
   broadcastWorkspaceStatus,
   broadcastNotification,
@@ -250,6 +251,12 @@ function teardownRuntime(
     : false
   const hadAppServer = appServerManager !== null
   const hadWireClient = wireClient !== null
+  const moduleManager = getModuleProcessManager()
+  if (moduleManager) {
+    void moduleManager.stopAll().catch((error) => {
+      console.warn('[desktop] failed to stop channel modules during teardown', error)
+    })
+  }
   appServerManager?.shutdown()
   wireClient?.dispose()
   appServerManager = null

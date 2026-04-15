@@ -17,6 +17,10 @@ import {
   warmFileSearchIndex
 } from './workspaceComposerIpc'
 import { scanModules, type DiscoveredModule } from './moduleScanner'
+import {
+  ModuleProcessManager,
+  type ModuleStatusMap
+} from './moduleProcessManager'
 import type {
   WorkspaceSetupRequest,
   WorkspaceStatusPayload,
@@ -197,6 +201,12 @@ function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
   return normalizeLocale(callbacks?.getSettings()?.locale ?? DEFAULT_LOCALE)
 }
 
+let moduleProcessManager: ModuleProcessManager | null = null
+
+export function getModuleProcessManager(): ModuleProcessManager | null {
+  return moduleProcessManager
+}
+
 export function registerIpcHandlers(
   _wireClient: WireProtocolClient | null,
   getWireClient: () => WireProtocolClient | null,
@@ -216,6 +226,16 @@ export function registerIpcHandlers(
     cachedModules = await scanModules(callbacks?.getSettings() ?? {}, !app.isPackaged)
     return cachedModules
   }
+  moduleProcessManager = new ModuleProcessManager({
+    workspacePath,
+    getWireClient,
+    getCachedModules: () => cachedModules,
+    onStatusChanged: (statusMap) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        broadcastModuleStatus(win, statusMap)
+      }
+    }
+  })
 
   // Renderer -> Main: send a JSON-RPC request to AppServer
   handleSafe(
@@ -564,6 +584,33 @@ export function registerIpcHandlers(
     }
   )
 
+  handleSafe(
+    'modules:start',
+    async (_event, params: { moduleId: string }): Promise<{ ok: boolean; error?: string }> => {
+      if (cachedModules === null) {
+        await scanAndCacheModules()
+      }
+      if (!params?.moduleId || typeof params.moduleId !== 'string') {
+        return { ok: false, error: 'Invalid module id' }
+      }
+      return moduleProcessManager?.start(params.moduleId) ?? { ok: false, error: 'Process manager is not available' }
+    }
+  )
+
+  handleSafe(
+    'modules:stop',
+    async (_event, params: { moduleId: string }): Promise<{ ok: boolean; error?: string }> => {
+      if (!params?.moduleId || typeof params.moduleId !== 'string') {
+        return { ok: false, error: 'Invalid module id' }
+      }
+      return moduleProcessManager?.stop(params.moduleId) ?? { ok: false, error: 'Process manager is not available' }
+    }
+  )
+
+  handleSafe('modules:running', async (): Promise<ModuleStatusMap> => {
+    return moduleProcessManager?.getStatusMap() ?? {}
+  })
+
   if (workspacePath) {
     warmFileSearchIndex(workspacePath)
   }
@@ -587,6 +634,15 @@ export function broadcastWorkspaceStatus(
 ): void {
   if (!win.isDestroyed()) {
     win.webContents.send('workspace:status-changed', payload)
+  }
+}
+
+export function broadcastModuleStatus(
+  win: BrowserWindow,
+  payload: ModuleStatusMap
+): void {
+  if (!win.isDestroyed()) {
+    win.webContents.send('modules:status-changed', payload)
   }
 }
 
@@ -683,5 +739,9 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('modules:rescan')
   ipcMain.removeHandler('modules:read-config')
   ipcMain.removeHandler('modules:write-config')
+  ipcMain.removeHandler('modules:start')
+  ipcMain.removeHandler('modules:stop')
+  ipcMain.removeHandler('modules:running')
+  moduleProcessManager = null
   invalidateFileIndex()
 }

@@ -102,6 +102,15 @@ export interface DiscoveredModule {
   configDescriptors: ConfigDescriptorWire[]
 }
 
+export interface ModuleStatusEntry {
+  processState: 'starting' | 'running' | 'stopping' | 'stopped' | 'crashed'
+  connected: boolean
+  restartCount: number
+  lastExitCode: number | null
+}
+
+export type ModuleStatusMap = Record<string, ModuleStatusEntry>
+
 // ---------------------------------------------------------------------------
 // Single-listener dispatcher for notifications and connection status.
 //
@@ -154,6 +163,15 @@ ipcRenderer.on(
   'workspace:status-changed',
   (_event: Electron.IpcRendererEvent, status: WorkspaceStatusPayload) => {
     activeWorkspaceStatusCallback?.(status)
+  }
+)
+
+let moduleStatusToken = 0
+let activeModuleStatusCallback: ((statusMap: ModuleStatusMap) => void) | null = null
+ipcRenderer.on(
+  'modules:status-changed',
+  (_event: Electron.IpcRendererEvent, statusMap: ModuleStatusMap) => {
+    activeModuleStatusCallback?.(statusMap)
   }
 )
 
@@ -436,6 +454,22 @@ const api = {
       config: Record<string, unknown>
     }): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke('modules:write-config', params)
+    },
+    start(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke('modules:start', params)
+    },
+    stop(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke('modules:stop', params)
+    },
+    running(): Promise<ModuleStatusMap> {
+      return ipcRenderer.invoke('modules:running')
+    },
+    onStatusChanged(callback: (statusMap: ModuleStatusMap) => void): UnsubscribeFn {
+      const token = ++moduleStatusToken
+      activeModuleStatusCallback = callback
+      return () => {
+        if (moduleStatusToken === token) activeModuleStatusCallback = null
+      }
     }
   },
 
