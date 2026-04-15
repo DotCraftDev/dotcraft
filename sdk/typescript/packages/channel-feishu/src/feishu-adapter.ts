@@ -8,12 +8,15 @@ import {
 } from "node:path";
 
 import {
-  ChannelAdapter,
+  ConfigValidationError,
   configureTextMergeDebug,
   DECISION_CANCEL,
   DECISION_DECLINE,
-  DotCraftError,
+  DotCraftClient,
+  ModuleChannelAdapter,
+  type ModuleError,
   Thread,
+  type WorkspaceContext,
   WebSocketTransport,
   mergeReplyTextFromDeltaAndSnapshot,
   textPart,
@@ -27,8 +30,9 @@ import {
   buildTranscriptCard,
 } from "./card-builder.js";
 import { createOrUpdateCard, sendReplyCards, sendSingleCard, updateCard } from "./card-sender.js";
-import type { FeishuCardActionEvent, ParsedInboundMessage } from "./feishu-types.js";
-import type { FeishuClient } from "./feishu-client.js";
+import { createFeishuEventHandlers } from "./event-handler.js";
+import type { FeishuCardActionEvent, FeishuConfig, ParsedInboundMessage } from "./feishu-types.js";
+import { FeishuClient } from "./feishu-client.js";
 import { errorMessage, logError, logInfo, logWarn, shortId } from "./logging.js";
 
 export interface FeishuAdapterConfig {
@@ -43,9 +47,35 @@ export interface FeishuAdapterConfig {
   };
 }
 
-export class FeishuAdapter extends ChannelAdapter {
-  private readonly feishu: FeishuClient;
-  private readonly approvalTimeoutMs: number;
+export function validateFeishuConfig(rawConfig: unknown): asserts rawConfig is FeishuConfig {
+  const fields: string[] = [];
+  if (!rawConfig || typeof rawConfig !== "object") {
+    throw new ConfigValidationError("Feishu config must be an object.", ["config"]);
+  }
+
+  const config = rawConfig as Record<string, unknown>;
+  const dotcraft = (config.dotcraft as Record<string, unknown> | undefined) ?? {};
+  const feishu = (config.feishu as Record<string, unknown> | undefined) ?? {};
+
+  const wsUrl = String(dotcraft.wsUrl ?? "").trim();
+  const appId = String(feishu.appId ?? "").trim();
+  const appSecret = String(feishu.appSecret ?? "").trim();
+  if (!wsUrl) {
+    fields.push("dotcraft.wsUrl");
+  } else if (!/^wss?:\/\//i.test(wsUrl)) {
+    throw new ConfigValidationError("dotcraft.wsUrl must use ws:// or wss://.", ["dotcraft.wsUrl"]);
+  }
+  if (!appId) fields.push("feishu.appId");
+  if (!appSecret) fields.push("feishu.appSecret");
+  if (fields.length > 0) {
+    throw new ConfigValidationError(`Missing required fields: ${fields.join(", ")}`, fields);
+  }
+}
+
+export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
+  private feishu: FeishuClient | undefined;
+  private approvalTimeoutMs = 120000;
+  private eventAbortController: AbortController | undefined;
   private readonly threadContextMap = new Map<string, string>();
   private readonly turnTranscriptStates = new Map<
     string,
@@ -71,22 +101,90 @@ export class FeishuAdapter extends ChannelAdapter {
     }
   >();
 
-  constructor(cfg: FeishuAdapterConfig) {
-    const transport = new WebSocketTransport({
-      url: cfg.wsUrl,
-      token: cfg.dotcraftToken ?? "",
-    });
+  constructor(cfg?: FeishuAdapterConfig) {
     super(
-      transport,
       "feishu",
       "dotcraft-feishu",
       "0.1.0",
       ["item/reasoning/delta", "subagent/progress", "item/usage/delta", "system/event", "plan/updated"],
-      { debugStream: cfg.debug?.adapterStream },
+      { debugStream: cfg?.debug?.adapterStream },
     );
-    this.feishu = cfg.feishu;
-    this.approvalTimeoutMs = cfg.approvalTimeoutMs;
-    configureTextMergeDebug(cfg.debug?.textMerge);
+    if (cfg) {
+      this.client = new DotCraftClient(
+        new WebSocketTransport({
+          url: cfg.wsUrl,
+          token: cfg.dotcraftToken ?? "",
+        }),
+      );
+      this.feishu = cfg.feishu;
+      this.approvalTimeoutMs = cfg.approvalTimeoutMs;
+    }
+    configureTextMergeDebug(cfg?.debug?.textMerge);
+  }
+
+  protected override getConfigFileName(_context: WorkspaceContext): string {
+    return "feishu.json";
+  }
+
+  protected override validateConfig(rawConfig: unknown): asserts rawConfig is FeishuConfig {
+    validateFeishuConfig(rawConfig);
+  }
+
+  protected override buildTransportFromConfig(config: FeishuConfig): WebSocketTransport {
+    return new WebSocketTransport({
+      url: config.dotcraft.wsUrl,
+      token: config.dotcraft.token ?? "",
+    });
+  }
+
+  override async startWithContext(context: WorkspaceContext): Promise<void> {
+    await super.startWithContext(context);
+    if (this.getStatus() !== "ready" || !this.loadedConfig) {
+      return;
+    }
+
+    const config = this.loadedConfig;
+    this.approvalTimeoutMs = config.feishu.approvalTimeoutMs ?? 120000;
+    configureTextMergeDebug(config.feishu.debug?.textMerge);
+    this.feishu = new FeishuClient(config.feishu);
+
+    try {
+      const botInfo = await this.feishu.probeBot();
+      const handlers = createFeishuEventHandlers({
+        adapter: this,
+        client: this.feishu,
+        bot: botInfo,
+        config: config.feishu,
+      });
+      this.eventAbortController = new AbortController();
+      void this.feishu.startEventStream(handlers, this.eventAbortController.signal).catch((error) => {
+        this.setStatus("stopped", this.runtimeError("unexpectedRuntimeFailure", errorMessage(error)));
+      });
+    } catch (error) {
+      this.setStatus("stopped", this.runtimeError("startupFailed", errorMessage(error)));
+    }
+  }
+
+  override async stop(): Promise<void> {
+    this.eventAbortController?.abort();
+    this.eventAbortController = undefined;
+    this.feishu?.stopEventStream();
+    await super.stop();
+  }
+
+  private runtimeError(code: ModuleError["code"], message: string): ModuleError {
+    return {
+      code,
+      message,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private getFeishuClient(): FeishuClient {
+    if (!this.feishu) {
+      throw new Error("Feishu client is not initialized. Call startWithContext() or use legacy constructor.");
+    }
+    return this.feishu;
   }
 
   async onDeliver(target: string, content: string, _metadata: Record<string, unknown>): Promise<boolean> {
@@ -95,7 +193,7 @@ export class FeishuAdapter extends ChannelAdapter {
       contentChars: content.length,
     });
     try {
-      await sendReplyCards(this.feishu, target, content);
+      await sendReplyCards(this.getFeishuClient(), target, content);
       logInfo("outbound.deliver.success", {
         target: shortId(target),
       });
@@ -224,7 +322,7 @@ export class FeishuAdapter extends ChannelAdapter {
 
       const data = await readFile(resolvedPath);
       const effectiveFileName = fileName || basename(resolvedPath);
-      const sendResult = await this.feishu.sendFile(target, {
+      const sendResult = await this.getFeishuClient().sendFile(target, {
         fileName: effectiveFileName,
         data,
         mediaType: inferMediaType(effectiveFileName),
@@ -281,7 +379,7 @@ export class FeishuAdapter extends ChannelAdapter {
       reason,
       timeoutSeconds,
     });
-    const sent = await sendSingleCard(this.feishu, channelTarget, card);
+    const sent = await sendSingleCard(this.getFeishuClient(), channelTarget, card);
     logInfo("approval.card_sent", {
       requestId: shortId(requestId),
       threadId: shortId(threadId),
@@ -334,7 +432,7 @@ export class FeishuAdapter extends ChannelAdapter {
 
   private async tryUpdateApprovalCard(messageId: string, card: Record<string, unknown>): Promise<void> {
     try {
-      await updateCard(this.feishu, messageId, card);
+      await updateCard(this.getFeishuClient(), messageId, card);
       logInfo("approval.card_updated", {
         messageId: shortId(messageId),
       });
@@ -388,7 +486,7 @@ export class FeishuAdapter extends ChannelAdapter {
     this.activeTurnByThread.set(threadId, turnId);
     this.activeTurnByChannelTarget.set(channelTarget, turnId);
     const card = buildTranscriptCard(state.accumulatedText, isFinal);
-    const sent = await createOrUpdateCard(this.feishu, channelTarget, card, state.messageId);
+    const sent = await createOrUpdateCard(this.getFeishuClient(), channelTarget, card, state.messageId);
     state.messageId = sent.messageId;
     if (isFinal) {
       this.clearTurnTranscriptState(threadId, turnId);
@@ -427,7 +525,7 @@ export class FeishuAdapter extends ChannelAdapter {
     const normalized = caption.trim();
     if (!normalized) return;
     const card = buildFileCaptionCard(normalized, logContext.fileName);
-    await sendSingleCard(this.feishu, channelTarget, card);
+    await sendSingleCard(this.getFeishuClient(), channelTarget, card);
     logInfo("outbound.send.file.caption_card_sent", {
       source: logContext.source,
       target: shortId(logContext.target),
@@ -470,7 +568,7 @@ export class FeishuAdapter extends ChannelAdapter {
         state.accumulatedText = this.reconcileFinalTranscriptText(state.accumulatedText, replyText);
         state.isFinal = true;
         const card = buildTranscriptCard(state.accumulatedText, true);
-        const sent = await createOrUpdateCard(this.feishu, channelContext, card, state.messageId);
+        const sent = await createOrUpdateCard(this.getFeishuClient(), channelContext, card, state.messageId);
         state.messageId = sent.messageId;
       }
       this.clearTurnTranscriptState(threadId, turnId);
@@ -502,7 +600,7 @@ export class FeishuAdapter extends ChannelAdapter {
     if (isNewCommand(message.text)) {
       await this.newThread(message.threadUserId, message.channelContext);
       await sendSingleCard(
-        this.feishu,
+        this.getFeishuClient(),
         message.channelContext,
         buildErrorCard("New Conversation", "Started a fresh DotCraft thread for this chat."),
       );
@@ -668,7 +766,7 @@ export class FeishuAdapter extends ChannelAdapter {
         fileName: file.fileName,
         bytes: file.data.length,
       });
-      const sendResult = await this.feishu.sendFile(target, file);
+      const sendResult = await this.getFeishuClient().sendFile(target, file);
       if (caption) {
         await this.sendCaptionCard(target, caption, {
           target,

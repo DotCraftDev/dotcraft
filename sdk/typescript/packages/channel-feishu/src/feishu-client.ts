@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type {
-  AppConfig,
+  FeishuConfig,
   FeishuBotInfo,
   FeishuCardActionEvent,
   FeishuMessageEvent,
@@ -81,7 +81,7 @@ export class FeishuClient {
   private tenantAccessToken: string | null = null;
   private tenantAccessTokenExpiresAt = 0;
 
-  constructor(private readonly config: AppConfig["feishu"]) {
+  constructor(private readonly config: FeishuConfig["feishu"]) {
     this.appId = config.appId;
     this.appSecret = config.appSecret;
     this.domain = resolveBrand(config.brand);
@@ -156,8 +156,8 @@ export class FeishuClient {
   async startEventStream(handlers: FeishuEventHandlers, abortSignal?: AbortSignal): Promise<void> {
     logInfo("feishu.ws.starting");
     const dispatcher = new Lark.EventDispatcher({
-      encryptKey: "",
-      verificationToken: "",
+      encryptKey: this.config.encryptKey ?? "",
+      verificationToken: this.config.verificationToken ?? "",
     });
     dispatcher.register({
       "im.message.receive_v1": (data: unknown) => handlers.onMessage(data as FeishuMessageEvent),

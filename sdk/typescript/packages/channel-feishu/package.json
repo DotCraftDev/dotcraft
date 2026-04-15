@@ -24,7 +24,7 @@
     "start": "node dist/cli.js adapter_config.json",
     "build": "tsc -p tsconfig.json",
     "dev": "npm run build && node dist/cli.js adapter_config.json",
-    "test": "npm run build && node --test dist/feishu-transcript.test.js dist/event-handler.test.js dist/card-action-dedup.test.js",
+    "test": "npm run build && node --test dist/feishu-transcript.test.js dist/event-handler.test.js dist/card-action-dedup.test.js dist/module.test.js dist/config.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "engines": {

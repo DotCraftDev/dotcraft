@@ -1,4 +1,4 @@
-export interface AppConfig {
+export interface FeishuConfig {
   dotcraft: {
     wsUrl: string;
     token?: string;
@@ -6,6 +6,8 @@ export interface AppConfig {
   feishu: {
     appId: string;
     appSecret: string;
+    verificationToken?: string;
+    encryptKey?: string;
     brand?: "feishu" | "lark" | string;
     approvalTimeoutMs?: number;
     groupMentionRequired?: boolean;
@@ -20,6 +22,9 @@ export interface AppConfig {
     };
   };
 }
+
+/** @deprecated Use FeishuConfig instead. */
+export type AppConfig = FeishuConfig;
 
 export interface FeishuSenderId {
   open_id?: string;
