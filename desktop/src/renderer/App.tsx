@@ -37,7 +37,7 @@ import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { resolveCustomCommandExecution } from './utils/customCommandExecution'
-import type { WorkspaceStatusPayload } from '../preload/api.d'
+import type { DiscoveredModule, ModuleStatusMap, WorkspaceStatusPayload } from '../preload/api.d'
 import './styles/tokens.css'
 
 function AppChrome({ children }: { children: ReactNode }): JSX.Element {
@@ -106,6 +106,9 @@ export function App(): JSX.Element {
   } = useThreadStore()
 
   const workspacePathRef = useRef('')
+  const moduleConnectedSnapshotRef = useRef<Map<string, boolean>>(new Map())
+  const moduleConnectedSnapshotReadyRef = useRef(false)
+  const moduleDisplayNameByIdRef = useRef<Map<string, string>>(new Map())
 
   const reloadThreadList = useCallback(async () => {
     const path = workspacePathRef.current
@@ -197,6 +200,73 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (workspacePath) {
       useConversationStore.getState().setWorkspacePath(workspacePath)
+    }
+  }, [workspacePath])
+
+  useEffect(() => {
+    moduleConnectedSnapshotRef.current = new Map()
+    moduleConnectedSnapshotReadyRef.current = false
+    moduleDisplayNameByIdRef.current = new Map()
+
+    if (!workspacePath) return
+
+    let disposed = false
+
+    const toConnectedSnapshot = (statusMap: ModuleStatusMap): Map<string, boolean> => {
+      const snapshot = new Map<string, boolean>()
+      for (const [moduleId, entry] of Object.entries(statusMap)) {
+        snapshot.set(moduleId, entry?.connected === true)
+      }
+      return snapshot
+    }
+
+    const hydrateModuleMetadata = async (): Promise<void> => {
+      try {
+        const [modules, statusMap] = await Promise.all([
+          window.api.modules.list(),
+          window.api.modules.running()
+        ])
+        if (disposed) return
+        moduleDisplayNameByIdRef.current = new Map(
+          (modules as DiscoveredModule[]).map((module) => [module.moduleId, module.displayName])
+        )
+        moduleConnectedSnapshotRef.current = toConnectedSnapshot(statusMap)
+        moduleConnectedSnapshotReadyRef.current = true
+      } catch {
+        if (disposed) return
+        moduleConnectedSnapshotRef.current = new Map()
+        moduleConnectedSnapshotReadyRef.current = true
+      }
+    }
+
+    void hydrateModuleMetadata()
+
+    const unsubscribe = window.api.modules.onStatusChanged((statusMap) => {
+      if (disposed) return
+      const nextSnapshot = toConnectedSnapshot(statusMap)
+      if (!moduleConnectedSnapshotReadyRef.current) {
+        moduleConnectedSnapshotRef.current = nextSnapshot
+        moduleConnectedSnapshotReadyRef.current = true
+        return
+      }
+
+      const previousSnapshot = moduleConnectedSnapshotRef.current
+      for (const [moduleId, connected] of nextSnapshot) {
+        const wasConnected = previousSnapshot.get(moduleId) === true
+        if (!wasConnected && connected) {
+          const displayName = moduleDisplayNameByIdRef.current.get(moduleId) ?? moduleId
+          addToast(
+            translate(localeRef.current, 'channels.modules.connectedToast', { name: displayName }),
+            'success'
+          )
+        }
+      }
+      moduleConnectedSnapshotRef.current = nextSnapshot
+    })
+
+    return () => {
+      disposed = true
+      unsubscribe()
     }
   }, [workspacePath])
 
