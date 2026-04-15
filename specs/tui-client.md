@@ -418,8 +418,6 @@ If both turn status and system status exist, status messaging may be merged, but
 
 ### 8.5 Slash Commands
 
-### 8.5 Slash Commands
-
 Slash commands are typed in the InputEditor and processed locally (not sent to the agent).
 
 | Command | Action |
