@@ -2,12 +2,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.0 |
+| **Version** | 0.3.0 |
 | **Status** | Draft |
-| **Date** | 2026-04-14 |
-| **Related Specs** | [typescript-external-channel-packages.md](typescript-external-channel-packages.md), [external-channel-adapter.md](external-channel-adapter.md), [appserver-protocol.md](appserver-protocol.md) |
+| **Date** | 2026-04-15 |
+| **Related Specs** | [external-channel-adapter.md](external-channel-adapter.md), [appserver-protocol.md](appserver-protocol.md) |
 
-Purpose: define the TypeScript SDK contract required for external channel adapters to be integrated as pluggable modules rather than as directly referenced codebases, enabling first-party, enterprise, and environment-specific adapter variants to share one host-facing integration model.
+Purpose: define the unified TypeScript specification for external channel adapters, including both the SDK module contract and the packaging/distribution requirements needed for host integration.
 
 ---
 
@@ -29,7 +29,10 @@ Purpose: define the TypeScript SDK contract required for external channel adapte
 - [14. Capability and Tool Registration Contract](#14-capability-and-tool-registration-contract)
 - [15. Modularity and Variant Support](#15-modularity-and-variant-support)
 - [16. SDK Surface Requirements](#16-sdk-surface-requirements)
-- [17. Conformance](#17-conformance)
+- [17. Package and Repository Contract](#17-package-and-repository-contract)
+- [18. Build, Validation, and Documentation Contract](#18-build-validation-and-documentation-contract)
+- [19. Migration and Archival Contract](#19-migration-and-archival-contract)
+- [20. Conformance and Acceptance](#20-conformance-and-acceptance)
 
 ---
 
@@ -51,7 +54,6 @@ Purpose: define the TypeScript SDK contract required for external channel adapte
 
 - The wire protocol itself. That is defined by [appserver-protocol.md](appserver-protocol.md).
 - The cross-process external channel architecture. That is defined by [external-channel-adapter.md](external-channel-adapter.md).
-- The package layout, build outputs, and repo-local distribution requirements. Those are defined by [typescript-external-channel-packages.md](typescript-external-channel-packages.md).
 - The exact TypeScript syntax used to realize this contract.
 - Desktop UI implementation details.
 
@@ -85,20 +87,21 @@ The following are explicitly deferred:
 
 ## 4. Spec Relationship
 
-This specification is the **SDK contract layer** for TypeScript external channel adapters.
+This specification is the unified **TypeScript contract and package layer** for external channel adapters.
 
 Layering:
 
 1. [appserver-protocol.md](appserver-protocol.md) defines the wire-level protocol.
 2. [external-channel-adapter.md](external-channel-adapter.md) defines the runtime architecture for external channel adapters.
-3. This specification defines the TypeScript SDK contract for pluggable adapter modules.
-4. [typescript-external-channel-packages.md](typescript-external-channel-packages.md) defines how conforming modules are packaged and distributed inside the repository.
+3. This specification defines:
+   - the TypeScript SDK module contract used by adapter implementations
+   - the package, build, documentation, and repo-local distribution contract for those modules
 
-Dependency rules:
+Consolidation rule:
 
-- This specification may constrain the package specification.
-- The package specification must not redefine module behavior, configuration naming, lifecycle reporting, or host integration concepts defined here.
-- If a package-level decision conflicts with this module contract, this specification takes precedence.
+- This document supersedes the previously separate package-focused TypeScript specification.
+- Runtime behavior, packaging, and validation requirements are all normative in this single document.
+- If future package-level guidance conflicts with runtime contract requirements in this document, runtime and host-integration requirements take precedence.
 
 ---
 
@@ -629,9 +632,154 @@ This specification exists to close those gaps before desktop or enterprise integ
 
 ---
 
-## 17. Conformance
+## 17. Package and Repository Contract
 
-### 17.1 Module Contract Conformance
+### 17.1 Package Set
+
+The TypeScript external channel surface is standardized into three package classes:
+
+- `dotcraft-wire` (shared SDK package under `sdk/typescript`)
+- `@dotcraft/channel-feishu` (first-party Feishu package)
+- `@dotcraft/channel-weixin` (first-party Weixin package)
+
+Default first-party rule:
+
+- each first-party package is a single-module package unless explicitly documented otherwise
+
+### 17.2 Repository Layout and Ownership
+
+The package-oriented layout is rooted at `sdk/typescript/packages/`.
+
+Ownership rules:
+
+- `sdk/typescript/src/*` is shared SDK code only
+- each channel package owns its platform-specific implementation
+- channel packages must not import package-internal implementation files from each other
+- shared cross-package code must move into `dotcraft-wire` when it is contract/framework-level
+
+End-state rule:
+
+- no primary implementation remains under `sdk/typescript/examples/`
+
+### 17.3 Package Metadata and Entrypoints
+
+Each adapter package must define at least:
+
+- `name`, `version`, `private`, `type`, `description`
+- `main`, `types`, `exports`, `bin`
+- `scripts.build`, `scripts.test`, `scripts.typecheck`
+- `engines.node`
+
+Each package must export:
+
+- a canonical manifest export
+- a canonical module entry/factory export
+- required package-local config types/descriptors
+- the CLI bootstrap entry where applicable
+
+### 17.4 CLI and Host Consumption
+
+Each first-party package must expose exactly one supported CLI command:
+
+- `dotcraft-channel-feishu`
+- `dotcraft-channel-weixin`
+
+CLI behavior must align with this spec:
+
+- explicit workspace input is supported
+- explicit config override input is supported for development and testing
+- startup failures are machine-readable through lifecycle/error signaling
+- fatal startup failures are logged to stderr for diagnosis
+
+Hosts must consume package-root exports only, and must not depend on package-internal implementation paths.
+
+### 17.5 Versioning and Local Dependency Model
+
+- `dotcraft-wire`, `@dotcraft/channel-feishu`, and `@dotcraft/channel-weixin` must use the same repository version by default.
+- Adapter packages must depend on `dotcraft-wire` as a package dependency, not via source-relative implementation shortcuts.
+- Repo-local dependency resolution must be workspace-based or stable package-root based.
+- Per-package fragile `file:../..` dependency patterns that depend on folder depth are not allowed.
+
+---
+
+## 18. Build, Validation, and Documentation Contract
+
+### 18.1 Build and Distribution Model
+
+Each package must build to `dist/` with:
+
+- ESM JavaScript output
+- declaration files
+- no runtime dependency on `src/`
+
+Supported repo-local distribution forms:
+
+- npm workspace install
+- packed tarball via `npm pack`
+- copied build artifact directory for local manual execution
+
+### 18.2 Packability Contract
+
+Each package must pass `npm pack --dry-run` with:
+
+- required manifest and module-entry exports included
+- required docs and declaration outputs included
+- no dependence on unshipped example-only artifacts
+
+### 18.3 Root Script Contract
+
+The TypeScript SDK root must provide one-command package-oriented execution for:
+
+- build all related packages
+- test all related packages
+- typecheck all related packages
+
+### 18.4 Test and Conformance Contract
+
+Adapter packages must provide tests for startup/config behavior and critical adapter behavior.
+
+A shared conformance suite contract must verify, at minimum:
+
+- package-root manifest loading
+- package-root module entry loading
+- no required package-internal host imports
+- startup behavior consistency with workspace/config contract
+- machine-readable missing-config and invalid-config failures
+
+### 18.5 Runtime Documentation Contract
+
+Each adapter package README must document:
+
+- workspace `.craft/config.json` enablement snippet
+- adapter config path and example (`.craft/feishu.json` or `.craft/weixin.json`)
+- launcher semantics for local execution
+- interactive setup behavior summary where relevant
+
+---
+
+## 19. Migration and Archival Contract
+
+### 19.1 Migration End-State
+
+The TypeScript adapter productization effort is complete only when:
+
+- package identities, exports, scripts, and docs align with this unified specification
+- primary implementation code lives under package roots, not `examples/`
+- host integration guidance reflects the package-root manifest/module-entry model
+
+### 19.2 Archival Lineage
+
+The phased milestone specs `ts-adapter-m1` through `ts-adapter-m6` are implementation milestones for this contract effort. Their long-term normative requirements are consolidated into this document, and milestone files may be archived or removed once repository references are updated.
+
+### 19.3 Scope Boundary for Historical Milestones
+
+Milestone-specific execution details (temporary script wiring, migration-only sequencing, or one-off transitional wording) are not normative after consolidation unless explicitly restated in this document.
+
+---
+
+## 20. Conformance and Acceptance
+
+### 20.1 Module Contract Conformance
 
 A conforming module must satisfy all of the following:
 
@@ -642,9 +790,20 @@ A conforming module must satisfy all of the following:
 - lifecycle statuses and error codes are machine-readable
 - runtime capability and tool registration follow the declared contract
 
-### 17.2 Acceptance Criteria
+### 20.2 Package Conformance
 
-This SDK module-contract effort is complete when all of the following are true:
+A conforming package set must satisfy all of the following:
+
+- first-party adapters are standard package units, not example-only roots
+- each first-party package is clearly defined as a single-module package by default
+- each package exports manifest + module entry through package-root exports
+- each package can be built and tested independently in the repo
+- each package supports local `npm pack --dry-run` validation
+- package docs match the standardized workspace/config and startup UX
+
+### 20.3 Unified Acceptance Criteria
+
+This TypeScript external-channel contract effort is complete when all of the following are true:
 
 - The TypeScript SDK exposes a stable module concept for external channel adapters.
 - A host can integrate an adapter module without directly importing package-internal implementation files.
@@ -652,13 +811,19 @@ This SDK module-contract effort is complete when all of the following are true:
 - The SDK exposes a manifest concept sufficient for host integration and variant substitution.
 - The SDK defines stable concepts for tool and capability registration at the module boundary.
 - The contract supports both first-party and enterprise adapter variants for the same channel family.
-- The package specification can reference this module contract without needing to redefine module behavior.
+- Feishu and Weixin adapters live as standard packages, not example-only directories.
+- Each package exports the manifest and module entry required by this specification.
+- Each package can be built and tested independently inside the repo.
+- Each package can be packed locally with `npm pack`.
+- Package docs reflect the standardized workspace/config UX.
+- `dotcraft-wire` is consumed as a package dependency rather than as a source-relative implementation shortcut.
+- No implementation remains under `sdk/typescript/examples/` as a primary runtime path.
 
 ---
 
 ## Appendix A: Explicit Decisions
 
-- This specification standardizes the **module contract**, not the package layout.
+- This specification standardizes both the **module contract** and the package/distribution contract.
 - The canonical manifest carrier is a module-root SDK export.
 - The canonical startup model is manifest plus module-factory entry.
 - Workspace is a required explicit startup input from the host or launcher.

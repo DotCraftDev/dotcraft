@@ -5,8 +5,8 @@
 | **Version** | 0.1.0 |
 | **Status** | Draft |
 | **Date** | 2026-04-15 |
-| **Parent Spec** | [typescript-external-channel-module-contract.md](typescript-external-channel-module-contract.md), [typescript-external-channel-packages.md](typescript-external-channel-packages.md) |
-| **Related Specs** | [ts-adapter-m6-conformance-and-host-readiness.md](ts-adapter-m6-conformance-and-host-readiness.md) |
+| **Parent Spec** | [typescript-external-channel-module-contract.md](typescript-external-channel-module-contract.md) |
+| **Related Specs** | [typescript-external-channel-module-contract.md §17](typescript-external-channel-module-contract.md#17-package-and-repository-contract), [typescript-external-channel-module-contract.md §20](typescript-external-channel-module-contract.md#20-conformance-and-acceptance) |
 
 Purpose: Make both first-party TypeScript adapter packages produce a static `manifest.json` file at build time and define the directory convention that Desktop (or any other host) uses to discover installed module packages without executing module code.
 
