@@ -1,22 +1,22 @@
-# DotCraft 飞书外部渠道示例
+# DotCraft 飞书渠道适配器
 
 **中文 | [English](./README.md)**
 
-这个示例通过 **WebSocket 外部渠道适配器**，把飞书 / Lark 机器人接到 DotCraft。
+`@dotcraft/channel-feishu` 通过 WebSocket 外部渠道协议，把飞书 / Lark 机器人接入 DotCraft。
 
 它基于：
 
-- `dotcraft-wire`：DotCraft AppServer 的 JSON-RPC Wire Protocol
-- `@larksuiteoapi/node-sdk`：飞书 Bot API 和事件长连接
+- `dotcraft-wire`：DotCraft AppServer 的 JSON-RPC 协议封装
+- `@larksuiteoapi/node-sdk`：飞书 Bot API 与事件长连接
 
 ## 已支持能力
 
-- 飞书 **WebSocket** 事件订阅
-- 使用 `appId` + `appSecret` 启动并探测 bot 信息
+- 飞书 WebSocket 事件订阅
+- 基于 `appId` + `appSecret` 启动并探测 Bot 信息
 - 基于外部渠道身份复用 DotCraft 线程
 - `/new` 开启新会话
-- 群聊仅在 **@机器人** 时响应
-- 对会被处理的入站消息立即添加一个表情回复，让用户知道机器人已经看到消息
+- 群聊仅在 @机器人 时响应
+- 对会处理的入站消息立即添加表情回复
 - 按钮式审批卡片
 - `turn/completed` 后发送静态回复卡片
 - 图片消息下载后以 `localImage` 形式转发给 DotCraft
@@ -30,13 +30,13 @@
 
 ## 前置条件
 
-1. Node.js `>= 18`
+1. Node.js `>= 20`
 2. 已启动并启用 WebSocket 的 DotCraft AppServer
 3. 一个已开启 Bot 能力的飞书自建应用
 
 ## 1. 启用 DotCraft 外部渠道
 
-本目录下的 `config.example.json` 是 **DotCraft 工作区配置片段**。
+本目录下的 `config.example.json` 是 DotCraft 工作区配置片段。
 
 将它合并到工作区 `.craft/config.json`：
 
@@ -63,27 +63,27 @@
 
 在飞书开放平台中：
 
-1. 创建一个 **自建应用**
-2. 开启 **机器人（Bot）** 能力
-3. 开启 **长连接 / WebSocket** 事件订阅
-4. 配置本示例需要的权限
+1. 创建自建应用
+2. 开启机器人（Bot）能力
+3. 开启长连接 / WebSocket 事件订阅
+4. 配置本适配器需要的权限
 
-建议至少具备以下机器人侧权限：
+建议至少具备以下机器人权限：
 
 - `im:message`
 - `im:message:send`
-- 消息表情回复相关权限，用于调用 `im/v1/messages/:message_id/reactions`
+- 调用 `im/v1/messages/:message_id/reactions` 所需的消息表情权限
 - `im:resource`
 - `im:chat`
 
-然后拿到：
+然后获取：
 
 - `appId`
 - `appSecret`
 
 ## 3. 配置适配器
 
-`adapter_config.json` 是 **适配器运行时配置**，直接编辑这个文件并填入真实配置：
+在目标工作区中创建 `.craft/feishu.json`：
 
 ```json
 {
@@ -109,65 +109,58 @@
 
 说明：
 
-- `feishu.debug.adapterStream`：打印 `ChannelAdapter` 流式事件与合并前后文本预览（stderr，前缀 `[dotcraft-wire:adapter-stream]`）。仅 `true` 时启用。
-- `feishu.debug.textMerge`：打印 `mergeReplyTextFromDeltaAndSnapshot` 分支。仅 `true` 时启用。
-- `config.example.json` 用于 DotCraft 工作区配置，不是适配器运行时配置。
-- `adapter_config.json` 是本示例目录下的适配器运行时配置。
-- `ackReactionEmoji` 必须填写飞书官方 `emoji_type`，例如 `GLANCE`、`SMILE`、`OnIt`，默认值是 `GLANCE`。
-- 支持的取值请参考飞书“表情文案说明”：`message-reaction/emojis-introduce`。
-- `downloadDir` 用于暂存图片文件，再把它们转发给 DotCraft。
+- `feishu.debug.adapterStream`：打印 `ChannelAdapter` 流式事件调试日志（stderr，前缀 `[dotcraft-wire:adapter-stream]`），仅 `true` 启用
+- `feishu.debug.textMerge`：打印文本合并分支日志，仅 `true` 启用
+- `ackReactionEmoji` 必须为飞书官方 `emoji_type`，如 `GLANCE`、`SMILE`、`OnIt`
+- `downloadDir` 用于暂存图片文件，再转发给 DotCraft
 
 ## 4. 安装并构建
 
 ```bash
 cd sdk/typescript
 npm install
-npm run build
-
-cd packages/channel-feishu
-npm install
-npm run build
+npm run build:all
 ```
 
 ## 5. 运行
 
-```bash
-npm start
-```
-
-或者：
+推荐方式：
 
 ```bash
-node dist/index.js adapter_config.json
+npx dotcraft-channel-feishu --workspace /path/to/workspace
 ```
 
-如果不传参数，默认读取当前目录下的 `adapter_config.json`。
+可选配置覆盖：
+
+```bash
+npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feishu.json
+```
 
 ## 行为说明
 
-- **私聊**：默认都会处理
-- **群聊**：默认只有被 @ 时才处理；如果把 `groupMentionRequired` 设为 `false`，则群聊所有消息都可触发
-- **收到提示**：消息通过过滤与解析后，会先给用户原消息加上配置的表情回复，再继续交给 DotCraft 处理
-- **命令**：`/new` 会归档当前线程并创建新会话
-- **审批**：通过交互式卡片按钮处理
-- **回复**：在回合结束后以静态交互卡片发送
+- 私聊：默认处理
+- 群聊：默认仅被 @ 时处理；`groupMentionRequired=false` 时放开群消息
+- 入站提示：消息通过过滤与解析后，会先添加配置的表情回复
+- 命令：`/new` 归档当前线程并创建新会话
+- 审批：通过交互式卡片处理
+- 回复：在回合结束后发送静态交互卡片
 
 ## 认证 / 登录模型
 
-这个飞书适配器 **不使用** 微信示例那种二维码登录流程。
+本适配器不使用微信示例那种二维码登录流程。
 
-飞书 Bot 使用的是静态应用凭据模型：
+飞书 Bot 使用静态应用凭据模型：
 
 - `appId`
 - `appSecret`
 
-Lark SDK 会在内部处理访问令牌获取。适配器启动时会先调用 bot info API 做一次探测校验，确认凭据可用后再开始监听事件。
+Lark SDK 会在内部处理访问令牌获取。适配器启动时会先调用 bot info API 校验凭据，再开始监听事件。
 
 ## 群聊 @ 提及说明（多机器人/多应用）
 
 飞书 `open_id` 是 app-scoped（按应用隔离）。在多机器人群聊里，WebSocket 事件中的 mention 身份有时会和机器人自身份不一致。
 
-本示例采用轻量缓解策略：
+本适配器采用轻量缓解策略：
 
 - 先匹配 `mention.id.open_id === botOpenId`
 - 当 `mention.name` 和 `botName` 都可用时，再要求名称一致

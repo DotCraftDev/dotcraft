@@ -1,27 +1,27 @@
-# DotCraft Feishu External Channel Example
+# DotCraft Feishu Channel Adapter
 
 **[中文](./README_ZH.md) | English**
 
-This example connects a Feishu/Lark bot to DotCraft through the external channel adapter protocol over **WebSocket**.
+`@dotcraft/channel-feishu` connects a Feishu/Lark bot to DotCraft through the external channel adapter protocol over WebSocket.
 
 It is built on:
 
-- `dotcraft-wire` for the DotCraft AppServer JSON-RPC protocol
-- `@larksuiteoapi/node-sdk` for Feishu bot APIs and event WebSocket
+- `dotcraft-wire` for DotCraft AppServer JSON-RPC protocol
+- `@larksuiteoapi/node-sdk` for Feishu bot APIs and WebSocket events
 
-## What This Example Supports
+## What This Adapter Supports
 
-- Feishu **WebSocket** event subscription
+- Feishu WebSocket event subscription
 - Startup bot probe with `appId` + `appSecret`
 - DotCraft thread reuse via external channel identity
 - `/new` to start a fresh DotCraft thread
-- Group chats that only respond when the bot is **@mentioned**
-- Add an immediate reaction to handled inbound messages so users can see the bot has seen them
+- Group chats that only respond when the bot is @mentioned
+- Immediate reaction on handled inbound messages
 - Interactive approval cards with buttons
 - Static reply cards after `turn/completed`
 - Image input forwarding to DotCraft as `localImage`
 
-## What This Example Does Not Cover
+## What This Adapter Does Not Cover
 
 - Multi-account Feishu configuration
 - Feishu webhook mode
@@ -30,13 +30,13 @@ It is built on:
 
 ## Prerequisites
 
-1. Node.js `>= 18`
+1. Node.js `>= 20`
 2. A running DotCraft AppServer with WebSocket enabled
 3. A Feishu self-built app with bot capability enabled
 
 ## 1. Enable DotCraft External Channel
 
-`config.example.json` in this directory is the **DotCraft workspace config snippet**.
+`config.example.json` in this directory is the DotCraft workspace config snippet.
 
 Merge it into your workspace `.craft/config.json`:
 
@@ -63,16 +63,16 @@ Merge it into your workspace `.craft/config.json`:
 
 In the Feishu Developer Console:
 
-1. Create a **self-built app**
-2. Enable the **Bot** capability
-3. Enable event subscription over **long connection / WebSocket**
+1. Create a self-built app
+2. Enable the Bot capability
+3. Enable event subscription over long connection/WebSocket
 4. Add the bot/message related permissions you need
 
-Recommended minimum bot-side permissions for this example:
+Recommended minimum bot-side permissions:
 
 - `im:message`
 - `im:message:send`
-- message reaction permission required by `im/v1/messages/:message_id/reactions`
+- Message reaction permission required by `im/v1/messages/:message_id/reactions`
 - `im:resource`
 - `im:chat`
 
@@ -83,7 +83,7 @@ Then collect:
 
 ## 3. Configure the Adapter
 
-`adapter_config.json` is the **adapter runtime config**. Edit that file directly and fill in the real values:
+Create `.craft/feishu.json` inside your target workspace:
 
 ```json
 {
@@ -109,59 +109,52 @@ Then collect:
 
 Notes:
 
-- `feishu.debug.adapterStream`: verbose `ChannelAdapter` stream traces to stderr (`[dotcraft-wire:adapter-stream]`). Only enabled when `true`.
-- `feishu.debug.textMerge`: traces merge decisions. Only enabled when `true`.
-- `config.example.json` is for DotCraft workspace config, not adapter runtime config.
-- `adapter_config.json` is the adapter runtime config in this example directory.
-- `ackReactionEmoji` must be a Feishu official `emoji_type`, such as `GLANCE`, `SMILE`, or `OnIt`. Default: `GLANCE`.
-- Supported values are documented in the Feishu emoji reference: `message-reaction/emojis-introduce`.
-- `downloadDir` is used to store temporary image files before they are forwarded to DotCraft.
+- `feishu.debug.adapterStream`: verbose `ChannelAdapter` stream traces to stderr (`[dotcraft-wire:adapter-stream]`), only when `true`
+- `feishu.debug.textMerge`: traces merge decisions, only when `true`
+- `ackReactionEmoji` must be a Feishu official `emoji_type` such as `GLANCE`, `SMILE`, `OnIt`
+- `downloadDir` is used for temporary image files before forwarding to DotCraft
 
 ## 4. Install and Build
 
 ```bash
 cd sdk/typescript
 npm install
-npm run build
-
-cd packages/channel-feishu
-npm install
-npm run build
+npm run build:all
 ```
 
 ## 5. Run
 
-```bash
-npm start
-```
-
-Or:
+Primary mode:
 
 ```bash
-node dist/index.js adapter_config.json
+npx dotcraft-channel-feishu --workspace /path/to/workspace
 ```
 
-If you do not pass a path, the process looks for `adapter_config.json` in the current directory.
+Optional config override:
+
+```bash
+npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feishu.json
+```
 
 ## Behavior Notes
 
-- **DM**: always handled
-- **Group**: handled only when the bot is mentioned, unless `groupMentionRequired` is set to `false`
-- **Inbound ack**: once a message passes filtering and parsing, the adapter immediately adds the configured reaction to that user message
-- **Commands**: `/new` archives the current thread and starts a new one
-- **Approvals**: rendered as interactive cards with `Approve`, `Approve Session`, `Decline`, and `Cancel`
-- **Replies**: sent as static interactive cards after the turn finishes
+- DM: always handled
+- Group: handled only when the bot is mentioned, unless `groupMentionRequired` is `false`
+- Inbound ack: after filtering/parsing, the adapter adds the configured reaction first
+- Commands: `/new` archives the current thread and starts a new one
+- Approvals: rendered as interactive cards
+- Replies: sent as static interactive cards after the turn finishes
 
 ## Auth / Login Model
 
-This adapter does **not** use a QR login flow like the WeChat example.
+This adapter does not use a QR login flow like the WeChat example.
 
 Feishu bots use a static app credential model:
 
 - `appId`
 - `appSecret`
 
-The Lark SDK handles token acquisition internally. On startup the adapter validates the credentials by calling the bot info API before it starts listening for events.
+The Lark SDK handles token acquisition internally. On startup the adapter validates credentials by calling the bot info API before listening for events.
 
 ## Credits
 
