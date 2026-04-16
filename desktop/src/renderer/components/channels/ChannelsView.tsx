@@ -298,9 +298,9 @@ export function ChannelsView(): JSX.Element {
   const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null)
   const [variantSwitchingChannel, setVariantSwitchingChannel] = useState<string | null>(null)
   const [activeModuleVariants, setActiveModuleVariants] = useState<Record<string, string>>({})
-  const [nodeRuntime, setNodeRuntime] = useState<{ available: boolean; version?: string }>({
-    available: true
-  })
+  const [nodeRuntime, setNodeRuntime] = useState<{ available: boolean; version?: string }>(
+    { available: false }
+  )
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
   const [moduleLogsById, setModuleLogsById] = useState<Record<string, string[]>>({})
   const [loadingLogsModuleId, setLoadingLogsModuleId] = useState<string | null>(null)
