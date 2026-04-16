@@ -3,8 +3,9 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import QRCode from "qrcode";
 import {
   ConfigValidationError,
   DECISION_ACCEPT,
@@ -322,12 +323,7 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
     writeFileSync(join(this.tempDir, "qr-url.txt"), `${url}\n`, "utf-8");
     void (async () => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) return;
-        const data = Buffer.from(await response.arrayBuffer());
-        const fileName = basename(new URL(url).pathname) || "qr.png";
-        const path = join(this.tempDir, fileName);
-        writeFileSync(path, data);
+        const data = await QRCode.toBuffer(url, { type: "png", margin: 1, width: 360 });
         writeFileSync(join(this.tempDir, "qr.png"), data);
       } catch {
         // Ignore QR artifact persistence failures.

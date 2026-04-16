@@ -61,7 +61,8 @@
       "required": false,
       "dataKind": "number",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "defaultValue": 3000
     },
     {
       "key": "weixin.pollTimeoutMs",
@@ -70,7 +71,8 @@
       "required": false,
       "dataKind": "number",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "defaultValue": 30000
     }
   ]
 }

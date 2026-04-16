@@ -208,6 +208,7 @@ function seedConfigWithDescriptorDefaults(
 ): Record<string, unknown> {
   let nextConfig = { ...config }
   for (const descriptor of descriptors) {
+    if (descriptor.required !== true) continue
     if (descriptor.defaultValue === undefined) continue
     if (getNestedValue(nextConfig, descriptor.key) !== undefined) continue
     nextConfig = setNestedValue(

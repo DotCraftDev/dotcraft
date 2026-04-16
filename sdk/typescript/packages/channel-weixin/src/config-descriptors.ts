@@ -38,6 +38,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "number",
     masked: false,
     interactiveSetupOnly: false,
+    defaultValue: 3000,
   },
   {
     key: "weixin.pollTimeoutMs",
@@ -47,5 +48,6 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "number",
     masked: false,
     interactiveSetupOnly: false,
+    defaultValue: 30000,
   },
 ];
