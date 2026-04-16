@@ -120,9 +120,10 @@ echo =====================================
 echo.
 
 cd desktop
-if not exist resources\bin (
-    mkdir resources\bin
+if exist resources\bin (
+    rmdir /s /q resources\bin
 )
+mkdir resources\bin
 copy /Y "..\build\release\dotcraft.exe" "resources\bin\dotcraft.exe"
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage embedded dotcraft.exe for Desktop build.
