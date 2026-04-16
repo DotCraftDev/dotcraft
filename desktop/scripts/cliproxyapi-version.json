@@ -1,0 +1,5 @@
+{
+  "ownerRepo": "router-for-me/CLIProxyAPI",
+  "version": "v6.9.27",
+  "assetNamePattern": "CLIProxyAPI_{versionWithoutV}_{platform}_{arch}.{ext}"
+}

@@ -120,13 +120,18 @@ echo =====================================
 echo.
 
 cd desktop
-if exist resources\bin (
-    rmdir /s /q resources\bin
+if not exist resources\bin (
+    mkdir resources\bin
 )
-mkdir resources\bin
 copy /Y "..\build\release\dotcraft.exe" "resources\bin\dotcraft.exe"
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage embedded dotcraft.exe for Desktop build.
+    cd ..
+    goto :failure
+)
+call npm run download:cliproxyapi
+if %ERRORLEVEL% neq 0 (
+    echo CLIProxyAPI staged failed.
     cd ..
     goto :failure
 )
