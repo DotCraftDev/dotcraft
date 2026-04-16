@@ -549,7 +549,10 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
               ...t,
               status: 'cancelled' as TurnStatus,
               cancelReason: reason,
-              completedAt: turn.completedAt
+              completedAt: turn.completedAt,
+              items: t.items.map((item) =>
+                item.status === 'completed' ? item : { ...item, status: 'completed' }
+              )
             }
           : t
       ),
