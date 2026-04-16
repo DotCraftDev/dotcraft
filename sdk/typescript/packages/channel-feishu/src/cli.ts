@@ -92,7 +92,6 @@ async function runWorkspaceMode(args: ParsedArgs): Promise<void> {
   });
 
   await instance.start();
-  await instance.start();
   const status = instance.getStatus();
   if (status === "configMissing" || status === "configInvalid") {
     printLifecycleError(status, instance.getError()?.message);
@@ -104,7 +103,6 @@ async function runWorkspaceMode(args: ParsedArgs): Promise<void> {
     console.error(`[feishu] startup failed: ${err?.message ?? "unknown error"}`);
     process.exitCode = 1;
     return;
-  }
   }
 
   const signal = await waitForShutdownSignal();
