@@ -8,6 +8,9 @@ import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
 import {
   registerIpcHandlers,
   unregisterIpcHandlers,
+  getModuleProcessManager,
+  autoStartModuleProcessesByChannelName,
+  refreshNodeRuntimeStatus,
   broadcastConnectionStatus,
   broadcastWorkspaceStatus,
   broadcastNotification,
@@ -236,6 +239,24 @@ function unregisterDesktopIpcHandlers(): boolean {
   return true
 }
 
+async function autoStartEnabledModules(): Promise<void> {
+  const client = wireClient
+  if (!client) return
+  try {
+    const response = await client.sendRequest<{ channels?: Array<{ name?: string; enabled?: boolean; transport?: string | null }> }>(
+      'externalChannel/list',
+      {}
+    )
+    const enabledChannelNames = (response.channels ?? [])
+      .filter((channel) => channel.enabled === true && channel.transport === 'websocket')
+      .map((channel) => channel.name?.trim() ?? '')
+      .filter(Boolean)
+    await autoStartModuleProcessesByChannelName(enabledChannelNames)
+  } catch (error) {
+    console.warn('[desktop] failed to auto-start persisted modules', error)
+  }
+}
+
 function teardownRuntime(
   reason: string,
   options?: {
@@ -244,12 +265,18 @@ function teardownRuntime(
     cleanupIpcHandlers?: boolean
   }
 ): void {
+  const moduleManager = getModuleProcessManager()
   const clearedCrashRetry = clearCrashRetryTimer()
   const cleanedIpc = options?.cleanupIpcHandlers
     ? unregisterDesktopIpcHandlers()
     : false
   const hadAppServer = appServerManager !== null
   const hadWireClient = wireClient !== null
+  if (moduleManager) {
+    void moduleManager.stopAll({ preserveExternalChannels: true }).catch((error) => {
+      console.warn('[desktop] failed to stop channel modules during teardown', error)
+    })
+  }
   appServerManager?.shutdown()
   wireClient?.dispose()
   appServerManager = null
@@ -451,6 +478,7 @@ async function connectViaWebSocket(
         dashboardUrl: result.dashboardUrl
       })
     }
+    void autoStartEnabledModules()
   }
   client.on('ready', (result: InitializeResult) => emitConnected(result))
   client.on('reconnected', (result: InitializeResult) => emitConnected(result))
@@ -762,6 +790,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
           dashboardUrl: result.dashboardUrl
         })
       }
+      await autoStartEnabledModules()
     } catch (err) {
       console.error('[desktop] appserver initialize failed', err)
       const message = err instanceof Error ? err.message : String(err)
@@ -922,6 +951,7 @@ function registerMenuPopupIpc(): void {
 app.whenReady().then(() => {
   isAppQuitting = false
   registerMenuPopupIpc()
+  void refreshNodeRuntimeStatus()
   sharedSettings = loadSettings()
   refreshAppMenu()
 

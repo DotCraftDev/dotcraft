@@ -43,6 +43,17 @@ public interface IDotCraftModule
     void ConfigureServices(IServiceCollection services, ModuleContext context);
 
     /// <summary>
+    /// Configures protocol-only services for this module.
+    /// This hook is intended for services that should be available even when
+    /// the module runtime itself is disabled.
+    /// </summary>
+    /// <param name="services">The service collection to register services with.</param>
+    /// <param name="context">The module context containing configuration and paths.</param>
+    void ConfigureProtocolServices(IServiceCollection services, ModuleContext context)
+    {
+    }
+
+    /// <summary>
     /// Validates this module's configuration section.
     /// </summary>
     /// <param name="config">The application configuration.</param>

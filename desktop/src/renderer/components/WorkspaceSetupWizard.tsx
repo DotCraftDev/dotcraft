@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { useLocale, useT } from '../contexts/LocaleContext'
+import { normalizeLocale, type AppLocale } from '../../shared/locales'
+import { useLocale, useSetUiLocale, useT } from '../contexts/LocaleContext'
 import type {
   WorkspaceBootstrapProfile,
   WorkspaceLanguage,
   WorkspaceSetupRequest,
   WorkspaceStatusPayload
 } from '../../preload/api.d'
+import { SecretInput } from './channels/FormShared'
 
 interface WorkspaceSetupWizardProps {
   workspacePath: string
@@ -41,6 +43,7 @@ export function WorkspaceSetupWizard({
 }: WorkspaceSetupWizardProps): JSX.Element {
   const t = useT()
   const locale = useLocale()
+  const setUiLocale = useSetUiLocale()
   const defaultLanguage: WorkspaceLanguage = locale === 'zh-Hans' ? 'Chinese' : 'English'
   const hasUserConfig = workspaceStatus.hasUserConfig
   const userConfigDefaults = workspaceStatus.userConfigDefaults
@@ -67,6 +70,7 @@ export function WorkspaceSetupWizard({
   const [saveScopeDirty, setSaveScopeDirty] = useState(false)
   const [modelLoadState, setModelLoadState] = useState<'idle' | 'loading' | 'ready' | 'unsupported' | 'error'>('idle')
   const [modelOptions, setModelOptions] = useState<string[]>([])
+  const [switchingDisplayLocale, setSwitchingDisplayLocale] = useState(false)
 
   const steps = useMemo(
     () => [
@@ -148,6 +152,11 @@ export function WorkspaceSetupWizard({
       if (result.kind === 'success') {
         setModelOptions(result.models)
         setModelLoadState('ready')
+        const trimmedModels = result.models.map((item) => item.trim()).filter(Boolean)
+        const currentModel = model.trim()
+        if (!modelDirty && trimmedModels.length > 0 && !trimmedModels.includes(currentModel)) {
+          setModel(trimmedModels[0])
+        }
         return
       }
 
@@ -179,6 +188,22 @@ export function WorkspaceSetupWizard({
       setSubmitError(err instanceof Error ? err.message : String(err))
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleDisplayLocaleChange(next: AppLocale): Promise<void> {
+    const normalized = normalizeLocale(next)
+    if (normalized === locale || switchingDisplayLocale) return
+    setSwitchingDisplayLocale(true)
+    setUiLocale(normalized)
+    setLanguageDirty(true)
+    setLanguage(normalized === 'zh-Hans' ? 'Chinese' : 'English')
+    try {
+      await window.api.settings.set({ locale: normalized })
+    } catch {
+      // Non-fatal: keep current in-memory UI locale for this onboarding flow.
+    } finally {
+      setSwitchingDisplayLocale(false)
     }
   }
 
@@ -302,6 +327,35 @@ export function WorkspaceSetupWizard({
               <p style={{ margin: '14px 0 0', color: 'var(--text-dimmed)', fontSize: '13px' }}>
                 {t('setupWizard.welcome.note')}
               </p>
+              <div style={{ marginTop: '16px' }}>
+                <label
+                  htmlFor="setup-display-language"
+                  style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600 }}
+                >
+                  {t('setupWizard.welcome.language')}
+                </label>
+                <select
+                  id="setup-display-language"
+                  value={locale}
+                  onChange={(e) => {
+                    void handleDisplayLocaleChange(e.target.value as AppLocale)
+                  }}
+                  disabled={switchingDisplayLocale}
+                  style={{
+                    width: '220px',
+                    padding: '9px 10px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-default)',
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                    opacity: switchingDisplayLocale ? 0.7 : 1
+                  }}
+                >
+                  <option value="en">{t('setupWizard.language.english')}</option>
+                  <option value="zh-Hans">{t('setupWizard.language.chinese')}</option>
+                </select>
+              </div>
             </div>
           )}
 
@@ -413,16 +467,12 @@ export function WorkspaceSetupWizard({
                 </div>
 
                 <div>
-                  <label htmlFor="setup-api-key" style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600 }}>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600 }}>
                     {t('setupWizard.field.apiKey')}
                   </label>
-                  <input
-                    id="setup-api-key"
-                    type="password"
+                  <SecretInput
                     value={apiKey}
-                    onChange={(e) => {
-                      setApiKey(e.target.value)
-                    }}
+                    onChange={setApiKey}
                     placeholder={
                       hasUserConfig && inheritedApiKeyPresent
                         ? t('setupWizard.placeholder.apiKeyInherited')

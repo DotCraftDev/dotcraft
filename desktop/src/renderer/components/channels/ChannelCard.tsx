@@ -1,8 +1,15 @@
-export type ChannelConnectionState = 'connected' | 'enabledNotConnected' | 'notConfigured'
+export type ChannelConnectionState =
+  | 'connected'
+  | 'enabledNotConnected'
+  | 'notConfigured'
+  | 'connecting'
+  | 'error'
+  | 'stopped'
 
 interface ChannelCardProps {
   logoPath?: string
   label: string
+  badgeText?: string
   statusLabel: string
   status: ChannelConnectionState
   active: boolean
@@ -11,13 +18,15 @@ interface ChannelCardProps {
 
 function stateColor(status: ChannelConnectionState): string {
   if (status === 'connected') return 'var(--success)'
-  if (status === 'enabledNotConnected') return 'var(--warning)'
+  if (status === 'enabledNotConnected' || status === 'connecting') return 'var(--warning)'
+  if (status === 'error') return 'var(--error, #ff453a)'
   return 'var(--text-dimmed)'
 }
 
 export function ChannelCard({
   logoPath,
   label,
+  badgeText,
   status,
   statusLabel,
   active,
@@ -40,7 +49,8 @@ export function ChannelCard({
         gap: '8px'
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
         {logoPath ? (
           <img
             src={logoPath}
@@ -69,7 +79,33 @@ export function ChannelCard({
             {label.slice(0, 1).toUpperCase()}
           </div>
         )}
-        <span style={{ color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600 }}>{label}</span>
+          <span
+            style={{
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {label}
+          </span>
+        </div>
+        {badgeText ? (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: '10px',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-default)',
+              borderRadius: '999px',
+              padding: '1px 6px'
+            }}
+          >
+            {badgeText}
+          </span>
+        ) : null}
       </div>
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
         <span

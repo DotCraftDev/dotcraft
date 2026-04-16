@@ -1,6 +1,7 @@
 using DotCraft.Abstractions;
 using DotCraft.Protocol.AppServer;
 using Spectre.Console;
+using System.Collections.Concurrent;
 
 namespace DotCraft.Gateway;
 
@@ -9,7 +10,7 @@ namespace DotCraft.Gateway;
 /// </summary>
 public sealed class MessageRouter : IMessageRouter
 {
-    private readonly Dictionary<string, IChannelService> _channels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, IChannelService> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly IChannelRuntimeRegistry _runtimeRegistry;
 
     public MessageRouter(IChannelRuntimeRegistry runtimeRegistry)
@@ -21,6 +22,15 @@ public sealed class MessageRouter : IMessageRouter
     {
         _channels[service.Name] = service;
         _runtimeRegistry.Register(service);
+    }
+
+    public bool UnregisterChannel(string channelName)
+    {
+        if (!_channels.TryRemove(channelName, out _))
+            return false;
+
+        _runtimeRegistry.TryRemove(channelName);
+        return true;
     }
 
     public async Task DeliverAsync(
@@ -60,7 +70,8 @@ public sealed class MessageRouter : IMessageRouter
             Text = content
         };
 
-        foreach (var channel in _channels.Values)
+        var channels = _channels.Values.ToArray();
+        foreach (var channel in channels)
         {
             var targets = channel.GetAdminTargets();
             foreach (var target in targets)

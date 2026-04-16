@@ -14,21 +14,6 @@ function channelLogo(filename: string): string {
 
 export const PRESET_EXTERNAL_CHANNELS: PresetExternalChannel[] = [
   {
-    name: 'weixin',
-    nameKey: 'channels.channel.weixin',
-    titleKey: 'channels.weixin.title',
-    logoPath: channelLogo('weixin.svg'),
-    defaultDraft: {
-      name: 'weixin',
-      enabled: false,
-      transport: 'websocket',
-      command: null,
-      args: null,
-      workingDirectory: null,
-      env: null
-    }
-  },
-  {
     name: 'telegram',
     nameKey: 'channels.channel.telegram',
     titleKey: 'channels.telegram.title',
@@ -41,21 +26,6 @@ export const PRESET_EXTERNAL_CHANNELS: PresetExternalChannel[] = [
       args: ['-m', 'dotcraft_telegram'],
       workingDirectory: 'sdk/python/examples/telegram',
       env: { TELEGRAM_BOT_TOKEN: '' }
-    }
-  },
-  {
-    name: 'feishu',
-    nameKey: 'channels.channel.feishu',
-    titleKey: 'channels.feishu.title',
-    logoPath: channelLogo('feishu.svg'),
-    defaultDraft: {
-      name: 'feishu',
-      enabled: false,
-      transport: 'websocket',
-      command: null,
-      args: null,
-      workingDirectory: null,
-      env: null
     }
   }
 ]

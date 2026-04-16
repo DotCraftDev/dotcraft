@@ -45,6 +45,12 @@ public sealed partial class GitHubTrackerModule : ModuleBase
         return errors;
     }
 
+    public override void ConfigureProtocolServices(IServiceCollection services, ModuleContext context)
+    {
+        services.AddSingleton<GitHubTrackerConfigProtocolService>();
+        services.AddSingleton<IAppServerProtocolExtension, GitHubTrackerAppServerExtension>();
+    }
+
     public override void ConfigureServices(IServiceCollection services, ModuleContext context)
     {
         var config = context.Config.GetSection<GitHubTrackerConfig>("GitHubTracker");
@@ -59,8 +65,6 @@ public sealed partial class GitHubTrackerModule : ModuleBase
             config,
             sp.GetRequiredService<ILogger<WorkItemWorkspaceManager>>()));
         services.AddSingleton<IWorkItemTracker>(sp => CreateTracker(config, workspacePath, sp));
-        services.AddSingleton<GitHubTrackerConfigProtocolService>();
-        services.AddSingleton<IAppServerProtocolExtension, GitHubTrackerAppServerExtension>();
 
         services.AddSingleton<IAutomationSource>(sp =>
         {

@@ -28,6 +28,13 @@ public abstract class ModuleBase : IDotCraftModule
     }
 
     /// <inheritdoc />
+    public virtual void ConfigureProtocolServices(IServiceCollection services, ModuleContext context)
+    {
+        // Default implementation does nothing.
+        // Derived classes can override to register protocol-only services.
+    }
+
+    /// <inheritdoc />
     public virtual IReadOnlyList<string> ValidateConfig(AppConfig config) => [];
 
     /// <inheritdoc />

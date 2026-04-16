@@ -11,6 +11,9 @@ public sealed class ChannelRuntimeRegistry : IChannelRuntimeRegistry
         _runtimes[runtime.Name] = runtime;
     }
 
+    public bool TryRemove(string channelName)
+        => _runtimes.TryRemove(channelName, out _);
+
     public bool TryGet(string channelName, out IChannelRuntime? runtime)
     {
         var found = _runtimes.TryGetValue(channelName, out var value);

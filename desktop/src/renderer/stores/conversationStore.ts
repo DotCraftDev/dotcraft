@@ -503,7 +503,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 ...t,
                 status: 'completed' as TurnStatus,
                 completedAt: turn.completedAt,
-                tokenUsage: turn.tokenUsage
+                tokenUsage: turn.tokenUsage,
+                subAgentEntries: state.subAgentEntries
               }
             : t
         ),
@@ -548,7 +549,10 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
               ...t,
               status: 'cancelled' as TurnStatus,
               cancelReason: reason,
-              completedAt: turn.completedAt
+              completedAt: turn.completedAt,
+              items: t.items.map((item) =>
+                item.status === 'completed' ? item : { ...item, status: 'completed' }
+              )
             }
           : t
       ),
@@ -1121,7 +1125,21 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
   },
 
   onSubagentProgress(entries) {
-    set({ subAgentEntries: entries })
+    set((state) => {
+      const allCompleted = entries.length > 0 && entries.every((entry) => entry.isCompleted)
+      if (!allCompleted || !state.activeTurnId) {
+        return { subAgentEntries: entries }
+      }
+
+      return {
+        subAgentEntries: entries,
+        turns: state.turns.map((turn) =>
+          turn.id === state.activeTurnId
+            ? { ...turn, subAgentEntries: entries }
+            : turn
+        )
+      }
+    })
   },
 
   upsertChangedFile(diff) {

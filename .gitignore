@@ -21,7 +21,7 @@ out
 .vscode
 .claude
 .craft
-.cursor
+.cursor/*
 .ai
 /references
 __pycache__
@@ -36,4 +36,4 @@ target/
 
 # E2E test artifacts
 desktop/e2e/screenshots/
-/sdk/typescript/examples/weixin/data
+/sdk/typescript/packages/channel-weixin/data

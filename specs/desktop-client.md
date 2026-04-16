@@ -2,10 +2,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.1 |
+| **Version** | 0.3.0 |
 | **Status** | Living |
-| **Date** | 2026-04-11 |
+| **Date** | 2026-04-16 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) |
+| **Related Specs** | [TypeScript External Channel Module Contract](typescript-external-channel-module-contract.md) |
 
 Purpose: Define the stable user-experience behavior of **DotCraft Desktop** as a protocol client for DotCraft AppServer. This document specifies user-visible flows, interaction rules, state transitions, and recovery behavior. It does not define frontend implementation details, visual design, or framework choices.
 
@@ -19,6 +20,7 @@ Purpose: Define the stable user-experience behavior of **DotCraft Desktop** as a
 - [4. Protocol Event to UX Behavior](#4-protocol-event-to-ux-behavior)
 - [5. Core Interaction Flows](#5-core-interaction-flows)
 - [6. Secondary Flows](#6-secondary-flows)
+- [6.7 Channel Modules](#67-channel-modules)
 - [7. Keyboard Accessibility and Localization](#7-keyboard-accessibility-and-localization)
 - [8. Error Handling and Recovery](#8-error-handling-and-recovery)
 - [9. Non-Functional UX Requirements](#9-non-functional-ux-requirements)
@@ -34,12 +36,14 @@ Purpose: Define the stable user-experience behavior of **DotCraft Desktop** as a
 - How users open workspaces, connect, browse threads, send turns, review results, and respond to approvals.
 - How protocol events change user-visible state.
 - How secondary surfaces such as Skills and Automations behave from the user's perspective.
+- How users discover, configure, enable, and recover Desktop-managed channel modules.
 - How the client communicates failure, recovery, and availability constraints.
 - Localization, accessibility, and performance expectations at the UX level.
 
 ### 1.2 What This Spec Does Not Define
 
 - Wire protocol payloads, transport rules, or server semantics already defined in [appserver-protocol.md](appserver-protocol.md).
+- TypeScript module contract details (manifest schema, package exports, launcher contract, and conformance rules) defined in [typescript-external-channel-module-contract.md](typescript-external-channel-module-contract.md).
 - Frontend frameworks, component trees, IPC method signatures, process architecture, or state-store structure.
 - Layout geometry, colors, typography, icons, spacing, animation, or other visual design details.
 - Platform-specific implementation APIs for notifications, menus, file search, or file persistence.
@@ -322,6 +326,68 @@ Required behavior:
 - The archived-thread surface is read-only apart from restore actions; it does not provide message sending.
 - Restoring a thread removes it from the archived list immediately and makes it eligible to reappear in the main thread list after local refresh or status synchronization.
 - If a thread is restored or deleted elsewhere while the archived-thread surface is open, the visible list reconciles automatically without requiring a full app restart.
+
+### 6.7 Channel Modules
+
+This section defines the user-visible workflow for Desktop-managed TypeScript channel modules. It intentionally omits build scripts, package-pipeline internals, IPC method names, and UI component-level design.
+
+#### 6.7.1 Discovery and Identity
+
+- The Desktop client may expose a Modules group in the Channels workflow for discoverable channel modules.
+- Module discovery is based on static module metadata and must not require Desktop to execute module business logic just to list available modules.
+- Desktop may load modules from bundled and user-installed locations; if both provide the same `moduleId`, user-installed content overrides bundled content.
+- Module identity is canonicalized by `moduleId` rather than folder name.
+- Invalid or incomplete module metadata must not break the full modules list; invalid entries are skipped while valid modules remain available.
+
+#### 6.7.2 Configuration Workflow
+
+- Module configuration is workspace-scoped and stored in `.craft/<configFileName>`.
+- Desktop must allow users to view and update module configuration values required for runtime startup.
+- Configuration key semantics and descriptor contracts remain defined by [typescript-external-channel-module-contract.md](typescript-external-channel-module-contract.md).
+- Fields intended for interactive setup only are not treated as ordinary manual-entry fields in the default config workflow.
+
+#### 6.7.3 Enable, Disable, and Runtime Expectations
+
+- Users can explicitly enable and disable a module from Desktop.
+- Enabling starts the module runtime workflow for the active workspace context.
+- Disabling stops the module runtime workflow and returns the module to a non-running state.
+- Saving configuration while a module is running must produce a clear message when restart or re-enable is required before changes take effect.
+- On app quit or workspace switch, Desktop must not leave module runtimes in an undefined state; active module runtimes are stopped as part of lifecycle teardown.
+
+#### 6.7.4 Module Status Semantics
+
+- Module status is communicated through user-meaningful states, including at least not configured, connecting, connected, stopped, and error conditions.
+- Desktop may derive module status from both local runtime lifecycle and server-observed channel availability, but the user-facing status must remain coherent and actionable.
+- Module status is distinct from Desktop AppServer connection state. A connected AppServer session does not imply all enabled modules are connected.
+
+#### 6.7.5 Interactive Setup and QR-like Flows
+
+- If a module declares that interactive setup may be required, Desktop must provide a corresponding guided workflow.
+- Desktop may consume module-produced temporary setup artifacts from `.craft/tmp/<moduleId>/...` as read-only inputs for user guidance.
+- Interactive setup experiences must handle artifact refresh, expiration, and repeated setup attempts without requiring full app restart.
+- If a previously ready module later re-enters an interactive-setup-required condition, Desktop must surface that requirement again and provide a recovery path.
+
+#### 6.7.6 Variants
+
+- Multiple module variants may exist for the same logical `channelName`.
+- Desktop allows selecting which variant is active for a given channel family.
+- At any given time, only one variant is active per logical channel.
+- Switching variants updates the active module context and associated configuration workflow; if the previous variant is running, Desktop stops it before or during the switch.
+
+#### 6.7.7 Refresh and Startup Restore
+
+- Desktop supports an explicit refresh path that re-evaluates available modules without requiring full application restart.
+- If Desktop supports restoring previously enabled modules on a later launch, that behavior must be best-effort:
+  - missing modules are skipped safely
+  - modules without valid workspace configuration are skipped safely
+- Missing restore prerequisites must not block the rest of Desktop startup.
+
+#### 6.7.8 Diagnostics and Preconditions
+
+- Desktop must expose clear prerequisite failures for module execution (for example, missing runtime dependencies).
+- Before enabling a module, Desktop validates required configuration fields and surfaces actionable guidance when data is incomplete.
+- When module runtime startup or operation fails, users must receive an understandable failure signal and a next-step action (retry, reconfigure, or inspect logs).
+- Diagnostics should help users distinguish setup failures, connectivity failures, and runtime crashes.
 
 ---
 

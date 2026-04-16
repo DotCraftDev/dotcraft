@@ -7,6 +7,7 @@ import type { MessageKey } from '../../../shared/locales'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { SecretInput } from '../channels/FormShared'
 import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
 import {
   useMcpStore,
@@ -333,6 +334,11 @@ export function SettingsView({
   const [wsPort, setWsPort] = useState(String(DEFAULT_WS_PORT))
   const [remoteUrl, setRemoteUrl] = useState('')
   const [remoteToken, setRemoteToken] = useState('')
+  const [modulesDirectory, setModulesDirectory] = useState('')
+  const [savedModulesDirectory, setSavedModulesDirectory] = useState('')
+  const [defaultModulesDirectory, setDefaultModulesDirectory] = useState('~/.craft/modules')
+  const [modulesDirectoryExists, setModulesDirectoryExists] = useState(true)
+  const [checkingModulesDirectory, setCheckingModulesDirectory] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>('dark')
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
@@ -376,13 +382,46 @@ export function SettingsView({
         setWsPort(String(s.webSocket?.port ?? DEFAULT_WS_PORT))
         setRemoteUrl(s.remote?.url ?? '')
         setRemoteToken(s.remote?.token ?? '')
+        setModulesDirectory(s.modulesDirectory ?? '')
+        setSavedModulesDirectory(s.modulesDirectory ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
       })
       .catch(() => {})
+    window.api.modules
+      .userDirectory()
+      .then((result) => setDefaultModulesDirectory(result.path))
+      .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const target = modulesDirectory.trim() || defaultModulesDirectory
+    if (!target) return
+    setCheckingModulesDirectory(true)
+    window.api.modules
+      .checkDirectory(target)
+      .then((result) => {
+        if (!cancelled) {
+          setModulesDirectoryExists(result.exists)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setModulesDirectoryExists(false)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCheckingModulesDirectory(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [defaultModulesDirectory, modulesDirectory])
 
   useEffect(() => {
     let cancelled = false
@@ -693,6 +732,8 @@ export function SettingsView({
         Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
           ? parsedPort
           : DEFAULT_WS_PORT
+      const normalizedModulesDirectory = modulesDirectory.trim()
+      const nextModulesDirectory = normalizedModulesDirectory || undefined
       await window.api.settings.set({
         binarySource,
         appServerBinaryPath: binaryPath.trim() || undefined,
@@ -704,8 +745,17 @@ export function SettingsView({
         remote: {
           url: remoteUrl.trim() || undefined,
           token: remoteToken.trim() || undefined
-        }
+        },
+        modulesDirectory: nextModulesDirectory
       })
+      const modulesDirectoryChanged = (savedModulesDirectory || '') !== (nextModulesDirectory ?? '')
+      if (modulesDirectoryChanged) {
+        setSavedModulesDirectory(nextModulesDirectory ?? '')
+        await window.api.modules.rescan()
+        if (!modulesDirectoryExists) {
+          addToast(t('settings.modulesDirectoryMissing'), 'error')
+        }
+      }
       setSavedConnectionMode(connectionMode)
       addToast(
         activeSettingsTab === 'connection'
@@ -754,6 +804,22 @@ export function SettingsView({
     } catch (err) {
       addToast(
         t('settings.pickBinaryFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    }
+  }
+
+  async function handlePickModulesDirectory(): Promise<void> {
+    try {
+      const picked = await window.api.workspace.pickFolder()
+      if (picked) {
+        setModulesDirectory(picked)
+      }
+    } catch (err) {
+      addToast(
+        t('settings.saveFailed', {
           error: err instanceof Error ? err.message : String(err)
         }),
         'error'
@@ -857,6 +923,45 @@ export function SettingsView({
           <div style={{ maxWidth: activeSettingsTab === 'mcp' ? '760px' : '560px' }}>
             {activeSettingsTab === 'general' && (
               <>
+                <div style={{ marginBottom: '16px' }}>
+                  <label htmlFor="settings-modules-directory" style={sectionLabelStyle()}>
+                    {t('settings.modulesDirectory')}
+                  </label>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      gap: '8px'
+                    }}
+                  >
+                    <input
+                      id="settings-modules-directory"
+                      type="text"
+                      value={modulesDirectory}
+                      onChange={(e) => setModulesDirectory(e.target.value)}
+                      placeholder={defaultModulesDirectory}
+                      style={inputStyle(true)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handlePickModulesDirectory()
+                      }}
+                      style={secondaryButtonStyle(false)}
+                    >
+                      {t('settings.modulesDirectoryBrowse')}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '6px' }}>
+                    {t('settings.modulesDirectoryHint')}
+                  </div>
+                  {!checkingModulesDirectory && !modulesDirectoryExists && (
+                    <div style={{ fontSize: '11px', color: 'var(--warning, #ff9f0a)', marginTop: '4px' }}>
+                      {t('settings.modulesDirectoryMissing')}
+                    </div>
+                  )}
+                </div>
+
                 <div style={{ marginBottom: '16px' }}>
                   <label htmlFor="settings-language" style={sectionLabelStyle()}>
                     {t('settings.language')}
@@ -967,14 +1072,12 @@ export function SettingsView({
                       placeholder="ws://127.0.0.1:9100/ws"
                       style={inputStyle(true)}
                     />
-                    <label htmlFor="settings-remote-token" style={{ ...sectionLabelStyle(), marginTop: '10px' }}>
+                    <label style={{ ...sectionLabelStyle(), marginTop: '10px' }}>
                       {t('settings.remoteToken')}
                     </label>
-                    <input
-                      id="settings-remote-token"
-                      type="password"
+                    <SecretInput
                       value={remoteToken}
-                      onChange={(e) => setRemoteToken(e.target.value)}
+                      onChange={setRemoteToken}
                       placeholder={t('settings.remoteTokenPlaceholder')}
                       style={inputStyle(true)}
                     />

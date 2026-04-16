@@ -214,15 +214,12 @@ public sealed class SubAgentManager
         tools.Add(AIFunctionFactory.Create(_webTools.WebSearch));
         tools.Add(AIFunctionFactory.Create(_webTools.WebFetch));
 
-        // Pipeline (innermost first): TracingChatClient → ProgressChatClient → FunctionInvoking → Agent
+        // ChatClientBuilder applies middleware in reverse registration order:
+        // first Use(...) is outermost. Register FunctionInvoking first so its internal
+        // LLM rounds pass through progress/tracing clients.
+        // Effective pipeline: FunctionInvokingChatClient → SubAgentProgressChatClient
+        // → TracingChatClient → base LLM client.
         var chatClientBuilder = new ChatClientBuilder(_chatClient.AsIChatClient());
-        if (_traceCollector != null)
-        {
-            var tc = _traceCollector;
-            chatClientBuilder.Use(inner => new TracingChatClient(inner, tc));
-        }
-        if (progressEntry != null)
-            chatClientBuilder.Use(inner => new SubAgentProgressChatClient(inner, progressEntry));
         chatClientBuilder.Use(inner =>
         {
             var fic = new FunctionInvokingChatClient(inner)
@@ -258,6 +255,13 @@ public sealed class SubAgentManager
             }
             return fic;
         });
+        if (progressEntry != null)
+            chatClientBuilder.Use(inner => new SubAgentProgressChatClient(inner, progressEntry));
+        if (_traceCollector != null)
+        {
+            var tc = _traceCollector;
+            chatClientBuilder.Use(inner => new TracingChatClient(inner, tc));
+        }
         var configuredChatClient = chatClientBuilder.Build();
 
         var options = new ChatClientAgentOptions

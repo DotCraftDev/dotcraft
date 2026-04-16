@@ -2,9 +2,21 @@
 
 **[中文](./README_ZH.md) | English**
 
-TypeScript SDK for the DotCraft AppServer Wire Protocol (JSON-RPC 2.0 over stdio JSONL or WebSocket text frames).
+TypeScript SDK for the DotCraft AppServer Wire Protocol and external channel module contract (JSON-RPC 2.0 over stdio JSONL or WebSocket text frames).
 
 Mirrors the Python package `dotcraft_wire` under `sdk/python/`.
+
+## TypeScript Package Set
+
+The TypeScript external channel stack is delivered as three packages:
+
+- `dotcraft-wire` (shared SDK: wire client, adapter base, module contract types)
+- `@dotcraft/channel-feishu` (first-party Feishu/Lark module package)
+- `@dotcraft/channel-weixin` (first-party Weixin module package)
+
+For host-side module loading and lifecycle integration, see:
+
+- `docs/en/typescript-channel-module-host-integration.md`
 
 ## Install
 
@@ -16,7 +28,7 @@ In another package:
 
 ```json
 "dependencies": {
-  "dotcraft-wire": "file:../typescript"
+  "dotcraft-wire": "*"
 }
 ```
 
@@ -155,17 +167,17 @@ Use PascalCase for channel tool names. For display metadata, prefer setting `cha
 
 `ExternalChannels` only tells DotCraft how to start or accept the adapter connection. Structured delivery capabilities and channel tool descriptors come from the adapter's handshake.
 
-## Examples
+## Package Modules
 
-- `examples/weixin/` for a Weixin adapter
-- `examples/feishu/` for a Feishu/Lark adapter with structured delivery and channel tools
+- `packages/channel-weixin/` for the Weixin module package
+- `packages/channel-feishu/` for the Feishu/Lark module package
 
 ## Debugging
 
 - Pass `debugStream: true` in [`ChannelAdapter`](src/adapter.ts) options (6th constructor argument). Logs use the prefix `[dotcraft-wire:adapter-stream]`.
 - Call `configureTextMergeDebug(true)` from [`turnReply.ts`](src/turnReply.ts) for merge traces (`[dotcraft-wire:text-merge]`).
 
-The Feishu example wires both from [`examples/feishu/adapter_config.json`](examples/feishu/adapter_config.json) under `feishu.debug.adapterStream` and `feishu.debug.textMerge`.
+The Feishu adapter package exposes `feishu.debug.adapterStream` and `feishu.debug.textMerge` config fields in its README examples.
 
 ## License
 

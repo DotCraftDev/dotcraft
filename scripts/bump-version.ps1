@@ -145,10 +145,8 @@ $targets = @(
     @{ Type = "npmLock"; Path = "desktop/package-lock.json"; Name = "dotcraft-desktop" },
     @{ Type = "packageJson"; Path = "sdk/typescript/package.json" },
     @{ Type = "npmLock"; Path = "sdk/typescript/package-lock.json"; Name = "dotcraft-wire" },
-    @{ Type = "packageJson"; Path = "sdk/typescript/examples/feishu/package.json" },
-    @{ Type = "npmLock"; Path = "sdk/typescript/examples/feishu/package-lock.json"; Name = "dotcraft-feishu-example"; UpdateLinkedSdk = $true },
-    @{ Type = "packageJson"; Path = "sdk/typescript/examples/weixin/package.json" },
-    @{ Type = "npmLock"; Path = "sdk/typescript/examples/weixin/package-lock.json"; Name = "dotcraft-weixin-example"; UpdateLinkedSdk = $true },
+    @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-feishu/package.json" },
+    @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-weixin/package.json" },
     @{ Type = "packageJson"; Path = "src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/package.json" }
 )
 

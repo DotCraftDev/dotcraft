@@ -19,6 +19,7 @@ import {
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
 import { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
+import type { LifecycleStatus, ModuleError } from "./lifecycle.js";
 
 function previewWireText(text: string, maxChars = 160): string {
   const s = text.replace(/\r\n/g, "\n");
@@ -56,7 +57,7 @@ export type ChannelAdapterOptions = {
 };
 
 export abstract class ChannelAdapter {
-  protected readonly client: DotCraftClient;
+  protected client: DotCraftClient;
   protected readonly channelName: string;
   private readonly clientName: string;
   private readonly clientVersion: string;
@@ -69,6 +70,9 @@ export abstract class ChannelAdapter {
   private readonly threadQueues = new Map<string, Array<() => Promise<void>>>();
   private readonly runningWorkers = new Map<string, boolean>();
   private running = false;
+  private lifecycleStatus: LifecycleStatus = "stopped";
+  private lifecycleError: ModuleError | undefined;
+  private readonly statusHandlers: Array<(status: LifecycleStatus, error?: ModuleError) => void> = [];
 
   /** Default workspace path; override per instance or in handleMessage. */
   protected defaultWorkspacePath = "";
@@ -179,7 +183,34 @@ export abstract class ChannelAdapter {
   /** Called after the thread is resolved for an inbound message (e.g. map threadId → chat target). */
   protected onThreadContextBound(_threadId: string, _channelContext: string): void {}
 
+  getStatus(): LifecycleStatus {
+    return this.lifecycleStatus;
+  }
+
+  getError(): ModuleError | undefined {
+    return this.lifecycleError;
+  }
+
+  onStatusChange(handler: (status: LifecycleStatus, error?: ModuleError) => void): void {
+    this.statusHandlers.push(handler);
+  }
+
+  protected setStatus(status: LifecycleStatus, error?: ModuleError): void {
+    const nextError = status === "starting" || status === "ready" ? undefined : error;
+    if (this.lifecycleStatus === status && this.lifecycleError === nextError) {
+      return;
+    }
+
+    this.lifecycleStatus = status;
+    this.lifecycleError = nextError;
+
+    for (const handler of this.statusHandlers) {
+      handler(status, this.lifecycleError);
+    }
+  }
+
   async start(): Promise<void> {
+    this.setStatus("starting");
     await this.client.connect();
     await this.client.start();
     await this.client.initialize({
@@ -194,6 +225,7 @@ export abstract class ChannelAdapter {
       channelTools: this.getChannelTools(),
     });
     this.running = true;
+    this.setStatus("ready");
 
     this.client.setApprovalHandler(async (_id, params) => {
       try {
@@ -265,6 +297,7 @@ export abstract class ChannelAdapter {
   async stop(): Promise<void> {
     this.running = false;
     await this.client.stop();
+    this.setStatus("stopped", this.lifecycleError);
     console.info(`ChannelAdapter '${this.channelName}' stopped`);
   }
 

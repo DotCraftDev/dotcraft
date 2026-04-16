@@ -69,6 +69,57 @@ export type WorkspaceSetupModelListResult =
   | { kind: 'missing-key' }
   | { kind: 'error' }
 
+export interface ConfigDescriptorWire {
+  key: string
+  displayLabel: string
+  description: string
+  required: boolean
+  dataKind: string
+  masked: boolean
+  interactiveSetupOnly: boolean
+  advanced?: boolean
+  defaultValue?: unknown
+  enumValues?: string[]
+}
+
+export interface DiscoveredModule {
+  moduleId: string
+  channelName: string
+  displayName: string
+  packageName: string
+  configFileName: string
+  supportedTransports: string[]
+  requiresInteractiveSetup: boolean
+  variant: string
+  source: 'bundled' | 'user'
+  absolutePath: string
+  configDescriptors: ConfigDescriptorWire[]
+}
+
+export interface ModuleStatusEntry {
+  processState: 'starting' | 'running' | 'stopping' | 'stopped' | 'crashed'
+  connected: boolean
+  restartCount: number
+  lastExitCode: number | null
+  lastStderrExcerpt?: string[]
+  crashHint?: string
+}
+
+export type ModuleStatusMap = Record<string, ModuleStatusEntry>
+
+export interface QrUpdatePayload {
+  moduleId: string
+  qrDataUrl: string | null
+  timestamp: number
+}
+
+export interface ModulesRescanSummaryPayload {
+  addedModuleIds: string[]
+  removedModuleIds: string[]
+  changedModuleIds: string[]
+  changedRunningModuleIds: string[]
+}
+
 declare global {
   interface Window {
     api: {
@@ -140,6 +191,38 @@ declare global {
           limit?: number
         }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }>
       }
+      modules: {
+        list(): Promise<DiscoveredModule[]>
+        userDirectory(): Promise<{ path: string }>
+        checkDirectory(path: string): Promise<{ exists: boolean }>
+        openFolder(): Promise<{ ok: boolean; error?: string }>
+        pickDirectory(): Promise<string | null>
+        rescan(): Promise<DiscoveredModule[]>
+        setActiveVariant(params: {
+          channelName: string
+          moduleId: string
+        }): Promise<{ ok: boolean; error?: string }>
+        readConfig(params: {
+          configFileName: string
+        }): Promise<{ exists: boolean; config: Record<string, unknown> | null }>
+        writeConfig(params: {
+          configFileName: string
+          config: Record<string, unknown>
+        }): Promise<{ ok: boolean }>
+        start(params: {
+          moduleId: string
+        }): Promise<{ ok: boolean; error?: string; missingFields?: string[] }>
+        stop(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }>
+        running(): Promise<ModuleStatusMap>
+        nodeCheck(): Promise<{ available: boolean; version?: string }>
+        getLogs(moduleId: string): Promise<{ lines: string[] }>
+        qrStatus(moduleId: string): Promise<{ active: boolean; qrDataUrl: string | null }>
+        onStatusChanged(callback: (statusMap: ModuleStatusMap) => void): UnsubscribeFn
+        onQrUpdate(callback: (payload: QrUpdatePayload) => void): UnsubscribeFn
+        onRescanSummary(
+          callback: (payload: ModulesRescanSummaryPayload) => void
+        ): UnsubscribeFn
+      }
       settings: {
         get(): Promise<{
           binarySource?: BinarySource
@@ -154,6 +237,8 @@ declare global {
             url?: string
             token?: string
           }
+          modulesDirectory?: string
+          activeModuleVariants?: Record<string, string>
           theme?: 'dark' | 'light'
           locale?: 'en' | 'zh-Hans'
           visibleChannels?: string[]
@@ -171,6 +256,8 @@ declare global {
               url?: string
               token?: string
             }
+            modulesDirectory?: string
+            activeModuleVariants?: Record<string, string>
             theme?: 'dark' | 'light'
             locale?: 'en' | 'zh-Hans'
             visibleChannels?: string[]

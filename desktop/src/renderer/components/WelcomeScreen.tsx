@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { isWorkspaceLockedSwitchError } from '../../shared/workspaceSwitchErrors'
-import { useT } from '../contexts/LocaleContext'
+import type { AppLocale } from '../../shared/locales'
+import { useLocale, useSetUiLocale, useT } from '../contexts/LocaleContext'
 import { DotCraftLogo } from './ui/DotCraftLogo'
 
 interface RecentWorkspace {
@@ -19,8 +20,11 @@ function isLockError(err: unknown): boolean {
 
 export function WelcomeScreen(): JSX.Element {
   const t = useT()
+  const locale = useLocale()
+  const setUiLocale = useSetUiLocale()
   const [recents, setRecents] = useState<RecentWorkspace[]>([])
   const [loading, setLoading] = useState(false)
+  const [switchingLocale, setSwitchingLocale] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lockedPath, setLockedPath] = useState<string | null>(null)
   // shakingPath drives the animation; cleared on animationEnd to allow re-triggering
@@ -66,6 +70,19 @@ export function WelcomeScreen(): JSX.Element {
     }
   }
 
+  async function handleLocaleSwitch(nextLocale: AppLocale): Promise<void> {
+    if (nextLocale === locale || switchingLocale) return
+    setSwitchingLocale(true)
+    setUiLocale(nextLocale)
+    try {
+      await window.api.settings.set({ locale: nextLocale })
+    } catch {
+      // Ignore locale persistence failures on welcome screen.
+    } finally {
+      setSwitchingLocale(false)
+    }
+  }
+
   return (
     <div
       style={{
@@ -80,6 +97,61 @@ export function WelcomeScreen(): JSX.Element {
         boxSizing: 'border-box'
       }}
     >
+      <div
+        style={{
+          position: 'absolute',
+          top: '20px',
+          right: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}
+      >
+        <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>{t('welcome.language')}</span>
+        <div
+          style={{
+            display: 'inline-flex',
+            border: '1px solid var(--border-default)',
+            borderRadius: '999px',
+            background: 'var(--bg-secondary)',
+            overflow: 'hidden'
+          }}
+        >
+          {(
+            [
+              ['en', 'EN'],
+              ['zh-Hans', '中文']
+            ] as const
+          ).map(([value, label]) => {
+            const active = locale === value
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  void handleLocaleSwitch(value)
+                }}
+                disabled={switchingLocale || loading}
+                style={{
+                  border: 'none',
+                  background: active ? 'var(--accent)' : 'transparent',
+                  color: active ? 'var(--on-accent)' : 'var(--text-secondary)',
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  lineHeight: 1,
+                  cursor: switchingLocale || loading ? 'default' : 'pointer',
+                  opacity: switchingLocale || loading ? 0.7 : 1
+                }}
+                aria-label={label}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Logo / title */}
       <DotCraftLogo size={72} style={{ marginBottom: '20px' }} />
       <div style={{ marginBottom: '10px', fontSize: '28px', fontWeight: 700, letterSpacing: '-0.5px' }}>

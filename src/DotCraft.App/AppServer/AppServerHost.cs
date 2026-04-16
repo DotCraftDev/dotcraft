@@ -377,6 +377,10 @@ public sealed class AppServerHost(
             mcpClientManager: mcpClientManager,
             broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
             protocolExtensions: ProtocolExtensions,
+            onExternalChannelUpserted: (channel, ct) =>
+                _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
+            onExternalChannelRemoved: (channelName, ct) =>
+                _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
             streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
@@ -442,6 +446,10 @@ public sealed class AppServerHost(
             mcpClientManager: mcpClientManager,
             broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
             protocolExtensions: ProtocolExtensions,
+            onExternalChannelUpserted: (channel, ct) =>
+                _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
+            onExternalChannelRemoved: (channelName, ct) =>
+                _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
             streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
@@ -529,6 +537,10 @@ public sealed class AppServerHost(
                     mcpClientManager: mcpClientManager,
                     broadcastMcpStatusChanged: BroadcastMcpStatusChanged,
                     protocolExtensions: ProtocolExtensions,
+                    onExternalChannelUpserted: (channel, ct) =>
+                        _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
+                    onExternalChannelRemoved: (channelName, ct) =>
+                        _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
                     streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──

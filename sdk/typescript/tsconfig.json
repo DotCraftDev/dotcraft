@@ -1,4 +1,8 @@
 {
+  "references": [
+    { "path": "./packages/channel-feishu" },
+    { "path": "./packages/channel-weixin" }
+  ],
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",

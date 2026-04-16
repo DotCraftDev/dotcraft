@@ -223,7 +223,7 @@ The Python and TypeScript SDKs (`DotCraftClient`, `ChannelAdapter`) make it easi
 
 - **Telegram** (Python SDK): long polling, inline-keyboard approvals, and full end-to-end integration. See the [Python SDK](./sdk/python/README.md).
 
-- **Feishu / Lark** (TypeScript SDK): WebSocket event subscription, interactive approval cards, and a full external-channel integration example. See the [Feishu example](./sdk/typescript/examples/feishu/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
+- **Feishu / Lark** (TypeScript SDK): WebSocket event subscription, interactive approval cards, and a full external-channel integration example. See the [Feishu package](./sdk/typescript/packages/channel-feishu/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
 
 - **WeChat** (TypeScript SDK): WebSocket transport, QR-code login, text-keyword approvals. See the [TypeScript SDK](./sdk/typescript/README.md).
 

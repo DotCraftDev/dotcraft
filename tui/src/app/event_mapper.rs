@@ -39,6 +39,7 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
             state.turn_started_at = Some(std::time::Instant::now());
             state.streaming.clear();
             state.subagent_entries.clear();
+            state.last_subagent_entries.clear();
             state.token_tracker.reset();
             // Auto-scroll to bottom on new turn start.
             state.at_bottom = true;
@@ -49,6 +50,9 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
             state.turn_status = TurnStatus::Idle;
             state.current_turn_id = None;
             state.turn_started_at = None;
+            if !state.subagent_entries.is_empty() {
+                state.last_subagent_entries = state.subagent_entries.clone();
+            }
             if let Some(usage) = params.get("turn").and_then(|t| t.get("tokenUsage")) {
                 if let (Some(inp), Some(out)) = (
                     usage.get("inputTokens").and_then(|v| v.as_i64()),
@@ -585,6 +589,11 @@ pub fn apply(state: &mut AppState, msg: &JsonRpcMessage) -> bool {
                         })
                     })
                     .collect();
+                if !state.subagent_entries.is_empty()
+                    && state.subagent_entries.iter().all(|entry| entry.is_completed)
+                {
+                    state.last_subagent_entries = state.subagent_entries.clone();
+                }
             }
             true
         }

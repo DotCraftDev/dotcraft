@@ -1,5 +1,6 @@
 using DotCraft.Abstractions;
 using DotCraft.AppServer;
+using DotCraft.Common;
 using DotCraft.Configuration;
 using DotCraft.Cron;
 using DotCraft.DashBoard;
@@ -35,6 +36,12 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
     private readonly MessageRouter _router;
     private readonly List<IChannelService> _nativeChannels;
     private readonly List<IChannelService> _allChannels;
+    private readonly object _channelsLock = new();
+
+    private ISessionService? _sessionService;
+    private HeartbeatService? _heartbeatService;
+    private CronService? _cronService;
+    private PathBlacklist? _pathBlacklist;
 
     private WebHostPool? _pool;
     private List<Task>? _channelTasks;
@@ -215,11 +222,14 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
         var traceStore = _sp.GetService<TraceStore>();
         var tokenUsageStore = _sp.GetService<TokenUsageStore>();
         var orchestratorProviders = _sp.GetServices<IOrchestratorSnapshotProvider>().ToList();
+        _sessionService = sessionService;
+        _heartbeatService = heartbeatService;
+        _cronService = cronService;
+        _pathBlacklist = _sp.GetRequiredService<PathBlacklist>();
 
         if (ExternalChannelManager.HasEnabledChannels(_config))
         {
             var nativeNames = _nativeChannels.Select(ch => ch.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var pathBlacklist = _sp.GetRequiredService<PathBlacklist>();
             var channelServiceMap = _allChannels
                 .Where(ch => ch.ApprovalService != null)
                 .ToDictionary(ch => ch.Name, ch => ch.ApprovalService!);
@@ -232,14 +242,17 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
                 nativeNames,
                 _moduleRegistry,
                 _paths.WorkspacePath,
-                pathBlacklist,
+                _pathBlacklist,
                 approvalService,
                 _externalChannelRegistry,
                 streamDebugLogger);
 
             foreach (var extCh in ecManager.Channels)
             {
-                _allChannels.Add(extCh);
+                lock (_channelsLock)
+                {
+                    _allChannels.Add(extCh);
+                }
                 _router.RegisterChannel(extCh);
             }
         }
@@ -293,6 +306,154 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
     }
 
     /// <summary>
+    /// Applies a single external-channel upsert to in-memory runtime state so WebSocket adapter
+    /// routing and <c>channel/status</c> observe changes immediately without host restart.
+    /// </summary>
+    public async Task ApplyExternalChannelUpsertAsync(ExternalChannelEntry entry, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        cancellationToken.ThrowIfCancellationRequested();
+        UpsertExternalChannelConfig(entry);
+
+        if (_sessionService == null || _heartbeatService == null || _cronService == null || _pathBlacklist == null)
+            return;
+
+        ExternalChannelHost? replacedHost = null;
+        Task? nextHostTask = null;
+
+        lock (_channelsLock)
+        {
+            replacedHost = RemoveExternalChannelHost_NoLock(entry.Name);
+            if (!entry.Enabled)
+                goto done;
+
+            if (_nativeChannels.Any(ch => string.Equals(ch.Name, entry.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow][[ExternalChannel]][/] Skipping runtime upsert for [yellow]{entry.Name}[/]: " +
+                    "name conflicts with a native channel.");
+                goto done;
+            }
+
+            if (entry.Transport == ExternalChannelTransport.Subprocess && string.IsNullOrWhiteSpace(entry.Command))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow][[ExternalChannel]][/] Skipping runtime upsert for [yellow]{entry.Name}[/]: " +
+                    "subprocess channel requires a non-empty command.");
+                goto done;
+            }
+
+            if (entry.Transport == ExternalChannelTransport.Websocket)
+            {
+                var appServerConfig = _config.GetSection<AppServerConfig>("AppServer");
+                var wsEnabled = appServerConfig.Mode is AppServerMode.WebSocket or AppServerMode.StdioAndWebSocket;
+                if (!wsEnabled)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[yellow][[ExternalChannel]][/] Skipping runtime upsert for [yellow]{entry.Name}[/]: " +
+                        "websocket transport requires AppServer WebSocket mode.");
+                    goto done;
+                }
+            }
+
+            var createdHost = CreateExternalChannelHost_NoLock(entry);
+            _allChannels.Add(createdHost);
+            _router.RegisterChannel(createdHost);
+            _externalChannelRegistry.Register(entry.Name, createdHost);
+
+            if (_channelTasks != null && _channelCts is { IsCancellationRequested: false } cts)
+            {
+                nextHostTask = RunChannelAsync(createdHost, cts.Token);
+                _channelTasks.Add(nextHostTask);
+            }
+        }
+
+    done:
+        if (replacedHost != null)
+            await replacedHost.DisposeAsync();
+
+        if (nextHostTask != null)
+            await Task.Yield();
+    }
+
+    /// <summary>
+    /// Applies a single external-channel removal to in-memory runtime state.
+    /// </summary>
+    public async Task ApplyExternalChannelRemoveAsync(string channelName, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(channelName))
+            return;
+
+        RemoveExternalChannelConfig(channelName);
+
+        ExternalChannelHost? removedHost;
+        lock (_channelsLock)
+        {
+            removedHost = RemoveExternalChannelHost_NoLock(channelName);
+        }
+
+        if (removedHost != null)
+            await removedHost.DisposeAsync();
+    }
+
+    private ExternalChannelHost CreateExternalChannelHost_NoLock(ExternalChannelEntry source)
+    {
+        var channel = source.Clone();
+        var channelServiceMap = _allChannels
+            .Where(ch => ch.ApprovalService != null)
+            .ToDictionary(ch => ch.Name, ch => ch.ApprovalService!);
+        var approvalService = new SessionScopedApprovalService(
+            new ChannelRoutingApprovalService(channelServiceMap, new ConsoleApprovalService()));
+
+        return new ExternalChannelHost(
+            channel,
+            _sessionService!,
+            AppVersion.Informational,
+            _moduleRegistry,
+            _paths.WorkspacePath,
+            _pathBlacklist,
+            approvalService,
+            streamDebugLogger: _sp.GetService<SessionStreamDebugLogger>());
+    }
+
+    private ExternalChannelHost? RemoveExternalChannelHost_NoLock(string channelName)
+    {
+        var host = _allChannels
+            .OfType<ExternalChannelHost>()
+            .FirstOrDefault(ch => string.Equals(ch.Name, channelName, StringComparison.OrdinalIgnoreCase));
+        if (host == null)
+            return null;
+
+        _allChannels.Remove(host);
+        _router.UnregisterChannel(channelName);
+        _externalChannelRegistry.Unregister(channelName);
+        return host;
+    }
+
+    private void UpsertExternalChannelConfig(ExternalChannelEntry entry)
+    {
+        lock (_channelsLock)
+        {
+            var existingIndex = _config.ExternalChannels.FindIndex(c =>
+                string.Equals(c.Name, entry.Name, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
+                _config.ExternalChannels[existingIndex] = entry.Clone();
+            else
+                _config.ExternalChannels.Add(entry.Clone());
+        }
+    }
+
+    private void RemoveExternalChannelConfig(string channelName)
+    {
+        lock (_channelsLock)
+        {
+            _config.ExternalChannels.RemoveAll(c =>
+                string.Equals(c.Name, channelName, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
     /// Starts all Kestrel listeners in the pool (matches GatewayHost before cron/channel loops).
     /// </summary>
     public async Task StartWebPoolAsync()
@@ -313,7 +474,12 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
             throw new InvalidOperationException("Call Initialize before BeginChannelLoops.");
 
         _channelCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _channelTasks = _allChannels
+        List<IChannelService> snapshot;
+        lock (_channelsLock)
+        {
+            snapshot = _allChannels.ToList();
+        }
+        _channelTasks = snapshot
             .Select(ch => RunChannelAsync(ch, _channelCts.Token))
             .ToList();
     }
@@ -372,6 +538,13 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
     public IReadOnlyList<ChannelStatusInfo> GetChannelStatuses()
     {
         var result = new List<ChannelStatusInfo>();
+        List<IChannelService> channelSnapshot;
+        List<ExternalChannelEntry> externalChannelConfigSnapshot;
+        lock (_channelsLock)
+        {
+            channelSnapshot = _allChannels.ToList();
+            externalChannelConfigSnapshot = _config.ExternalChannels.Select(c => c.Clone()).ToList();
+        }
 
         // Native social channels: discovered via modules with "social" category entries.
         var nativeRunningNames = _nativeChannels
@@ -396,10 +569,10 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
         }
 
         // External adapter channels: read all entries from config (including disabled ones).
-        var externalChannels = ExternalChannelEntryMap.ToDictionaryByNameLastWins(_config.ExternalChannels);
+        var externalChannels = ExternalChannelEntryMap.ToDictionaryByNameLastWins(externalChannelConfigSnapshot);
 
         // Build a lookup of running external hosts by name.
-        var externalHosts = _allChannels
+        var externalHosts = channelSnapshot
             .OfType<ExternalChannelHost>()
             .ToDictionary(h => h.Name, StringComparer.OrdinalIgnoreCase);
 
@@ -454,7 +627,13 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
         if (!_stopped)
             await StopAsync();
 
-        foreach (var ch in _allChannels)
+        List<IChannelService> snapshot;
+        lock (_channelsLock)
+        {
+            snapshot = _allChannels.ToList();
+        }
+
+        foreach (var ch in snapshot)
             await ch.DisposeAsync();
     }
 }

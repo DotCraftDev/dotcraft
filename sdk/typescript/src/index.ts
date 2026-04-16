@@ -48,5 +48,35 @@ export {
   mergeReplyTextFromDeltaAndSnapshot,
 } from "./turnReply.js";
 export { shouldFlushSegmentOnItemStarted } from "./segmentBoundaries.js";
+export {
+  ConfigValidationError,
+  loadJsonConfig,
+  ModuleChannelAdapter,
+  resolveConfigPath,
+  resolveModuleStatePath,
+  resolveModuleTempPath,
+} from "./moduleAdapter.js";
+export type {
+  ModuleFactory,
+  ModuleInstance,
+  ModuleManifest,
+  ModuleTransport,
+  ModuleVariant,
+  WorkspaceContext,
+  LauncherDescriptor,
+} from "./module.js";
+export type { ConfigDescriptor, ConfigFieldKind } from "./config.js";
+export type { LifecycleStatus, ModuleError, ModuleErrorCode } from "./lifecycle.js";
+export type {
+  CapabilitySummary,
+  ChannelToolDescriptor,
+  ToolApprovalDescriptor,
+  DeliveryCapabilityDescriptor,
+  ToolInvocationContext,
+  ToolInvocationResult,
+} from "./capability.js";
+export { runModuleConformanceSuite } from "./conformance.test-helper.js";
+export type { ConformanceSuiteOptions } from "./conformance.test-helper.js";
 
-export const version = "0.1.0";
+export const version = "0.1.3";
+export const sdkContractVersion = "1.0.0";

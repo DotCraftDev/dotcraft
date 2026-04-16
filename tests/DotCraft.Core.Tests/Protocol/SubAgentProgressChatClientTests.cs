@@ -75,9 +75,10 @@ public sealed class SubAgentProgressChatClientTests
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "round 2")]);
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "round 3")]);
 
-        // Tokens should accumulate: 100+200+300 = 600 input, 50+100+150 = 300 output
-        Assert.Equal(600, entry.InputTokens);
-        Assert.Equal(300, entry.OutputTokens);
+        // Snapshot deltas should accumulate: (100) + (200-100) + (300-200) = 300 input,
+        // and (50) + (100-50) + (150-100) = 150 output.
+        Assert.Equal(300, entry.InputTokens);
+        Assert.Equal(150, entry.OutputTokens);
     }
 
     // -------------------------------------------------------------------------
@@ -176,9 +177,10 @@ public sealed class SubAgentProgressChatClientTests
         await foreach (var _ in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "2")]))
         { }
 
-        // 100+200 = 300 input, 40+80 = 120 output
-        Assert.Equal(300, entry.InputTokens);
-        Assert.Equal(120, entry.OutputTokens);
+        // Snapshot deltas across streams: (100) + (200-100) = 200 input,
+        // and (40) + (80-40) = 80 output.
+        Assert.Equal(200, entry.InputTokens);
+        Assert.Equal(80, entry.OutputTokens);
     }
 
     // -------------------------------------------------------------------------

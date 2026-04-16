@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotCraft.Configuration;
 using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
@@ -32,7 +33,9 @@ internal sealed class AppServerTestHarness : IDisposable
     public AppServerTestHarness(
         SessionApprovalDecision defaultApprovalDecision = SessionApprovalDecision.AcceptOnce,
         IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
-        string? workspaceCraftPath = null)
+        string? workspaceCraftPath = null,
+        Func<ExternalChannelEntry, CancellationToken, Task>? onExternalChannelUpserted = null,
+        Func<string, CancellationToken, Task>? onExternalChannelRemoved = null)
     {
         _tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -50,7 +53,9 @@ internal sealed class AppServerTestHarness : IDisposable
             defaultApprovalDecision: defaultApprovalDecision,
             workspaceCraftPath: workspaceCraftPath,
             hostWorkspacePath: _tempDir,
-            protocolExtensions: protocolExtensions);
+            protocolExtensions: protocolExtensions,
+            onExternalChannelUpserted: onExternalChannelUpserted,
+            onExternalChannelRemoved: onExternalChannelRemoved);
 
         Identity = new SessionIdentity
         {

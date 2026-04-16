@@ -44,6 +44,8 @@ public sealed class AppServerRequestHandler(
     IChannelStatusProvider? channelStatusProvider = null,
     McpClientManager? mcpClientManager = null,
     IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
+    Func<ExternalChannelEntry, CancellationToken, Task>? onExternalChannelUpserted = null,
+    Func<string, CancellationToken, Task>? onExternalChannelRemoved = null,
     SessionStreamDebugLogger? streamDebugLogger = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
@@ -60,6 +62,8 @@ public sealed class AppServerRequestHandler(
     private readonly Action<CronJobWireInfo, bool>? _broadcastCronStateChanged = broadcastCronStateChanged;
     private readonly Action<McpStatusInfoWire>? _broadcastMcpStatusChanged = broadcastMcpStatusChanged;
     private readonly McpClientManager? _mcpClientManager = mcpClientManager;
+    private readonly Func<ExternalChannelEntry, CancellationToken, Task>? _onExternalChannelUpserted = onExternalChannelUpserted;
+    private readonly Func<string, CancellationToken, Task>? _onExternalChannelRemoved = onExternalChannelRemoved;
 
     /// <summary>
     /// Fallback decision used by <see cref="AppServerEventDispatcher"/> when non-interactive
@@ -559,9 +563,8 @@ public sealed class AppServerRequestHandler(
         });
     }
 
-    private Task<object?> HandleExternalChannelUpsertAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    private async Task<object?> HandleExternalChannelUpsertAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        _ = ct;
         var p = GetParams<ExternalChannelUpsertParams>(msg);
         EnsureExternalChannelManagementAvailable();
         ValidateExternalChannelConfigWire(p.Channel);
@@ -577,15 +580,17 @@ public sealed class AppServerRequestHandler(
             channels.Add(channel);
 
         SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
-        return Task.FromResult<object?>(new ExternalChannelUpsertResult
+        if (_onExternalChannelUpserted != null)
+            await _onExternalChannelUpserted(channel, ct);
+
+        return new ExternalChannelUpsertResult
         {
             Channel = MapExternalChannelToWire(channel)
-        });
+        };
     }
 
-    private Task<object?> HandleExternalChannelRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    private async Task<object?> HandleExternalChannelRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
-        _ = ct;
         var p = GetParams<ExternalChannelRemoveParams>(msg);
         EnsureExternalChannelManagementAvailable();
         if (string.IsNullOrWhiteSpace(p.Name))
@@ -597,7 +602,10 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.ExternalChannelNotFound(p.Name);
 
         SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
-        return Task.FromResult<object?>(new ExternalChannelRemoveResult { Removed = true });
+        if (_onExternalChannelRemoved != null)
+            await _onExternalChannelRemoved(p.Name, ct);
+
+        return new ExternalChannelRemoveResult { Removed = true };
     }
 
     private async Task<object?> HandleMcpStatusListAsync(AppServerIncomingMessage msg, CancellationToken ct)

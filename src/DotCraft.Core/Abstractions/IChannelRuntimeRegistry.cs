@@ -7,6 +7,8 @@ public interface IChannelRuntimeRegistry
 {
     void Register(IChannelRuntime runtime);
 
+    bool TryRemove(string channelName);
+
     bool TryGet(string channelName, out IChannelRuntime? runtime);
 
     IReadOnlyList<IChannelRuntime> Snapshot();

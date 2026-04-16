@@ -2,7 +2,7 @@ import { useT } from '../../contexts/LocaleContext'
 import type { QQChannelConfig } from './useChannelConfig'
 import { ToggleSwitch } from './ToggleSwitch'
 import type { ChannelConnectionState } from './ChannelCard'
-import { formStyles, StatusPill, FieldCard, FormActions } from './FormShared'
+import { formStyles, StatusPill, FieldCard, FormActions, SecretInput } from './FormShared'
 
 interface QQConfigFormProps {
   value: QQChannelConfig
@@ -106,13 +106,12 @@ export function QQConfigForm({
           </div>
           <div style={{ ...formStyles.fieldGroup, marginBottom: 0 }}>
             <label style={formStyles.label}>{t('channels.qq.accessToken')}</label>
-            <input
-              type="password"
+            <SecretInput
               value={value.AccessToken}
-              onChange={(e) => onChange({ ...value, AccessToken: e.target.value })}
-              style={formStyles.input}
               onFocus={formStyles.inputFocus}
               onBlur={formStyles.inputBlur}
+              onChange={(nextValue) => onChange({ ...value, AccessToken: nextValue })}
+              style={formStyles.input}
             />
           </div>
         </FieldCard>
