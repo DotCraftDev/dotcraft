@@ -5,7 +5,7 @@ import { existsSync } from 'fs'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
 import { AppServerManager } from './AppServerManager'
-import { ProxyProcessManager, type ProxyBinarySource } from './ProxyProcessManager'
+import { ProxyProcessManager } from './ProxyProcessManager'
 import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
 import {
   registerIpcHandlers,
@@ -32,8 +32,7 @@ import {
   type AppSettings,
   type BinarySource,
   type ConnectionMode,
-  type ProxyOAuthProvider,
-  type ProxySettings
+  type ProxyOAuthProvider
 } from './settings'
 import { mergeUpdatedSettings } from './settingsMerge'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
@@ -58,13 +57,17 @@ import {
 } from '../shared/locales'
 import {
   writeProxyConfig,
-  createLocalSecret,
   buildLocalProxyEndpoint,
   buildLocalProxyManagementBaseUrl,
   buildManagementHeaders,
   buildProxyOAuthPath
 } from './proxyConfig'
 import { applyWorkspaceProxyOverrides, cleanupWorkspaceProxyOverrides } from './proxyWorkspaceConfig'
+import {
+  materializeProxyRuntimeSettings,
+  resolveExistingProxyRuntimeSettings,
+  resolveProxySettings
+} from './proxyRuntime'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -108,8 +111,6 @@ function resolveWindowIconPath(): string | null {
 let sharedSettings: AppSettings = {}
 const DEFAULT_WS_HOST = '127.0.0.1'
 const DEFAULT_WS_PORT = 9100
-const DEFAULT_PROXY_HOST = '127.0.0.1'
-const DEFAULT_PROXY_PORT = 8317
 const WINDOW_SHOW_FALLBACK_MS = 3000
 
 // ─── Workspace resolution ─────────────────────────────────────────────────────
@@ -201,76 +202,6 @@ function resolveRemoteWsUrl(settings: AppSettings): string | null {
   return appendTokenToWsUrlIfMissing(parsed.toString(), settings.remote?.token)
 }
 
-function resolveProxySettings(settings: AppSettings): Required<Pick<ProxySettings, 'enabled' | 'host' | 'port' | 'binarySource'>> &
-  Pick<ProxySettings, 'binaryPath' | 'authDir' | 'apiKey' | 'managementKey'> {
-  const raw = settings.proxy ?? {}
-  const host = raw.host?.trim() || DEFAULT_PROXY_HOST
-  const candidatePort = raw.port
-  const port =
-    typeof candidatePort === 'number' && Number.isInteger(candidatePort) && candidatePort > 0 && candidatePort <= 65535
-      ? candidatePort
-      : DEFAULT_PROXY_PORT
-  const enabled = raw.enabled === true
-  const binarySource: ProxyBinarySource =
-    raw.binarySource === 'bundled' || raw.binarySource === 'path' || raw.binarySource === 'custom'
-      ? raw.binarySource
-      : raw.binaryPath?.trim()
-        ? 'custom'
-        : 'bundled'
-  return {
-    enabled,
-    host,
-    port,
-    binarySource,
-    binaryPath: raw.binaryPath?.trim() || undefined,
-    authDir: raw.authDir?.trim() || undefined,
-    apiKey: raw.apiKey?.trim() || undefined,
-    managementKey: raw.managementKey?.trim() || undefined
-  }
-}
-
-function getProxyConfigPath(): string {
-  return join(app.getPath('userData'), 'proxy', 'config.yaml')
-}
-
-function getDefaultProxyAuthDir(): string {
-  return join(app.getPath('userData'), 'proxy', 'auths')
-}
-
-function resolveProxyRuntimeSettings(settings: AppSettings): {
-  host: string
-  port: number
-  binarySource: ProxyBinarySource
-  binaryPath?: string
-  authDir: string
-  apiKey: string
-  managementKey: string
-  configPath: string
-} {
-  const proxy = resolveProxySettings(settings)
-  const apiKey = proxy.apiKey || createLocalSecret('dotcraft_proxy_api')
-  const managementKey = proxy.managementKey || createLocalSecret('dotcraft_proxy_mgmt')
-  const authDir = proxy.authDir || getDefaultProxyAuthDir()
-  if (!settings.proxy) settings.proxy = {}
-  settings.proxy.apiKey = apiKey
-  settings.proxy.managementKey = managementKey
-  settings.proxy.authDir = authDir
-  settings.proxy.port = proxy.port
-  settings.proxy.host = proxy.host
-  settings.proxy.binarySource = proxy.binarySource
-  settings.proxy.binaryPath = proxy.binaryPath
-  return {
-    host: proxy.host,
-    port: proxy.port,
-    binarySource: proxy.binarySource,
-    binaryPath: proxy.binaryPath,
-    authDir,
-    apiKey,
-    managementKey,
-    configPath: getProxyConfigPath()
-  }
-}
-
 async function waitForProxyReady(port: number, apiKey: string, timeoutMs = 15_000): Promise<void> {
   const started = Date.now()
   const modelsUrl = `${buildLocalProxyEndpoint(port)}/models`
@@ -291,7 +222,7 @@ async function waitForProxyReady(port: number, apiKey: string, timeoutMs = 15_00
 }
 
 async function fetchProxyManagementJson<T>(settings: AppSettings, path: string): Promise<T> {
-  const runtime = resolveProxyRuntimeSettings(settings)
+  const runtime = resolveExistingProxyRuntimeSettings(settings)
   const url = `${buildLocalProxyManagementBaseUrl(runtime.port)}${path}`
   const res = await fetch(url, {
     headers: buildManagementHeaders(runtime.managementKey)
@@ -316,7 +247,7 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
     return
   }
 
-  const runtime = resolveProxyRuntimeSettings(sharedSettings)
+  const runtime = materializeProxyRuntimeSettings(sharedSettings)
   saveSettings(sharedSettings)
   writeProxyConfig(runtime.configPath, {
     host: runtime.host,
