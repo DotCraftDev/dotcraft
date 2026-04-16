@@ -2,8 +2,10 @@ import { app, BrowserWindow, session, Menu, ipcMain, shell, nativeImage } from '
 import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
+import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
 import { AppServerManager } from './AppServerManager'
+import { ProxyProcessManager, type ProxyBinarySource } from './ProxyProcessManager'
 import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
 import {
   registerIpcHandlers,
@@ -19,6 +21,7 @@ import {
   sanitizeHttpOrHttpsUrl,
   openExternalHttpUrl,
   type ConnectionStatusPayload,
+  type ProxyStatusPayload,
   type IpcHandlerCallbacks
 } from './ipcBridge'
 import {
@@ -28,7 +31,9 @@ import {
   getRecentWorkspaces,
   type AppSettings,
   type BinarySource,
-  type ConnectionMode
+  type ConnectionMode,
+  type ProxyOAuthProvider,
+  type ProxySettings
 } from './settings'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
 import {
@@ -50,6 +55,14 @@ import {
   type AppLocale,
   type TopLevelMenuId
 } from '../shared/locales'
+import {
+  writeProxyConfig,
+  createLocalSecret,
+  buildLocalProxyEndpoint,
+  buildLocalProxyManagementBaseUrl,
+  buildManagementHeaders,
+  buildProxyOAuthPath
+} from './proxyConfig'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -59,6 +72,7 @@ import {
 
 let mainWindow: BrowserWindow | null = null
 let appServerManager: AppServerManager | null = null
+let proxyManager: ProxyProcessManager | null = null
 let wireClient: WireProtocolClient | null = null
 let currentWorkspacePath = ''
 let crashRetries = 0
@@ -74,6 +88,7 @@ let crashRetryTimer: ReturnType<typeof setTimeout> | null = null
 let isAppQuitting = false
 let ipcHandlersRegistered = false
 let finalQuitCleanupDone = false
+let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
 
 /** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
 function resolveWindowIconPath(): string | null {
@@ -91,6 +106,8 @@ function resolveWindowIconPath(): string | null {
 let sharedSettings: AppSettings = {}
 const DEFAULT_WS_HOST = '127.0.0.1'
 const DEFAULT_WS_PORT = 9100
+const DEFAULT_PROXY_HOST = '127.0.0.1'
+const DEFAULT_PROXY_PORT = 8317
 const WINDOW_SHOW_FALLBACK_MS = 3000
 
 // ─── Workspace resolution ─────────────────────────────────────────────────────
@@ -182,6 +199,199 @@ function resolveRemoteWsUrl(settings: AppSettings): string | null {
   return appendTokenToWsUrlIfMissing(parsed.toString(), settings.remote?.token)
 }
 
+function resolveProxySettings(settings: AppSettings): Required<Pick<ProxySettings, 'enabled' | 'host' | 'port' | 'binarySource'>> &
+  Pick<ProxySettings, 'binaryPath' | 'authDir' | 'apiKey' | 'managementKey'> {
+  const raw = settings.proxy ?? {}
+  const host = raw.host?.trim() || DEFAULT_PROXY_HOST
+  const candidatePort = raw.port
+  const port =
+    typeof candidatePort === 'number' && Number.isInteger(candidatePort) && candidatePort > 0 && candidatePort <= 65535
+      ? candidatePort
+      : DEFAULT_PROXY_PORT
+  const enabled = raw.enabled === true
+  const binarySource: ProxyBinarySource =
+    raw.binarySource === 'bundled' || raw.binarySource === 'path' || raw.binarySource === 'custom'
+      ? raw.binarySource
+      : raw.binaryPath?.trim()
+        ? 'custom'
+        : 'bundled'
+  return {
+    enabled,
+    host,
+    port,
+    binarySource,
+    binaryPath: raw.binaryPath?.trim() || undefined,
+    authDir: raw.authDir?.trim() || undefined,
+    apiKey: raw.apiKey?.trim() || undefined,
+    managementKey: raw.managementKey?.trim() || undefined
+  }
+}
+
+function getProxyConfigPath(): string {
+  return join(app.getPath('userData'), 'proxy', 'config.yaml')
+}
+
+function getDefaultProxyAuthDir(): string {
+  return join(app.getPath('userData'), 'proxy', 'auths')
+}
+
+function resolveProxyRuntimeSettings(settings: AppSettings): {
+  host: string
+  port: number
+  binarySource: ProxyBinarySource
+  binaryPath?: string
+  authDir: string
+  apiKey: string
+  managementKey: string
+  configPath: string
+} {
+  const proxy = resolveProxySettings(settings)
+  const apiKey = proxy.apiKey || createLocalSecret('dotcraft_proxy_api')
+  const managementKey = proxy.managementKey || createLocalSecret('dotcraft_proxy_mgmt')
+  const authDir = proxy.authDir || getDefaultProxyAuthDir()
+  if (!settings.proxy) settings.proxy = {}
+  settings.proxy.apiKey = apiKey
+  settings.proxy.managementKey = managementKey
+  settings.proxy.authDir = authDir
+  settings.proxy.port = proxy.port
+  settings.proxy.host = proxy.host
+  settings.proxy.binarySource = proxy.binarySource
+  settings.proxy.binaryPath = proxy.binaryPath
+  return {
+    host: proxy.host,
+    port: proxy.port,
+    binarySource: proxy.binarySource,
+    binaryPath: proxy.binaryPath,
+    authDir,
+    apiKey,
+    managementKey,
+    configPath: getProxyConfigPath()
+  }
+}
+
+async function writeWorkspaceProxyOverrides(workspacePath: string, port: number, apiKey: string): Promise<void> {
+  const craftDir = join(workspacePath, '.craft')
+  const configPath = join(craftDir, 'config.json')
+  let current: Record<string, unknown> = {}
+  try {
+    const raw = await fs.readFile(configPath, 'utf8')
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      current = parsed as Record<string, unknown>
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code !== 'ENOENT') {
+      throw error
+    }
+  }
+  current.EndPoint = buildLocalProxyEndpoint(port)
+  current.ApiKey = apiKey
+  await fs.mkdir(craftDir, { recursive: true })
+  await fs.writeFile(configPath, `${JSON.stringify(current, null, 2)}\n`, 'utf8')
+}
+
+async function waitForProxyReady(port: number, apiKey: string, timeoutMs = 15_000): Promise<void> {
+  const started = Date.now()
+  const modelsUrl = `${buildLocalProxyEndpoint(port)}/models`
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(modelsUrl, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        }
+      })
+      if (res.ok) return
+    } catch {
+      // Keep polling until timeout.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+  throw new Error(`CLIProxyAPI did not become ready in ${timeoutMs}ms`)
+}
+
+async function fetchProxyManagementJson<T>(settings: AppSettings, path: string): Promise<T> {
+  const runtime = resolveProxyRuntimeSettings(settings)
+  const url = `${buildLocalProxyManagementBaseUrl(runtime.port)}${path}`
+  const res = await fetch(url, {
+    headers: buildManagementHeaders(runtime.managementKey)
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`CLIProxyAPI management API failed (${res.status}): ${body || res.statusText}`)
+  }
+  return (await res.json()) as T
+}
+
+async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<void> {
+  const proxy = resolveProxySettings(sharedSettings)
+  if (!proxy.enabled) {
+    proxyManager?.shutdown()
+    proxyManager = null
+    proxyStatus = { status: 'stopped' }
+    return
+  }
+
+  const runtime = resolveProxyRuntimeSettings(sharedSettings)
+  saveSettings(sharedSettings)
+  writeProxyConfig(runtime.configPath, {
+    host: runtime.host,
+    port: runtime.port,
+    authDir: runtime.authDir,
+    apiKey: runtime.apiKey,
+    managementKey: runtime.managementKey
+  })
+  await writeWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
+
+  if (proxyManager?.isRunning) {
+    proxyStatus = {
+      status: 'running',
+      pid: proxyManager.pid ?? undefined,
+      port: runtime.port,
+      baseUrl: buildLocalProxyEndpoint(runtime.port),
+      managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
+    }
+    return
+  }
+
+  const manager = new ProxyProcessManager({
+    workspacePath,
+    configPath: runtime.configPath,
+    binarySource: runtime.binarySource,
+    binaryPath: runtime.binaryPath
+  })
+  proxyManager = manager
+  proxyStatus = { status: 'starting', port: runtime.port }
+
+  manager.on('error', (err: Error) => {
+    proxyStatus = { status: 'error', errorMessage: err.message, port: runtime.port }
+  })
+  manager.on('crash', () => {
+    proxyStatus = {
+      status: 'error',
+      errorMessage: 'CLIProxyAPI process crashed unexpectedly',
+      port: runtime.port
+    }
+  })
+  manager.on('stopped', () => {
+    proxyStatus = { status: 'stopped', port: runtime.port }
+  })
+
+  manager.spawn()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  if (proxyStatus.status === 'error') {
+    throw new Error(proxyStatus.errorMessage || 'CLIProxyAPI failed to start')
+  }
+  await waitForProxyReady(runtime.port, runtime.apiKey)
+  proxyStatus = {
+    status: 'running',
+    pid: manager.pid ?? undefined,
+    port: runtime.port,
+    baseUrl: buildLocalProxyEndpoint(runtime.port),
+    managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
+  }
+}
+
 async function waitForReadyz(host: string, port: number, timeoutMs = 15_000): Promise<void> {
   const base = `http://${host}:${port}`
   const started = Date.now()
@@ -271,6 +481,7 @@ function teardownRuntime(
     ? unregisterDesktopIpcHandlers()
     : false
   const hadAppServer = appServerManager !== null
+  const hadProxy = proxyManager !== null
   const hadWireClient = wireClient !== null
   if (moduleManager) {
     void moduleManager.stopAll({ preserveExternalChannels: true }).catch((error) => {
@@ -278,9 +489,12 @@ function teardownRuntime(
     })
   }
   appServerManager?.shutdown()
+  proxyManager?.shutdown()
   wireClient?.dispose()
   appServerManager = null
+  proxyManager = null
   wireClient = null
+  proxyStatus = { status: 'stopped' }
   let releasedWorkspaceLock = false
   if (options?.releaseWorkspaceLock) {
     releasedWorkspaceLock = currentWorkspacePath !== ''
@@ -295,6 +509,7 @@ function teardownRuntime(
     clearedCrashRetry ||
     cleanedIpc ||
     hadAppServer ||
+    hadProxy ||
     hadWireClient ||
     releasedWorkspaceLock ||
     clearedMainWindow
@@ -550,6 +765,19 @@ function buildCallbacks(): IpcHandlerCallbacks {
       }
       await connectToAppServer(currentWorkspacePath)
     },
+    onRestartManagedProxy: async () => {
+      if (!currentWorkspacePath) {
+        throw new Error('Open a workspace before restarting proxy.')
+      }
+      const proxy = resolveProxySettings(sharedSettings)
+      if (!proxy.enabled) {
+        throw new Error('Local proxy is disabled in Settings.')
+      }
+      proxyManager?.shutdown()
+      proxyManager = null
+      proxyStatus = { status: 'stopped' }
+      await ensureProxyRunningForWorkspace(currentWorkspacePath)
+    },
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
       const prevLocale = normalizeLocale(sharedSettings.locale)
@@ -559,13 +787,57 @@ function buildCallbacks(): IpcHandlerCallbacks {
       }
       Object.assign(sharedSettings, next)
       saveSettings(sharedSettings)
+      if (resolveProxySettings(sharedSettings).enabled !== true) {
+        proxyManager?.shutdown()
+        proxyManager = null
+        proxyStatus = { status: 'stopped' }
+      }
       if (partial.locale !== undefined && normalizeLocale(sharedSettings.locale) !== prevLocale) {
         refreshAppMenu()
       }
     },
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
     getConnectionStatus: () => lastConnectionStatus,
-    getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath)
+    getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath),
+    getProxyStatus: () => proxyStatus,
+    startProxyOAuth: async (provider: ProxyOAuthProvider) => {
+      const response = await fetchProxyManagementJson<{ url?: string; state?: string; status?: string; error?: string }>(
+        sharedSettings,
+        buildProxyOAuthPath(provider)
+      )
+      if (!response.url) {
+        throw new Error(response.error || 'OAuth URL was not returned by CLIProxyAPI')
+      }
+      await openExternalHttpUrl(response.url)
+      return { url: response.url, state: response.state }
+    },
+    getProxyOAuthStatus: async (state: string) => {
+      if (!state.trim()) {
+        throw new Error('Missing OAuth state')
+      }
+      return fetchProxyManagementJson<{ status: string; error?: string }>(
+        sharedSettings,
+        `/get-auth-status?state=${encodeURIComponent(state)}`
+      )
+    },
+    getProxyUsageSummary: async () => {
+      const usage = await fetchProxyManagementJson<{
+        usage?: {
+          total_requests?: number
+          success_count?: number
+          failure_count?: number
+          total_tokens?: number
+        }
+        failed_requests?: number
+      }>(sharedSettings, '/usage')
+      return {
+        totalRequests: usage.usage?.total_requests ?? 0,
+        successCount: usage.usage?.success_count ?? 0,
+        failureCount: usage.usage?.failure_count ?? 0,
+        totalTokens: usage.usage?.total_tokens ?? 0,
+        failedRequests: usage.failed_requests ?? usage.usage?.failure_count ?? 0
+      }
+    }
   }
 }
 
@@ -678,6 +950,14 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   }
 
   const win = mainWindow!
+  try {
+    await ensureProxyRunningForWorkspace(workspacePath)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[proxy] Failed to start API proxy, continuing without it:', message)
+    proxyStatus = { status: 'error', errorMessage: message }
+  }
+
   emitConnectionStatus(win, { status: 'connecting' })
 
   const manager = new AppServerManager({

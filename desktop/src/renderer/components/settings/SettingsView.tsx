@@ -8,6 +8,7 @@ import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { SecretInput } from '../channels/FormShared'
+import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
 import {
   useMcpStore,
@@ -15,7 +16,7 @@ import {
   type McpServerStatusWire,
   type McpTransport
 } from '../../stores/mcpStore'
-import type { BinarySource } from '../../../preload/api'
+import type { BinarySource, ProxyOAuthProvider } from '../../../preload/api'
 
 declare const __APP_VERSION__: string | undefined
 
@@ -48,11 +49,15 @@ interface McpTestResultWire {
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
-type SettingsTab = 'general' | 'connection' | 'channels' | 'archivedThreads' | 'mcp'
+type SettingsTab = 'general' | 'connection' | 'proxy' | 'channels' | 'archivedThreads' | 'mcp'
+type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
+type ProxyProviderStatus = 'idle' | 'pending' | 'ok' | 'error'
 
 const CATEGORY_ORDER = ['builtin', 'social', 'system', 'external'] as const
 const DEFAULT_WS_HOST = '127.0.0.1'
 const DEFAULT_WS_PORT = 9100
+const DEFAULT_PROXY_PORT = 8317
+const PROXY_OAUTH_PROVIDERS: ProxyOAuthProvider[] = ['codex', 'claude', 'gemini', 'qwen', 'iflow']
 
 const CATEGORY_LABEL_KEY: Record<string, MessageKey> = {
   builtin: 'settings.channelCategory.builtin',
@@ -67,6 +72,16 @@ function formatChannelChipLabel(name: string): string {
 
 function createRowId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function createProxyProviderMap<T>(value: T): Record<ProxyOAuthProvider, T> {
+  return {
+    codex: value,
+    claude: value,
+    gemini: value,
+    qwen: value,
+    iflow: value
+  }
 }
 
 function createEmptyMcpServer(): McpServerConfigWire {
@@ -211,6 +226,90 @@ function selectionCardStyle(active: boolean): CSSProperties {
   }
 }
 
+function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0'
+  return new Intl.NumberFormat(undefined, {
+    notation: 'compact',
+    maximumFractionDigits: 1
+  }).format(value)
+}
+
+function ProxyRuntimeStatusPill({
+  status,
+  label
+}: {
+  status: ProxyRuntimeStatus
+  label: string
+}): JSX.Element {
+  const tone =
+    status === 'running'
+      ? { bg: 'rgba(52, 199, 89, 0.15)', text: 'var(--success)' }
+      : status === 'starting'
+        ? { bg: 'rgba(255, 149, 0, 0.15)', text: 'var(--warning)' }
+        : status === 'error'
+          ? { bg: 'rgba(255, 69, 58, 0.15)', text: 'var(--error, #ff453a)' }
+          : { bg: 'var(--bg-tertiary)', text: 'var(--text-dimmed)' }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '3px 9px',
+        borderRadius: '12px',
+        fontSize: '11px',
+        fontWeight: 600,
+        backgroundColor: tone.bg,
+        color: tone.text
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          backgroundColor: tone.text
+        }}
+      />
+      {label}
+    </span>
+  )
+}
+
+function ProxyOAuthStatusPill({
+  status,
+  label
+}: {
+  status: ProxyProviderStatus
+  label: string
+}): JSX.Element {
+  const tone =
+    status === 'ok'
+      ? { bg: 'rgba(52, 199, 89, 0.15)', text: 'var(--success)' }
+      : status === 'pending'
+        ? { bg: 'rgba(255, 149, 0, 0.15)', text: 'var(--warning)' }
+        : status === 'error'
+          ? { bg: 'rgba(255, 69, 58, 0.15)', text: 'var(--error, #ff453a)' }
+          : { bg: 'var(--bg-tertiary)', text: 'var(--text-dimmed)' }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: '10px',
+        fontSize: '11px',
+        fontWeight: 600,
+        backgroundColor: tone.bg,
+        color: tone.text
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
 function EditableValueList({
   rows,
   setRows,
@@ -334,6 +433,32 @@ export function SettingsView({
   const [wsPort, setWsPort] = useState(String(DEFAULT_WS_PORT))
   const [remoteUrl, setRemoteUrl] = useState('')
   const [remoteToken, setRemoteToken] = useState('')
+  const [proxyEnabled, setProxyEnabled] = useState(false)
+  const [proxyPort, setProxyPort] = useState(String(DEFAULT_PROXY_PORT))
+  const [proxyAuthDir, setProxyAuthDir] = useState('')
+  const [proxyBinarySource, setProxyBinarySource] = useState<BinarySource>('bundled')
+  const [proxyBinaryPath, setProxyBinaryPath] = useState('')
+  const [resolvedProxyBinaryPath, setResolvedProxyBinaryPath] = useState<string | null>(null)
+  const [resolvingProxyBinary, setResolvingProxyBinary] = useState(false)
+  const [proxyStatusText, setProxyStatusText] = useState<ProxyRuntimeStatus>('stopped')
+  const [proxyStatusError, setProxyStatusError] = useState('')
+  const [proxyUsage, setProxyUsage] = useState<{
+    totalRequests: number
+    successCount: number
+    failureCount: number
+    totalTokens: number
+  } | null>(null)
+  const [proxyUsageLoading, setProxyUsageLoading] = useState(false)
+  const [proxyProviderStatus, setProxyProviderStatus] = useState<Record<ProxyOAuthProvider, ProxyProviderStatus>>(
+    createProxyProviderMap<ProxyProviderStatus>('idle')
+  )
+  const [proxyProviderError, setProxyProviderError] = useState<Record<ProxyOAuthProvider, string>>(
+    createProxyProviderMap('')
+  )
+  const [proxyProviderLoading, setProxyProviderLoading] = useState<Record<ProxyOAuthProvider, boolean>>(
+    createProxyProviderMap(false)
+  )
+  const [restartingProxy, setRestartingProxy] = useState(false)
   const [modulesDirectory, setModulesDirectory] = useState('')
   const [savedModulesDirectory, setSavedModulesDirectory] = useState('')
   const [defaultModulesDirectory, setDefaultModulesDirectory] = useState('~/.craft/modules')
@@ -382,6 +507,11 @@ export function SettingsView({
         setWsPort(String(s.webSocket?.port ?? DEFAULT_WS_PORT))
         setRemoteUrl(s.remote?.url ?? '')
         setRemoteToken(s.remote?.token ?? '')
+        setProxyEnabled(s.proxy?.enabled === true)
+        setProxyPort(String(s.proxy?.port ?? DEFAULT_PROXY_PORT))
+        setProxyAuthDir(s.proxy?.authDir ?? '')
+        setProxyBinarySource((s.proxy?.binarySource ?? (s.proxy?.binaryPath ? 'custom' : 'bundled')) as BinarySource)
+        setProxyBinaryPath(s.proxy?.binaryPath ?? '')
         setModulesDirectory(s.modulesDirectory ?? '')
         setSavedModulesDirectory(s.modulesDirectory ?? '')
         setTheme(resolveTheme(s.theme))
@@ -450,6 +580,54 @@ export function SettingsView({
       cancelled = true
     }
   }, [binaryPath, binarySource])
+
+  useEffect(() => {
+    let cancelled = false
+    setResolvingProxyBinary(true)
+    window.api.proxy
+      .getResolvedBinary({
+        binarySource: proxyBinarySource,
+        binaryPath: proxyBinaryPath
+      })
+      .then((result) => {
+        if (!cancelled) {
+          setResolvedProxyBinaryPath(result.path)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedProxyBinaryPath(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setResolvingProxyBinary(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [proxyBinaryPath, proxyBinarySource])
+
+  useEffect(() => {
+    let cancelled = false
+    window.api.proxy
+      .getStatus()
+      .then((status) => {
+        if (cancelled) return
+        setProxyStatusText(status.status)
+        setProxyStatusError(status.errorMessage ?? '')
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProxyStatusText('error')
+          setProxyStatusError('Failed to read proxy status')
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restartingProxy, saving])
 
   useEffect(() => {
     let cancelled = false
@@ -734,6 +912,11 @@ export function SettingsView({
           : DEFAULT_WS_PORT
       const normalizedModulesDirectory = modulesDirectory.trim()
       const nextModulesDirectory = normalizedModulesDirectory || undefined
+      const parsedProxyPort = Number.parseInt(proxyPort.trim(), 10)
+      const normalizedProxyPort =
+        Number.isInteger(parsedProxyPort) && parsedProxyPort > 0 && parsedProxyPort <= 65535
+          ? parsedProxyPort
+          : DEFAULT_PROXY_PORT
       await window.api.settings.set({
         binarySource,
         appServerBinaryPath: binaryPath.trim() || undefined,
@@ -745,6 +928,13 @@ export function SettingsView({
         remote: {
           url: remoteUrl.trim() || undefined,
           token: remoteToken.trim() || undefined
+        },
+        proxy: {
+          enabled: proxyEnabled,
+          port: normalizedProxyPort,
+          binarySource: proxyBinarySource,
+          binaryPath: proxyBinaryPath.trim() || undefined,
+          authDir: proxyAuthDir.trim() || undefined
         },
         modulesDirectory: nextModulesDirectory
       })
@@ -763,7 +953,7 @@ export function SettingsView({
           : t('settings.savedToast'),
         'success'
       )
-      if (activeSettingsTab !== 'connection') {
+      if (activeSettingsTab !== 'connection' && activeSettingsTab !== 'proxy') {
         closeSettings()
       }
     } catch (err) {
@@ -811,6 +1001,144 @@ export function SettingsView({
     }
   }
 
+  async function handlePickProxyBinary(): Promise<void> {
+    try {
+      const picked = await window.api.proxy.pickBinary()
+      if (picked) {
+        setProxyBinaryPath(picked)
+      }
+    } catch (err) {
+      addToast(
+        t('settings.saveFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    }
+  }
+
+  async function handlePickProxyAuthDir(): Promise<void> {
+    try {
+      const picked = await window.api.workspace.pickFolder()
+      if (picked) {
+        setProxyAuthDir(picked)
+      }
+    } catch (err) {
+      addToast(
+        t('settings.saveFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    }
+  }
+
+  async function handleRestartProxy(): Promise<void> {
+    setRestartingProxy(true)
+    try {
+      await window.api.proxy.restartManaged()
+      setProxyStatusText('running')
+      setProxyStatusError('')
+      addToast(t('settings.proxy.restartSuccess'), 'success')
+    } catch (err) {
+      addToast(
+        t('settings.proxy.restartFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setRestartingProxy(false)
+    }
+  }
+
+  async function pollProxyOAuthStatus(provider: ProxyOAuthProvider, state: string): Promise<void> {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      try {
+        const result = await window.api.proxy.getAuthStatus(state)
+        if (result.status === 'ok') {
+          setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'ok' }))
+          setProxyProviderError((prev) => ({ ...prev, [provider]: '' }))
+          setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+          addToast(t('settings.proxy.oauthStatusOk'), 'success')
+          return
+        }
+
+        if (result.status !== 'wait') {
+          const message = result.error || result.status
+          setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
+          setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
+          setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+          addToast(t('settings.proxy.oauthStatusError', { error: message }), 'error')
+          return
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
+        setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
+        setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+        addToast(t('settings.proxy.oauthStatusFailed', { error: message }), 'error')
+        return
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 1200))
+    }
+
+    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'pending' }))
+    setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+    addToast(t('settings.proxy.oauthStatusWaiting'), 'success')
+  }
+
+  async function handleStartProxyOAuth(provider: ProxyOAuthProvider): Promise<void> {
+    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'pending' }))
+    setProxyProviderError((prev) => ({ ...prev, [provider]: '' }))
+    setProxyProviderLoading((prev) => ({ ...prev, [provider]: true }))
+    try {
+      const result = await window.api.proxy.startOAuth(provider)
+      addToast(t('settings.proxy.oauthStarted'), 'success')
+      if (result.state) {
+        void pollProxyOAuthStatus(provider, result.state)
+      } else {
+        setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+      }
+    } catch (err) {
+      setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
+      setProxyProviderError((prev) => ({
+        ...prev,
+        [provider]: err instanceof Error ? err.message : String(err)
+      }))
+      setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+      addToast(
+        t('settings.proxy.oauthStartFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    }
+  }
+
+  async function handleRefreshProxyUsage(): Promise<void> {
+    setProxyUsageLoading(true)
+    try {
+      const usage = await window.api.proxy.getUsageSummary()
+      setProxyUsage({
+        totalRequests: usage.totalRequests,
+        successCount: usage.successCount,
+        failureCount: usage.failureCount,
+        totalTokens: usage.totalTokens
+      })
+    } catch (err) {
+      addToast(
+        t('settings.proxy.usageFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setProxyUsageLoading(false)
+    }
+  }
+
   async function handlePickModulesDirectory(): Promise<void> {
     try {
       const picked = await window.api.workspace.pickFolder()
@@ -830,6 +1158,7 @@ export function SettingsView({
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: t('settings.tab.general') },
     { id: 'connection', label: t('settings.tab.connection') },
+    { id: 'proxy', label: t('settings.tab.proxy') },
     { id: 'channels', label: t('settings.tab.channels') },
     { id: 'archivedThreads', label: t('settings.tab.archivedThreads') }
   ]
@@ -1205,6 +1534,344 @@ export function SettingsView({
                     </div>
                   </div>
                 )}
+              </>
+            )}
+
+            {activeSettingsTab === 'proxy' && (
+              <>
+                <div style={{ ...cardStyle(), marginBottom: '16px' }}>
+                  <ToggleSwitch
+                    checked={proxyEnabled}
+                    onChange={setProxyEnabled}
+                    label={t('settings.proxy.enable')}
+                    description={t('settings.proxy.enableHint')}
+                  />
+                  <div
+                    style={{
+                      marginTop: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      flexWrap: 'wrap'
+                    }}
+                  >
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                        {t('settings.proxy.status')}
+                      </span>
+                      <ProxyRuntimeStatusPill
+                        status={proxyStatusText}
+                        label={t(`settings.proxy.status.${proxyStatusText}`)}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleRestartProxy()
+                      }}
+                      disabled={restartingProxy || saving || !proxyEnabled}
+                      style={secondaryButtonStyle(restartingProxy || saving || !proxyEnabled)}
+                    >
+                      {restartingProxy ? t('settings.proxy.restarting') : t('settings.proxy.restart')}
+                    </button>
+                  </div>
+                  {proxyStatusError && (
+                    <div style={{ fontSize: '12px', color: 'var(--error)', marginTop: '8px' }}>{proxyStatusError}</div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    ...cardStyle(),
+                    marginBottom: '16px',
+                    opacity: proxyEnabled ? 1 : 0.55,
+                    pointerEvents: proxyEnabled ? 'auto' : 'none'
+                  }}
+                >
+                  <div style={{ ...sectionLabelStyle(), marginBottom: '10px' }}>{t('settings.proxy.configuration')}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: '8px' }}>
+                    <div>
+                      <label htmlFor="settings-proxy-auth-dir" style={sectionLabelStyle()}>
+                        {t('settings.proxy.authDir')}
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                        <input
+                          id="settings-proxy-auth-dir"
+                          type="text"
+                          value={proxyAuthDir}
+                          onChange={(e) => setProxyAuthDir(e.target.value)}
+                          placeholder="~/.cli-proxy-api"
+                          style={inputStyle(true)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handlePickProxyAuthDir()
+                          }}
+                          style={secondaryButtonStyle(false)}
+                        >
+                          {t('settings.binaryBrowse')}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="settings-proxy-port" style={sectionLabelStyle()}>
+                        {t('settings.proxy.port')}
+                      </label>
+                      <input
+                        id="settings-proxy-port"
+                        type="number"
+                        value={proxyPort}
+                        onChange={(e) => setProxyPort(e.target.value)}
+                        min={1}
+                        max={65535}
+                        style={inputStyle(true)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    ...cardStyle(),
+                    marginBottom: '16px',
+                    opacity: proxyEnabled ? 1 : 0.55,
+                    pointerEvents: proxyEnabled ? 'auto' : 'none'
+                  }}
+                >
+                  <div style={{ ...sectionLabelStyle(), marginBottom: '10px' }}>{t('settings.proxy.binaryTitle')}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {(['bundled', 'path', 'custom'] as BinarySource[]).map((source) => {
+                      const active = proxyBinarySource === source
+                      const titleKey =
+                        source === 'bundled'
+                          ? 'settings.binarySource.bundled'
+                          : source === 'path'
+                            ? 'settings.binarySource.path'
+                            : 'settings.binarySource.custom'
+                      const descKey =
+                        source === 'bundled'
+                          ? 'settings.proxy.binarySource.bundledDesc'
+                          : source === 'path'
+                            ? 'settings.proxy.binarySource.pathDesc'
+                            : 'settings.proxy.binarySource.customDesc'
+                      return (
+                        <label key={`proxy-${source}`} style={selectionCardStyle(active)}>
+                          <input
+                            type="radio"
+                            name="settings-proxy-binary-source"
+                            checked={active}
+                            onChange={() => setProxyBinarySource(source)}
+                            style={{ marginTop: '3px' }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              {t(titleKey)}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-dimmed)',
+                                lineHeight: 1.5,
+                                marginTop: '4px'
+                              }}
+                            >
+                              {t(descKey)}
+                            </div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  {proxyBinarySource === 'custom' && (
+                    <div
+                      style={{
+                        marginTop: '10px',
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto',
+                        gap: '8px'
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={proxyBinaryPath}
+                        onChange={(e) => setProxyBinaryPath(e.target.value)}
+                        placeholder={t('settings.proxy.binaryPlaceholder')}
+                        style={inputStyle(true)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handlePickProxyBinary()
+                        }}
+                        style={secondaryButtonStyle(false)}
+                      >
+                        {t('settings.binaryBrowse')}
+                      </button>
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      color:
+                        !resolvingProxyBinary && !resolvedProxyBinaryPath ? 'var(--error)' : 'var(--text-dimmed)',
+                      marginTop: '8px',
+                      lineHeight: 1.5
+                    }}
+                  >
+                    {resolvingProxyBinary
+                      ? t('settings.binaryResolving')
+                      : resolvedProxyBinaryPath
+                        ? t('settings.binaryResolved', { path: resolvedProxyBinaryPath })
+                        : proxyBinarySource === 'bundled'
+                          ? t('settings.binaryNotFound.bundled')
+                          : proxyBinarySource === 'path'
+                            ? t('settings.binaryNotFound.path')
+                            : t('settings.binaryNotFound.custom')}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    ...cardStyle(),
+                    marginBottom: '16px',
+                    opacity: proxyEnabled ? 1 : 0.55,
+                    pointerEvents: proxyEnabled ? 'auto' : 'none'
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      marginBottom: '10px'
+                    }}
+                  >
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {t('settings.proxy.usageTitle')}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleRefreshProxyUsage()
+                      }}
+                      disabled={proxyUsageLoading || !proxyEnabled}
+                      style={secondaryButtonStyle(proxyUsageLoading || !proxyEnabled)}
+                    >
+                      {proxyUsageLoading ? t('settings.proxy.usageLoading') : t('settings.proxy.refreshUsage')}
+                    </button>
+                  </div>
+                  {proxyStatusText !== 'running' && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                      {t('settings.proxy.status')}: {t(`settings.proxy.status.${proxyStatusText}`)}
+                    </div>
+                  )}
+                  {proxyUsage && (
+                    <div
+                      style={{
+                        marginTop: '10px',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                        gap: '8px'
+                      }}
+                    >
+                      {[
+                        { key: 'settings.proxy.stat.requests', value: formatCompactNumber(proxyUsage.totalRequests) },
+                        { key: 'settings.proxy.stat.success', value: formatCompactNumber(proxyUsage.successCount) },
+                        { key: 'settings.proxy.stat.failures', value: formatCompactNumber(proxyUsage.failureCount) },
+                        { key: 'settings.proxy.stat.tokens', value: formatCompactNumber(proxyUsage.totalTokens) }
+                      ].map((item) => (
+                        <div
+                          key={item.key}
+                          style={{
+                            border: '1px solid var(--border-default)',
+                            borderRadius: '8px',
+                            background: 'var(--bg-primary)',
+                            padding: '10px'
+                          }}
+                        >
+                          <div style={{ fontSize: '11px', color: 'var(--text-dimmed)' }}>{t(item.key as MessageKey)}</div>
+                          <div style={{ marginTop: '4px', fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {item.value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    ...cardStyle(),
+                    marginBottom: '16px',
+                    opacity: proxyEnabled ? 1 : 0.55,
+                    pointerEvents: proxyEnabled ? 'auto' : 'none'
+                  }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                    {t('settings.proxy.oauthTitle')}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '10px' }}>
+                    {t('settings.proxy.oauthHint')}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {PROXY_OAUTH_PROVIDERS.map((provider) => {
+                      const status = proxyProviderStatus[provider]
+                      const statusLabel =
+                        status === 'ok'
+                          ? t('settings.proxy.oauthStatusOk')
+                          : status === 'pending'
+                            ? t('settings.proxy.oauthStatusPending')
+                            : status === 'error'
+                              ? t('settings.proxy.oauthStatusErrorShort')
+                              : t('settings.proxy.oauthStatusIdle')
+                      return (
+                        <div
+                          key={provider}
+                          style={{
+                            border: '1px solid var(--border-default)',
+                            borderRadius: '8px',
+                            background: 'var(--bg-primary)',
+                            padding: '10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '10px'
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              {t(`settings.proxy.provider.${provider}` as MessageKey)}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '2px' }}>
+                              {t(`settings.proxy.provider.${provider}Desc` as MessageKey)}
+                            </div>
+                            {proxyProviderError[provider] && (
+                              <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
+                                {proxyProviderError[provider]}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <ProxyOAuthStatusPill status={status} label={statusLabel} />
+                            <button
+                              type="button"
+                              onClick={() => void handleStartProxyOAuth(provider)}
+                              disabled={proxyProviderLoading[provider] || !proxyEnabled}
+                              style={secondaryButtonStyle(proxyProviderLoading[provider] || !proxyEnabled)}
+                            >
+                              {proxyProviderLoading[provider]
+                                ? t('settings.proxy.oauthLoading')
+                                : t('settings.proxy.oauthLogin')}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               </>
             )}
 

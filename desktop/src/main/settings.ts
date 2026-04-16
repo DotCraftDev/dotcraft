@@ -23,6 +23,20 @@ export interface RemoteConnectionSettings {
   token?: string
 }
 
+export type ProxyStatus = 'stopped' | 'starting' | 'running' | 'error'
+export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
+
+export interface ProxySettings {
+  enabled?: boolean
+  host?: string
+  port?: number
+  binarySource?: BinarySource
+  binaryPath?: string
+  authDir?: string
+  apiKey?: string
+  managementKey?: string
+}
+
 export interface AppSettings {
   lastWorkspacePath?: string
   modulesDirectory?: string
@@ -36,6 +50,7 @@ export interface AppSettings {
   theme?: UiTheme
   /** Display language (BCP 47); omitted or invalid values are treated as English */
   locale?: AppLocale
+  proxy?: ProxySettings
   recentWorkspaces?: RecentWorkspace[]
   /**
    * Passed as `crossChannelOrigins` on `thread/list`. If the key is absent, the client
@@ -58,6 +73,41 @@ function normalizeModulesDirectory(settings: AppSettings): string | undefined {
   const raw = settings.modulesDirectory?.trim()
   if (!raw) return undefined
   return normalize(raw)
+}
+
+function normalizeProxySettings(settings: AppSettings): ProxySettings | undefined {
+  const raw = settings.proxy
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return undefined
+  }
+  const normalized: ProxySettings = {}
+  if (typeof raw.enabled === 'boolean') {
+    normalized.enabled = raw.enabled
+  }
+  if (typeof raw.host === 'string' && raw.host.trim().length > 0) {
+    normalized.host = raw.host.trim()
+  }
+  if (typeof raw.port === 'number' && Number.isInteger(raw.port) && raw.port > 0 && raw.port <= 65535) {
+    normalized.port = raw.port
+  }
+  if (raw.binarySource === 'bundled' || raw.binarySource === 'path' || raw.binarySource === 'custom') {
+    normalized.binarySource = raw.binarySource
+  } else if (typeof raw.binaryPath === 'string' && raw.binaryPath.trim().length > 0) {
+    normalized.binarySource = 'custom'
+  }
+  if (typeof raw.binaryPath === 'string' && raw.binaryPath.trim().length > 0) {
+    normalized.binaryPath = raw.binaryPath.trim()
+  }
+  if (typeof raw.authDir === 'string' && raw.authDir.trim().length > 0) {
+    normalized.authDir = normalize(raw.authDir.trim())
+  }
+  if (typeof raw.apiKey === 'string' && raw.apiKey.trim().length > 0) {
+    normalized.apiKey = raw.apiKey.trim()
+  }
+  if (typeof raw.managementKey === 'string' && raw.managementKey.trim().length > 0) {
+    normalized.managementKey = raw.managementKey.trim()
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined
 }
 
 function normalizeActiveModuleVariants(settings: AppSettings): Record<string, string> | undefined {
@@ -88,6 +138,7 @@ export function loadSettings(): AppSettings {
       const raw = JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
       raw.binarySource = normalizeBinarySource(raw)
       raw.modulesDirectory = normalizeModulesDirectory(raw)
+      raw.proxy = normalizeProxySettings(raw)
       raw.activeModuleVariants = normalizeActiveModuleVariants(raw)
       if (raw.locale !== undefined) {
         raw.locale = normalizeLocale(raw.locale)
@@ -109,6 +160,7 @@ export function saveSettings(settings: AppSettings): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     settings.binarySource = normalizeBinarySource(settings)
     settings.modulesDirectory = normalizeModulesDirectory(settings)
+    settings.proxy = normalizeProxySettings(settings)
     settings.activeModuleVariants = normalizeActiveModuleVariants(settings)
     writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')
   } catch {

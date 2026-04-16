@@ -1,6 +1,7 @@
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
+export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
@@ -27,6 +28,15 @@ export interface ConnectionStatusPayload {
 export interface ResolvedBinaryPayload {
   source: BinarySource
   path: string | null
+}
+
+export interface ProxyStatusPayload {
+  status: 'stopped' | 'starting' | 'running' | 'error'
+  errorMessage?: string
+  port?: number
+  baseUrl?: string
+  managementUrl?: string
+  pid?: number
 }
 
 export interface ServerRequestPayload {
@@ -150,6 +160,24 @@ declare global {
         onServerRequest(callback: (payload: ServerRequestPayload) => void): UnsubscribeFn
         sendServerResponse(bridgeId: string, result: unknown): void
       }
+      proxy: {
+        getStatus(): Promise<ProxyStatusPayload>
+        getResolvedBinary(request?: {
+          binarySource?: BinarySource
+          binaryPath?: string
+        }): Promise<ResolvedBinaryPayload>
+        pickBinary(): Promise<string | null>
+        restartManaged(): Promise<void>
+        startOAuth(provider: ProxyOAuthProvider): Promise<{ url: string; state?: string }>
+        getAuthStatus(state: string): Promise<{ status: string; error?: string }>
+        getUsageSummary(): Promise<{
+          totalRequests: number
+          successCount: number
+          failureCount: number
+          totalTokens: number
+          failedRequests: number
+        }>
+      }
       window: {
         setTitle(title: string): void
         setTitleBarOverlayTheme(theme: 'dark' | 'light'): Promise<void>
@@ -237,6 +265,14 @@ declare global {
             url?: string
             token?: string
           }
+          proxy?: {
+            enabled?: boolean
+            host?: string
+            port?: number
+            binarySource?: BinarySource
+            binaryPath?: string
+            authDir?: string
+          }
           modulesDirectory?: string
           activeModuleVariants?: Record<string, string>
           theme?: 'dark' | 'light'
@@ -255,6 +291,14 @@ declare global {
             remote?: {
               url?: string
               token?: string
+            }
+            proxy?: {
+              enabled?: boolean
+              host?: string
+              port?: number
+              binarySource?: BinarySource
+              binaryPath?: string
+              authDir?: string
             }
             modulesDirectory?: string
             activeModuleVariants?: Record<string, string>

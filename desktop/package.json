@@ -18,8 +18,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "npx tsx e2e/smoke.ts",
+    "download:cliproxyapi": "node scripts/download-cliproxyapi.mjs",
     "pack": "electron-builder --dir",
-    "dist": "electron-vite build && electron-builder"
+    "dist": "npm run download:cliproxyapi && electron-vite build && electron-builder"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
