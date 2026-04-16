@@ -35,6 +35,7 @@ import {
   type ProxyOAuthProvider,
   type ProxySettings
 } from './settings'
+import { mergeUpdatedSettings } from './settingsMerge'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
 import {
   getWorkspaceStatus,
@@ -769,10 +770,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
       const prevLocale = normalizeLocale(sharedSettings.locale)
-      const next: Partial<typeof sharedSettings> = { ...partial }
-      if (partial.locale !== undefined) {
-        next.locale = normalizeLocale(partial.locale)
-      }
+      const next = mergeUpdatedSettings(sharedSettings, partial)
       Object.assign(sharedSettings, next)
       saveSettings(sharedSettings)
       if (resolveProxySettings(sharedSettings).enabled !== true) {
