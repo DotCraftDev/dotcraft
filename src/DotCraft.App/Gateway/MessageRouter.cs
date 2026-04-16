@@ -23,6 +23,9 @@ public sealed class MessageRouter : IMessageRouter
         _runtimeRegistry.Register(service);
     }
 
+    public bool UnregisterChannel(string channelName)
+        => _channels.Remove(channelName);
+
     public async Task DeliverAsync(
         string channel,
         string target,
