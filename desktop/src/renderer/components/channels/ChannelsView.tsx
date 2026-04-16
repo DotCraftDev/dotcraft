@@ -153,6 +153,72 @@ function deriveExternalStatus(
   return configured && enabled ? 'enabledNotConnected' : 'notConfigured'
 }
 
+function getNestedValue(config: Record<string, unknown>, dottedKey: string): unknown {
+  const parts = dottedKey.split('.').filter(Boolean)
+  if (parts.length === 0) return undefined
+  let current: unknown = config
+  for (const part of parts) {
+    if (current == null || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined
+    }
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
+
+function setNestedValue(
+  config: Record<string, unknown>,
+  dottedKey: string,
+  value: unknown
+): Record<string, unknown> {
+  const parts = dottedKey.split('.').filter(Boolean)
+  if (parts.length === 0) return config
+  const next: Record<string, unknown> = { ...config }
+  let current: Record<string, unknown> = next
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const key = parts[index]
+    const existing = current[key]
+    const child =
+      existing != null && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {}
+    current[key] = child
+    current = child
+  }
+  current[parts[parts.length - 1]] = value
+  return next
+}
+
+function cloneDescriptorDefaultValue(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value
+  try {
+    return structuredClone(value)
+  } catch {
+    try {
+      return JSON.parse(JSON.stringify(value)) as unknown
+    } catch {
+      return value
+    }
+  }
+}
+
+function seedConfigWithDescriptorDefaults(
+  config: Record<string, unknown>,
+  descriptors: DiscoveredModule['configDescriptors']
+): Record<string, unknown> {
+  let nextConfig = { ...config }
+  for (const descriptor of descriptors) {
+    if (descriptor.defaultValue === undefined) continue
+    if (getNestedValue(nextConfig, descriptor.key) !== undefined) continue
+    nextConfig = setNestedValue(
+      nextConfig,
+      descriptor.key,
+      cloneDescriptorDefaultValue(descriptor.defaultValue)
+    )
+  }
+  return nextConfig
+}
+
 export function ChannelsView(): JSX.Element {
   const t = useT()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
@@ -275,7 +341,8 @@ export function ChannelsView(): JSX.Element {
       const result = await window.api.modules.readConfig({
         configFileName: selectedModule.configFileName
       })
-      setModuleConfig(result.config ?? {})
+      const baseConfig = result.config ?? {}
+      setModuleConfig(seedConfigWithDescriptorDefaults(baseConfig, selectedModule.configDescriptors))
     } catch (err) {
       setModuleConfig({})
       addToast(

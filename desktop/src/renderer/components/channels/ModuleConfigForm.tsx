@@ -129,7 +129,11 @@ export function ModuleConfigForm({
   const [listTextByKey, setListTextByKey] = useState<Record<string, string>>({})
   const [objectTextByKey, setObjectTextByKey] = useState<Record<string, string>>({})
   const descriptors = useMemo(
-    () => module.configDescriptors.filter((descriptor) => descriptor.interactiveSetupOnly !== true),
+    () =>
+      module.configDescriptors.filter(
+        (descriptor) =>
+          descriptor.interactiveSetupOnly !== true && !descriptor.key.startsWith('dotcraft.')
+      ),
     [module.configDescriptors]
   )
   const pill = resolveModulePill(moduleStatus, persistedEnabled, t)

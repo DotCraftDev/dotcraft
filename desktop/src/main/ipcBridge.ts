@@ -116,6 +116,69 @@ function ensureObjectConfig(config: unknown): Record<string, unknown> {
   return config as Record<string, unknown>
 }
 
+function resolveConnectionMode(settings: AppSettings): 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote' {
+  const mode = settings.connectionMode
+  if (
+    mode === 'stdio' ||
+    mode === 'websocket' ||
+    mode === 'stdioAndWebSocket' ||
+    mode === 'remote'
+  ) {
+    return mode
+  }
+  return 'stdio'
+}
+
+function resolveModuleWsConfig(settings: AppSettings): { wsUrl: string; token?: string } {
+  const mode = resolveConnectionMode(settings)
+  if (mode === 'remote') {
+    const raw = settings.remote?.url?.trim()
+    if (!raw) {
+      throw new Error('Remote WebSocket URL is not configured')
+    }
+    let parsed: URL
+    try {
+      parsed = new URL(raw)
+    } catch {
+      throw new Error('Invalid remote WebSocket URL')
+    }
+    if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+      throw new Error('Remote WebSocket URL must use ws:// or wss://')
+    }
+    const token = settings.remote?.token?.trim()
+    return token ? { wsUrl: parsed.toString(), token } : { wsUrl: parsed.toString() }
+  }
+
+  const host = settings.webSocket?.host?.trim() || '127.0.0.1'
+  const candidatePort = settings.webSocket?.port
+  const port =
+    typeof candidatePort === 'number' &&
+    Number.isInteger(candidatePort) &&
+    candidatePort > 0 &&
+    candidatePort <= 65535
+      ? candidatePort
+      : 9100
+  return { wsUrl: `ws://${host}:${port}/ws` }
+}
+
+function injectModuleDotcraftConfig(
+  config: Record<string, unknown>,
+  wsConfig: { wsUrl: string; token?: string }
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...config }
+  const dotcraftRaw = next.dotcraft
+  const dotcraft =
+    dotcraftRaw != null && typeof dotcraftRaw === 'object' && !Array.isArray(dotcraftRaw)
+      ? { ...(dotcraftRaw as Record<string, unknown>) }
+      : {}
+  dotcraft.wsUrl = wsConfig.wsUrl
+  if (wsConfig.token !== undefined) {
+    dotcraft.token = wsConfig.token
+  }
+  next.dotcraft = dotcraft
+  return next
+}
+
 // ---------------------------------------------------------------------------
 // Pending server-request bridge
 //
@@ -597,10 +660,13 @@ export function registerIpcHandlers(
         throw new Error('Invalid config file name')
       }
       const configPath = path.join(workspacePath, '.craft', params.configFileName)
+      const settings = callbacks?.getSettings() ?? {}
+      const wsConfig = resolveModuleWsConfig(settings)
+      const mergedConfig = injectModuleDotcraftConfig(ensureObjectConfig(params.config), wsConfig)
       await fs.mkdir(path.dirname(configPath), { recursive: true })
       await fs.writeFile(
         configPath,
-        `${JSON.stringify(ensureObjectConfig(params.config), null, 2)}\n`,
+        `${JSON.stringify(mergedConfig, null, 2)}\n`,
         'utf-8'
       )
       return { ok: true }
@@ -615,6 +681,26 @@ export function registerIpcHandlers(
       }
       if (!params?.moduleId || typeof params.moduleId !== 'string') {
         return { ok: false, error: 'Invalid module id' }
+      }
+      const module = cachedModules?.find((item) => item.moduleId === params.moduleId)
+      if (!module) {
+        return { ok: false, error: `Module '${params.moduleId}' not found` }
+      }
+      try {
+        const configPath = path.join(workspacePath, '.craft', module.configFileName)
+        const raw = await fs.readFile(configPath, 'utf-8')
+        const parsed = ensureObjectConfig(JSON.parse(raw) as unknown)
+        const settings = callbacks?.getSettings() ?? {}
+        const wsConfig = resolveModuleWsConfig(settings)
+        const merged = injectModuleDotcraftConfig(parsed, wsConfig)
+        if (JSON.stringify(merged) !== JSON.stringify(parsed)) {
+          await fs.writeFile(configPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf-8')
+        }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code
+        if (code !== 'ENOENT') {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
       }
       return moduleProcessManager?.start(params.moduleId) ?? { ok: false, error: 'Process manager is not available' }
     }

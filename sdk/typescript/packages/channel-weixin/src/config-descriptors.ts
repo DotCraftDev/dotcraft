@@ -9,6 +9,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "string",
     masked: false,
     interactiveSetupOnly: false,
+    defaultValue: "ws://127.0.0.1:9100/ws",
   },
   {
     key: "dotcraft.token",
@@ -27,6 +28,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "string",
     masked: false,
     interactiveSetupOnly: false,
+    defaultValue: "https://ilinkai.weixin.qq.com",
   },
   {
     key: "weixin.pollIntervalMs",
