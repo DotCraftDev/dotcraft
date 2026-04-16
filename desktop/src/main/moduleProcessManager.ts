@@ -130,7 +130,7 @@ export class ModuleProcessManager {
     })
   }
 
-  async start(moduleId: string): Promise<StartResult> {
+  async start(moduleId: string, options?: { resetRestartCount?: boolean }): Promise<StartResult> {
     const existing = this.managed.get(moduleId)
     if (existing && (existing.state === 'starting' || existing.state === 'running')) {
       return { ok: true }
@@ -189,7 +189,9 @@ export class ModuleProcessManager {
     entry.startedStableAt = null
     entry.spawnedAt = Date.now()
     entry.state = 'starting'
-    entry.restartCount = 0
+    if (options?.resetRestartCount !== false) {
+      entry.restartCount = 0
+    }
     entry.outputLines = []
     entry.stderrLines = []
     entry.crashHint = null
@@ -365,7 +367,7 @@ export class ModuleProcessManager {
 
     entry.restartCount += 1
     this.emitStatusIfChanged()
-    const restartResult = await this.start(moduleId)
+    const restartResult = await this.start(moduleId, { resetRestartCount: false })
     if (!restartResult.ok) {
       entry.state = 'crashed'
       this.emitStatusIfChanged()
