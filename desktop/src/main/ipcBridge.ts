@@ -796,6 +796,21 @@ export function registerIpcHandlers(
     return { ok: true }
   })
 
+  handleSafe('modules:pick-directory', async (): Promise<string | null> => {
+    const focusedWin = BrowserWindow.getFocusedWindow()
+    const result = await dialog.showOpenDialog(
+      focusedWin ?? BrowserWindow.getAllWindows()[0],
+      {
+        title: 'Select Module Directory',
+        properties: ['openDirectory', 'createDirectory']
+      }
+    )
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
+  })
+
   handleSafe('modules:rescan', async () => scanAndCacheModules({ emitSummary: true }))
 
   handleSafe(
@@ -1132,6 +1147,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('modules:user-directory')
   ipcMain.removeHandler('modules:check-directory')
   ipcMain.removeHandler('modules:open-folder')
+  ipcMain.removeHandler('modules:pick-directory')
   ipcMain.removeHandler('modules:rescan')
   ipcMain.removeHandler('modules:set-active-variant')
   ipcMain.removeHandler('modules:read-config')

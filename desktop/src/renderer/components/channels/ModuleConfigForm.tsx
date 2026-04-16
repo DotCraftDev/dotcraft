@@ -18,6 +18,7 @@ interface ModuleConfigFormProps {
   moduleStatus?: ModuleStatusEntry
   persistedEnabled: boolean
   nodeAvailable: boolean
+  wsAvailable: boolean
   onStart: () => void
   onStop: () => void
   starting: boolean
@@ -130,6 +131,7 @@ export function ModuleConfigForm({
   moduleStatus,
   persistedEnabled,
   nodeAvailable,
+  wsAvailable,
   onStart,
   onStop,
   starting,
@@ -142,6 +144,7 @@ export function ModuleConfigForm({
   const t = useT()
   const [listTextByKey, setListTextByKey] = useState<Record<string, string>>({})
   const [objectTextByKey, setObjectTextByKey] = useState<Record<string, string>>({})
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const descriptors = useMemo(
     () =>
       module.configDescriptors.filter(
@@ -149,6 +152,14 @@ export function ModuleConfigForm({
           descriptor.interactiveSetupOnly !== true && !descriptor.key.startsWith('dotcraft.')
       ),
     [module.configDescriptors]
+  )
+  const basicDescriptors = useMemo(
+    () => descriptors.filter((descriptor) => descriptor.advanced !== true),
+    [descriptors]
+  )
+  const advancedDescriptors = useMemo(
+    () => descriptors.filter((descriptor) => descriptor.advanced === true),
+    [descriptors]
   )
   const pill = resolveModulePill(moduleStatus, persistedEnabled, t)
   const enableChecked =
@@ -163,6 +174,254 @@ export function ModuleConfigForm({
     moduleStatus?.processState === 'stopping'
   const showQrPanel = module.requiresInteractiveSetup && qrPhase !== 'idle'
   const hasVariants = variantModules.length > 1
+
+  const renderDescriptorField = (descriptor: DiscoveredModule['configDescriptors'][number]): JSX.Element => {
+    const value = getNestedValue(config, descriptor.key)
+    const requiredSuffix = descriptor.required ? ` (${t('channels.modules.required')})` : ''
+    const placeholder = descriptor.defaultValue === undefined ? undefined : String(descriptor.defaultValue)
+
+    if (descriptor.dataKind === 'boolean') {
+      return (
+        <div key={descriptor.key} style={formStyles.fieldGroup}>
+          <ToggleSwitch
+            checked={value === true || (value === undefined && descriptor.defaultValue === true)}
+            onChange={(checked) => {
+              onChange(applyValueChange(config, descriptor.key, checked))
+            }}
+            label={`${descriptor.displayLabel}${requiredSuffix}`}
+            description={descriptor.description}
+          />
+        </div>
+      )
+    }
+
+    if (descriptor.dataKind === 'enum') {
+      const enumValues = descriptor.enumValues ?? []
+      return (
+        <div key={descriptor.key} style={formStyles.fieldGroup}>
+          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <select
+            value={typeof value === 'string' ? value : ''}
+            onChange={(event) => {
+              onChange(applyValueChange(config, descriptor.key, event.target.value))
+            }}
+            onFocus={formStyles.inputFocus}
+            onBlur={formStyles.inputBlur}
+            style={formStyles.input}
+          >
+            <option value="" disabled={descriptor.required}>
+              {placeholder ?? ''}
+            </option>
+            {enumValues.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          {!!descriptor.description && (
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {descriptor.description}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    if (descriptor.dataKind === 'list') {
+      const textValue =
+        listTextByKey[descriptor.key] ??
+        (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').join('\n') : '')
+      return (
+        <div key={descriptor.key} style={formStyles.fieldGroup}>
+          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <textarea
+            value={textValue}
+            placeholder={placeholder}
+            onChange={(event) => {
+              const nextText = event.target.value
+              setListTextByKey((prev) => ({ ...prev, [descriptor.key]: nextText }))
+              const nextList = nextText
+                .split('\n')
+                .map((item) => item.trim())
+                .filter(Boolean)
+              onChange(applyValueChange(config, descriptor.key, nextList))
+            }}
+            onFocus={formStyles.inputFocus}
+            onBlur={formStyles.inputBlur}
+            style={{ ...formStyles.input, minHeight: '90px', height: 'auto', padding: '8px 10px' }}
+          />
+          {!!descriptor.description && (
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {descriptor.description}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    if (descriptor.dataKind === 'object') {
+      const textValue = objectTextByKey[descriptor.key] ?? (value == null ? '' : JSON.stringify(value, null, 2))
+      return (
+        <div key={descriptor.key} style={formStyles.fieldGroup}>
+          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <textarea
+            value={textValue}
+            placeholder={placeholder}
+            onChange={(event) => {
+              setObjectTextByKey((prev) => ({ ...prev, [descriptor.key]: event.target.value }))
+            }}
+            onBlur={(event) => {
+              formStyles.inputBlur(event)
+              const raw = event.target.value.trim()
+              if (raw === '') {
+                onChange(applyValueChange(config, descriptor.key, undefined))
+                return
+              }
+              try {
+                const parsed = JSON.parse(raw) as unknown
+                onChange(applyValueChange(config, descriptor.key, parsed))
+              } catch {
+                // Keep user text untouched until it is valid JSON.
+              }
+            }}
+            onFocus={formStyles.inputFocus}
+            style={{ ...formStyles.input, minHeight: '120px', height: 'auto', padding: '8px 10px' }}
+          />
+          {!!descriptor.description && (
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {descriptor.description}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    if (descriptor.dataKind === 'number') {
+      return (
+        <div key={descriptor.key} style={formStyles.fieldGroup}>
+          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <input
+            type="number"
+            value={typeof value === 'number' && Number.isFinite(value) ? String(value) : ''}
+            placeholder={placeholder}
+            onChange={(event) => {
+              const nextRaw = event.target.value.trim()
+              const parsed = nextRaw === '' ? undefined : Number.parseFloat(nextRaw)
+              onChange(
+                applyValueChange(
+                  config,
+                  descriptor.key,
+                  parsed === undefined || Number.isNaN(parsed) ? undefined : parsed
+                )
+              )
+            }}
+            onFocus={formStyles.inputFocus}
+            onBlur={formStyles.inputBlur}
+            style={formStyles.input}
+          />
+          {!!descriptor.description && (
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {descriptor.description}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    if (descriptor.dataKind === 'path') {
+      return (
+        <div key={descriptor.key} style={formStyles.fieldGroup}>
+          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="text"
+              value={toText(value)}
+              placeholder={placeholder}
+              onChange={(event) => {
+                onChange(applyValueChange(config, descriptor.key, event.target.value))
+              }}
+              onFocus={formStyles.inputFocus}
+              onBlur={formStyles.inputBlur}
+              style={{ ...formStyles.input, flex: 1 }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                void window.api.modules.pickDirectory().then((pickedPath) => {
+                  if (!pickedPath) return
+                  onChange(applyValueChange(config, descriptor.key, pickedPath))
+                })
+              }}
+              title={t('settings.modulesDirectoryBrowse')}
+              aria-label={t('settings.modulesDirectoryBrowse')}
+              style={{
+                border: '1px solid var(--border-default)',
+                borderRadius: '6px',
+                background: 'transparent',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                padding: '0 8px',
+                height: '32px',
+                minWidth: '32px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path
+                  d="M2.5 5.5A1.5 1.5 0 0 1 4 4h3.2l1.2 1.3h7.6A1.5 1.5 0 0 1 17.5 6.8v8.7A1.5 1.5 0 0 1 16 17H4a1.5 1.5 0 0 1-1.5-1.5v-10Z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+              </svg>
+            </button>
+          </div>
+          {!!descriptor.description && (
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+              {descriptor.description}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    const isSecret = descriptor.dataKind === 'secret' || descriptor.masked
+    return (
+      <div key={descriptor.key} style={formStyles.fieldGroup}>
+        <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+        {isSecret ? (
+          <SecretInput
+            value={toText(value)}
+            placeholder={placeholder}
+            onChange={(nextValue) => {
+              onChange(applyValueChange(config, descriptor.key, nextValue))
+            }}
+            onFocus={formStyles.inputFocus}
+            onBlur={formStyles.inputBlur}
+          />
+        ) : (
+          <input
+            type="text"
+            value={toText(value)}
+            placeholder={placeholder}
+            onChange={(event) => {
+              onChange(applyValueChange(config, descriptor.key, event.target.value))
+            }}
+            onFocus={formStyles.inputFocus}
+            onBlur={formStyles.inputBlur}
+            style={formStyles.input}
+          />
+        )}
+        {!!descriptor.description && (
+          <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
+            {descriptor.description}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{ maxWidth: '720px' }}>
@@ -265,6 +524,11 @@ export function ModuleConfigForm({
         {!nodeAvailable && (
           <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--error, #ff453a)' }}>
             {t('channels.modules.nodeMissing')}
+          </div>
+        )}
+        {!wsAvailable && (
+          <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--warning, #ff9f0a)' }}>
+            {t('channels.modules.wsRequired')}
           </div>
         )}
       </FieldCard>
@@ -478,197 +742,29 @@ export function ModuleConfigForm({
       )}
 
       <FieldCard>
-        {descriptors.map((descriptor) => {
-          const value = getNestedValue(config, descriptor.key)
-          const requiredSuffix = descriptor.required ? ` (${t('channels.modules.required')})` : ''
-          const placeholder =
-            descriptor.defaultValue === undefined ? undefined : String(descriptor.defaultValue)
-
-          if (descriptor.dataKind === 'boolean') {
-            return (
-              <div key={descriptor.key} style={formStyles.fieldGroup}>
-                <ToggleSwitch
-                  checked={value === true}
-                  onChange={(checked) => {
-                    onChange(applyValueChange(config, descriptor.key, checked))
-                  }}
-                  label={`${descriptor.displayLabel}${requiredSuffix}`}
-                  description={descriptor.description}
-                />
-              </div>
-            )
-          }
-
-          if (descriptor.dataKind === 'enum') {
-            const enumValues = descriptor.enumValues ?? []
-            return (
-              <div key={descriptor.key} style={formStyles.fieldGroup}>
-                <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
-                <select
-                  value={typeof value === 'string' ? value : ''}
-                  onChange={(event) => {
-                    onChange(applyValueChange(config, descriptor.key, event.target.value))
-                  }}
-                  onFocus={formStyles.inputFocus}
-                  onBlur={formStyles.inputBlur}
-                  style={formStyles.input}
-                >
-                  <option value="" disabled={descriptor.required}>
-                    {placeholder ?? ''}
-                  </option>
-                  {enumValues.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-                {!!descriptor.description && (
-                  <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                    {descriptor.description}
-                  </div>
-                )}
-              </div>
-            )
-          }
-
-          if (descriptor.dataKind === 'list') {
-            const textValue =
-              listTextByKey[descriptor.key] ??
-              (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').join('\n') : '')
-            return (
-              <div key={descriptor.key} style={formStyles.fieldGroup}>
-                <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
-                <textarea
-                  value={textValue}
-                  placeholder={placeholder}
-                  onChange={(event) => {
-                    const nextText = event.target.value
-                    setListTextByKey((prev) => ({ ...prev, [descriptor.key]: nextText }))
-                    const nextList = nextText
-                      .split('\n')
-                      .map((item) => item.trim())
-                      .filter(Boolean)
-                    onChange(applyValueChange(config, descriptor.key, nextList))
-                  }}
-                  onFocus={formStyles.inputFocus}
-                  onBlur={formStyles.inputBlur}
-                  style={{ ...formStyles.input, minHeight: '90px', height: 'auto', padding: '8px 10px' }}
-                />
-                {!!descriptor.description && (
-                  <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                    {descriptor.description}
-                  </div>
-                )}
-              </div>
-            )
-          }
-
-          if (descriptor.dataKind === 'object') {
-            const textValue =
-              objectTextByKey[descriptor.key] ??
-              (value == null ? '' : JSON.stringify(value, null, 2))
-            return (
-              <div key={descriptor.key} style={formStyles.fieldGroup}>
-                <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
-                <textarea
-                  value={textValue}
-                  placeholder={placeholder}
-                  onChange={(event) => {
-                    setObjectTextByKey((prev) => ({ ...prev, [descriptor.key]: event.target.value }))
-                  }}
-                  onBlur={(event) => {
-                    formStyles.inputBlur(event)
-                    const raw = event.target.value.trim()
-                    if (raw === '') {
-                      onChange(applyValueChange(config, descriptor.key, undefined))
-                      return
-                    }
-                    try {
-                      const parsed = JSON.parse(raw) as unknown
-                      onChange(applyValueChange(config, descriptor.key, parsed))
-                    } catch {
-                      // Keep user text untouched until it is valid JSON.
-                    }
-                  }}
-                  onFocus={formStyles.inputFocus}
-                  style={{ ...formStyles.input, minHeight: '120px', height: 'auto', padding: '8px 10px' }}
-                />
-                {!!descriptor.description && (
-                  <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                    {descriptor.description}
-                  </div>
-                )}
-              </div>
-            )
-          }
-
-          if (descriptor.dataKind === 'number') {
-            return (
-              <div key={descriptor.key} style={formStyles.fieldGroup}>
-                <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
-                <input
-                  type="number"
-                  value={typeof value === 'number' && Number.isFinite(value) ? String(value) : ''}
-                  placeholder={placeholder}
-                  onChange={(event) => {
-                    const nextRaw = event.target.value.trim()
-                    const parsed = nextRaw === '' ? undefined : Number.parseFloat(nextRaw)
-                    onChange(
-                      applyValueChange(
-                        config,
-                        descriptor.key,
-                        parsed === undefined || Number.isNaN(parsed) ? undefined : parsed
-                      )
-                    )
-                  }}
-                  onFocus={formStyles.inputFocus}
-                  onBlur={formStyles.inputBlur}
-                  style={formStyles.input}
-                />
-                {!!descriptor.description && (
-                  <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                    {descriptor.description}
-                  </div>
-                )}
-              </div>
-            )
-          }
-
-          const isSecret = descriptor.dataKind === 'secret' || descriptor.masked
-          return (
-            <div key={descriptor.key} style={formStyles.fieldGroup}>
-              <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
-              {isSecret ? (
-                <SecretInput
-                  value={toText(value)}
-                  placeholder={placeholder}
-                  onChange={(nextValue) => {
-                    onChange(applyValueChange(config, descriptor.key, nextValue))
-                  }}
-                  onFocus={formStyles.inputFocus}
-                  onBlur={formStyles.inputBlur}
-                />
-              ) : (
-                <input
-                  type="text"
-                  value={toText(value)}
-                  placeholder={placeholder}
-                  onChange={(event) => {
-                    onChange(applyValueChange(config, descriptor.key, event.target.value))
-                  }}
-                  onFocus={formStyles.inputFocus}
-                  onBlur={formStyles.inputBlur}
-                  style={formStyles.input}
-                />
-              )}
-              {!!descriptor.description && (
-                <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                  {descriptor.description}
-                </div>
-              )}
-            </div>
-          )
-        })}
+        {basicDescriptors.map((descriptor) => renderDescriptorField(descriptor))}
+        {advancedDescriptors.length > 0 && (
+          <div style={{ marginTop: basicDescriptors.length > 0 ? '2px' : 0 }}>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                padding: 0,
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 600
+              }}
+            >
+              {showAdvanced
+                ? t('channels.modules.hideAdvanced')
+                : t('channels.modules.showAdvanced', { count: advancedDescriptors.length })}
+            </button>
+          </div>
+        )}
+        {showAdvanced && advancedDescriptors.map((descriptor) => renderDescriptorField(descriptor))}
       </FieldCard>
 
       <FormActions saving={saving} onSave={onSave} />

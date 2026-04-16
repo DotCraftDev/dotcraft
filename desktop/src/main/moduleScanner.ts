@@ -11,6 +11,7 @@ export interface ConfigDescriptorWire {
   dataKind: string
   masked: boolean
   interactiveSetupOnly: boolean
+  advanced?: boolean
   defaultValue?: unknown
   enumValues?: string[]
 }
@@ -84,6 +85,7 @@ function parseConfigDescriptor(value: unknown): ConfigDescriptorWire | null {
     dataKind,
     masked: item.masked,
     interactiveSetupOnly: item.interactiveSetupOnly,
+    advanced: item.advanced === true,
     defaultValue: item.defaultValue,
     enumValues
   }

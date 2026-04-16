@@ -20,6 +20,7 @@ export interface ConfigDescriptor {
   dataKind: ConfigFieldKind;
   masked: boolean;
   interactiveSetupOnly: boolean;
+  advanced?: boolean;
   defaultValue?: unknown;
   enumValues?: string[];
 }

@@ -133,6 +133,8 @@ const MESSAGES_EN = {
   'channels.modules.enable': 'Enable channel',
   'channels.modules.nodeMissing':
     'Node.js is required to run channel modules. Install Node.js 20+ and restart Desktop.',
+  'channels.modules.wsRequired':
+    "Channel modules require WebSocket connection. Please switch connection mode to 'Stdio + WebSocket' or 'WebSocket' in Settings > Connection.",
   'channels.modules.missingRequired': 'Required fields missing: {{fields}}',
   'channels.modules.connecting': 'Connecting...',
   'channels.modules.stopped': 'Stopped',
@@ -147,6 +149,8 @@ const MESSAGES_EN = {
   'channels.modules.logs.view': 'View Logs',
   'channels.modules.logs.loading': 'Loading logs...',
   'channels.modules.logs.title': 'Recent module logs',
+  'channels.modules.showAdvanced': 'Show advanced options ({{count}})',
+  'channels.modules.hideAdvanced': 'Hide advanced options',
   'channels.modules.connectedToast': '{{name}} is connected.',
   'channels.modules.qr.waitingForQr': 'Starting Weixin adapter, preparing QR code...',
   'channels.modules.qr.scanPrompt': 'Scan with WeChat to log in',
@@ -837,6 +841,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'channels.modules.enable': '启用渠道',
   'channels.modules.nodeMissing':
     '运行渠道模块需要 Node.js。请安装 Node.js 20+ 后重启 Desktop。',
+  'channels.modules.wsRequired':
+    '渠道模块依赖 WebSocket 连接。请在「设置 > 连接」中将连接模式切换为「Stdio + WebSocket」或「WebSocket」。',
   'channels.modules.missingRequired': '缺少必填字段：{{fields}}',
   'channels.modules.connecting': '正在连接...',
   'channels.modules.stopped': '已停止',
@@ -850,6 +856,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'channels.modules.logs.view': '查看日志',
   'channels.modules.logs.loading': '正在加载日志...',
   'channels.modules.logs.title': '最近模块日志',
+  'channels.modules.showAdvanced': '显示高级选项（{{count}}）',
+  'channels.modules.hideAdvanced': '隐藏高级选项',
   'channels.modules.connectedToast': '{{name}} 已连接。',
   'channels.modules.qr.waitingForQr': '正在启动 Weixin 适配器，准备二维码...',
   'channels.modules.qr.scanPrompt': '请使用微信扫码登录',

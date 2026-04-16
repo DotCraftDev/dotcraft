@@ -38,6 +38,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "number",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
     defaultValue: 3000,
   },
   {
@@ -48,6 +49,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "number",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
     defaultValue: 30000,
   },
 ];

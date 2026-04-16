@@ -20,6 +20,7 @@ import {
   type ExternalChannelConfigWire
 } from './ExternalChannelConfigForm'
 import type {
+  ConnectionMode,
   DiscoveredModule,
   ModulesRescanSummaryPayload,
   ModuleStatusEntry,
@@ -60,6 +61,16 @@ interface ChannelModuleGroup {
   channelName: string
   activeModuleId: string
   modules: DiscoveredModule[]
+}
+
+function normalizeConnectionMode(mode: unknown): ConnectionMode {
+  return mode === 'websocket' || mode === 'stdioAndWebSocket' || mode === 'remote'
+    ? mode
+    : 'stdio'
+}
+
+function isModuleWsAvailable(mode: ConnectionMode): boolean {
+  return mode !== 'stdio'
 }
 
 function normalizeChannelName(value: string): string {
@@ -290,6 +301,7 @@ export function ChannelsView(): JSX.Element {
   const [nodeRuntime, setNodeRuntime] = useState<{ available: boolean; version?: string }>({
     available: true
   })
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
   const [moduleLogsById, setModuleLogsById] = useState<Record<string, string[]>>({})
   const [loadingLogsModuleId, setLoadingLogsModuleId] = useState<string | null>(null)
   const moduleConnectedSnapshotRef = useRef<Record<string, boolean>>({})
@@ -324,6 +336,7 @@ export function ChannelsView(): JSX.Element {
     window.api.settings
       .get()
       .then((settings) => {
+        setConnectionMode(normalizeConnectionMode(settings.connectionMode))
         const raw = settings.activeModuleVariants
         if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
           const normalized: Record<string, string> = {}
@@ -343,6 +356,17 @@ export function ChannelsView(): JSX.Element {
       .nodeCheck()
       .then((status) => setNodeRuntime(status))
       .catch(() => setNodeRuntime({ available: false }))
+
+    const onFocus = () => {
+      void window.api.settings
+        .get()
+        .then((settings) => setConnectionMode(normalizeConnectionMode(settings.connectionMode)))
+        .catch(() => {})
+    }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+    }
   }, [])
 
   useEffect(() => {
@@ -531,6 +555,18 @@ export function ChannelsView(): JSX.Element {
     void reloadModules()
   }, [])
 
+  const moduleGroups = useMemo(
+    () => groupModulesByChannel(modules, activeModuleVariants),
+    [modules, activeModuleVariants]
+  )
+  const moduleById = useMemo(() => {
+    const map = new Map<string, DiscoveredModule>()
+    for (const module of modules) {
+      map.set(module.moduleId, module)
+    }
+    return map
+  }, [modules])
+
   useEffect(() => {
     const unsubscribe = window.api.modules.onRescanSummary((payload: ModulesRescanSummaryPayload) => {
       if (payload.changedRunningModuleIds.length === 0) return
@@ -714,6 +750,18 @@ export function ChannelsView(): JSX.Element {
   }
 
   async function handleStartModule(moduleId: string): Promise<void> {
+    let currentConnectionMode = connectionMode
+    try {
+      const latestSettings = await window.api.settings.get()
+      currentConnectionMode = normalizeConnectionMode(latestSettings.connectionMode)
+      setConnectionMode(currentConnectionMode)
+    } catch {
+      // Ignore settings read failure and use the latest known mode.
+    }
+    if (!isModuleWsAvailable(currentConnectionMode)) {
+      addToast(t('channels.modules.wsRequired'), 'error')
+      return
+    }
     if (!nodeRuntime.available) {
       addToast(t('channels.modules.nodeMissing'), 'error')
       return
@@ -875,18 +923,6 @@ export function ChannelsView(): JSX.Element {
     }
     return enabledByChannel
   }, [externalChannels])
-
-  const moduleGroups = useMemo(
-    () => groupModulesByChannel(modules, activeModuleVariants),
-    [modules, activeModuleVariants]
-  )
-  const moduleById = useMemo(() => {
-    const map = new Map<string, DiscoveredModule>()
-    for (const module of modules) {
-      map.set(module.moduleId, module)
-    }
-    return map
-  }, [modules])
 
   const selectedDef = selectedNativeId ? CHANNEL_DEFS.find((d) => d.id === selectedNativeId) : null
   const selectedModule = selectedModuleId ? moduleById.get(selectedModuleId) ?? null : null
@@ -1071,53 +1107,68 @@ export function ChannelsView(): JSX.Element {
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 {t('channels.modules.group')}
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  void reloadModules(true)
-                }}
-                title={t('channels.modules.refresh')}
-                aria-label={t('channels.modules.refresh')}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--accent)',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 700,
-                  padding: 0
-                }}
-              >
-                ↻
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void window.api.modules.openFolder().then((result) => {
-                    if (!result.ok) {
-                      addToast(
-                        t('channels.saveFailed', {
-                          error: result.error ?? 'Failed to open modules folder'
-                        }),
-                        'error'
-                      )
-                    }
-                  })
-                }}
-                title={t('channels.modules.openFolder')}
-                aria-label={t('channels.modules.openFolder')}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--accent)',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  padding: 0
-                }}
-              >
-                OPEN
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void reloadModules(true)
+                  }}
+                  title={t('channels.modules.refresh')}
+                  aria-label={t('channels.modules.refresh')}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--accent)',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    lineHeight: 1,
+                    padding: 0
+                  }}
+                >
+                  ↻
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void window.api.modules.openFolder().then((result) => {
+                      if (!result.ok) {
+                        addToast(
+                          t('channels.saveFailed', {
+                            error: result.error ?? 'Failed to open modules folder'
+                          }),
+                          'error'
+                        )
+                      }
+                    })
+                  }}
+                  title={t('channels.modules.openFolder')}
+                  aria-label={t('channels.modules.openFolder')}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--accent)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '14px',
+                    height: '14px',
+                    padding: 0
+                  }}
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                    <path
+                      d="M1.5 4.5A1.5 1.5 0 0 1 3 3h2.7l1.3 1.4h6a1.5 1.5 0 0 1 1.5 1.5v1.1h-1V5.9a.5.5 0 0 0-.5-.5H6.56L5.26 4H3a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h5.25v1H3a1.5 1.5 0 0 1-1.5-1.5v-7Z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M9.5 8.5a.5.5 0 0 1 .5-.5h4v-4a.5.5 0 0 1 1 0v5.5a.5.5 0 0 1-.5.5H9.5a.5.5 0 0 1 0-1h3.79l-4.64 4.65a.5.5 0 1 1-.7-.71L12.59 8.5H10a.5.5 0 0 1-.5-.5Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {moduleGroups.map((group) => {
@@ -1285,6 +1336,7 @@ export function ChannelsView(): JSX.Element {
                 persistedModuleEnabledByChannelName.get(selectedModule.channelName.toLowerCase()) === true
               }
               nodeAvailable={nodeRuntime.available}
+              wsAvailable={isModuleWsAvailable(connectionMode)}
               onStart={() => {
                 void handleStartModule(selectedModule.moduleId)
               }}

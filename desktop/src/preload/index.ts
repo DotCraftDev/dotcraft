@@ -84,6 +84,7 @@ export interface ConfigDescriptorWire {
   dataKind: string
   masked: boolean
   interactiveSetupOnly: boolean
+  advanced?: boolean
   defaultValue?: unknown
   enumValues?: string[]
 }
@@ -482,6 +483,9 @@ const api = {
     },
     openFolder(): Promise<{ ok: boolean; error?: string }> {
       return ipcRenderer.invoke('modules:open-folder')
+    },
+    pickDirectory(): Promise<string | null> {
+      return ipcRenderer.invoke('modules:pick-directory')
     },
     rescan(): Promise<DiscoveredModule[]> {
       return ipcRenderer.invoke('modules:rescan')

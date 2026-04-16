@@ -77,6 +77,7 @@ export interface ConfigDescriptorWire {
   dataKind: string
   masked: boolean
   interactiveSetupOnly: boolean
+  advanced?: boolean
   defaultValue?: unknown
   enumValues?: string[]
 }
@@ -195,6 +196,7 @@ declare global {
         userDirectory(): Promise<{ path: string }>
         checkDirectory(path: string): Promise<{ exists: boolean }>
         openFolder(): Promise<{ ok: boolean; error?: string }>
+        pickDirectory(): Promise<string | null>
         rescan(): Promise<DiscoveredModule[]>
         setActiveVariant(params: {
           channelName: string

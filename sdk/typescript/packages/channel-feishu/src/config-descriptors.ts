@@ -46,6 +46,8 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "string",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
+    defaultValue: "feishu",
   },
   {
     key: "feishu.approvalTimeoutMs",
@@ -55,6 +57,8 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "number",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
+    defaultValue: 120000,
   },
   {
     key: "feishu.groupMentionRequired",
@@ -64,6 +68,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "boolean",
     masked: false,
     interactiveSetupOnly: false,
+    defaultValue: true,
   },
   {
     key: "feishu.ackReactionEmoji",
@@ -73,6 +78,8 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "string",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
+    defaultValue: "GLANCE",
   },
   {
     key: "feishu.downloadDir",
@@ -82,6 +89,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "path",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
   },
   {
     key: "feishu.debug.adapterStream",
@@ -91,6 +99,8 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "boolean",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
+    defaultValue: false,
   },
   {
     key: "feishu.debug.textMerge",
@@ -100,5 +110,7 @@ export const configDescriptors: ConfigDescriptor[] = [
     dataKind: "boolean",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
+    defaultValue: false,
   },
 ];
