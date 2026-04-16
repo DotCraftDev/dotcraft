@@ -472,6 +472,8 @@ function teardownRuntime(
   const hadAppServer = appServerManager !== null
   const hadProxy = proxyManager !== null
   const hadWireClient = wireClient !== null
+  const workspacePathAtTeardown = currentWorkspacePath
+  const proxyAtTeardown = resolveProxySettings(sharedSettings)
   if (moduleManager) {
     void moduleManager.stopAll({ preserveExternalChannels: true }).catch((error) => {
       console.warn('[desktop] failed to stop channel modules during teardown', error)
@@ -479,6 +481,12 @@ function teardownRuntime(
   }
   appServerManager?.shutdown()
   proxyManager?.shutdown()
+  if (hadProxy && workspacePathAtTeardown) {
+    void cleanupWorkspaceProxyOverrides(workspacePathAtTeardown, {
+      proxyPort: proxyAtTeardown.port,
+      proxyApiKey: proxyAtTeardown.apiKey
+    })
+  }
   wireClient?.dispose()
   appServerManager = null
   proxyManager = null
