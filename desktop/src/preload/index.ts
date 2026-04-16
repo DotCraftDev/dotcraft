@@ -111,6 +111,12 @@ export interface ModuleStatusEntry {
 
 export type ModuleStatusMap = Record<string, ModuleStatusEntry>
 
+export interface QrUpdatePayload {
+  moduleId: string
+  qrDataUrl: string | null
+  timestamp: number
+}
+
 // ---------------------------------------------------------------------------
 // Single-listener dispatcher for notifications and connection status.
 //
@@ -172,6 +178,15 @@ ipcRenderer.on(
   'modules:status-changed',
   (_event: Electron.IpcRendererEvent, statusMap: ModuleStatusMap) => {
     activeModuleStatusCallback?.(statusMap)
+  }
+)
+
+let moduleQrUpdateToken = 0
+let activeModuleQrUpdateCallback: ((payload: QrUpdatePayload) => void) | null = null
+ipcRenderer.on(
+  'modules:qr-update',
+  (_event: Electron.IpcRendererEvent, payload: QrUpdatePayload) => {
+    activeModuleQrUpdateCallback?.(payload)
   }
 )
 
@@ -464,11 +479,21 @@ const api = {
     running(): Promise<ModuleStatusMap> {
       return ipcRenderer.invoke('modules:running')
     },
+    qrStatus(moduleId: string): Promise<{ active: boolean; qrDataUrl: string | null }> {
+      return ipcRenderer.invoke('modules:qr-status', { moduleId })
+    },
     onStatusChanged(callback: (statusMap: ModuleStatusMap) => void): UnsubscribeFn {
       const token = ++moduleStatusToken
       activeModuleStatusCallback = callback
       return () => {
         if (moduleStatusToken === token) activeModuleStatusCallback = null
+      }
+    },
+    onQrUpdate(callback: (payload: QrUpdatePayload) => void): UnsubscribeFn {
+      const token = ++moduleQrUpdateToken
+      activeModuleQrUpdateCallback = callback
+      return () => {
+        if (moduleQrUpdateToken === token) activeModuleQrUpdateCallback = null
       }
     }
   },

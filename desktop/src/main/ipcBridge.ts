@@ -21,6 +21,7 @@ import {
   ModuleProcessManager,
   type ModuleStatusMap
 } from './moduleProcessManager'
+import type { QrUpdatePayload } from './qrWatcher'
 import type {
   WorkspaceSetupRequest,
   WorkspaceStatusPayload,
@@ -250,6 +251,11 @@ export function registerIpcHandlers(
     onStatusChanged: (statusMap) => {
       for (const win of BrowserWindow.getAllWindows()) {
         broadcastModuleStatus(win, statusMap)
+      }
+    },
+    onQrUpdate: (payload) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        broadcastModuleQrUpdate(win, payload)
       }
     }
   })
@@ -628,6 +634,19 @@ export function registerIpcHandlers(
     return moduleProcessManager?.getStatusMap() ?? {}
   })
 
+  handleSafe(
+    'modules:qr-status',
+    async (
+      _event,
+      params: { moduleId: string }
+    ): Promise<{ active: boolean; qrDataUrl: string | null }> => {
+      if (!params?.moduleId || typeof params.moduleId !== 'string') {
+        return { active: false, qrDataUrl: null }
+      }
+      return moduleProcessManager?.getQrStatus(params.moduleId) ?? { active: false, qrDataUrl: null }
+    }
+  )
+
   if (workspacePath) {
     warmFileSearchIndex(workspacePath)
   }
@@ -660,6 +679,15 @@ export function broadcastModuleStatus(
 ): void {
   if (!win.isDestroyed()) {
     win.webContents.send('modules:status-changed', payload)
+  }
+}
+
+export function broadcastModuleQrUpdate(
+  win: BrowserWindow,
+  payload: QrUpdatePayload
+): void {
+  if (!win.isDestroyed()) {
+    win.webContents.send('modules:qr-update', payload)
   }
 }
 
@@ -759,6 +787,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('modules:start')
   ipcMain.removeHandler('modules:stop')
   ipcMain.removeHandler('modules:running')
+  ipcMain.removeHandler('modules:qr-status')
   moduleProcessManager = null
   ensureModulesScanned = null
   invalidateFileIndex()

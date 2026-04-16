@@ -17,6 +17,8 @@ interface ModuleConfigFormProps {
   onStart: () => void
   onStop: () => void
   starting: boolean
+  qrDataUrl: string | null
+  qrPhase: 'idle' | 'waitingForQr' | 'qrAvailable' | 'loginSuccess' | 'error'
 }
 
 function toText(value: unknown): string {
@@ -119,7 +121,9 @@ export function ModuleConfigForm({
   persistedEnabled,
   onStart,
   onStop,
-  starting
+  starting,
+  qrDataUrl,
+  qrPhase
 }: ModuleConfigFormProps): JSX.Element {
   const t = useT()
   const [showSecretByKey, setShowSecretByKey] = useState<Record<string, boolean>>({})
@@ -137,6 +141,7 @@ export function ModuleConfigForm({
     moduleStatus?.processState === 'running'
   const enableDisabled =
     starting || moduleStatus?.processState === 'starting' || moduleStatus?.processState === 'stopping'
+  const showQrPanel = module.requiresInteractiveSetup && qrPhase !== 'idle'
 
   return (
     <div style={{ maxWidth: '720px' }}>
@@ -245,6 +250,115 @@ export function ModuleConfigForm({
             {t('channels.modules.restart')}
           </button>
         </div>
+      )}
+
+      {showQrPanel && (
+        <FieldCard>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              alignItems: 'center',
+              textAlign: 'center'
+            }}
+          >
+            {qrPhase === 'waitingForQr' && (
+              <>
+                <div
+                  style={{
+                    width: 200,
+                    height: 200,
+                    borderRadius: 12,
+                    border: '1px dashed var(--border-default)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-secondary)',
+                    fontSize: 14
+                  }}
+                >
+                  {t('channels.modules.qr.refreshing')}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {t('channels.modules.qr.waitingForQr')}
+                </div>
+              </>
+            )}
+
+            {qrPhase === 'qrAvailable' && (
+              <>
+                <div
+                  style={{
+                    width: 220,
+                    height: 220,
+                    borderRadius: 12,
+                    border: '1px solid var(--border-default)',
+                    backgroundColor: 'var(--bg-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden'
+                  }}
+                >
+                  {qrDataUrl ? (
+                    <img
+                      src={qrDataUrl}
+                      alt="Weixin QR"
+                      width={200}
+                      height={200}
+                      style={{ width: 200, height: 200, display: 'block' }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'var(--text-dimmed)' }}>
+                      {t('channels.modules.qr.waitingForQr')}
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {t('channels.modules.qr.scanPrompt')}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  {t('channels.modules.qr.waitingForScan')}
+                </div>
+              </>
+            )}
+
+            {qrPhase === 'loginSuccess' && (
+              <>
+                <div style={{ fontSize: 36, lineHeight: 1, color: 'var(--success, #34c759)' }}>✓</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--success, #34c759)' }}>
+                  {t('channels.modules.qr.loginSuccess')}
+                </div>
+              </>
+            )}
+
+            {qrPhase === 'error' && (
+              <>
+                <div style={{ fontSize: 28, lineHeight: 1, color: 'var(--error, #ff453a)' }}>!</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--error, #ff453a)' }}>
+                  {t('channels.modules.qr.error')}
+                </div>
+                <button
+                  type="button"
+                  onClick={onStart}
+                  style={{
+                    border: '1px solid var(--border-default)',
+                    borderRadius: '6px',
+                    background: 'transparent',
+                    color: 'var(--text-primary)',
+                    padding: '6px 12px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600
+                  }}
+                >
+                  {t('channels.modules.qr.retry')}
+                </button>
+              </>
+            )}
+          </div>
+        </FieldCard>
       )}
 
       <FieldCard>

@@ -3,6 +3,7 @@ import { ChildProcess, execFile, spawn } from 'child_process'
 import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
 import type { DiscoveredModule } from './moduleScanner'
+import { QrFileWatcher, type QrUpdatePayload } from './qrWatcher'
 
 export type ProcessState = 'starting' | 'running' | 'stopping' | 'stopped' | 'crashed'
 
@@ -60,6 +61,7 @@ export class ModuleProcessManager {
   private readonly getWireClient: () => WireProtocolClient | null
   private readonly onStatusChanged: (statusMap: ModuleStatusMap) => void
   private readonly getCachedModules: () => DiscoveredModule[] | null
+  private readonly qrWatcher: QrFileWatcher
   private readonly managed = new Map<string, ManagedModuleProcess>()
   private readonly stopWaiters = new Map<string, Promise<void>>()
   private statusPollTimer: ReturnType<typeof setInterval> | null = null
@@ -71,11 +73,16 @@ export class ModuleProcessManager {
     getWireClient: () => WireProtocolClient | null
     onStatusChanged: (statusMap: ModuleStatusMap) => void
     getCachedModules: () => DiscoveredModule[] | null
+    onQrUpdate: (payload: QrUpdatePayload) => void
   }) {
     this.workspacePath = options.workspacePath
     this.getWireClient = options.getWireClient
     this.onStatusChanged = options.onStatusChanged
     this.getCachedModules = options.getCachedModules
+    this.qrWatcher = new QrFileWatcher({
+      workspacePath: options.workspacePath,
+      onQrUpdate: options.onQrUpdate
+    })
   }
 
   async start(moduleId: string): Promise<StartResult> {
@@ -170,6 +177,7 @@ export class ModuleProcessManager {
       if (isNodeSpawnError(error)) {
         entry.lastExitCode = 127
       }
+      this.qrWatcher.stopWatching(module.moduleId)
       this.clearPromoteTimer(entry)
       this.emitStatusIfChanged()
     })
@@ -185,6 +193,10 @@ export class ModuleProcessManager {
         this.emitStatusIfChanged()
       }
     }, PROMOTE_TO_RUNNING_MS)
+
+    if (module.requiresInteractiveSetup) {
+      void this.qrWatcher.startWatching(module.moduleId)
+    }
 
     this.ensurePoller()
     return { ok: true }
@@ -232,6 +244,10 @@ export class ModuleProcessManager {
     return ids
   }
 
+  getQrStatus(moduleId: string): { active: boolean; qrDataUrl: string | null } {
+    return this.qrWatcher.getStatus(moduleId)
+  }
+
   async autoStartModules(enabledIds: string[]): Promise<void> {
     for (let index = 0; index < enabledIds.length; index += 1) {
       const moduleId = enabledIds[index]
@@ -261,6 +277,7 @@ export class ModuleProcessManager {
       entry.expectedStop = false
       entry.startedStableAt = null
       this.lastPolledConnected.set(moduleId, false)
+      this.qrWatcher.stopWatching(moduleId)
       this.stopPollerIfIdle()
       this.emitStatusIfChanged()
       return
@@ -271,6 +288,7 @@ export class ModuleProcessManager {
     const runDurationMs = Date.now() - entry.spawnedAt
     const shouldRestart = runDurationMs >= STABLE_RESTART_MIN_MS && entry.restartCount < 3
     if (!shouldRestart) {
+      this.qrWatcher.stopWatching(moduleId)
       this.stopPollerIfIdle()
       this.emitStatusIfChanged()
       return
@@ -292,6 +310,7 @@ export class ModuleProcessManager {
     if (entry.state === 'stopped' && !entry.process) {
       entry.expectedStop = false
       this.lastPolledConnected.set(entry.moduleId, false)
+      this.qrWatcher.stopWatching(entry.moduleId)
       this.emitStatusIfChanged()
       return
     }
@@ -310,6 +329,7 @@ export class ModuleProcessManager {
     this.stopWaiters.set(entry.moduleId, stopPromise)
     try {
       await stopPromise
+      this.qrWatcher.stopWatching(entry.moduleId)
       if (options?.preserveExternalChannels !== true) {
         await this.removeExternalChannel(entry.channelName)
       }
@@ -438,7 +458,18 @@ export class ModuleProcessManager {
 
       for (const entry of this.managed.values()) {
         const status = channels.get(entry.channelName.toLowerCase())
-        this.lastPolledConnected.set(entry.moduleId, status?.running === true)
+        const wasConnected = this.lastPolledConnected.get(entry.moduleId) ?? false
+        const isConnected = status?.running === true
+        this.lastPolledConnected.set(entry.moduleId, isConnected)
+
+        const module = this.findModule(entry.moduleId)
+        if (module?.requiresInteractiveSetup) {
+          if (isConnected && !wasConnected) {
+            this.qrWatcher.onChannelConnected(entry.moduleId)
+          } else if (!isConnected && wasConnected) {
+            this.qrWatcher.onChannelDisconnected(entry.moduleId)
+          }
+        }
 
         if (
           entry.state === 'running' &&

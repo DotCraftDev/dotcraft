@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { addToast } from '../../stores/toastStore'
 import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
@@ -22,7 +22,8 @@ import {
 import type {
   DiscoveredModule,
   ModuleStatusEntry,
-  ModuleStatusMap
+  ModuleStatusMap,
+  QrUpdatePayload
 } from '../../../preload/api.d'
 
 interface ChannelStatusWire {
@@ -44,6 +45,15 @@ interface ExternalChannelViewModel {
   configured: boolean
   preset?: PresetExternalChannel
 }
+
+interface ModuleQrState {
+  active: boolean
+  qrDataUrl: string | null
+  timestamp: number
+  successUntil?: number
+}
+
+type ModuleQrPhase = 'idle' | 'waitingForQr' | 'qrAvailable' | 'loginSuccess' | 'error'
 
 function moduleLogoPath(channelName: string): string {
   return new URL(`../../assets/channels/${channelName}.svg`, import.meta.url).toString()
@@ -164,7 +174,18 @@ export function ChannelsView(): JSX.Element {
   const [moduleConfig, setModuleConfig] = useState<Record<string, unknown>>({})
   const [savingModule, setSavingModule] = useState(false)
   const [moduleStatusMap, setModuleStatusMap] = useState<ModuleStatusMap>({})
+  const [moduleQrState, setModuleQrState] = useState<Record<string, ModuleQrState>>({})
   const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null)
+  const moduleConnectedSnapshotRef = useRef<Record<string, boolean>>({})
+  const selectedNativeId = selectedChannelKey.startsWith('native:')
+    ? (selectedChannelKey.slice('native:'.length) as ChannelId)
+    : null
+  const selectedModuleId = selectedChannelKey.startsWith('module:')
+    ? selectedChannelKey.slice('module:'.length)
+    : null
+  const selectedExternalName = selectedChannelKey.startsWith('external:')
+    ? selectedChannelKey.slice('external:'.length)
+    : null
 
   const externalManagementEnabled = capabilities?.externalChannelManagement === true
 
@@ -370,6 +391,11 @@ export function ChannelsView(): JSX.Element {
       .running()
       .then((statusMap) => {
         if (!disposed) {
+          const connectedSnapshot: Record<string, boolean> = {}
+          for (const [moduleId, entry] of Object.entries(statusMap)) {
+            connectedSnapshot[moduleId] = entry?.connected === true
+          }
+          moduleConnectedSnapshotRef.current = connectedSnapshot
           setModuleStatusMap(statusMap)
         }
       })
@@ -377,13 +403,112 @@ export function ChannelsView(): JSX.Element {
 
     const unsubscribe = window.api.modules.onStatusChanged((statusMap) => {
       if (disposed) return
+      const previous = moduleConnectedSnapshotRef.current
+      const nextSnapshot: Record<string, boolean> = {}
+      const now = Date.now()
+      setModuleQrState((prev) => {
+        let changed = false
+        const next = { ...prev }
+        for (const [moduleId, entry] of Object.entries(statusMap)) {
+          const isConnected = entry?.connected === true
+          nextSnapshot[moduleId] = isConnected
+          const wasConnected = previous[moduleId] === true
+          if (!wasConnected && isConnected) {
+            const current = next[moduleId]
+            next[moduleId] = {
+              active: current?.active ?? false,
+              qrDataUrl: current?.qrDataUrl ?? null,
+              timestamp: current?.timestamp ?? now,
+              successUntil: now + 2_000
+            }
+            changed = true
+          } else if (wasConnected && !isConnected && next[moduleId]?.successUntil !== undefined) {
+            next[moduleId] = {
+              ...next[moduleId],
+              successUntil: undefined
+            }
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+      moduleConnectedSnapshotRef.current = nextSnapshot
       setModuleStatusMap(statusMap)
+    })
+    const unsubscribeQr = window.api.modules.onQrUpdate((payload: QrUpdatePayload) => {
+      if (disposed) return
+      setModuleQrState((prev) => ({
+        ...prev,
+        [payload.moduleId]: {
+          ...(prev[payload.moduleId] ?? {
+            active: true,
+            qrDataUrl: null,
+            timestamp: payload.timestamp
+          }),
+          active: true,
+          qrDataUrl: payload.qrDataUrl,
+          timestamp: payload.timestamp
+        }
+      }))
     })
     return () => {
       disposed = true
       unsubscribe()
+      unsubscribeQr()
     }
   }, [])
+
+  useEffect(() => {
+    if (!selectedModuleId) return
+    let cancelled = false
+    window.api.modules
+      .qrStatus(selectedModuleId)
+      .then((state) => {
+        if (cancelled) return
+        setModuleQrState((prev) => ({
+          ...prev,
+          [selectedModuleId]: {
+            ...(prev[selectedModuleId] ?? {
+              timestamp: Date.now(),
+              successUntil: undefined
+            }),
+            active: state.active,
+            qrDataUrl: state.qrDataUrl,
+            timestamp: prev[selectedModuleId]?.timestamp ?? Date.now()
+          }
+        }))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [selectedModuleId])
+
+  useEffect(() => {
+    const now = Date.now()
+    const pending = Object.values(moduleQrState)
+      .map((state) => state.successUntil ?? 0)
+      .filter((value) => value > now)
+    if (pending.length === 0) return
+    const delay = Math.max(0, Math.min(...pending) - now + 30)
+    const timer = setTimeout(() => {
+      setModuleQrState((prev) => {
+        const current = Date.now()
+        let changed = false
+        const next: Record<string, ModuleQrState> = {}
+        for (const [moduleId, state] of Object.entries(prev)) {
+          if (state.successUntil !== undefined && state.successUntil <= current) {
+            next[moduleId] = { ...state, successUntil: undefined }
+            changed = true
+          } else {
+            next[moduleId] = state
+          }
+        }
+        return changed ? next : prev
+      })
+    }, delay)
+    return () => clearTimeout(timer)
+  }, [moduleQrState])
 
   async function handleSave(channelId: ChannelId): Promise<void> {
     try {
@@ -575,19 +700,12 @@ export function ChannelsView(): JSX.Element {
     return enabledByChannel
   }, [externalChannels])
 
-  const selectedNativeId = selectedChannelKey.startsWith('native:')
-    ? (selectedChannelKey.slice('native:'.length) as ChannelId)
-    : null
-  const selectedModuleId = selectedChannelKey.startsWith('module:')
-    ? selectedChannelKey.slice('module:'.length)
-    : null
-  const selectedExternalName = selectedChannelKey.startsWith('external:')
-    ? selectedChannelKey.slice('external:'.length)
-    : null
   const selectedDef = selectedNativeId ? CHANNEL_DEFS.find((d) => d.id === selectedNativeId) : null
   const selectedModule = selectedModuleId
     ? modules.find((item) => item.moduleId === selectedModuleId) ?? null
     : null
+  const selectedModuleStatus = selectedModule ? moduleStatusMap[selectedModule.moduleId] : undefined
+  const selectedModuleQrState = selectedModuleId ? moduleQrState[selectedModuleId] : undefined
   const selectedModuleLogoPath =
     selectedModule && selectedModule.channelName
       ? moduleLogoPath(selectedModule.channelName)
@@ -601,6 +719,23 @@ export function ChannelsView(): JSX.Element {
       setSelectedChannelKey('native:qq')
     }
   }, [selectedModuleId, selectedModule])
+
+  const selectedModuleQrPhase: ModuleQrPhase = useMemo(() => {
+    if (!selectedModule || !selectedModule.requiresInteractiveSetup) return 'idle'
+    if (selectedModuleStatus?.processState === 'crashed') return 'error'
+    if (
+      selectedModuleQrState?.successUntil !== undefined &&
+      selectedModuleQrState.successUntil > Date.now()
+    ) {
+      return 'loginSuccess'
+    }
+    if (selectedModuleStatus?.connected === true) return 'idle'
+    const processRunning =
+      selectedModuleStatus?.processState === 'starting' || selectedModuleStatus?.processState === 'running'
+    if (!processRunning) return 'idle'
+    if (selectedModuleQrState?.qrDataUrl) return 'qrAvailable'
+    return 'waitingForQr'
+  }, [selectedModule, selectedModuleStatus, selectedModuleQrState])
 
   return (
     <div
@@ -842,7 +977,7 @@ export function ChannelsView(): JSX.Element {
               onSave={() => void handleSaveModule(selectedModule)}
               saving={savingModule}
               logoPath={selectedModuleLogoPath}
-              moduleStatus={moduleStatusMap[selectedModule.moduleId] as ModuleStatusEntry | undefined}
+              moduleStatus={selectedModuleStatus as ModuleStatusEntry | undefined}
               persistedEnabled={
                 persistedModuleEnabledByChannelName.get(selectedModule.channelName.toLowerCase()) === true
               }
@@ -853,6 +988,8 @@ export function ChannelsView(): JSX.Element {
                 void handleStopModule(selectedModule.moduleId)
               }}
               starting={togglingModuleId === selectedModule.moduleId}
+              qrDataUrl={selectedModuleQrState?.qrDataUrl ?? null}
+              qrPhase={selectedModuleQrPhase}
             />
           )}
 

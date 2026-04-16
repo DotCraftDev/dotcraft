@@ -104,6 +104,12 @@ export interface ModuleStatusEntry {
 
 export type ModuleStatusMap = Record<string, ModuleStatusEntry>
 
+export interface QrUpdatePayload {
+  moduleId: string
+  qrDataUrl: string | null
+  timestamp: number
+}
+
 declare global {
   interface Window {
     api: {
@@ -188,7 +194,9 @@ declare global {
         start(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }>
         stop(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }>
         running(): Promise<ModuleStatusMap>
+        qrStatus(moduleId: string): Promise<{ active: boolean; qrDataUrl: string | null }>
         onStatusChanged(callback: (statusMap: ModuleStatusMap) => void): UnsubscribeFn
+        onQrUpdate(callback: (payload: QrUpdatePayload) => void): UnsubscribeFn
       }
       settings: {
         get(): Promise<{
