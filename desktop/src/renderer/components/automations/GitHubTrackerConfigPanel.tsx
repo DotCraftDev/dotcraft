@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { addToast } from '../../stores/toastStore'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
-import { FieldCard, FormActions, formStyles } from '../channels/FormShared'
+import { FieldCard, FormActions, SecretInput, formStyles } from '../channels/FormShared'
 import { GitHubWorkflowTemplateDialog } from './GitHubWorkflowTemplateDialog'
 
 interface Props {
@@ -318,17 +318,16 @@ export function GitHubTrackerConfigPanel({ onBack }: Props): JSX.Element {
 
                 <div style={formStyles.fieldGroup}>
                   <label style={formStyles.label}>{t('auto.githubConfig.apiKey')}</label>
-                  <input
-                    type="password"
+                  <SecretInput
                     value={config.tracker.apiKey ?? ''}
-                    onChange={(e) =>
+                    onChange={(nextValue) =>
                       updateConfig((current) => ({
                         ...current,
-                        tracker: { ...current.tracker, apiKey: normalizeOptionalString(e.target.value) }
+                        tracker: { ...current.tracker, apiKey: normalizeOptionalString(nextValue) }
                       }))}
-                    style={formStyles.input}
                     onFocus={formStyles.inputFocus}
                     onBlur={formStyles.inputBlur}
+                    style={formStyles.input}
                   />
                 </div>
 

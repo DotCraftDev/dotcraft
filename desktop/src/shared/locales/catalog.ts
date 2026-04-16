@@ -703,6 +703,8 @@ const MESSAGES_EN = {
   'common.close': 'Close',
   'common.refresh': 'Refresh',
   'common.retry': 'Retry',
+  'common.showSecret': 'Show secret',
+  'common.hideSecret': 'Hide secret',
   'auto.emptyTasksHint':
     'Click "+ New Task" to create one, or wait for GitHub tasks to be discovered.',
   'auto.emptyCronHint':
@@ -1356,6 +1358,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'common.close': '关闭',
   'common.refresh': '刷新',
   'common.retry': '重试',
+  'common.showSecret': '显示密钥',
+  'common.hideSecret': '隐藏密钥',
   'auto.emptyTasksHint': '点击「+ 新建任务」创建，或等待发现 GitHub 任务。',
   'auto.emptyCronHint': '在对话中请智能体创建定时任务，例如「每小时提醒我…」。',
   'auto.newTaskButtonLabel': '+ 新建任务'

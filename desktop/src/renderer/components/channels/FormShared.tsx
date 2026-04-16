@@ -1,5 +1,6 @@
 import type { ChannelConnectionState } from './ChannelCard'
 import { useT } from '../../contexts/LocaleContext'
+import { useState } from 'react'
 
 // ─── Shared style helpers ────────────────────────────────────────────────────
 
@@ -196,5 +197,96 @@ export function FormActions({ saving, onSave }: FormActionsProps): JSX.Element {
       )}
       {saving ? t('channels.saving') : t('channels.save')}
     </button>
+  )
+}
+
+function EyeIcon(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
+      <circle cx="8" cy="8" r="2" />
+    </svg>
+  )
+}
+
+function EyeOffIcon(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M2 2l12 12" />
+      <path d="M6.6 6.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M1.4 8s1.4-2.8 4.1-4.1M8.9 3.2A7.8 7.8 0 0 1 14.6 8s-2.5 5-7 5a7.9 7.9 0 0 1-2.2-.3" />
+    </svg>
+  )
+}
+
+interface SecretInputProps {
+  value: string
+  placeholder?: string
+  onChange: (value: string) => void
+  onFocus?: (
+    e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => void
+  onBlur?: (
+    e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => void
+  style?: React.CSSProperties
+}
+
+export function SecretInput({
+  value,
+  placeholder,
+  onChange,
+  onFocus,
+  onBlur,
+  style
+}: SecretInputProps): JSX.Element {
+  const t = useT()
+  const [visible, setVisible] = useState(false)
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        type={visible ? 'text' : 'password'}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        style={{
+          ...formStyles.input,
+          paddingRight: '36px',
+          ...style
+        }}
+      />
+      <button
+        type="button"
+        aria-label={visible ? t('common.hideSecret') : t('common.showSecret')}
+        aria-pressed={visible}
+        onClick={() => setVisible((current) => !current)}
+        style={{
+          position: 'absolute',
+          right: '8px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          border: 'none',
+          background: 'transparent',
+          color: 'var(--text-secondary)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          opacity: 0.85,
+          transition: 'opacity 120ms ease'
+        }}
+        onMouseEnter={(event) => {
+          event.currentTarget.style.opacity = '1'
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.opacity = '0.85'
+        }}
+      >
+        {visible ? <EyeOffIcon /> : <EyeIcon />}
+      </button>
+    </div>
   )
 }

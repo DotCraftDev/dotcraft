@@ -6,6 +6,7 @@ import type {
   WorkspaceSetupRequest,
   WorkspaceStatusPayload
 } from '../../preload/api.d'
+import { SecretInput } from './channels/FormShared'
 
 interface WorkspaceSetupWizardProps {
   workspacePath: string
@@ -413,16 +414,12 @@ export function WorkspaceSetupWizard({
                 </div>
 
                 <div>
-                  <label htmlFor="setup-api-key" style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600 }}>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600 }}>
                     {t('setupWizard.field.apiKey')}
                   </label>
-                  <input
-                    id="setup-api-key"
-                    type="password"
+                  <SecretInput
                     value={apiKey}
-                    onChange={(e) => {
-                      setApiKey(e.target.value)
-                    }}
+                    onChange={setApiKey}
                     placeholder={
                       hasUserConfig && inheritedApiKeyPresent
                         ? t('setupWizard.placeholder.apiKeyInherited')

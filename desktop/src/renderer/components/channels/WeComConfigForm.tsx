@@ -2,7 +2,7 @@ import { useT } from '../../contexts/LocaleContext'
 import type { WeComChannelConfig } from './useChannelConfig'
 import { ToggleSwitch } from './ToggleSwitch'
 import type { ChannelConnectionState } from './ChannelCard'
-import { formStyles, StatusPill, FieldCard, FormActions } from './FormShared'
+import { formStyles, StatusPill, FieldCard, FormActions, SecretInput } from './FormShared'
 
 interface WeComConfigFormProps {
   value: WeComChannelConfig
@@ -144,31 +144,29 @@ export function WeComConfigForm({
                     onFocus={formStyles.inputFocus}
                     onBlur={formStyles.inputBlur}
                   />
-                  <input
-                    type="password"
+                  <SecretInput
                     value={robot.Token}
                     placeholder={t('channels.wecom.robotToken')}
-                    onChange={(e) => {
+                    onChange={(nextValue) => {
                       const next = [...value.Robots]
-                      next[index] = { ...next[index], Token: e.target.value }
+                      next[index] = { ...next[index], Token: nextValue }
                       onChange({ ...value, Robots: next })
                     }}
-                    style={formStyles.input}
                     onFocus={formStyles.inputFocus}
                     onBlur={formStyles.inputBlur}
+                    style={formStyles.input}
                   />
-                  <input
-                    type="password"
+                  <SecretInput
                     value={robot.AesKey}
                     placeholder={t('channels.wecom.robotAesKey')}
-                    onChange={(e) => {
+                    onChange={(nextValue) => {
                       const next = [...value.Robots]
-                      next[index] = { ...next[index], AesKey: e.target.value }
+                      next[index] = { ...next[index], AesKey: nextValue }
                       onChange({ ...value, Robots: next })
                     }}
-                    style={formStyles.input}
                     onFocus={formStyles.inputFocus}
                     onBlur={formStyles.inputBlur}
+                    style={formStyles.input}
                   />
                 </div>
                 <button

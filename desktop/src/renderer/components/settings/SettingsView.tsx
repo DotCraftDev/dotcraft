@@ -7,6 +7,7 @@ import type { MessageKey } from '../../../shared/locales'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { SecretInput } from '../channels/FormShared'
 import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
 import {
   useMcpStore,
@@ -967,14 +968,12 @@ export function SettingsView({
                       placeholder="ws://127.0.0.1:9100/ws"
                       style={inputStyle(true)}
                     />
-                    <label htmlFor="settings-remote-token" style={{ ...sectionLabelStyle(), marginTop: '10px' }}>
+                    <label style={{ ...sectionLabelStyle(), marginTop: '10px' }}>
                       {t('settings.remoteToken')}
                     </label>
-                    <input
-                      id="settings-remote-token"
-                      type="password"
+                    <SecretInput
                       value={remoteToken}
-                      onChange={(e) => setRemoteToken(e.target.value)}
+                      onChange={setRemoteToken}
                       placeholder={t('settings.remoteTokenPlaceholder')}
                       style={inputStyle(true)}
                     />

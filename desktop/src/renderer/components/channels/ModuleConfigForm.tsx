@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { DiscoveredModule, ModuleStatusEntry } from '../../../preload/api.d'
 import { useT } from '../../contexts/LocaleContext'
 import type { ChannelConnectionState } from './ChannelCard'
-import { FieldCard, FormActions, StatusPill, formStyles } from './FormShared'
+import { FieldCard, FormActions, SecretInput, StatusPill, formStyles } from './FormShared'
 import { ToggleSwitch } from './ToggleSwitch'
 
 interface ModuleConfigFormProps {
@@ -126,7 +126,6 @@ export function ModuleConfigForm({
   qrPhase
 }: ModuleConfigFormProps): JSX.Element {
   const t = useT()
-  const [showSecretByKey, setShowSecretByKey] = useState<Record<string, boolean>>({})
   const [listTextByKey, setListTextByKey] = useState<Record<string, string>>({})
   const [objectTextByKey, setObjectTextByKey] = useState<Record<string, string>>({})
   const descriptors = useMemo(
@@ -522,9 +521,19 @@ export function ModuleConfigForm({
           return (
             <div key={descriptor.key} style={formStyles.fieldGroup}>
               <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
-              <div style={{ position: 'relative' }}>
+              {isSecret ? (
+                <SecretInput
+                  value={toText(value)}
+                  placeholder={placeholder}
+                  onChange={(nextValue) => {
+                    onChange(applyValueChange(config, descriptor.key, nextValue))
+                  }}
+                  onFocus={formStyles.inputFocus}
+                  onBlur={formStyles.inputBlur}
+                />
+              ) : (
                 <input
-                  type={isSecret && !showSecretByKey[descriptor.key] ? 'password' : 'text'}
+                  type="text"
                   value={toText(value)}
                   placeholder={placeholder}
                   onChange={(event) => {
@@ -532,36 +541,9 @@ export function ModuleConfigForm({
                   }}
                   onFocus={formStyles.inputFocus}
                   onBlur={formStyles.inputBlur}
-                  style={{
-                    ...formStyles.input,
-                    paddingRight: isSecret ? '72px' : formStyles.input.paddingRight
-                  }}
+                  style={formStyles.input}
                 />
-                {isSecret && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSecretByKey((prev) => ({
-                        ...prev,
-                        [descriptor.key]: !prev[descriptor.key]
-                      }))
-                    }}
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--text-secondary)',
-                      fontSize: '12px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {showSecretByKey[descriptor.key] ? 'Hide' : 'Show'}
-                  </button>
-                )}
-              </div>
+              )}
               {!!descriptor.description && (
                 <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
                   {descriptor.description}
