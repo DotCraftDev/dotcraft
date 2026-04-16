@@ -567,6 +567,22 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
     });
   }
 
+  protected override async onSegmentCompleted(
+    _threadId: string,
+    _turnId: string,
+    segmentText: string,
+    isFinal: boolean,
+    channelContext: string,
+  ): Promise<void> {
+    if (!isFinal) return;
+    if (!segmentText.trim()) return;
+    try {
+      await this.sendWeixinText(channelContext, segmentText);
+    } catch (e) {
+      console.error("onSegmentCompleted send failed:", e);
+    }
+  }
+
   protected override async onTurnCompleted(
     _threadId: string,
     _turnId: string,
