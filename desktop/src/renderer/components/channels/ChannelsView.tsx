@@ -800,7 +800,9 @@ export function ChannelsView(): JSX.Element {
       const result = await window.api.modules.stop({ moduleId })
       if (!result.ok) {
         addToast(t('channels.saveFailed', { error: result.error ?? 'Failed to stop module process' }), 'error')
+        return
       }
+      await reloadExternalChannels()
     } catch (err) {
       addToast(
         t('channels.saveFailed', { error: err instanceof Error ? err.message : String(err) }),
