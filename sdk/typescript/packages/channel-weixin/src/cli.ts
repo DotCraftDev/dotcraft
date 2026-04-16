@@ -123,7 +123,6 @@ async function runWorkspaceMode(args: ParsedArgs): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  }
 
   const signal = await waitForShutdownSignal();
   console.log(`[weixin] shutdown signal: ${signal}`);
