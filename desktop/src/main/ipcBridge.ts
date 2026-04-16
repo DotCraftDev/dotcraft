@@ -292,7 +292,7 @@ function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
 let moduleProcessManager: ModuleProcessManager | null = null
 let ensureModulesScanned: (() => Promise<DiscoveredModule[]>) | null = null
 let getSettingsSnapshotForModules: (() => AppSettings) | null = null
-let nodeRuntimeStatus: NodeRuntimeStatusPayload = { available: true }
+let nodeRuntimeStatus: NodeRuntimeStatusPayload = { available: false }
 
 function normalizeChannelName(channelName: string): string {
   return channelName.trim().toLowerCase()
