@@ -189,6 +189,7 @@ export class ModuleProcessManager {
     entry.startedStableAt = null
     entry.spawnedAt = Date.now()
     entry.state = 'starting'
+    entry.restartCount = 0
     entry.outputLines = []
     entry.stderrLines = []
     entry.crashHint = null
