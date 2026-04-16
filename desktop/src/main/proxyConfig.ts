@@ -23,7 +23,7 @@ function escapeSingleQuoted(value: string): string {
  */
 export function buildProxyConfigYaml(config: ProxyRuntimeConfig): string {
   return [
-    'host: "127.0.0.1"',
+    `host: ${quoteYaml(config.host)}`,
     `port: ${config.port}`,
     'remote-management:',
     '  allow-remote: false',
