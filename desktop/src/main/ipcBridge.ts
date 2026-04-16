@@ -1158,6 +1158,11 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('modules:node-check')
   ipcMain.removeHandler('modules:get-logs')
   ipcMain.removeHandler('modules:qr-status')
+  if (moduleProcessManager) {
+    void moduleProcessManager.stopAll({ preserveExternalChannels: true }).catch((err) => {
+      console.warn('[ipcBridge] failed to stop module processes during unregister', err)
+    })
+  }
   moduleProcessManager = null
   ensureModulesScanned = null
   getSettingsSnapshotForModules = null
