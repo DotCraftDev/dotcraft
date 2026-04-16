@@ -54,6 +54,9 @@ public sealed class ExternalChannelRegistry : IChannelRuntimeRegistry
         Register(host.Name, host);
     }
 
+    bool IChannelRuntimeRegistry.TryRemove(string channelName)
+        => Unregister(channelName);
+
     bool IChannelRuntimeRegistry.TryGet(string channelName, out IChannelRuntime? runtime)
     {
         var found = _hosts.TryGetValue(channelName, out var host);
