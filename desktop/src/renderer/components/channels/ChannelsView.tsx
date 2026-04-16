@@ -620,11 +620,8 @@ export function ChannelsView(): JSX.Element {
     try {
       const result = await window.api.modules.start({ moduleId })
       if (!result.ok) {
-        const nodeMissing = /node|enoent/i.test(result.error ?? '')
         addToast(
-          nodeMissing
-            ? t('channels.modules.nodeNotFound')
-            : t('channels.saveFailed', { error: result.error ?? 'Failed to start module process' }),
+          t('channels.saveFailed', { error: result.error ?? 'Failed to start module process' }),
           'error'
         )
       }

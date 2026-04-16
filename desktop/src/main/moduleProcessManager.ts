@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import { ChildProcess, execFile, spawn } from 'child_process'
 import * as path from 'path'
+import { app } from 'electron'
 import type { WireProtocolClient } from './WireProtocolClient'
 import type { DiscoveredModule } from './moduleScanner'
 import { QrFileWatcher, type QrUpdatePayload } from './qrWatcher'
@@ -51,9 +52,19 @@ const STABLE_RESET_RESTART_MS = 60_000
 const STOP_GRACE_MS = 5_000
 const AUTO_START_STAGGER_MS = 500
 
-function isNodeSpawnError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | null)?.code
-  return code === 'ENOENT'
+function resolveNodeBinary(): string {
+  if (app.isPackaged) {
+    return process.execPath
+  }
+  return 'node'
+}
+
+function buildModuleProcessEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  if (app.isPackaged) {
+    env.ELECTRON_RUN_AS_NODE = '1'
+  }
+  return env
 }
 
 export class ModuleProcessManager {
@@ -151,9 +162,10 @@ export class ModuleProcessManager {
     } catch {
       cliPath = path.join(module.absolutePath, 'dist', 'cli.js')
     }
-    const child = spawn('node', [cliPath, '--workspace', this.workspacePath], {
+    const child = spawn(resolveNodeBinary(), [cliPath, '--workspace', this.workspacePath], {
       cwd: this.workspacePath,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: buildModuleProcessEnv()
     })
     entry.process = child
 
@@ -170,13 +182,10 @@ export class ModuleProcessManager {
       }
     })
 
-    child.once('error', (error) => {
+    child.once('error', () => {
       entry.process = null
       entry.state = 'crashed'
       entry.lastExitCode = null
-      if (isNodeSpawnError(error)) {
-        entry.lastExitCode = 127
-      }
       this.qrWatcher.stopWatching(module.moduleId)
       this.clearPromoteTimer(entry)
       this.emitStatusIfChanged()

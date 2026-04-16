@@ -131,8 +131,6 @@ const MESSAGES_EN = {
   'channels.modules.restart': 'Restart',
   'channels.modules.configSavedRestart':
     'Configuration saved. Restart the channel for changes to take effect.',
-  'channels.modules.nodeNotFound':
-    'Node.js was not found on PATH. Install Node.js to use channel modules.',
   'channels.modules.connectedToast': '{{name}} is connected.',
   'channels.modules.qr.waitingForQr': 'Starting Weixin adapter, preparing QR code...',
   'channels.modules.qr.scanPrompt': 'Scan with WeChat to log in',
@@ -822,7 +820,6 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'channels.modules.crashBanner': '渠道进程异常退出（退出码：{{code}}）。',
   'channels.modules.restart': '重启',
   'channels.modules.configSavedRestart': '配置已保存。请重启渠道以应用更改。',
-  'channels.modules.nodeNotFound': '未在 PATH 中找到 Node.js。请安装 Node.js 以使用渠道模块。',
   'channels.modules.connectedToast': '{{name}} 已连接。',
   'channels.modules.qr.waitingForQr': '正在启动 Weixin 适配器，准备二维码...',
   'channels.modules.qr.scanPrompt': '请使用微信扫码登录',
