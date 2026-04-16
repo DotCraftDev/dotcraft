@@ -257,7 +257,6 @@ export class WeixinAdapter extends ModuleChannelAdapter<WeixinConfig> {
         state.saveCredentials(creds);
         this.activateCredentials(creds, config);
         await this.ensureDotCraftReady(config);
-        this.setStatus("starting");
         this.startMonitor(config);
         this.setStatus("ready");
       } catch (error) {
