@@ -199,6 +199,7 @@ const MESSAGES_EN = {
 
   // Welcome
   'welcome.tagline': 'Select a workspace folder to get started.',
+  'welcome.language': 'Language',
   'welcome.openWorkspace': 'Open Workspace',
   'welcome.opening': 'Opening...',
   'welcome.recent': 'Recent',
@@ -229,6 +230,7 @@ const MESSAGES_EN = {
     'You only need to do this once. DotCraft will create the workspace files it needs and apply your initial AI settings.',
   'setupWizard.welcome.note':
     'You can change these settings later from configuration files or advanced settings.',
+  'setupWizard.welcome.language': 'Display Language',
   'setupWizard.profile.title': 'Choose a starting profile',
   'setupWizard.profile.description':
     'Choose DotCraft’s default collaboration style for this workspace.',
@@ -904,6 +906,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'channels.telegram.botToken': 'Telegram Bot Token',
 
   'welcome.tagline': '选择工作区文件夹以开始。',
+  'welcome.language': '语言',
   'welcome.openWorkspace': '打开工作区',
   'welcome.opening': '正在打开…',
   'welcome.recent': '最近使用',
@@ -932,6 +935,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'setupWizard.welcome.description':
     '这一步只需要做一次。DotCraft 会创建所需的工作区文件，并应用你的初始 AI 设置。',
   'setupWizard.welcome.note': '这些设置之后仍然可以通过配置文件或高级设置继续调整。',
+  'setupWizard.welcome.language': '界面语言',
   'setupWizard.profile.title': '选择一个起始角色模板',
   'setupWizard.profile.description':
     '选择 DotCraft 在这个工作区里的默认协作风格。',

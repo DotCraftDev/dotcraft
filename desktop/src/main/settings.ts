@@ -82,6 +82,7 @@ function getSettingsPath(): string {
 
 export function loadSettings(): AppSettings {
   const filePath = getSettingsPath()
+  const systemLocale = normalizeLocale(app.getLocale())
   try {
     if (existsSync(filePath)) {
       const raw = JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
@@ -90,13 +91,15 @@ export function loadSettings(): AppSettings {
       raw.activeModuleVariants = normalizeActiveModuleVariants(raw)
       if (raw.locale !== undefined) {
         raw.locale = normalizeLocale(raw.locale)
+      } else {
+        raw.locale = systemLocale
       }
       return raw
     }
   } catch {
     // Ignore corrupt settings
   }
-  return {}
+  return { locale: systemLocale }
 }
 
 export function saveSettings(settings: AppSettings): void {
