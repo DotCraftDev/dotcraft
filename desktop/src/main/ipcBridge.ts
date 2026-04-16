@@ -299,6 +299,9 @@ function normalizeChannelName(channelName: string): string {
 }
 
 async function detectNodeRuntime(): Promise<NodeRuntimeStatusPayload> {
+  if (app.isPackaged) {
+    return { available: true, version: `v${process.versions.node}` }
+  }
   return new Promise<NodeRuntimeStatusPayload>((resolve) => {
     execFile('node', ['--version'], { windowsHide: true }, (error, stdout) => {
       if (error) {
