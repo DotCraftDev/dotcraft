@@ -89,15 +89,20 @@ async function downloadFile(url, outPath) {
 
 function extractArchive(archivePath, outputDir) {
   if (archivePath.endsWith('.zip')) {
-    execFileSync('powershell', [
-      '-NoProfile',
-      '-Command',
-      `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${outputDir}' -Force`
-    ], { stdio: 'inherit' })
+    if (process.platform === 'win32') {
+      execFileSync('powershell', [
+        '-NoProfile',
+        '-Command',
+        `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${outputDir}' -Force`
+      ], { stdio: 'inherit' })
+    } else {
+      execFileSync('unzip', ['-o', archivePath, '-d', outputDir], { stdio: 'inherit' })
+    }
     return
   }
   execFileSync('tar', ['-xzf', archivePath, '-C', outputDir], { stdio: 'inherit' })
 }
+
 
 async function main() {
   const { platform, arch, exeName } = ensureSupported()
