@@ -62,6 +62,7 @@
       "dataKind": "number",
       "masked": false,
       "interactiveSetupOnly": false,
+      "advanced": true,
       "defaultValue": 3000
     },
     {
@@ -72,6 +73,7 @@
       "dataKind": "number",
       "masked": false,
       "interactiveSetupOnly": false,
+      "advanced": true,
       "defaultValue": 30000
     }
   ]

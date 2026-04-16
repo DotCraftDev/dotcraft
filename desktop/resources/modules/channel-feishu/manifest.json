@@ -69,7 +69,9 @@
       "required": false,
       "dataKind": "string",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "advanced": true,
+      "defaultValue": "feishu"
     },
     {
       "key": "feishu.approvalTimeoutMs",
@@ -78,7 +80,9 @@
       "required": false,
       "dataKind": "number",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "advanced": true,
+      "defaultValue": 120000
     },
     {
       "key": "feishu.groupMentionRequired",
@@ -87,7 +91,8 @@
       "required": false,
       "dataKind": "boolean",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "defaultValue": true
     },
     {
       "key": "feishu.ackReactionEmoji",
@@ -96,7 +101,9 @@
       "required": false,
       "dataKind": "string",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "advanced": true,
+      "defaultValue": "GLANCE"
     },
     {
       "key": "feishu.downloadDir",
@@ -105,7 +112,8 @@
       "required": false,
       "dataKind": "path",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "advanced": true
     },
     {
       "key": "feishu.debug.adapterStream",
@@ -114,7 +122,9 @@
       "required": false,
       "dataKind": "boolean",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "advanced": true,
+      "defaultValue": false
     },
     {
       "key": "feishu.debug.textMerge",
@@ -123,7 +133,9 @@
       "required": false,
       "dataKind": "boolean",
       "masked": false,
-      "interactiveSetupOnly": false
+      "interactiveSetupOnly": false,
+      "advanced": true,
+      "defaultValue": false
     }
   ]
 }

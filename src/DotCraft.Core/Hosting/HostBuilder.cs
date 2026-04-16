@@ -56,6 +56,22 @@ public sealed class HostBuilder
     }
 
     /// <summary>
+    /// Configures protocol-only services for a module.
+    /// </summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="module">The module to configure protocol services for.</param>
+    private void ConfigureModuleProtocolServices(IServiceCollection services, IDotCraftModule module)
+    {
+        var context = new ModuleContext
+        {
+            Config = _config,
+            Paths = _paths
+        };
+
+        module.ConfigureProtocolServices(services, context);
+    }
+
+    /// <summary>
     /// Creates the host for the specified module.
     /// </summary>
     /// <param name="serviceProvider">The service provider.</param>
@@ -119,6 +135,9 @@ public sealed class HostBuilder
                 AnsiConsole.MarkupLine($"[grey]  Configuring sub-module services: {subModule.Name}[/]");
                 ConfigureModuleServices(services, subModule);
             }
+
+            foreach (var module in _registry.Modules)
+                ConfigureModuleProtocolServices(services, module);
         }
 
         // Build service provider
