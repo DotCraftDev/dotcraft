@@ -117,6 +117,13 @@ async function runWorkspaceMode(args: ParsedArgs): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  if (status === "stopped") {
+    const err = instance.getError();
+    console.error(`[weixin] startup failed: ${err?.message ?? "unknown error"}`);
+    process.exitCode = 1;
+    return;
+  }
+  }
 
   const signal = await waitForShutdownSignal();
   console.log(`[weixin] shutdown signal: ${signal}`);
