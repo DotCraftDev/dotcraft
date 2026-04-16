@@ -63,6 +63,7 @@ import {
   buildManagementHeaders,
   buildProxyOAuthPath
 } from './proxyConfig'
+import { applyWorkspaceProxyOverrides, cleanupWorkspaceProxyOverrides } from './proxyWorkspaceConfig'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -269,28 +270,6 @@ function resolveProxyRuntimeSettings(settings: AppSettings): {
   }
 }
 
-async function writeWorkspaceProxyOverrides(workspacePath: string, port: number, apiKey: string): Promise<void> {
-  const craftDir = join(workspacePath, '.craft')
-  const configPath = join(craftDir, 'config.json')
-  let current: Record<string, unknown> = {}
-  try {
-    const raw = await fs.readFile(configPath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      current = parsed as Record<string, unknown>
-    }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException | undefined)?.code
-    if (code !== 'ENOENT') {
-      throw error
-    }
-  }
-  current.EndPoint = buildLocalProxyEndpoint(port)
-  current.ApiKey = apiKey
-  await fs.mkdir(craftDir, { recursive: true })
-  await fs.writeFile(configPath, `${JSON.stringify(current, null, 2)}\n`, 'utf8')
-}
-
 async function waitForProxyReady(port: number, apiKey: string, timeoutMs = 15_000): Promise<void> {
   const started = Date.now()
   const modelsUrl = `${buildLocalProxyEndpoint(port)}/models`
@@ -329,6 +308,10 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
     proxyManager?.shutdown()
     proxyManager = null
     proxyStatus = { status: 'stopped' }
+    await cleanupWorkspaceProxyOverrides(workspacePath, {
+      proxyPort: proxy.port,
+      proxyApiKey: proxy.apiKey
+    })
     return
   }
 
@@ -341,9 +324,9 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
     apiKey: runtime.apiKey,
     managementKey: runtime.managementKey
   })
-  await writeWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
 
   if (proxyManager?.isRunning) {
+    await applyWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
     proxyStatus = {
       status: 'running',
       pid: proxyManager.pid ?? undefined,
@@ -372,6 +355,10 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
       errorMessage: 'CLIProxyAPI process crashed unexpectedly',
       port: runtime.port
     }
+    void cleanupWorkspaceProxyOverrides(workspacePath, {
+      proxyPort: runtime.port,
+      proxyApiKey: runtime.apiKey
+    })
   })
   manager.on('stopped', () => {
     proxyStatus = { status: 'stopped', port: runtime.port }
@@ -383,6 +370,7 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
     throw new Error(proxyStatus.errorMessage || 'CLIProxyAPI failed to start')
   }
   await waitForProxyReady(runtime.port, runtime.apiKey)
+  await applyWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
   proxyStatus = {
     status: 'running',
     pid: manager.pid ?? undefined,
@@ -791,6 +779,12 @@ function buildCallbacks(): IpcHandlerCallbacks {
         proxyManager?.shutdown()
         proxyManager = null
         proxyStatus = { status: 'stopped' }
+        if (currentWorkspacePath) {
+          void cleanupWorkspaceProxyOverrides(currentWorkspacePath, {
+            proxyPort: resolveProxySettings(sharedSettings).port,
+            proxyApiKey: resolveProxySettings(sharedSettings).apiKey
+          })
+        }
       }
       if (partial.locale !== undefined && normalizeLocale(sharedSettings.locale) !== prevLocale) {
         refreshAppMenu()
@@ -956,6 +950,10 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[proxy] Failed to start API proxy, continuing without it:', message)
     proxyStatus = { status: 'error', errorMessage: message }
+    await cleanupWorkspaceProxyOverrides(workspacePath, {
+      proxyPort: resolveProxySettings(sharedSettings).port,
+      proxyApiKey: resolveProxySettings(sharedSettings).apiKey
+    })
   }
 
   emitConnectionStatus(win, { status: 'connecting' })
