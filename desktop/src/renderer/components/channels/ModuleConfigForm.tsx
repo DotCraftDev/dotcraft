@@ -7,6 +7,9 @@ import { ToggleSwitch } from './ToggleSwitch'
 
 interface ModuleConfigFormProps {
   module: DiscoveredModule
+  variantModules?: DiscoveredModule[]
+  onVariantChange?: (moduleId: string) => void
+  variantSwitching?: boolean
   config: Record<string, unknown>
   onChange: (next: Record<string, unknown>) => void
   onSave: () => void
@@ -14,11 +17,15 @@ interface ModuleConfigFormProps {
   logoPath?: string
   moduleStatus?: ModuleStatusEntry
   persistedEnabled: boolean
+  nodeAvailable: boolean
   onStart: () => void
   onStop: () => void
   starting: boolean
   qrDataUrl: string | null
   qrPhase: 'idle' | 'waitingForQr' | 'qrAvailable' | 'loginSuccess' | 'error'
+  moduleLogLines: string[]
+  logsLoading: boolean
+  onLoadLogs: () => void
 }
 
 function toText(value: unknown): string {
@@ -112,6 +119,9 @@ function resolveModulePill(
 
 export function ModuleConfigForm({
   module,
+  variantModules = [],
+  onVariantChange,
+  variantSwitching = false,
   config,
   onChange,
   onSave,
@@ -119,11 +129,15 @@ export function ModuleConfigForm({
   logoPath,
   moduleStatus,
   persistedEnabled,
+  nodeAvailable,
   onStart,
   onStop,
   starting,
   qrDataUrl,
-  qrPhase
+  qrPhase,
+  moduleLogLines,
+  logsLoading,
+  onLoadLogs
 }: ModuleConfigFormProps): JSX.Element {
   const t = useT()
   const [listTextByKey, setListTextByKey] = useState<Record<string, string>>({})
@@ -143,8 +157,12 @@ export function ModuleConfigForm({
     moduleStatus?.processState === 'starting' ||
     moduleStatus?.processState === 'running'
   const enableDisabled =
-    starting || moduleStatus?.processState === 'starting' || moduleStatus?.processState === 'stopping'
+    !nodeAvailable ||
+    starting ||
+    moduleStatus?.processState === 'starting' ||
+    moduleStatus?.processState === 'stopping'
   const showQrPanel = module.requiresInteractiveSetup && qrPhase !== 'idle'
+  const hasVariants = variantModules.length > 1
 
   return (
     <div style={{ maxWidth: '720px' }}>
@@ -204,6 +222,33 @@ export function ModuleConfigForm({
         </div>
       </div>
 
+      {hasVariants && (
+        <FieldCard>
+          <div style={formStyles.fieldGroup}>
+            <label style={formStyles.label}>{t('channels.modules.variant.active')}</label>
+            <select
+              value={module.moduleId}
+              disabled={variantSwitching}
+              onChange={(event) => {
+                onVariantChange?.(event.target.value)
+              }}
+              onFocus={formStyles.inputFocus}
+              onBlur={formStyles.inputBlur}
+              style={formStyles.input}
+            >
+              {variantModules.map((variant) => (
+                <option key={variant.moduleId} value={variant.moduleId}>
+                  {t('channels.modules.variant.option', {
+                    name: variant.displayName,
+                    variant: variant.variant
+                  })}
+                </option>
+              ))}
+            </select>
+          </div>
+        </FieldCard>
+      )}
+
       <FieldCard>
         <ToggleSwitch
           checked={enableChecked}
@@ -217,6 +262,11 @@ export function ModuleConfigForm({
           }}
           label={t('channels.modules.enable')}
         />
+        {!nodeAvailable && (
+          <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--error, #ff453a)' }}>
+            {t('channels.modules.nodeMissing')}
+          </div>
+        )}
       </FieldCard>
 
       {moduleStatus?.processState === 'crashed' && (
@@ -228,31 +278,94 @@ export function ModuleConfigForm({
             borderRadius: '8px',
             padding: '10px 12px',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+            flexDirection: 'column',
+            alignItems: 'stretch',
             gap: '8px'
           }}
         >
           <span style={{ fontSize: '12px', color: 'var(--error, #ff453a)' }}>
             {t('channels.modules.crashBanner', { code: String(moduleStatus.lastExitCode ?? 'unknown') })}
           </span>
-          <button
-            type="button"
-            onClick={onStart}
+          {moduleStatus.crashHint && (
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{moduleStatus.crashHint}</span>
+          )}
+          {moduleStatus.lastStderrExcerpt && moduleStatus.lastStderrExcerpt.length > 0 && (
+            <pre
+              style={{
+                margin: 0,
+                padding: '8px',
+                borderRadius: '6px',
+                background: 'rgba(0, 0, 0, 0.2)',
+                color: 'var(--text-secondary)',
+                fontSize: '11px',
+                lineHeight: 1.4,
+                whiteSpace: 'pre-wrap',
+                maxHeight: '180px',
+                overflow: 'auto'
+              }}
+            >
+              {moduleStatus.lastStderrExcerpt.join('\n')}
+            </pre>
+          )}
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={onLoadLogs}
+              style={{
+                border: '1px solid var(--border-default)',
+                background: 'transparent',
+                color: 'var(--text-primary)',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              {logsLoading ? t('channels.modules.logs.loading') : t('channels.modules.logs.view')}
+            </button>
+            <button
+              type="button"
+              onClick={onStart}
+              style={{
+                border: '1px solid var(--error, #ff453a)',
+                background: 'transparent',
+                color: 'var(--error, #ff453a)',
+                borderRadius: '6px',
+                padding: '4px 10px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              {t('channels.modules.restart')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {moduleLogLines.length > 0 && (
+        <FieldCard>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+            {t('channels.modules.logs.title')}
+          </div>
+          <pre
             style={{
-              border: '1px solid var(--error, #ff453a)',
-              background: 'transparent',
-              color: 'var(--error, #ff453a)',
+              margin: 0,
+              padding: '8px',
               borderRadius: '6px',
-              padding: '4px 10px',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer'
+              backgroundColor: 'var(--bg-secondary)',
+              color: 'var(--text-secondary)',
+              fontSize: '11px',
+              lineHeight: 1.4,
+              whiteSpace: 'pre-wrap',
+              maxHeight: '280px',
+              overflow: 'auto'
             }}
           >
-            {t('channels.modules.restart')}
-          </button>
-        </div>
+            {moduleLogLines.join('\n')}
+          </pre>
+        </FieldCard>
       )}
 
       {showQrPanel && (

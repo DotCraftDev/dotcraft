@@ -19,6 +19,9 @@ interface ManagedModuleProcess {
   startedStableAt: number | null
   expectedStop: boolean
   promoteTimer: ReturnType<typeof setTimeout> | null
+  outputLines: string[]
+  stderrLines: string[]
+  crashHint: string | null
 }
 
 export interface ModuleStatusEntry {
@@ -26,6 +29,8 @@ export interface ModuleStatusEntry {
   connected: boolean
   restartCount: number
   lastExitCode: number | null
+  lastStderrExcerpt?: string[]
+  crashHint?: string
 }
 
 export type ModuleStatusMap = Record<string, ModuleStatusEntry>
@@ -51,6 +56,35 @@ const STABLE_RESTART_MIN_MS = 10_000
 const STABLE_RESET_RESTART_MS = 60_000
 const STOP_GRACE_MS = 5_000
 const AUTO_START_STAGGER_MS = 500
+const LOG_RING_BUFFER_LINES = 100
+const STDERR_EXCERPT_LINES = 20
+
+function appendLines(target: string[], raw: string): void {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  for (const line of lines) {
+    target.push(line)
+    if (target.length > LOG_RING_BUFFER_LINES) {
+      target.splice(0, target.length - LOG_RING_BUFFER_LINES)
+    }
+  }
+}
+
+function inferCrashHint(lines: string[]): string | null {
+  const joined = lines.join('\n')
+  if (joined.includes('ECONNREFUSED')) {
+    return 'Cannot connect to AppServer. Check that DotCraft is running.'
+  }
+  if (joined.includes('MODULE_NOT_FOUND')) {
+    return 'Module dependency missing. Try reinstalling the module.'
+  }
+  if (joined.includes('ENOENT')) {
+    return 'Config file not found.'
+  }
+  return null
+}
 
 function resolveNodeBinary(): string {
   if (app.isPackaged) {
@@ -144,7 +178,10 @@ export class ModuleProcessManager {
         spawnedAt: 0,
         startedStableAt: null,
         expectedStop: false,
-        promoteTimer: null
+        promoteTimer: null,
+        outputLines: [],
+        stderrLines: [],
+        crashHint: null
       } satisfies ManagedModuleProcess)
 
     entry.channelName = module.channelName
@@ -152,6 +189,9 @@ export class ModuleProcessManager {
     entry.startedStableAt = null
     entry.spawnedAt = Date.now()
     entry.state = 'starting'
+    entry.outputLines = []
+    entry.stderrLines = []
+    entry.crashHint = null
     this.managed.set(moduleId, entry)
     this.emitStatusIfChanged()
 
@@ -170,19 +210,28 @@ export class ModuleProcessManager {
     entry.process = child
 
     child.stdout?.on('data', (buffer: Buffer) => {
-      const text = buffer.toString('utf-8').trim()
-      if (text) {
-        console.log(`[module:${module.moduleId}] ${text}`)
-      }
+      const text = buffer.toString('utf-8')
+      appendLines(entry.outputLines, text)
+      this.emitStatusIfChanged()
+      const printable = text.trim()
+      if (!printable) return
+      console.log(`[module:${module.moduleId}] ${printable}`)
     })
     child.stderr?.on('data', (buffer: Buffer) => {
-      const text = buffer.toString('utf-8').trim()
-      if (text) {
-        console.warn(`[module:${module.moduleId}] ${text}`)
-      }
+      const text = buffer.toString('utf-8')
+      appendLines(entry.outputLines, text)
+      appendLines(entry.stderrLines, text)
+      this.emitStatusIfChanged()
+      const printable = text.trim()
+      if (!printable) return
+      console.warn(`[module:${module.moduleId}] ${printable}`)
     })
 
-    child.once('error', () => {
+    child.once('error', (error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      appendLines(entry.outputLines, message)
+      appendLines(entry.stderrLines, message)
+      entry.crashHint = inferCrashHint(entry.outputLines)
       entry.process = null
       entry.state = 'crashed'
       entry.lastExitCode = null
@@ -237,10 +286,19 @@ export class ModuleProcessManager {
         processState: entry.state,
         connected: this.lastPolledConnected.get(moduleId) ?? false,
         restartCount: entry.restartCount,
-        lastExitCode: entry.lastExitCode
+        lastExitCode: entry.lastExitCode,
+        lastStderrExcerpt:
+          entry.stderrLines.length > 0
+            ? entry.stderrLines.slice(-STDERR_EXCERPT_LINES)
+            : undefined,
+        crashHint: entry.crashHint ?? undefined
       }
     }
     return status
+  }
+
+  getRecentLogs(moduleId: string): string[] {
+    return [...(this.managed.get(moduleId)?.outputLines ?? [])]
   }
 
   getRunningModuleIds(): string[] {
@@ -293,6 +351,7 @@ export class ModuleProcessManager {
     }
 
     entry.state = 'crashed'
+    entry.crashHint = inferCrashHint(entry.outputLines)
     this.lastPolledConnected.set(moduleId, false)
     const runDurationMs = Date.now() - entry.spawnedAt
     const shouldRestart = runDurationMs >= STABLE_RESTART_MIN_MS && entry.restartCount < 3

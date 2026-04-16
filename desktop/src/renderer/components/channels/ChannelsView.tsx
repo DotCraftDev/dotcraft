@@ -21,6 +21,7 @@ import {
 } from './ExternalChannelConfigForm'
 import type {
   DiscoveredModule,
+  ModulesRescanSummaryPayload,
   ModuleStatusEntry,
   ModuleStatusMap,
   QrUpdatePayload
@@ -54,6 +55,47 @@ interface ModuleQrState {
 }
 
 type ModuleQrPhase = 'idle' | 'waitingForQr' | 'qrAvailable' | 'loginSuccess' | 'error'
+
+interface ChannelModuleGroup {
+  channelName: string
+  activeModuleId: string
+  modules: DiscoveredModule[]
+}
+
+function normalizeChannelName(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function groupModulesByChannel(
+  modules: DiscoveredModule[],
+  activeModuleVariants: Record<string, string>
+): ChannelModuleGroup[] {
+  const byChannel = new Map<string, DiscoveredModule[]>()
+  for (const module of modules) {
+    const key = normalizeChannelName(module.channelName)
+    const list = byChannel.get(key)
+    if (list) list.push(module)
+    else byChannel.set(key, [module])
+  }
+
+  const groups: ChannelModuleGroup[] = []
+  for (const [channelKey, channelModules] of byChannel.entries()) {
+    const persistedActiveModuleId = activeModuleVariants[channelKey]
+    const persistedMatch =
+      persistedActiveModuleId == null
+        ? undefined
+        : channelModules.find((module) => module.moduleId === persistedActiveModuleId)
+    const userPreferred = channelModules.find((module) => module.source === 'user')
+    const active = persistedMatch ?? userPreferred ?? channelModules[0]
+    if (!active) continue
+    groups.push({
+      channelName: active.channelName,
+      activeModuleId: active.moduleId,
+      modules: channelModules
+    })
+  }
+  return groups
+}
 
 function moduleLogoPath(channelName: string): string {
   return new URL(`../../assets/channels/${channelName}.svg`, import.meta.url).toString()
@@ -243,6 +285,13 @@ export function ChannelsView(): JSX.Element {
   const [moduleStatusMap, setModuleStatusMap] = useState<ModuleStatusMap>({})
   const [moduleQrState, setModuleQrState] = useState<Record<string, ModuleQrState>>({})
   const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null)
+  const [variantSwitchingChannel, setVariantSwitchingChannel] = useState<string | null>(null)
+  const [activeModuleVariants, setActiveModuleVariants] = useState<Record<string, string>>({})
+  const [nodeRuntime, setNodeRuntime] = useState<{ available: boolean; version?: string }>({
+    available: true
+  })
+  const [moduleLogsById, setModuleLogsById] = useState<Record<string, string[]>>({})
+  const [loadingLogsModuleId, setLoadingLogsModuleId] = useState<string | null>(null)
   const moduleConnectedSnapshotRef = useRef<Record<string, boolean>>({})
   const selectedNativeId = selectedChannelKey.startsWith('native:')
     ? (selectedChannelKey.slice('native:'.length) as ChannelId)
@@ -271,6 +320,29 @@ export function ChannelsView(): JSX.Element {
       .getWorkspacePath()
       .then((path) => setWorkspacePath(path))
       .catch(() => {})
+
+    window.api.settings
+      .get()
+      .then((settings) => {
+        const raw = settings.activeModuleVariants
+        if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
+          const normalized: Record<string, string> = {}
+          for (const [key, value] of Object.entries(raw)) {
+            if (typeof value !== 'string') continue
+            const channelName = normalizeChannelName(key)
+            const moduleId = value.trim()
+            if (!channelName || !moduleId) continue
+            normalized[channelName] = moduleId
+          }
+          setActiveModuleVariants(normalized)
+        }
+      })
+      .catch(() => {})
+
+    window.api.modules
+      .nodeCheck()
+      .then((status) => setNodeRuntime(status))
+      .catch(() => setNodeRuntime({ available: false }))
   }, [])
 
   useEffect(() => {
@@ -329,6 +401,12 @@ export function ChannelsView(): JSX.Element {
     try {
       const list = rescan ? await window.api.modules.rescan() : await window.api.modules.list()
       setModules(list)
+      if (rescan && selectedModuleId) {
+        const maybeSelected = list.find((module) => module.moduleId === selectedModuleId)
+        if (maybeSelected) {
+          await loadModuleConfig(maybeSelected)
+        }
+      }
     } catch (err) {
       setModules([])
       setModulesError(err instanceof Error ? err.message : String(err))
@@ -452,6 +530,26 @@ export function ChannelsView(): JSX.Element {
   useEffect(() => {
     void reloadModules()
   }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.api.modules.onRescanSummary((payload: ModulesRescanSummaryPayload) => {
+      if (payload.changedRunningModuleIds.length === 0) return
+      const labels = payload.changedRunningModuleIds
+        .map((moduleId) => moduleById.get(moduleId)?.displayName ?? moduleId)
+        .slice(0, 3)
+      const labelText = labels.join(', ')
+      const hasMore = payload.changedRunningModuleIds.length > labels.length
+      addToast(
+        t('channels.modules.updatedRestart', {
+          names: hasMore ? `${labelText}...` : labelText
+        }),
+        'success'
+      )
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [moduleById, t])
 
   useEffect(() => {
     let disposed = false
@@ -616,10 +714,23 @@ export function ChannelsView(): JSX.Element {
   }
 
   async function handleStartModule(moduleId: string): Promise<void> {
+    if (!nodeRuntime.available) {
+      addToast(t('channels.modules.nodeMissing'), 'error')
+      return
+    }
     setTogglingModuleId(moduleId)
     try {
       const result = await window.api.modules.start({ moduleId })
       if (!result.ok) {
+        if (result.missingFields && result.missingFields.length > 0) {
+          addToast(
+            t('channels.modules.missingRequired', {
+              fields: result.missingFields.join(', ')
+            }),
+            'error'
+          )
+          return
+        }
         addToast(
           t('channels.saveFailed', { error: result.error ?? 'Failed to start module process' }),
           'error'
@@ -765,10 +876,26 @@ export function ChannelsView(): JSX.Element {
     return enabledByChannel
   }, [externalChannels])
 
+  const moduleGroups = useMemo(
+    () => groupModulesByChannel(modules, activeModuleVariants),
+    [modules, activeModuleVariants]
+  )
+  const moduleById = useMemo(() => {
+    const map = new Map<string, DiscoveredModule>()
+    for (const module of modules) {
+      map.set(module.moduleId, module)
+    }
+    return map
+  }, [modules])
+
   const selectedDef = selectedNativeId ? CHANNEL_DEFS.find((d) => d.id === selectedNativeId) : null
-  const selectedModule = selectedModuleId
-    ? modules.find((item) => item.moduleId === selectedModuleId) ?? null
+  const selectedModule = selectedModuleId ? moduleById.get(selectedModuleId) ?? null : null
+  const selectedModuleGroup = selectedModule
+    ? moduleGroups.find(
+        (group) => normalizeChannelName(group.channelName) === normalizeChannelName(selectedModule.channelName)
+      ) ?? null
     : null
+  const selectedModuleVariants = selectedModuleGroup?.modules ?? []
   const selectedModuleStatus = selectedModule ? moduleStatusMap[selectedModule.moduleId] : undefined
   const selectedModuleQrState = selectedModuleId ? moduleQrState[selectedModuleId] : undefined
   const selectedModuleLogoPath =
@@ -801,6 +928,60 @@ export function ChannelsView(): JSX.Element {
     if (selectedModuleQrState?.qrDataUrl) return 'qrAvailable'
     return 'waitingForQr'
   }, [selectedModule, selectedModuleStatus, selectedModuleQrState])
+
+  async function handleSetActiveVariant(
+    channelName: string,
+    moduleId: string
+  ): Promise<void> {
+    const normalizedChannelName = normalizeChannelName(channelName)
+    if (!normalizedChannelName || !moduleId) return
+    setVariantSwitchingChannel(normalizedChannelName)
+    try {
+      const result = await window.api.modules.setActiveVariant({
+        channelName,
+        moduleId
+      })
+      if (!result.ok) {
+        addToast(
+          t('channels.saveFailed', {
+            error: result.error ?? 'Failed to switch module variant'
+          }),
+          'error'
+        )
+        return
+      }
+      setActiveModuleVariants((prev) => ({
+        ...prev,
+        [normalizedChannelName]: moduleId
+      }))
+      setSelectedChannelKey(`module:${moduleId}`)
+      const nextModule = moduleById.get(moduleId)
+      if (nextModule) {
+        await loadModuleConfig(nextModule)
+      }
+    } catch (err) {
+      addToast(
+        t('channels.saveFailed', { error: err instanceof Error ? err.message : String(err) }),
+        'error'
+      )
+    } finally {
+      setVariantSwitchingChannel((prev) =>
+        prev === normalizedChannelName ? null : prev
+      )
+    }
+  }
+
+  async function handleLoadModuleLogs(moduleId: string): Promise<void> {
+    setLoadingLogsModuleId(moduleId)
+    try {
+      const result = await window.api.modules.getLogs(moduleId)
+      setModuleLogsById((prev) => ({ ...prev, [moduleId]: result.lines ?? [] }))
+    } catch {
+      // Keep silent; logs are diagnostics only.
+    } finally {
+      setLoadingLogsModuleId((prev) => (prev === moduleId ? null : prev))
+    }
+  }
 
   return (
     <div
@@ -909,17 +1090,48 @@ export function ChannelsView(): JSX.Element {
               >
                 ↻
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void window.api.modules.openFolder().then((result) => {
+                    if (!result.ok) {
+                      addToast(
+                        t('channels.saveFailed', {
+                          error: result.error ?? 'Failed to open modules folder'
+                        }),
+                        'error'
+                      )
+                    }
+                  })
+                }}
+                title={t('channels.modules.openFolder')}
+                aria-label={t('channels.modules.openFolder')}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--accent)',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: 0
+                }}
+              >
+                OPEN
+              </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {modules.map((module) => {
+              {moduleGroups.map((group) => {
+                const module = moduleById.get(group.activeModuleId)
+                if (!module) return null
                 const persistedEnabled =
                   persistedModuleEnabledByChannelName.get(module.channelName.toLowerCase()) === true
                 const status = deriveModuleStatus(module.moduleId, moduleStatusMap, persistedEnabled)
                 return (
                   <ChannelCard
-                    key={module.moduleId}
+                    key={group.channelName}
                     logoPath={moduleLogoPath(module.channelName)}
                     label={module.displayName}
+                    badgeText={group.modules.length > 1 ? `${group.modules.length}` : undefined}
                     status={status}
                     statusLabel={t(moduleStatusLabelKey(status))}
                     active={selectedChannelKey === `module:${module.moduleId}`}
@@ -1002,6 +1214,22 @@ export function ChannelsView(): JSX.Element {
         </aside>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
+          {!nodeRuntime.available && (
+            <div
+              style={{
+                marginBottom: '12px',
+                border: '1px solid rgba(255, 159, 10, 0.45)',
+                backgroundColor: 'rgba(255, 159, 10, 0.12)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                fontSize: '12px',
+                color: 'var(--warning, #ff9f0a)'
+              }}
+            >
+              {t('channels.modules.nodeMissing')}
+            </div>
+          )}
+
           {loading && (
             <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>{t('channels.loading')}</div>
           )}
@@ -1037,6 +1265,16 @@ export function ChannelsView(): JSX.Element {
           {!loading && selectedModuleId && selectedModule && (
             <ModuleConfigForm
               module={selectedModule}
+              variantModules={selectedModuleVariants}
+              onVariantChange={(nextModuleId) => {
+                if (!selectedModule) return
+                void handleSetActiveVariant(selectedModule.channelName, nextModuleId)
+              }}
+              variantSwitching={
+                selectedModule
+                  ? variantSwitchingChannel === normalizeChannelName(selectedModule.channelName)
+                  : false
+              }
               config={moduleConfig}
               onChange={setModuleConfig}
               onSave={() => void handleSaveModule(selectedModule)}
@@ -1046,6 +1284,7 @@ export function ChannelsView(): JSX.Element {
               persistedEnabled={
                 persistedModuleEnabledByChannelName.get(selectedModule.channelName.toLowerCase()) === true
               }
+              nodeAvailable={nodeRuntime.available}
               onStart={() => {
                 void handleStartModule(selectedModule.moduleId)
               }}
@@ -1055,6 +1294,11 @@ export function ChannelsView(): JSX.Element {
               starting={togglingModuleId === selectedModule.moduleId}
               qrDataUrl={selectedModuleQrState?.qrDataUrl ?? null}
               qrPhase={selectedModuleQrPhase}
+              moduleLogLines={moduleLogsById[selectedModule.moduleId] ?? []}
+              logsLoading={loadingLogsModuleId === selectedModule.moduleId}
+              onLoadLogs={() => {
+                void handleLoadModuleLogs(selectedModule.moduleId)
+              }}
             />
           )}
 

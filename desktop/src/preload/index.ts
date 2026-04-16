@@ -107,6 +107,8 @@ export interface ModuleStatusEntry {
   connected: boolean
   restartCount: number
   lastExitCode: number | null
+  lastStderrExcerpt?: string[]
+  crashHint?: string
 }
 
 export type ModuleStatusMap = Record<string, ModuleStatusEntry>
@@ -115,6 +117,13 @@ export interface QrUpdatePayload {
   moduleId: string
   qrDataUrl: string | null
   timestamp: number
+}
+
+export interface ModulesRescanSummaryPayload {
+  addedModuleIds: string[]
+  removedModuleIds: string[]
+  changedModuleIds: string[]
+  changedRunningModuleIds: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +196,15 @@ ipcRenderer.on(
   'modules:qr-update',
   (_event: Electron.IpcRendererEvent, payload: QrUpdatePayload) => {
     activeModuleQrUpdateCallback?.(payload)
+  }
+)
+
+let moduleRescanSummaryToken = 0
+let activeModuleRescanSummaryCallback: ((payload: ModulesRescanSummaryPayload) => void) | null = null
+ipcRenderer.on(
+  'modules:rescan-summary',
+  (_event: Electron.IpcRendererEvent, payload: ModulesRescanSummaryPayload) => {
+    activeModuleRescanSummaryCallback?.(payload)
   }
 )
 
@@ -456,8 +474,23 @@ const api = {
     list(): Promise<DiscoveredModule[]> {
       return ipcRenderer.invoke('modules:list')
     },
+    userDirectory(): Promise<{ path: string }> {
+      return ipcRenderer.invoke('modules:user-directory')
+    },
+    checkDirectory(path: string): Promise<{ exists: boolean }> {
+      return ipcRenderer.invoke('modules:check-directory', { path })
+    },
+    openFolder(): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke('modules:open-folder')
+    },
     rescan(): Promise<DiscoveredModule[]> {
       return ipcRenderer.invoke('modules:rescan')
+    },
+    setActiveVariant(params: {
+      channelName: string
+      moduleId: string
+    }): Promise<{ ok: boolean; error?: string }> {
+      return ipcRenderer.invoke('modules:set-active-variant', params)
     },
     readConfig(params: {
       configFileName: string
@@ -470,7 +503,9 @@ const api = {
     }): Promise<{ ok: boolean }> {
       return ipcRenderer.invoke('modules:write-config', params)
     },
-    start(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }> {
+    start(params: {
+      moduleId: string
+    }): Promise<{ ok: boolean; error?: string; missingFields?: string[] }> {
       return ipcRenderer.invoke('modules:start', params)
     },
     stop(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }> {
@@ -478,6 +513,12 @@ const api = {
     },
     running(): Promise<ModuleStatusMap> {
       return ipcRenderer.invoke('modules:running')
+    },
+    nodeCheck(): Promise<{ available: boolean; version?: string }> {
+      return ipcRenderer.invoke('modules:node-check')
+    },
+    getLogs(moduleId: string): Promise<{ lines: string[] }> {
+      return ipcRenderer.invoke('modules:get-logs', { moduleId })
     },
     qrStatus(moduleId: string): Promise<{ active: boolean; qrDataUrl: string | null }> {
       return ipcRenderer.invoke('modules:qr-status', { moduleId })
@@ -494,6 +535,13 @@ const api = {
       activeModuleQrUpdateCallback = callback
       return () => {
         if (moduleQrUpdateToken === token) activeModuleQrUpdateCallback = null
+      }
+    },
+    onRescanSummary(callback: (payload: ModulesRescanSummaryPayload) => void): UnsubscribeFn {
+      const token = ++moduleRescanSummaryToken
+      activeModuleRescanSummaryCallback = callback
+      return () => {
+        if (moduleRescanSummaryToken === token) activeModuleRescanSummaryCallback = null
       }
     }
   },
@@ -516,6 +564,7 @@ const api = {
         token?: string
       }
       modulesDirectory?: string
+      activeModuleVariants?: Record<string, string>
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]
@@ -539,6 +588,7 @@ const api = {
         token?: string
       }
       modulesDirectory?: string
+      activeModuleVariants?: Record<string, string>
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]

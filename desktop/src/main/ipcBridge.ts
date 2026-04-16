@@ -16,7 +16,11 @@ import {
   searchWorkspaceFiles,
   warmFileSearchIndex
 } from './workspaceComposerIpc'
-import { scanModules, type DiscoveredModule } from './moduleScanner'
+import {
+  scanModules,
+  groupModulesByChannel,
+  type DiscoveredModule
+} from './moduleScanner'
 import {
   ModuleProcessManager,
   type ModuleStatusMap
@@ -57,6 +61,18 @@ export interface ResolvedBinaryRequest {
 export interface ResolvedBinaryPayload {
   source: BinarySource
   path: string | null
+}
+
+interface NodeRuntimeStatusPayload {
+  available: boolean
+  version?: string
+}
+
+interface ModulesRescanSummaryPayload {
+  addedModuleIds: string[]
+  removedModuleIds: string[]
+  changedModuleIds: string[]
+  changedRunningModuleIds: string[]
 }
 
 export interface ServerRequestPayload {
@@ -159,6 +175,14 @@ function resolveModuleWsConfig(settings: AppSettings): { wsUrl: string; token?: 
       ? candidatePort
       : 9100
   return { wsUrl: `ws://${host}:${port}/ws` }
+}
+
+function resolveUserModulesDirectory(settings: AppSettings): string {
+  const configured = settings.modulesDirectory?.trim()
+  if (configured) {
+    return path.normalize(configured)
+  }
+  return path.join(app.getPath('home'), '.craft', 'modules')
 }
 
 function injectModuleDotcraftConfig(
@@ -267,6 +291,69 @@ function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
 
 let moduleProcessManager: ModuleProcessManager | null = null
 let ensureModulesScanned: (() => Promise<DiscoveredModule[]>) | null = null
+let getSettingsSnapshotForModules: (() => AppSettings) | null = null
+let nodeRuntimeStatus: NodeRuntimeStatusPayload = { available: true }
+
+function normalizeChannelName(channelName: string): string {
+  return channelName.trim().toLowerCase()
+}
+
+async function detectNodeRuntime(): Promise<NodeRuntimeStatusPayload> {
+  return new Promise<NodeRuntimeStatusPayload>((resolve) => {
+    execFile('node', ['--version'], { windowsHide: true }, (error, stdout) => {
+      if (error) {
+        resolve({ available: false })
+        return
+      }
+      const version = stdout.trim()
+      resolve(version ? { available: true, version } : { available: true })
+    })
+  })
+}
+
+export async function refreshNodeRuntimeStatus(): Promise<NodeRuntimeStatusPayload> {
+  nodeRuntimeStatus = await detectNodeRuntime()
+  return nodeRuntimeStatus
+}
+
+function getNestedValue(config: Record<string, unknown>, dottedKey: string): unknown {
+  const parts = dottedKey.split('.').filter(Boolean)
+  if (parts.length === 0) return undefined
+  let current: unknown = config
+  for (const part of parts) {
+    if (current == null || typeof current !== 'object' || Array.isArray(current)) return undefined
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
+
+function findMissingRequiredFields(
+  config: Record<string, unknown>,
+  module: DiscoveredModule
+): string[] {
+  const missing: string[] = []
+  for (const descriptor of module.configDescriptors) {
+    if (!descriptor.required) continue
+    if (descriptor.key.startsWith('dotcraft.')) continue
+    const value = getNestedValue(config, descriptor.key)
+    const isMissing =
+      value == null ||
+      (typeof value === 'string' && value.trim() === '') ||
+      (Array.isArray(value) && value.length === 0)
+    if (isMissing) {
+      missing.push(descriptor.displayLabel || descriptor.key)
+    }
+  }
+  return missing
+}
+
+function isRunningProcessState(state: ModuleStatusMap[string]['processState'] | undefined): boolean {
+  return state === 'starting' || state === 'running'
+}
+
+function areModulesEquivalent(previous: DiscoveredModule, next: DiscoveredModule): boolean {
+  return JSON.stringify(previous) === JSON.stringify(next)
+}
 
 export function getModuleProcessManager(): ModuleProcessManager | null {
   return moduleProcessManager
@@ -277,12 +364,17 @@ export async function autoStartModuleProcessesByChannelName(
 ): Promise<void> {
   if (enabledChannelNames.length === 0) return
   const discoveredModules = ensureModulesScanned ? await ensureModulesScanned() : []
-  const enabledNames = new Set(
-    enabledChannelNames.map((name) => name.trim().toLowerCase()).filter(Boolean)
+  const grouped = groupModulesByChannel(
+    discoveredModules,
+    getSettingsSnapshotForModules?.().activeModuleVariants
   )
-  const moduleIdsToStart = discoveredModules
-    .filter((module) => enabledNames.has(module.channelName.toLowerCase()))
-    .map((module) => module.moduleId)
+  const enabledNames = new Set(
+    enabledChannelNames.map((name) => normalizeChannelName(name)).filter(Boolean)
+  )
+  const moduleIdsToStart = grouped
+    .filter((group) => enabledNames.has(normalizeChannelName(group.channelName)))
+    .map((group) => group.activeModuleId)
+    .filter(Boolean)
   if (moduleIdsToStart.length === 0) return
   await moduleProcessManager?.autoStartModules(moduleIdsToStart)
 }
@@ -302,11 +394,63 @@ export function registerIpcHandlers(
     ipcMain.handle(channel, listener)
   }
   let cachedModules: DiscoveredModule[] | null = null
-  const scanAndCacheModules = async (): Promise<DiscoveredModule[]> => {
-    cachedModules = await scanModules(callbacks?.getSettings() ?? {}, !app.isPackaged)
-    return cachedModules
+  const configWriteQueues = new Map<string, Promise<void>>()
+  const scanAndCacheModules = async (
+    options?: { emitSummary?: boolean }
+  ): Promise<DiscoveredModule[]> => {
+    const previousModules = cachedModules ?? []
+    const nextModules = await scanModules(callbacks?.getSettings() ?? {}, !app.isPackaged)
+    const previousById = new Map(previousModules.map((module) => [module.moduleId, module] as const))
+    const nextById = new Map(nextModules.map((module) => [module.moduleId, module] as const))
+
+    const addedModuleIds: string[] = []
+    const removedModuleIds: string[] = []
+    const changedModuleIds: string[] = []
+    for (const module of nextModules) {
+      const previous = previousById.get(module.moduleId)
+      if (!previous) {
+        addedModuleIds.push(module.moduleId)
+        continue
+      }
+      if (!areModulesEquivalent(previous, module)) {
+        changedModuleIds.push(module.moduleId)
+      }
+    }
+    for (const previous of previousModules) {
+      if (!nextById.has(previous.moduleId)) {
+        removedModuleIds.push(previous.moduleId)
+      }
+    }
+
+    for (const moduleId of removedModuleIds) {
+      await moduleProcessManager?.stop(moduleId)
+    }
+
+    const statusMap = moduleProcessManager?.getStatusMap() ?? {}
+    const changedRunningModuleIds = changedModuleIds.filter((moduleId) =>
+      isRunningProcessState(statusMap[moduleId]?.processState)
+    )
+
+    cachedModules = nextModules
+
+    if (options?.emitSummary === true) {
+      const summary: ModulesRescanSummaryPayload = {
+        addedModuleIds,
+        removedModuleIds,
+        changedModuleIds,
+        changedRunningModuleIds
+      }
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('modules:rescan-summary', summary)
+        }
+      }
+    }
+
+    return nextModules
   }
   ensureModulesScanned = scanAndCacheModules
+  getSettingsSnapshotForModules = () => callbacks?.getSettings() ?? {}
   moduleProcessManager = new ModuleProcessManager({
     workspacePath,
     getWireClient,
@@ -624,7 +768,80 @@ export function registerIpcHandlers(
     return scanAndCacheModules()
   })
 
-  handleSafe('modules:rescan', async () => scanAndCacheModules())
+  handleSafe('modules:user-directory', async (): Promise<{ path: string }> => {
+    return { path: resolveUserModulesDirectory(callbacks?.getSettings() ?? {}) }
+  })
+
+  handleSafe(
+    'modules:check-directory',
+    async (_event, params: { path: string }): Promise<{ exists: boolean }> => {
+      if (!params?.path || typeof params.path !== 'string') {
+        return { exists: false }
+      }
+      try {
+        const stat = await fs.stat(path.normalize(params.path))
+        return { exists: stat.isDirectory() }
+      } catch {
+        return { exists: false }
+      }
+    }
+  )
+
+  handleSafe('modules:open-folder', async (): Promise<{ ok: boolean; error?: string }> => {
+    const targetPath = resolveUserModulesDirectory(callbacks?.getSettings() ?? {})
+    const error = await shell.openPath(targetPath)
+    if (error) {
+      return { ok: false, error }
+    }
+    return { ok: true }
+  })
+
+  handleSafe('modules:rescan', async () => scanAndCacheModules({ emitSummary: true }))
+
+  handleSafe(
+    'modules:set-active-variant',
+    async (
+      _event,
+      params: { channelName: string; moduleId: string }
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (cachedModules === null) {
+        await scanAndCacheModules()
+      }
+      const channelName = params?.channelName
+      const moduleId = params?.moduleId
+      if (typeof channelName !== 'string' || typeof moduleId !== 'string') {
+        return { ok: false, error: 'Invalid payload' }
+      }
+      const normalizedChannelName = normalizeChannelName(channelName)
+      if (!normalizedChannelName || !moduleId.trim()) {
+        return { ok: false, error: 'Invalid payload' }
+      }
+      const module = cachedModules?.find((item) => item.moduleId === moduleId)
+      if (!module) {
+        return { ok: false, error: `Module '${moduleId}' not found` }
+      }
+      if (normalizeChannelName(module.channelName) !== normalizedChannelName) {
+        return { ok: false, error: `Module '${moduleId}' does not belong to channel '${channelName}'` }
+      }
+
+      const groups = groupModulesByChannel(cachedModules ?? [], callbacks?.getSettings().activeModuleVariants)
+      const currentGroup = groups.find(
+        (group) => normalizeChannelName(group.channelName) === normalizedChannelName
+      )
+      if (currentGroup && currentGroup.activeModuleId !== moduleId) {
+        await moduleProcessManager?.stop(currentGroup.activeModuleId)
+      }
+
+      const currentSettings = callbacks?.getSettings() ?? {}
+      callbacks?.updateSettings({
+        activeModuleVariants: {
+          ...(currentSettings.activeModuleVariants ?? {}),
+          [normalizedChannelName]: moduleId
+        }
+      })
+      return { ok: true }
+    }
+  )
 
   handleSafe(
     'modules:read-config',
@@ -637,6 +854,10 @@ export function registerIpcHandlers(
       }
       const configPath = path.join(workspacePath, '.craft', params.configFileName)
       try {
+        const stat = await fs.stat(configPath)
+        if (stat.size > 1_000_000) {
+          throw new Error(`Config file is too large to load: ${params.configFileName}`)
+        }
         const raw = await fs.readFile(configPath, 'utf-8')
         const parsed = JSON.parse(raw) as unknown
         return { exists: true, config: ensureObjectConfig(parsed) }
@@ -663,19 +884,32 @@ export function registerIpcHandlers(
       const settings = callbacks?.getSettings() ?? {}
       const wsConfig = resolveModuleWsConfig(settings)
       const mergedConfig = injectModuleDotcraftConfig(ensureObjectConfig(params.config), wsConfig)
-      await fs.mkdir(path.dirname(configPath), { recursive: true })
-      await fs.writeFile(
-        configPath,
-        `${JSON.stringify(mergedConfig, null, 2)}\n`,
-        'utf-8'
-      )
+      const previous = configWriteQueues.get(configPath) ?? Promise.resolve()
+      const writeTask = previous
+        .catch(() => {})
+        .then(async () => {
+          await fs.mkdir(path.dirname(configPath), { recursive: true })
+          await fs.writeFile(
+            configPath,
+            `${JSON.stringify(mergedConfig, null, 2)}\n`,
+            'utf-8'
+          )
+        })
+      configWriteQueues.set(configPath, writeTask)
+      await writeTask
+      if (configWriteQueues.get(configPath) === writeTask) {
+        configWriteQueues.delete(configPath)
+      }
       return { ok: true }
     }
   )
 
   handleSafe(
     'modules:start',
-    async (_event, params: { moduleId: string }): Promise<{ ok: boolean; error?: string }> => {
+    async (
+      _event,
+      params: { moduleId: string }
+    ): Promise<{ ok: boolean; error?: string; missingFields?: string[] }> => {
       if (cachedModules === null) {
         await scanAndCacheModules()
       }
@@ -686,6 +920,9 @@ export function registerIpcHandlers(
       if (!module) {
         return { ok: false, error: `Module '${params.moduleId}' not found` }
       }
+      if (!nodeRuntimeStatus.available) {
+        return { ok: false, error: 'Node.js is required to run channel modules' }
+      }
       try {
         const configPath = path.join(workspacePath, '.craft', module.configFileName)
         const raw = await fs.readFile(configPath, 'utf-8')
@@ -693,6 +930,14 @@ export function registerIpcHandlers(
         const settings = callbacks?.getSettings() ?? {}
         const wsConfig = resolveModuleWsConfig(settings)
         const merged = injectModuleDotcraftConfig(parsed, wsConfig)
+        const missingFields = findMissingRequiredFields(merged, module)
+        if (missingFields.length > 0) {
+          return {
+            ok: false,
+            error: `Required fields missing: ${missingFields.join(', ')}`,
+            missingFields
+          }
+        }
         if (JSON.stringify(merged) !== JSON.stringify(parsed)) {
           await fs.writeFile(configPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf-8')
         }
@@ -719,6 +964,23 @@ export function registerIpcHandlers(
   handleSafe('modules:running', async (): Promise<ModuleStatusMap> => {
     return moduleProcessManager?.getStatusMap() ?? {}
   })
+
+  handleSafe('modules:node-check', async (): Promise<NodeRuntimeStatusPayload> => {
+    if (!nodeRuntimeStatus.available && nodeRuntimeStatus.version === undefined) {
+      return refreshNodeRuntimeStatus()
+    }
+    return nodeRuntimeStatus
+  })
+
+  handleSafe(
+    'modules:get-logs',
+    async (_event, params: { moduleId: string }): Promise<{ lines: string[] }> => {
+      if (!params?.moduleId || typeof params.moduleId !== 'string') {
+        return { lines: [] }
+      }
+      return { lines: moduleProcessManager?.getRecentLogs(params.moduleId) ?? [] }
+    }
+  )
 
   handleSafe(
     'modules:qr-status',
@@ -867,14 +1129,21 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
   ipcMain.removeHandler('modules:list')
+  ipcMain.removeHandler('modules:user-directory')
+  ipcMain.removeHandler('modules:check-directory')
+  ipcMain.removeHandler('modules:open-folder')
   ipcMain.removeHandler('modules:rescan')
+  ipcMain.removeHandler('modules:set-active-variant')
   ipcMain.removeHandler('modules:read-config')
   ipcMain.removeHandler('modules:write-config')
   ipcMain.removeHandler('modules:start')
   ipcMain.removeHandler('modules:stop')
   ipcMain.removeHandler('modules:running')
+  ipcMain.removeHandler('modules:node-check')
+  ipcMain.removeHandler('modules:get-logs')
   ipcMain.removeHandler('modules:qr-status')
   moduleProcessManager = null
   ensureModulesScanned = null
+  getSettingsSnapshotForModules = null
   invalidateFileIndex()
 }

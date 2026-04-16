@@ -29,6 +29,12 @@ export interface DiscoveredModule {
   configDescriptors: ConfigDescriptorWire[]
 }
 
+export interface ChannelModuleGroup {
+  channelName: string
+  activeModuleId: string
+  modules: DiscoveredModule[]
+}
+
 interface ManifestWire {
   moduleId: unknown
   channelName: unknown
@@ -141,6 +147,44 @@ function bundledModulesDir(isDev: boolean): string {
 
 function userModulesDir(settings: AppSettings): string {
   return settings.modulesDirectory ?? path.join(app.getPath('home'), '.craft', 'modules')
+}
+
+function activeVariantKey(channelName: string): string {
+  return channelName.trim().toLowerCase()
+}
+
+export function groupModulesByChannel(
+  modules: DiscoveredModule[],
+  activeModuleVariants?: Record<string, string>
+): ChannelModuleGroup[] {
+  const byChannel = new Map<string, DiscoveredModule[]>()
+  for (const module of modules) {
+    const key = activeVariantKey(module.channelName)
+    const list = byChannel.get(key)
+    if (list) {
+      list.push(module)
+    } else {
+      byChannel.set(key, [module])
+    }
+  }
+
+  const groups: ChannelModuleGroup[] = []
+  for (const [channelKey, channelModules] of byChannel) {
+    const persistedActive = activeModuleVariants?.[channelKey]
+    const persistedMatch =
+      persistedActive == null
+        ? undefined
+        : channelModules.find((module) => module.moduleId === persistedActive)
+    const userPreferred = channelModules.find((module) => module.source === 'user')
+    const active = persistedMatch ?? userPreferred ?? channelModules[0]
+    groups.push({
+      channelName: active?.channelName ?? channelModules[0]?.channelName ?? channelKey,
+      activeModuleId: active?.moduleId ?? channelModules[0]?.moduleId ?? '',
+      modules: channelModules
+    })
+  }
+
+  return groups
 }
 
 async function scanSingleRoot(

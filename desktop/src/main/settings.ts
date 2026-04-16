@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { join, basename } from 'path'
+import { join, basename, normalize } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { normalizeLocale, type AppLocale } from '../shared/locales'
 
@@ -26,6 +26,7 @@ export interface RemoteConnectionSettings {
 export interface AppSettings {
   lastWorkspacePath?: string
   modulesDirectory?: string
+  activeModuleVariants?: Record<string, string>
   binarySource?: BinarySource
   appServerBinaryPath?: string
   connectionMode?: ConnectionMode
@@ -53,6 +54,28 @@ function normalizeBinarySource(settings: AppSettings): BinarySource {
   return settings.appServerBinaryPath?.trim() ? 'custom' : 'bundled'
 }
 
+function normalizeModulesDirectory(settings: AppSettings): string | undefined {
+  const raw = settings.modulesDirectory?.trim()
+  if (!raw) return undefined
+  return normalize(raw)
+}
+
+function normalizeActiveModuleVariants(settings: AppSettings): Record<string, string> | undefined {
+  const raw = settings.activeModuleVariants
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return undefined
+  }
+  const normalized: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value !== 'string') continue
+    const trimmedKey = key.trim().toLowerCase()
+    const trimmedValue = value.trim()
+    if (!trimmedKey || !trimmedValue) continue
+    normalized[trimmedKey] = trimmedValue
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
 function getSettingsPath(): string {
   return join(app.getPath('userData'), 'settings.json')
 }
@@ -63,6 +86,8 @@ export function loadSettings(): AppSettings {
     if (existsSync(filePath)) {
       const raw = JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
       raw.binarySource = normalizeBinarySource(raw)
+      raw.modulesDirectory = normalizeModulesDirectory(raw)
+      raw.activeModuleVariants = normalizeActiveModuleVariants(raw)
       if (raw.locale !== undefined) {
         raw.locale = normalizeLocale(raw.locale)
       }
@@ -80,6 +105,8 @@ export function saveSettings(settings: AppSettings): void {
     const dir = join(filePath, '..')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     settings.binarySource = normalizeBinarySource(settings)
+    settings.modulesDirectory = normalizeModulesDirectory(settings)
+    settings.activeModuleVariants = normalizeActiveModuleVariants(settings)
     writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')
   } catch {
     // Non-fatal

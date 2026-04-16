@@ -10,6 +10,7 @@ import {
   unregisterIpcHandlers,
   getModuleProcessManager,
   autoStartModuleProcessesByChannelName,
+  refreshNodeRuntimeStatus,
   broadcastConnectionStatus,
   broadcastWorkspaceStatus,
   broadcastNotification,
@@ -950,6 +951,7 @@ function registerMenuPopupIpc(): void {
 app.whenReady().then(() => {
   isAppQuitting = false
   registerMenuPopupIpc()
+  void refreshNodeRuntimeStatus()
   sharedSettings = loadSettings()
   refreshAppMenu()
 
