@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isReadyProxyAuthFile, normalizeProxyAuthFiles } from '../proxyAuthFiles'
+import { isAuthenticatedProxyAuthFile, normalizeProxyAuthFiles } from '../proxyAuthFiles'
 
 describe('normalizeProxyAuthFiles', () => {
   it('keeps known OAuth providers and normalizes status metadata', () => {
@@ -67,12 +67,20 @@ describe('normalizeProxyAuthFiles', () => {
   })
 })
 
-describe('isReadyProxyAuthFile', () => {
-  it('treats ready non-disabled files as authenticated', () => {
+describe('isAuthenticatedProxyAuthFile', () => {
+  it('treats ready and active non-disabled files as authenticated', () => {
     expect(
-      isReadyProxyAuthFile({
+      isAuthenticatedProxyAuthFile({
         provider: 'codex',
         status: 'ready',
+        disabled: false,
+        unavailable: false
+      })
+    ).toBe(true)
+    expect(
+      isAuthenticatedProxyAuthFile({
+        provider: 'codex',
+        status: 'active',
         disabled: false,
         unavailable: false
       })
@@ -81,17 +89,17 @@ describe('isReadyProxyAuthFile', () => {
 
   it('rejects disabled and unavailable files', () => {
     expect(
-      isReadyProxyAuthFile({
+      isAuthenticatedProxyAuthFile({
         provider: 'codex',
-        status: 'ready',
+        status: 'active',
         disabled: true,
         unavailable: false
       })
     ).toBe(false)
     expect(
-      isReadyProxyAuthFile({
+      isAuthenticatedProxyAuthFile({
         provider: 'codex',
-        status: 'ready',
+        status: 'active',
         disabled: false,
         unavailable: true
       })

@@ -58,7 +58,7 @@ interface McpTestResultWire {
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 type SettingsTab = 'general' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
-type ProxyProviderStatus = 'idle' | 'pending' | 'ok' | 'error'
+type ProxyProviderStatus = 'idle' | 'checking' | 'pending' | 'ok' | 'error'
 
 const CATEGORY_ORDER = ['builtin', 'social', 'system'] as const
 const DEFAULT_WS_HOST = '127.0.0.1'
@@ -66,6 +66,8 @@ const DEFAULT_WS_PORT = 9100
 const DEFAULT_PROXY_PORT = 8317
 const PROXY_STATUS_RETRY_MS = 1000
 const PROXY_AUTH_FILES_RETRY_MS = 1000
+const PROXY_AUTH_RECOVERY_ATTEMPTS = 5
+const AUTHENTICATED_PROXY_AUTH_STATUSES = new Set(['ready', 'active'])
 const PROXY_OAUTH_POLL_ATTEMPTS = 150
 const PROXY_OAUTH_POLL_INTERVAL_MS = 1200
 const PROXY_OAUTH_PROVIDERS: ProxyOAuthProvider[] = ['codex', 'claude', 'gemini', 'qwen', 'iflow']
@@ -90,13 +92,16 @@ function createProxyProviderMap<T>(value: T): Record<ProxyOAuthProvider, T> {
   }
 }
 
-function isReadyProxyAuthFile(file: ProxyAuthFileSummary, provider?: ProxyOAuthProvider): boolean {
-  return file.status === 'ready' && !file.disabled && !file.unavailable && (provider === undefined || file.provider === provider)
+function isAuthenticatedProxyAuthFile(file: ProxyAuthFileSummary, provider?: ProxyOAuthProvider): boolean {
+  return AUTHENTICATED_PROXY_AUTH_STATUSES.has(file.status) &&
+    !file.disabled &&
+    !file.unavailable &&
+    (provider === undefined || file.provider === provider)
 }
 
 function getReadyProxyProviders(files: ProxyAuthFileSummary[]): Set<ProxyOAuthProvider> {
   return new Set(
-    files.filter((file) => isReadyProxyAuthFile(file)).map((file) => file.provider)
+    files.filter((file) => isAuthenticatedProxyAuthFile(file)).map((file) => file.provider)
   )
 }
 
@@ -315,6 +320,8 @@ function ProxyOAuthStatusPill({
   const tone =
     status === 'ok'
       ? { bg: 'rgba(52, 199, 89, 0.15)', text: 'var(--success)' }
+      : status === 'checking'
+        ? { bg: 'rgba(120, 120, 128, 0.18)', text: 'var(--text-secondary)' }
       : status === 'pending'
         ? { bg: 'rgba(255, 149, 0, 0.15)', text: 'var(--warning)' }
         : status === 'error'
@@ -489,6 +496,8 @@ export function SettingsView({
   )
   const [proxyStatusRefreshTick, setProxyStatusRefreshTick] = useState(0)
   const [proxyAuthRefreshTick, setProxyAuthRefreshTick] = useState(0)
+  const [proxyAuthRecoveryAttempt, setProxyAuthRecoveryAttempt] = useState(0)
+  const [proxyAuthRecoverySettled, setProxyAuthRecoverySettled] = useState(false)
   const [restartingProxy, setRestartingProxy] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>('dark')
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
@@ -639,32 +648,102 @@ export function SettingsView({
   useEffect(() => {
     let cancelled = false
     if (!proxyEnabled) {
+      setProxyAuthRecoveryAttempt(0)
+      setProxyAuthRecoverySettled(false)
       setProxyProviderStatus(createProxyProviderMap<ProxyProviderStatus>('idle'))
       setProxyProviderError(createProxyProviderMap(''))
       setProxyProviderLoading(createProxyProviderMap(false))
       return
     }
+    if (activeSettingsTab !== 'proxy') {
+      return
+    }
     if (proxyStatusText !== 'running') {
+      setProxyProviderStatus((prev) => {
+        const next = { ...prev }
+        for (const provider of PROXY_OAUTH_PROVIDERS) {
+          if (prev[provider] === 'idle' || prev[provider] === 'checking') {
+            next[provider] = 'checking'
+          }
+        }
+        return next
+      })
+      setProxyProviderError((prev) => {
+        const next = { ...prev }
+        for (const provider of PROXY_OAUTH_PROVIDERS) {
+          if (next[provider] && !proxyProviderLoading[provider]) {
+            next[provider] = ''
+          }
+        }
+        return next
+      })
+      setProxyAuthRecoveryAttempt(0)
+      setProxyAuthRecoverySettled(false)
       return
     }
     window.api.proxy
       .listAuthFiles()
       .then((files) => {
         if (!cancelled) {
+          const readyProviders = getReadyProxyProviders(files)
+          if (readyProviders.size > 0) {
+            setProxyAuthRecoveryAttempt(0)
+            setProxyAuthRecoverySettled(true)
+            applyProxyAuthFiles(files, { fallbackStatus: 'idle', preservePending: true })
+            return
+          }
+          if (!proxyAuthRecoverySettled && proxyAuthRecoveryAttempt < PROXY_AUTH_RECOVERY_ATTEMPTS - 1) {
+            applyProxyAuthFiles(files, {
+              fallbackStatus: 'checking',
+              preservePending: true,
+              preserveAuthenticated: true
+            })
+            window.setTimeout(() => {
+              if (!cancelled) {
+                setProxyAuthRecoveryAttempt((prev) => prev + 1)
+                setProxyAuthRefreshTick((prev) => prev + 1)
+              }
+            }, PROXY_AUTH_FILES_RETRY_MS)
+            return
+          }
+          setProxyAuthRecoveryAttempt(0)
+          setProxyAuthRecoverySettled(true)
           applyProxyAuthFiles(files, { fallbackStatus: 'idle', preservePending: true })
         }
       })
       .catch(() => {
-        window.setTimeout(() => {
-          if (!cancelled) {
-            setProxyAuthRefreshTick((prev) => prev + 1)
-          }
-        }, PROXY_AUTH_FILES_RETRY_MS)
+        if (!proxyAuthRecoverySettled && proxyAuthRecoveryAttempt < PROXY_AUTH_RECOVERY_ATTEMPTS - 1) {
+          applyProxyAuthFiles([], {
+            fallbackStatus: 'checking',
+            preservePending: true,
+            preserveAuthenticated: true
+          })
+          window.setTimeout(() => {
+            if (!cancelled) {
+              setProxyAuthRecoveryAttempt((prev) => prev + 1)
+              setProxyAuthRefreshTick((prev) => prev + 1)
+            }
+          }, PROXY_AUTH_FILES_RETRY_MS)
+          return
+        }
+        setProxyAuthRecoveryAttempt(0)
+        setProxyAuthRecoverySettled(true)
+        applyProxyAuthFiles([], { fallbackStatus: 'idle', preservePending: true })
       })
     return () => {
       cancelled = true
     }
-  }, [proxyEnabled, proxyStatusText, proxyAuthRefreshTick, restartingProxy, saving])
+  }, [
+    activeSettingsTab,
+    proxyEnabled,
+    proxyStatusText,
+    proxyAuthRefreshTick,
+    proxyAuthRecoveryAttempt,
+    proxyAuthRecoverySettled,
+    restartingProxy,
+    saving,
+    proxyProviderLoading
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -1088,11 +1167,16 @@ export function SettingsView({
 
   function applyProxyAuthFiles(
     files: ProxyAuthFileSummary[],
-    options?: { fallbackStatus?: ProxyProviderStatus | 'keep'; preservePending?: boolean }
+    options?: {
+      fallbackStatus?: ProxyProviderStatus | 'keep'
+      preservePending?: boolean
+      preserveAuthenticated?: boolean
+    }
   ): Set<ProxyOAuthProvider> {
     const readyProviders = getReadyProxyProviders(files)
     const fallbackStatus = options?.fallbackStatus ?? 'keep'
     const preservePending = options?.preservePending ?? false
+    const preserveAuthenticated = options?.preserveAuthenticated ?? false
 
     setProxyProviderStatus((prev) => {
       const next = { ...prev }
@@ -1104,6 +1188,9 @@ export function SettingsView({
         if (preservePending && prev[provider] === 'pending') {
           continue
         }
+        if (preserveAuthenticated && prev[provider] === 'ok') {
+          continue
+        }
         if (fallbackStatus !== 'keep') {
           next[provider] = fallbackStatus
         }
@@ -1113,7 +1200,7 @@ export function SettingsView({
     setProxyProviderError((prev) => {
       const next = { ...prev }
       for (const provider of PROXY_OAUTH_PROVIDERS) {
-        if (readyProviders.has(provider) || fallbackStatus === 'idle') {
+        if (readyProviders.has(provider) || fallbackStatus === 'idle' || fallbackStatus === 'checking') {
           next[provider] = ''
         }
       }
@@ -1751,6 +1838,8 @@ export function SettingsView({
                     const statusLabel =
                       status === 'ok'
                         ? t('settings.proxy.oauthStatusOk')
+                        : status === 'checking'
+                          ? t('settings.proxy.oauthStatusChecking')
                         : status === 'pending'
                           ? t('settings.proxy.oauthStatusPending')
                           : status === 'error'

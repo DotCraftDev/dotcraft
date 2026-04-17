@@ -26,6 +26,7 @@ export interface ProxyAuthFileSummary {
 }
 
 const PROXY_OAUTH_PROVIDERS: readonly ProxyOAuthProvider[] = ['codex', 'claude', 'gemini', 'qwen', 'iflow']
+const AUTHENTICATED_PROXY_AUTH_STATUSES = new Set(['ready', 'active'])
 
 export function isProxyOAuthProvider(value: string): value is ProxyOAuthProvider {
   return (PROXY_OAUTH_PROVIDERS as readonly string[]).includes(value)
@@ -75,9 +76,12 @@ export function normalizeProxyAuthFiles(payload: { files?: RawProxyAuthFileSumma
   })
 }
 
-export function isReadyProxyAuthFile(
+export function isAuthenticatedProxyAuthFile(
   file: Pick<ProxyAuthFileSummary, 'provider' | 'status' | 'disabled' | 'unavailable'>,
   provider?: ProxyOAuthProvider
 ): boolean {
-  return file.status === 'ready' && !file.disabled && !file.unavailable && (provider === undefined || file.provider === provider)
+  return AUTHENTICATED_PROXY_AUTH_STATUSES.has(file.status) &&
+    !file.disabled &&
+    !file.unavailable &&
+    (provider === undefined || file.provider === provider)
 }

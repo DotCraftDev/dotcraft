@@ -461,6 +461,62 @@ describe('SettingsView restart AppServer', () => {
     expect(await screen.findByText('Authenticated')).toBeInTheDocument()
   })
 
+  it('shows authenticated when auth files contain an active codex entry', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles.mockResolvedValue([
+      {
+        provider: 'codex',
+        status: 'active',
+        statusMessage: '',
+        disabled: false,
+        unavailable: false,
+        runtimeOnly: false,
+        name: 'codex-user.json'
+      }
+    ])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    expect(await screen.findByText('Authenticated')).toBeInTheDocument()
+    expect(screen.queryByText('Not authenticated')).not.toBeInTheDocument()
+  })
+
+  it('does not treat disabled active auth files as authenticated', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles.mockResolvedValue([
+      {
+        provider: 'codex',
+        status: 'active',
+        statusMessage: '',
+        disabled: true,
+        unavailable: false,
+        runtimeOnly: false,
+        name: 'codex-user.json'
+      }
+    ])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    expect(await screen.findByText('Checking authentication')).toBeInTheDocument()
+    expect(screen.queryByText('Authenticated')).not.toBeInTheDocument()
+  })
+
+  it('shows checking while proxy startup auth state is still being restored', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles.mockResolvedValue([])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    expect(await screen.findByText('Checking authentication')).toBeInTheDocument()
+    expect(screen.queryByText('Not authenticated')).not.toBeInTheDocument()
+  })
+
   it('retries auth file refresh after proxy status transitions from starting to running', async () => {
     proxyGetStatus
       .mockResolvedValueOnce({ status: 'starting', errorMessage: '' })
@@ -519,6 +575,54 @@ describe('SettingsView restart AppServer', () => {
       { timeout: 2500 }
     )
   }, 8000)
+
+  it('keeps checking until auth files appear after initial empty startup reads', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          provider: 'codex',
+          status: 'ready',
+          statusMessage: 'ok',
+          disabled: false,
+          unavailable: false,
+          runtimeOnly: false,
+          name: 'codex-user.json'
+        }
+      ])
+
+    renderSettingsView()
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+    expect(await screen.findByText('Checking authentication')).toBeInTheDocument()
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Authenticated')).toBeInTheDocument()
+        expect(proxyListAuthFiles).toHaveBeenCalledTimes(3)
+      },
+      { timeout: 2500 }
+    )
+  }, 8000)
+
+  it('falls back to not authenticated only after the startup recovery window expires', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles.mockResolvedValue([])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+    expect(await screen.findByText('Checking authentication')).toBeInTheDocument()
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Not authenticated')).toBeInTheDocument()
+      },
+      { timeout: 6000 }
+    )
+    expect(proxyListAuthFiles).toHaveBeenCalledTimes(5)
+  }, 10000)
 
   it('shows authenticated when auth files come from fallback auth-dir scan metadata', async () => {
     proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
