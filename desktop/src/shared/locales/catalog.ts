@@ -787,6 +787,7 @@ const MESSAGES_EN = {
 
   // Confirm / generic
   'common.cancel': 'Cancel',
+  'common.backToApp': 'Back to app',
   'common.close': 'Close',
   'common.refresh': 'Refresh',
   'common.retry': 'Retry',
@@ -1592,6 +1593,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'ipc.clipboardNotImage': '剪贴板数据不是图片',
 
   'common.cancel': '取消',
+  'common.backToApp': '返回应用',
   'common.close': '关闭',
   'common.refresh': '刷新',
   'common.retry': '重试',

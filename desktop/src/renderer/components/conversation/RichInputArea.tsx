@@ -20,6 +20,8 @@ export interface RichInputAreaHandle {
   focus: () => void
   insertFileTag: (relativePath: string) => void
   insertCommandTag: (commandName: string) => void
+  /** Replace editor content with plain text. */
+  setContent: (text: string) => void
   /** Replace editor content with plain text (used for composer prefill). */
   setPlainText: (text: string) => void
 }
@@ -352,6 +354,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         focus: focusEditor,
         insertFileTag,
         insertCommandTag,
+        setContent: setPlainText,
         setPlainText
       }),
       [getText, clear, focusEditor, insertCommandTag, insertFileTag, setPlainText]

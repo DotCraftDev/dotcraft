@@ -4,7 +4,6 @@ import { connectionStatusLabel } from '../../utils/connectionStatusLabel'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
-import type { ThreadSummary } from '../../types/thread'
 import { WorkspaceHeader } from '../sidebar/WorkspaceHeader'
 import { NewThreadButton } from '../sidebar/NewThreadButton'
 import { ThreadSearch } from '../sidebar/ThreadSearch'
@@ -60,7 +59,6 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
     return (
       <CollapsedSidebar
         onExpand={toggleSidebar}
-        workspacePath={workspacePath}
       />
     )
   }
@@ -78,7 +76,7 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
       <LogoHeader onCollapse={toggleSidebar} />
       <WorkspaceHeader workspaceName={workspaceName} workspacePath={workspacePath} />
 
-      <NewThreadButton workspacePath={workspacePath} />
+      <NewThreadButton />
 
       <ThreadSearch inputRef={searchRef} />
 
@@ -205,15 +203,14 @@ function AutomationsIcon(): JSX.Element {
 
 interface CollapsedSidebarProps {
   onExpand: () => void
-  workspacePath: string
 }
 
-function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): JSX.Element {
+function CollapsedSidebar({ onExpand }: CollapsedSidebarProps): JSX.Element {
   const t = useT()
   const [logoHovered, setLogoHovered] = useState(false)
   const { status, errorMessage, capabilities: collapsedCaps } = useConnectionStore()
-  const { threadList, addThread, setActiveThreadId } = useThreadStore()
-  const { activeMainView, setActiveMainView } = useUIStore()
+  const { threadList, setActiveThreadId } = useThreadStore()
+  const { activeMainView, setActiveMainView, goToNewChat } = useUIStore()
   const collapsedAutomationsAvailable =
     collapsedCaps?.automations === true || collapsedCaps?.cronManagement === true
 
@@ -227,24 +224,9 @@ function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): J
   // Show up to 5 recent thread dots in collapsed mode
   const recentThreads = threadList.slice(0, 5)
 
-  async function handleNewThread(): Promise<void> {
+  function handleNewThread(): void {
     if (status !== 'connected') return
-    try {
-      const result = await window.api.appServer.sendRequest('thread/start', {
-        identity: {
-          channelName: 'dotcraft-desktop',
-          userId: 'local',
-          channelContext: `workspace:${workspacePath}`,
-          workspacePath
-        },
-        historyMode: 'server'
-      }) as { thread: ThreadSummary }
-      addThread(result.thread)
-      setActiveThreadId(result.thread.id)
-      setActiveMainView('conversation')
-    } catch (err) {
-      console.error('Failed to create thread:', err)
-    }
+    goToNewChat()
   }
 
   return (

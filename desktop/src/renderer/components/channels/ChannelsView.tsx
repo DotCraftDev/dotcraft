@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { addToast } from '../../stores/toastStore'
 import { useT } from '../../contexts/LocaleContext'
-import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { FolderIcon, RefreshIcon } from '../ui/AppIcons'
 import { IconButton } from '../ui/IconButton'
+import { BackToAppButton } from '../ui/BackToAppButton'
 import { CHANNEL_DEFS, type ChannelId } from './channelDefs'
 import { ChannelCard, type ChannelConnectionState } from './ChannelCard'
 import { QQConfigForm } from './QQConfigForm'
@@ -277,7 +277,6 @@ function seedConfigWithDescriptorDefaults(
 
 export function ChannelsView(): JSX.Element {
   const t = useT()
-  const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const [workspacePath, setWorkspacePath] = useState('')
   const [selectedChannelKey, setSelectedChannelKey] = useState<SelectedChannelKey>('native:qq')
@@ -1037,35 +1036,16 @@ export function ChannelsView(): JSX.Element {
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           gap: '12px',
           padding: '16px 20px',
           borderBottom: '1px solid var(--border-default)',
           flexShrink: 0
         }}
       >
+        <BackToAppButton />
         <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
           {t('channels.title')}
         </h1>
-        <button
-          type="button"
-          onClick={() => setActiveMainView('conversation')}
-          title={t('channels.close')}
-          aria-label={t('channels.close')}
-          style={{
-            width: '30px',
-            height: '30px',
-            borderRadius: '6px',
-            border: '1px solid var(--border-default)',
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '18px',
-            lineHeight: 1
-          }}
-        >
-          ×
-        </button>
       </header>
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>

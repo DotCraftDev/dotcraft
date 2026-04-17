@@ -35,6 +35,7 @@ interface Suggestion {
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+const WELCOME_DRAFT_DEBOUNCE_MS = 250
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'])
 
@@ -70,6 +71,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [modelName, setModelName] = useState<string>('Default')
   const [modelApplying, setModelApplying] = useState(false)
   const sendInFlightRef = useRef(false)
+  const skipDraftPersistRef = useRef(false)
+  const draftHydratedRef = useRef(false)
+  const latestDraftTextRef = useRef('')
+  const initialWelcomeDraftRef = useRef(useUIStore.getState().welcomeDraft)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -78,6 +83,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
   const { addThread, setActiveThreadId } = useThreadStore()
+  const setWelcomeDraft = useUIStore((s) => s.setWelcomeDraft)
+  const clearWelcomeDraft = useUIStore((s) => s.clearWelcomeDraft)
 
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
@@ -171,8 +178,25 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   }, [isConnected])
 
   useEffect(() => {
+    const welcomeDraft = initialWelcomeDraftRef.current
+    if (!welcomeDraft) {
+      draftHydratedRef.current = true
+      return
+    }
+
+    richRef.current?.setContent(welcomeDraft.text)
+    latestDraftTextRef.current = welcomeDraft.text
+    setImages(welcomeDraft.images)
+    setWelcomeMode(welcomeDraft.mode)
+    setModelName(welcomeDraft.model || 'Default')
+    setContentRevision((n) => n + 1)
+    draftHydratedRef.current = true
+  }, [])
+
+  useEffect(() => {
     let disposed = false
     const loadModelName = async (): Promise<void> => {
+      if (initialWelcomeDraftRef.current) return
       if (!workspaceConfigPath) {
         setModelName('Default')
         return
@@ -196,6 +220,44 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     resolveModelFromConfig,
     workspaceConfigPath
   ])
+
+  const flushWelcomeDraft = useCallback((): void => {
+    if (skipDraftPersistRef.current) return
+    const text = richRef.current?.getText() ?? latestDraftTextRef.current
+    const hasText = text.trim().length > 0
+    const hasImages = images.length > 0
+    const model = modelName || 'Default'
+    const hasCustomSettings = welcomeMode !== 'agent' || model !== 'Default'
+
+    if (!hasText && !hasImages && !hasCustomSettings) {
+      clearWelcomeDraft()
+      return
+    }
+
+    setWelcomeDraft({
+      text,
+      images: [...images],
+      mode: welcomeMode,
+      model
+    })
+  }, [clearWelcomeDraft, images, modelName, setWelcomeDraft, welcomeMode])
+
+  useEffect(() => {
+    if (!draftHydratedRef.current) return
+    const timer = setTimeout(() => {
+      flushWelcomeDraft()
+    }, WELCOME_DRAFT_DEBOUNCE_MS)
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [contentRevision, flushWelcomeDraft, images, modelName, welcomeMode])
+
+  useEffect(() => {
+    return () => {
+      if (!draftHydratedRef.current || skipDraftPersistRef.current) return
+      flushWelcomeDraft()
+    }
+  }, [flushWelcomeDraft])
 
   const handleModelChange = useCallback(
     async (nextModel: string): Promise<void> => {
@@ -271,6 +333,9 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         historyMode: 'server'
       }) as { thread: ThreadSummary }
 
+      skipDraftPersistRef.current = true
+      latestDraftTextRef.current = ''
+      clearWelcomeDraft()
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
         text: trimmed,
@@ -289,7 +354,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       sendInFlightRef.current = false
       setStarting(false)
     }
-  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode, modelName, modelLoading])
+  }, [
+    images,
+    connectionStatus,
+    workspacePath,
+    addThread,
+    setActiveThreadId,
+    welcomeMode,
+    modelName,
+    modelLoading,
+    clearWelcomeDraft
+  ])
 
   const onPasteImage = useCallback(
     (file: File): void => {
@@ -533,6 +608,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   onAtQuery={handleAtQuery}
                   onSlashQuery={handleSlashQuery}
                   onContentChange={() => {
+                    latestDraftTextRef.current = richRef.current?.getText() ?? latestDraftTextRef.current
                     setContentRevision((n) => n + 1)
                   }}
                   onFocusChange={setEditorFocused}

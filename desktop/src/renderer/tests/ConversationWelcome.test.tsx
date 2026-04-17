@@ -12,8 +12,8 @@ const appServerSendRequest = vi.fn()
 const saveImageToTemp = vi.fn()
 const settingsGet = vi.fn()
 
-function renderWelcome(): void {
-  render(
+function renderWelcome() {
+  return render(
     <LocaleProvider>
       <ConversationWelcome workspacePath="F:\\dotcraft" />
     </LocaleProvider>
@@ -39,6 +39,7 @@ describe('ConversationWelcome composer', () => {
       autoShowTriggeredForTurn: null,
       composerPrefill: null,
       pendingWelcomeTurn: null,
+      welcomeDraft: null,
       _pendingWelcomeTimer: null
     })
 
@@ -120,6 +121,13 @@ describe('ConversationWelcome composer', () => {
   })
 
   it('creates a thread and stores the pending welcome turn on first send', async () => {
+    useUIStore.getState().setWelcomeDraft({
+      text: 'stale draft',
+      images: [],
+      mode: 'agent',
+      model: 'Default'
+    })
+
     renderWelcome()
 
     const textbox = await screen.findByRole('textbox')
@@ -144,6 +152,33 @@ describe('ConversationWelcome composer', () => {
         model: ''
       })
       expect(useThreadStore.getState().activeThreadId).toBe('thread-welcome')
+      expect(useUIStore.getState().welcomeDraft).toBeNull()
     })
+  })
+
+  it('hydrates from welcomeDraft and persists latest draft on unmount', async () => {
+    useUIStore.getState().setWelcomeDraft({
+      text: 'resume draft message',
+      images: [],
+      mode: 'plan',
+      model: 'gpt-5.4-mini'
+    })
+
+    const mounted = renderWelcome()
+
+    const textbox = await screen.findByRole('textbox')
+    await waitFor(() => {
+      expect(textbox.textContent).toContain('resume draft message')
+    })
+    expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Explore this workspace' }))
+    mounted.unmount()
+
+    expect(useUIStore.getState().welcomeDraft).toMatchObject({
+      mode: 'plan',
+      model: 'gpt-5.4-mini'
+    })
+    expect(useUIStore.getState().welcomeDraft?.text).toContain('Give me a quick overview of this project')
   })
 })

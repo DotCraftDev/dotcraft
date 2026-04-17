@@ -16,6 +16,7 @@ import { IconButton } from '../ui/IconButton'
 import { InputWithAction } from '../ui/InputWithAction'
 import { SelectionCard, ResolvedPill } from '../ui/SelectionCard'
 import { PillSwitch } from '../ui/PillSwitch'
+import { BackToAppButton } from '../ui/BackToAppButton'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 import {
   useMcpStore,
@@ -1369,35 +1370,16 @@ export function SettingsView({
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           gap: '12px',
           padding: '16px 20px',
           borderBottom: '1px solid var(--border-default)',
           flexShrink: 0
         }}
       >
+        <BackToAppButton onClick={closeSettings} />
         <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
           {t('settings.title')}
         </h1>
-        <button
-          type="button"
-          onClick={closeSettings}
-          title={t('settings.close')}
-          aria-label={t('settings.closeAria')}
-          style={{
-            width: '30px',
-            height: '30px',
-            borderRadius: '6px',
-            border: '1px solid var(--border-default)',
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '18px',
-            lineHeight: 1
-          }}
-        >
-          ×
-        </button>
       </header>
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
