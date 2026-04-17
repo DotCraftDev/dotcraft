@@ -8,7 +8,6 @@ import { execFileSync } from 'node:child_process'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const versionConfig = JSON.parse(readFileSync(join(__dirname, 'cliproxyapi-version.json'), 'utf8'))
-const REPO_API = `https://api.github.com/repos/${versionConfig.ownerRepo}/releases/tags/${versionConfig.version}`
 const TARGET_DIR = join(process.cwd(), 'resources', 'bin')
 const VERSION_MARKER_FILE = 'cliproxyapi.version'
 const PLATFORM_MAP = {
@@ -19,6 +18,32 @@ const PLATFORM_MAP = {
 const ARCH_MAP = {
   x64: 'amd64',
   arm64: 'arm64'
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetryableHttpStatus(status) {
+  return status === 403 || status === 429 || status >= 500
+}
+
+function assetFileName({ platform, arch }) {
+  const pattern = versionConfig.assetNamePattern
+  if (typeof pattern !== 'string' || !pattern) {
+    throw new Error('cliproxyapi-version.json must define assetNamePattern')
+  }
+  const ext = process.platform === 'win32' ? 'zip' : 'tar.gz'
+  const versionWithoutV = versionConfig.version.replace(/^v/, '')
+  return pattern
+    .replace('{versionWithoutV}', versionWithoutV)
+    .replace('{platform}', platform)
+    .replace('{arch}', arch)
+    .replace('{ext}', ext)
+}
+
+function releaseDownloadUrl(assetName) {
+  return `https://github.com/${versionConfig.ownerRepo}/releases/download/${versionConfig.version}/${assetName}`
 }
 
 function ensureSupported() {
@@ -75,16 +100,41 @@ function recursiveFindBinary(dirPath, names) {
 }
 
 async function downloadFile(url, outPath) {
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'dotcraft-desktop-build'
+  const delaysMs = [1000, 2000, 4000]
+  let lastErr
+  for (let attempt = 0; attempt <= delaysMs.length; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'dotcraft-desktop-build'
+        }
+      })
+      if (res.ok) {
+        const data = Buffer.from(await res.arrayBuffer())
+        writeFileSync(outPath, data)
+        return
+      }
+      const msg = `Failed to download asset (${res.status}): ${url}`
+      if (!isRetryableHttpStatus(res.status)) {
+        throw new Error(msg)
+      }
+      lastErr = new Error(msg)
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Failed to download asset (')) {
+        const m = err.message.match(/Failed to download asset \((\d+)\)/)
+        if (m && !isRetryableHttpStatus(parseInt(m[1], 10))) {
+          throw err
+        }
+        lastErr = err
+      } else {
+        lastErr = err instanceof Error ? err : new Error(String(err))
+      }
     }
-  })
-  if (!res.ok) {
-    throw new Error(`Failed to download asset (${res.status}): ${url}`)
+    if (attempt < delaysMs.length) {
+      await sleep(delaysMs[attempt])
+    }
   }
-  const data = Buffer.from(await res.arrayBuffer())
-  writeFileSync(outPath, data)
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
 }
 
 function extractArchive(archivePath, outputDir) {
@@ -114,31 +164,17 @@ async function main() {
     return
   }
 
-  const suffix = `_${platform}_${arch}`
-
-  const releaseRes = await fetch(REPO_API, {
-    headers: {
-      'User-Agent': 'dotcraft-desktop-build'
-    }
-  })
-  if (!releaseRes.ok) {
-    throw new Error(`Failed to query CLIProxyAPI release ${versionConfig.version} (${releaseRes.status})`)
-  }
-  const release = await releaseRes.json()
-  const assets = Array.isArray(release.assets) ? release.assets : []
-  const asset = assets.find((item) => typeof item?.name === 'string' && item.name.includes(suffix) && (item.name.endsWith('.zip') || item.name.endsWith('.tar.gz')))
-  if (!asset?.browser_download_url || !asset?.name) {
-    throw new Error(`Could not find release asset matching ${suffix}`)
-  }
+  const assetName = assetFileName({ platform, arch })
+  const downloadUrl = releaseDownloadUrl(assetName)
 
   const workDir = join(tmpdir(), `dotcraft-cliproxy-${Date.now()}`)
-  const archivePath = join(workDir, asset.name)
+  const archivePath = join(workDir, assetName)
   const extractDir = join(workDir, 'extract')
   mkdirSync(extractDir, { recursive: true })
 
   try {
-    console.log(`[cliproxyapi] Downloading ${asset.name} for ${versionConfig.version}`)
-    await downloadFile(asset.browser_download_url, archivePath)
+    console.log(`[cliproxyapi] Downloading ${assetName} for ${versionConfig.version}`)
+    await downloadFile(downloadUrl, archivePath)
     console.log('[cliproxyapi] Extracting archive')
     extractArchive(archivePath, extractDir)
 
