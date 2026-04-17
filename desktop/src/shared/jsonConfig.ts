@@ -2,6 +2,13 @@ export function stripUtf8Bom(input: string): string {
   return input.charCodeAt(0) === 0xfeff ? input.slice(1) : input
 }
 
+function ensureParsedObjectConfig(config: unknown): Record<string, unknown> {
+  if (config == null || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('Config payload must be a JSON object')
+  }
+  return config as Record<string, unknown>
+}
+
 export function parseJsonConfig<T>(raw: string, fallback: T): T {
   const trimmed = stripUtf8Bom(raw).trim()
   if (!trimmed) return fallback
@@ -14,4 +21,10 @@ export function parseJsonConfig<T>(raw: string, fallback: T): T {
   } catch {
     return fallback
   }
+}
+
+export function parseJsonObjectConfig(raw: string): Record<string, unknown> {
+  const trimmed = stripUtf8Bom(raw).trim()
+  if (!trimmed) return {}
+  return ensureParsedObjectConfig(JSON.parse(trimmed) as unknown)
 }

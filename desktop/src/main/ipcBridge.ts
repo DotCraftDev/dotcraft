@@ -41,7 +41,7 @@ import type {
   WorkspaceSetupModelListResult
 } from './workspaceSetup'
 import { translate, normalizeLocale, DEFAULT_LOCALE, type AppLocale } from '../shared/locales'
-import { parseJsonConfig } from '../shared/jsonConfig'
+import { parseJsonConfig, parseJsonObjectConfig } from '../shared/jsonConfig'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -971,7 +971,7 @@ export function registerIpcHandlers(
           throw new Error(`Config file is too large to load: ${params.configFileName}`)
         }
         const raw = await fs.readFile(configPath, 'utf-8')
-        return { exists: true, config: parseJsonConfig<Record<string, unknown>>(raw, {}) }
+        return { exists: true, config: parseJsonObjectConfig(raw) }
       } catch (error) {
         const code = (error as NodeJS.ErrnoException | null)?.code
         if (code === 'ENOENT') {
@@ -1037,7 +1037,7 @@ export function registerIpcHandlers(
       try {
         const configPath = path.join(workspacePath, '.craft', module.configFileName)
         const raw = await fs.readFile(configPath, 'utf-8')
-        const parsed = parseJsonConfig<Record<string, unknown>>(raw, {})
+        const parsed = parseJsonObjectConfig(raw)
         const settings = callbacks?.getSettings() ?? {}
         const wsConfig = resolveModuleWsConfig(settings)
         const merged = injectModuleDotcraftConfig(parsed, wsConfig)

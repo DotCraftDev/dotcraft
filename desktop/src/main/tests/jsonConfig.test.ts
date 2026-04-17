@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseJsonConfig, stripUtf8Bom } from '../../shared/jsonConfig'
+import { parseJsonConfig, parseJsonObjectConfig, stripUtf8Bom } from '../../shared/jsonConfig'
 
 describe('jsonConfig', () => {
   describe('stripUtf8Bom', () => {
@@ -37,6 +37,27 @@ describe('jsonConfig', () => {
     it('returns fallback for invalid JSON', () => {
       const fallback = { Enabled: false }
       expect(parseJsonConfig('{invalid-json', fallback)).toBe(fallback)
+    })
+  })
+
+  describe('parseJsonObjectConfig', () => {
+    it('parses JSON object with UTF-8 BOM', () => {
+      expect(parseJsonObjectConfig('\uFEFF{"Model":"gpt-5"}')).toEqual({
+        Model: 'gpt-5'
+      })
+    })
+
+    it('returns an empty object for empty input', () => {
+      expect(parseJsonObjectConfig('   ')).toEqual({})
+    })
+
+    it('throws for non-object JSON', () => {
+      expect(() => parseJsonObjectConfig('["a", "b"]')).toThrow('Config payload must be a JSON object')
+      expect(() => parseJsonObjectConfig('"value"')).toThrow('Config payload must be a JSON object')
+    })
+
+    it('throws for invalid JSON', () => {
+      expect(() => parseJsonObjectConfig('{invalid-json')).toThrow()
     })
   })
 })

@@ -1,22 +1,77 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ipcMain, shell } from 'electron'
+import { promises as fs } from 'fs'
+
+const { scanModulesMock, moduleProcessManagerStartMock } = vi.hoisted(() => ({
+  scanModulesMock: vi.fn(),
+  moduleProcessManagerStartMock: vi.fn()
+}))
+
+vi.mock('fs', () => ({
+  promises: {
+    readFile: vi.fn(),
+    writeFile: vi.fn(),
+    stat: vi.fn(),
+    mkdir: vi.fn(),
+    rm: vi.fn(),
+    rename: vi.fn()
+  }
+}))
 
 vi.mock('electron', () => ({
+  app: {
+    isPackaged: true,
+    getPath: vi.fn(() => 'C:\\Users\\tester')
+  },
   ipcMain: {
     handle: vi.fn(),
     removeHandler: vi.fn()
   },
-  BrowserWindow: {},
-  dialog: {},
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => []),
+    getFocusedWindow: vi.fn(() => null)
+  },
+  dialog: {
+    showOpenDialog: vi.fn()
+  },
   Notification: {
     isSupported: vi.fn(() => false)
   },
-  shell: { openExternal: vi.fn().mockResolvedValue(undefined) }
+  shell: {
+    openExternal: vi.fn().mockResolvedValue(undefined),
+    openPath: vi.fn().mockResolvedValue('')
+  }
 }))
+
+vi.mock('../moduleScanner', async () => {
+  const actual = await vi.importActual('../moduleScanner')
+  return {
+    ...actual,
+    scanModules: scanModulesMock
+  }
+})
+
+vi.mock('../moduleProcessManager', async () => {
+  const actual = await vi.importActual('../moduleProcessManager')
+  class MockModuleProcessManager {
+    start = moduleProcessManagerStartMock
+    stop = vi.fn()
+    stopAll = vi.fn().mockResolvedValue(undefined)
+    getStatusMap = vi.fn(() => ({}))
+    autoStartModules = vi.fn().mockResolvedValue(undefined)
+    getRecentLogs = vi.fn(() => [])
+    getQrStatus = vi.fn(() => ({ active: false, qrDataUrl: null }))
+  }
+  return {
+    ...actual,
+    ModuleProcessManager: MockModuleProcessManager
+  }
+})
 
 import {
   createServerRequestBridge,
   registerIpcHandlers,
+  refreshNodeRuntimeStatus,
   sanitizeHttpOrHttpsUrl,
   openExternalHttpUrl
 } from '../ipcBridge'
@@ -100,8 +155,11 @@ describe('openExternalHttpUrl', () => {
 })
 
 describe('registerIpcHandlers', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    scanModulesMock.mockResolvedValue([])
+    moduleProcessManagerStartMock.mockResolvedValue({ ok: true })
+    await refreshNodeRuntimeStatus()
   })
 
   it('registers appserver:restart-managed and forwards to callback', async () => {
@@ -246,6 +304,197 @@ describe('registerIpcHandlers', () => {
         name: 'codex-user.json'
       }
     ])
+  })
+
+  it('rethrows invalid JSON from modules:read-config instead of returning an empty object', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+    vi.mocked(fs.stat).mockResolvedValue({ size: 32 } as Awaited<ReturnType<typeof fs.stat>>)
+    vi.mocked(fs.readFile).mockResolvedValue('{invalid-json' as Awaited<ReturnType<typeof fs.readFile>>)
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    await expect(
+      handlers.get('modules:read-config')?.({}, { configFileName: 'module.json' })
+    ).rejects.toThrow()
+  })
+
+  it('reads BOM-prefixed JSON in modules:read-config', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+    vi.mocked(fs.stat).mockResolvedValue({ size: 32 } as Awaited<ReturnType<typeof fs.stat>>)
+    vi.mocked(fs.readFile).mockResolvedValue('\uFEFF{"Enabled":true}' as Awaited<ReturnType<typeof fs.readFile>>)
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    await expect(
+      handlers.get('modules:read-config')?.({}, { configFileName: 'module.json' })
+    ).resolves.toEqual({
+      exists: true,
+      config: { Enabled: true }
+    })
+  })
+
+  it('returns an error for invalid JSON in modules:start and does not overwrite the config file', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+    scanModulesMock.mockResolvedValue([
+      {
+        moduleId: 'demo-module',
+        channelName: 'demo',
+        displayName: 'Demo',
+        packageName: 'demo-module',
+        configFileName: 'module.json',
+        supportedTransports: ['stdio'],
+        requiresInteractiveSetup: false,
+        variant: 'default',
+        source: 'user',
+        absolutePath: '/workspace/modules/demo',
+        configDescriptors: []
+      }
+    ])
+    vi.mocked(fs.readFile).mockResolvedValue('{invalid-json' as Awaited<ReturnType<typeof fs.readFile>>)
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    await expect(
+      handlers.get('modules:start')?.({}, { moduleId: 'demo-module' })
+    ).resolves.toMatchObject({ ok: false })
+    expect(vi.mocked(fs.writeFile)).not.toHaveBeenCalled()
+    expect(moduleProcessManagerStartMock).not.toHaveBeenCalled()
+  })
+
+  it('returns an object-type error for non-object JSON in modules:start and does not overwrite the config file', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+    scanModulesMock.mockResolvedValue([
+      {
+        moduleId: 'demo-module',
+        channelName: 'demo',
+        displayName: 'Demo',
+        packageName: 'demo-module',
+        configFileName: 'module.json',
+        supportedTransports: ['stdio'],
+        requiresInteractiveSetup: false,
+        variant: 'default',
+        source: 'user',
+        absolutePath: '/workspace/modules/demo',
+        configDescriptors: []
+      }
+    ])
+    vi.mocked(fs.readFile).mockResolvedValue('["not-an-object"]' as Awaited<ReturnType<typeof fs.readFile>>)
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    await expect(
+      handlers.get('modules:start')?.({}, { moduleId: 'demo-module' })
+    ).resolves.toEqual({ ok: false, error: 'Config payload must be a JSON object' })
+    expect(vi.mocked(fs.writeFile)).not.toHaveBeenCalled()
+    expect(moduleProcessManagerStartMock).not.toHaveBeenCalled()
   })
 })
 
