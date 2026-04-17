@@ -1,8 +1,32 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { createElement, useMemo } from 'react'
 import {
+  buildStreamingPlanDraft,
+  selectStreamingPlanItemId,
+  selectStreamingPlanRawArgs,
   selectStreamingPlanDraft,
   useConversationStore
 } from '../stores/conversationStore'
+
+function StreamingPlanProbe() {
+  const streamingItemId = useConversationStore(selectStreamingPlanItemId)
+  const streamingRawArgs = useConversationStore(selectStreamingPlanRawArgs)
+  const streamingDraft = useMemo(
+    () => (streamingItemId ? buildStreamingPlanDraft(streamingItemId, streamingRawArgs ?? '') : null),
+    [streamingItemId, streamingRawArgs]
+  )
+
+  return createElement(
+    'div',
+    null,
+    createElement('span', { 'data-testid': 'streaming-item-id' }, streamingItemId ?? ''),
+    createElement('span', { 'data-testid': 'streaming-title' }, streamingDraft?.title ?? ''),
+    createElement('span', { 'data-testid': 'streaming-overview' }, streamingDraft?.overview ?? ''),
+    createElement('span', { 'data-testid': 'streaming-todo-count' }, String(streamingDraft?.todos.length ?? 0))
+  )
+}
 
 describe('selectStreamingPlanDraft', () => {
   beforeEach(() => {
@@ -112,5 +136,49 @@ describe('selectStreamingPlanDraft', () => {
     })
 
     expect(selectStreamingPlanDraft(useConversationStore.getState())).toBeNull()
+  })
+
+  it('keeps hook subscriptions stable when CreatePlan deltas stream', () => {
+    const store = useConversationStore.getState()
+    store.setTurns([
+      {
+        id: 'turn-1',
+        threadId: 'thread-1',
+        status: 'running',
+        items: [],
+        startedAt: new Date().toISOString()
+      }
+    ])
+
+    expect(() => render(createElement(StreamingPlanProbe))).not.toThrow()
+    expect(screen.getByTestId('streaming-item-id').textContent).toBe('')
+    expect(screen.getByTestId('streaming-todo-count').textContent).toBe('0')
+
+    act(() => {
+      store.onToolCallArgumentsDelta({
+        turnId: 'turn-1',
+        itemId: 'item-plan-4',
+        delta: '{"title":"Plan A","overview":"Part 1","todos":[{"id":"t1","content":"task 1","status":"pending"}',
+        toolName: 'CreatePlan',
+        callId: 'call-4'
+      })
+    })
+
+    expect(screen.getByTestId('streaming-item-id').textContent).toBe('item-plan-4')
+    expect(screen.getByTestId('streaming-title').textContent).toBe('Plan A')
+    expect(screen.getByTestId('streaming-overview').textContent).toBe('Part 1')
+    expect(screen.getByTestId('streaming-todo-count').textContent).toBe('1')
+
+    act(() => {
+      store.onToolCallArgumentsDelta({
+        turnId: 'turn-1',
+        itemId: 'item-plan-4',
+        delta: ',"plan":"Part 2"}',
+        toolName: 'CreatePlan',
+        callId: 'call-4'
+      })
+    })
+
+    expect(screen.getByTestId('streaming-title').textContent).toBe('Plan A')
   })
 })

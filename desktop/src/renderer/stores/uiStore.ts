@@ -45,6 +45,11 @@ export interface UIState {
    * Prevents re-triggering after the user manually hides the panel.
    */
   autoShowTriggeredForTurn: string | null
+  /**
+   * Tracks the streaming CreatePlan item ID for which the Plan tab auto-switch
+   * has already been triggered.
+   */
+  autoShowPlanForItem: string | null
   /** Text to pre-fill into the InputComposer when its next mounts. */
   composerPrefill: string | null
   /**
@@ -82,6 +87,8 @@ interface UIStore extends UIState {
   showChangesForFile(filePath: string): void
   /** Mark auto-show as triggered for a given turn (prevents re-trigger) */
   markAutoShowForTurn(turnId: string): void
+  /** Mark plan auto-switch as triggered for a given CreatePlan item. */
+  markAutoShowPlanForItem(itemId: string): void
   /** Set text to be picked up by InputComposer on its next mount. */
   setComposerPrefill(text: string): void
   /** Read and clear the prefill text atomically. */
@@ -115,6 +122,7 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   activeDetailTab: 'changes',
   selectedChangedFile: null,
   autoShowTriggeredForTurn: null,
+  autoShowPlanForItem: null,
   composerPrefill: null,
   pendingWelcomeTurn: null,
   welcomeDraft: null,
@@ -176,6 +184,10 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   markAutoShowForTurn(turnId) {
     set({ autoShowTriggeredForTurn: turnId })
+  },
+
+  markAutoShowPlanForItem(itemId) {
+    set({ autoShowPlanForItem: itemId })
   },
 
   setComposerPrefill(text) {

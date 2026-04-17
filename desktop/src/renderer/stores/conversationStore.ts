@@ -1312,6 +1312,11 @@ export interface StreamingPlanDraft {
   todos: Array<{ id?: string; content?: string; status?: PlanTodoStatus | string }>
 }
 
+interface StreamingCreatePlanMatch {
+  itemId: string
+  rawArgs: string
+}
+
 /**
  * Extract a partial JSON array for the `todos` / `plan.todos` field without
  * requiring the buffer to be fully parseable. Best-effort: returns a partial
@@ -1373,13 +1378,7 @@ function extractPartialTodos(rawArgs: string): StreamingPlanDraft['todos'] {
   return entries
 }
 
-/**
- * Zustand selector: returns the partial plan draft from the newest active
- * `CreatePlan` tool call, or null when no such call is in flight.
- */
-export function selectStreamingPlanDraft(
-  state: ConversationState
-): StreamingPlanDraft | null {
+function findStreamingCreatePlanCall(state: ConversationState): StreamingCreatePlanMatch | null {
   // Prefer the active turn; fall back to scanning the most recent non-completed call.
   const activeTurnId = state.activeTurnId
   const turn = activeTurnId
@@ -1395,18 +1394,45 @@ export function selectStreamingPlanDraft(
         && item.toolName === 'CreatePlan'
         && item.status !== 'completed'
       ) {
-        const rawArgs = item.argumentsPreview ?? ''
         return {
           itemId: item.id,
-          title: extractPartialJsonStringValue(rawArgs, 'title'),
-          overview: extractPartialJsonStringValue(rawArgs, 'overview'),
-          plan: extractPartialJsonStringValue(rawArgs, 'plan'),
-          todos: extractPartialTodos(rawArgs)
+          rawArgs: item.argumentsPreview ?? ''
         }
       }
     }
   }
+
   return null
+}
+
+export function selectStreamingPlanItemId(state: ConversationState): string | null {
+  return findStreamingCreatePlanCall(state)?.itemId ?? null
+}
+
+export function selectStreamingPlanRawArgs(state: ConversationState): string | null {
+  return findStreamingCreatePlanCall(state)?.rawArgs ?? null
+}
+
+export function buildStreamingPlanDraft(itemId: string, rawArgs: string): StreamingPlanDraft {
+  return {
+    itemId,
+    title: extractPartialJsonStringValue(rawArgs, 'title'),
+    overview: extractPartialJsonStringValue(rawArgs, 'overview'),
+    plan: extractPartialJsonStringValue(rawArgs, 'plan'),
+    todos: extractPartialTodos(rawArgs)
+  }
+}
+
+/**
+ * Zustand selector: returns the partial plan draft from the newest active
+ * `CreatePlan` tool call, or null when no such call is in flight.
+ */
+export function selectStreamingPlanDraft(
+  state: ConversationState
+): StreamingPlanDraft | null {
+  const match = findStreamingCreatePlanCall(state)
+  if (!match) return null
+  return buildStreamingPlanDraft(match.itemId, match.rawArgs)
 }
 
 // Expose store to E2E / debug tooling via a window global (browser only)

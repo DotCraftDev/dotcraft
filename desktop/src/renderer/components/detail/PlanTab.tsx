@@ -1,5 +1,11 @@
+import { useMemo } from 'react'
 import { useT } from '../../contexts/LocaleContext'
-import { useConversationStore, selectStreamingPlanDraft } from '../../stores/conversationStore'
+import {
+  buildStreamingPlanDraft,
+  selectStreamingPlanItemId,
+  selectStreamingPlanRawArgs,
+  useConversationStore
+} from '../../stores/conversationStore'
 import type {
   PlanTodoItem,
   PlanTodoStatus,
@@ -16,7 +22,12 @@ import type {
 export function PlanTab(): JSX.Element {
   const t = useT()
   const plan = useConversationStore((s) => s.plan)
-  const streamingDraft = useConversationStore(selectStreamingPlanDraft)
+  const streamingItemId = useConversationStore(selectStreamingPlanItemId)
+  const streamingRawArgs = useConversationStore(selectStreamingPlanRawArgs)
+  const streamingDraft = useMemo(
+    () => (streamingItemId ? buildStreamingPlanDraft(streamingItemId, streamingRawArgs ?? '') : null),
+    [streamingItemId, streamingRawArgs]
+  )
 
   if (streamingDraft) {
     return <StreamingPlanDraftView draft={streamingDraft} />
