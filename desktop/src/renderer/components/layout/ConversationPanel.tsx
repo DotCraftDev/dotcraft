@@ -10,6 +10,7 @@ import { TurnStatusIndicator } from '../conversation/TurnStatusIndicator'
 import { InputComposer } from '../conversation/InputComposer'
 import { ConversationWelcome } from '../conversation/ConversationWelcome'
 import type { ThreadConfigurationWire } from '../../types/thread'
+import { parseJsonConfig } from '../../../shared/jsonConfig'
 
 interface ConversationPanelProps {
   workspacePath?: string
@@ -51,9 +52,7 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
   const readWorkspaceConfig = useCallback(async (): Promise<Record<string, unknown>> => {
     if (!workspaceConfigPath) return {}
     const raw = await window.api.file.readFile(workspaceConfigPath)
-    if (!raw.trim()) return {}
-    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as Record<string, unknown>
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    return parseJsonConfig<Record<string, unknown>>(raw, {})
   }, [workspaceConfigPath])
 
   const setCaseInsensitiveField = useCallback(

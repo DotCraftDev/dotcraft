@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ChannelId } from './channelDefs'
+import { parseJsonRecordConfig } from '../../../shared/jsonConfig'
 
 export interface QQChannelConfig {
   Enabled: boolean
@@ -38,13 +39,6 @@ function configPath(workspacePath: string): string {
 function isMissingFileError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
   return message.includes('ENOENT') || message.includes('not found')
-}
-
-function parseJson(text: string): Record<string, unknown> {
-  if (!text.trim()) return {}
-  const parsed = JSON.parse(text) as unknown
-  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-  return parsed as Record<string, unknown>
 }
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -96,7 +90,7 @@ async function readRoot(workspacePath: string): Promise<Record<string, unknown>>
   const path = configPath(workspacePath)
   try {
     const raw = await window.api.file.readFile(path)
-    return parseJson(raw)
+    return parseJsonRecordConfig(raw)
   } catch (err) {
     if (isMissingFileError(err)) return {}
     throw err

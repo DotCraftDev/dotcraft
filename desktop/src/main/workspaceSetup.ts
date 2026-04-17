@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { resolveBinaryLocation } from './AppServerManager'
+import { parseJsonConfig } from '../shared/jsonConfig'
 import type { AppSettings } from './settings'
 
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
@@ -124,7 +125,7 @@ function readJsonObject(path: string): Record<string, unknown> | null {
 
   try {
     const rawContent = readFileSync(path, 'utf8')
-    return JSON.parse(rawContent.replace(/^\uFEFF/, '')) as Record<string, unknown>
+    return parseJsonConfig<Record<string, unknown> | null>(rawContent, null)
   } catch {
     return null
   }
