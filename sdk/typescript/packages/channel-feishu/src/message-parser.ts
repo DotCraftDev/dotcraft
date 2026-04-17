@@ -31,6 +31,14 @@ export async function parseInboundMessage(
     chatId: event.message.chat_id,
     chatType: event.message.chat_type,
     messageId: event.message.message_id,
+    parentId: event.message.parent_id,
+    rootId: event.message.root_id,
+    mentions: event.message.mentions ?? [],
+    sender: {
+      openId: event.sender.sender_id.open_id,
+      userId: event.sender.sender_id.user_id,
+      unionId: event.sender.sender_id.union_id,
+    },
   } as const;
 
   if (event.message.message_type === "text") {

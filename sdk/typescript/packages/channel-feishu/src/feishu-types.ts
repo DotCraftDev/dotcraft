@@ -96,6 +96,51 @@ export interface FeishuSendResult {
   chatId: string;
 }
 
+export type FeishuApiErrorKind =
+  | "permission"
+  | "auth"
+  | "invalidArgument"
+  | "rateLimited"
+  | "upstream"
+  | "unknown";
+
+export interface FeishuApiErrorOptions {
+  kind: FeishuApiErrorKind;
+  message: string;
+  retryable: boolean;
+  code?: number;
+  msg?: string;
+  httpStatus?: number;
+  raw?: unknown;
+  cause?: unknown;
+}
+
+export class FeishuApiError extends Error {
+  readonly kind: FeishuApiErrorKind;
+  readonly retryable: boolean;
+  readonly code?: number;
+  readonly msg?: string;
+  readonly httpStatus?: number;
+  readonly raw?: unknown;
+
+  constructor(options: FeishuApiErrorOptions) {
+    super(options.message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    this.name = "FeishuApiError";
+    this.kind = options.kind;
+    this.retryable = options.retryable;
+    this.code = options.code;
+    this.msg = options.msg;
+    this.httpStatus = options.httpStatus;
+    this.raw = options.raw;
+  }
+}
+
+export interface ParsedInboundSender {
+  openId?: string;
+  userId?: string;
+  unionId?: string;
+}
+
 export interface ParsedInboundMessage {
   kind: "text" | "parts";
   userId: string;
@@ -107,4 +152,8 @@ export interface ParsedInboundMessage {
   text: string;
   parts: Record<string, unknown>[];
   messageId: string;
+  parentId?: string;
+  rootId?: string;
+  mentions: FeishuMention[];
+  sender: ParsedInboundSender;
 }

@@ -5,17 +5,26 @@ import * as path from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type {
+  FeishuApiErrorKind,
   FeishuConfig,
   FeishuBotInfo,
   FeishuCardActionEvent,
   FeishuMessageEvent,
   FeishuSendResult,
 } from "./feishu-types.js";
+import { FeishuApiError } from "./feishu-types.js";
 import { errorMessage, logError, logInfo, logWarn } from "./logging.js";
 
 type FeishuEventHandlers = {
   onMessage: (event: FeishuMessageEvent) => Promise<void>;
   onCardAction: (event: FeishuCardActionEvent) => Promise<void>;
+};
+
+type FeishuApiPayload = {
+  code?: number;
+  msg?: string;
+  data?: Record<string, unknown>;
+  raw: unknown;
 };
 
 function resolveBrand(brand?: string): string | Lark.Domain {
@@ -71,6 +80,12 @@ function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
   });
 }
 
+const AUTH_CODES = new Set([99991661, 99991663, 99991668, 99991671]);
+const PERMISSION_CODES = new Set([99991400, 99991401, 99991403, 230006, 230027]);
+const INVALID_ARGUMENT_CODES = new Set([10002, 10013, 230001, 230025, 230099, 99991672]);
+const RATE_LIMIT_CODES = new Set([11232, 230020, 99991429]);
+const UPSTREAM_CODES = new Set([100500, 99991450, 99991499]);
+
 export class FeishuClient {
   readonly sdk: Lark.Client;
   private wsClient: Lark.WSClient | null = null;
@@ -96,25 +111,25 @@ export class FeishuClient {
 
   async probeBot(): Promise<FeishuBotInfo> {
     logInfo("startup.bot_probe_request", { method: "GET", path: "/open-apis/bot/v3/info" });
-    const response = (await (this.sdk as unknown as {
-      request: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
-    }).request({
-      method: "GET",
-      url: "/open-apis/bot/v3/info",
-    })) as Record<string, unknown>;
+    const response = await this.callSdk<Record<string, unknown>>(
+      () =>
+        (this.sdk as unknown as {
+          request: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        }).request({
+          method: "GET",
+          url: "/open-apis/bot/v3/info",
+        }),
+      "Failed to query Feishu bot info",
+    );
 
     const data = (response.data as Record<string, unknown>) ?? {};
     const bot = (response.bot as Record<string, unknown> | undefined) ?? {};
-    if ((response.code as number | undefined) && Number(response.code) !== 0) {
-      throw new Error(String(response.msg ?? "Failed to query Feishu bot info"));
-    }
 
     const responseKeys = Object.keys(response).map((key) => `response.${key}`);
     const dataKeys = Object.keys(data).map((key) => `data.${key}`);
     const botKeys = Object.keys(bot).map((key) => `bot.${key}`);
     const rawFieldKeys = [...responseKeys, ...dataKeys, ...botKeys].sort();
 
-    // Some tenants / API versions may expose bot identity with different field names or nested shapes.
     const openIdCandidates = [
       bot.open_id,
       bot.bot_open_id,
@@ -169,7 +184,6 @@ export class FeishuClient {
         logWarn("feishu.ws.replacing_existing_client");
         this.wsClient.close({ force: true });
       } catch {
-        // Ignore stale connection cleanup errors.
       }
     }
 
@@ -242,7 +256,6 @@ export class FeishuClient {
     try {
       this.wsClient.close({ force: true });
     } catch {
-      // Ignore close errors during shutdown.
     }
     this.wsClient = null;
     logInfo("feishu.ws.stopped");
@@ -254,16 +267,20 @@ export class FeishuClient {
   ): Promise<FeishuSendResult> {
     assertCardPayloadShape(card);
     const { receiveId, receiveIdType } = this.resolveTarget(target);
-    const response = await this.sdk.im.message.create({
-      params: {
-        receive_id_type: receiveIdType as never,
-      },
-      data: {
-        receive_id: receiveId,
-        msg_type: "interactive",
-        content: JSON.stringify(card),
-      },
-    });
+    const response = await this.callSdk(
+      () =>
+        this.sdk.im.message.create({
+          params: {
+            receive_id_type: receiveIdType as never,
+          },
+          data: {
+            receive_id: receiveId,
+            msg_type: "interactive",
+            content: JSON.stringify(card),
+          },
+        }),
+      "Failed to send Feishu interactive message",
+    );
 
     return {
       messageId: String(response.data?.message_id ?? ""),
@@ -275,35 +292,43 @@ export class FeishuClient {
     const normalizedMessageId = messageId.trim();
     const normalizedEmojiType = emojiType.trim();
     if (!normalizedMessageId) {
-      throw new Error("Feishu message reaction requires a messageId.");
+      throw new TypeError("Feishu message reaction requires a messageId.");
     }
     if (!normalizedEmojiType) {
-      throw new Error("Feishu message reaction requires an emojiType.");
+      throw new TypeError("Feishu message reaction requires an emojiType.");
     }
 
-    await this.sdk.im.messageReaction.create({
-      path: {
-        message_id: normalizedMessageId,
-      },
-      data: {
-        reaction_type: {
-          emoji_type: normalizedEmojiType,
-        },
-      },
-    });
+    await this.callSdk(
+      () =>
+        this.sdk.im.messageReaction.create({
+          path: {
+            message_id: normalizedMessageId,
+          },
+          data: {
+            reaction_type: {
+              emoji_type: normalizedEmojiType,
+            },
+          },
+        }),
+      "Failed to add Feishu message reaction",
+    );
   }
 
   async updateInteractiveCard(messageId: string, card: Record<string, unknown>): Promise<void> {
     assertCardPayloadShape(card);
-    await (this.sdk as unknown as {
-      request: (request: Record<string, unknown>) => Promise<unknown>;
-    }).request({
-      method: "PATCH",
-      url: `/open-apis/im/v1/messages/${messageId}`,
-      data: {
-        content: JSON.stringify(card),
-      },
-    });
+    await this.callSdk(
+      () =>
+        (this.sdk as unknown as {
+          request: (request: Record<string, unknown>) => Promise<unknown>;
+        }).request({
+          method: "PATCH",
+          url: `/open-apis/im/v1/messages/${messageId}`,
+          data: {
+            content: JSON.stringify(card),
+          },
+        }),
+      "Failed to update Feishu interactive card",
+    );
   }
 
   async sendFile(
@@ -315,13 +340,13 @@ export class FeishuClient {
     },
   ): Promise<FeishuSendResult & { fileKey: string }> {
     if (!file.fileName.trim()) {
-      throw new Error("Feishu file delivery requires a fileName.");
+      throw new TypeError("Feishu file delivery requires a fileName.");
     }
     if (file.data.length === 0) {
-      throw new Error("Feishu file delivery does not support empty files.");
+      throw new TypeError("Feishu file delivery does not support empty files.");
     }
     if (file.data.length > 30 * 1024 * 1024) {
-      throw new Error("Feishu file delivery only supports files up to 30 MB.");
+      throw new TypeError("Feishu file delivery only supports files up to 30 MB.");
     }
 
     const fileKey = await this.uploadFile(file.fileName, file.data, file.mediaType);
@@ -339,15 +364,19 @@ export class FeishuClient {
   }
 
   async downloadMessageImage(messageId: string, imageKey: string, downloadDir?: string): Promise<string> {
-    const response = await this.sdk.im.messageResource.get({
-      path: {
-        message_id: messageId,
-        file_key: imageKey,
-      },
-      params: {
-        type: "image",
-      },
-    });
+    const response = await this.callSdk(
+      () =>
+        this.sdk.im.messageResource.get({
+          path: {
+            message_id: messageId,
+            file_key: imageKey,
+          },
+          params: {
+            type: "image",
+          },
+        }),
+      "Failed to download Feishu image",
+    );
 
     const { buffer, contentType } = await extractBufferFromResponse(response);
     const extension = extensionFromContentType(contentType);
@@ -384,17 +413,17 @@ export class FeishuClient {
     formData.set("file_name", fileName);
     formData.set("file", new Blob([data], { type: mediaType ?? inferMediaType(fileName) }), fileName);
 
-    const response = await fetch(`${this.apiBaseUrl}/open-apis/im/v1/files`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: formData,
-    });
-    const payload = (await response.json()) as Record<string, unknown>;
-    if (!response.ok || Number(payload.code ?? 0) !== 0) {
-      throw new Error(String(payload.msg ?? `Failed to upload file '${fileName}' to Feishu.`));
-    }
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/im/v1/files`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        }),
+      `Failed to upload file '${fileName}' to Feishu.`,
+    );
 
     const dataNode = (payload.data as Record<string, unknown> | undefined) ?? {};
     const fileKey = String(dataNode.file_key ?? "");
@@ -411,26 +440,22 @@ export class FeishuClient {
     content: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const token = await this.getTenantAccessToken();
-    const response = await fetch(
-      `${this.apiBaseUrl}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(receiveIdType)}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          receive_id: receiveId,
-          msg_type: msgType,
-          content: JSON.stringify(content),
+    return await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(receiveIdType)}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            receive_id: receiveId,
+            msg_type: msgType,
+            content: JSON.stringify(content),
+          }),
         }),
-      },
+      `Failed to send Feishu '${msgType}' message.`,
     );
-    const payload = (await response.json()) as Record<string, unknown>;
-    if (!response.ok || Number(payload.code ?? 0) !== 0) {
-      throw new Error(String(payload.msg ?? `Failed to send Feishu '${msgType}' message.`));
-    }
-    return payload;
   }
 
   private async getTenantAccessToken(): Promise<string> {
@@ -439,20 +464,20 @@ export class FeishuClient {
       return this.tenantAccessToken;
     }
 
-    const response = await fetch(`${this.apiBaseUrl}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        app_id: this.appId,
-        app_secret: this.appSecret,
-      }),
-    });
-    const payload = (await response.json()) as Record<string, unknown>;
-    if (!response.ok || Number(payload.code ?? 0) !== 0) {
-      throw new Error(String(payload.msg ?? "Failed to obtain Feishu tenant access token."));
-    }
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/auth/v3/tenant_access_token/internal`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            app_id: this.appId,
+            app_secret: this.appSecret,
+          }),
+        }),
+      "Failed to obtain Feishu tenant access token.",
+    );
 
     const token = String(payload.tenant_access_token ?? "");
     if (!token) {
@@ -464,6 +489,160 @@ export class FeishuClient {
     this.tenantAccessTokenExpiresAt = now + (expiresInSeconds - 60) * 1000;
     return token;
   }
+
+  private async callSdk<T>(run: () => Promise<T>, defaultMessage: string): Promise<T> {
+    try {
+      const response = await run();
+      const payload = toFeishuApiPayload(response);
+      if (payload.code !== undefined && payload.code !== 0) {
+        throw createFeishuApiError({
+          defaultMessage,
+          code: payload.code,
+          msg: payload.msg,
+          raw: payload.raw,
+        });
+      }
+      return response;
+    } catch (error) {
+      throw normalizeFeishuError(error, defaultMessage);
+    }
+  }
+
+  private async callJsonApi(
+    run: () => Promise<Response>,
+    defaultMessage: string,
+  ): Promise<Record<string, unknown>> {
+    let response: Response;
+    try {
+      response = await run();
+    } catch (error) {
+      throw normalizeFeishuError(error, defaultMessage);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw normalizeFeishuError(error, defaultMessage);
+    }
+
+    const apiPayload = toFeishuApiPayload(payload);
+    if (!response.ok || (apiPayload.code !== undefined && apiPayload.code !== 0)) {
+      throw createFeishuApiError({
+        defaultMessage,
+        code: apiPayload.code,
+        msg: apiPayload.msg,
+        httpStatus: response.status,
+        raw: apiPayload.raw,
+      });
+    }
+
+    return apiPayload.raw as Record<string, unknown>;
+  }
+}
+
+function normalizeFeishuError(error: unknown, defaultMessage: string): Error {
+  if (error instanceof FeishuApiError || error instanceof TypeError) {
+    return error;
+  }
+
+  const payload = toFeishuApiPayload(error);
+  if (payload.code !== undefined || payload.msg !== undefined) {
+    return createFeishuApiError({
+      defaultMessage,
+      code: payload.code,
+      msg: payload.msg,
+      raw: payload.raw,
+    });
+  }
+
+  if (error instanceof Error) {
+    return createFeishuApiError({
+      defaultMessage,
+      msg: error.message,
+      raw: error,
+      cause: error,
+    });
+  }
+
+  return createFeishuApiError({
+    defaultMessage,
+    raw: error,
+  });
+}
+
+function createFeishuApiError(params: {
+  defaultMessage: string;
+  code?: number;
+  msg?: string;
+  httpStatus?: number;
+  raw?: unknown;
+  cause?: unknown;
+}): FeishuApiError {
+  const kind = classifyFeishuApiError(params.code, params.httpStatus);
+  return new FeishuApiError({
+    kind,
+    retryable: isRetryableFeishuError(kind, params.httpStatus),
+    code: params.code,
+    msg: params.msg,
+    httpStatus: params.httpStatus,
+    raw: params.raw,
+    cause: params.cause,
+    message: formatFeishuErrorMessage(params.defaultMessage, params.msg, params.code, params.httpStatus),
+  });
+}
+
+function toFeishuApiPayload(input: unknown): FeishuApiPayload {
+  if (!input || typeof input !== "object") {
+    return { raw: input };
+  }
+  const record = input as Record<string, unknown>;
+  const code = parseOptionalNumber(record.code);
+  const msg = typeof record.msg === "string" ? record.msg : undefined;
+  const data = record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : undefined;
+  return { code, msg, data, raw: input };
+}
+
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function classifyFeishuApiError(code?: number, httpStatus?: number): FeishuApiErrorKind {
+  if (httpStatus === 401) return "auth";
+  if (httpStatus === 403) return "permission";
+  if (httpStatus === 400 || httpStatus === 404 || httpStatus === 422) return "invalidArgument";
+  if (httpStatus === 429) return "rateLimited";
+  if (httpStatus !== undefined && httpStatus >= 500) return "upstream";
+
+  if (code === undefined) return "unknown";
+  if (AUTH_CODES.has(code)) return "auth";
+  if (PERMISSION_CODES.has(code)) return "permission";
+  if (INVALID_ARGUMENT_CODES.has(code)) return "invalidArgument";
+  if (RATE_LIMIT_CODES.has(code)) return "rateLimited";
+  if (UPSTREAM_CODES.has(code) || code >= 90000) return "upstream";
+  return "unknown";
+}
+
+function isRetryableFeishuError(kind: FeishuApiErrorKind, httpStatus?: number): boolean {
+  return kind === "rateLimited" || kind === "upstream" || httpStatus === 408;
+}
+
+function formatFeishuErrorMessage(
+  defaultMessage: string,
+  msg?: string,
+  code?: number,
+  httpStatus?: number,
+): string {
+  const details: string[] = [];
+  if (msg?.trim()) details.push(msg.trim());
+  if (code !== undefined) details.push(`code=${code}`);
+  if (httpStatus !== undefined) details.push(`httpStatus=${httpStatus}`);
+  return details.length ? `${defaultMessage} ${details.join(" ")}` : defaultMessage;
 }
 
 function assertCardPayloadShape(card: Record<string, unknown>): void {
@@ -488,13 +667,13 @@ function assertCardPayloadShape(card: Record<string, unknown>): void {
 
 function findForbiddenV2TagPath(
   elements: unknown[],
-  path = "body.elements",
+  pathValue = "body.elements",
 ): string | null {
   for (const [index, element] of elements.entries()) {
     if (!element || typeof element !== "object") continue;
 
     const record = element as Record<string, unknown>;
-    const currentPath = `${path}[${index}]`;
+    const currentPath = `${pathValue}[${index}]`;
     if (record.tag === "action") return currentPath;
 
     const nestedElements = record.elements;
@@ -515,13 +694,13 @@ function findForbiddenV2TagPath(
 
 function findForbiddenV2ColumnsPath(
   columns: unknown[],
-  path: string,
+  pathValue: string,
 ): string | null {
   for (const [index, column] of columns.entries()) {
     if (!column || typeof column !== "object") continue;
 
     const record = column as Record<string, unknown>;
-    const currentPath = `${path}[${index}]`;
+    const currentPath = `${pathValue}[${index}]`;
     const nestedElements = record.elements;
     if (!Array.isArray(nestedElements)) continue;
 

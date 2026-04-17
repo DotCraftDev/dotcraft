@@ -58,6 +58,8 @@ function createTextEvent(overrides?: Partial<FeishuMessageEvent>): FeishuMessage
   const sender = {
     sender_id: {
       open_id: "ou_user_123",
+      user_id: "user_123",
+      union_id: "union_123",
       ...(overrides?.sender?.sender_id ?? {}),
     },
     ...(overrides?.sender ?? {}),
@@ -65,10 +67,20 @@ function createTextEvent(overrides?: Partial<FeishuMessageEvent>): FeishuMessage
   const message = {
     message_id: "om_message_123",
     chat_id: "oc_chat_123",
+    parent_id: "om_parent_123",
+    root_id: "om_root_123",
     chat_type: "p2p" as const,
     message_type: "text",
     content: JSON.stringify({ text: "hello from user" }),
-    mentions: [],
+    mentions: [
+      {
+        key: "@_user_1",
+        id: {
+          open_id: "ou_mention_1",
+        },
+        name: "Mentioned User",
+      },
+    ],
     ...(overrides?.message ?? {}),
   };
   return {
@@ -153,6 +165,14 @@ test("Feishu event handler adds reaction before forwarding inbound message", asy
   assert.deepEqual(steps, ["reaction:om_message_123:GLANCE", "handle:om_message_123"]);
   assert.deepEqual(client.reactedMessages, [{ messageId: "om_message_123", emojiType: "GLANCE" }]);
   assert.equal(adapter.handledMessages.length, 1);
+  assert.deepEqual(adapter.handledMessages[0]?.sender, {
+    openId: "ou_user_123",
+    userId: "user_123",
+    unionId: "union_123",
+  });
+  assert.equal(adapter.handledMessages[0]?.parentId, "om_parent_123");
+  assert.equal(adapter.handledMessages[0]?.rootId, "om_root_123");
+  assert.equal(adapter.handledMessages[0]?.mentions.length, 1);
 });
 
 test("Feishu event handler uses configured ack reaction emoji", async () => {
@@ -278,5 +298,61 @@ test("Feishu event handler keeps processing when adding reaction fails", async (
   assert.equal(client.reactedMessages.length, 1);
   assert.equal(adapter.handledMessages.length, 1);
   assert.equal(adapter.handledMessages[0]?.messageId, "om_message_123");
+});
+
+test("Feishu event handler preserves metadata for post and image messages", async () => {
+  const adapter = createAdapterMock();
+  const client = {
+    ...createClientMock(),
+    async downloadMessageImage(): Promise<string> {
+      return "C:\\temp\\image.jpg";
+    },
+  };
+  const { handlers } = createHandlers({
+    client,
+    adapter,
+    config: {
+      groupMentionRequired: false,
+    },
+  });
+
+  await handlers.onMessage(
+    createTextEvent({
+      message: {
+        message_id: "om_post_1",
+        chat_id: "oc_group_1",
+        chat_type: "group",
+        message_type: "post",
+        content: JSON.stringify({
+          zh_cn: {
+            content: [[{ tag: "text", text: "hello post" }]],
+          },
+        }),
+      },
+    }),
+  );
+  await handlers.onMessage(
+    createTextEvent({
+      message: {
+        message_id: "om_image_1",
+        chat_id: "oc_group_1",
+        chat_type: "group",
+        message_type: "image",
+        content: JSON.stringify({ image_key: "img_123" }),
+      },
+    }),
+  );
+
+  assert.equal(adapter.handledMessages.length, 2);
+  for (const message of adapter.handledMessages) {
+    assert.equal(message.parentId, "om_parent_123");
+    assert.equal(message.rootId, "om_root_123");
+    assert.deepEqual(message.sender, {
+      openId: "ou_user_123",
+      userId: "user_123",
+      unionId: "union_123",
+    });
+    assert.equal(message.mentions.length, 1);
+  }
 });
 
