@@ -7,9 +7,12 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 import type {
   FeishuApiErrorKind,
   FeishuBotDiagnosticTag,
+  FeishuChatMessageItem,
+  FeishuChatMessagePage,
   FeishuConfig,
   FeishuBotInfo,
   FeishuCardActionEvent,
+  FeishuListChatMessagesOptions,
   FeishuMessageEvent,
   FeishuReplyOptions,
   FeishuSendResult,
@@ -229,6 +232,59 @@ export class FeishuClient {
     return {
       messageId: String(responseData.message_id ?? ""),
       chatId: String(responseData.chat_id ?? ""),
+    };
+  }
+
+  async listChatMessages(
+    chatId: string,
+    options: FeishuListChatMessagesOptions,
+  ): Promise<FeishuChatMessagePage> {
+    const normalizedChatId = chatId.trim();
+    if (!normalizedChatId) {
+      throw new TypeError("Feishu history lookup requires a chatId.");
+    }
+
+    const normalizedStartTime = options.startTime.trim();
+    if (!normalizedStartTime) {
+      throw new TypeError("Feishu history lookup requires a startTime.");
+    }
+    if (options.pageSize !== undefined && (!Number.isInteger(options.pageSize) || options.pageSize <= 0)) {
+      throw new TypeError("Feishu history lookup requires pageSize to be a positive integer.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams({
+      container_id_type: "chat",
+      container_id: normalizedChatId,
+      start_time: normalizedStartTime,
+    });
+    if (options.endTime?.trim()) {
+      params.set("end_time", options.endTime.trim());
+    }
+    if (options.pageSize !== undefined) {
+      params.set("page_size", String(options.pageSize));
+    }
+    if (options.pageToken?.trim()) {
+      params.set("page_token", options.pageToken.trim());
+    }
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/im/v1/messages?${params.toString()}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+      "Failed to list Feishu chat messages.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const items = Array.isArray(data.items) ? data.items.map(mapChatMessageItem) : [];
+    return {
+      items,
+      nextPageToken: data.page_token ? String(data.page_token) : undefined,
+      hasMore: data.has_more == null ? undefined : Boolean(data.has_more),
     };
   }
 
@@ -731,6 +787,62 @@ function classifyBotDiagnosticTag(
     capabilityHints.some((value) => value.includes("inactive"));
 
   return hasCapabilityDisabledHint ? "botCapabilityDisabled" : "identityFieldsMissing";
+}
+
+function mapChatMessageItem(input: unknown): FeishuChatMessageItem {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const senderRecord =
+    record.sender && typeof record.sender === "object" ? (record.sender as Record<string, unknown>) : {};
+  const senderIdRecord =
+    senderRecord.id && typeof senderRecord.id === "object"
+      ? (senderRecord.id as Record<string, unknown>)
+      : senderRecord.sender_id && typeof senderRecord.sender_id === "object"
+        ? (senderRecord.sender_id as Record<string, unknown>)
+        : {};
+  const mentions = Array.isArray(record.mentions)
+    ? record.mentions
+        .map(mapMention)
+        .filter((mention): mention is FeishuChatMessageItem["mentions"][number] => mention !== null)
+    : [];
+  const bodyRecord = record.body && typeof record.body === "object" ? (record.body as Record<string, unknown>) : {};
+
+  return {
+    messageId: String(record.message_id ?? ""),
+    chatId: String(record.chat_id ?? ""),
+    chatType:
+      record.chat_type === "p2p" || record.chat_type === "group"
+        ? (record.chat_type as "p2p" | "group")
+        : undefined,
+    messageType: String(record.msg_type ?? record.message_type ?? ""),
+    createTime: record.create_time ? String(record.create_time) : undefined,
+    parentId: record.parent_id ? String(record.parent_id) : undefined,
+    rootId: record.root_id ? String(record.root_id) : undefined,
+    sender: {
+      openId: senderIdRecord.open_id ? String(senderIdRecord.open_id) : undefined,
+      userId: senderIdRecord.user_id ? String(senderIdRecord.user_id) : undefined,
+      unionId: senderIdRecord.union_id ? String(senderIdRecord.union_id) : undefined,
+      senderType: senderRecord.sender_type ? String(senderRecord.sender_type) : undefined,
+      tenantKey: senderRecord.tenant_key ? String(senderRecord.tenant_key) : undefined,
+    },
+    mentions,
+    rawContent: bodyRecord.content == null ? "" : String(bodyRecord.content),
+  };
+}
+
+function mapMention(input: unknown): FeishuChatMessageItem["mentions"][number] | null {
+  if (!input || typeof input !== "object") return null;
+  const record = input as Record<string, unknown>;
+  const id = record.id && typeof record.id === "object" ? (record.id as Record<string, unknown>) : {};
+  return {
+    key: String(record.key ?? ""),
+    id: {
+      open_id: id.open_id ? String(id.open_id) : undefined,
+      user_id: id.user_id ? String(id.user_id) : undefined,
+      union_id: id.union_id ? String(id.union_id) : undefined,
+    },
+    name: String(record.name ?? ""),
+    tenant_key: record.tenant_key ? String(record.tenant_key) : undefined,
+  };
 }
 
 function assertCardPayloadShape(card: Record<string, unknown>): void {

@@ -430,3 +430,199 @@ test("Feishu client raises auth errors when bot probe authorization fails", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Feishu client lists chat messages with normalized metadata and raw content", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          has_more: true,
+          page_token: "next-page",
+          items: [
+            {
+              message_id: "om_hist_1",
+              chat_id: "oc_chat_123",
+              chat_type: "group",
+              msg_type: "text",
+              create_time: "1710000000000",
+              parent_id: "om_parent_1",
+              root_id: "om_root_1",
+              sender: {
+                sender_type: "user",
+                tenant_key: "tenant-1",
+                id: {
+                  open_id: "ou_user_1",
+                  user_id: "user_1",
+                  union_id: "union_1",
+                },
+              },
+              mentions: [
+                {
+                  key: "@_user_1",
+                  id: {
+                    open_id: "ou_mention_1",
+                  },
+                  name: "Mentioned User",
+                },
+              ],
+              body: {
+                content: "{\"text\":\"hello history\"}",
+              },
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await client.listChatMessages("oc_chat_123", {
+      startTime: "1710000000000",
+      endTime: "1710003600000",
+      pageSize: 50,
+      pageToken: "current-page",
+    });
+    assert.equal(result.nextPageToken, "next-page");
+    assert.equal(result.hasMore, true);
+    assert.equal(result.items.length, 1);
+    assert.deepEqual(result.items[0], {
+      messageId: "om_hist_1",
+      chatId: "oc_chat_123",
+      chatType: "group",
+      messageType: "text",
+      createTime: "1710000000000",
+      parentId: "om_parent_1",
+      rootId: "om_root_1",
+      sender: {
+        openId: "ou_user_1",
+        userId: "user_1",
+        unionId: "union_1",
+        senderType: "user",
+        tenantKey: "tenant-1",
+      },
+      mentions: [
+        {
+          key: "@_user_1",
+          id: {
+            open_id: "ou_mention_1",
+            user_id: undefined,
+            union_id: undefined,
+          },
+          name: "Mentioned User",
+          tenant_key: undefined,
+        },
+      ],
+      rawContent: "{\"text\":\"hello history\"}",
+    });
+    assert.equal(calls.length, 2);
+    assert.match(calls[1]!.url, /container_id_type=chat/);
+    assert.match(calls[1]!.url, /container_id=oc_chat_123/);
+    assert.match(calls[1]!.url, /start_time=1710000000000/);
+    assert.match(calls[1]!.url, /end_time=1710003600000/);
+    assert.match(calls[1]!.url, /page_size=50/);
+    assert.match(calls[1]!.url, /page_token=current-page/);
+    assert.equal((calls[1]!.init?.headers as Record<string, string>).Authorization, "Bearer tenant_token");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client rejects invalid history lookup arguments before calling the API", async () => {
+  const client = createClient();
+  await assert.rejects(
+    async () =>
+      await client.listChatMessages("", {
+        startTime: "1710000000000",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof TypeError);
+      assert.match(String((error as Error).message), /chatId/);
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    async () =>
+      await client.listChatMessages("oc_chat_123", {
+        startTime: "   ",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof TypeError);
+      assert.match(String((error as Error).message), /startTime/);
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    async () =>
+      await client.listChatMessages("oc_chat_123", {
+        startTime: "1710000000000",
+        pageSize: 0,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof TypeError);
+      assert.match(String((error as Error).message), /pageSize/);
+      return true;
+    },
+  );
+});
+
+test("Feishu client classifies history lookup failures with FeishuApiError", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 99991403,
+        msg: "permission denied",
+      }),
+      { status: 403, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      async () =>
+        await client.listChatMessages("oc_chat_123", {
+          startTime: "1710000000000",
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof FeishuApiError);
+        assert.equal(error.kind, "permission");
+        assert.equal(error.httpStatus, 403);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

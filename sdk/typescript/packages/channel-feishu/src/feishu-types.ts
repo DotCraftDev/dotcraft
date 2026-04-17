@@ -107,6 +107,40 @@ export interface FeishuReplyOptions {
   uuid?: string;
 }
 
+export interface FeishuListChatMessagesOptions {
+  startTime: string;
+  endTime?: string;
+  pageSize?: number;
+  pageToken?: string;
+}
+
+export interface FeishuChatMessageSender {
+  openId?: string;
+  userId?: string;
+  unionId?: string;
+  senderType?: string;
+  tenantKey?: string;
+}
+
+export interface FeishuChatMessageItem {
+  messageId: string;
+  chatId: string;
+  chatType?: "p2p" | "group";
+  messageType: string;
+  createTime?: string;
+  parentId?: string;
+  rootId?: string;
+  sender: FeishuChatMessageSender;
+  mentions: FeishuMention[];
+  rawContent: string;
+}
+
+export interface FeishuChatMessagePage {
+  items: FeishuChatMessageItem[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
 export type FeishuApiErrorKind =
   | "permission"
   | "auth"

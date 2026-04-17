@@ -146,6 +146,32 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 - 审批：通过交互式卡片处理
 - 回复：在回合结束后发送静态交互卡片
 
+## 能力-权限矩阵
+
+| 能力 | OpenAPI / 接口面 | 典型权限范围 | 是否依赖 Bot 能力 |
+|---|---|---|---|
+| 实时入站事件 | 长连接事件订阅 | 接收入站消息事件所需的订阅权限 | 是 |
+| 历史消息读取 `listChatMessages` | `GET /open-apis/im/v1/messages` | 历史消息读取权限，如 `im:message:readonly` | 通常需要 |
+| 文本发送 `sendTextMessage` | `POST /open-apis/im/v1/messages` | 发送消息权限，如 `im:message:send` | 是 |
+| 消息回复 `replyToMessage` | `POST /open-apis/im/v1/messages/{message_id}/reply` | 发送 / 回复消息权限，如 `im:message:send` | 是 |
+| 交互式卡片 | `im/v1/messages` 创建与更新 | 交互消息发送 / 更新权限 | 是 |
+| 文件上传 / 发送 | `im/v1/files`、`im/v1/messages` | 文件/媒体上传权限与消息发送权限 | 是 |
+| 图片下载 | `im/v1/messages/{message_id}/resources` | 消息资源读取权限，如 `im:resource` | 通常需要 |
+| 表情 reaction | `im/v1/messages/{message_id}/reactions` | reaction 相关权限 | 是 |
+
+说明：
+
+- 上表描述的是公共适配层依赖，不代表租户一定已经开通了这些权限。
+- 即使公共 API 已封装，租户策略、应用发布状态或 Bot 能力状态仍可能阻塞能力调用。
+- 历史消息读取是否可用，最终取决于租户是否授予对应读取权限；本包只负责 API 封装。
+
+## 历史消息 API 的非目标
+
+- 不负责定时轮询或调度编排
+- 不负责 checkpoint 持久化
+- 不负责冷却或审计策略
+- 不保证租户已开通所需权限
+
 ## 认证 / 登录模型
 
 本适配器不使用微信示例那种二维码登录流程。
