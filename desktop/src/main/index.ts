@@ -68,6 +68,10 @@ import {
   resolveExistingProxyRuntimeSettings,
   resolveProxySettings
 } from './proxyRuntime'
+import {
+  registerGuardedProxyManagerStatusHandlers,
+  runIfCurrentProxyManager
+} from './proxyManagerStatus'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -277,23 +281,18 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
   })
   proxyManager = manager
   proxyStatus = { status: 'starting', port: runtime.port }
+  const currentManager = manager
 
-  manager.on('error', (err: Error) => {
-    proxyStatus = { status: 'error', errorMessage: err.message, port: runtime.port }
-  })
-  manager.on('crash', () => {
-    proxyStatus = {
-      status: 'error',
-      errorMessage: 'CLIProxyAPI process crashed unexpectedly',
-      port: runtime.port
-    }
-    void cleanupWorkspaceProxyOverrides(workspacePath, {
-      proxyPort: runtime.port,
-      proxyApiKey: runtime.apiKey
-    })
-  })
-  manager.on('stopped', () => {
-    proxyStatus = { status: 'stopped', port: runtime.port }
+  registerGuardedProxyManagerStatusHandlers({
+    manager: currentManager,
+    workspacePath,
+    port: runtime.port,
+    apiKey: runtime.apiKey,
+    getCurrentManager: () => proxyManager,
+    setProxyStatus: (status) => {
+      proxyStatus = status
+    },
+    cleanupWorkspaceProxyOverrides
   })
 
   manager.spawn()
@@ -303,13 +302,15 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
   }
   await waitForProxyReady(runtime.port, runtime.apiKey)
   await applyWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
-  proxyStatus = {
-    status: 'running',
-    pid: manager.pid ?? undefined,
-    port: runtime.port,
-    baseUrl: buildLocalProxyEndpoint(runtime.port),
-    managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
-  }
+  runIfCurrentProxyManager(currentManager, () => proxyManager, () => {
+    proxyStatus = {
+      status: 'running',
+      pid: manager.pid ?? undefined,
+      port: runtime.port,
+      baseUrl: buildLocalProxyEndpoint(runtime.port),
+      managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
+    }
+  })
 }
 
 async function waitForReadyz(host: string, port: number, timeoutMs = 15_000): Promise<void> {
