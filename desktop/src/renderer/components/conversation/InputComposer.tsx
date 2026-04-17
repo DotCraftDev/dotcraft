@@ -13,6 +13,15 @@ import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 import { ImageStrip } from './ImageStrip'
 import { FileSearchPopover } from './FileSearchPopover'
 import { CommandSearchPopover } from './CommandSearchPopover'
+import { ModelPicker } from './ModelPicker'
+import {
+  ComposerModeSwitch,
+  ComposerShell,
+  SendIcon,
+  StopIcon,
+  composerActionButtonStyle,
+  composerModelPillStyle
+} from './ComposerShell'
 
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
@@ -63,10 +72,10 @@ export function InputComposer({
   const [slashQuery, setSlashQuery] = useState<string | null>(null)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [editorFocused, setEditorFocused] = useState(false)
   /** Bumps on rich-input edits so `canSend` re-evaluates from ref (contentEditable has no React state). */
   const [contentRevision, setContentRevision] = useState(0)
   const richRef = useRef<RichInputAreaHandle>(null)
-  const composerWrapRef = useRef<HTMLDivElement>(null)
   const sendInFlightRef = useRef(false)
 
   const turnStatus = useConversationStore((s) => s.turnStatus)
@@ -371,13 +380,6 @@ export function InputComposer({
     return (textLen > 0 || images.length > 0) && !isWaitingApproval && !modelLoading
   }, [contentRevision, images.length, isWaitingApproval, modelLoading])
 
-  const effectiveModelOptions = useMemo(() => {
-    const withDefault = ['Default', ...modelOptions.filter((o) => o !== 'Default')]
-    if (!modelName || modelName === 'Default') return withDefault
-    if (withDefault.includes(modelName)) return withDefault
-    return [modelName, ...withDefault]
-  }, [modelName, modelOptions])
-
   const onSelectFile = useCallback(
     (relativePath: string): void => {
       richRef.current?.insertFileTag(relativePath)
@@ -393,44 +395,24 @@ export function InputComposer({
     <div style={{ flexShrink: 0 }}>
       {pendingMessage && <PendingMessageIndicator message={pendingMessage} />}
 
-      <div style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div
-          ref={composerWrapRef}
-          style={{ position: 'relative' }}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-        >
-          {dragOver && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                zIndex: 20,
-                border: '2px dashed var(--accent)',
-                borderRadius: '10px',
-                background: 'rgba(124, 58, 237, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                pointerEvents: 'none',
-                fontSize: '13px',
-                color: 'var(--accent)'
-              }}
-            >
-              {t('composer.dropImage')}
-            </div>
-          )}
-
+      <ComposerShell
+        dragOver={dragOver}
+        dropLabel={t('composer.dropImage')}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        focused={editorFocused}
+        imageStrip={
           <ImageStrip
             images={images}
             onRemove={(idx) => {
               setImages((prev) => prev.filter((_, i) => i !== idx))
             }}
           />
-
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
-            <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+        }
+        editor={
+          <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', minWidth: 0 }}>
               <CommandSearchPopover
                 query={slashQuery ?? ''}
                 visible={showSlashPopover}
@@ -452,6 +434,7 @@ export function InputComposer({
               />
               <RichInputArea
                 ref={richRef}
+                chrome="minimal"
                 disabled={isWaitingApproval}
                 suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
                 onToggleModeShortcut={() => {
@@ -468,6 +451,7 @@ export function InputComposer({
                 onContentChange={() => {
                   setContentRevision((n) => n + 1)
                 }}
+                onFocusChange={setEditorFocused}
                 onPasteImage={onPasteImage}
                 onPasteTextOversized={() => {
                   addToast(
@@ -477,205 +461,73 @@ export function InputComposer({
                 }}
               />
             </div>
-
-            {!isWaitingApproval &&
-              (isRunning ? (
-                <button
-                  type="button"
-                  onClick={stopTurn}
-                  title={t('composer.stopTitle')}
-                  aria-label={t('composer.stopAria')}
-                  style={{
-                    ...sendButtonBase,
-                    backgroundColor: 'var(--error)',
-                    color: '#fff'
-                  }}
-                >
-                  <StopIcon />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void sendMessage()
-                  }}
-                  disabled={!canSend}
-                  title={t('composer.sendTitleAlt')}
-                  aria-label={t('composer.sendAriaAlt')}
-                  style={{
-                    ...sendButtonBase,
-                    backgroundColor: canSend ? 'var(--accent)' : 'var(--bg-tertiary)',
-                    color: canSend ? '#fff' : 'var(--text-dimmed)',
-                    cursor: canSend ? 'pointer' : 'default'
-                  }}
-                >
-                  <SendIcon />
-                </button>
-              ))}
           </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            type="button"
-            onClick={() => {
-              void toggleMode()
-            }}
-            title={t('composer.modeTitle', {
-              mode: t(threadMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')
-            })}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '2px 4px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              color: 'var(--text-secondary)'
-            }}
-          >
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
+        }
+        footerLeading={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+            <ComposerModeSwitch
+              value={threadMode}
+              onToggle={() => {
+                void toggleMode()
               }}
-            >
-              <span
-                style={{
-                  width: '7px',
-                  height: '7px',
-                  borderRadius: '50%',
-                  backgroundColor: threadMode === 'agent' ? 'var(--success)' : 'var(--info)',
-                  display: 'block'
-                }}
-              />
-            </span>
-            <span style={{ lineHeight: 1.2 }}>
-              {t(threadMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')}
-            </span>
-          </button>
+              agentLabel={t('composer.mode.agent')}
+              planLabel={t('composer.mode.plan')}
+            />
 
-          <span style={{ color: 'var(--border-default)' }}>·</span>
-
-          {modelLoading ? (
-            <span
-              role="status"
-              aria-live="polite"
-              style={{
-                fontSize: '12px',
-                color: 'var(--text-dimmed)',
-                display: 'inline-block',
-                width: '170px',
-                minWidth: '170px',
-                maxWidth: '170px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-              title={t('composer.modelListLoading')}
-            >
-              {t('composer.modelListLoading')}
-            </span>
-          ) : modelListUnsupportedEndpoint ? (
-            <span
-              style={{
-                fontSize: '12px',
-                color: 'var(--text-dimmed)',
-                display: 'inline-block',
-                width: '170px',
-                minWidth: '170px',
-                maxWidth: '170px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-              title={t('composer.modelListUnsupportedTitle')}
-            >
-              {modelName === 'Default' ? t('composer.defaultModel') : modelName}
-            </span>
-          ) : effectiveModelOptions.length > 0 ? (
-            <select
-              value={modelName}
+            <ModelPicker
+              modelName={modelName}
+              modelOptions={modelOptions}
+              loading={modelLoading}
+              unsupported={modelListUnsupportedEndpoint}
               disabled={modelDisabled}
-              onChange={(e) => onModelChange?.(e.target.value)}
-              title={t('composer.selectModelTitle')}
-              style={{
-                fontSize: '12px',
-                color: modelDisabled ? 'var(--text-dimmed)' : 'var(--text-primary)',
-                backgroundColor: 'var(--bg-secondary)',
-                border: '1px solid var(--border-default)',
-                borderRadius: '6px',
-                padding: '2px 6px',
-                minHeight: '22px',
-                width: '170px',
-                minWidth: '170px',
-                maxWidth: '170px',
-                outline: 'none',
-                cursor: modelDisabled ? 'default' : 'pointer'
-              }}
-            >
-              {effectiveModelOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt === 'Default' ? t('composer.defaultModel') : opt}
-                </option>
-              ))}
-            </select>
+              onChange={onModelChange}
+              triggerStyle={composerModelPillStyle(
+                modelDisabled || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
+                modelDisabled || modelLoading
+              )}
+            />
+          </div>
+        }
+        footerAction={
+          !isWaitingApproval ? (
+            isRunning ? (
+              <button
+                type="button"
+                onClick={stopTurn}
+                title={t('composer.stopTitle')}
+                aria-label={t('composer.stopAria')}
+                style={{
+                  ...composerActionButtonStyle,
+                  backgroundColor: 'var(--error)',
+                  color: '#fff'
+                }}
+              >
+                <StopIcon />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  void sendMessage()
+                }}
+                disabled={!canSend}
+                title={t('composer.sendTitleAlt')}
+                aria-label={t('composer.sendAriaAlt')}
+                style={{
+                  ...composerActionButtonStyle,
+                  backgroundColor: canSend ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
+                  color: canSend ? '#1f2328' : 'var(--text-dimmed)',
+                  cursor: canSend ? 'pointer' : 'default'
+                }}
+              >
+                <SendIcon />
+              </button>
+            )
           ) : (
-            <span
-              style={{
-                fontSize: '12px',
-                color: 'var(--text-dimmed)',
-                display: 'inline-block',
-                width: '170px',
-                minWidth: '170px',
-                maxWidth: '170px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-              title={modelName === 'Default' ? t('composer.defaultModel') : modelName}
-            >
-              {modelName === 'Default' ? t('composer.defaultModel') : modelName}
-            </span>
-          )}
-        </div>
-      </div>
+            <div />
+          )
+        }
+      />
     </div>
   )
-}
-
-function SendIcon(): JSX.Element {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-    </svg>
-  )
-}
-
-function StopIcon(): JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <rect x="4" y="4" width="16" height="16" />
-    </svg>
-  )
-}
-
-const sendButtonBase: React.CSSProperties = {
-  width: '34px',
-  height: '34px',
-  borderRadius: '8px',
-  border: 'none',
-  flexShrink: 0,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  cursor: 'pointer',
-  transition: 'background-color 100ms ease'
 }

@@ -13,6 +13,14 @@ import { CommandSearchPopover } from './CommandSearchPopover'
 import { FileSearchPopover } from './FileSearchPopover'
 import { ImageStrip } from './ImageStrip'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
+import { ModelPicker } from './ModelPicker'
+import {
+  ComposerModeSwitch,
+  ComposerShell,
+  SendIcon,
+  composerActionButtonStyle,
+  composerModelPillStyle
+} from './ComposerShell'
 
 interface ConversationWelcomeProps {
   workspacePath: string
@@ -27,6 +35,7 @@ interface Suggestion {
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+const WELCOME_DRAFT_DEBOUNCE_MS = 250
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'])
 
@@ -50,6 +59,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [contentRevision, setContentRevision] = useState(0)
   const [images, setImages] = useState<ImageAttachment[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [editorFocused, setEditorFocused] = useState(false)
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
   const [atQuery, setAtQuery] = useState<string | null>(null)
@@ -61,6 +71,10 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [modelName, setModelName] = useState<string>('Default')
   const [modelApplying, setModelApplying] = useState(false)
   const sendInFlightRef = useRef(false)
+  const skipDraftPersistRef = useRef(false)
+  const draftHydratedRef = useRef(false)
+  const latestDraftTextRef = useRef('')
+  const initialWelcomeDraftRef = useRef(useUIStore.getState().welcomeDraft)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -69,6 +83,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
   const { addThread, setActiveThreadId } = useThreadStore()
+  const setWelcomeDraft = useUIStore((s) => s.setWelcomeDraft)
+  const clearWelcomeDraft = useUIStore((s) => s.clearWelcomeDraft)
 
   const isConnected = connectionStatus === 'connected'
   const busy = starting || !isConnected
@@ -162,8 +178,25 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   }, [isConnected])
 
   useEffect(() => {
+    const welcomeDraft = initialWelcomeDraftRef.current
+    if (!welcomeDraft) {
+      draftHydratedRef.current = true
+      return
+    }
+
+    richRef.current?.setContent(welcomeDraft.text)
+    latestDraftTextRef.current = welcomeDraft.text
+    setImages(welcomeDraft.images)
+    setWelcomeMode(welcomeDraft.mode)
+    setModelName(welcomeDraft.model || 'Default')
+    setContentRevision((n) => n + 1)
+    draftHydratedRef.current = true
+  }, [])
+
+  useEffect(() => {
     let disposed = false
     const loadModelName = async (): Promise<void> => {
+      if (initialWelcomeDraftRef.current) return
       if (!workspaceConfigPath) {
         setModelName('Default')
         return
@@ -188,13 +221,43 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     workspaceConfigPath
   ])
 
-  const effectiveModelOptions = useMemo(() => {
-    const sourceOptions = modelApiAvailable ? modelOptions : []
-    const withDefault = ['Default', ...sourceOptions.filter((o) => o !== 'Default')]
-    if (!modelName || modelName === 'Default') return withDefault
-    if (withDefault.includes(modelName)) return withDefault
-    return [modelName, ...withDefault]
-  }, [modelApiAvailable, modelName, modelOptions])
+  const flushWelcomeDraft = useCallback((): void => {
+    if (skipDraftPersistRef.current) return
+    const text = richRef.current?.getText() ?? latestDraftTextRef.current
+    const hasText = text.trim().length > 0
+    const hasImages = images.length > 0
+    const model = modelName || 'Default'
+    const hasCustomSettings = welcomeMode !== 'agent' || model !== 'Default'
+
+    if (!hasText && !hasImages && !hasCustomSettings) {
+      clearWelcomeDraft()
+      return
+    }
+
+    setWelcomeDraft({
+      text,
+      images: [...images],
+      mode: welcomeMode,
+      model
+    })
+  }, [clearWelcomeDraft, images, modelName, setWelcomeDraft, welcomeMode])
+
+  useEffect(() => {
+    if (!draftHydratedRef.current) return
+    const timer = setTimeout(() => {
+      flushWelcomeDraft()
+    }, WELCOME_DRAFT_DEBOUNCE_MS)
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [contentRevision, flushWelcomeDraft, images, modelName, welcomeMode])
+
+  useEffect(() => {
+    return () => {
+      if (!draftHydratedRef.current || skipDraftPersistRef.current) return
+      flushWelcomeDraft()
+    }
+  }, [flushWelcomeDraft])
 
   const handleModelChange = useCallback(
     async (nextModel: string): Promise<void> => {
@@ -270,6 +333,9 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         historyMode: 'server'
       }) as { thread: ThreadSummary }
 
+      skipDraftPersistRef.current = true
+      latestDraftTextRef.current = ''
+      clearWelcomeDraft()
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
         text: trimmed,
@@ -288,7 +354,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       sendInFlightRef.current = false
       setStarting(false)
     }
-  }, [images, connectionStatus, workspacePath, addThread, setActiveThreadId, welcomeMode, modelName, modelLoading])
+  }, [
+    images,
+    connectionStatus,
+    workspacePath,
+    addThread,
+    setActiveThreadId,
+    welcomeMode,
+    modelName,
+    modelLoading,
+    clearWelcomeDraft
+  ])
 
   const onPasteImage = useCallback(
     (file: File): void => {
@@ -476,96 +552,105 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       </div>
 
       {/* Bottom composer — same width/padding as InputComposer (full panel width, no max-width cap) */}
-      <div
-        style={{
-          flexShrink: 0,
-          padding: '14px 14px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '6px',
-          opacity: starting ? 0.65 : 1
-        }}
-      >
-          <div
-            style={{ position: 'relative' }}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-          >
-            {dragOver && (
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  zIndex: 20,
-                  border: '2px dashed var(--accent)',
-                  borderRadius: '10px',
-                  background: 'rgba(124, 58, 237, 0.08)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  pointerEvents: 'none',
-                  fontSize: '13px',
-                  color: 'var(--accent)'
-                }}
-              >
-                {t('composer.dropImage')}
-              </div>
-            )}
+      <div style={{ flexShrink: 0 }}>
+        <ComposerShell
+          dragOver={dragOver}
+          dropLabel={t('composer.dropImage')}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          opacity={starting ? 0.65 : 1}
+          focused={editorFocused}
+          imageStrip={
             <ImageStrip
               images={images}
               onRemove={(idx) => {
                 setImages((prev) => prev.filter((_, i) => i !== idx))
               }}
             />
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
-            <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
-              <CommandSearchPopover
-                query={slashQuery ?? ''}
-                visible={showSlashPopover}
-                loading={customCommandStatus === 'loading'}
-                commands={customCommands}
-                onSelect={onSelectCommand}
-                onDismiss={() => {
-                  setSlashDismissed(true)
+          }
+          editor={
+            <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', minWidth: 0 }}>
+                <CommandSearchPopover
+                  query={slashQuery ?? ''}
+                  visible={showSlashPopover}
+                  loading={customCommandStatus === 'loading'}
+                  commands={customCommands}
+                  onSelect={onSelectCommand}
+                  onDismiss={() => {
+                    setSlashDismissed(true)
+                  }}
+                />
+                <FileSearchPopover
+                  query={atQuery ?? ''}
+                  visible={showMentionPopover}
+                  workspacePath={workspacePath}
+                  onSelect={onSelectFile}
+                  onDismiss={() => {
+                    setMentionDismissed(true)
+                  }}
+                />
+                <RichInputArea
+                  ref={richRef}
+                  chrome="minimal"
+                  disabled={busy}
+                  suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
+                  onToggleModeShortcut={toggleWelcomeMode}
+                  placeholder={
+                    isConnected
+                      ? t('welcomeComposer.placeholder.ask')
+                      : t('composer.placeholder.connecting')
+                  }
+                  onSubmit={() => {
+                    void sendFromWelcome()
+                  }}
+                  onAtQuery={handleAtQuery}
+                  onSlashQuery={handleSlashQuery}
+                  onContentChange={() => {
+                    latestDraftTextRef.current = richRef.current?.getText() ?? latestDraftTextRef.current
+                    setContentRevision((n) => n + 1)
+                  }}
+                  onFocusChange={setEditorFocused}
+                  onPasteImage={onPasteImage}
+                  onPasteTextOversized={() => {
+                    addToast(
+                      t('input.truncated', { max: MAX_TEXT_LENGTH.toLocaleString() }),
+                      'warning'
+                    )
+                  }}
+                />
+              </div>
+            </div>
+          }
+          footerLeading={
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+              <ComposerModeSwitch
+                value={welcomeMode}
+                onToggle={() => {
+                  toggleWelcomeMode()
                 }}
+                agentLabel={t('composer.mode.agent')}
+                planLabel={t('composer.mode.plan')}
               />
-              <FileSearchPopover
-                query={atQuery ?? ''}
-                visible={showMentionPopover}
-                workspacePath={workspacePath}
-                onSelect={onSelectFile}
-                onDismiss={() => {
-                  setMentionDismissed(true)
+
+              <ModelPicker
+                modelName={modelName}
+                modelOptions={modelApiAvailable ? modelOptions : []}
+                loading={modelLoading}
+                unsupported={modelListUnsupportedEndpoint}
+                disabled={modelApplying || starting}
+                onChange={(nextModel) => {
+                  void handleModelChange(nextModel)
                 }}
-              />
-              <RichInputArea
-                ref={richRef}
-                disabled={busy}
-                suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
-                onToggleModeShortcut={toggleWelcomeMode}
-                placeholder={
-                  isConnected
-                    ? t('welcomeComposer.placeholder.ask')
-                    : t('composer.placeholder.connecting')
-                }
-                onSubmit={() => {
-                  void sendFromWelcome()
-                }}
-                onAtQuery={handleAtQuery}
-                onSlashQuery={handleSlashQuery}
-                onContentChange={() => {
-                  setContentRevision((n) => n + 1)
-                }}
-                onPasteImage={onPasteImage}
-                onPasteTextOversized={() => {
-                  addToast(
-                    t('input.truncated', { max: MAX_TEXT_LENGTH.toLocaleString() }),
-                    'warning'
-                  )
-                }}
+                triggerStyle={composerModelPillStyle(
+                  modelApplying || starting || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
+                  modelApplying || starting || modelLoading
+                )}
               />
             </div>
+          }
+          footerAction={
             <button
               type="button"
               onClick={() => { void sendFromWelcome() }}
@@ -573,167 +658,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               title={t('welcome.sendTitle')}
               aria-label={t('welcome.sendAria')}
               style={{
-                width: '34px',
-                height: '34px',
-                borderRadius: '8px',
-                border: 'none',
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: canSend ? 'pointer' : 'default',
-                transition: 'background-color 100ms ease',
-                backgroundColor: canSend ? 'var(--accent)' : 'var(--bg-tertiary)',
-                color: canSend ? '#fff' : 'var(--text-dimmed)'
+                ...composerActionButtonStyle,
+                backgroundColor: canSend ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
+                color: canSend ? '#1f2328' : 'var(--text-dimmed)',
+                cursor: canSend ? 'pointer' : 'default'
               }}
             >
               <SendIcon />
             </button>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={toggleWelcomeMode}
-              title={t('composer.modeTitle', {
-                mode: t(welcomeMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')
-              })}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '2px 4px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                color: 'var(--text-secondary)'
-              }}
-            >
-              <span
-                style={{
-                  width: 14,
-                  height: 14,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}
-              >
-                <span
-                  style={{
-                    width: '7px',
-                    height: '7px',
-                    borderRadius: '50%',
-                    backgroundColor: welcomeMode === 'agent' ? 'var(--success)' : 'var(--info)',
-                    display: 'block'
-                  }}
-                />
-              </span>
-              <span style={{ lineHeight: 1.2 }}>
-                {t(welcomeMode === 'agent' ? 'composer.mode.agent' : 'composer.mode.plan')}
-              </span>
-            </button>
-
-            <span style={{ color: 'var(--border-default)' }}>·</span>
-
-            {modelLoading ? (
-              <span
-                role="status"
-                aria-live="polite"
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--text-dimmed)',
-                  display: 'inline-block',
-                  width: '170px',
-                  minWidth: '170px',
-                  maxWidth: '170px',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis'
-                }}
-                title={t('composer.modelListLoading')}
-              >
-                {t('composer.modelListLoading')}
-              </span>
-            ) : modelListUnsupportedEndpoint ? (
-              <span
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--text-dimmed)',
-                  display: 'inline-block',
-                  width: '170px',
-                  minWidth: '170px',
-                  maxWidth: '170px',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis'
-                }}
-                title={t('composer.modelListUnsupportedTitle')}
-              >
-                {modelName === 'Default' ? t('composer.defaultModel') : modelName}
-              </span>
-            ) : effectiveModelOptions.length > 0 ? (
-              <select
-                value={modelName}
-                disabled={modelApplying || starting}
-                onChange={(e) => {
-                  void handleModelChange(e.target.value)
-                }}
-                title={t('composer.selectModelTitle')}
-                style={{
-                  fontSize: '12px',
-                  color: (modelApplying || starting) ? 'var(--text-dimmed)' : 'var(--text-primary)',
-                  backgroundColor: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: '6px',
-                  padding: '2px 6px',
-                  minHeight: '22px',
-                  width: '170px',
-                  minWidth: '170px',
-                  maxWidth: '170px',
-                  outline: 'none',
-                  cursor: (modelApplying || starting) ? 'default' : 'pointer'
-                }}
-              >
-                {effectiveModelOptions.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt === 'Default' ? t('composer.defaultModel') : opt}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--text-dimmed)',
-                  display: 'inline-block',
-                  width: '170px',
-                  minWidth: '170px',
-                  maxWidth: '170px',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis'
-                }}
-                title={modelName === 'Default' ? t('composer.defaultModel') : modelName}
-              >
-                {modelName === 'Default'
-                  ? t('composer.defaultModel')
-                  : modelName}
-              </span>
-            )}
-          </div>
+          }
+        />
       </div>
     </div>
-  )
-}
-
-function SendIcon(): JSX.Element {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-    </svg>
   )
 }

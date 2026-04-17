@@ -43,7 +43,15 @@ async function readJsonObject(path: string): Promise<{ exists: boolean; value: R
 
 async function writeJsonObject(path: string, value: Record<string, unknown>): Promise<void> {
   await fs.mkdir(dirname(path), { recursive: true })
-  await fs.writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`
+  const content = `${JSON.stringify(value, null, 2)}\n`
+  try {
+    await fs.writeFile(tempPath, content, 'utf8')
+    await fs.rename(tempPath, path)
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => {})
+    throw error
+  }
 }
 
 async function readSnapshot(workspacePath: string): Promise<ProxyOverrideSnapshot | null> {
@@ -113,7 +121,6 @@ export async function cleanupWorkspaceProxyOverrides(
   }
 
   let changed = false
-  let shouldDeleteConfig = false
 
   if (snapshot) {
     if (snapshot.hadEndPoint) {
@@ -129,7 +136,6 @@ export async function cleanupWorkspaceProxyOverrides(
     }
 
     changed = true
-    shouldDeleteConfig = !snapshot.configExisted && Object.keys(value).length === 0
   } else {
     const expectedEndpoint =
       typeof options?.proxyPort === 'number' ? buildLocalProxyEndpoint(options.proxyPort) : undefined
@@ -150,15 +156,10 @@ export async function cleanupWorkspaceProxyOverrides(
       delete value.ApiKey
       changed = true
     }
-    shouldDeleteConfig = changed && Object.keys(value).length === 0
   }
 
   if (changed) {
-    if (shouldDeleteConfig) {
-      await fs.rm(configPath, { force: true })
-    } else {
-      await writeJsonObject(configPath, value)
-    }
+    await writeJsonObject(configPath, value)
   }
 
   await removeSnapshot(workspacePath)

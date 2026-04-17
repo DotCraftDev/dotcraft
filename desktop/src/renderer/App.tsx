@@ -769,25 +769,8 @@ export function App(): JSX.Element {
       // Ctrl+N: new thread
       if (ctrl && e.key === 'n') {
         e.preventDefault()
-        const path = workspacePathRef.current
         if (useConnectionStore.getState().status !== 'connected') return
-        window.api.appServer
-          .sendRequest('thread/start', {
-            identity: {
-              channelName: 'dotcraft-desktop',
-              userId: 'local',
-              channelContext: `workspace:${path}`,
-              workspacePath: path
-            },
-            historyMode: 'server'
-          })
-          .then((result) => {
-            const res = result as { thread: ThreadSummary }
-            useThreadStore.getState().addThread(res.thread)
-            useThreadStore.getState().setActiveThreadId(res.thread.id)
-            useUIStore.getState().setActiveMainView('conversation')
-          })
-          .catch((err: unknown) => console.error('Ctrl+N thread/start failed:', err))
+        useUIStore.getState().goToNewChat()
       }
 
       // Ctrl+K: focus thread search

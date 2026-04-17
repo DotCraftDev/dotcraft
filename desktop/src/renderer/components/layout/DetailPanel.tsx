@@ -1,6 +1,7 @@
 import { useT } from '../../contexts/LocaleContext'
 import { useUIStore, type DetailPanelTab } from '../../stores/uiStore'
 import { useConversationStore } from '../../stores/conversationStore'
+import { FilePlus2, ListChecks, SquareTerminal } from 'lucide-react'
 import { ChangesTab } from '../detail/ChangesTab'
 import { PlanTab } from '../detail/PlanTab'
 import { TerminalTab } from '../detail/TerminalTab'
@@ -29,14 +30,18 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
     {
       id: 'changes',
       label: t('detailPanel.tabChanges'),
-      icon: <ChangesIcon />,
+      icon: <FilePlus2 size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />,
       badge: changedFileCount > 0 ? changedFileCount : undefined
     },
-    { id: 'plan', label: t('detailPanel.tabPlan'), icon: <PlanIcon /> },
+    {
+      id: 'plan',
+      label: t('detailPanel.tabPlan'),
+      icon: <ListChecks size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
+    },
     {
       id: 'terminal',
       label: t('detailPanel.tabTerminal'),
-      icon: <TerminalIcon />,
+      icon: <SquareTerminal size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />,
       badge: terminalCount > 0 ? terminalCount : undefined
     }
   ]
@@ -144,71 +149,5 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         {activeDetailTab === 'terminal' && <TerminalTab />}
       </div>
     </div>
-  )
-}
-
-function ChangesIcon(): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      style={{ display: 'block' }}
-    >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-      <path d="M10 14h4" />
-      <path d="M12 12v4" />
-    </svg>
-  )
-}
-
-function PlanIcon(): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      style={{ display: 'block' }}
-    >
-      <path d="m3 17 2 2 4-4" />
-      <path d="m3 7 2 2 4-4" />
-      <path d="M13 6h8" />
-      <path d="M13 12h8" />
-      <path d="M13 18h8" />
-    </svg>
-  )
-}
-
-function TerminalIcon(): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      style={{ display: 'block' }}
-    >
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="m7 8 4 4-4 4" />
-      <path d="M13 16h4" />
-    </svg>
   )
 }

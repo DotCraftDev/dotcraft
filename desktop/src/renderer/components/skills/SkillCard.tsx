@@ -1,5 +1,6 @@
 import { useT } from '../../contexts/LocaleContext'
 import type { SkillEntry } from '../../stores/skillsStore'
+import { PillSwitch } from '../ui/PillSwitch'
 
 interface SkillCardProps {
   skill: SkillEntry
@@ -116,20 +117,19 @@ export function SkillCard({ skill, onOpen, onToggleEnabled }: SkillCardProps): J
           {skill.description || t('skillCard.noDescription')}
         </p>
       </div>
-      <div style={{ flexShrink: 0, paddingTop: '2px' }} onClick={handleSwitchClick}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-dimmed)', userSelect: 'none' }}>
-            {t('skillCard.on')}
-          </span>
-          <input
-            type="checkbox"
-            checked={skill.enabled}
-            onChange={(e) => {
-              void onToggleEnabled(e.target.checked)
-            }}
-            aria-label={skill.enabled ? t('skillCard.toggleDisable') : t('skillCard.toggleEnable')}
-          />
-        </label>
+      <div
+        style={{ flexShrink: 0, paddingTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}
+        onClick={handleSwitchClick}
+      >
+        <span style={{ fontSize: '11px', color: 'var(--text-dimmed)', userSelect: 'none' }}>
+          {t('skillCard.on')}
+        </span>
+        <PillSwitch
+          checked={skill.enabled}
+          onChange={onToggleEnabled}
+          size="sm"
+          aria-label={skill.enabled ? t('skillCard.toggleDisable') : t('skillCard.toggleEnable')}
+        />
       </div>
     </div>
   )

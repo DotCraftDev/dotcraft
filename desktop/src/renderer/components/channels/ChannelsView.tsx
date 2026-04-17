@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { addToast } from '../../stores/toastStore'
 import { useT } from '../../contexts/LocaleContext'
-import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { FolderIcon, RefreshIcon } from '../ui/AppIcons'
+import { IconButton } from '../ui/IconButton'
+import { BackToAppButton } from '../ui/BackToAppButton'
 import { CHANNEL_DEFS, type ChannelId } from './channelDefs'
 import { ChannelCard, type ChannelConnectionState } from './ChannelCard'
 import { QQConfigForm } from './QQConfigForm'
@@ -275,7 +277,6 @@ function seedConfigWithDescriptorDefaults(
 
 export function ChannelsView(): JSX.Element {
   const t = useT()
-  const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const [workspacePath, setWorkspacePath] = useState('')
   const [selectedChannelKey, setSelectedChannelKey] = useState<SelectedChannelKey>('native:qq')
@@ -1035,35 +1036,16 @@ export function ChannelsView(): JSX.Element {
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           gap: '12px',
           padding: '16px 20px',
           borderBottom: '1px solid var(--border-default)',
           flexShrink: 0
         }}
       >
+        <BackToAppButton />
         <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
           {t('channels.title')}
         </h1>
-        <button
-          type="button"
-          onClick={() => setActiveMainView('conversation')}
-          title={t('channels.close')}
-          aria-label={t('channels.close')}
-          style={{
-            width: '30px',
-            height: '30px',
-            borderRadius: '6px',
-            border: '1px solid var(--border-default)',
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '18px',
-            lineHeight: 1
-          }}
-        >
-          ×
-        </button>
       </header>
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
@@ -1110,28 +1092,17 @@ export function ChannelsView(): JSX.Element {
                 {t('channels.modules.group')}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  type="button"
+                <IconButton
+                  icon={<RefreshIcon size={16} />}
+                  label={t('channels.modules.refresh')}
                   onClick={() => {
                     void reloadModules(true)
                   }}
-                  title={t('channels.modules.refresh')}
-                  aria-label={t('channels.modules.refresh')}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--accent)',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: 700,
-                    lineHeight: 1,
-                    padding: 0
-                  }}
-                >
-                  ↻
-                </button>
-                <button
-                  type="button"
+                  size={30}
+                />
+                <IconButton
+                  icon={<FolderIcon size={16} />}
+                  label={t('channels.modules.openFolder')}
                   onClick={() => {
                     void window.api.modules.openFolder().then((result) => {
                       if (!result.ok) {
@@ -1144,32 +1115,8 @@ export function ChannelsView(): JSX.Element {
                       }
                     })
                   }}
-                  title={t('channels.modules.openFolder')}
-                  aria-label={t('channels.modules.openFolder')}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--accent)',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '14px',
-                    height: '14px',
-                    padding: 0
-                  }}
-                >
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
-                    <path
-                      d="M1.5 4.5A1.5 1.5 0 0 1 3 3h2.7l1.3 1.4h6a1.5 1.5 0 0 1 1.5 1.5v1.1h-1V5.9a.5.5 0 0 0-.5-.5H6.56L5.26 4H3a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h5.25v1H3a1.5 1.5 0 0 1-1.5-1.5v-7Z"
-                      fill="currentColor"
-                    />
-                    <path
-                      d="M9.5 8.5a.5.5 0 0 1 .5-.5h4v-4a.5.5 0 0 1 1 0v5.5a.5.5 0 0 1-.5.5H9.5a.5.5 0 0 1 0-1h3.79l-4.64 4.65a.5.5 0 1 1-.7-.71L12.59 8.5H10a.5.5 0 0 1-.5-.5Z"
-                      fill="currentColor"
-                    />
-                  </svg>
-                </button>
+                  size={30}
+                />
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

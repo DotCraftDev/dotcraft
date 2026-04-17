@@ -3,6 +3,8 @@
  * `builtin` channels from `channel/list` (specs/desktop-client.md §9.4.1).
  */
 
+import { mergeAvailableChannels, seedVisibleChannelsFromAvailableChannels } from './availableChannels'
+
 export async function ensureVisibleChannelsSeeded(
   current?: { visibleChannels?: string[] }
 ): Promise<string[]> {
@@ -11,14 +13,15 @@ export async function ensureVisibleChannelsSeeded(
     return s.visibleChannels ?? []
   }
   try {
-    const res = await window.api.appServer.sendRequest('channel/list', {})
-    const r = res as { channels?: { name: string; category?: string }[] }
-    const channels = r.channels ?? []
-    const builtin = channels
-      .filter((c) => (c.category || 'builtin') === 'builtin')
-      .map((c) => c.name)
-    await window.api.settings.set({ visibleChannels: builtin })
-    return builtin
+    const [channelListRes, modules] = await Promise.all([
+      window.api.appServer.sendRequest('channel/list', {}),
+      window.api.modules.list().catch(() => [])
+    ])
+    const r = channelListRes as { channels?: { name: string; category?: string }[] }
+    const mergedChannels = mergeAvailableChannels(r.channels ?? [], modules)
+    const seeded = seedVisibleChannelsFromAvailableChannels(mergedChannels)
+    await window.api.settings.set({ visibleChannels: seeded })
+    return seeded
   } catch {
     return []
   }

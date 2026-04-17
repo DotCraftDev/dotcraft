@@ -66,7 +66,8 @@ describe('proxyWorkspaceConfig', () => {
       proxyApiKey: 'sk-proxy'
     })
 
-    expect(existsSync(join(workspace, '.craft', 'config.json'))).toBe(false)
+    expect(existsSync(join(workspace, '.craft', 'config.json'))).toBe(true)
+    expect(readWorkspaceConfig(workspace)).toEqual({})
   })
 
   it('cleans up stale proxy overrides from older builds without a snapshot', async () => {
@@ -91,5 +92,22 @@ describe('proxyWorkspaceConfig', () => {
     expect(readWorkspaceConfig(workspace)).toEqual({
       Model: 'gpt-4.1'
     })
+  })
+
+  it('writes a valid empty JSON object instead of an empty file', async () => {
+    const workspace = createTempWorkspace()
+    const configPath = join(workspace, '.craft', 'config.json')
+
+    await applyWorkspaceProxyOverrides(workspace, 8317, 'sk-proxy')
+    await cleanupWorkspaceProxyOverrides(workspace, {
+      proxyPort: 8317,
+      proxyApiKey: 'sk-proxy'
+    })
+
+    const raw = readFileSync(configPath, 'utf8')
+    expect(raw).toContain('{')
+    expect(raw).toContain('}')
+    expect(() => JSON.parse(raw)).not.toThrow()
+    expect(JSON.parse(raw)).toEqual({})
   })
 })

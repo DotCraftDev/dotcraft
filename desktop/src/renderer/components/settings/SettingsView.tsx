@@ -5,24 +5,32 @@ import { normalizeLocale, type AppLocale } from '../../../shared/locales'
 import { useSetUiLocale, useT } from '../../contexts/LocaleContext'
 import type { MessageKey } from '../../../shared/locales'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
+import { mergeAvailableChannels } from '../../utils/availableChannels'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { SecretInput } from '../channels/FormShared'
-import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
+import { FolderIcon, OpenInBrowserIcon, RefreshIcon } from '../ui/AppIcons'
+import { ChannelIconBadge } from '../ui/channelMeta'
+import { IconButton } from '../ui/IconButton'
+import { InputWithAction } from '../ui/InputWithAction'
+import { SelectionCard, ResolvedPill } from '../ui/SelectionCard'
+import { PillSwitch } from '../ui/PillSwitch'
+import { BackToAppButton } from '../ui/BackToAppButton'
+import { SettingsGroup, SettingsRow } from './SettingsGroup'
 import {
   useMcpStore,
   type McpServerConfigWire,
   type McpServerStatusWire,
   type McpTransport
 } from '../../stores/mcpStore'
-import type { BinarySource, ProxyOAuthProvider } from '../../../preload/api'
+import type { BinarySource, ProxyAuthFileSummary, ProxyOAuthProvider } from '../../../preload/api'
 
 declare const __APP_VERSION__: string | undefined
 
 interface ChannelInfoWire {
   name: string
-  category: string
+  category?: string
 }
 
 interface SettingsViewProps {
@@ -49,25 +57,26 @@ interface McpTestResultWire {
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
-type SettingsTab = 'general' | 'connection' | 'proxy' | 'channels' | 'archivedThreads' | 'mcp'
+type SettingsTab = 'general' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
-type ProxyProviderStatus = 'idle' | 'pending' | 'ok' | 'error'
+type ProxyProviderStatus = 'idle' | 'checking' | 'pending' | 'ok' | 'error'
 
-const CATEGORY_ORDER = ['builtin', 'social', 'system', 'external'] as const
+const CATEGORY_ORDER = ['builtin', 'social', 'system'] as const
 const DEFAULT_WS_HOST = '127.0.0.1'
 const DEFAULT_WS_PORT = 9100
 const DEFAULT_PROXY_PORT = 8317
+const PROXY_STATUS_RETRY_MS = 1000
+const PROXY_AUTH_FILES_RETRY_MS = 1000
+const PROXY_AUTH_RECOVERY_ATTEMPTS = 5
+const AUTHENTICATED_PROXY_AUTH_STATUSES = new Set(['ready', 'active'])
+const PROXY_OAUTH_POLL_ATTEMPTS = 150
+const PROXY_OAUTH_POLL_INTERVAL_MS = 1200
 const PROXY_OAUTH_PROVIDERS: ProxyOAuthProvider[] = ['codex', 'claude', 'gemini', 'qwen', 'iflow']
 
 const CATEGORY_LABEL_KEY: Record<string, MessageKey> = {
   builtin: 'settings.channelCategory.builtin',
   social: 'settings.channelCategory.social',
-  system: 'settings.channelCategory.system',
-  external: 'settings.channelCategory.external'
-}
-
-function formatChannelChipLabel(name: string): string {
-  return name.toUpperCase()
+  system: 'settings.channelCategory.system'
 }
 
 function createRowId(prefix: string): string {
@@ -82,6 +91,19 @@ function createProxyProviderMap<T>(value: T): Record<ProxyOAuthProvider, T> {
     qwen: value,
     iflow: value
   }
+}
+
+function isAuthenticatedProxyAuthFile(file: ProxyAuthFileSummary, provider?: ProxyOAuthProvider): boolean {
+  return AUTHENTICATED_PROXY_AUTH_STATUSES.has(file.status) &&
+    !file.disabled &&
+    !file.unavailable &&
+    (provider === undefined || file.provider === provider)
+}
+
+function getReadyProxyProviders(files: ProxyAuthFileSummary[]): Set<ProxyOAuthProvider> {
+  return new Set(
+    files.filter((file) => isAuthenticatedProxyAuthFile(file)).map((file) => file.provider)
+  )
 }
 
 function createEmptyMcpServer(): McpServerConfigWire {
@@ -136,18 +158,21 @@ function rowsToRecord(rows: KeyValueRow[]): Record<string, string> {
   return record
 }
 
-function getStatusTone(status?: McpServerStatusWire): { label: string; color: string } {
+function getStatusTone(
+  t: (key: MessageKey | string, vars?: Record<string, string | number>) => string,
+  status?: McpServerStatusWire
+): { label: string; color: string } {
   switch (status?.startupState) {
     case 'ready':
-      return { label: 'Ready', color: '#3fb950' }
+      return { label: t('settings.mcp.status.connected'), color: '#3fb950' }
     case 'starting':
-      return { label: 'Starting', color: '#d29922' }
+      return { label: t('settings.mcp.status.connecting'), color: '#d29922' }
     case 'error':
-      return { label: 'Error', color: '#f85149' }
+      return { label: t('settings.mcp.status.error'), color: '#f85149' }
     case 'disabled':
-      return { label: 'Disabled', color: 'var(--text-dimmed)' }
+      return { label: t('settings.mcp.disabledSuffix').replace(/^ · /, ''), color: 'var(--text-dimmed)' }
     default:
-      return { label: 'Idle', color: 'var(--text-dimmed)' }
+      return { label: t('settings.mcp.status.idle'), color: 'var(--text-dimmed)' }
   }
 }
 
@@ -213,16 +238,25 @@ function primaryButtonStyle(disabled = false): CSSProperties {
   }
 }
 
-function selectionCardStyle(active: boolean): CSSProperties {
+function secondaryActionButtonStyle(disabled = false): CSSProperties {
   return {
-    border: active ? '1px solid var(--accent)' : '1px solid var(--border-default)',
-    borderRadius: '10px',
-    background: active ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-    padding: '12px',
-    display: 'flex',
-    gap: '10px',
-    alignItems: 'flex-start',
-    cursor: 'pointer'
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    minHeight: '34px',
+    padding: '0 14px',
+    border: '1px solid var(--border-default)',
+    borderRadius: '8px',
+    background: 'var(--bg-tertiary)',
+    color: 'var(--text-primary)',
+    fontSize: '13px',
+    fontWeight: 600,
+    lineHeight: 1,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.7 : 1,
+    whiteSpace: 'nowrap',
+    flexShrink: 0
   }
 }
 
@@ -287,6 +321,8 @@ function ProxyOAuthStatusPill({
   const tone =
     status === 'ok'
       ? { bg: 'rgba(52, 199, 89, 0.15)', text: 'var(--success)' }
+      : status === 'checking'
+        ? { bg: 'rgba(120, 120, 128, 0.18)', text: 'var(--text-secondary)' }
       : status === 'pending'
         ? { bg: 'rgba(255, 149, 0, 0.15)', text: 'var(--warning)' }
         : status === 'error'
@@ -421,6 +457,7 @@ export function SettingsView({
   const setUiLocale = useSetUiLocale()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
   const mcpStatuses = useMcpStore((s) => s.statuses)
   const setMcpStatuses = useMcpStore((s) => s.setStatuses)
   const [binarySource, setBinarySource] = useState<BinarySource>('bundled')
@@ -458,12 +495,11 @@ export function SettingsView({
   const [proxyProviderLoading, setProxyProviderLoading] = useState<Record<ProxyOAuthProvider, boolean>>(
     createProxyProviderMap(false)
   )
+  const [proxyStatusRefreshTick, setProxyStatusRefreshTick] = useState(0)
+  const [proxyAuthRefreshTick, setProxyAuthRefreshTick] = useState(0)
+  const [proxyAuthRecoveryAttempt, setProxyAuthRecoveryAttempt] = useState(0)
+  const [proxyAuthRecoverySettled, setProxyAuthRecoverySettled] = useState(false)
   const [restartingProxy, setRestartingProxy] = useState(false)
-  const [modulesDirectory, setModulesDirectory] = useState('')
-  const [savedModulesDirectory, setSavedModulesDirectory] = useState('')
-  const [defaultModulesDirectory, setDefaultModulesDirectory] = useState('~/.craft/modules')
-  const [modulesDirectoryExists, setModulesDirectoryExists] = useState(true)
-  const [checkingModulesDirectory, setCheckingModulesDirectory] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>('dark')
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
@@ -512,46 +548,13 @@ export function SettingsView({
         setProxyAuthDir(s.proxy?.authDir ?? '')
         setProxyBinarySource((s.proxy?.binarySource ?? (s.proxy?.binaryPath ? 'custom' : 'bundled')) as BinarySource)
         setProxyBinaryPath(s.proxy?.binaryPath ?? '')
-        setModulesDirectory(s.modulesDirectory ?? '')
-        setSavedModulesDirectory(s.modulesDirectory ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
       })
       .catch(() => {})
-    window.api.modules
-      .userDirectory()
-      .then((result) => setDefaultModulesDirectory(result.path))
-      .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    const target = modulesDirectory.trim() || defaultModulesDirectory
-    if (!target) return
-    setCheckingModulesDirectory(true)
-    window.api.modules
-      .checkDirectory(target)
-      .then((result) => {
-        if (!cancelled) {
-          setModulesDirectoryExists(result.exists)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setModulesDirectoryExists(false)
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setCheckingModulesDirectory(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [defaultModulesDirectory, modulesDirectory])
 
   useEffect(() => {
     let cancelled = false
@@ -617,29 +620,150 @@ export function SettingsView({
         if (cancelled) return
         setProxyStatusText(status.status)
         setProxyStatusError(status.errorMessage ?? '')
+        if (proxyEnabled && status.status !== 'running') {
+          window.setTimeout(() => {
+            if (!cancelled) {
+              setProxyStatusRefreshTick((prev) => prev + 1)
+            }
+          }, PROXY_STATUS_RETRY_MS)
+        }
       })
       .catch(() => {
         if (!cancelled) {
           setProxyStatusText('error')
           setProxyStatusError('Failed to read proxy status')
+          if (proxyEnabled) {
+            window.setTimeout(() => {
+              if (!cancelled) {
+                setProxyStatusRefreshTick((prev) => prev + 1)
+              }
+            }, PROXY_STATUS_RETRY_MS)
+          }
         }
       })
     return () => {
       cancelled = true
     }
-  }, [restartingProxy, saving])
+  }, [proxyEnabled, restartingProxy, saving, proxyStatusRefreshTick])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!proxyEnabled) {
+      setProxyAuthRecoveryAttempt(0)
+      setProxyAuthRecoverySettled(false)
+      setProxyProviderStatus(createProxyProviderMap<ProxyProviderStatus>('idle'))
+      setProxyProviderError(createProxyProviderMap(''))
+      setProxyProviderLoading(createProxyProviderMap(false))
+      return
+    }
+    if (activeSettingsTab !== 'proxy') {
+      return
+    }
+    if (proxyStatusText !== 'running') {
+      setProxyProviderStatus((prev) => {
+        const next = { ...prev }
+        for (const provider of PROXY_OAUTH_PROVIDERS) {
+          if (prev[provider] === 'idle' || prev[provider] === 'checking') {
+            next[provider] = 'checking'
+          }
+        }
+        return next
+      })
+      setProxyProviderError((prev) => {
+        const next = { ...prev }
+        for (const provider of PROXY_OAUTH_PROVIDERS) {
+          if (next[provider] && !proxyProviderLoading[provider]) {
+            next[provider] = ''
+          }
+        }
+        return next
+      })
+      setProxyAuthRecoveryAttempt(0)
+      setProxyAuthRecoverySettled(false)
+      return
+    }
+    window.api.proxy
+      .listAuthFiles()
+      .then((files) => {
+        if (!cancelled) {
+          const readyProviders = getReadyProxyProviders(files)
+          if (readyProviders.size > 0) {
+            setProxyAuthRecoveryAttempt(0)
+            setProxyAuthRecoverySettled(true)
+            applyProxyAuthFiles(files, { fallbackStatus: 'idle', preservePending: true })
+            return
+          }
+          if (!proxyAuthRecoverySettled && proxyAuthRecoveryAttempt < PROXY_AUTH_RECOVERY_ATTEMPTS - 1) {
+            applyProxyAuthFiles(files, {
+              fallbackStatus: 'checking',
+              preservePending: true,
+              preserveAuthenticated: true
+            })
+            window.setTimeout(() => {
+              if (!cancelled) {
+                setProxyAuthRecoveryAttempt((prev) => prev + 1)
+                setProxyAuthRefreshTick((prev) => prev + 1)
+              }
+            }, PROXY_AUTH_FILES_RETRY_MS)
+            return
+          }
+          setProxyAuthRecoveryAttempt(0)
+          setProxyAuthRecoverySettled(true)
+          applyProxyAuthFiles(files, { fallbackStatus: 'idle', preservePending: true })
+        }
+      })
+      .catch(() => {
+        if (!proxyAuthRecoverySettled && proxyAuthRecoveryAttempt < PROXY_AUTH_RECOVERY_ATTEMPTS - 1) {
+          applyProxyAuthFiles([], {
+            fallbackStatus: 'checking',
+            preservePending: true,
+            preserveAuthenticated: true
+          })
+          window.setTimeout(() => {
+            if (!cancelled) {
+              setProxyAuthRecoveryAttempt((prev) => prev + 1)
+              setProxyAuthRefreshTick((prev) => prev + 1)
+            }
+          }, PROXY_AUTH_FILES_RETRY_MS)
+          return
+        }
+        setProxyAuthRecoveryAttempt(0)
+        setProxyAuthRecoverySettled(true)
+        applyProxyAuthFiles([], { fallbackStatus: 'idle', preservePending: true })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeSettingsTab,
+    proxyEnabled,
+    proxyStatusText,
+    proxyAuthRefreshTick,
+    proxyAuthRecoveryAttempt,
+    proxyAuthRecoverySettled,
+    restartingProxy,
+    saving,
+    proxyProviderLoading
+  ])
 
   useEffect(() => {
     let cancelled = false
     setServerChannels(null)
     setChannelListError(false)
-    window.api.appServer
-      .sendRequest('channel/list', {})
-      .then((res) => {
+    Promise.allSettled([
+      window.api.appServer.sendRequest('channel/list', {}),
+      window.api.modules.list()
+    ])
+      .then((results) => {
         if (cancelled) return
-        const r = res as { channels?: ChannelInfoWire[] }
-        setServerChannels(r.channels ?? [])
-        setChannelListError(false)
+        const [channelListResult, modulesResult] = results
+        const channelListOk = channelListResult.status === 'fulfilled'
+        const serverList = channelListOk
+          ? ((channelListResult.value as { channels?: ChannelInfoWire[] }).channels ?? [])
+          : []
+        const modules = modulesResult.status === 'fulfilled' ? modulesResult.value : []
+        setServerChannels(mergeAvailableChannels(serverList, modules))
+        setChannelListError(!channelListOk)
       })
       .catch(() => {
         if (!cancelled) {
@@ -691,7 +815,8 @@ export function SettingsView({
     const list = serverChannels ?? []
     const map = new Map<string, ChannelInfoWire[]>()
     for (const c of list) {
-      const cat = c.category || 'builtin'
+      const rawCategory = c.category || 'builtin'
+      const cat = rawCategory === 'external' ? 'social' : rawCategory
       const arr = map.get(cat) ?? []
       arr.push(c)
       map.set(cat, arr)
@@ -910,8 +1035,6 @@ export function SettingsView({
         Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
           ? parsedPort
           : DEFAULT_WS_PORT
-      const normalizedModulesDirectory = modulesDirectory.trim()
-      const nextModulesDirectory = normalizedModulesDirectory || undefined
       const parsedProxyPort = Number.parseInt(proxyPort.trim(), 10)
       const normalizedProxyPort =
         Number.isInteger(parsedProxyPort) && parsedProxyPort > 0 && parsedProxyPort <= 65535
@@ -935,17 +1058,8 @@ export function SettingsView({
           binarySource: proxyBinarySource,
           binaryPath: proxyBinaryPath.trim() || undefined,
           authDir: proxyAuthDir.trim() || undefined
-        },
-        modulesDirectory: nextModulesDirectory
-      })
-      const modulesDirectoryChanged = (savedModulesDirectory || '') !== (nextModulesDirectory ?? '')
-      if (modulesDirectoryChanged) {
-        setSavedModulesDirectory(nextModulesDirectory ?? '')
-        await window.api.modules.rescan()
-        if (!modulesDirectoryExists) {
-          addToast(t('settings.modulesDirectoryMissing'), 'error')
         }
-      }
+      })
       setSavedConnectionMode(connectionMode)
       addToast(
         activeSettingsTab === 'connection'
@@ -1052,41 +1166,131 @@ export function SettingsView({
     }
   }
 
+  function applyProxyAuthFiles(
+    files: ProxyAuthFileSummary[],
+    options?: {
+      fallbackStatus?: ProxyProviderStatus | 'keep'
+      preservePending?: boolean
+      preserveAuthenticated?: boolean
+    }
+  ): Set<ProxyOAuthProvider> {
+    const readyProviders = getReadyProxyProviders(files)
+    const fallbackStatus = options?.fallbackStatus ?? 'keep'
+    const preservePending = options?.preservePending ?? false
+    const preserveAuthenticated = options?.preserveAuthenticated ?? false
+
+    setProxyProviderStatus((prev) => {
+      const next = { ...prev }
+      for (const provider of PROXY_OAUTH_PROVIDERS) {
+        if (readyProviders.has(provider)) {
+          next[provider] = 'ok'
+          continue
+        }
+        if (preservePending && prev[provider] === 'pending') {
+          continue
+        }
+        if (preserveAuthenticated && prev[provider] === 'ok') {
+          continue
+        }
+        if (fallbackStatus !== 'keep') {
+          next[provider] = fallbackStatus
+        }
+      }
+      return next
+    })
+    setProxyProviderError((prev) => {
+      const next = { ...prev }
+      for (const provider of PROXY_OAUTH_PROVIDERS) {
+        if (readyProviders.has(provider) || fallbackStatus === 'idle' || fallbackStatus === 'checking') {
+          next[provider] = ''
+        }
+      }
+      return next
+    })
+
+    return readyProviders
+  }
+
+  async function refreshProxyProviderStatuses(options?: {
+    fallbackStatus?: ProxyProviderStatus | 'keep'
+    preservePending?: boolean
+  }): Promise<Set<ProxyOAuthProvider>> {
+    const files = await window.api.proxy.listAuthFiles()
+    return applyProxyAuthFiles(files, options)
+  }
+
+  function markProxyProviderAuthenticated(provider: ProxyOAuthProvider, withToast = true): void {
+    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'ok' }))
+    setProxyProviderError((prev) => ({ ...prev, [provider]: '' }))
+    setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+    if (withToast) {
+      addToast(t('settings.proxy.oauthStatusOk'), 'success')
+    }
+  }
+
+  function markProxyProviderFailure(provider: ProxyOAuthProvider, message: string, toastKey: MessageKey): void {
+    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
+    setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
+    setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+    addToast(t(toastKey, { error: message }), 'error')
+  }
+
   async function pollProxyOAuthStatus(provider: ProxyOAuthProvider, state: string): Promise<void> {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (let attempt = 0; attempt < PROXY_OAUTH_POLL_ATTEMPTS; attempt += 1) {
       try {
         const result = await window.api.proxy.getAuthStatus(state)
         if (result.status === 'ok') {
-          setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'ok' }))
-          setProxyProviderError((prev) => ({ ...prev, [provider]: '' }))
-          setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
-          addToast(t('settings.proxy.oauthStatusOk'), 'success')
+          markProxyProviderAuthenticated(provider)
+          void refreshProxyProviderStatuses({
+            fallbackStatus: 'keep',
+            preservePending: false
+          }).catch(() => {})
           return
         }
 
-        if (result.status !== 'wait') {
+        if (result.status === 'error') {
           const message = result.error || result.status
-          setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
-          setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
-          setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
-          addToast(t('settings.proxy.oauthStatusError', { error: message }), 'error')
+          const readyProviders = await refreshProxyProviderStatuses({
+            fallbackStatus: 'keep',
+            preservePending: true
+          }).catch(() => new Set<ProxyOAuthProvider>())
+          if (readyProviders.has(provider)) {
+            markProxyProviderAuthenticated(provider)
+            return
+          }
+          markProxyProviderFailure(provider, message, 'settings.proxy.oauthStatusError')
           return
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
-        setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
-        setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
-        addToast(t('settings.proxy.oauthStatusFailed', { error: message }), 'error')
+        const readyProviders = await refreshProxyProviderStatuses({
+          fallbackStatus: 'keep',
+          preservePending: true
+        }).catch(() => new Set<ProxyOAuthProvider>())
+        if (readyProviders.has(provider)) {
+          markProxyProviderAuthenticated(provider)
+          return
+        }
+        markProxyProviderFailure(provider, message, 'settings.proxy.oauthStatusFailed')
         return
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 1200))
+      await new Promise((resolve) => window.setTimeout(resolve, PROXY_OAUTH_POLL_INTERVAL_MS))
     }
 
-    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'pending' }))
+    const timeoutMessage = t('settings.proxy.oauthStatusTimeout')
+    const readyProviders = await refreshProxyProviderStatuses({
+      fallbackStatus: 'keep',
+      preservePending: true
+    }).catch(() => new Set<ProxyOAuthProvider>())
+    if (readyProviders.has(provider)) {
+      markProxyProviderAuthenticated(provider)
+      return
+    }
+    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
+    setProxyProviderError((prev) => ({ ...prev, [provider]: timeoutMessage }))
     setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
-    addToast(t('settings.proxy.oauthStatusWaiting'), 'success')
+    addToast(timeoutMessage, 'error')
   }
 
   async function handleStartProxyOAuth(provider: ProxyOAuthProvider): Promise<void> {
@@ -1139,26 +1343,11 @@ export function SettingsView({
     }
   }
 
-  async function handlePickModulesDirectory(): Promise<void> {
-    try {
-      const picked = await window.api.workspace.pickFolder()
-      if (picked) {
-        setModulesDirectory(picked)
-      }
-    } catch (err) {
-      addToast(
-        t('settings.saveFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
-    }
-  }
-
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: t('settings.tab.general') },
     { id: 'connection', label: t('settings.tab.connection') },
     { id: 'proxy', label: t('settings.tab.proxy') },
+    { id: 'usage', label: t('settings.tab.usage') },
     { id: 'channels', label: t('settings.tab.channels') },
     { id: 'archivedThreads', label: t('settings.tab.archivedThreads') }
   ]
@@ -1181,35 +1370,16 @@ export function SettingsView({
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           gap: '12px',
           padding: '16px 20px',
           borderBottom: '1px solid var(--border-default)',
           flexShrink: 0
         }}
       >
+        <BackToAppButton onClick={closeSettings} />
         <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
           {t('settings.title')}
         </h1>
-        <button
-          type="button"
-          onClick={closeSettings}
-          title={t('settings.close')}
-          aria-label={t('settings.closeAria')}
-          style={{
-            width: '30px',
-            height: '30px',
-            borderRadius: '6px',
-            border: '1px solid var(--border-default)',
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '18px',
-            lineHeight: 1
-          }}
-        >
-          ×
-        </button>
       </header>
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
@@ -1251,374 +1421,306 @@ export function SettingsView({
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
           <div style={{ maxWidth: activeSettingsTab === 'mcp' ? '760px' : '560px' }}>
             {activeSettingsTab === 'general' && (
-              <>
-                <div style={{ marginBottom: '16px' }}>
-                  <label htmlFor="settings-modules-directory" style={sectionLabelStyle()}>
-                    {t('settings.modulesDirectory')}
-                  </label>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr auto',
-                      gap: '8px'
-                    }}
-                  >
-                    <input
-                      id="settings-modules-directory"
-                      type="text"
-                      value={modulesDirectory}
-                      onChange={(e) => setModulesDirectory(e.target.value)}
-                      placeholder={defaultModulesDirectory}
-                      style={inputStyle(true)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handlePickModulesDirectory()
+              <SettingsGroup title={t('settings.group.general')}>
+                <SettingsRow
+                  label={t('settings.language')}
+                  htmlFor="settings-language"
+                  control={
+                    <select
+                      id="settings-language"
+                      value={locale}
+                      onChange={(e) => {
+                        void handleLocaleChange(e.target.value as AppLocale)
                       }}
-                      style={secondaryButtonStyle(false)}
+                      style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
                     >
-                      {t('settings.modulesDirectoryBrowse')}
-                    </button>
+                      <option value="en">{t('settings.language.en')}</option>
+                      <option value="zh-Hans">{t('settings.language.zhHans')}</option>
+                    </select>
+                  }
+                />
+
+                <SettingsRow
+                  label={t('settings.theme')}
+                  htmlFor="settings-theme"
+                  control={
+                    <select
+                      id="settings-theme"
+                      value={theme}
+                      onChange={(e) => {
+                        void handleThemeChange(e.target.value as ThemeMode)
+                      }}
+                      style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
+                    >
+                      <option value="dark">{t('settings.optionThemeDark')}</option>
+                      <option value="light">{t('settings.optionThemeLight')}</option>
+                    </select>
+                  }
+                />
+
+                <SettingsRow>
+                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                    DotCraft Desktop {t('settings.version')} {version}
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '6px' }}>
-                    {t('settings.modulesDirectoryHint')}
-                  </div>
-                  {!checkingModulesDirectory && !modulesDirectoryExists && (
-                    <div style={{ fontSize: '11px', color: 'var(--warning, #ff9f0a)', marginTop: '4px' }}>
-                      {t('settings.modulesDirectoryMissing')}
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ marginBottom: '16px' }}>
-                  <label htmlFor="settings-language" style={sectionLabelStyle()}>
-                    {t('settings.language')}
-                  </label>
-                  <select
-                    id="settings-language"
-                    value={locale}
-                    onChange={(e) => {
-                      void handleLocaleChange(e.target.value as AppLocale)
-                    }}
-                    style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
-                  >
-                    <option value="en">{t('settings.language.en')}</option>
-                    <option value="zh-Hans">{t('settings.language.zhHans')}</option>
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: '16px' }}>
-                  <label htmlFor="settings-theme" style={sectionLabelStyle()}>
-                    {t('settings.theme')}
-                  </label>
-                  <select
-                    id="settings-theme"
-                    value={theme}
-                    onChange={(e) => {
-                      void handleThemeChange(e.target.value as ThemeMode)
-                    }}
-                    style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
-                  >
-                    <option value="dark">{t('settings.optionThemeDark')}</option>
-                    <option value="light">{t('settings.optionThemeLight')}</option>
-                  </select>
-                </div>
-
-                <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                  DotCraft Desktop {t('settings.version')} {version}
-                </div>
-              </>
+                </SettingsRow>
+              </SettingsGroup>
             )}
 
             {activeSettingsTab === 'connection' && (
-              <>
-                <div style={{ marginBottom: '16px' }}>
-                  <label htmlFor="settings-connection-mode" style={sectionLabelStyle()}>
-                    {t('settings.connectionMode')}
-                  </label>
-                  <select
-                    id="settings-connection-mode"
-                    value={connectionMode}
-                    onChange={(e) => {
-                      setConnectionMode(e.target.value as ConnectionMode)
-                    }}
-                    style={{ ...inputStyle(), cursor: 'pointer' }}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <SettingsGroup title={t('settings.group.connection')}>
+                  <SettingsRow
+                    orientation="block"
+                    label={t('settings.connectionMode')}
+                    description={t('settings.connectionModeHint')}
+                    htmlFor="settings-connection-mode"
                   >
-                    <option value="stdio">{t('settings.connectionMode.stdio')}</option>
-                    <option value="websocket">{t('settings.connectionMode.websocket')}</option>
-                    <option value="stdioAndWebSocket">{t('settings.connectionMode.stdioAndWebSocket')}</option>
-                    <option value="remote">{t('settings.connectionMode.remote')}</option>
-                  </select>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                    {t('settings.connectionModeHint')}
-                  </div>
-                </div>
-
-                {(connectionMode === 'websocket' || connectionMode === 'stdioAndWebSocket') && (
-                  <div style={{ marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 120px', gap: '8px' }}>
-                    <div>
-                      <label htmlFor="settings-ws-host" style={sectionLabelStyle()}>
-                        {t('settings.wsHost')}
-                      </label>
-                      <input
-                        id="settings-ws-host"
-                        type="text"
-                        value={wsHost}
-                        onChange={(e) => setWsHost(e.target.value)}
-                        placeholder={DEFAULT_WS_HOST}
-                        style={inputStyle(true)}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="settings-ws-port" style={sectionLabelStyle()}>
-                        {t('settings.wsPort')}
-                      </label>
-                      <input
-                        id="settings-ws-port"
-                        type="number"
-                        value={wsPort}
-                        onChange={(e) => setWsPort(e.target.value)}
-                        placeholder={String(DEFAULT_WS_PORT)}
-                        min={1}
-                        max={65535}
-                        style={inputStyle(true)}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {connectionMode === 'remote' && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <label htmlFor="settings-remote-url" style={sectionLabelStyle()}>
-                      {t('settings.remoteUrl')}
-                    </label>
-                    <input
-                      id="settings-remote-url"
-                      type="text"
-                      value={remoteUrl}
-                      onChange={(e) => setRemoteUrl(e.target.value)}
-                      placeholder="ws://127.0.0.1:9100/ws"
-                      style={inputStyle(true)}
-                    />
-                    <label style={{ ...sectionLabelStyle(), marginTop: '10px' }}>
-                      {t('settings.remoteToken')}
-                    </label>
-                    <SecretInput
-                      value={remoteToken}
-                      onChange={setRemoteToken}
-                      placeholder={t('settings.remoteTokenPlaceholder')}
-                      style={inputStyle(true)}
-                    />
-                  </div>
-                )}
-
-                <div style={{ marginBottom: '16px' }}>
-                  <div style={sectionLabelStyle()}>{t('settings.appServerBinary')}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {(['bundled', 'path', 'custom'] as BinarySource[]).map((source) => {
-                      const active = binarySource === source
-                      const titleKey =
-                        source === 'bundled'
-                          ? 'settings.binarySource.bundled'
-                          : source === 'path'
-                            ? 'settings.binarySource.path'
-                            : 'settings.binarySource.custom'
-                      const descKey =
-                        source === 'bundled'
-                          ? 'settings.binarySource.bundledDesc'
-                          : source === 'path'
-                            ? 'settings.binarySource.pathDesc'
-                            : 'settings.binarySource.customDesc'
-                      return (
-                        <label key={source} style={selectionCardStyle(active)}>
-                          <input
-                            type="radio"
-                            name="settings-binary-source"
-                            checked={active}
-                            onChange={() => setBinarySource(source)}
-                            style={{ marginTop: '3px' }}
-                          />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div
-                              style={{
-                                fontSize: '13px',
-                                fontWeight: 600,
-                                color: 'var(--text-primary)'
-                              }}
-                            >
-                              {t(titleKey)}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: '11px',
-                                color: 'var(--text-dimmed)',
-                                lineHeight: 1.5,
-                                marginTop: '4px'
-                              }}
-                            >
-                              {t(descKey)}
-                            </div>
-                          </div>
-                        </label>
-                      )
-                    })}
-                  </div>
-                  {binarySource === 'custom' && (
-                    <div
-                      style={{
-                        marginTop: '10px',
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto',
-                        gap: '8px'
+                    <select
+                      id="settings-connection-mode"
+                      value={connectionMode}
+                      onChange={(e) => {
+                        setConnectionMode(e.target.value as ConnectionMode)
                       }}
+                      style={{ ...inputStyle(), cursor: 'pointer' }}
                     >
-                      <input
-                        id="settings-binary-path"
-                        ref={inputRef}
-                        type="text"
-                        value={binaryPath}
-                        onChange={(e) => setBinaryPath(e.target.value)}
-                        placeholder={t('settings.binaryPlaceholder')}
-                        style={inputStyle(true)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handlePickBinary()
-                        }}
-                        style={secondaryButtonStyle(false)}
-                      >
-                        {t('settings.binaryBrowse')}
-                      </button>
-                    </div>
+                      <option value="stdio">{t('settings.connectionMode.stdio')}</option>
+                      <option value="websocket">{t('settings.connectionMode.websocket')}</option>
+                      <option value="stdioAndWebSocket">{t('settings.connectionMode.stdioAndWebSocket')}</option>
+                      <option value="remote">{t('settings.connectionMode.remote')}</option>
+                    </select>
+                  </SettingsRow>
+
+                  {(connectionMode === 'websocket' || connectionMode === 'stdioAndWebSocket') && (
+                    <SettingsRow orientation="block" label={t('settings.wsHost')} htmlFor="settings-ws-host">
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: '8px' }}>
+                        <input
+                          id="settings-ws-host"
+                          type="text"
+                          value={wsHost}
+                          onChange={(e) => setWsHost(e.target.value)}
+                          placeholder={DEFAULT_WS_HOST}
+                          style={inputStyle(true)}
+                        />
+                        <input
+                          id="settings-ws-port"
+                          type="number"
+                          value={wsPort}
+                          onChange={(e) => setWsPort(e.target.value)}
+                          placeholder={String(DEFAULT_WS_PORT)}
+                          min={1}
+                          max={65535}
+                          style={inputStyle(true)}
+                          aria-label={t('settings.wsPort')}
+                        />
+                      </div>
+                    </SettingsRow>
                   )}
-                  <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '8px', lineHeight: 1.5 }}>
-                    {t('settings.binaryHint')}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color:
-                        !resolvingBinary && !resolvedBinaryPath ? 'var(--error)' : 'var(--text-dimmed)',
-                      marginTop: '6px',
-                      lineHeight: 1.5
-                    }}
-                  >
-                    {resolvingBinary
-                      ? t('settings.binaryResolving')
-                      : resolvedBinaryPath
-                        ? t('settings.binaryResolved', { path: resolvedBinaryPath })
-                        : binarySource === 'bundled'
-                          ? t('settings.binaryNotFound.bundled')
-                          : binarySource === 'path'
-                            ? t('settings.binaryNotFound.path')
-                            : t('settings.binaryNotFound.custom')}
-                  </div>
-                </div>
 
-                {canRestartManagedAppServer && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleRestartManagedAppServer()
-                      }}
-                      disabled={restartingAppServer || saving}
-                      style={secondaryButtonStyle(restartingAppServer || saving)}
+                  {connectionMode === 'remote' && (
+                    <SettingsRow
+                      orientation="block"
+                      label={t('settings.remoteUrl')}
+                      htmlFor="settings-remote-url"
                     >
-                      {restartingAppServer ? t('settings.restartingAppServer') : t('settings.restartAppServer')}
-                    </button>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '6px' }}>
-                      {t('settings.restartAppServerHint')}
+                      <input
+                        id="settings-remote-url"
+                        type="text"
+                        value={remoteUrl}
+                        onChange={(e) => setRemoteUrl(e.target.value)}
+                        placeholder="ws://127.0.0.1:9100/ws"
+                        style={inputStyle(true)}
+                      />
+                      <label style={{ ...sectionLabelStyle(), marginTop: '10px' }}>
+                        {t('settings.remoteToken')}
+                      </label>
+                      <SecretInput
+                        value={remoteToken}
+                        onChange={setRemoteToken}
+                        placeholder={t('settings.remoteTokenPlaceholder')}
+                        style={inputStyle(true)}
+                      />
+                    </SettingsRow>
+                  )}
+                </SettingsGroup>
+
+                <SettingsGroup title={t('settings.appServerBinary')} description={t('settings.binaryHint')}>
+                  <SettingsRow orientation="block">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {(['bundled', 'path', 'custom'] as BinarySource[]).map((source) => {
+                        const active = binarySource === source
+                        const titleKey =
+                          source === 'bundled'
+                            ? 'settings.binarySource.bundled'
+                            : source === 'path'
+                              ? 'settings.binarySource.path'
+                              : 'settings.binarySource.custom'
+                        const descKey =
+                          source === 'bundled'
+                            ? 'settings.binarySource.bundledDesc'
+                            : source === 'path'
+                              ? 'settings.binarySource.pathDesc'
+                              : 'settings.binarySource.customDesc'
+                        const showResolved = !resolvingBinary && !!resolvedBinaryPath
+                        const showError = !resolvingBinary && !resolvedBinaryPath
+                        const errorText =
+                          source === 'bundled'
+                            ? t('settings.binaryNotFound.bundled')
+                            : source === 'path'
+                              ? t('settings.binaryNotFound.path')
+                              : t('settings.binaryNotFound.custom')
+                        return (
+                          <SelectionCard
+                            key={source}
+                            name="settings-binary-source"
+                            value={source}
+                            active={active}
+                            onSelect={() => setBinarySource(source)}
+                            title={t(titleKey)}
+                            description={t(descKey)}
+                            resolvedBadge={
+                              showResolved ? <ResolvedPill label={t('settings.binaryResolved')} /> : undefined
+                            }
+                            errorHint={showError ? errorText : undefined}
+                            extra={
+                              source === 'custom' ? (
+                                <InputWithAction
+                                  id="settings-binary-path"
+                                  inputRef={inputRef}
+                                  mono
+                                  value={binaryPath}
+                                  onChange={(e) => setBinaryPath(e.target.value)}
+                                  placeholder={t('settings.binaryPlaceholder')}
+                                  onInputClick={(e) => e.stopPropagation()}
+                                  actionIcon={<FolderIcon size={16} />}
+                                  actionLabel={t('settings.binaryBrowse')}
+                                  onAction={(e) => {
+                                    e.stopPropagation()
+                                    void handlePickBinary()
+                                  }}
+                                />
+                              ) : undefined
+                            }
+                          />
+                        )
+                      })}
+                      {resolvingBinary && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', lineHeight: 1.5 }}>
+                          {t('settings.binaryResolving')}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
-              </>
+                  </SettingsRow>
+
+                  {canRestartManagedAppServer && (
+                    <SettingsRow
+                      label={t('settings.appServerControl')}
+                      description={t('settings.restartAppServerHint')}
+                      control={
+                        <button
+                          type="button"
+                          aria-label={
+                            restartingAppServer
+                              ? t('settings.restartingAppServer')
+                              : t('settings.restartAppServer')
+                          }
+                          onClick={() => {
+                            void handleRestartManagedAppServer()
+                          }}
+                          disabled={restartingAppServer || saving}
+                          style={secondaryActionButtonStyle(restartingAppServer || saving)}
+                        >
+                          <RefreshIcon
+                            size={16}
+                            style={restartingAppServer ? { animation: 'spin 0.8s linear infinite' } : undefined}
+                          />
+                          <span>
+                            {restartingAppServer ? t('settings.action.restarting') : t('settings.action.restart')}
+                          </span>
+                        </button>
+                      }
+                    />
+                  )}
+                </SettingsGroup>
+              </div>
             )}
 
             {activeSettingsTab === 'proxy' && (
-              <>
-                <div style={{ ...cardStyle(), marginBottom: '16px' }}>
-                  <ToggleSwitch
-                    checked={proxyEnabled}
-                    onChange={setProxyEnabled}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <SettingsGroup title={t('settings.group.proxyToggle')}>
+                  <SettingsRow
                     label={t('settings.proxy.enable')}
                     description={t('settings.proxy.enableHint')}
+                    control={<PillSwitch checked={proxyEnabled} onChange={setProxyEnabled} />}
                   />
-                  <div
-                    style={{
-                      marginTop: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '8px',
-                      flexWrap: 'wrap'
-                    }}
-                  >
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                        {t('settings.proxy.status')}
+                  <SettingsRow
+                    label={
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span>{t('settings.proxy.restart')}</span>
+                        <ProxyRuntimeStatusPill
+                          status={proxyStatusText}
+                          label={t(`settings.proxy.status.${proxyStatusText}`)}
+                        />
                       </span>
-                      <ProxyRuntimeStatusPill
-                        status={proxyStatusText}
-                        label={t(`settings.proxy.status.${proxyStatusText}`)}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleRestartProxy()
-                      }}
-                      disabled={restartingProxy || saving || !proxyEnabled}
-                      style={secondaryButtonStyle(restartingProxy || saving || !proxyEnabled)}
-                    >
-                      {restartingProxy ? t('settings.proxy.restarting') : t('settings.proxy.restart')}
-                    </button>
-                  </div>
-                  {proxyStatusError && (
-                    <div style={{ fontSize: '12px', color: 'var(--error)', marginTop: '8px' }}>{proxyStatusError}</div>
-                  )}
-                </div>
+                    }
+                    description={
+                      <>
+                        {t('settings.proxy.restartHint')}
+                        {proxyStatusError && (
+                          <div style={{ fontSize: '12px', color: 'var(--error)', marginTop: '6px' }}>
+                            {proxyStatusError}
+                          </div>
+                        )}
+                      </>
+                    }
+                    control={
+                      <button
+                        type="button"
+                        aria-label={restartingProxy ? t('settings.proxy.restarting') : t('settings.proxy.restart')}
+                        onClick={() => {
+                          void handleRestartProxy()
+                        }}
+                        disabled={restartingProxy || saving || !proxyEnabled}
+                        style={secondaryActionButtonStyle(restartingProxy || saving || !proxyEnabled)}
+                      >
+                        <RefreshIcon
+                          size={16}
+                          style={restartingProxy ? { animation: 'spin 0.8s linear infinite' } : undefined}
+                        />
+                        <span>{restartingProxy ? t('settings.action.restarting') : t('settings.action.restart')}</span>
+                      </button>
+                    }
+                  />
+                </SettingsGroup>
 
-                <div
+                <SettingsGroup
+                  title={t('settings.group.proxyConfig')}
                   style={{
-                    ...cardStyle(),
-                    marginBottom: '16px',
                     opacity: proxyEnabled ? 1 : 0.55,
                     pointerEvents: proxyEnabled ? 'auto' : 'none'
                   }}
                 >
-                  <div style={{ ...sectionLabelStyle(), marginBottom: '10px' }}>{t('settings.proxy.configuration')}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: '8px' }}>
-                    <div>
-                      <label htmlFor="settings-proxy-auth-dir" style={sectionLabelStyle()}>
-                        {t('settings.proxy.authDir')}
-                      </label>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
-                        <input
-                          id="settings-proxy-auth-dir"
-                          type="text"
-                          value={proxyAuthDir}
-                          onChange={(e) => setProxyAuthDir(e.target.value)}
-                          placeholder="~/.cli-proxy-api"
-                          style={inputStyle(true)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void handlePickProxyAuthDir()
-                          }}
-                          style={secondaryButtonStyle(false)}
-                        >
-                          {t('settings.binaryBrowse')}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label htmlFor="settings-proxy-port" style={sectionLabelStyle()}>
-                        {t('settings.proxy.port')}
-                      </label>
+                  <SettingsRow
+                    orientation="block"
+                    label={t('settings.proxy.authDir')}
+                    htmlFor="settings-proxy-auth-dir"
+                  >
+                    <InputWithAction
+                      id="settings-proxy-auth-dir"
+                      value={proxyAuthDir}
+                      onChange={(e) => setProxyAuthDir(e.target.value)}
+                      placeholder="~/.cli-proxy-api"
+                      mono
+                      actionIcon={<FolderIcon size={16} />}
+                      actionLabel={t('settings.binaryBrowse')}
+                      onAction={() => {
+                        void handlePickProxyAuthDir()
+                      }}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    label={t('settings.proxy.port')}
+                    htmlFor="settings-proxy-port"
+                    control={
                       <input
                         id="settings-proxy-port"
                         type="number"
@@ -1626,149 +1728,172 @@ export function SettingsView({
                         onChange={(e) => setProxyPort(e.target.value)}
                         min={1}
                         max={65535}
-                        style={inputStyle(true)}
+                        style={{ ...inputStyle(true), width: 130 }}
                       />
-                    </div>
-                  </div>
-                </div>
+                    }
+                  />
+                </SettingsGroup>
 
-                <div
+                <SettingsGroup
+                  title={t('settings.proxy.binaryTitle')}
                   style={{
-                    ...cardStyle(),
-                    marginBottom: '16px',
                     opacity: proxyEnabled ? 1 : 0.55,
                     pointerEvents: proxyEnabled ? 'auto' : 'none'
                   }}
                 >
-                  <div style={{ ...sectionLabelStyle(), marginBottom: '10px' }}>{t('settings.proxy.binaryTitle')}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {(['bundled', 'path', 'custom'] as BinarySource[]).map((source) => {
-                      const active = proxyBinarySource === source
-                      const titleKey =
-                        source === 'bundled'
-                          ? 'settings.binarySource.bundled'
-                          : source === 'path'
-                            ? 'settings.binarySource.path'
-                            : 'settings.binarySource.custom'
-                      const descKey =
-                        source === 'bundled'
-                          ? 'settings.proxy.binarySource.bundledDesc'
-                          : source === 'path'
-                            ? 'settings.proxy.binarySource.pathDesc'
-                            : 'settings.proxy.binarySource.customDesc'
-                      return (
-                        <label key={`proxy-${source}`} style={selectionCardStyle(active)}>
-                          <input
-                            type="radio"
+                  <SettingsRow orientation="block">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {(['bundled', 'path', 'custom'] as BinarySource[]).map((source) => {
+                        const active = proxyBinarySource === source
+                        const titleKey =
+                          source === 'bundled'
+                            ? 'settings.binarySource.bundled'
+                            : source === 'path'
+                              ? 'settings.binarySource.path'
+                              : 'settings.binarySource.custom'
+                        const descKey =
+                          source === 'bundled'
+                            ? 'settings.proxy.binarySource.bundledDesc'
+                            : source === 'path'
+                              ? 'settings.proxy.binarySource.pathDesc'
+                              : 'settings.proxy.binarySource.customDesc'
+                        const showResolved = !resolvingProxyBinary && !!resolvedProxyBinaryPath
+                        const showError = !resolvingProxyBinary && !resolvedProxyBinaryPath
+                        const errorText =
+                          source === 'bundled'
+                            ? t('settings.binaryNotFound.bundled')
+                            : source === 'path'
+                              ? t('settings.binaryNotFound.path')
+                              : t('settings.binaryNotFound.custom')
+                        return (
+                          <SelectionCard
+                            key={`proxy-${source}`}
                             name="settings-proxy-binary-source"
-                            checked={active}
-                            onChange={() => setProxyBinarySource(source)}
-                            style={{ marginTop: '3px' }}
+                            value={source}
+                            active={active}
+                            onSelect={() => setProxyBinarySource(source)}
+                            title={t(titleKey)}
+                            description={t(descKey)}
+                            resolvedBadge={
+                              showResolved ? <ResolvedPill label={t('settings.binaryResolved')} /> : undefined
+                            }
+                            errorHint={showError ? errorText : undefined}
+                            extra={
+                              source === 'custom' ? (
+                                <InputWithAction
+                                  mono
+                                  value={proxyBinaryPath}
+                                  onChange={(e) => setProxyBinaryPath(e.target.value)}
+                                  placeholder={t('settings.proxy.binaryPlaceholder')}
+                                  onInputClick={(e) => e.stopPropagation()}
+                                  actionIcon={<FolderIcon size={16} />}
+                                  actionLabel={t('settings.binaryBrowse')}
+                                  onAction={(e) => {
+                                    e.stopPropagation()
+                                    void handlePickProxyBinary()
+                                  }}
+                                />
+                              ) : undefined
+                            }
                           />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              {t(titleKey)}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: '11px',
-                                color: 'var(--text-dimmed)',
-                                lineHeight: 1.5,
-                                marginTop: '4px'
-                              }}
-                            >
-                              {t(descKey)}
-                            </div>
-                          </div>
-                        </label>
-                      )
-                    })}
-                  </div>
-                  {proxyBinarySource === 'custom' && (
-                    <div
-                      style={{
-                        marginTop: '10px',
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto',
-                        gap: '8px'
-                      }}
-                    >
-                      <input
-                        type="text"
-                        value={proxyBinaryPath}
-                        onChange={(e) => setProxyBinaryPath(e.target.value)}
-                        placeholder={t('settings.proxy.binaryPlaceholder')}
-                        style={inputStyle(true)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handlePickProxyBinary()
-                        }}
-                        style={secondaryButtonStyle(false)}
-                      >
-                        {t('settings.binaryBrowse')}
-                      </button>
+                        )
+                      })}
+                      {resolvingProxyBinary && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', lineHeight: 1.5 }}>
+                          {t('settings.binaryResolving')}
+                        </div>
+                      )}
                     </div>
-                  )}
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color:
-                        !resolvingProxyBinary && !resolvedProxyBinaryPath ? 'var(--error)' : 'var(--text-dimmed)',
-                      marginTop: '8px',
-                      lineHeight: 1.5
-                    }}
-                  >
-                    {resolvingProxyBinary
-                      ? t('settings.binaryResolving')
-                      : resolvedProxyBinaryPath
-                        ? t('settings.binaryResolved', { path: resolvedProxyBinaryPath })
-                        : proxyBinarySource === 'bundled'
-                          ? t('settings.binaryNotFound.bundled')
-                          : proxyBinarySource === 'path'
-                            ? t('settings.binaryNotFound.path')
-                            : t('settings.binaryNotFound.custom')}
-                  </div>
-                </div>
+                  </SettingsRow>
+                </SettingsGroup>
 
-                <div
+                <SettingsGroup
+                  title={t('settings.proxy.oauthTitle')}
+                  description={t('settings.proxy.oauthHint')}
                   style={{
-                    ...cardStyle(),
-                    marginBottom: '16px',
                     opacity: proxyEnabled ? 1 : 0.55,
                     pointerEvents: proxyEnabled ? 'auto' : 'none'
                   }}
                 >
+                  {PROXY_OAUTH_PROVIDERS.map((provider) => {
+                    const status = proxyProviderStatus[provider]
+                    const statusLabel =
+                      status === 'ok'
+                        ? t('settings.proxy.oauthStatusOk')
+                        : status === 'checking'
+                          ? t('settings.proxy.oauthStatusChecking')
+                        : status === 'pending'
+                          ? t('settings.proxy.oauthStatusPending')
+                          : status === 'error'
+                            ? t('settings.proxy.oauthStatusErrorShort')
+                            : t('settings.proxy.oauthStatusIdle')
+                    return (
+                      <SettingsRow
+                        key={provider}
+                        label={t(`settings.proxy.provider.${provider}` as MessageKey)}
+                        description={
+                          <>
+                            {t(`settings.proxy.provider.${provider}Desc` as MessageKey)}
+                            {proxyProviderError[provider] && (
+                              <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
+                                {proxyProviderError[provider]}
+                              </div>
+                            )}
+                          </>
+                        }
+                        control={
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <ProxyOAuthStatusPill status={status} label={statusLabel} />
+                            <button
+                              type="button"
+                              onClick={() => void handleStartProxyOAuth(provider)}
+                              disabled={proxyProviderLoading[provider] || !proxyEnabled}
+                              style={secondaryButtonStyle(proxyProviderLoading[provider] || !proxyEnabled)}
+                            >
+                              {proxyProviderLoading[provider]
+                                ? t('settings.proxy.oauthLoading')
+                                : t('settings.proxy.oauthLogin')}
+                            </button>
+                          </div>
+                        }
+                      />
+                    )
+                  })}
+                </SettingsGroup>
+
+                <div style={{ ...cardStyle(), opacity: proxyEnabled ? 1 : 0.6 }}>
                   <div
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      gap: '8px',
+                      gap: '12px',
                       marginBottom: '10px'
                     }}
                   >
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {t('settings.proxy.usageTitle')}
+                    <div>
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {t('settings.proxy.usageTitle')}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px', lineHeight: 1.5 }}>
+                        {t('settings.usage.dataSourceHint')}
+                      </div>
                     </div>
-                    <button
-                      type="button"
+                    <IconButton
+                      icon={<RefreshIcon size={16} style={proxyUsageLoading ? { animation: 'spin 0.8s linear infinite' } : undefined} />}
+                      label={proxyUsageLoading ? t('settings.proxy.usageLoading') : t('settings.proxy.refreshUsage')}
                       onClick={() => {
                         void handleRefreshProxyUsage()
                       }}
                       disabled={proxyUsageLoading || !proxyEnabled}
-                      style={secondaryButtonStyle(proxyUsageLoading || !proxyEnabled)}
-                    >
-                      {proxyUsageLoading ? t('settings.proxy.usageLoading') : t('settings.proxy.refreshUsage')}
-                    </button>
+                    />
                   </div>
                   {proxyStatusText !== 'running' && (
                     <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
                       {t('settings.proxy.status')}: {t(`settings.proxy.status.${proxyStatusText}`)}
                     </div>
                   )}
-                  {proxyUsage && (
+                  {proxyUsage ? (
                     <div
                       style={{
                         marginTop: '10px',
@@ -1787,109 +1912,77 @@ export function SettingsView({
                           key={item.key}
                           style={{
                             border: '1px solid var(--border-default)',
-                            borderRadius: '8px',
+                            borderRadius: '10px',
                             background: 'var(--bg-primary)',
-                            padding: '10px'
+                            padding: '12px'
                           }}
                         >
                           <div style={{ fontSize: '11px', color: 'var(--text-dimmed)' }}>{t(item.key as MessageKey)}</div>
-                          <div style={{ marginTop: '4px', fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <div style={{ marginTop: '6px', fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>
                             {item.value}
                           </div>
                         </div>
                       ))}
                     </div>
+                  ) : (
+                    <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '10px' }}>
+                      {t('settings.usage.empty')}
+                    </div>
                   )}
                 </div>
+              </div>
+            )}
 
-                <div
-                  style={{
-                    ...cardStyle(),
-                    marginBottom: '16px',
-                    opacity: proxyEnabled ? 1 : 0.55,
-                    pointerEvents: proxyEnabled ? 'auto' : 'none'
-                  }}
-                >
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
-                    {t('settings.proxy.oauthTitle')}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '10px' }}>
-                    {t('settings.proxy.oauthHint')}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {PROXY_OAUTH_PROVIDERS.map((provider) => {
-                      const status = proxyProviderStatus[provider]
-                      const statusLabel =
-                        status === 'ok'
-                          ? t('settings.proxy.oauthStatusOk')
-                          : status === 'pending'
-                            ? t('settings.proxy.oauthStatusPending')
-                            : status === 'error'
-                              ? t('settings.proxy.oauthStatusErrorShort')
-                              : t('settings.proxy.oauthStatusIdle')
-                      return (
-                        <div
-                          key={provider}
-                          style={{
-                            border: '1px solid var(--border-default)',
-                            borderRadius: '8px',
-                            background: 'var(--bg-primary)',
-                            padding: '10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '10px'
-                          }}
-                        >
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              {t(`settings.proxy.provider.${provider}` as MessageKey)}
-                            </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginTop: '2px' }}>
-                              {t(`settings.proxy.provider.${provider}Desc` as MessageKey)}
-                            </div>
-                            {proxyProviderError[provider] && (
-                              <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>
-                                {proxyProviderError[provider]}
-                              </div>
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <ProxyOAuthStatusPill status={status} label={statusLabel} />
-                            <button
-                              type="button"
-                              onClick={() => void handleStartProxyOAuth(provider)}
-                              disabled={proxyProviderLoading[provider] || !proxyEnabled}
-                              style={secondaryButtonStyle(proxyProviderLoading[provider] || !proxyEnabled)}
-                            >
-                              {proxyProviderLoading[provider]
-                                ? t('settings.proxy.oauthLoading')
-                                : t('settings.proxy.oauthLogin')}
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
+            {activeSettingsTab === 'usage' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={cardStyle()}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {t('settings.usage.dashboardTitle')}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px', lineHeight: 1.5 }}>
+                        {t('settings.usage.dashboardHint')}
+                      </div>
+                    </div>
+                    <IconButton
+                      icon={<OpenInBrowserIcon size={16} />}
+                      label={t('settings.openDashboard')}
+                      onClick={() => {
+                        if (dashboardUrl) void window.api.shell.openExternal(dashboardUrl)
+                      }}
+                      disabled={!dashboardUrl}
+                    />
                   </div>
                 </div>
-              </>
+              </div>
             )}
 
             {activeSettingsTab === 'channels' && (
-              <div style={{ marginBottom: '16px' }}>
-                <div style={sectionLabelStyle()}>{t('settings.crossChannelVisibility')}</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-dimmed)', marginBottom: '10px', lineHeight: 1.45 }}>
-                  {t('settings.crossChannelHint')}
-                </div>
+              <SettingsGroup
+                title={t('settings.crossChannelVisibility')}
+                description={t('settings.crossChannelHint')}
+              >
                 {serverChannels === null && (
-                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
-                    {t('settings.channelListLoading')}
-                  </div>
+                  <SettingsRow>
+                    <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                      {t('settings.channelListLoading')}
+                    </div>
+                  </SettingsRow>
                 )}
                 {serverChannels !== null && channelListError && (
-                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginBottom: '8px' }}>
-                    {t('settings.channelListUnavailable')}
-                  </div>
+                  <SettingsRow>
+                    <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                      {t('settings.channelListUnavailable')}
+                    </div>
+                  </SettingsRow>
                 )}
                 {serverChannels !== null &&
                   !channelListError &&
@@ -1898,20 +1991,24 @@ export function SettingsView({
                     if (!items?.length) return null
                     const labelKey = CATEGORY_LABEL_KEY[cat]
                     return (
-                      <div key={cat} style={{ marginBottom: '10px' }}>
-                        <div
-                          style={{
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.04em',
-                            color: 'var(--text-dimmed)',
-                            marginBottom: '6px'
-                          }}
-                        >
-                          {labelKey ? t(labelKey) : cat}
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      <SettingsRow
+                        key={cat}
+                        orientation="block"
+                        label={
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                              color: 'var(--text-dimmed)'
+                            }}
+                          >
+                            {labelKey ? t(labelKey) : cat}
+                          </span>
+                        }
+                      >
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                           {items.map((ch) => {
                             const selected = visibleChannels.includes(ch.name)
                             return (
@@ -1924,26 +2021,37 @@ export function SettingsView({
                                   toggleVisibleChannel(ch.name, !selected)
                                 }}
                                 style={{
-                                  fontSize: '11px',
-                                  fontWeight: 600,
-                                  letterSpacing: '0.02em',
-                                  padding: '4px 8px',
-                                  borderRadius: '6px',
+                                  width: '42px',
+                                  height: '42px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  padding: 0,
+                                  borderRadius: '13px',
                                   cursor: 'pointer',
                                   border: selected ? '1px solid var(--accent)' : '1px solid var(--border-default)',
-                                  backgroundColor: selected ? 'var(--accent)' : 'transparent',
-                                  color: selected ? 'var(--on-accent)' : 'var(--text-primary)'
+                                  background: selected
+                                    ? 'color-mix(in srgb, var(--accent) 12%, var(--bg-secondary))'
+                                    : 'var(--bg-secondary)'
                                 }}
+                                title={t('settings.channelIconTitle', { name: ch.name })}
+                                aria-label={t('settings.channelIconTitle', { name: ch.name })}
                               >
-                                {formatChannelChipLabel(ch.name)}
+                                <ChannelIconBadge
+                                  channelName={ch.name}
+                                  tooltip={t('settings.channelIconTitle', { name: ch.name })}
+                                  active={selected}
+                                  size={32}
+                                  framed={false}
+                                />
                               </button>
                             )
                           })}
                         </div>
-                      </div>
+                      </SettingsRow>
                     )
                   })}
-              </div>
+              </SettingsGroup>
             )}
 
             {activeSettingsTab === 'mcp' && (
@@ -1951,7 +2059,7 @@ export function SettingsView({
                 {!mcpEnabled && (
                   <div style={cardStyle()}>
                     <div style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
-                      Current AppServer does not support MCP management.
+                      {t('settings.mcp.unsupported')}
                     </div>
                   </div>
                 )}
@@ -1960,19 +2068,23 @@ export function SettingsView({
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                       <div>
-                        <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>MCP Servers</div>
+                        <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {t('settings.mcp.title')}
+                        </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                          Connect custom MCP servers stored in workspace <code>.craft/config.json</code>.
+                          {t('settings.mcp.description')}
                         </div>
                       </div>
                       <button type="button" onClick={() => startMcpDraft()} style={primaryButtonStyle(false)}>
-                        + Add Server
+                        {t('settings.mcp.addServer')}
                       </button>
                     </div>
 
                     {mcpLoading && (
                       <div style={cardStyle()}>
-                        <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>Loading MCP servers...</div>
+                        <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>
+                          {t('settings.mcp.loading')}
+                        </div>
                       </div>
                     )}
 
@@ -1985,10 +2097,10 @@ export function SettingsView({
                     {!mcpLoading && !mcpError && mergedMcpServers.length === 0 && (
                       <div style={{ ...cardStyle(), padding: '22px' }}>
                         <div style={{ fontSize: '14px', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                          No custom MCP servers connected
+                          {t('settings.mcp.empty.title')}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                          Add a server to configure local stdio or streamable HTTP MCP connections.
+                          {t('settings.mcp.empty.hint')}
                         </div>
                       </div>
                     )}
@@ -1997,7 +2109,11 @@ export function SettingsView({
                       !mcpError &&
                       mergedMcpServers.map((server) => {
                         const status = mcpStatuses[server.name.trim().toLowerCase()]
-                        const tone = getStatusTone(status)
+                        const tone = getStatusTone(t, status)
+                        const transportLabel =
+                          server.transport === 'stdio'
+                            ? t('settings.mcp.transport.stdio')
+                            : t('settings.mcp.transport.http')
                         return (
                           <button
                             key={server.name}
@@ -2018,8 +2134,8 @@ export function SettingsView({
                                 {server.name}
                               </div>
                               <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                                {server.transport === 'stdio' ? 'STDIO' : 'Streamable HTTP'}
-                                {!server.enabled ? ' · Disabled' : ''}
+                                {transportLabel}
+                                {!server.enabled ? t('settings.mcp.disabledSuffix') : ''}
                               </div>
                               {status?.lastError && (
                                 <div style={{ fontSize: '12px', color: '#f85149', marginTop: '8px' }}>
@@ -2036,7 +2152,9 @@ export function SettingsView({
                               }}
                             >
                               {tone.label}
-                              {typeof status?.toolCount === 'number' ? ` · ${status.toolCount} tools` : ''}
+                              {typeof status?.toolCount === 'number'
+                                ? t('settings.mcp.toolsCountSuffix', { count: status.toolCount })
+                                : ''}
                             </div>
                           </button>
                         )
@@ -2049,24 +2167,26 @@ export function SettingsView({
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {editingServerName === '__new__' ? 'Add MCP Server' : 'Edit MCP Server'}
+                          {editingServerName === '__new__'
+                            ? t('settings.mcp.addTitle')
+                            : t('settings.mcp.editTitle')}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                          Configure how this workspace connects to the MCP server.
+                          {t('settings.mcp.editIntro')}
                         </div>
                       </div>
                       <button type="button" onClick={cancelMcpEdit} style={secondaryButtonStyle(false)}>
-                        Back
+                        {t('settings.mcp.back')}
                       </button>
                     </div>
 
                     <div style={cardStyle()}>
-                      <label style={sectionLabelStyle()}>Name</label>
+                      <label style={sectionLabelStyle()}>{t('settings.mcp.field.name')}</label>
                       <input
                         type="text"
                         value={mcpDraft.name}
                         onChange={(e) => setMcpDraft((prev) => ({ ...prev, name: e.target.value }))}
-                        placeholder="MCP server name"
+                        placeholder={t('settings.mcp.field.namePlaceholder')}
                         style={inputStyle()}
                       />
                       <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
@@ -2094,7 +2214,9 @@ export function SettingsView({
                                 cursor: 'pointer'
                               }}
                             >
-                              {transport === 'stdio' ? 'STDIO' : 'Streamable HTTP'}
+                              {transport === 'stdio'
+                                ? t('settings.mcp.transport.stdio')
+                                : t('settings.mcp.transport.http')}
                             </button>
                           )
                         })}
@@ -2111,14 +2233,14 @@ export function SettingsView({
                           }
                           style={{ marginRight: '8px' }}
                         />
-                        Enabled
+                        {t('settings.mcp.field.enabled')}
                       </label>
                     </div>
 
                     {mcpDraft.transport === 'stdio' && (
                       <>
                         <div style={cardStyle()}>
-                          <label style={sectionLabelStyle()}>Command</label>
+                          <label style={sectionLabelStyle()}>{t('settings.mcp.field.command')}</label>
                           <input
                             type="text"
                             value={mcpDraft.command ?? ''}
@@ -2129,31 +2251,35 @@ export function SettingsView({
                         </div>
 
                         <div style={cardStyle()}>
-                          <div style={sectionLabelStyle()}>Arguments</div>
+                          <div style={sectionLabelStyle()}>{t('settings.mcp.field.args')}</div>
                           <EditableValueList
                             rows={argRows}
                             setRows={setArgRows}
-                            placeholder="e.g. -y or @playwright/mcp@latest"
+                            placeholder={t('settings.mcp.field.argsPlaceholder')}
                           />
                         </div>
 
                         <div style={cardStyle()}>
-                          <div style={sectionLabelStyle()}>Environment Variables</div>
+                          <div style={sectionLabelStyle()}>{t('settings.mcp.field.env')}</div>
                           <EditableKeyValueList
                             rows={envRows}
                             setRows={setEnvRows}
-                            keyPlaceholder="KEY"
-                            valuePlaceholder="Value"
+                            keyPlaceholder={t('settings.mcp.keyPlaceholder')}
+                            valuePlaceholder={t('settings.mcp.valuePlaceholder')}
                           />
                         </div>
 
                         <div style={cardStyle()}>
-                          <div style={sectionLabelStyle()}>Environment Variable Forwarding</div>
-                          <EditableValueList rows={envVarRows} setRows={setEnvVarRows} placeholder="ENV_VAR_NAME" />
+                          <div style={sectionLabelStyle()}>{t('settings.mcp.field.envForwarding')}</div>
+                          <EditableValueList
+                            rows={envVarRows}
+                            setRows={setEnvVarRows}
+                            placeholder={t('settings.mcp.field.envForwardingPlaceholder')}
+                          />
                         </div>
 
                         <div style={cardStyle()}>
-                          <label style={sectionLabelStyle()}>Working Directory</label>
+                          <label style={sectionLabelStyle()}>{t('settings.mcp.field.cwd')}</label>
                           <input
                             type="text"
                             value={mcpDraft.cwd ?? ''}
@@ -2168,7 +2294,7 @@ export function SettingsView({
                     {mcpDraft.transport === 'streamableHttp' && (
                       <>
                         <div style={cardStyle()}>
-                          <label style={sectionLabelStyle()}>URL</label>
+                          <label style={sectionLabelStyle()}>{t('settings.mcp.field.url')}</label>
                           <input
                             type="text"
                             value={mcpDraft.url ?? ''}
@@ -2179,35 +2305,35 @@ export function SettingsView({
                         </div>
 
                         <div style={cardStyle()}>
-                          <label style={sectionLabelStyle()}>Bearer Token Env Var</label>
+                          <label style={sectionLabelStyle()}>{t('settings.mcp.field.bearerEnv')}</label>
                           <input
                             type="text"
                             value={mcpDraft.bearerTokenEnvVar ?? ''}
                             onChange={(e) =>
                               setMcpDraft((prev) => ({ ...prev, bearerTokenEnvVar: e.target.value }))
                             }
-                            placeholder="DOCS_TOKEN"
+                            placeholder={t('settings.mcp.field.bearerEnvPlaceholder')}
                             style={inputStyle(true)}
                           />
                         </div>
 
                         <div style={cardStyle()}>
-                          <div style={sectionLabelStyle()}>HTTP Headers</div>
+                          <div style={sectionLabelStyle()}>{t('settings.mcp.field.httpHeaders')}</div>
                           <EditableKeyValueList
                             rows={httpHeaderRows}
                             setRows={setHttpHeaderRows}
-                            keyPlaceholder="Header"
-                            valuePlaceholder="Value"
+                            keyPlaceholder={t('settings.mcp.headerPlaceholder')}
+                            valuePlaceholder={t('settings.mcp.valuePlaceholder')}
                           />
                         </div>
 
                         <div style={cardStyle()}>
-                          <div style={sectionLabelStyle()}>Environment-backed Headers</div>
+                          <div style={sectionLabelStyle()}>{t('settings.mcp.field.envHeaders')}</div>
                           <EditableKeyValueList
                             rows={envHttpHeaderRows}
                             setRows={setEnvHttpHeaderRows}
-                            keyPlaceholder="Header"
-                            valuePlaceholder="ENV_VAR_NAME"
+                            keyPlaceholder={t('settings.mcp.headerPlaceholder')}
+                            valuePlaceholder={t('settings.mcp.field.envForwardingPlaceholder')}
                           />
                         </div>
                       </>
@@ -2222,11 +2348,11 @@ export function SettingsView({
                             color: mcpTestResult.success ? '#3fb950' : '#f85149'
                           }}
                         >
-                          {mcpTestResult.success ? 'Connection test succeeded' : 'Connection test failed'}
+                          {mcpTestResult.success ? t('settings.mcp.testSuccess') : t('settings.mcp.testFailed')}
                         </div>
                         {typeof mcpTestResult.toolCount === 'number' && (
                           <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                            Tools discovered: {mcpTestResult.toolCount}
+                            {t('settings.mcp.toolsDiscovered', { count: mcpTestResult.toolCount })}
                           </div>
                         )}
                         {mcpTestResult.errorMessage && (
@@ -2252,7 +2378,7 @@ export function SettingsView({
                               borderColor: 'rgba(248,81,73,0.45)'
                             }}
                           >
-                            {deletingMcp ? 'Removing...' : 'Delete'}
+                            {deletingMcp ? t('settings.mcp.deleting') : t('settings.mcp.delete')}
                           </button>
                         )}
                       </div>
@@ -2265,7 +2391,7 @@ export function SettingsView({
                           disabled={testingMcp || savingMcp}
                           style={secondaryButtonStyle(testingMcp || savingMcp)}
                         >
-                          {testingMcp ? 'Testing...' : 'Test Connection'}
+                          {testingMcp ? t('settings.mcp.testing') : t('settings.mcp.test')}
                         </button>
                         <button
                           type="button"
@@ -2275,7 +2401,7 @@ export function SettingsView({
                           disabled={savingMcp || deletingMcp}
                           style={primaryButtonStyle(savingMcp || deletingMcp)}
                         >
-                          {savingMcp ? 'Saving...' : 'Save'}
+                          {savingMcp ? t('settings.mcp.saving') : t('settings.mcp.save')}
                         </button>
                       </div>
                     </div>
@@ -2307,7 +2433,7 @@ export function SettingsView({
         <button type="button" onClick={closeSettings} style={secondaryButtonStyle(false)}>
           {t('common.cancel')}
         </button>
-        {activeSettingsTab !== 'mcp' && activeSettingsTab !== 'archivedThreads' && (
+        {activeSettingsTab !== 'mcp' && activeSettingsTab !== 'archivedThreads' && activeSettingsTab !== 'usage' && (
           <button
             type="button"
             onClick={() => {

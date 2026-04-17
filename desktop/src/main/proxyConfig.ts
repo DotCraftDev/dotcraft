@@ -55,14 +55,23 @@ export function buildLocalProxyManagementBaseUrl(port: number): string {
   return `http://127.0.0.1:${port}/v0/management`
 }
 
+const WEB_UI_OAUTH_PROVIDERS: ReadonlySet<ProxyOAuthProvider> = new Set(['codex', 'claude', 'gemini'])
+
+function withWebUiQueryIfSupported(provider: ProxyOAuthProvider, path: string): string {
+  if (!WEB_UI_OAUTH_PROVIDERS.has(provider)) {
+    return path
+  }
+  return `${path}?is_webui=true`
+}
+
 export function buildProxyOAuthPath(provider: ProxyOAuthProvider): string {
   switch (provider) {
     case 'codex':
-      return '/codex-auth-url'
+      return withWebUiQueryIfSupported(provider, '/codex-auth-url')
     case 'claude':
-      return '/anthropic-auth-url'
+      return withWebUiQueryIfSupported(provider, '/anthropic-auth-url')
     case 'gemini':
-      return '/gemini-cli-auth-url'
+      return withWebUiQueryIfSupported(provider, '/gemini-cli-auth-url')
     case 'qwen':
       return '/qwen-auth-url'
     case 'iflow':

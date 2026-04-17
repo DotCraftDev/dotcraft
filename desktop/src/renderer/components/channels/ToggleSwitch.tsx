@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { PillSwitch } from '../ui/PillSwitch'
 
 interface ToggleSwitchProps {
   checked: boolean
@@ -8,6 +9,10 @@ interface ToggleSwitchProps {
   disabled?: boolean
 }
 
+/**
+ * Labelled toggle with optional description. Thin wrapper over `PillSwitch`
+ * that aligns the pill on the right while keeping the label/description on the left.
+ */
 export function ToggleSwitch({
   checked,
   onChange,
@@ -25,27 +30,24 @@ export function ToggleSwitch({
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: '12px',
-        opacity: disabled ? 0.5 : 1,
-        pointerEvents: disabled ? 'none' : 'auto'
+        opacity: disabled ? 0.65 : 1
       }}
     >
       {(label || description) && (
         <div style={{ flex: 1, minWidth: 0 }}>
           {label && (
-            <label
+            <span
               id={labelId}
-              htmlFor={id}
               style={{
                 display: 'block',
                 fontSize: '13px',
                 fontWeight: 600,
                 color: 'var(--text-primary)',
-                cursor: 'pointer',
                 lineHeight: 1.4
               }}
             >
               {label}
-            </label>
+            </span>
           )}
           {description && (
             <p
@@ -61,69 +63,13 @@ export function ToggleSwitch({
           )}
         </div>
       )}
-
-      {/* Hidden native checkbox for accessibility */}
-      <input
-        id={id}
-        type="checkbox"
+      <PillSwitch
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{
-          position: 'absolute',
-          width: 1,
-          height: 1,
-          margin: -1,
-          padding: 0,
-          border: 0,
-          overflow: 'hidden',
-          clip: 'rect(0,0,0,0)',
-          whiteSpace: 'nowrap'
-        }}
-      />
-
-      {/* Visual pill track */}
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        size="md"
         aria-labelledby={label ? labelId : undefined}
-        onClick={() => onChange(!checked)}
-        style={{
-          flexShrink: 0,
-          width: 36,
-          height: 20,
-          borderRadius: 10,
-          border: 'none',
-          padding: 0,
-          cursor: 'pointer',
-          backgroundColor: checked ? 'var(--accent)' : 'var(--border-active)',
-          transition: 'background-color 150ms ease',
-          position: 'relative',
-          outline: 'none'
-        }}
-        onFocus={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.boxShadow =
-            '0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent)'
-        }}
-        onBlur={(e) => {
-          ;(e.currentTarget as HTMLButtonElement).style.boxShadow = 'none'
-        }}
-      >
-        <span
-          aria-hidden
-          style={{
-            position: 'absolute',
-            top: 2,
-            left: checked ? 18 : 2,
-            width: 16,
-            height: 16,
-            borderRadius: '50%',
-            backgroundColor: 'white',
-            transition: 'left 150ms ease',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-          }}
-        />
-      </button>
+      />
     </div>
   )
 }

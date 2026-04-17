@@ -4,7 +4,6 @@ import { connectionStatusLabel } from '../../utils/connectionStatusLabel'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useThreadStore } from '../../stores/threadStore'
-import type { ThreadSummary } from '../../types/thread'
 import { WorkspaceHeader } from '../sidebar/WorkspaceHeader'
 import { NewThreadButton } from '../sidebar/NewThreadButton'
 import { ThreadSearch } from '../sidebar/ThreadSearch'
@@ -17,6 +16,7 @@ import {
   SIDEBAR_NAV_ROW_OUTER
 } from '../sidebar/sidebarNavRowStyles'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
+import { MessageSquare, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
 
 interface SidebarProps {
   workspaceName: string
@@ -31,7 +31,7 @@ interface SidebarProps {
  * 2. NewThreadButton (Ctrl+N, disabled when disconnected)
  * 3. ThreadSearch (Ctrl+K, debounced)
  * 4. ThreadList (grouped, scrollable)
- * 5. Reserved nav items (DashBoard link, Automations, Skills)
+ * 5. Reserved nav items (Channels, Automations, Skills)
  * 6. SidebarFooter (connection status, version)
  *
  * Collapsed mode (48px): shows first-letter dots for recent threads.
@@ -41,17 +41,6 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
   const t = useT()
   const { sidebarCollapsed, toggleSidebar, activeMainView, setActiveMainView } = useUIStore()
   const capabilities = useConnectionStore((s) => s.capabilities)
-  const connectionStatus = useConnectionStore((s) => s.status)
-  const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
-  const dashboardOpenEnabled = connectionStatus === 'connected' && Boolean(dashboardUrl)
-  const dashboardDisabledTitle = !dashboardOpenEnabled
-    ? connectionStatus !== 'connected'
-      ? t('sidebar.dashboardDisabledConnect')
-      : t('sidebar.dashboardDisabledNoUrl')
-    : undefined
-  const dashboardHoverTitle = dashboardOpenEnabled
-    ? `${t('sidebar.dashboardOpenTitle')}${dashboardUrl ? ` — ${dashboardUrl}` : ''}`
-    : dashboardDisabledTitle
 
   const automationsAvailable =
     capabilities?.automations === true || capabilities?.cronManagement === true
@@ -70,7 +59,6 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
     return (
       <CollapsedSidebar
         onExpand={toggleSidebar}
-        workspacePath={workspacePath}
       />
     )
   }
@@ -88,7 +76,7 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
       <LogoHeader onCollapse={toggleSidebar} />
       <WorkspaceHeader workspaceName={workspaceName} workspacePath={workspacePath} />
 
-      <NewThreadButton workspacePath={workspacePath} />
+      <NewThreadButton />
 
       <ThreadSearch inputRef={searchRef} />
 
@@ -104,17 +92,6 @@ export function Sidebar({ workspaceName, workspacePath }: SidebarProps): JSX.Ele
           flexShrink: 0
         }}
       >
-        <SidebarNavRow
-          label={t('sidebar.dashboard')}
-          active={false}
-          onClick={() => {
-            if (dashboardUrl) void window.api.shell.openExternal(dashboardUrl)
-          }}
-          icon={<DashboardIcon />}
-          disabled={!dashboardOpenEnabled}
-          title={dashboardHoverTitle}
-          externalLink
-        />
         <SidebarNavRow
           label={t('sidebar.channels')}
           active={activeMainView === 'channels'}
@@ -153,8 +130,6 @@ interface SidebarNavRowProps {
   icon: JSX.Element
   disabled?: boolean
   title?: string
-  /** When set, shows a small external-link affordance (opens browser / external URL). */
-  externalLink?: boolean
 }
 
 function SidebarNavRow({
@@ -163,8 +138,7 @@ function SidebarNavRow({
   onClick,
   icon,
   disabled,
-  title,
-  externalLink
+  title
 }: SidebarNavRowProps): JSX.Element {
   return (
     <button
@@ -189,68 +163,17 @@ function SidebarNavRow({
       }}
     >
       <span style={SIDEBAR_NAV_ICON_SLOT}>{icon}</span>
-      <span style={{ ...SIDEBAR_NAV_LABEL, display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-        {externalLink ? (
-          <span style={{ flexShrink: 0, opacity: 0.65, display: 'flex' }} aria-hidden>
-            <ExternalLinkGlyph />
-          </span>
-        ) : null}
-      </span>
+      <span style={{ ...SIDEBAR_NAV_LABEL, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
     </button>
   )
 }
 
-function ExternalLinkGlyph(): JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  )
-}
-
-function DashboardIcon(): JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  )
-}
-
 function SkillsIcon(): JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
-      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  )
+  return <Sun size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
 }
 
 function ChannelsIcon(): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      style={{ display: 'block' }}
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      <path d="M8 10h.01" />
-      <path d="M12 10h.01" />
-      <path d="M16 10h.01" />
-    </svg>
-  )
+  return <MessageSquare size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
 }
 
 function AutomationsIcon(): JSX.Element {
@@ -280,22 +203,14 @@ function AutomationsIcon(): JSX.Element {
 
 interface CollapsedSidebarProps {
   onExpand: () => void
-  workspacePath: string
 }
 
-function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): JSX.Element {
+function CollapsedSidebar({ onExpand }: CollapsedSidebarProps): JSX.Element {
   const t = useT()
   const [logoHovered, setLogoHovered] = useState(false)
-  const { status, errorMessage, capabilities: collapsedCaps, dashboardUrl: collapsedDashboardUrl } =
-    useConnectionStore()
-  const { threadList, addThread, setActiveThreadId } = useThreadStore()
-  const { activeMainView, setActiveMainView } = useUIStore()
-  const collapsedDashboardOpen = status === 'connected' && Boolean(collapsedDashboardUrl)
-  const collapsedDashboardTitle = !collapsedDashboardOpen
-    ? status !== 'connected'
-      ? t('sidebar.dashboardDisabledConnect')
-      : t('sidebar.dashboardDisabledNoUrl')
-    : `${t('sidebar.dashboardOpenTitle')}${collapsedDashboardUrl ? ` — ${collapsedDashboardUrl}` : ''}`
+  const { status, errorMessage, capabilities: collapsedCaps } = useConnectionStore()
+  const { threadList, setActiveThreadId } = useThreadStore()
+  const { activeMainView, setActiveMainView, goToNewChat } = useUIStore()
   const collapsedAutomationsAvailable =
     collapsedCaps?.automations === true || collapsedCaps?.cronManagement === true
 
@@ -309,24 +224,9 @@ function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): J
   // Show up to 5 recent thread dots in collapsed mode
   const recentThreads = threadList.slice(0, 5)
 
-  async function handleNewThread(): Promise<void> {
+  function handleNewThread(): void {
     if (status !== 'connected') return
-    try {
-      const result = await window.api.appServer.sendRequest('thread/start', {
-        identity: {
-          channelName: 'dotcraft-desktop',
-          userId: 'local',
-          channelContext: `workspace:${workspacePath}`,
-          workspacePath
-        },
-        historyMode: 'server'
-      }) as { thread: ThreadSummary }
-      addThread(result.thread)
-      setActiveThreadId(result.thread.id)
-      setActiveMainView('conversation')
-    } catch (err) {
-      console.error('Failed to create thread:', err)
-    }
+    goToNewChat()
   }
 
   return (
@@ -404,25 +304,6 @@ function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): J
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      <button
-        type="button"
-        title={collapsedDashboardTitle}
-        onClick={
-          collapsedDashboardOpen && collapsedDashboardUrl
-            ? () => void window.api.shell.openExternal(collapsedDashboardUrl)
-            : undefined
-        }
-        disabled={!collapsedDashboardOpen}
-        style={{
-          ...iconButtonStyle,
-          backgroundColor: 'transparent',
-          color: collapsedDashboardOpen ? 'var(--accent)' : 'var(--text-secondary)',
-          opacity: collapsedDashboardOpen ? 1 : 0.4
-        }}
-        aria-label={t('sidebar.dashboard')}
-      >
-        <DashboardIcon />
-      </button>
       <button
         type="button"
         title={t('sidebar.channels')}
@@ -511,43 +392,11 @@ function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): J
 // ---------------------------------------------------------------------------
 
 function PanelLeftCloseIcon(): JSX.Element {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-      <path d="m16 15-3-3 3-3" />
-    </svg>
-  )
+  return <PanelLeftClose size={18} strokeWidth={2} aria-hidden="true" />
 }
 
 function PanelLeftOpenIcon(): JSX.Element {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-      <path d="m14 9 3 3-3 3" />
-    </svg>
-  )
+  return <PanelLeftOpen size={18} strokeWidth={2} aria-hidden="true" />
 }
 
 // ---------------------------------------------------------------------------

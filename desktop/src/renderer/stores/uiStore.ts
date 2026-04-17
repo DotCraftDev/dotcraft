@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ImageAttachment, ThreadMode } from '../types/conversation'
+import { useThreadStore } from './threadStore'
 
 const SIDEBAR_DEFAULT_WIDTH = 240
 const SIDEBAR_MIN_WIDTH = 200
@@ -18,6 +19,14 @@ export type ActiveMainView = 'conversation' | 'skills' | 'automations' | 'settin
 
 /** Automations view: Tasks (orchestrator) vs Cron (scheduled jobs). */
 export type AutomationsTab = 'tasks' | 'cron'
+
+export interface WelcomeDraft {
+  text: string
+  images: ImageAttachment[]
+  mode: ThreadMode
+  model: string
+  updatedAt: number
+}
 
 export interface UIState {
   /** Which primary view fills the center column (conversation panel slot). */
@@ -52,10 +61,14 @@ export interface UIState {
     model?: string
     createdAt: number
   } | null
+  /** Unsent draft on ConversationWelcome, preserved across thread navigation. */
+  welcomeDraft: WelcomeDraft | null
 }
 
 interface UIStore extends UIState {
   setActiveMainView(view: ActiveMainView): void
+  /** Deselect current thread and open Welcome composer in conversation view. */
+  goToNewChat(): void
   setAutomationsTab(tab: AutomationsTab): void
   toggleSidebar(): void
   setSidebarCollapsed(collapsed: boolean): void
@@ -83,6 +96,8 @@ interface UIStore extends UIState {
   ): { text: string; images?: ImageAttachment[]; mode?: ThreadMode; model?: string } | null
   /** Clear pending welcome turn when it targets the given thread (e.g. thread/read failed). */
   cancelPendingWelcomeTurnForThread(threadId: string): void
+  setWelcomeDraft(draft: Omit<WelcomeDraft, 'updatedAt'> | null): void
+  clearWelcomeDraft(): void
 }
 
 /** Internal state not exposed in UIState but used for timeout management */
@@ -102,9 +117,15 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   autoShowTriggeredForTurn: null,
   composerPrefill: null,
   pendingWelcomeTurn: null,
+  welcomeDraft: null,
 
   setActiveMainView(view) {
     set({ activeMainView: view })
+  },
+
+  goToNewChat() {
+    useThreadStore.getState().setActiveThreadId(null)
+    set({ activeMainView: 'conversation' })
   },
 
   setAutomationsTab(tab) {
@@ -221,6 +242,18 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
       }
       set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
     }
+  },
+
+  setWelcomeDraft(draft) {
+    if (draft == null) {
+      set({ welcomeDraft: null })
+      return
+    }
+    set({ welcomeDraft: { ...draft, updatedAt: Date.now() } })
+  },
+
+  clearWelcomeDraft() {
+    set({ welcomeDraft: null })
   },
 
   // Internal state for timeout timer (not exposed in UIState interface)

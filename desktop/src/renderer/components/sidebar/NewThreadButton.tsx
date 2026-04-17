@@ -1,58 +1,29 @@
-import { useState } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { useConnectionStore } from '../../stores/connectionStore'
-import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
-import type { SessionIdentity, ThreadSummary } from '../../types/thread'
-
-interface NewThreadButtonProps {
-  workspacePath: string
-}
 
 /**
- * Primary action button that creates a new thread via thread/start.
- * Disabled when not connected.
+ * Primary action button that opens welcome composer for a new chat.
  * Keyboard shortcut Ctrl+N is registered globally in App.tsx.
  * Spec §9.3
  */
-export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.Element {
+export function NewThreadButton(): JSX.Element {
   const t = useT()
-  const { status } = useConnectionStore()
-  const { addThread, setActiveThreadId } = useThreadStore()
-  const setActiveMainView = useUIStore((s) => s.setActiveMainView)
-  const [creating, setCreating] = useState(false)
+  const status = useConnectionStore((s) => s.status)
+  const goToNewChat = useUIStore((s) => s.goToNewChat)
 
   const isConnected = status === 'connected'
 
-  async function handleClick(): Promise<void> {
-    if (!isConnected || creating) return
-    setCreating(true)
-    try {
-      const identity: SessionIdentity = {
-        channelName: 'dotcraft-desktop',
-        userId: 'local',
-        channelContext: `workspace:${workspacePath}`,
-        workspacePath
-      }
-      const result = await window.api.appServer.sendRequest('thread/start', {
-        identity,
-        historyMode: 'server'
-      }) as { thread: ThreadSummary }
-      addThread(result.thread)
-      setActiveThreadId(result.thread.id)
-      setActiveMainView('conversation')
-    } catch (err) {
-      console.error('Failed to create thread:', err)
-    } finally {
-      setCreating(false)
-    }
+  function handleClick(): void {
+    if (!isConnected) return
+    goToNewChat()
   }
 
   return (
     <div style={{ padding: '8px 12px 10px', flexShrink: 0 }}>
       <button
         onClick={handleClick}
-        disabled={!isConnected || creating}
+        disabled={!isConnected}
         title={t('sidebar.newThread')}
         aria-label={t('sidebar.newThread')}
         style={{
@@ -68,11 +39,10 @@ export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.El
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
-          transition: 'background-color 150ms ease',
-          opacity: creating ? 0.7 : 1
+          transition: 'background-color 150ms ease'
         }}
         onMouseEnter={(e) => {
-          if (isConnected && !creating) {
+          if (isConnected) {
             ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--accent-hover)'
           }
         }}
@@ -82,8 +52,8 @@ export function NewThreadButton({ workspacePath }: NewThreadButtonProps): JSX.El
           }
         }}
       >
-        <span aria-hidden="true">{creating ? '…' : '+'}</span>
-        {creating ? t('sidebar.newThreadCreating') : t('sidebar.newThreadLabel')}
+        <span aria-hidden="true">+</span>
+        {t('sidebar.newThreadLabel')}
       </button>
     </div>
   )

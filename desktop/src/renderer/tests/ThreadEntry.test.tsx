@@ -254,4 +254,11 @@ describe('ThreadEntry', () => {
     expect(screen.getByTestId('thread-running-indicator-thread-1')).toBeInTheDocument()
     expect(screen.queryByLabelText('paused')).not.toBeInTheDocument()
   })
+
+  it('renders origin channel as an icon badge with tooltip text', () => {
+    renderThreadEntry(makeThread({ originChannel: 'qq' }))
+
+    expect(screen.getByLabelText('Origin channel: qq')).toBeInTheDocument()
+    expect(screen.queryByText('qq')).not.toBeInTheDocument()
+  })
 })
