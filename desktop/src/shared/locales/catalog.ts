@@ -407,6 +407,8 @@ const MESSAGES_EN = {
   'toast.threadArchived': 'This conversation was archived by another client',
   'toast.copied': 'Copied to clipboard',
   'toast.imageMessage': 'Image message',
+  'conversation.copyMessage': 'Copy message',
+  'conversation.copySelection': 'Copy selection',
 
   // Main process (connection)
   'main.error.workspaceLocked':
@@ -1276,6 +1278,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'toast.threadArchived': '此会话已被其他客户端归档',
   'toast.copied': '已复制到剪贴板',
   'toast.imageMessage': '图片消息',
+  'conversation.copyMessage': '复制消息',
+  'conversation.copySelection': '复制所选内容',
 
   'main.error.workspaceLocked': '此工作区已在另一 DotCraft Desktop 窗口中打开（进程 {{pid}}）。',
   'main.error.streamsUnavailable': 'AppServer 进程流不可用',
