@@ -6,10 +6,12 @@ import * as Lark from "@larksuiteoapi/node-sdk";
 
 import type {
   FeishuApiErrorKind,
+  FeishuBotDiagnosticTag,
   FeishuConfig,
   FeishuBotInfo,
   FeishuCardActionEvent,
   FeishuMessageEvent,
+  FeishuReplyOptions,
   FeishuSendResult,
 } from "./feishu-types.js";
 import { FeishuApiError } from "./feishu-types.js";
@@ -111,13 +113,14 @@ export class FeishuClient {
 
   async probeBot(): Promise<FeishuBotInfo> {
     logInfo("startup.bot_probe_request", { method: "GET", path: "/open-apis/bot/v3/info" });
-    const response = await this.callSdk<Record<string, unknown>>(
+    const token = await this.getTenantAccessToken();
+    const response = await this.callJsonApi(
       () =>
-        (this.sdk as unknown as {
-          request: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
-        }).request({
+        fetch(`${this.apiBaseUrl}/open-apis/bot/v3/info`, {
           method: "GET",
-          url: "/open-apis/bot/v3/info",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }),
       "Failed to query Feishu bot info",
     );
@@ -150,11 +153,15 @@ export class FeishuClient {
     const botName = appName;
     const openId = openIdCandidates[0] ?? "";
     const hasBotIdentity = openId.length > 0;
+    const diagnosticTag = hasBotIdentity ? undefined : classifyBotDiagnosticTag(response, data, bot);
     const diagnosticMessage = hasBotIdentity
       ? undefined
-      : "Feishu bot info returned no bot identity field. " +
-        "Bot capability may be disabled/unpublished, or SDK response shape differs. " +
-        `Available fields: [${rawFieldKeys.join(", ")}]`;
+      : diagnosticTag === "botCapabilityDisabled"
+        ? "Feishu bot info returned no bot identity field and suggests bot capability is disabled or unpublished. " +
+          `Available fields: [${rawFieldKeys.join(", ")}]`
+        : "Feishu bot info returned no bot identity field. " +
+          "SDK response shape may differ from the expected bot info contract. " +
+          `Available fields: [${rawFieldKeys.join(", ")}]`;
 
     return {
       appName,
@@ -165,6 +172,63 @@ export class FeishuClient {
       activateStatus: data.activate_status != null ? Number(data.activate_status) : undefined,
       rawFieldKeys,
       diagnosticMessage,
+      diagnosticTag,
+    };
+  }
+
+  async sendTextMessage(target: string, text: string): Promise<FeishuSendResult> {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      throw new TypeError("Feishu text delivery requires non-empty text.");
+    }
+
+    const { receiveId, receiveIdType } = this.resolveTarget(target);
+    const response = await this.sendMessage(receiveId, receiveIdType, "text", {
+      text: normalizedText,
+    });
+    const responseData = (response.data as Record<string, unknown> | undefined) ?? {};
+    return {
+      messageId: String(responseData.message_id ?? ""),
+      chatId: String(responseData.chat_id ?? ""),
+    };
+  }
+
+  async replyToMessage(
+    messageId: string,
+    text: string,
+    opts?: FeishuReplyOptions,
+  ): Promise<FeishuSendResult> {
+    const normalizedMessageId = messageId.trim();
+    if (!normalizedMessageId) {
+      throw new TypeError("Feishu reply requires a messageId.");
+    }
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      throw new TypeError("Feishu reply requires non-empty text.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/im/v1/messages/${encodeURIComponent(normalizedMessageId)}/reply`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            content: JSON.stringify({ text: normalizedText }),
+            msg_type: "text",
+            ...(opts?.replyInThread !== undefined ? { reply_in_thread: opts.replyInThread } : {}),
+            ...(opts?.uuid?.trim() ? { uuid: opts.uuid.trim() } : {}),
+          }),
+        }),
+      "Failed to reply to Feishu message.",
+    );
+    const responseData = (payload.data as Record<string, unknown> | undefined) ?? {};
+    return {
+      messageId: String(responseData.message_id ?? ""),
+      chatId: String(responseData.chat_id ?? ""),
     };
   }
 
@@ -643,6 +707,30 @@ function formatFeishuErrorMessage(
   if (code !== undefined) details.push(`code=${code}`);
   if (httpStatus !== undefined) details.push(`httpStatus=${httpStatus}`);
   return details.length ? `${defaultMessage} ${details.join(" ")}` : defaultMessage;
+}
+
+function classifyBotDiagnosticTag(
+  response: Record<string, unknown>,
+  data: Record<string, unknown>,
+  bot: Record<string, unknown>,
+): FeishuBotDiagnosticTag {
+  const capabilityHints = [
+    data.activate_status,
+    response.activate_status,
+    bot.activate_status,
+    data.status,
+    response.status,
+    bot.status,
+    data.bot_status,
+    response.bot_status,
+  ]
+    .map((value) => (value == null ? "" : String(value).toLowerCase()))
+    .filter((value) => value.length > 0);
+  const hasCapabilityDisabledHint =
+    capabilityHints.some((value) => value === "0" || value.includes("disabled") || value.includes("unpublished")) ||
+    capabilityHints.some((value) => value.includes("inactive"));
+
+  return hasCapabilityDisabledHint ? "botCapabilityDisabled" : "identityFieldsMissing";
 }
 
 function assertCardPayloadShape(card: Record<string, unknown>): void {

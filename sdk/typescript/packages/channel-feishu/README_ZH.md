@@ -12,7 +12,7 @@
 ## 已支持能力
 
 - 飞书 WebSocket 事件订阅
-- 基于 `appId` + `appSecret` 启动并探测 Bot 信息
+- 基于显式 tenant token 鉴权启动并探测 Bot 信息
 - 基于外部渠道身份复用 DotCraft 线程
 - `/new` 开启新会话
 - 群聊仅在 @机器人 时响应
@@ -20,6 +20,7 @@
 - 按钮式审批卡片
 - `turn/completed` 后发送静态回复卡片
 - 图片消息下载后以 `localImage` 形式转发给 DotCraft
+- 公共 `FeishuClient.sendTextMessage(...)` 与 `replyToMessage(...)`
 
 ## 当前不覆盖
 
@@ -154,7 +155,7 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 - `appId`
 - `appSecret`
 
-Lark SDK 会在内部处理访问令牌获取。适配器启动时会先调用 bot info API 校验凭据，再开始监听事件。
+适配器会基于 `appId` + `appSecret` 显式获取 tenant access token，并用它访问 bot probe 与消息 API，然后再开始监听事件。
 
 ## 群聊 @ 提及说明（多机器人/多应用）
 

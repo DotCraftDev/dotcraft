@@ -5,6 +5,10 @@ export { manifest } from "./manifest.js";
 export { createModule } from "./module.js";
 export type {
   FeishuApiErrorKind,
+  FeishuBotDiagnosticTag,
+  FeishuBotInfo,
   FeishuConfig,
+  FeishuReplyOptions,
+  FeishuSendResult,
   ParsedInboundMessage,
 } from "./feishu-types.js";

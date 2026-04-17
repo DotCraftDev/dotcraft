@@ -12,7 +12,7 @@ It is built on:
 ## What This Adapter Supports
 
 - Feishu WebSocket event subscription
-- Startup bot probe with `appId` + `appSecret`
+- Startup bot probe with explicit tenant token authorization
 - DotCraft thread reuse via external channel identity
 - `/new` to start a fresh DotCraft thread
 - Group chats that only respond when the bot is @mentioned
@@ -20,6 +20,7 @@ It is built on:
 - Interactive approval cards with buttons
 - Static reply cards after `turn/completed`
 - Image input forwarding to DotCraft as `localImage`
+- Public `FeishuClient.sendTextMessage(...)` and `replyToMessage(...)`
 
 ## What This Adapter Does Not Cover
 
@@ -154,7 +155,7 @@ Feishu bots use a static app credential model:
 - `appId`
 - `appSecret`
 
-The Lark SDK handles token acquisition internally. On startup the adapter validates credentials by calling the bot info API before listening for events.
+The adapter obtains a tenant access token from `appId` + `appSecret` and uses it explicitly for bot probe and message APIs before listening for events.
 
 ## Credits
 

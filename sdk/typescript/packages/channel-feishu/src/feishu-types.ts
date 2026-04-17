@@ -89,11 +89,22 @@ export interface FeishuBotInfo {
   activateStatus?: number;
   rawFieldKeys?: string[];
   diagnosticMessage?: string;
+  diagnosticTag?: FeishuBotDiagnosticTag;
 }
 
 export interface FeishuSendResult {
   messageId: string;
   chatId: string;
+}
+
+export type FeishuBotDiagnosticTag =
+  | "missingToken"
+  | "botCapabilityDisabled"
+  | "identityFieldsMissing";
+
+export interface FeishuReplyOptions {
+  replyInThread?: boolean;
+  uuid?: string;
 }
 
 export type FeishuApiErrorKind =
