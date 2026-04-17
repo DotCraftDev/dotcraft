@@ -132,4 +132,37 @@ describe('proxyWorkspaceConfig', () => {
       ApiKey: 'sk-proxy'
     })
   })
+
+  it('fails loudly when workspace config contains invalid JSON', async () => {
+    const workspace = createTempWorkspace()
+    const configPath = join(workspace, '.craft', 'config.json')
+    mkdirSync(join(workspace, '.craft'), { recursive: true })
+    writeFileSync(configPath, '{invalid-json', 'utf8')
+
+    await expect(applyWorkspaceProxyOverrides(workspace, 8317, 'sk-proxy')).rejects.toThrow()
+    expect(readFileSync(configPath, 'utf8')).toBe('{invalid-json')
+  })
+
+  it('fails loudly when proxy snapshot contains invalid JSON', async () => {
+    const workspace = createTempWorkspace()
+    const craftDir = join(workspace, '.craft')
+    const configPath = join(craftDir, 'config.json')
+    const snapshotPath = join(craftDir, 'proxy-overrides.json')
+    mkdirSync(craftDir, { recursive: true })
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        EndPoint: 'https://example.com/v1',
+        ApiKey: 'sk-original'
+      }),
+      'utf8'
+    )
+    writeFileSync(snapshotPath, '{invalid-json', 'utf8')
+
+    await expect(cleanupWorkspaceProxyOverrides(workspace, {
+      proxyPort: 8317,
+      proxyApiKey: 'sk-proxy'
+    })).rejects.toThrow()
+    expect(readFileSync(snapshotPath, 'utf8')).toBe('{invalid-json')
+  })
 })

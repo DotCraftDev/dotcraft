@@ -28,3 +28,13 @@ export function parseJsonObjectConfig(raw: string): Record<string, unknown> {
   if (!trimmed) return {}
   return ensureParsedObjectConfig(JSON.parse(trimmed) as unknown)
 }
+
+export function parseJsonRecordConfig(raw: string): Record<string, unknown> {
+  const trimmed = stripUtf8Bom(raw).trim()
+  if (!trimmed) return {}
+  const parsed = JSON.parse(trimmed) as unknown
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {}
+  }
+  return parsed as Record<string, unknown>
+}

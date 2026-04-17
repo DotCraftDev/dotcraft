@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseJsonConfig, parseJsonObjectConfig, stripUtf8Bom } from '../../shared/jsonConfig'
+import { parseJsonConfig, parseJsonObjectConfig, parseJsonRecordConfig, stripUtf8Bom } from '../../shared/jsonConfig'
 
 describe('jsonConfig', () => {
   describe('stripUtf8Bom', () => {
@@ -58,6 +58,29 @@ describe('jsonConfig', () => {
 
     it('throws for invalid JSON', () => {
       expect(() => parseJsonObjectConfig('{invalid-json')).toThrow()
+    })
+  })
+
+  describe('parseJsonRecordConfig', () => {
+    it('parses JSON object with UTF-8 BOM', () => {
+      expect(parseJsonRecordConfig('\uFEFF{"Model":"gpt-5"}')).toEqual({
+        Model: 'gpt-5'
+      })
+    })
+
+    it('returns an empty object for empty input', () => {
+      expect(parseJsonRecordConfig('   ')).toEqual({})
+    })
+
+    it('returns an empty object for non-object JSON', () => {
+      expect(parseJsonRecordConfig('["a", "b"]')).toEqual({})
+      expect(parseJsonRecordConfig('"value"')).toEqual({})
+      expect(parseJsonRecordConfig('42')).toEqual({})
+      expect(parseJsonRecordConfig('null')).toEqual({})
+    })
+
+    it('throws for invalid JSON', () => {
+      expect(() => parseJsonRecordConfig('{invalid-json')).toThrow()
     })
   })
 })

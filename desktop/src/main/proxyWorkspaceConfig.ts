@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import { dirname, join } from 'path'
 import { buildLocalProxyEndpoint } from './proxyConfig'
-import { parseJsonConfig } from '../shared/jsonConfig'
+import { parseJsonRecordConfig } from '../shared/jsonConfig'
 
 interface ProxyOverrideSnapshot {
   configExisted: boolean
@@ -26,7 +26,7 @@ async function readJsonObject(path: string): Promise<{ exists: boolean; value: R
     const raw = await fs.readFile(path, 'utf8')
     return {
       exists: true,
-      value: parseJsonConfig<Record<string, unknown>>(raw, {})
+      value: parseJsonRecordConfig(raw)
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code

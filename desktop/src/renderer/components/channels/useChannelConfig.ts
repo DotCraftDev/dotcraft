@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ChannelId } from './channelDefs'
-import { parseJsonConfig } from '../../../shared/jsonConfig'
+import { parseJsonRecordConfig } from '../../../shared/jsonConfig'
 
 export interface QQChannelConfig {
   Enabled: boolean
@@ -90,7 +90,7 @@ async function readRoot(workspacePath: string): Promise<Record<string, unknown>>
   const path = configPath(workspacePath)
   try {
     const raw = await window.api.file.readFile(path)
-    return parseJsonConfig<Record<string, unknown>>(raw, {})
+    return parseJsonRecordConfig(raw)
   } catch (err) {
     if (isMissingFileError(err)) return {}
     throw err
