@@ -151,6 +151,7 @@ This section defines how protocol messages affect user-visible behavior. It inte
 | `item/started` | New agent work becomes visible in the current thread. |
 | `item/agentMessage/delta` | Agent text streams incrementally when streaming is enabled. |
 | `item/reasoning/delta` | Reasoning content is exposed only if the client chooses to show reasoning. |
+| `item/toolCall/argumentsDelta` | Tool argument construction streams incrementally. For known built-in tools, the client renders a bespoke running label (e.g. "Writing <path>", "Searching \"<pattern>\"", "Drafting plan...") and, where useful, a progressive preview of the parsed argument fields. For unknown tools (including MCP and module tools), the client renders a generic "Generating parameters for <toolName>..." placeholder without surfacing the raw argument JSON. |
 | `item/commandExecution/outputDelta` | Running shell output is appended live to the matching command block in both the conversation view and the Terminal review surface. |
 | `item/completed` | The final item output replaces or finalizes any in-progress representation. |
 | `item/usage/delta` | Token usage counters update when the client exposes real-time usage. |
@@ -234,7 +235,7 @@ This section defines how protocol messages affect user-visible behavior. It inte
 ### 5.7 View Changes, Plans, and Tool Output
 
 - File changes produced during a thread remain discoverable until reverted or superseded.
-- Plan updates remain associated with the active thread and reflect the latest complete plan snapshot.
+- Plan updates remain associated with the active thread and reflect the latest complete plan snapshot. While a `CreatePlan` tool call is still streaming its arguments, the dedicated plan surface renders a live draft (title, overview, and any fully-formed todo entries) so the user sees the plan taking shape in real time; the draft is replaced by the finalized snapshot once `plan/updated` is received.
 - Tool output remains readable in-thread and must remain distinguishable from agent conversational text.
 - `commandExecution` items are the Desktop client's primary source of shell output data, but the conversation view keeps the existing tool-card presentation for shell work instead of rendering command output as a standalone message block.
 - In the conversation view, shell work remains collapsed by default using the normal tool-card style. If the user expands the card, live output may be shown there while the command is still running.

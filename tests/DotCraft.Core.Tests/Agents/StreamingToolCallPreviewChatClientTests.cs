@@ -40,7 +40,7 @@ public sealed class StreamingToolCallPreviewChatClientTests
         };
         var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates))
         {
-            StreamableToolNames = new HashSet<string>(["WriteFile"], StringComparer.Ordinal)
+            IsStreamableTool = name => name == "WriteFile"
         };
 
         var deltas = new List<ToolCallArgumentsDeltaContent>();
@@ -69,7 +69,7 @@ public sealed class StreamingToolCallPreviewChatClientTests
         };
         var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates))
         {
-            StreamableToolNames = new HashSet<string>(["WriteFile"], StringComparer.Ordinal)
+            IsStreamableTool = name => name == "WriteFile"
         };
 
         var collected = new List<ChatResponseUpdate>();
@@ -78,6 +78,52 @@ public sealed class StreamingToolCallPreviewChatClientTests
 
         Assert.Single(collected);
         Assert.DoesNotContain(collected[0].Contents, c => c is ToolCallArgumentsDeltaContent);
+    }
+
+    [Fact]
+    public async Task GetStreamingResponseAsync_NoPredicate_StreamsAllTools()
+    {
+        // Default behaviour: predicate and legacy set both null -> every tool eligible.
+        var updates = new[]
+        {
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("a")])
+            {
+                RawRepresentation = new FakeRawDeltaSource(
+                    new ToolCallDeltaChunk(0, "MyMcpTool", "call-1", "{\"query\":\"hi\"}"))
+            }
+        };
+        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates));
+
+        var deltas = new List<ToolCallArgumentsDeltaContent>();
+        await foreach (var update in client.GetStreamingResponseAsync([]))
+            deltas.AddRange(update.Contents.OfType<ToolCallArgumentsDeltaContent>());
+
+        Assert.Single(deltas);
+        Assert.Equal("MyMcpTool", deltas[0].ToolName);
+        Assert.Equal("{\"query\":\"hi\"}", deltas[0].ArgumentsDelta);
+    }
+
+    [Fact]
+    public async Task GetStreamingResponseAsync_LegacyStreamableToolNamesSet_StillRespected()
+    {
+        var updates = new[]
+        {
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("a")])
+            {
+                RawRepresentation = new FakeRawDeltaSource(
+                    new ToolCallDeltaChunk(0, "ReadFile", "call-1", "{\"path\":\"a.txt\"}"))
+            }
+        };
+        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: updates))
+        {
+            StreamableToolNames = new HashSet<string>(["WriteFile"], StringComparer.Ordinal)
+        };
+
+        var deltas = new List<ToolCallArgumentsDeltaContent>();
+        await foreach (var update in client.GetStreamingResponseAsync([]))
+            deltas.AddRange(update.Contents.OfType<ToolCallArgumentsDeltaContent>());
+
+        Assert.Empty(deltas);
     }
 
     [Fact]
@@ -175,6 +221,49 @@ public sealed class StreamingToolCallPreviewChatClientTests
         var actual = await client.GetResponseAsync([]);
 
         Assert.Same(expected, actual);
+    }
+
+    [Fact]
+    public void BuildStreamOptOutToolNames_PicksUpAttribute()
+    {
+        // Tool whose method is decorated with [StreamArguments(false)] opts out;
+        // an undecorated tool stays streamable.
+        var optOutTool = AIFunctionFactory.Create(FakeToolMethods.OptedOut);
+        var streamingTool = AIFunctionFactory.Create(FakeToolMethods.Streaming);
+
+        var optOut = AgentFactory.BuildStreamOptOutToolNames([optOutTool, streamingTool]);
+
+        Assert.Contains(optOutTool.Name, optOut);
+        Assert.DoesNotContain(streamingTool.Name, optOut);
+    }
+
+    [Fact]
+    public void BuildStreamOptOutToolNames_IgnoresToolsWithoutUnderlyingMethod()
+    {
+        // Tools without UnderlyingMethod (MCP-shaped) should never appear in the opt-out set.
+        var mcpShapedTool = new MethodlessFakeFunction("search_docs");
+
+        var optOut = AgentFactory.BuildStreamOptOutToolNames([mcpShapedTool]);
+
+        Assert.Empty(optOut);
+    }
+
+    private static class FakeToolMethods
+    {
+        [StreamArguments(false)]
+        public static string OptedOut(string query) => query;
+
+        public static string Streaming(string query) => query;
+    }
+
+    private sealed class MethodlessFakeFunction : AIFunction
+    {
+        public MethodlessFakeFunction(string name) { Name = name; }
+        public override string Name { get; }
+        protected override ValueTask<object?> InvokeCoreAsync(
+            AIFunctionArguments arguments,
+            CancellationToken cancellationToken)
+            => ValueTask.FromResult<object?>(null);
     }
 
     private sealed class FakeRawDeltaSource(params ToolCallDeltaChunk[] chunks) : IToolCallDeltaChunkSource

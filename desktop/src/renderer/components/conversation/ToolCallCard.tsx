@@ -21,8 +21,10 @@ import { isShellToolName } from '../../utils/shellTools'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import {
   FILE_WRITE_TOOLS,
+  extractPartialJsonStringValue,
   formatCollapsedToolLabel,
-  formatExpandedInvocation
+  formatExpandedInvocation,
+  getStreamingToolDisplay
 } from '../../utils/toolCallDisplay'
 
 interface ToolCallCardProps {
@@ -55,6 +57,11 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const isShellTool = isShellToolName(toolName)
   const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
   const canExpandWhileRunning = isShellTool || isStreamingFileTool
+  const streamingDisplay = getStreamingToolDisplay(
+    toolName,
+    item.argumentsPreview ?? null,
+    locale
+  )
   const shellExecutionRunning = isShellExecutionRunning(item, isShellTool)
   const isRunning = isShellTool ? shellExecutionRunning : item.status !== 'completed'
   const shellOutput = item.aggregatedOutput ?? item.result ?? ''
@@ -118,23 +125,22 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
         >
           <Spinner />
           <span style={{ flex: 1 }}>
-            {isShellTool ? (
+            {isShellTool && args ? (
               <span style={{ color: 'var(--text-primary)' }}>
                 {formatCollapsedToolLabel(toolName, args, locale, { planTodos })}
               </span>
-            ) : toolName === CRON_TOOL_NAME ? (
+            ) : toolName === CRON_TOOL_NAME && args ? (
               <span style={{ color: 'var(--text-primary)' }}>
                 {formatCronRunningLabel(args, locale)}
               </span>
-            ) : isWebToolName(toolName) && !invocationNeedsCallingPrefix(toolName, args) ? (
+            ) : isWebToolName(toolName) && args && !invocationNeedsCallingPrefix(toolName, args) ? (
               <span style={{ color: 'var(--text-primary)' }}>
                 {formatInvocationDisplay(toolName, args, locale)}
               </span>
             ) : (
-              <>
-                {translate(locale, 'toolCall.calling')}{' '}
-                <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
-              </>
+              <span style={{ color: 'var(--text-primary)' }}>
+                {streamingDisplay.label}
+              </span>
             )}
           </span>
           <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
@@ -156,7 +162,12 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
                 planTodos={planTodos}
               />
             ) : (
-              <RunningFileToolPreview item={item} locale={locale} />
+              <RunningFileToolPreview
+                item={item}
+                locale={locale}
+                streamingContent={streamingDisplay.parsedPreview?.content ?? null}
+                streamingPath={streamingDisplay.parsedPreview?.path ?? null}
+              />
             )}
           </div>
         )}
@@ -407,70 +418,28 @@ function Spinner(): JSX.Element {
   )
 }
 
-function extractPartialJsonStringValue(json: string, key: string): string | null {
-  const keyPattern = `"${key}"`
-  const keyIndex = json.indexOf(keyPattern)
-  if (keyIndex < 0) return null
-  const colonIndex = json.indexOf(':', keyIndex + keyPattern.length)
-  if (colonIndex < 0) return null
-  const quoteIndex = json.indexOf('"', colonIndex + 1)
-  if (quoteIndex < 0) return null
-
-  let escaped = false
-  let out = ''
-  for (let i = quoteIndex + 1; i < json.length; i += 1) {
-    const ch = json[i]
-    if (escaped) {
-      switch (ch) {
-        case 'n':
-          out += '\n'
-          break
-        case 'r':
-          out += '\r'
-          break
-        case 't':
-          out += '\t'
-          break
-        case 'b':
-          out += '\b'
-          break
-        case 'f':
-          out += '\f'
-          break
-        case '\\':
-          out += '\\'
-          break
-        case '"':
-          out += '"'
-          break
-        case '/':
-          out += '/'
-          break
-        default:
-          out += '\\' + ch
-          break
-      }
-      escaped = false
-      continue
-    }
-    if (ch === '\\') {
-      escaped = true
-      continue
-    }
-    if (ch === '"') {
-      return out
-    }
-    out += ch
-  }
-
-  return out
-}
-
 function RunningFileToolPreview(
-  { item, locale }: { item: ConversationItem; locale: AppLocale }
+  {
+    item,
+    locale,
+    streamingContent,
+    streamingPath
+  }: {
+    item: ConversationItem
+    locale: AppLocale
+    streamingContent: string | null
+    streamingPath: string | null
+  }
 ): JSX.Element {
-  const contentPreview = item.streamingFileContent ?? ''
-  const pathPreview = extractPartialJsonStringValue(item.argumentsPreview ?? '', 'path')
+  // Prefer the dedicated streamingFileContent slot (populated by Write/Edit
+  // pipeline) and fall back to the tolerant partial-JSON extraction so we
+  // render content as soon as any preview is available.
+  const contentPreview = item.streamingFileContent
+    ?? streamingContent
+    ?? extractPartialJsonStringValue(item.argumentsPreview ?? '', 'content')
+    ?? ''
+  const pathPreview = streamingPath
+    ?? extractPartialJsonStringValue(item.argumentsPreview ?? '', 'path')
   const fileName = pathPreview ? pathPreview.split(/[\\/]/).pop() ?? pathPreview : ''
   const isEditFile = item.toolName === 'EditFile'
   const tip = fileName

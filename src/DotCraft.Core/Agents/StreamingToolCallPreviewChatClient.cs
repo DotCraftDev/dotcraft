@@ -12,7 +12,15 @@ public sealed class StreamingToolCallPreviewChatClient(IChatClient innerClient)
     : DelegatingChatClient(innerClient)
 {
     /// <summary>
-    /// Tool names that should emit argument delta previews. When null, all tools are eligible.
+    /// Optional predicate that decides whether argument deltas should be emitted for a tool.
+    /// When <see langword="null"/> (default) all tools are eligible.
+    /// </summary>
+    public Func<string, bool>? IsStreamableTool { get; set; }
+
+    /// <summary>
+    /// Tool names that should emit argument delta previews. Used as a fallback when
+    /// <see cref="IsStreamableTool"/> is not set. When both are <see langword="null"/>,
+    /// all tools are eligible.
     /// </summary>
     public IReadOnlySet<string>? StreamableToolNames { get; set; }
 
@@ -52,7 +60,7 @@ public sealed class StreamingToolCallPreviewChatClient(IChatClient innerClient)
                     continue;
                 if (tracker.ToolName is null)
                     continue;
-                if (StreamableToolNames != null && !StreamableToolNames.Contains(tracker.ToolName))
+                if (!IsEligible(tracker.ToolName))
                     continue;
 
                 var isFirst = !tracker.FirstChunkEmitted;
@@ -68,6 +76,15 @@ public sealed class StreamingToolCallPreviewChatClient(IChatClient innerClient)
 
             yield return update;
         }
+    }
+
+    private bool IsEligible(string toolName)
+    {
+        if (IsStreamableTool is not null)
+            return IsStreamableTool(toolName);
+        if (StreamableToolNames is not null)
+            return StreamableToolNames.Contains(toolName);
+        return true;
     }
 
     internal static IEnumerable<ToolCallDeltaChunk> ExtractDeltas(object? rawRepresentation)

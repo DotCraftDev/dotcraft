@@ -1080,6 +1080,12 @@ Streamed arguments delta for a `toolCall` item. Concatenate `delta` values in or
 2. zero or more `item/toolCall/argumentsDelta`.
 3. `item/completed` with the final `toolCall` payload, including complete `payload.arguments`.
 
+Server coverage:
+
+- Argument deltas are emitted for **every tool by default**, including built-in, module-contributed, and MCP tools. Individual tools can opt out via a server-side annotation, in which case clients only observe `item/started` followed by `item/completed` with no deltas.
+- Clients MUST NOT assume a specific built-in set has streaming enabled. Render UX based on the presence of `argumentsDelta` events for a given `toolCall` item.
+- Clients are expected to render tool-specific UX only for tools they recognise; for unknown tool names (for example MCP tools), render a generic "generating parameters" placeholder without displaying the raw JSON to the user.
+
 Client handling rules:
 
 - `deltaKind` is fixed to `toolCallArguments`.

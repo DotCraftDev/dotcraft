@@ -68,6 +68,8 @@ Tool names exposed to the model vary by source. There is no global rule; use the
 
 Use `[Description("...")]` on the method and on parameters for tool and parameter descriptions; optional `[Tool(Icon, DisplayType, DisplayMethod)]` for Dashboard UI (see FileTools.ReadFile).
 
+Tool argument streaming is enabled for every tool by default: AppServer clients receive `item/toolCall/argumentsDelta` notifications as the model fills in the arguments JSON, and the TUI/Desktop render per-tool live previews. If a tool must ship with a single atomic payload (for example because it proxies arguments to another process that cannot consume partial JSON, or because the arguments are sensitive), opt out by annotating the method with `[StreamArguments(false)]`; clients will then only see `item/started` followed by `item/completed` with no deltas. Omit the attribute to keep streaming enabled.
+
 ### Code Organization
 
 Use `#region` to organize large code sections. Place helper methods after public methods. Group related methods together.
