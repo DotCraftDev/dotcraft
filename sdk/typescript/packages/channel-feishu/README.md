@@ -12,7 +12,7 @@ It is built on:
 ## What This Adapter Supports
 
 - Feishu WebSocket event subscription
-- Startup bot probe with `appId` + `appSecret`
+- Startup bot probe with explicit tenant token authorization
 - DotCraft thread reuse via external channel identity
 - `/new` to start a fresh DotCraft thread
 - Group chats that only respond when the bot is @mentioned
@@ -20,6 +20,7 @@ It is built on:
 - Interactive approval cards with buttons
 - Static reply cards after `turn/completed`
 - Image input forwarding to DotCraft as `localImage`
+- Public `FeishuClient.sendTextMessage(...)` and `replyToMessage(...)`
 
 ## What This Adapter Does Not Cover
 
@@ -145,6 +146,32 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 - Approvals: rendered as interactive cards
 - Replies: sent as static interactive cards after the turn finishes
 
+## Capability Permission Matrix
+
+| Capability | OpenAPI / Surface | Typical permission scope | Bot capability required |
+|---|---|---|---|
+| Real-time inbound events | Event subscription over long connection | Message/event subscription permissions for inbound receive events | Yes |
+| History message read `listChatMessages` | `GET /open-apis/im/v1/messages` | Historical message read scope such as `im:message:readonly` | Usually yes |
+| Send text `sendTextMessage` | `POST /open-apis/im/v1/messages` | Message send scope such as `im:message:send` | Yes |
+| Reply to message `replyToMessage` | `POST /open-apis/im/v1/messages/{message_id}/reply` | Message send / reply scope such as `im:message:send` | Yes |
+| Interactive cards | `im/v1/messages` create + patch | Message send/update permissions for interactive messages | Yes |
+| File upload / send | `im/v1/files`, `im/v1/messages` | File/media upload plus message send permissions | Yes |
+| Image download | `im/v1/messages/{message_id}/resources` | Message resource read scope such as `im:resource` | Usually yes |
+| Reaction | `im/v1/messages/{message_id}/reactions` | Reaction-specific permission granted to the app | Yes |
+
+Notes:
+
+- The matrix above documents public adapter dependencies, not a guarantee that any tenant has already enabled them.
+- Feishu tenant policy and app publication state can still block a capability even when the API wrapper exists.
+- History read support depends on the tenant granting the required read scope; this package only wraps the API.
+
+## Non-Goals For History APIs
+
+- No scheduler or polling orchestration
+- No checkpoint persistence
+- No cooldown or audit policy
+- No guarantee that tenant permissions are already enabled
+
 ## Auth / Login Model
 
 This adapter does not use a QR login flow like the WeChat example.
@@ -154,7 +181,7 @@ Feishu bots use a static app credential model:
 - `appId`
 - `appSecret`
 
-The Lark SDK handles token acquisition internally. On startup the adapter validates credentials by calling the bot info API before listening for events.
+The adapter obtains a tenant access token from `appId` + `appSecret` and uses it explicitly for bot probe and message APIs before listening for events.
 
 ## Credits
 

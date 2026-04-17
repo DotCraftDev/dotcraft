@@ -139,10 +139,11 @@ async function runLegacyMode(args: ParsedArgs): Promise<void> {
     hasBotIdentity: botInfo.hasBotIdentity,
     appName: botInfo.appName || "(unnamed)",
     hasDiagnostic: Boolean(botInfo.diagnosticMessage),
+    diagnosticTag: botInfo.diagnosticTag ?? "",
   });
   if (!botInfo.hasBotIdentity) {
     logWarn("startup.bot_probe_fallback", {
-      reason: "missing_bot_identity",
+      reason: botInfo.diagnosticTag ?? "missing_bot_identity",
     });
     if (botInfo.diagnosticMessage) {
       logWarn("startup.bot_probe_diagnostic", {

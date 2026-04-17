@@ -89,11 +89,101 @@ export interface FeishuBotInfo {
   activateStatus?: number;
   rawFieldKeys?: string[];
   diagnosticMessage?: string;
+  diagnosticTag?: FeishuBotDiagnosticTag;
 }
 
 export interface FeishuSendResult {
   messageId: string;
   chatId: string;
+}
+
+export type FeishuBotDiagnosticTag =
+  | "missingToken"
+  | "botCapabilityDisabled"
+  | "identityFieldsMissing";
+
+export interface FeishuReplyOptions {
+  replyInThread?: boolean;
+  uuid?: string;
+}
+
+export interface FeishuListChatMessagesOptions {
+  startTime: string;
+  endTime?: string;
+  pageSize?: number;
+  pageToken?: string;
+}
+
+export interface FeishuChatMessageSender {
+  openId?: string;
+  userId?: string;
+  unionId?: string;
+  senderType?: string;
+  tenantKey?: string;
+}
+
+export interface FeishuChatMessageItem {
+  messageId: string;
+  chatId: string;
+  chatType?: "p2p" | "group";
+  messageType: string;
+  createTime?: string;
+  parentId?: string;
+  rootId?: string;
+  sender: FeishuChatMessageSender;
+  mentions: FeishuMention[];
+  rawContent: string;
+}
+
+export interface FeishuChatMessagePage {
+  items: FeishuChatMessageItem[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export type FeishuApiErrorKind =
+  | "permission"
+  | "auth"
+  | "invalidArgument"
+  | "rateLimited"
+  | "upstream"
+  | "unknown";
+
+export interface FeishuApiErrorOptions {
+  kind: FeishuApiErrorKind;
+  message: string;
+  retryable: boolean;
+  code?: number;
+  msg?: string;
+  httpStatus?: number;
+  raw?: unknown;
+  cause?: unknown;
+}
+
+export class FeishuApiError extends Error {
+  readonly kind: FeishuApiErrorKind;
+  readonly retryable: boolean;
+  readonly code?: number;
+  readonly msg?: string;
+  readonly httpStatus?: number;
+  readonly raw?: unknown;
+
+  constructor(options: FeishuApiErrorOptions) {
+    super(options.message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    this.name = "FeishuApiError";
+    this.kind = options.kind;
+    this.retryable = options.retryable;
+    this.code = options.code;
+    this.msg = options.msg;
+    this.httpStatus = options.httpStatus;
+    this.raw = options.raw;
+  }
+}
+
+export interface ParsedInboundSender {
+  openId?: string;
+  userId?: string;
+  unionId?: string;
 }
 
 export interface ParsedInboundMessage {
@@ -107,4 +197,8 @@ export interface ParsedInboundMessage {
   text: string;
   parts: Record<string, unknown>[];
   messageId: string;
+  parentId?: string;
+  rootId?: string;
+  mentions: FeishuMention[];
+  sender: ParsedInboundSender;
 }
