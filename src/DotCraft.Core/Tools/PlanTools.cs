@@ -141,20 +141,26 @@ public sealed class PlanTools(
     }
 
     [Description("""
-        Create or update a structured task list for the current session. This helps track progress and organize complex multi-step work.
+        Create or update a structured task list for the current session. This is a conditional organizational tool for complex multi-step work, not a default progress tracker. If the task does not genuinely benefit from a list, just do the work directly.
 
         When to use this tool:
-        - Complex multi-step tasks (3+ distinct steps)
+        - Complex multi-step tasks (3+ genuinely distinct steps)
         - Non-trivial tasks requiring planning or multiple operations
         - User provides multiple tasks (numbered or comma-separated)
-        - After receiving new instructions, capture requirements as todos
+        - After initial exploration reveals the scope is larger than first expected
         - When starting a task, mark it as in_progress; when done, mark it as completed
 
         When NOT to use this tool:
         - Single, straightforward tasks
-        - Trivial tasks completable in fewer than 3 steps
+        - Trivial tasks completable in fewer than 3 non-trivial steps
+        - A single obvious change in one well-understood file
         - Purely conversational or informational requests
         - Do NOT include operational steps like linting, testing, or searching the codebase as todo items
+
+        Timing:
+        - For non-trivial tasks, gather a minimum of context first (a quick read or search) so items are concrete and file-specific, then create the list before the main implementation work.
+        - Do not create a list for trivial single-step tasks.
+        - A list written from guesses is worse than no list. Prefer one good TodoWrite after brief exploration over an immediate speculative one.
 
         Parameter 'merge':
         - false (default): Replace the entire todo list with the provided items
@@ -163,7 +169,6 @@ public sealed class PlanTools(
         Task states: pending, in_progress, completed, cancelled
 
         Rules:
-        - Create the full todo list BEFORE starting work
         - Mark tasks completed IMMEDIATELY after finishing (do not batch completions)
         - Only ONE task should be in_progress at a time
         - Keep items high-level and actionable

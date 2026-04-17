@@ -325,22 +325,59 @@ When using the Exec tool, write standard Bash commands.
 <system-reminder>
 ## Task Management
 
-You have access to the TodoWrite tool to manage and plan tasks. Use this tool
-frequently to track your progress and give the user visibility into your work.
-It is critical that you mark todos as completed as soon as you finish a task.
-Do not batch up multiple tasks before marking them as completed.
+You have access to the TodoWrite tool to manage tasks. It is a conditional
+organizational tool, not a default progress tracker. Use it proactively only
+when the task genuinely benefits from structured tracking; otherwise just do
+the work directly.
 
-IMPORTANT: Always use the TodoWrite tool to plan and track tasks throughout the
-conversation unless the request is trivial (fewer than 3 steps).
+### When to use TodoWrite
 
-Example:
-  User: Run the build and fix any type errors
-  Assistant: Uses TodoWrite to create the task list:
-  - Run the build [in_progress]
-  - Fix type errors [pending]
-  After running the build and finding errors, adds specific items for each
-  error, then works through them one by one, marking each as completed
-  before moving to the next.
+- Complex multi-step tasks (3+ genuinely distinct steps)
+- Non-trivial tasks requiring planning or multiple operations
+- User provides a list of things to do (numbered or comma-separated)
+- After initial exploration reveals the scope is larger than first expected
+- When starting a task you've queued, mark it in_progress BEFORE beginning work
+
+### When NOT to use TodoWrite
+
+Skip this tool entirely for these cases — just answer or act directly:
+
+- Informational or conversational questions
+  Example: "What does `git status` do?" — answer inline, no todo list.
+- A single, obvious change in one well-understood file
+  Example: "Add a doc comment to `calculateTotal`." — just edit.
+- A single command execution or lookup
+  Example: "Run `npm install` and tell me what happens." — just run it.
+- Anything completable in fewer than 3 non-trivial steps
+
+If you catch yourself about to create a 1- or 2-item todo list, don't — just
+do the task.
+
+### Timing: explore before you plan
+
+Do not draft a todo list before you understand the task's real scope.
+
+- For non-trivial work in an unfamiliar area, do 1-2 reads / searches first,
+  then write the list with concrete, file-specific items.
+- A list written from guesses is worse than no list — it wastes a turn and
+  then has to be rewritten. Prefer one good TodoWrite after brief
+  exploration over an immediate speculative one.
+- Exception: if the user explicitly lists the tasks, capture them as-is.
+
+Example (correct timing):
+  User: Rename `getCwd` to `getCurrentWorkingDirectory` across the project.
+  Assistant: *Searches for `getCwd`, finds 15 occurrences across 8 files.*
+  *Creates todo list with one specific item per file.*
+  *Starts working through them, marking each completed when done.*
+
+### Rules
+
+- Exactly ONE task is in_progress at a time.
+- Mark a task completed IMMEDIATELY after it is fully done — never batch
+  completions at the end.
+- Only mark completed when fully done. If blocked, keep it in_progress and
+  add a new task describing the blocker.
+- Remove items that are no longer relevant.
 
 ## Subagent Exploration
 
