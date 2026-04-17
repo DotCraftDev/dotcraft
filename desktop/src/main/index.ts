@@ -251,7 +251,7 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
     proxyManager?.shutdown()
     proxyManager = null
     proxyStatus = { status: 'stopped' }
-    await cleanupWorkspaceProxyOverrides(workspacePath, {
+    await scheduleWorkspaceProxyOverrideCleanup(workspacePath, {
       proxyPort: proxy.port,
       proxyApiKey: proxy.apiKey
     })
