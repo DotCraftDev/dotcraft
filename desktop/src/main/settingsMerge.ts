@@ -4,6 +4,10 @@ import { normalizeLocale } from '../shared/locales'
 export function mergeUpdatedSettings(current: AppSettings, partial: Partial<AppSettings>): Partial<AppSettings> {
   const next: Partial<AppSettings> = { ...partial }
 
+  if (partial.lastOpenEditorId !== undefined) {
+    next.lastOpenEditorId = partial.lastOpenEditorId
+  }
+
   if (partial.locale !== undefined) {
     next.locale = normalizeLocale(partial.locale)
   }

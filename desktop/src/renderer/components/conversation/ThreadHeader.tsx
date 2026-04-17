@@ -3,6 +3,8 @@ import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { CommitDialog } from '../detail/CommitDialog'
+import { CommitIcon } from '../ui/AppIcons'
+import { OpenWorkspaceButton } from './OpenWorkspaceButton'
 
 interface ThreadHeaderProps {
   threadName: string
@@ -38,10 +40,6 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
       renameInputRef.current?.select()
     }
   }, [renaming])
-
-  function handleOpen(): void {
-    void window.api.shell.openPath(workspacePath)
-  }
 
   function startRename(): void {
     setRenameValue(threadName)
@@ -132,14 +130,7 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
         )}
 
         {/* Open button */}
-        <button
-          onClick={handleOpen}
-          title={t('threadHeader.openTitle', { path: workspacePath })}
-          style={headerButtonStyle}
-          aria-label={t('threadHeader.openWorkspaceTitle')}
-        >
-          {t('threadHeader.open')}
-        </button>
+        <OpenWorkspaceButton workspacePath={workspacePath} />
 
         {/* Commit button */}
         <button
@@ -153,6 +144,7 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
           }}
           aria-label={t('threadHeader.commitTitle')}
         >
+          <CommitIcon size={13} />
           {t('threadHeader.commit')}
         </button>
       </div>
@@ -170,12 +162,15 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
 
 const headerButtonStyle: React.CSSProperties = {
   padding: '4px 10px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
   fontSize: '12px',
   fontWeight: 500,
   color: 'var(--text-secondary)',
   backgroundColor: 'transparent',
   border: '1px solid var(--border-default)',
-  borderRadius: '5px',
+  borderRadius: '6px',
   cursor: 'pointer',
   flexShrink: 0,
   transition: 'background-color 100ms ease, color 100ms ease'

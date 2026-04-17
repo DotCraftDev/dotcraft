@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ipcMain, shell } from 'electron'
 import { promises as fs } from 'fs'
 
-const { scanModulesMock, moduleProcessManagerStartMock } = vi.hoisted(() => ({
+const { scanModulesMock, moduleProcessManagerStartMock, detectEditorsMock, launchEditorMock } = vi.hoisted(() => ({
   scanModulesMock: vi.fn(),
-  moduleProcessManagerStartMock: vi.fn()
+  moduleProcessManagerStartMock: vi.fn(),
+  detectEditorsMock: vi.fn(),
+  launchEditorMock: vi.fn()
 }))
 
 vi.mock('fs', () => ({
@@ -67,6 +69,11 @@ vi.mock('../moduleProcessManager', async () => {
     ModuleProcessManager: MockModuleProcessManager
   }
 })
+
+vi.mock('../externalEditors', () => ({
+  detectEditors: detectEditorsMock,
+  launchEditor: launchEditorMock
+}))
 
 import {
   createServerRequestBridge,
@@ -159,7 +166,92 @@ describe('registerIpcHandlers', () => {
     vi.clearAllMocks()
     scanModulesMock.mockResolvedValue([])
     moduleProcessManagerStartMock.mockResolvedValue({ ok: true })
+    detectEditorsMock.mockResolvedValue([
+      { id: 'cursor', labelKey: 'editors.cursor', iconKey: 'editor-generic' },
+      { id: 'explorer', labelKey: 'editors.explorer', iconKey: 'explorer' }
+    ])
+    launchEditorMock.mockResolvedValue(undefined)
     await refreshNodeRuntimeStatus()
+  })
+
+  it('registers editors:list and returns detected editor entries', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    const result = await handlers.get('editors:list')?.({})
+    expect(detectEditorsMock).toHaveBeenCalledOnce()
+    expect(result).toEqual([
+      { id: 'cursor', labelKey: 'editors.cursor', iconKey: 'editor-generic' },
+      { id: 'explorer', labelKey: 'editors.explorer', iconKey: 'explorer' }
+    ])
+  })
+
+  it('registers editors:launch and validates workspace path before launch', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({ locale: 'en' })),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    await handlers.get('editors:launch')?.({}, 'cursor', '/workspace')
+    expect(launchEditorMock).toHaveBeenCalledWith('cursor', 'F:\\workspace')
+
+    await expect(
+      handlers.get('editors:launch')?.({}, 'cursor', '/outside')
+    ).rejects.toThrow()
   })
 
   it('registers appserver:restart-managed and forwards to callback', async () => {

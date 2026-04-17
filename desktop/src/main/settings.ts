@@ -12,6 +12,17 @@ export interface RecentWorkspace {
 export type UiTheme = 'dark' | 'light'
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
+export type LastOpenEditorId =
+  | 'explorer'
+  | 'vs'
+  | 'cursor'
+  | 'vscode'
+  | 'rider'
+  | 'webstorm'
+  | 'idea'
+  | 'github-desktop'
+  | 'git-bash'
+  | 'terminal'
 
 export interface WebSocketConnectionSettings {
   host?: string
@@ -57,6 +68,7 @@ export interface AppSettings {
    * seeds it from all `builtin` channels in `channel/list` (see specs/desktop-client.md §9.4.1).
    */
   visibleChannels?: string[]
+  lastOpenEditorId?: LastOpenEditorId
 }
 
 const MAX_RECENT = 20
@@ -73,6 +85,25 @@ function normalizeModulesDirectory(settings: AppSettings): string | undefined {
   const raw = settings.modulesDirectory?.trim()
   if (!raw) return undefined
   return normalize(raw)
+}
+
+function normalizeLastOpenEditorId(settings: AppSettings): LastOpenEditorId | undefined {
+  const value = settings.lastOpenEditorId
+  if (
+    value === 'explorer' ||
+    value === 'vs' ||
+    value === 'cursor' ||
+    value === 'vscode' ||
+    value === 'rider' ||
+    value === 'webstorm' ||
+    value === 'idea' ||
+    value === 'github-desktop' ||
+    value === 'git-bash' ||
+    value === 'terminal'
+  ) {
+    return value
+  }
+  return undefined
 }
 
 function normalizeProxySettings(settings: AppSettings): ProxySettings | undefined {
@@ -138,6 +169,7 @@ export function loadSettings(): AppSettings {
       const raw = JSON.parse(readFileSync(filePath, 'utf8')) as AppSettings
       raw.binarySource = normalizeBinarySource(raw)
       raw.modulesDirectory = normalizeModulesDirectory(raw)
+      raw.lastOpenEditorId = normalizeLastOpenEditorId(raw)
       raw.proxy = normalizeProxySettings(raw)
       raw.activeModuleVariants = normalizeActiveModuleVariants(raw)
       if (raw.locale !== undefined) {
@@ -160,6 +192,7 @@ export function saveSettings(settings: AppSettings): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     settings.binarySource = normalizeBinarySource(settings)
     settings.modulesDirectory = normalizeModulesDirectory(settings)
+    settings.lastOpenEditorId = normalizeLastOpenEditorId(settings)
     settings.proxy = normalizeProxySettings(settings)
     settings.activeModuleVariants = normalizeActiveModuleVariants(settings)
     writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')

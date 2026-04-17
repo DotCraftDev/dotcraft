@@ -42,6 +42,7 @@ import type {
 } from './workspaceSetup'
 import { translate, normalizeLocale, DEFAULT_LOCALE, type AppLocale } from '../shared/locales'
 import { parseJsonConfig, parseJsonObjectConfig } from '../shared/jsonConfig'
+import { detectEditors, launchEditor, type EditorId } from './externalEditors'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -102,6 +103,21 @@ export interface ServerRequestPayload {
   bridgeId: string
   method: string
   params: unknown
+}
+
+function assertPathWithinWorkspace(
+  absPath: string,
+  workspacePath: string,
+  locale: AppLocale
+): string {
+  const resolved = path.resolve(absPath)
+  const wsResolved = path.resolve(workspacePath)
+  if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
+    throw new Error(
+      translate(locale, 'ipc.pathOutsideWorkspace', { path: absPath })
+    )
+  }
+  return resolved
 }
 
 /**
@@ -325,6 +341,8 @@ export interface IpcHandlerCallbacks {
  * - `file:exists`                 (renderer -> main, invoke) -> checks whether file exists within workspace
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
  * - `shell:open-external`         (renderer -> main, invoke) -> opens http(s) URL in system browser
+ * - `editors:list`                (renderer -> main, invoke) -> returns detected editor targets
+ * - `editors:launch`              (renderer -> main, invoke) -> opens workspace path with editor target
  */
 function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
   return normalizeLocale(callbacks?.getSettings()?.locale ?? DEFAULT_LOCALE)
@@ -658,29 +676,26 @@ export function registerIpcHandlers(
     await openExternalHttpUrl(url)
   })
 
+  handleSafe('editors:list', async () => {
+    return detectEditors()
+  })
+
+  handleSafe('editors:launch', async (_event, editorId: EditorId, targetPath: string) => {
+    const locale = mainLocale(callbacks)
+    const resolved = assertPathWithinWorkspace(targetPath, workspacePath, locale)
+    await launchEditor(editorId, resolved)
+  })
+
   // Renderer -> Main: write a file to disk (used for revert/re-apply)
   handleSafe('file:write', async (_event, absPath: string, content: string) => {
-    // Security: ensure path is within workspace
-    const resolved = path.resolve(absPath)
-    const wsResolved = path.resolve(workspacePath)
-    if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
-      throw new Error(
-        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
-      )
-    }
+    const resolved = assertPathWithinWorkspace(absPath, workspacePath, mainLocale(callbacks))
     await fs.mkdir(path.dirname(resolved), { recursive: true })
     await fs.writeFile(resolved, content, 'utf-8')
   })
 
   // Renderer -> Main: read a file from disk (used for cumulative diff computation)
   handleSafe('file:read', async (_event, absPath: string): Promise<string> => {
-    const resolved = path.resolve(absPath)
-    const wsResolved = path.resolve(workspacePath)
-    if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
-      throw new Error(
-        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
-      )
-    }
+    const resolved = assertPathWithinWorkspace(absPath, workspacePath, mainLocale(callbacks))
     try {
       return await fs.readFile(resolved, 'utf-8')
     } catch (err: unknown) {
@@ -692,24 +707,12 @@ export function registerIpcHandlers(
 
   // Renderer -> Main: delete a file (used for reverting new files)
   handleSafe('file:delete', async (_event, absPath: string) => {
-    const resolved = path.resolve(absPath)
-    const wsResolved = path.resolve(workspacePath)
-    if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
-      throw new Error(
-        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
-      )
-    }
+    const resolved = assertPathWithinWorkspace(absPath, workspacePath, mainLocale(callbacks))
     await fs.unlink(resolved)
   })
 
   handleSafe('file:exists', async (_event, absPath: string): Promise<boolean> => {
-    const resolved = path.resolve(absPath)
-    const wsResolved = path.resolve(workspacePath)
-    if (!resolved.startsWith(wsResolved + path.sep) && resolved !== wsResolved) {
-      throw new Error(
-        translate(mainLocale(callbacks), 'ipc.pathOutsideWorkspace', { path: absPath })
-      )
-    }
+    const resolved = assertPathWithinWorkspace(absPath, workspacePath, mainLocale(callbacks))
     try {
       await fs.access(resolved)
       return true
@@ -1229,6 +1232,8 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('window:set-title-bar-overlay-theme')
   ipcMain.removeHandler('window:get-workspace-path')
   ipcMain.removeHandler('shell:open-external')
+  ipcMain.removeHandler('editors:list')
+  ipcMain.removeHandler('editors:launch')
   ipcMain.removeHandler('file:write')
   ipcMain.removeHandler('file:read')
   ipcMain.removeHandler('file:delete')
