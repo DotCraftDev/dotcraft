@@ -10,6 +10,7 @@ import type {
   ProxyStatus,
   ProxyOAuthProvider
 } from './settings'
+import type { ProxyAuthFileSummary } from './proxyAuthFiles'
 import { resolveBinaryLocation } from './AppServerManager'
 import { resolveProxyBinaryLocation } from './ProxyProcessManager'
 import { checkWorkspaceLock } from './workspaceLock'
@@ -270,6 +271,8 @@ export interface IpcHandlerCallbacks {
   startProxyOAuth: (provider: ProxyOAuthProvider) => Promise<{ url: string; state?: string }>
   /** Polls OAuth status with previous state token. */
   getProxyOAuthStatus: (state: string) => Promise<{ status: string; error?: string }>
+  /** Lists persisted/runtime provider auth entries from CLIProxyAPI. */
+  getProxyAuthFiles: () => Promise<ProxyAuthFileSummary[]>
   /** Returns usage summary from management API. */
   getProxyUsageSummary: () => Promise<{
     totalRequests: number
@@ -607,6 +610,10 @@ export function registerIpcHandlers(
 
   handleSafe('proxy:get-auth-status', async (_event, state: string) => {
     return callbacks?.getProxyOAuthStatus(state)
+  })
+
+  handleSafe('proxy:list-auth-files', async () => {
+    return callbacks?.getProxyAuthFiles() ?? []
   })
 
   handleSafe('proxy:get-usage-summary', async () => {
@@ -1215,6 +1222,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('proxy:restart-managed')
   ipcMain.removeHandler('proxy:start-oauth')
   ipcMain.removeHandler('proxy:get-auth-status')
+  ipcMain.removeHandler('proxy:list-auth-files')
   ipcMain.removeHandler('proxy:get-usage-summary')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')

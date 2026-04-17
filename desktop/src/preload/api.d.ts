@@ -39,6 +39,18 @@ export interface ProxyStatusPayload {
   pid?: number
 }
 
+export interface ProxyAuthFileSummary {
+  provider: ProxyOAuthProvider
+  status: string
+  statusMessage: string
+  disabled: boolean
+  unavailable: boolean
+  runtimeOnly: boolean
+  modtime?: string
+  email?: string
+  name: string
+}
+
 export interface ServerRequestPayload {
   bridgeId: string
   method: string
@@ -170,6 +182,7 @@ declare global {
         restartManaged(): Promise<void>
         startOAuth(provider: ProxyOAuthProvider): Promise<{ url: string; state?: string }>
         getAuthStatus(state: string): Promise<{ status: string; error?: string }>
+        listAuthFiles(): Promise<ProxyAuthFileSummary[]>
         getUsageSummary(): Promise<{
           totalRequests: number
           successCount: number

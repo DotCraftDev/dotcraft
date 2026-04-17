@@ -482,7 +482,7 @@ export function InputComposer({
               disabled={modelDisabled}
               onChange={onModelChange}
               triggerStyle={composerModelPillStyle(
-                modelDisabled || modelLoading ? 'var(--text-dimmed)' : 'var(--text-primary)',
+                modelDisabled || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
                 modelDisabled || modelLoading
               )}
             />

@@ -124,6 +124,7 @@ describe('registerIpcHandlers', () => {
       getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
       startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
       getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
       getProxyUsageSummary: vi.fn().mockResolvedValue({
         totalRequests: 0,
         successCount: 0,
@@ -162,6 +163,7 @@ describe('registerIpcHandlers', () => {
       getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
       startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
       getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
       getProxyUsageSummary: vi.fn().mockResolvedValue({
         totalRequests: 0,
         successCount: 0,
@@ -184,6 +186,66 @@ describe('registerIpcHandlers', () => {
     })
     expect(onListSetupModels).toHaveBeenCalledOnce()
     expect(result).toEqual({ kind: 'success', models: ['gpt-4.1'] })
+  })
+
+  it('registers proxy:list-auth-files and forwards to callback', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+
+    const getProxyAuthFiles = vi.fn().mockResolvedValue([
+      {
+        provider: 'codex',
+        status: 'ready',
+        statusMessage: 'ok',
+        disabled: false,
+        unavailable: false,
+        runtimeOnly: false,
+        name: 'codex-user.json'
+      }
+    ])
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles,
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    expect(handlers.has('proxy:list-auth-files')).toBe(true)
+    const result = await handlers.get('proxy:list-auth-files')?.({})
+    expect(getProxyAuthFiles).toHaveBeenCalledOnce()
+    expect(result).toEqual([
+      {
+        provider: 'codex',
+        status: 'ready',
+        statusMessage: 'ok',
+        disabled: false,
+        unavailable: false,
+        runtimeOnly: false,
+        name: 'codex-user.json'
+      }
+    ])
   })
 })
 

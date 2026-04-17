@@ -17,6 +17,7 @@ import {
   SIDEBAR_NAV_ROW_OUTER
 } from '../sidebar/sidebarNavRowStyles'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
+import { MessageSquare, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
 
 interface SidebarProps {
   workspaceName: string
@@ -170,34 +171,11 @@ function SidebarNavRow({
 }
 
 function SkillsIcon(): JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden style={{ display: 'block' }}>
-      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  )
+  return <Sun size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
 }
 
 function ChannelsIcon(): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      style={{ display: 'block' }}
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      <path d="M8 10h.01" />
-      <path d="M12 10h.01" />
-      <path d="M16 10h.01" />
-    </svg>
-  )
+  return <MessageSquare size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
 }
 
 function AutomationsIcon(): JSX.Element {
@@ -432,43 +410,11 @@ function CollapsedSidebar({ onExpand, workspacePath }: CollapsedSidebarProps): J
 // ---------------------------------------------------------------------------
 
 function PanelLeftCloseIcon(): JSX.Element {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-      <path d="m16 15-3-3 3-3" />
-    </svg>
-  )
+  return <PanelLeftClose size={18} strokeWidth={2} aria-hidden="true" />
 }
 
 function PanelLeftOpenIcon(): JSX.Element {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-      <path d="m14 9 3 3-3 3" />
-    </svg>
-  )
+  return <PanelLeftOpen size={18} strokeWidth={2} aria-hidden="true" />
 }
 
 // ---------------------------------------------------------------------------

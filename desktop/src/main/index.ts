@@ -62,6 +62,11 @@ import {
   buildManagementHeaders,
   buildProxyOAuthPath
 } from './proxyConfig'
+import {
+  normalizeProxyAuthFiles,
+  type ProxyAuthFileSummary,
+  type RawProxyAuthFileSummary
+} from './proxyAuthFiles'
 import { applyWorkspaceProxyOverrides, cleanupWorkspaceProxyOverrides } from './proxyWorkspaceConfig'
 import {
   materializeProxyRuntimeSettings,
@@ -97,7 +102,9 @@ let crashRetryTimer: ReturnType<typeof setTimeout> | null = null
 let isAppQuitting = false
 let ipcHandlersRegistered = false
 let finalQuitCleanupDone = false
+let finalQuitCleanupRunning = false
 let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
+let pendingProxyOverrideCleanup: Promise<void> = Promise.resolve()
 
 /** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
 function resolveWindowIconPath(): string | null {
@@ -292,7 +299,7 @@ async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<vo
     setProxyStatus: (status) => {
       proxyStatus = status
     },
-    cleanupWorkspaceProxyOverrides
+    cleanupWorkspaceProxyOverrides: scheduleWorkspaceProxyOverrideCleanup
   })
 
   manager.spawn()
@@ -343,6 +350,19 @@ function releaseCurrentWorkspaceLock(): void {
   currentWorkspacePath = ''
 }
 
+function scheduleWorkspaceProxyOverrideCleanup(
+  workspacePath: string,
+  options: {
+    proxyPort?: number
+    proxyApiKey?: string
+  }
+): Promise<void> {
+  pendingProxyOverrideCleanup = pendingProxyOverrideCleanup
+    .catch(() => {})
+    .then(() => cleanupWorkspaceProxyOverrides(workspacePath, options))
+  return pendingProxyOverrideCleanup
+}
+
 function registerDesktopIpcHandlers(
   workspacePath: string,
   getWireClient: () => WireProtocolClient | null
@@ -388,14 +408,14 @@ async function autoStartEnabledModules(): Promise<void> {
   }
 }
 
-function teardownRuntime(
+async function teardownRuntime(
   reason: string,
   options?: {
     releaseWorkspaceLock?: boolean
     clearMainWindow?: boolean
     cleanupIpcHandlers?: boolean
   }
-): void {
+): Promise<void> {
   const moduleManager = getModuleProcessManager()
   const clearedCrashRetry = clearCrashRetryTimer()
   const cleanedIpc = options?.cleanupIpcHandlers
@@ -414,7 +434,7 @@ function teardownRuntime(
   appServerManager?.shutdown()
   proxyManager?.shutdown()
   if (hadProxy && workspacePathAtTeardown) {
-    void cleanupWorkspaceProxyOverrides(workspacePathAtTeardown, {
+    await scheduleWorkspaceProxyOverrideCleanup(workspacePathAtTeardown, {
       proxyPort: proxyAtTeardown.port,
       proxyApiKey: proxyAtTeardown.apiKey
     })
@@ -543,7 +563,7 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   })
 
   win.on('close', () => {
-    teardownRuntime('window close', { releaseWorkspaceLock: true })
+    void teardownRuntime('window close', { releaseWorkspaceLock: true })
   })
 
   win.on('closed', () => {
@@ -718,7 +738,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
         proxyManager = null
         proxyStatus = { status: 'stopped' }
         if (currentWorkspacePath) {
-          void cleanupWorkspaceProxyOverrides(currentWorkspacePath, {
+          void scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
             proxyPort: resolveProxySettings(sharedSettings).port,
             proxyApiKey: resolveProxySettings(sharedSettings).apiKey
           })
@@ -751,6 +771,13 @@ function buildCallbacks(): IpcHandlerCallbacks {
         sharedSettings,
         `/get-auth-status?state=${encodeURIComponent(state)}`
       )
+    },
+    getProxyAuthFiles: async (): Promise<ProxyAuthFileSummary[]> => {
+      const response = await fetchProxyManagementJson<{ files?: RawProxyAuthFileSummary[] }>(
+        sharedSettings,
+        '/auth-files'
+      )
+      return normalizeProxyAuthFiles(response)
     },
     getProxyUsageSummary: async () => {
       const usage = await fetchProxyManagementJson<{
@@ -796,7 +823,7 @@ async function openWorkspaceWithoutConnection(workspacePath: string): Promise<vo
     releaseWorkspaceLock(currentWorkspacePath)
   }
 
-  teardownRuntime('switch to setup-required workspace')
+  await teardownRuntime('switch to setup-required workspace')
   currentWorkspacePath = workspacePath
   reregisterIpcForWorkspace(workspacePath)
 
@@ -811,7 +838,7 @@ async function openWorkspaceWithoutConnection(workspacePath: string): Promise<vo
 
 async function clearWorkspaceSelection(): Promise<void> {
   if (currentWorkspacePath) {
-    teardownRuntime('clear workspace selection', { releaseWorkspaceLock: true })
+    await teardownRuntime('clear workspace selection', { releaseWorkspaceLock: true })
   }
 
   currentWorkspacePath = ''
@@ -852,7 +879,7 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   }
 
   // Tear down previous connection
-  teardownRuntime('switch/reconnect before new connect')
+  await teardownRuntime('switch/reconnect before new connect')
 
   currentWorkspacePath = workspacePath
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1272,7 +1299,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform === 'darwin') {
-    teardownRuntime('window-all-closed', {
+    void teardownRuntime('window-all-closed', {
       releaseWorkspaceLock: true,
       clearMainWindow: true,
       cleanupIpcHandlers: true
@@ -1285,15 +1312,28 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isAppQuitting = true
   if (finalQuitCleanupDone) {
     return
   }
-  finalQuitCleanupDone = true
-  teardownRuntime('before-quit', {
+  if (finalQuitCleanupRunning) {
+    event.preventDefault()
+    return
+  }
+  event.preventDefault()
+  finalQuitCleanupRunning = true
+  void teardownRuntime('before-quit', {
     releaseWorkspaceLock: true,
     clearMainWindow: true,
     cleanupIpcHandlers: true
   })
+    .catch((error) => {
+      console.warn('[desktop] failed to finish proxy override cleanup before quit', error)
+    })
+    .finally(() => {
+      finalQuitCleanupDone = true
+      finalQuitCleanupRunning = false
+      app.quit()
+    })
 })

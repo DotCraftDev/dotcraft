@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SettingsView } from '../components/settings/SettingsView'
 import { LocaleProvider } from '../contexts/LocaleContext'
@@ -22,6 +22,7 @@ const proxyRestartManaged = vi.fn()
 const proxyGetResolvedBinary = vi.fn()
 const proxyPickBinary = vi.fn()
 const proxyGetAuthStatus = vi.fn()
+const proxyListAuthFiles = vi.fn()
 const proxyStartOAuth = vi.fn()
 const workspacePickFolder = vi.fn()
 const shellOpenExternal = vi.fn()
@@ -61,7 +62,7 @@ describe('SettingsView restart AppServer', () => {
     modulesUserDirectory.mockResolvedValue({ path: 'C:\\Users\\Administrator\\.craft\\modules' })
     modulesCheckDirectory.mockResolvedValue({ exists: true })
     modulesRescan.mockResolvedValue(undefined)
-    proxyGetStatus.mockResolvedValue({ state: 'stopped', errorMessage: '' })
+    proxyGetStatus.mockResolvedValue({ status: 'stopped', errorMessage: '' })
     proxyGetUsageSummary.mockResolvedValue({
       totalRequests: 10,
       successCount: 8,
@@ -72,6 +73,7 @@ describe('SettingsView restart AppServer', () => {
     proxyGetResolvedBinary.mockResolvedValue({ source: 'bundled', path: 'cliproxyapi' })
     proxyPickBinary.mockResolvedValue('C:\\cliproxyapi.exe')
     proxyGetAuthStatus.mockResolvedValue({ status: 'idle' })
+    proxyListAuthFiles.mockResolvedValue([])
     proxyStartOAuth.mockResolvedValue({ state: 'oauth-state', url: 'https://auth.example.test' })
     workspacePickFolder.mockResolvedValue('C:\\picked')
     shellOpenExternal.mockResolvedValue(undefined)
@@ -102,6 +104,7 @@ describe('SettingsView restart AppServer', () => {
           getResolvedBinary: proxyGetResolvedBinary,
           pickBinary: proxyPickBinary,
           getAuthStatus: proxyGetAuthStatus,
+          listAuthFiles: proxyListAuthFiles,
           startOAuth: proxyStartOAuth
         },
         workspace: {
@@ -112,6 +115,10 @@ describe('SettingsView restart AppServer', () => {
         }
       }
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('shows restart button for Desktop-managed connection modes', async () => {
@@ -433,35 +440,213 @@ describe('SettingsView restart AppServer', () => {
     })
   })
 
-  it('surfaces an actionable timeout when OAuth callback never arrives', async () => {
+  it('shows authenticated when auth files already contain a ready codex entry', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles.mockResolvedValue([
+      {
+        provider: 'codex',
+        status: 'ready',
+        statusMessage: 'ok',
+        disabled: false,
+        unavailable: false,
+        runtimeOnly: false,
+        name: 'codex-user.json'
+      }
+    ])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    expect(await screen.findByText('Authenticated')).toBeInTheDocument()
+  })
+
+  it('retries auth file refresh after proxy status transitions from starting to running', async () => {
+    proxyGetStatus
+      .mockResolvedValueOnce({ status: 'starting', errorMessage: '' })
+      .mockResolvedValueOnce({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles.mockResolvedValue([
+      {
+        provider: 'codex',
+        status: 'ready',
+        statusMessage: 'ok',
+        disabled: false,
+        unavailable: false,
+        runtimeOnly: false,
+        name: 'codex-user.json'
+      }
+    ])
+
+    renderSettingsView()
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    expect(proxyListAuthFiles).not.toHaveBeenCalled()
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Authenticated')).toBeInTheDocument()
+        expect(proxyGetStatus).toHaveBeenCalledTimes(2)
+        expect(proxyListAuthFiles).toHaveBeenCalledTimes(1)
+      },
+      { timeout: 2500 }
+    )
+  }, 8000)
+
+  it('retries auth file refresh after an initial list failure while proxy is running', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles
+      .mockRejectedValueOnce(new Error('not ready'))
+      .mockResolvedValueOnce([
+        {
+          provider: 'codex',
+          status: 'ready',
+          statusMessage: 'ok',
+          disabled: false,
+          unavailable: false,
+          runtimeOnly: false,
+          name: 'codex-user.json'
+        }
+      ])
+
+    renderSettingsView()
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Authenticated')).toBeInTheDocument()
+        expect(proxyListAuthFiles).toHaveBeenCalledTimes(2)
+      },
+      { timeout: 2500 }
+    )
+  }, 8000)
+
+  it('shows authenticated when auth files come from fallback auth-dir scan metadata', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyListAuthFiles.mockResolvedValue([
+      {
+        provider: 'codex',
+        status: 'ready',
+        statusMessage: 'fallback auth-dir scan',
+        disabled: false,
+        unavailable: false,
+        runtimeOnly: false,
+        name: 'codex-user.json'
+      }
+    ])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    expect(await screen.findByText('Authenticated')).toBeInTheDocument()
+  })
+
+  it('keeps authenticated when OAuth polling errors after auth file becomes ready', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
+    proxyGetAuthStatus.mockResolvedValue({ status: 'error', error: 'Authentication failed' })
+    proxyListAuthFiles
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          provider: 'codex',
+          status: 'ready',
+          statusMessage: 'ok',
+          disabled: false,
+          unavailable: false,
+          runtimeOnly: false,
+          name: 'codex-user.json'
+        }
+      ])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Login' }))[0])
+
+    await waitFor(() => {
+      expect(proxyStartOAuth).toHaveBeenCalledWith('codex')
+      expect(screen.getByText('Authenticated')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Auth failed')).not.toBeInTheDocument()
+  })
+
+  it('treats status ok as authenticated even before auth files refresh catches up', async () => {
+    proxyGetAuthStatus.mockResolvedValue({ status: 'ok' })
+    proxyListAuthFiles.mockResolvedValue([])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Login' }))[0])
+
+    await waitFor(() => {
+      expect(screen.getByText('Authenticated')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Auth failed')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^ok$/)).not.toBeInTheDocument()
+  })
+
+  it('treats timeout as success when auth files become ready before the final check', async () => {
+    proxyGetStatus.mockResolvedValue({ status: 'running', errorMessage: '' })
     proxyGetAuthStatus.mockResolvedValue({ status: 'wait' })
+    proxyListAuthFiles
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          provider: 'codex',
+          status: 'ready',
+          statusMessage: 'ok',
+          disabled: false,
+          unavailable: false,
+          runtimeOnly: false,
+          name: 'codex-user.json'
+        }
+      ])
 
     renderSettingsView()
 
     fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
     const loginButton = (await screen.findAllByRole('button', { name: 'Login' }))[0]
-    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((handler) => {
-      if (typeof handler === 'function') {
-        handler()
-      }
-      return 0 as ReturnType<typeof window.setTimeout>
-    })
+    vi.useFakeTimers()
 
     try {
       await act(async () => {
         fireEvent.click(loginButton)
-        for (let i = 0; i < 120; i += 1) {
-          await Promise.resolve()
-        }
+        await Promise.resolve()
+        await vi.advanceTimersByTimeAsync(180000)
+      })
+
+      expect(screen.getByText('Authenticated')).toBeInTheDocument()
+      expect(screen.queryByText(/OAuth timed out waiting for the browser callback\./)).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 8000)
+
+  it('surfaces an actionable timeout only when auth files never become ready', async () => {
+    proxyGetAuthStatus.mockResolvedValue({ status: 'wait' })
+    proxyListAuthFiles.mockResolvedValue([])
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+    const loginButton = (await screen.findAllByRole('button', { name: 'Login' }))[0]
+    vi.useFakeTimers()
+
+    try {
+      await act(async () => {
+        fireEvent.click(loginButton)
+        await Promise.resolve()
+        await vi.advanceTimersByTimeAsync(180000)
       })
 
       expect(proxyStartOAuth).toHaveBeenCalledWith('codex')
-      expect(proxyGetAuthStatus).toHaveBeenCalledTimes(30)
+      expect(proxyGetAuthStatus).toHaveBeenCalledTimes(150)
       expect(screen.getByText(/OAuth timed out waiting for the browser callback\./)).toBeInTheDocument()
     } finally {
-      timeoutSpy.mockRestore()
+      vi.useRealTimers()
     }
-  })
+  }, 8000)
 
   it('hides modules directory missing warning and shows compact binary available status', async () => {
     modulesCheckDirectory.mockResolvedValue({ exists: false })

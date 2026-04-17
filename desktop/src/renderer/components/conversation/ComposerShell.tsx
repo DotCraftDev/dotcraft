@@ -1,4 +1,5 @@
 import type { CSSProperties, DragEventHandler, JSX, ReactNode } from 'react'
+import { Square } from 'lucide-react'
 
 interface ComposerShellProps {
   dragOver: boolean
@@ -148,6 +149,7 @@ export function ComposerModeSwitch({
 export function composerModelPillStyle(color: string, disabled = false): CSSProperties {
   return {
     fontSize: '12px',
+    fontWeight: 600,
     color,
     display: 'inline-flex',
     alignItems: 'center',
@@ -191,9 +193,5 @@ export function SendIcon(): JSX.Element {
 }
 
 export function StopIcon(): JSX.Element {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <rect x="4" y="4" width="16" height="16" />
-    </svg>
-  )
+  return <Square size={12} strokeWidth={0} fill="currentColor" aria-hidden="true" />
 }

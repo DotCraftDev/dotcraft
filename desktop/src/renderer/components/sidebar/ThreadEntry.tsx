@@ -9,6 +9,7 @@ import { ContextMenu } from '../ui/ContextMenu'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { RunningSpinner } from '../ui/RunningSpinner'
 import { ChannelIconBadge } from '../ui/channelMeta'
+import { Archive } from 'lucide-react'
 
 interface ThreadEntryProps {
   thread: ThreadSummary
@@ -294,7 +295,7 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                   : 'var(--text-dimmed)'
               }}
             >
-              <ArchiveIcon />
+              <Archive size={14} strokeWidth={2} aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -348,26 +349,6 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
         />
       )}
     </>
-  )
-}
-
-function ArchiveIcon(): JSX.Element {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
-      <path d="M1 3h22v5H1z" />
-      <path d="M10 12h4" />
-    </svg>
   )
 }
 

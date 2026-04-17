@@ -24,12 +24,7 @@ const MESSAGES_EN = {
   // Settings
   'settings.title': 'Settings',
   'settings.language': 'Language',
-  'settings.modulesDirectory': 'Modules directory',
   'settings.modulesDirectoryBrowse': 'Browse',
-  'settings.modulesDirectoryHint':
-    'Directory containing user-installed channel modules. Save triggers module rescan.',
-  'settings.modulesDirectoryMissing':
-    'Directory does not exist. Create it or choose another path.',
   'settings.language.en': 'English',
   'settings.language.zhHans': '简体中文',
   'settings.connectionMode': 'Connection mode',
@@ -880,10 +875,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
 
   'settings.title': '设置',
   'settings.language': '语言',
-  'settings.modulesDirectory': '模块目录',
   'settings.modulesDirectoryBrowse': '浏览',
-  'settings.modulesDirectoryHint': '用于存放用户安装的渠道模块。保存后会自动重新扫描模块。',
-  'settings.modulesDirectoryMissing': '目录不存在。请先创建目录或选择其他路径。',
   'settings.language.en': 'English',
   'settings.language.zhHans': '简体中文',
   'settings.connectionMode': '连接模式',

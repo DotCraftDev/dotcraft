@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ConversationItem, ApprovalDecision, ApprovalState } from '../../types/conversation'
 import { useConversationStore } from '../../stores/conversationStore'
+import { File, SquareTerminal } from 'lucide-react'
 
 interface ApprovalCardProps {
   item: ConversationItem
@@ -8,48 +9,6 @@ interface ApprovalCardProps {
   isActive: boolean
   /** Ref to focus after decision resolves (input composer textarea) */
   onResolveFocusRef?: React.RefObject<HTMLElement | null>
-}
-
-// ---------------------------------------------------------------------------
-// Icon helpers
-// ---------------------------------------------------------------------------
-
-function ShellIcon(): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      style={{ flexShrink: 0 }}
-      aria-hidden="true"
-    >
-      <rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M4 6l3 2.5L4 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M9 11h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function FileIcon(): JSX.Element {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      style={{ flexShrink: 0 }}
-      aria-hidden="true"
-    >
-      <path
-        d="M3 2h7l3 3v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        fill="none"
-      />
-      <path d="M10 2v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +116,9 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
         }}
       >
         <span style={{ color: 'var(--text-dimmed)', flexShrink: 0 }}>
-          {approvalType === 'shell' ? <ShellIcon /> : <FileIcon />}
+          {approvalType === 'shell'
+            ? <SquareTerminal size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />
+            : <File size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />}
         </span>
         <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{typeLabel}</span>
         {operation && (
@@ -225,7 +186,9 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
         {/* Type + operation */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
           <span style={{ color: 'var(--text-secondary)', marginTop: '1px' }}>
-            {approvalType === 'shell' ? <ShellIcon /> : <FileIcon />}
+            {approvalType === 'shell'
+              ? <SquareTerminal size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />
+              : <File size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />}
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '13px', marginBottom: '3px' }}>

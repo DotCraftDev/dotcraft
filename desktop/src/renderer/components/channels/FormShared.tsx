@@ -1,6 +1,7 @@
 import type { ChannelConnectionState } from './ChannelCard'
 import { useT } from '../../contexts/LocaleContext'
 import { useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
 
 // ─── Shared style helpers ────────────────────────────────────────────────────
 
@@ -200,25 +201,6 @@ export function FormActions({ saving, onSave }: FormActionsProps): JSX.Element {
   )
 }
 
-function EyeIcon(): JSX.Element {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
-      <circle cx="8" cy="8" r="2" />
-    </svg>
-  )
-}
-
-function EyeOffIcon(): JSX.Element {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M2 2l12 12" />
-      <path d="M6.6 6.6a2 2 0 0 0 2.8 2.8" />
-      <path d="M1.4 8s1.4-2.8 4.1-4.1M8.9 3.2A7.8 7.8 0 0 1 14.6 8s-2.5 5-7 5a7.9 7.9 0 0 1-2.2-.3" />
-    </svg>
-  )
-}
-
 interface SecretInputProps {
   value: string
   placeholder?: string
@@ -285,7 +267,7 @@ export function SecretInput({
           event.currentTarget.style.opacity = '0.85'
         }}
       >
-        {visible ? <EyeOffIcon /> : <EyeIcon />}
+        {visible ? <EyeOff size={14} strokeWidth={1.5} aria-hidden /> : <Eye size={14} strokeWidth={1.5} aria-hidden />}
       </button>
     </div>
   )

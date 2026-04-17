@@ -23,7 +23,7 @@ import {
   type McpServerStatusWire,
   type McpTransport
 } from '../../stores/mcpStore'
-import type { BinarySource, ProxyOAuthProvider } from '../../../preload/api'
+import type { BinarySource, ProxyAuthFileSummary, ProxyOAuthProvider } from '../../../preload/api'
 
 declare const __APP_VERSION__: string | undefined
 
@@ -64,6 +64,10 @@ const CATEGORY_ORDER = ['builtin', 'social', 'system'] as const
 const DEFAULT_WS_HOST = '127.0.0.1'
 const DEFAULT_WS_PORT = 9100
 const DEFAULT_PROXY_PORT = 8317
+const PROXY_STATUS_RETRY_MS = 1000
+const PROXY_AUTH_FILES_RETRY_MS = 1000
+const PROXY_OAUTH_POLL_ATTEMPTS = 150
+const PROXY_OAUTH_POLL_INTERVAL_MS = 1200
 const PROXY_OAUTH_PROVIDERS: ProxyOAuthProvider[] = ['codex', 'claude', 'gemini', 'qwen', 'iflow']
 
 const CATEGORY_LABEL_KEY: Record<string, MessageKey> = {
@@ -84,6 +88,16 @@ function createProxyProviderMap<T>(value: T): Record<ProxyOAuthProvider, T> {
     qwen: value,
     iflow: value
   }
+}
+
+function isReadyProxyAuthFile(file: ProxyAuthFileSummary, provider?: ProxyOAuthProvider): boolean {
+  return file.status === 'ready' && !file.disabled && !file.unavailable && (provider === undefined || file.provider === provider)
+}
+
+function getReadyProxyProviders(files: ProxyAuthFileSummary[]): Set<ProxyOAuthProvider> {
+  return new Set(
+    files.filter((file) => isReadyProxyAuthFile(file)).map((file) => file.provider)
+  )
 }
 
 function createEmptyMcpServer(): McpServerConfigWire {
@@ -473,12 +487,9 @@ export function SettingsView({
   const [proxyProviderLoading, setProxyProviderLoading] = useState<Record<ProxyOAuthProvider, boolean>>(
     createProxyProviderMap(false)
   )
+  const [proxyStatusRefreshTick, setProxyStatusRefreshTick] = useState(0)
+  const [proxyAuthRefreshTick, setProxyAuthRefreshTick] = useState(0)
   const [restartingProxy, setRestartingProxy] = useState(false)
-  const [modulesDirectory, setModulesDirectory] = useState('')
-  const [savedModulesDirectory, setSavedModulesDirectory] = useState('')
-  const [defaultModulesDirectory, setDefaultModulesDirectory] = useState('~/.craft/modules')
-  const [modulesDirectoryExists, setModulesDirectoryExists] = useState(true)
-  const [checkingModulesDirectory, setCheckingModulesDirectory] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>('dark')
   const [locale, setLocale] = useState<AppLocale>(normalizeLocale(undefined))
   const [version, setVersion] = useState('')
@@ -527,46 +538,13 @@ export function SettingsView({
         setProxyAuthDir(s.proxy?.authDir ?? '')
         setProxyBinarySource((s.proxy?.binarySource ?? (s.proxy?.binaryPath ? 'custom' : 'bundled')) as BinarySource)
         setProxyBinaryPath(s.proxy?.binaryPath ?? '')
-        setModulesDirectory(s.modulesDirectory ?? '')
-        setSavedModulesDirectory(s.modulesDirectory ?? '')
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
       })
       .catch(() => {})
-    window.api.modules
-      .userDirectory()
-      .then((result) => setDefaultModulesDirectory(result.path))
-      .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    const target = modulesDirectory.trim() || defaultModulesDirectory
-    if (!target) return
-    setCheckingModulesDirectory(true)
-    window.api.modules
-      .checkDirectory(target)
-      .then((result) => {
-        if (!cancelled) {
-          setModulesDirectoryExists(result.exists)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setModulesDirectoryExists(false)
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setCheckingModulesDirectory(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [defaultModulesDirectory, modulesDirectory])
 
   useEffect(() => {
     let cancelled = false
@@ -632,17 +610,61 @@ export function SettingsView({
         if (cancelled) return
         setProxyStatusText(status.status)
         setProxyStatusError(status.errorMessage ?? '')
+        if (proxyEnabled && status.status !== 'running') {
+          window.setTimeout(() => {
+            if (!cancelled) {
+              setProxyStatusRefreshTick((prev) => prev + 1)
+            }
+          }, PROXY_STATUS_RETRY_MS)
+        }
       })
       .catch(() => {
         if (!cancelled) {
           setProxyStatusText('error')
           setProxyStatusError('Failed to read proxy status')
+          if (proxyEnabled) {
+            window.setTimeout(() => {
+              if (!cancelled) {
+                setProxyStatusRefreshTick((prev) => prev + 1)
+              }
+            }, PROXY_STATUS_RETRY_MS)
+          }
         }
       })
     return () => {
       cancelled = true
     }
-  }, [restartingProxy, saving])
+  }, [proxyEnabled, restartingProxy, saving, proxyStatusRefreshTick])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!proxyEnabled) {
+      setProxyProviderStatus(createProxyProviderMap<ProxyProviderStatus>('idle'))
+      setProxyProviderError(createProxyProviderMap(''))
+      setProxyProviderLoading(createProxyProviderMap(false))
+      return
+    }
+    if (proxyStatusText !== 'running') {
+      return
+    }
+    window.api.proxy
+      .listAuthFiles()
+      .then((files) => {
+        if (!cancelled) {
+          applyProxyAuthFiles(files, { fallbackStatus: 'idle', preservePending: true })
+        }
+      })
+      .catch(() => {
+        window.setTimeout(() => {
+          if (!cancelled) {
+            setProxyAuthRefreshTick((prev) => prev + 1)
+          }
+        }, PROXY_AUTH_FILES_RETRY_MS)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [proxyEnabled, proxyStatusText, proxyAuthRefreshTick, restartingProxy, saving])
 
   useEffect(() => {
     let cancelled = false
@@ -933,8 +955,6 @@ export function SettingsView({
         Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
           ? parsedPort
           : DEFAULT_WS_PORT
-      const normalizedModulesDirectory = modulesDirectory.trim()
-      const nextModulesDirectory = normalizedModulesDirectory || undefined
       const parsedProxyPort = Number.parseInt(proxyPort.trim(), 10)
       const normalizedProxyPort =
         Number.isInteger(parsedProxyPort) && parsedProxyPort > 0 && parsedProxyPort <= 65535
@@ -958,14 +978,8 @@ export function SettingsView({
           binarySource: proxyBinarySource,
           binaryPath: proxyBinaryPath.trim() || undefined,
           authDir: proxyAuthDir.trim() || undefined
-        },
-        modulesDirectory: nextModulesDirectory
+        }
       })
-      const modulesDirectoryChanged = (savedModulesDirectory || '') !== (nextModulesDirectory ?? '')
-      if (modulesDirectoryChanged) {
-        setSavedModulesDirectory(nextModulesDirectory ?? '')
-        await window.api.modules.rescan()
-      }
       setSavedConnectionMode(connectionMode)
       addToast(
         activeSettingsTab === 'connection'
@@ -1072,39 +1086,119 @@ export function SettingsView({
     }
   }
 
+  function applyProxyAuthFiles(
+    files: ProxyAuthFileSummary[],
+    options?: { fallbackStatus?: ProxyProviderStatus | 'keep'; preservePending?: boolean }
+  ): Set<ProxyOAuthProvider> {
+    const readyProviders = getReadyProxyProviders(files)
+    const fallbackStatus = options?.fallbackStatus ?? 'keep'
+    const preservePending = options?.preservePending ?? false
+
+    setProxyProviderStatus((prev) => {
+      const next = { ...prev }
+      for (const provider of PROXY_OAUTH_PROVIDERS) {
+        if (readyProviders.has(provider)) {
+          next[provider] = 'ok'
+          continue
+        }
+        if (preservePending && prev[provider] === 'pending') {
+          continue
+        }
+        if (fallbackStatus !== 'keep') {
+          next[provider] = fallbackStatus
+        }
+      }
+      return next
+    })
+    setProxyProviderError((prev) => {
+      const next = { ...prev }
+      for (const provider of PROXY_OAUTH_PROVIDERS) {
+        if (readyProviders.has(provider) || fallbackStatus === 'idle') {
+          next[provider] = ''
+        }
+      }
+      return next
+    })
+
+    return readyProviders
+  }
+
+  async function refreshProxyProviderStatuses(options?: {
+    fallbackStatus?: ProxyProviderStatus | 'keep'
+    preservePending?: boolean
+  }): Promise<Set<ProxyOAuthProvider>> {
+    const files = await window.api.proxy.listAuthFiles()
+    return applyProxyAuthFiles(files, options)
+  }
+
+  function markProxyProviderAuthenticated(provider: ProxyOAuthProvider, withToast = true): void {
+    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'ok' }))
+    setProxyProviderError((prev) => ({ ...prev, [provider]: '' }))
+    setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+    if (withToast) {
+      addToast(t('settings.proxy.oauthStatusOk'), 'success')
+    }
+  }
+
+  function markProxyProviderFailure(provider: ProxyOAuthProvider, message: string, toastKey: MessageKey): void {
+    setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
+    setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
+    setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
+    addToast(t(toastKey, { error: message }), 'error')
+  }
+
   async function pollProxyOAuthStatus(provider: ProxyOAuthProvider, state: string): Promise<void> {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (let attempt = 0; attempt < PROXY_OAUTH_POLL_ATTEMPTS; attempt += 1) {
       try {
         const result = await window.api.proxy.getAuthStatus(state)
         if (result.status === 'ok') {
-          setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'ok' }))
-          setProxyProviderError((prev) => ({ ...prev, [provider]: '' }))
-          setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
-          addToast(t('settings.proxy.oauthStatusOk'), 'success')
+          markProxyProviderAuthenticated(provider)
+          void refreshProxyProviderStatuses({
+            fallbackStatus: 'keep',
+            preservePending: false
+          }).catch(() => {})
           return
         }
 
-        if (result.status !== 'wait') {
+        if (result.status === 'error') {
           const message = result.error || result.status
-          setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
-          setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
-          setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
-          addToast(t('settings.proxy.oauthStatusError', { error: message }), 'error')
+          const readyProviders = await refreshProxyProviderStatuses({
+            fallbackStatus: 'keep',
+            preservePending: true
+          }).catch(() => new Set<ProxyOAuthProvider>())
+          if (readyProviders.has(provider)) {
+            markProxyProviderAuthenticated(provider)
+            return
+          }
+          markProxyProviderFailure(provider, message, 'settings.proxy.oauthStatusError')
           return
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
-        setProxyProviderError((prev) => ({ ...prev, [provider]: message }))
-        setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
-        addToast(t('settings.proxy.oauthStatusFailed', { error: message }), 'error')
+        const readyProviders = await refreshProxyProviderStatuses({
+          fallbackStatus: 'keep',
+          preservePending: true
+        }).catch(() => new Set<ProxyOAuthProvider>())
+        if (readyProviders.has(provider)) {
+          markProxyProviderAuthenticated(provider)
+          return
+        }
+        markProxyProviderFailure(provider, message, 'settings.proxy.oauthStatusFailed')
         return
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 1200))
+      await new Promise((resolve) => window.setTimeout(resolve, PROXY_OAUTH_POLL_INTERVAL_MS))
     }
 
     const timeoutMessage = t('settings.proxy.oauthStatusTimeout')
+    const readyProviders = await refreshProxyProviderStatuses({
+      fallbackStatus: 'keep',
+      preservePending: true
+    }).catch(() => new Set<ProxyOAuthProvider>())
+    if (readyProviders.has(provider)) {
+      markProxyProviderAuthenticated(provider)
+      return
+    }
     setProxyProviderStatus((prev) => ({ ...prev, [provider]: 'error' }))
     setProxyProviderError((prev) => ({ ...prev, [provider]: timeoutMessage }))
     setProxyProviderLoading((prev) => ({ ...prev, [provider]: false }))
@@ -1158,22 +1252,6 @@ export function SettingsView({
       )
     } finally {
       setProxyUsageLoading(false)
-    }
-  }
-
-  async function handlePickModulesDirectory(): Promise<void> {
-    try {
-      const picked = await window.api.workspace.pickFolder()
-      if (picked) {
-        setModulesDirectory(picked)
-      }
-    } catch (err) {
-      addToast(
-        t('settings.saveFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
     }
   }
 
@@ -1275,39 +1353,6 @@ export function SettingsView({
           <div style={{ maxWidth: activeSettingsTab === 'mcp' ? '760px' : '560px' }}>
             {activeSettingsTab === 'general' && (
               <SettingsGroup title={t('settings.group.general')}>
-                <SettingsRow
-                  orientation="block"
-                  label={t('settings.modulesDirectory')}
-                  description={t('settings.modulesDirectoryHint')}
-                  htmlFor="settings-modules-directory"
-                >
-                  <InputWithAction
-                    id="settings-modules-directory"
-                    value={modulesDirectory}
-                    onChange={(e) => setModulesDirectory(e.target.value)}
-                    placeholder={defaultModulesDirectory}
-                    mono
-                    invalid={!checkingModulesDirectory && !modulesDirectoryExists}
-                    actionIcon={<FolderIcon size={16} />}
-                    actionLabel={t('settings.modulesDirectoryBrowse')}
-                    onAction={() => {
-                      void handlePickModulesDirectory()
-                    }}
-                  />
-                  {!checkingModulesDirectory && !modulesDirectoryExists && (
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        color: 'var(--text-dimmed)',
-                        marginTop: '6px',
-                        lineHeight: 1.5
-                      }}
-                    >
-                      {t('settings.modulesDirectoryMissing')}
-                    </div>
-                  )}
-                </SettingsRow>
-
                 <SettingsRow
                   label={t('settings.language')}
                   htmlFor="settings-language"

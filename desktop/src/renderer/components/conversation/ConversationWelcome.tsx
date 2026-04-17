@@ -568,7 +568,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   void handleModelChange(nextModel)
                 }}
                 triggerStyle={composerModelPillStyle(
-                  modelApplying || starting || modelLoading ? 'var(--text-dimmed)' : 'var(--text-primary)',
+                  modelApplying || starting || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
                   modelApplying || starting || modelLoading
                 )}
               />

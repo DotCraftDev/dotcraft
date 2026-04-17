@@ -46,6 +46,18 @@ export interface ProxyStatusPayload {
   pid?: number
 }
 
+export interface ProxyAuthFileSummary {
+  provider: ProxyOAuthProvider
+  status: string
+  statusMessage: string
+  disabled: boolean
+  unavailable: boolean
+  runtimeOnly: boolean
+  modtime?: string
+  email?: string
+  name: string
+}
+
 export interface ServerRequestPayload {
   bridgeId: string
   method: string
@@ -339,6 +351,9 @@ const api = {
     },
     getAuthStatus(state: string): Promise<{ status: string; error?: string }> {
       return ipcRenderer.invoke('proxy:get-auth-status', state)
+    },
+    listAuthFiles(): Promise<ProxyAuthFileSummary[]> {
+      return ipcRenderer.invoke('proxy:list-auth-files')
     },
     getUsageSummary(): Promise<{
       totalRequests: number
