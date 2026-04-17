@@ -110,4 +110,26 @@ describe('proxyWorkspaceConfig', () => {
     expect(() => JSON.parse(raw)).not.toThrow()
     expect(JSON.parse(raw)).toEqual({})
   })
+
+  it('applies proxy overrides when config is encoded with UTF-8 BOM', async () => {
+    const workspace = createTempWorkspace()
+    const configPath = join(workspace, '.craft', 'config.json')
+    mkdirSync(join(workspace, '.craft'), { recursive: true })
+    writeFileSync(
+      configPath,
+      '\uFEFF' +
+        JSON.stringify({
+          EndPoint: 'https://example.com/v1',
+          ApiKey: 'sk-original'
+        }),
+      'utf8'
+    )
+
+    await applyWorkspaceProxyOverrides(workspace, 8317, 'sk-proxy')
+
+    expect(readWorkspaceConfig(workspace)).toEqual({
+      EndPoint: 'http://127.0.0.1:8317/v1',
+      ApiKey: 'sk-proxy'
+    })
+  })
 })

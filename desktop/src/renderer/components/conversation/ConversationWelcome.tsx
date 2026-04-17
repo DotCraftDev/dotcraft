@@ -9,6 +9,7 @@ import { addToast } from '../../stores/toastStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import type { ImageAttachment, ThreadMode } from '../../types/conversation'
 import type { ThreadSummary } from '../../types/thread'
+import { parseJsonConfig } from '../../../shared/jsonConfig'
 import { CommandSearchPopover } from './CommandSearchPopover'
 import { FileSearchPopover } from './FileSearchPopover'
 import { ImageStrip } from './ImageStrip'
@@ -110,9 +111,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const readWorkspaceConfig = useCallback(async (): Promise<Record<string, unknown>> => {
     if (!workspaceConfigPath) return {}
     const raw = await window.api.file.readFile(workspaceConfigPath)
-    if (!raw.trim()) return {}
-    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as Record<string, unknown>
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    return parseJsonConfig<Record<string, unknown>>(raw, {})
   }, [workspaceConfigPath])
 
   const resolveModelFromConfig = useCallback((cfg: Record<string, unknown>): string => {

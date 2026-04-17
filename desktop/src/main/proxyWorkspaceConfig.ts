@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import { dirname, join } from 'path'
 import { buildLocalProxyEndpoint } from './proxyConfig'
+import { parseJsonConfig } from '../shared/jsonConfig'
 
 interface ProxyOverrideSnapshot {
   configExisted: boolean
@@ -20,17 +21,12 @@ function getWorkspaceProxySnapshotPath(workspacePath: string): string {
   return join(workspacePath, '.craft', 'proxy-overrides.json')
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
 async function readJsonObject(path: string): Promise<{ exists: boolean; value: Record<string, unknown> }> {
   try {
     const raw = await fs.readFile(path, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
     return {
       exists: true,
-      value: isRecord(parsed) ? parsed : {}
+      value: parseJsonConfig<Record<string, unknown>>(raw, {})
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code
