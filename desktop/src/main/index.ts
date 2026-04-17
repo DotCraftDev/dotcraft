@@ -915,9 +915,10 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[proxy] Failed to start API proxy, continuing without it:', message)
     proxyStatus = { status: 'error', errorMessage: message }
-    await cleanupWorkspaceProxyOverrides(workspacePath, {
-      proxyPort: resolveProxySettings(sharedSettings).port,
-      proxyApiKey: resolveProxySettings(sharedSettings).apiKey
+    const proxySettings = resolveProxySettings(sharedSettings)
+    await scheduleWorkspaceProxyOverrideCleanup(workspacePath, {
+      proxyPort: proxySettings.port,
+      proxyApiKey: proxySettings.apiKey
     })
   }
 

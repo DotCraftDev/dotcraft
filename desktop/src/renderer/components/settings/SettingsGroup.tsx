@@ -197,8 +197,7 @@ function rowStyle(): CSSProperties {
     display: 'flex',
     gap: '16px',
     padding: '14px 16px',
-    alignItems: 'center',
-    borderTop: '1px solid var(--border-default)'
+    alignItems: 'center'
   }
 }
 
