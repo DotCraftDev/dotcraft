@@ -1,8 +1,9 @@
-import type { CSSProperties, JSX, ReactNode } from 'react'
+import type { CSSProperties, JSX, MouseEvent, ReactNode } from 'react'
 
 interface SettingsGroupProps {
   title?: string
   description?: string
+  headerAction?: ReactNode
   children: ReactNode
   /**
    * When true, the group renders a simple bordered container without row dividers.
@@ -19,31 +20,35 @@ interface SettingsGroupProps {
 export function SettingsGroup({
   title,
   description,
+  headerAction,
   children,
   flush = false,
   style
 }: SettingsGroupProps): JSX.Element {
   return (
     <section style={{ ...groupStyle(), ...style }}>
-      {(title || description) && (
+      {(title || description || headerAction) && (
         <header style={headerStyle()}>
-          {title && (
-            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {title}
-            </div>
-          )}
-          {description && (
-            <div
-              style={{
-                fontSize: '12px',
-                color: 'var(--text-dimmed)',
-                lineHeight: 1.5,
-                marginTop: '4px'
-              }}
-            >
-              {description}
-            </div>
-          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {title && (
+              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {title}
+              </div>
+            )}
+            {description && (
+              <div
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-dimmed)',
+                  lineHeight: 1.5,
+                  marginTop: '4px'
+                }}
+              >
+                {description}
+              </div>
+            )}
+          </div>
+          {headerAction && <div style={{ flexShrink: 0 }}>{headerAction}</div>}
         </header>
       )}
       <div className="dc-settings-group__body" style={flush ? flushBodyStyle() : bodyStyle()}>
@@ -62,6 +67,7 @@ interface SettingsRowProps {
   children?: ReactNode
   align?: 'center' | 'flex-start'
   style?: CSSProperties
+  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
 }
 
 /**
@@ -77,7 +83,8 @@ export function SettingsRow({
   orientation = 'inline',
   children,
   align = 'center',
-  style
+  style,
+  onContextMenu
 }: SettingsRowProps): JSX.Element {
   if (children !== undefined && label === undefined && description === undefined && control === undefined) {
     return (
@@ -91,6 +98,7 @@ export function SettingsRow({
     return (
       <div
         className="dc-settings-row"
+        onContextMenu={onContextMenu}
         style={{ ...rowStyle(), flexDirection: 'column', alignItems: 'stretch', gap: '10px', ...style }}
       >
         {(label || description) && (
@@ -129,7 +137,7 @@ export function SettingsRow({
   }
 
   return (
-    <div className="dc-settings-row" style={{ ...rowStyle(), alignItems: align, ...style }}>
+    <div className="dc-settings-row" onContextMenu={onContextMenu} style={{ ...rowStyle(), alignItems: align, ...style }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         {label && (
           <label
@@ -173,6 +181,9 @@ function groupStyle(): CSSProperties {
 
 function headerStyle(): CSSProperties {
   return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
     padding: '14px 16px',
     borderBottom: '1px solid var(--border-default)',
     background: 'transparent'

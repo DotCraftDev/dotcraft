@@ -6,6 +6,7 @@ import { addToast } from '../../stores/toastStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
+import { useSkillsStore } from '../../stores/skillsStore'
 import { resolveCustomCommandExecution } from '../../utils/customCommandExecution'
 import type { ConversationItem, ConversationTurn, ImageAttachment } from '../../types/conversation'
 import { PendingMessageIndicator } from './PendingMessageIndicator'
@@ -90,13 +91,34 @@ export function InputComposer({
   const isRunning = turnStatus === 'running'
   const isWaitingApproval = turnStatus === 'waitingApproval'
   const canUseCommandPicker = capabilities?.commandManagement === true
+  const canUseSkillPicker = capabilities?.skillsManagement === true
+  const canUseSlashPicker = canUseCommandPicker || canUseSkillPicker
 
   const showMentionPopover = atQuery !== null && !mentionDismissed
-  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseCommandPicker
+  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseSlashPicker
   const { commands: customCommands, status: customCommandStatus } = useCustomCommandCatalog({
     enabled: canUseCommandPicker,
     locale
   })
+  const skills = useSkillsStore((s) => s.skills)
+  const skillsLoading = useSkillsStore((s) => s.loading)
+  const fetchSkills = useSkillsStore((s) => s.fetchSkills)
+  const availableSkills = useMemo(
+    () =>
+      skills
+        .filter((skill) => skill.available)
+        .map((skill) => ({
+          name: skill.name.replace(/^\/+/, ''),
+          description: skill.description
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [skills]
+  )
+
+  useEffect(() => {
+    if (!canUseSkillPicker) return
+    void fetchSkills()
+  }, [canUseSkillPicker, fetchSkills])
 
   const handleAtQuery = useCallback((q: string | null): void => {
     setAtQuery(q)
@@ -391,6 +413,10 @@ export function InputComposer({
     richRef.current?.insertCommandTag(commandName)
   }, [])
 
+  const onSelectSkill = useCallback((skillName: string): void => {
+    richRef.current?.insertSkillTag(skillName)
+  }, [])
+
   return (
     <div style={{ flexShrink: 0 }}>
       {pendingMessage && <PendingMessageIndicator message={pendingMessage} />}
@@ -416,9 +442,11 @@ export function InputComposer({
               <CommandSearchPopover
                 query={slashQuery ?? ''}
                 visible={showSlashPopover}
-                loading={customCommandStatus === 'loading'}
+                loading={customCommandStatus === 'loading' || skillsLoading}
                 commands={customCommands}
-                onSelect={onSelectCommand}
+                skills={availableSkills}
+                onSelectCommand={onSelectCommand}
+                onSelectSkill={onSelectSkill}
                 onDismiss={() => {
                   setSlashDismissed(true)
                 }}

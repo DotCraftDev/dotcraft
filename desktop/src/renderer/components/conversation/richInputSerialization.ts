@@ -1,4 +1,8 @@
-import { COMMAND_REF_CLASS, FILE_REF_CLASS } from './richInputConstants'
+import { COMMAND_REF_CLASS, FILE_REF_CLASS, SKILL_REF_CLASS } from './richInputConstants'
+
+export function serializeSkillMarker(skillName: string): string {
+  return `[[Use Skill: ${skillName}]]`
+}
 
 export function serializeEditor(root: HTMLElement): string {
   let out = ''
@@ -20,6 +24,11 @@ export function serializeEditor(root: HTMLElement): string {
     if (el.classList.contains(COMMAND_REF_CLASS)) {
       const command = el.getAttribute('data-command') ?? ''
       if (command) out += command
+      return
+    }
+    if (el.classList.contains(SKILL_REF_CLASS)) {
+      const skill = el.getAttribute('data-skill') ?? ''
+      if (skill) out += serializeSkillMarker(skill)
       return
     }
     if (el.tagName === 'BR') {
@@ -99,6 +108,22 @@ export function truncateEditorDomToSerializedLength(root: HTMLElement, max: numb
     if (el.classList.contains(COMMAND_REF_CLASS)) {
       const command = el.getAttribute('data-command') ?? ''
       const len = command.length
+      if (len <= remaining) {
+        remaining -= len
+        if (remaining === 0) {
+          removeTrailingAfter(el)
+          return false
+        }
+        return true
+      }
+      removeTrailingAfter(el)
+      el.remove()
+      remaining = 0
+      return false
+    }
+    if (el.classList.contains(SKILL_REF_CLASS)) {
+      const skill = el.getAttribute('data-skill') ?? ''
+      const len = skill ? serializeSkillMarker(skill).length : 0
       if (len <= remaining) {
         remaining -= len
         if (remaining === 0) {
