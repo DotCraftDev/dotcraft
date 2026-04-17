@@ -93,7 +93,7 @@ function extractArchive(archivePath, outputDir) {
       execFileSync('powershell', [
         '-NoProfile',
         '-Command',
-        `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${outputDir}' -Force`
+        `Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${outputDir.replace(/'/g, "''")}' -Force`
       ], { stdio: 'inherit' })
     } else {
       execFileSync('unzip', ['-o', archivePath, '-d', outputDir], { stdio: 'inherit' })
