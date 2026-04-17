@@ -130,6 +130,12 @@ if %ERRORLEVEL% neq 0 (
     cd ..
     goto :failure
 )
+call npm run download:cliproxyapi
+if %ERRORLEVEL% neq 0 (
+    echo CLIProxyAPI staged failed.
+    cd ..
+    goto :failure
+)
 if exist resources\modules (
     rmdir /s /q resources\modules
 )

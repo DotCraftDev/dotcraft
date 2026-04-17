@@ -8,6 +8,7 @@ import type { TopLevelMenuId } from '../shared/locales/types'
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 export type BinarySource = 'bundled' | 'path' | 'custom'
+export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow'
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
@@ -34,6 +35,15 @@ export interface ConnectionStatusPayload {
 export interface ResolvedBinaryPayload {
   source: BinarySource
   path: string | null
+}
+
+export interface ProxyStatusPayload {
+  status: 'stopped' | 'starting' | 'running' | 'error'
+  errorMessage?: string
+  port?: number
+  baseUrl?: string
+  managementUrl?: string
+  pid?: number
 }
 
 export interface ServerRequestPayload {
@@ -308,6 +318,39 @@ const api = {
     }
   },
 
+  proxy: {
+    getStatus(): Promise<ProxyStatusPayload> {
+      return ipcRenderer.invoke('proxy:get-status')
+    },
+    getResolvedBinary(request?: {
+      binarySource?: BinarySource
+      binaryPath?: string
+    }): Promise<ResolvedBinaryPayload> {
+      return ipcRenderer.invoke('proxy:resolved-binary', request)
+    },
+    pickBinary(): Promise<string | null> {
+      return ipcRenderer.invoke('proxy:pick-binary')
+    },
+    restartManaged(): Promise<void> {
+      return ipcRenderer.invoke('proxy:restart-managed')
+    },
+    startOAuth(provider: ProxyOAuthProvider): Promise<{ url: string; state?: string }> {
+      return ipcRenderer.invoke('proxy:start-oauth', provider)
+    },
+    getAuthStatus(state: string): Promise<{ status: string; error?: string }> {
+      return ipcRenderer.invoke('proxy:get-auth-status', state)
+    },
+    getUsageSummary(): Promise<{
+      totalRequests: number
+      successCount: number
+      failureCount: number
+      totalTokens: number
+      failedRequests: number
+    }> {
+      return ipcRenderer.invoke('proxy:get-usage-summary')
+    }
+  },
+
   window: {
     /**
      * Sets the window title (rendered in the OS title bar).
@@ -567,6 +610,14 @@ const api = {
         url?: string
         token?: string
       }
+      proxy?: {
+        enabled?: boolean
+        host?: string
+        port?: number
+        binarySource?: BinarySource
+        binaryPath?: string
+        authDir?: string
+      }
       modulesDirectory?: string
       activeModuleVariants?: Record<string, string>
       theme?: 'dark' | 'light'
@@ -590,6 +641,14 @@ const api = {
       remote?: {
         url?: string
         token?: string
+      }
+      proxy?: {
+        enabled?: boolean
+        host?: string
+        port?: number
+        binarySource?: BinarySource
+        binaryPath?: string
+        authDir?: string
       }
       modulesDirectory?: string
       activeModuleVariants?: Record<string, string>

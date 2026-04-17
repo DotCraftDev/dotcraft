@@ -135,6 +135,11 @@ jobs:
       run: npm ci
       working-directory: desktop
 
+    - name: Download bundled CLIProxyAPI for desktop
+      if: runner.os != 'Linux'
+      run: npm run download:cliproxyapi
+      working-directory: desktop
+
     - name: Install TypeScript SDK dependencies
       if: runner.os != 'Linux'
       run: npm ci

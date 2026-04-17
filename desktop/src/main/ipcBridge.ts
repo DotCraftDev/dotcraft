@@ -3,8 +3,15 @@ import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
 import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
-import type { AppSettings, RecentWorkspace, BinarySource } from './settings'
+import type {
+  AppSettings,
+  RecentWorkspace,
+  BinarySource,
+  ProxyStatus,
+  ProxyOAuthProvider
+} from './settings'
 import { resolveBinaryLocation } from './AppServerManager'
+import { resolveProxyBinaryLocation } from './ProxyProcessManager'
 import { checkWorkspaceLock } from './workspaceLock'
 import {
   TITLE_BAR_OVERLAY_BY_THEME,
@@ -61,6 +68,20 @@ export interface ResolvedBinaryRequest {
 export interface ResolvedBinaryPayload {
   source: BinarySource
   path: string | null
+}
+
+export interface ResolvedProxyBinaryPayload {
+  source: 'bundled' | 'path' | 'custom'
+  path: string | null
+}
+
+export interface ProxyStatusPayload {
+  status: ProxyStatus
+  errorMessage?: string
+  port?: number
+  baseUrl?: string
+  managementUrl?: string
+  pid?: number
 }
 
 interface NodeRuntimeStatusPayload {
@@ -241,6 +262,22 @@ export interface IpcHandlerCallbacks {
   onOpenNewWindow: () => void
   /** Restarts the Desktop-managed AppServer subprocess for the current workspace. */
   onRestartManagedAppServer: () => Promise<void>
+  /** Restarts the Desktop-managed local CLI proxy subprocess. */
+  onRestartManagedProxy: () => Promise<void>
+  /** Returns local proxy runtime status. */
+  getProxyStatus: () => ProxyStatusPayload
+  /** Starts OAuth flow and returns state for polling. */
+  startProxyOAuth: (provider: ProxyOAuthProvider) => Promise<{ url: string; state?: string }>
+  /** Polls OAuth status with previous state token. */
+  getProxyOAuthStatus: (state: string) => Promise<{ status: string; error?: string }>
+  /** Returns usage summary from management API. */
+  getProxyUsageSummary: () => Promise<{
+    totalRequests: number
+    successCount: number
+    failureCount: number
+    totalTokens: number
+    failedRequests: number
+  }>
   /** Returns the current settings object. */
   getSettings: () => AppSettings
   /** Updates and persists partial settings. */
@@ -525,6 +562,55 @@ export function registerIpcHandlers(
 
   handleSafe('appserver:restart-managed', async () => {
     await callbacks?.onRestartManagedAppServer()
+  })
+
+  handleSafe('proxy:get-status', () => {
+    return callbacks?.getProxyStatus() ?? { status: 'stopped' }
+  })
+
+  handleSafe('proxy:resolved-binary', (_event, request?: { binarySource?: 'bundled' | 'path' | 'custom'; binaryPath?: string }) => {
+    const settings = callbacks?.getSettings() ?? {}
+    return resolveProxyBinaryLocation({
+      binarySource: request?.binarySource ?? settings.proxy?.binarySource,
+      binaryPath: request?.binaryPath ?? settings.proxy?.binaryPath
+    })
+  })
+
+  handleSafe('proxy:pick-binary', async (_event) => {
+    const focusedWin = BrowserWindow.getFocusedWindow()
+    const options =
+      process.platform === 'win32'
+        ? {
+            title: 'Select CLIProxyAPI binary',
+            properties: ['openFile'] as const,
+            filters: [{ name: 'CLIProxyAPI', extensions: ['exe'] }]
+          }
+        : {
+            title: 'Select CLIProxyAPI binary',
+            properties: ['openFile'] as const
+          }
+    const result = await dialog.showOpenDialog(
+      focusedWin ?? BrowserWindow.getAllWindows()[0],
+      options
+    )
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  handleSafe('proxy:restart-managed', async () => {
+    await callbacks?.onRestartManagedProxy()
+  })
+
+  handleSafe('proxy:start-oauth', async (_event, provider: ProxyOAuthProvider) => {
+    return callbacks?.startProxyOAuth(provider)
+  })
+
+  handleSafe('proxy:get-auth-status', async (_event, state: string) => {
+    return callbacks?.getProxyOAuthStatus(state)
+  })
+
+  handleSafe('proxy:get-usage-summary', async () => {
+    return callbacks?.getProxyUsageSummary()
   })
 
   // Renderer -> Main: send back the user's decision for a server-initiated request
@@ -1123,6 +1209,13 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:resolved-binary')
   ipcMain.removeHandler('appserver:pick-binary')
   ipcMain.removeHandler('appserver:restart-managed')
+  ipcMain.removeHandler('proxy:get-status')
+  ipcMain.removeHandler('proxy:resolved-binary')
+  ipcMain.removeHandler('proxy:pick-binary')
+  ipcMain.removeHandler('proxy:restart-managed')
+  ipcMain.removeHandler('proxy:start-oauth')
+  ipcMain.removeHandler('proxy:get-auth-status')
+  ipcMain.removeHandler('proxy:get-usage-summary')
   ipcMain.removeHandler('appserver:server-response')
   ipcMain.removeHandler('window:set-title')
   ipcMain.removeHandler('window:set-title-bar-overlay-theme')

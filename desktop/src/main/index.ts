@@ -2,8 +2,10 @@ import { app, BrowserWindow, session, Menu, ipcMain, shell, nativeImage } from '
 import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
+import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
 import { AppServerManager } from './AppServerManager'
+import { ProxyProcessManager } from './ProxyProcessManager'
 import { WireProtocolClient, type InitializeResult } from './WireProtocolClient'
 import {
   registerIpcHandlers,
@@ -19,6 +21,7 @@ import {
   sanitizeHttpOrHttpsUrl,
   openExternalHttpUrl,
   type ConnectionStatusPayload,
+  type ProxyStatusPayload,
   type IpcHandlerCallbacks
 } from './ipcBridge'
 import {
@@ -28,8 +31,10 @@ import {
   getRecentWorkspaces,
   type AppSettings,
   type BinarySource,
-  type ConnectionMode
+  type ConnectionMode,
+  type ProxyOAuthProvider
 } from './settings'
+import { mergeUpdatedSettings } from './settingsMerge'
 import { acquireWorkspaceLock, releaseWorkspaceLock } from './workspaceLock'
 import {
   getWorkspaceStatus,
@@ -50,6 +55,23 @@ import {
   type AppLocale,
   type TopLevelMenuId
 } from '../shared/locales'
+import {
+  writeProxyConfig,
+  buildLocalProxyEndpoint,
+  buildLocalProxyManagementBaseUrl,
+  buildManagementHeaders,
+  buildProxyOAuthPath
+} from './proxyConfig'
+import { applyWorkspaceProxyOverrides, cleanupWorkspaceProxyOverrides } from './proxyWorkspaceConfig'
+import {
+  materializeProxyRuntimeSettings,
+  resolveExistingProxyRuntimeSettings,
+  resolveProxySettings
+} from './proxyRuntime'
+import {
+  registerGuardedProxyManagerStatusHandlers,
+  runIfCurrentProxyManager
+} from './proxyManagerStatus'
 
 // ─── Single-process state ─────────────────────────────────────────────────────
 // Each Electron process owns exactly one window and one AppServer connection.
@@ -59,6 +81,7 @@ import {
 
 let mainWindow: BrowserWindow | null = null
 let appServerManager: AppServerManager | null = null
+let proxyManager: ProxyProcessManager | null = null
 let wireClient: WireProtocolClient | null = null
 let currentWorkspacePath = ''
 let crashRetries = 0
@@ -74,6 +97,7 @@ let crashRetryTimer: ReturnType<typeof setTimeout> | null = null
 let isAppQuitting = false
 let ipcHandlersRegistered = false
 let finalQuitCleanupDone = false
+let proxyStatus: ProxyStatusPayload = { status: 'stopped' }
 
 /** PNG shipped via `build.extraResources` (prod) or repo `resources/` (dev). macOS uses bundle icon. */
 function resolveWindowIconPath(): string | null {
@@ -182,6 +206,113 @@ function resolveRemoteWsUrl(settings: AppSettings): string | null {
   return appendTokenToWsUrlIfMissing(parsed.toString(), settings.remote?.token)
 }
 
+async function waitForProxyReady(port: number, apiKey: string, timeoutMs = 15_000): Promise<void> {
+  const started = Date.now()
+  const modelsUrl = `${buildLocalProxyEndpoint(port)}/models`
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(modelsUrl, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        }
+      })
+      if (res.ok) return
+    } catch {
+      // Keep polling until timeout.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+  throw new Error(`CLIProxyAPI did not become ready in ${timeoutMs}ms`)
+}
+
+async function fetchProxyManagementJson<T>(settings: AppSettings, path: string): Promise<T> {
+  const runtime = resolveExistingProxyRuntimeSettings(settings)
+  const url = `${buildLocalProxyManagementBaseUrl(runtime.port)}${path}`
+  const res = await fetch(url, {
+    headers: buildManagementHeaders(runtime.managementKey)
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`CLIProxyAPI management API failed (${res.status}): ${body || res.statusText}`)
+  }
+  return (await res.json()) as T
+}
+
+async function ensureProxyRunningForWorkspace(workspacePath: string): Promise<void> {
+  const proxy = resolveProxySettings(sharedSettings)
+  if (!proxy.enabled) {
+    proxyManager?.shutdown()
+    proxyManager = null
+    proxyStatus = { status: 'stopped' }
+    await cleanupWorkspaceProxyOverrides(workspacePath, {
+      proxyPort: proxy.port,
+      proxyApiKey: proxy.apiKey
+    })
+    return
+  }
+
+  const runtime = materializeProxyRuntimeSettings(sharedSettings)
+  saveSettings(sharedSettings)
+  writeProxyConfig(runtime.configPath, {
+    host: runtime.host,
+    port: runtime.port,
+    authDir: runtime.authDir,
+    apiKey: runtime.apiKey,
+    managementKey: runtime.managementKey
+  })
+
+  if (proxyManager?.isRunning) {
+    await applyWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
+    proxyStatus = {
+      status: 'running',
+      pid: proxyManager.pid ?? undefined,
+      port: runtime.port,
+      baseUrl: buildLocalProxyEndpoint(runtime.port),
+      managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
+    }
+    return
+  }
+
+  const manager = new ProxyProcessManager({
+    workspacePath,
+    configPath: runtime.configPath,
+    binarySource: runtime.binarySource,
+    binaryPath: runtime.binaryPath
+  })
+  proxyManager = manager
+  proxyStatus = { status: 'starting', port: runtime.port }
+  const currentManager = manager
+
+  registerGuardedProxyManagerStatusHandlers({
+    manager: currentManager,
+    workspacePath,
+    port: runtime.port,
+    apiKey: runtime.apiKey,
+    getCurrentManager: () => proxyManager,
+    setProxyStatus: (status) => {
+      proxyStatus = status
+    },
+    cleanupWorkspaceProxyOverrides
+  })
+
+  manager.spawn()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  if (proxyStatus.status === 'error') {
+    throw new Error(proxyStatus.errorMessage || 'CLIProxyAPI failed to start')
+  }
+  await waitForProxyReady(runtime.port, runtime.apiKey)
+  await applyWorkspaceProxyOverrides(workspacePath, runtime.port, runtime.apiKey)
+  runIfCurrentProxyManager(currentManager, () => proxyManager, () => {
+    proxyStatus = {
+      status: 'running',
+      pid: manager.pid ?? undefined,
+      port: runtime.port,
+      baseUrl: buildLocalProxyEndpoint(runtime.port),
+      managementUrl: buildLocalProxyManagementBaseUrl(runtime.port)
+    }
+  })
+}
+
 async function waitForReadyz(host: string, port: number, timeoutMs = 15_000): Promise<void> {
   const base = `http://${host}:${port}`
   const started = Date.now()
@@ -271,16 +402,28 @@ function teardownRuntime(
     ? unregisterDesktopIpcHandlers()
     : false
   const hadAppServer = appServerManager !== null
+  const hadProxy = proxyManager !== null
   const hadWireClient = wireClient !== null
+  const workspacePathAtTeardown = currentWorkspacePath
+  const proxyAtTeardown = resolveProxySettings(sharedSettings)
   if (moduleManager) {
     void moduleManager.stopAll({ preserveExternalChannels: true }).catch((error) => {
       console.warn('[desktop] failed to stop channel modules during teardown', error)
     })
   }
   appServerManager?.shutdown()
+  proxyManager?.shutdown()
+  if (hadProxy && workspacePathAtTeardown) {
+    void cleanupWorkspaceProxyOverrides(workspacePathAtTeardown, {
+      proxyPort: proxyAtTeardown.port,
+      proxyApiKey: proxyAtTeardown.apiKey
+    })
+  }
   wireClient?.dispose()
   appServerManager = null
+  proxyManager = null
   wireClient = null
+  proxyStatus = { status: 'stopped' }
   let releasedWorkspaceLock = false
   if (options?.releaseWorkspaceLock) {
     releasedWorkspaceLock = currentWorkspacePath !== ''
@@ -295,6 +438,7 @@ function teardownRuntime(
     clearedCrashRetry ||
     cleanedIpc ||
     hadAppServer ||
+    hadProxy ||
     hadWireClient ||
     releasedWorkspaceLock ||
     clearedMainWindow
@@ -550,22 +694,82 @@ function buildCallbacks(): IpcHandlerCallbacks {
       }
       await connectToAppServer(currentWorkspacePath)
     },
+    onRestartManagedProxy: async () => {
+      if (!currentWorkspacePath) {
+        throw new Error('Open a workspace before restarting proxy.')
+      }
+      const proxy = resolveProxySettings(sharedSettings)
+      if (!proxy.enabled) {
+        throw new Error('Local proxy is disabled in Settings.')
+      }
+      proxyManager?.shutdown()
+      proxyManager = null
+      proxyStatus = { status: 'stopped' }
+      await ensureProxyRunningForWorkspace(currentWorkspacePath)
+    },
     getSettings: () => sharedSettings,
     updateSettings: (partial) => {
       const prevLocale = normalizeLocale(sharedSettings.locale)
-      const next: Partial<typeof sharedSettings> = { ...partial }
-      if (partial.locale !== undefined) {
-        next.locale = normalizeLocale(partial.locale)
-      }
+      const next = mergeUpdatedSettings(sharedSettings, partial)
       Object.assign(sharedSettings, next)
       saveSettings(sharedSettings)
+      if (resolveProxySettings(sharedSettings).enabled !== true) {
+        proxyManager?.shutdown()
+        proxyManager = null
+        proxyStatus = { status: 'stopped' }
+        if (currentWorkspacePath) {
+          void cleanupWorkspaceProxyOverrides(currentWorkspacePath, {
+            proxyPort: resolveProxySettings(sharedSettings).port,
+            proxyApiKey: resolveProxySettings(sharedSettings).apiKey
+          })
+        }
+      }
       if (partial.locale !== undefined && normalizeLocale(sharedSettings.locale) !== prevLocale) {
         refreshAppMenu()
       }
     },
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
     getConnectionStatus: () => lastConnectionStatus,
-    getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath)
+    getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath),
+    getProxyStatus: () => proxyStatus,
+    startProxyOAuth: async (provider: ProxyOAuthProvider) => {
+      const response = await fetchProxyManagementJson<{ url?: string; state?: string; status?: string; error?: string }>(
+        sharedSettings,
+        buildProxyOAuthPath(provider)
+      )
+      if (!response.url) {
+        throw new Error(response.error || 'OAuth URL was not returned by CLIProxyAPI')
+      }
+      await openExternalHttpUrl(response.url)
+      return { url: response.url, state: response.state }
+    },
+    getProxyOAuthStatus: async (state: string) => {
+      if (!state.trim()) {
+        throw new Error('Missing OAuth state')
+      }
+      return fetchProxyManagementJson<{ status: string; error?: string }>(
+        sharedSettings,
+        `/get-auth-status?state=${encodeURIComponent(state)}`
+      )
+    },
+    getProxyUsageSummary: async () => {
+      const usage = await fetchProxyManagementJson<{
+        usage?: {
+          total_requests?: number
+          success_count?: number
+          failure_count?: number
+          total_tokens?: number
+        }
+        failed_requests?: number
+      }>(sharedSettings, '/usage')
+      return {
+        totalRequests: usage.usage?.total_requests ?? 0,
+        successCount: usage.usage?.success_count ?? 0,
+        failureCount: usage.usage?.failure_count ?? 0,
+        totalTokens: usage.usage?.total_tokens ?? 0,
+        failedRequests: usage.failed_requests ?? usage.usage?.failure_count ?? 0
+      }
+    }
   }
 }
 
@@ -678,6 +882,18 @@ async function connectToAppServer(workspacePath: string): Promise<void> {
   }
 
   const win = mainWindow!
+  try {
+    await ensureProxyRunningForWorkspace(workspacePath)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[proxy] Failed to start API proxy, continuing without it:', message)
+    proxyStatus = { status: 'error', errorMessage: message }
+    await cleanupWorkspaceProxyOverrides(workspacePath, {
+      proxyPort: resolveProxySettings(sharedSettings).port,
+      proxyApiKey: resolveProxySettings(sharedSettings).apiKey
+    })
+  }
+
   emitConnectionStatus(win, { status: 'connecting' })
 
   const manager = new AppServerManager({
