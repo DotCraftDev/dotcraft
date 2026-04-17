@@ -5,19 +5,11 @@ import { useThreadStore } from '../../stores/threadStore'
 import type { SessionIdentity, ThreadSummary } from '../../types/thread'
 import { formatRelativeTime } from '../../utils/relativeTime'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
+import { SettingsGroup, SettingsRow } from './SettingsGroup'
 
 interface ArchivedThreadsSettingsViewProps {
   workspacePath?: string
   onThreadListRefreshRequested?: () => void
-}
-
-function cardStyle(): CSSProperties {
-  return {
-    border: '1px solid var(--border-default)',
-    borderRadius: '12px',
-    background: 'var(--bg-secondary)',
-    padding: '14px 16px'
-  }
 }
 
 function actionButtonStyle(disabled = false): CSSProperties {
@@ -115,74 +107,58 @@ export function ArchivedThreadsSettingsView({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div>
-        <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-          {t('archivedThreads.title')}
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px', lineHeight: 1.5 }}>
-          {t('archivedThreads.description')}
-        </div>
-      </div>
-
+    <SettingsGroup title={t('archivedThreads.title')} description={t('archivedThreads.description')}>
       {loading && (
-        <div style={cardStyle()}>
+        <SettingsRow>
           <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>{t('archivedThreads.loading')}</div>
-        </div>
+        </SettingsRow>
       )}
 
       {!loading && error && (
-        <div style={cardStyle()}>
+        <SettingsRow>
           <div style={{ fontSize: '13px', color: '#f85149' }}>
             {t('archivedThreads.loadFailed', { error })}
           </div>
-        </div>
+        </SettingsRow>
       )}
 
       {!loading && !error && threads.length === 0 && (
-        <div style={cardStyle()}>
+        <SettingsRow>
           <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>{t('archivedThreads.empty')}</div>
-        </div>
+        </SettingsRow>
       )}
 
-      {!loading && !error && threads.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {threads.map((thread) => {
-            const displayName = thread.displayName?.trim() || t('sidebar.newConversation')
-            const restoring = restoringIds.has(thread.id)
-            return (
-              <div
-                key={thread.id}
-                style={{
-                  ...cardStyle(),
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '14px'
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: '14px',
-                      fontWeight: 600,
-                      color: 'var(--text-primary)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}
-                    title={displayName}
-                  >
-                    {displayName}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '6px' }}>
-                    {formatRelativeTime(thread.lastActiveAt, new Date(), locale)}
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
+      {!loading &&
+        !error &&
+        threads.length > 0 &&
+        threads.map((thread) => {
+          const displayName = thread.displayName?.trim() || t('sidebar.newConversation')
+          const restoring = restoringIds.has(thread.id)
+          return (
+            <SettingsRow
+              key={thread.id}
+              label={
+                <span
+                  style={{
+                    display: 'block',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                  title={displayName}
+                >
+                  {displayName}
+                </span>
+              }
+              description={
+                <>
+                  <span>{formatRelativeTime(thread.lastActiveAt, new Date(), locale)}</span>
+                  <span style={{ marginLeft: '10px' }}>
                     {t('archivedThreads.origin', { origin: thread.originChannel })}
-                  </div>
-                </div>
-
+                  </span>
+                </>
+              }
+              control={
                 <button
                   type="button"
                   onClick={() => {
@@ -193,11 +169,10 @@ export function ArchivedThreadsSettingsView({
                 >
                   {restoring ? t('archivedThreads.restoring') : t('archivedThreads.restore')}
                 </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
+              }
+            />
+          )
+        })}
+    </SettingsGroup>
   )
 }

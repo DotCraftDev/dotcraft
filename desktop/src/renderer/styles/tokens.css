@@ -44,9 +44,9 @@
   --spacing-2xl: 32px;
 
   /* ─── Typography (spec §15.2) ─── */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
-    sans-serif;
+  --font-sans: "Segoe UI Variable", "Inter", "SF Pro Display", "Segoe UI",
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Noto Sans CJK SC",
+    "Helvetica Neue", Arial, sans-serif;
   --font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas",
     "Courier New", monospace;
 
@@ -325,6 +325,34 @@ kbd {
   45% { transform: translateX(-4px); }
   60% { transform: translateX(3px); }
   75% { transform: translateX(-2px); }
+}
+
+/* ─── Settings grouped card ─── */
+.dc-settings-group__body > .dc-settings-row:first-child {
+  border-top: none;
+}
+
+/* ─── Input with inline action button ─── */
+.dc-input-with-action:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.dc-input-with-action[data-invalid] {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border-default));
+}
+
+.dc-input-with-action[data-disabled] {
+  opacity: 0.7;
+}
+
+.dc-input-with-action > button:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.dc-input-with-action > button:active:not(:disabled) {
+  background: var(--bg-active);
 }
 
 /* ─── Accessibility: global focus-visible outline ─── */

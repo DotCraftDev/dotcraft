@@ -8,6 +8,7 @@ import type { ContextMenuPosition } from '../ui/ContextMenu'
 import { ContextMenu } from '../ui/ContextMenu'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { RunningSpinner } from '../ui/RunningSpinner'
+import { ChannelIconBadge } from '../ui/channelMeta'
 
 interface ThreadEntryProps {
   thread: ThreadSummary
@@ -213,24 +214,12 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               {displayName}
             </span>
             {showOriginBadge && (
-              <span
-                title={thread.originChannel}
-                aria-label={thread.originChannel}
-                style={{
-                  flexShrink: 0,
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  lineHeight: 1,
-                  padding: '2px 5px',
-                  borderRadius: '4px',
-                  color: 'var(--text-dimmed)',
-                  backgroundColor: 'var(--bg-tertiary)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.03em'
-                }}
-              >
-                {thread.originChannel}
-              </span>
+              <ChannelIconBadge
+                channelName={thread.originChannel}
+                tooltip={t('threadEntry.originChannel', { channel: thread.originChannel })}
+                muted={!isActive}
+                size={24}
+              />
             )}
           </>
         )}

@@ -27,6 +27,7 @@ export interface RichInputAreaHandle {
 interface RichInputAreaProps {
   disabled?: boolean
   placeholder?: string
+  chrome?: 'default' | 'minimal'
   suppressSubmit?: boolean
   onToggleModeShortcut?: () => void
   onSubmit: () => void
@@ -34,6 +35,7 @@ interface RichInputAreaProps {
   onAtQuery?: (query: string | null) => void
   onSlashQuery?: (query: string | null) => void
   onContentChange?: () => void
+  onFocusChange?: (focused: boolean) => void
   onPasteImage?: (file: File) => void
   onPasteTextOversized?: () => void
 }
@@ -148,12 +150,14 @@ export const RichInputArea = forwardRef(function RichInputArea(
   {
     disabled,
     placeholder = PLACEHOLDER,
+    chrome = 'default',
     suppressSubmit,
     onToggleModeShortcut,
     onSubmit,
     onAtQuery,
     onSlashQuery,
     onContentChange,
+    onFocusChange,
     onPasteImage,
     onPasteTextOversized
   }: RichInputAreaProps,
@@ -486,7 +490,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
             pointer-events: none;
             position: absolute;
           }
-          .rich-input-area:focus {
+          .rich-input-area[data-chrome="default"]:focus {
             border-color: var(--border-active);
           }
         `}</style>
@@ -499,21 +503,29 @@ export const RichInputArea = forwardRef(function RichInputArea(
           suppressContentEditableWarning
           data-placeholder={placeholder}
           data-empty={showPh ? 'true' : 'false'}
+          data-chrome={chrome}
           onInput={onInput}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
+          onFocus={() => onFocusChange?.(true)}
+          onBlur={() => onFocusChange?.(false)}
           className="rich-input-area"
           style={{
             position: 'relative',
             flex: 1,
             resize: 'none',
-            border: '1px solid var(--border-default)',
-            borderRadius: '8px',
-            padding: '8px 12px',
+            border: chrome === 'minimal' ? 'none' : '1px solid var(--border-default)',
+            borderRadius: chrome === 'minimal' ? '0' : '8px',
+            padding: chrome === 'minimal' ? '8px 2px 6px' : '8px 12px',
             fontSize: '14px',
             lineHeight: '20px',
             fontFamily: 'var(--font-sans)',
-            backgroundColor: disabled ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
+            backgroundColor:
+              chrome === 'minimal'
+                ? 'transparent'
+                : disabled
+                  ? 'var(--bg-tertiary)'
+                  : 'var(--bg-secondary)',
             color: disabled ? 'var(--text-dimmed)' : 'var(--text-primary)',
             outline: 'none',
             overflowY: 'auto',

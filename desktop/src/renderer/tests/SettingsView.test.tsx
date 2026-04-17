@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SettingsView } from '../components/settings/SettingsView'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { useToastStore } from '../stores/toastStore'
 import { useUIStore } from '../stores/uiStore'
+import { useConnectionStore } from '../stores/connectionStore'
 
 const settingsGet = vi.fn()
 const settingsSet = vi.fn()
@@ -11,6 +12,19 @@ const appServerSendRequest = vi.fn()
 const appServerRestartManaged = vi.fn()
 const appServerGetResolvedBinary = vi.fn()
 const appServerOnNotification = vi.fn()
+const modulesList = vi.fn()
+const modulesUserDirectory = vi.fn()
+const modulesCheckDirectory = vi.fn()
+const modulesRescan = vi.fn()
+const proxyGetStatus = vi.fn()
+const proxyGetUsageSummary = vi.fn()
+const proxyRestartManaged = vi.fn()
+const proxyGetResolvedBinary = vi.fn()
+const proxyPickBinary = vi.fn()
+const proxyGetAuthStatus = vi.fn()
+const proxyStartOAuth = vi.fn()
+const workspacePickFolder = vi.fn()
+const shellOpenExternal = vi.fn()
 
 function renderSettingsView(): void {
   render(
@@ -25,18 +39,42 @@ describe('SettingsView restart AppServer', () => {
     vi.clearAllMocks()
     useToastStore.setState({ toasts: [] })
     useUIStore.setState({ activeMainView: 'settings' })
+    useConnectionStore.setState({
+      status: 'connected',
+      dashboardUrl: 'https://dashboard.example.test',
+      capabilities: null
+    })
 
     settingsGet.mockResolvedValue({
       connectionMode: 'stdio',
       webSocket: { host: '127.0.0.1', port: 9100 },
       locale: 'en',
-      visibleChannels: []
+      visibleChannels: [],
+      proxy: { enabled: true, port: 8317 }
     })
     settingsSet.mockResolvedValue(undefined)
     appServerSendRequest.mockResolvedValue({ channels: [] })
     appServerRestartManaged.mockResolvedValue(undefined)
     appServerGetResolvedBinary.mockResolvedValue({ source: 'bundled', path: 'dotcraft' })
     appServerOnNotification.mockReturnValue(() => {})
+    modulesList.mockResolvedValue([])
+    modulesUserDirectory.mockResolvedValue({ path: 'C:\\Users\\Administrator\\.craft\\modules' })
+    modulesCheckDirectory.mockResolvedValue({ exists: true })
+    modulesRescan.mockResolvedValue(undefined)
+    proxyGetStatus.mockResolvedValue({ state: 'stopped', errorMessage: '' })
+    proxyGetUsageSummary.mockResolvedValue({
+      totalRequests: 10,
+      successCount: 8,
+      failureCount: 2,
+      totalTokens: 3200
+    })
+    proxyRestartManaged.mockResolvedValue(undefined)
+    proxyGetResolvedBinary.mockResolvedValue({ source: 'bundled', path: 'cliproxyapi' })
+    proxyPickBinary.mockResolvedValue('C:\\cliproxyapi.exe')
+    proxyGetAuthStatus.mockResolvedValue({ status: 'idle' })
+    proxyStartOAuth.mockResolvedValue({ state: 'oauth-state', url: 'https://auth.example.test' })
+    workspacePickFolder.mockResolvedValue('C:\\picked')
+    shellOpenExternal.mockResolvedValue(undefined)
 
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -50,6 +88,27 @@ describe('SettingsView restart AppServer', () => {
           getResolvedBinary: appServerGetResolvedBinary,
           restartManaged: appServerRestartManaged,
           onNotification: appServerOnNotification
+        },
+        modules: {
+          list: modulesList,
+          userDirectory: modulesUserDirectory,
+          checkDirectory: modulesCheckDirectory,
+          rescan: modulesRescan
+        },
+        proxy: {
+          getStatus: proxyGetStatus,
+          getUsageSummary: proxyGetUsageSummary,
+          restartManaged: proxyRestartManaged,
+          getResolvedBinary: proxyGetResolvedBinary,
+          pickBinary: proxyPickBinary,
+          getAuthStatus: proxyGetAuthStatus,
+          startOAuth: proxyStartOAuth
+        },
+        workspace: {
+          pickFolder: workspacePickFolder
+        },
+        shell: {
+          openExternal: shellOpenExternal
         }
       }
     })
@@ -60,7 +119,9 @@ describe('SettingsView restart AppServer', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
 
-    expect(await screen.findByRole('button', { name: 'Restart AppServer' })).toBeInTheDocument()
+    expect(await screen.findByText('AppServer controls')).toBeInTheDocument()
+    expect(screen.getByText('Restart the Desktop-managed AppServer to apply saved connection changes immediately.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Restart AppServer' })).toHaveTextContent('Restart')
   })
 
   it('hides restart button for remote mode', async () => {
@@ -168,6 +229,40 @@ describe('SettingsView restart AppServer', () => {
           .toasts.some((toast) => toast.message === 'Failed to restart AppServer: boom')
       ).toBe(true)
     })
+  })
+
+  it('shows AppServer restart progress in the button label while restarting', async () => {
+    appServerRestartManaged.mockImplementation(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 50))
+    )
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Restart AppServer' }))
+
+    const restartingButton = await screen.findByRole('button', { name: 'Restarting…' })
+    expect(restartingButton).toBeDisabled()
+    expect(restartingButton).toHaveTextContent('Restarting…')
+  })
+
+  it('shows proxy restart as a labeled action row and disables it while restarting', async () => {
+    proxyRestartManaged.mockImplementation(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 50))
+    )
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+
+    expect(await screen.findByText('Restart API Proxy')).toBeInTheDocument()
+    expect(screen.getByText('Restart the local API proxy to apply the latest runtime configuration immediately.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart API Proxy' }))
+
+    const restartingButton = await screen.findByRole('button', { name: 'Restarting…' })
+    expect(restartingButton).toBeDisabled()
+    expect(restartingButton).toHaveTextContent('Restarting…')
   })
 
   it('shows archived threads tab and hides Save there', async () => {
@@ -308,5 +403,75 @@ describe('SettingsView restart AppServer', () => {
       ).toBe(true)
     })
     expect(screen.getByText('Archived thread')).toBeInTheDocument()
+  })
+
+  it('keeps dashboard in usage tab without rendering proxy usage cards there', async () => {
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Usage' }))
+
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Dashboard' }))
+
+    await waitFor(() => {
+      expect(shellOpenExternal).toHaveBeenCalledWith('https://dashboard.example.test')
+    })
+    expect(screen.queryByRole('button', { name: 'Refresh usage' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Requests')).not.toBeInTheDocument()
+  })
+
+  it('renders proxy usage cards inside API proxy settings', async () => {
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh usage' }))
+
+    await waitFor(() => {
+      expect(proxyGetUsageSummary).toHaveBeenCalled()
+      expect(screen.getByText('Requests')).toBeInTheDocument()
+      expect(screen.getByText('10')).toBeInTheDocument()
+    })
+  })
+
+  it('surfaces an actionable timeout when OAuth callback never arrives', async () => {
+    proxyGetAuthStatus.mockResolvedValue({ status: 'wait' })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'API Proxy' }))
+    const loginButton = (await screen.findAllByRole('button', { name: 'Login' }))[0]
+    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((handler) => {
+      if (typeof handler === 'function') {
+        handler()
+      }
+      return 0 as ReturnType<typeof window.setTimeout>
+    })
+
+    try {
+      await act(async () => {
+        fireEvent.click(loginButton)
+        for (let i = 0; i < 120; i += 1) {
+          await Promise.resolve()
+        }
+      })
+
+      expect(proxyStartOAuth).toHaveBeenCalledWith('codex')
+      expect(proxyGetAuthStatus).toHaveBeenCalledTimes(30)
+      expect(screen.getByText(/OAuth timed out waiting for the browser callback\./)).toBeInTheDocument()
+    } finally {
+      timeoutSpy.mockRestore()
+    }
+  })
+
+  it('hides modules directory missing warning and shows compact binary available status', async () => {
+    modulesCheckDirectory.mockResolvedValue({ exists: false })
+
+    renderSettingsView()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connection' }))
+
+    expect(await screen.findByText('Available')).toBeInTheDocument()
+    expect(screen.queryByText('Directory does not exist. Create it or choose another path.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Resolved: dotcraft')).not.toBeInTheDocument()
   })
 })

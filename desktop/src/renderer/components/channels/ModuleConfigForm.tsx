@@ -4,6 +4,8 @@ import { useT } from '../../contexts/LocaleContext'
 import type { ChannelConnectionState } from './ChannelCard'
 import { FieldCard, FormActions, SecretInput, StatusPill, formStyles } from './FormShared'
 import { ToggleSwitch } from './ToggleSwitch'
+import { FolderIcon } from '../ui/AppIcons'
+import { IconButton } from '../ui/IconButton'
 
 interface ModuleConfigFormProps {
   module: DiscoveredModule
@@ -344,39 +346,16 @@ export function ModuleConfigForm({
               onBlur={formStyles.inputBlur}
               style={{ ...formStyles.input, flex: 1 }}
             />
-            <button
-              type="button"
+            <IconButton
+              icon={<FolderIcon size={16} />}
+              label={t('settings.modulesDirectoryBrowse')}
               onClick={() => {
                 void window.api.modules.pickDirectory().then((pickedPath) => {
                   if (!pickedPath) return
                   onChange(applyValueChange(config, descriptor.key, pickedPath))
                 })
               }}
-              title={t('settings.modulesDirectoryBrowse')}
-              aria-label={t('settings.modulesDirectoryBrowse')}
-              style={{
-                border: '1px solid var(--border-default)',
-                borderRadius: '6px',
-                background: 'transparent',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                padding: '0 8px',
-                height: '32px',
-                minWidth: '32px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path
-                  d="M2.5 5.5A1.5 1.5 0 0 1 4 4h3.2l1.2 1.3h7.6A1.5 1.5 0 0 1 17.5 6.8v8.7A1.5 1.5 0 0 1 16 17H4a1.5 1.5 0 0 1-1.5-1.5v-10Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                />
-              </svg>
-            </button>
+            />
           </div>
           {!!descriptor.description && (
             <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
