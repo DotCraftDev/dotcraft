@@ -14,8 +14,13 @@ import {
   mergeFileDiffIncrement,
   computeCumulativeFileDiff,
   computeIncrementalPerItemDiff,
-  parseResultPath
+  parseResultPath,
+  toAbsoluteWorkspacePath
 } from '../utils/diffExtractor'
+import {
+  computeStreamingFileDiff,
+  extractStreamingFilePath
+} from '../utils/streamingDiff'
 
 // ---------------------------------------------------------------------------
 // Plan types
@@ -51,6 +56,11 @@ export interface PendingApproval {
   reason: string
 }
 
+interface StreamingFileBaseline {
+  path: string
+  originalContent: string
+}
+
 interface ConversationState {
   turns: ConversationTurn[]
   turnStatus: 'idle' | 'running' | 'waitingApproval'
@@ -82,6 +92,10 @@ interface ConversationState {
   changedFiles: Map<string, FileDiff>
   /** Per tool-call item incremental diff (Detail Panel uses cumulative changedFiles) */
   itemDiffs: Map<string, FileDiff>
+  /** Live per-item file diff shown while WriteFile/EditFile arguments stream in */
+  streamingItemDiffs: Map<string, FileDiff>
+  /** Baseline file contents captured once per streaming file tool call */
+  streamingBaselines: Map<string, StreamingFileBaseline>
   /** Live SubAgent progress entries — replaced wholesale on each notification */
   subAgentEntries: SubAgentEntry[]
   /** Current agent plan from plan/updated events — replaced wholesale */
@@ -200,6 +214,8 @@ const initialState: ConversationState = {
   workspacePath: '',
   changedFiles: new Map<string, FileDiff>(),
   itemDiffs: new Map<string, FileDiff>(),
+  streamingItemDiffs: new Map<string, FileDiff>(),
+  streamingBaselines: new Map<string, StreamingFileBaseline>(),
   subAgentEntries: [],
   plan: null
 }
@@ -429,7 +445,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         ? (runningTurn.startedAt ? new Date(runningTurn.startedAt).getTime() : Date.now())
         : null,
       changedFiles: rehydratedChangedFiles,
-      itemDiffs: rehydratedItemDiffs
+      itemDiffs: rehydratedItemDiffs,
+      streamingItemDiffs: new Map<string, FileDiff>(),
+      streamingBaselines: new Map<string, StreamingFileBaseline>()
     })
   },
 
@@ -455,7 +473,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           inputTokens: 0,
           outputTokens: 0,
           systemLabel: null,
-          subAgentEntries: []
+          subAgentEntries: [],
+          streamingItemDiffs: new Map<string, FileDiff>(),
+          streamingBaselines: new Map<string, StreamingFileBaseline>()
         }
       }
 
@@ -488,7 +508,9 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
         inputTokens: 0,
         outputTokens: 0,
         systemLabel: null,
-        subAgentEntries: []
+        subAgentEntries: [],
+        streamingItemDiffs: new Map<string, FileDiff>(),
+        streamingBaselines: new Map<string, StreamingFileBaseline>()
       }
     })
   },
@@ -706,20 +728,29 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     const itemId = params.itemId ?? ''
     const delta = params.delta ?? ''
     if (!turnId || !itemId || !delta) return
+    let shouldLoadBaseline = false
+    let baselinePath = ''
+    let nextArgumentsPreviewForLoad = ''
+    let nextToolNameForLoad = ''
 
-    set((state) => ({
-      turns: state.turns.map((t) => {
+    set((state) => {
+      let capturedToolName = ''
+      let capturedPreview = ''
+      const nextTurns = state.turns.map((t) => {
         if (t.id !== turnId) return t
         const existing = t.items.find((i) => i.id === itemId)
         const nextItems = existing
           ? t.items.map((i) => {
               if (i.id !== itemId) return i
               const nextArgumentsPreview = (i.argumentsPreview ?? '') + delta
+              const nextToolName = params.toolName ?? i.toolName ?? 'tool'
+              capturedToolName = nextToolName
+              capturedPreview = nextArgumentsPreview
               return {
                 ...i,
                 type: 'toolCall' as const,
                 status: 'streaming' as const,
-                toolName: params.toolName ?? i.toolName ?? 'tool',
+                toolName: nextToolName,
                 toolCallId: params.callId ?? i.toolCallId ?? itemId,
                 argumentsPreview: nextArgumentsPreview,
                 streamingFileContent: extractPartialJsonStringValue(nextArgumentsPreview, 'content')
@@ -742,10 +773,98 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                   ?? undefined
               }
             ]
-
+        if (!capturedToolName) {
+          const created = nextItems.find((i) => i.id === itemId)
+          capturedToolName = created?.toolName ?? params.toolName ?? ''
+          capturedPreview = created?.argumentsPreview ?? delta
+        }
         return { ...t, items: sortItemsByCreatedAt(nextItems) }
       })
-    }))
+
+      const nextStreamingItemDiffs = new Map(state.streamingItemDiffs)
+      const nextStreamingBaselines = new Map(state.streamingBaselines)
+      const isFileTool = capturedToolName === 'WriteFile' || capturedToolName === 'EditFile'
+      if (isFileTool) {
+        const previewPath = extractStreamingFilePath(capturedPreview)
+        const baseline = nextStreamingBaselines.get(itemId)
+        if (previewPath && baseline?.path !== previewPath) {
+          nextStreamingBaselines.set(itemId, { path: previewPath, originalContent: baseline?.originalContent ?? '' })
+        }
+        const baselineContent = baseline?.originalContent ?? (previewPath ? nextStreamingBaselines.get(itemId)?.originalContent : undefined)
+        const streamingDiff = computeStreamingFileDiff({
+          toolName: capturedToolName as 'WriteFile' | 'EditFile',
+          turnId,
+          argumentsPreview: capturedPreview,
+          filePath: previewPath ?? baseline?.path ?? null,
+          baselineContent
+        })
+        if (streamingDiff) {
+          nextStreamingItemDiffs.set(itemId, streamingDiff)
+        } else {
+          nextStreamingItemDiffs.delete(itemId)
+        }
+        if (previewPath && !baseline && state.workspacePath) {
+          shouldLoadBaseline = true
+          baselinePath = previewPath
+          nextArgumentsPreviewForLoad = capturedPreview
+          nextToolNameForLoad = capturedToolName
+        }
+      } else {
+        nextStreamingItemDiffs.delete(itemId)
+      }
+
+      return {
+        turns: nextTurns,
+        streamingItemDiffs: nextStreamingItemDiffs,
+        streamingBaselines: nextStreamingBaselines
+      }
+    })
+
+    if (!shouldLoadBaseline || !baselinePath) return
+    const workspacePath = get().workspacePath
+    if (!workspacePath || typeof window === 'undefined' || !window.api?.file?.readFile) return
+    const absPath = toAbsoluteWorkspacePath(workspacePath, baselinePath)
+    void window.api.file.readFile(absPath)
+      .then((content) => content ?? '')
+      .catch(() => '')
+      .then((originalContent) => {
+        set((state) => {
+          const turn = state.turns.find((t) => t.id === turnId)
+          const item = turn?.items.find((i) => i.id === itemId)
+          if (!item) return {}
+
+          const toolName = (item.toolName ?? nextToolNameForLoad) as 'WriteFile' | 'EditFile' | string
+          if (toolName !== 'WriteFile' && toolName !== 'EditFile') return {}
+          const preview = item.argumentsPreview ?? nextArgumentsPreviewForLoad
+          if (!preview) return {}
+          const resolvedPath = extractStreamingFilePath(preview) ?? baselinePath
+
+          const nextStreamingBaselines = new Map(state.streamingBaselines)
+          nextStreamingBaselines.set(itemId, {
+            path: resolvedPath,
+            originalContent
+          })
+
+          const streamingDiff = computeStreamingFileDiff({
+            toolName,
+            turnId,
+            argumentsPreview: preview,
+            filePath: resolvedPath,
+            baselineContent: originalContent
+          })
+          const nextStreamingItemDiffs = new Map(state.streamingItemDiffs)
+          if (streamingDiff) {
+            nextStreamingItemDiffs.set(itemId, streamingDiff)
+          } else {
+            nextStreamingItemDiffs.delete(itemId)
+          }
+
+          return {
+            streamingBaselines: nextStreamingBaselines,
+            streamingItemDiffs: nextStreamingItemDiffs
+          }
+        })
+      })
   },
 
   onItemCompleted(params) {
@@ -1068,6 +1187,18 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
           }
         }
       }
+      if (matchedCallItem?.id) {
+        set((s) => {
+          const nextStreamingItemDiffs = new Map(s.streamingItemDiffs)
+          const nextStreamingBaselines = new Map(s.streamingBaselines)
+          nextStreamingItemDiffs.delete(matchedCallItem.id)
+          nextStreamingBaselines.delete(matchedCallItem.id)
+          return {
+            streamingItemDiffs: nextStreamingItemDiffs,
+            streamingBaselines: nextStreamingBaselines
+          }
+        })
+      }
     }
   },
 
@@ -1288,6 +1419,8 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       workspacePath: state.workspacePath,
       changedFiles: new Map<string, FileDiff>(),
       itemDiffs: new Map<string, FileDiff>(),
+      streamingItemDiffs: new Map<string, FileDiff>(),
+      streamingBaselines: new Map<string, StreamingFileBaseline>(),
       subAgentEntries: [],
       pendingApproval: null,
       plan: null

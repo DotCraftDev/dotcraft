@@ -2,14 +2,19 @@ import { describe, it, expect } from 'vitest'
 import { aggregateToolCalls } from '../utils/toolCallAggregation'
 import type { ConversationItem } from '../types/conversation'
 
-function makeItem(toolName: string, id: string): ConversationItem {
+function makeItem(
+  toolName: string,
+  id: string,
+  overrides: Partial<ConversationItem> = {}
+): ConversationItem {
   return {
     id,
     type: 'toolCall',
     status: 'completed',
     toolName,
     toolCallId: id,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...overrides
   }
 }
 
@@ -100,9 +105,9 @@ describe('aggregateToolCalls', () => {
 
   it('groups consecutive shell tools into one group', () => {
     const items = [
-      makeItem('Exec', '1'),
-      makeItem('RunCommand', '2'),
-      makeItem('BashCommand', '3')
+      makeItem('Exec', '1', { result: 'ok', success: true }),
+      makeItem('RunCommand', '2', { result: 'ok', success: true }),
+      makeItem('BashCommand', '3', { result: 'ok', success: true })
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(1)
@@ -157,8 +162,8 @@ describe('aggregateToolCalls', () => {
       makeItem('FindFiles', '2'),
       makeItem('WriteFile', '3'),
       makeItem('EditFile', '4'),
-      makeItem('Exec', '5'),
-      makeItem('RunCommand', '6')
+      makeItem('Exec', '5', { result: 'ok', success: true }),
+      makeItem('RunCommand', '6', { result: 'ok', success: true })
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(3)
@@ -168,5 +173,35 @@ describe('aggregateToolCalls', () => {
     if (result[0].kind === 'group') expect(result[0].category).toBe('explore')
     if (result[1].kind === 'group') expect(result[1].category).toBe('write')
     if (result[2].kind === 'group') expect(result[2].category).toBe('shell')
+  })
+
+  it('does not group when write items are still live', () => {
+    const items = [
+      makeItem('WriteFile', '1', { status: 'streaming' }),
+      makeItem('EditFile', '2')
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(2)
+    expect(result[0].kind).toBe('single')
+    expect(result[1].kind).toBe('single')
+  })
+
+  it('does not group when shell execution is still in progress', () => {
+    const items = [
+      makeItem('Exec', '1', {
+        status: 'completed',
+        executionStatus: 'inProgress'
+      }),
+      makeItem('RunCommand', '2', {
+        status: 'completed',
+        executionStatus: 'completed',
+        result: 'done',
+        success: true
+      })
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(2)
+    expect(result[0].kind).toBe('single')
+    expect(result[1].kind).toBe('single')
   })
 })

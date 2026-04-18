@@ -17,6 +17,23 @@ function getGroupCategory(toolName: string): ToolGroupCategory | null {
   return null
 }
 
+export function isToolItemLive(item: ConversationItem): boolean {
+  const toolName = item.toolName ?? ''
+  if (!SHELL_TOOLS.has(toolName)) {
+    return item.status !== 'completed'
+  }
+
+  if (item.executionStatus != null) {
+    if (item.executionStatus === 'inProgress') return true
+    // Legacy: wire item lifecycle "started" was mistakenly stored as executionStatus.
+    if (String(item.executionStatus) === 'started') return true
+    return false
+  }
+
+  if (item.status !== 'completed') return true
+  return item.result === undefined && item.success === undefined
+}
+
 /**
  * Groups consecutive tool calls by category (explore/write/shell), while preserving
  * chronological order. Category transitions close the current group.
@@ -49,6 +66,10 @@ export function aggregateToolCalls(items: ConversationItem[]): AggregatedToolCal
       if (group.length === 1) {
         // Keep single items as normal tool cards.
         result.push({ kind: 'single', item: group[0] })
+      } else if (group.some(isToolItemLive)) {
+        for (const groupItem of group) {
+          result.push({ kind: 'single', item: groupItem })
+        }
       } else {
         result.push({
           kind: 'group',
