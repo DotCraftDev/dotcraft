@@ -19,18 +19,12 @@ Powered by .NET 10 and a Unified Session Core, DotCraft delivers unified, observ
 
 <table>
 <tr>
-<td width="33%" align="center"><b>📁 Project-Scoped Workspace</b><br/>Sessions, memory, skills, and config evolve around the repo</td>
-<td width="33%" align="center"><b>⚡ Unified Session Model</b><br/>One harness across CLI, Desktop, IDEs, bots, and automations</td>
-<td width="33%" align="center"><b>🛡️ Observable Orchestration</b><br/>Built-in approvals, traces, dashboard, and optional sandboxing</td>
+<td width="25%" align="center"><b>📁 Project-Scoped Workspace</b><br/>Agents can truly understand your project without being constrained by a specific client surface</td>
+<td width="25%" align="center"><b>⚡ Unified Session Model</b><br/>Span conversations across IM platforms, terminals, desktop apps, editors, and agent workflows</td>
+<td width="25%" align="center"><b>🛡️ Observability and Governance</b><br/>Keep agents safe and reliable, with issues easy to inspect and trace</td>
+<td width="25%" align="center"><b>🔗 Extensibility and Integration</b><br/>Highly extensible, with fast paths for integrating business workflows</td>
 </tr>
 </table>
-
-| Capability Theme | What that means |
-|------|------|
-| 📁 Project-scoped workspace | Agents can understand your project without being constrained by a specific client surface |
-| ⚡ Unified session model | Conversations span IM platforms, terminals, desktop apps, editors, and agent workflows |
-| 🛡️ Observability and approvals | Agents stay safe and reliable, with issues easy to inspect and trace |
-| 🔗 Extensibility and integration | Highly extensible, with fast paths for integrating business workflows |
 
 ## 🚀 Quick Start
 
@@ -53,12 +47,20 @@ Download the desktop app from [GitHub Releases](https://github.com/DotHarness/Do
 4. Run `build.bat`
 5. Run `build/release/DotCraft-Desktop-Setup.exe`
 
+### Configure the workspace
+
+On first launch, choose a folder as your workspace and follow the setup wizard to initialize it.
+
+![setup](https://github.com/DotHarness/resources/raw/master/dotcraft/setup.png)
+
 ### Configure an API key
 
 DotCraft currently supports two setup paths:
 
 - An OpenAI-compatible API key, such as the official API or providers like OpenRouter
 - A Coding Agent CLI reverse proxy based on [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
+
+![apiproxy](https://github.com/DotHarness/resources/raw/master/dotcraft/api-proxy.png)
 
 ### Advanced configuration
 
@@ -164,23 +166,13 @@ Desktop is for users who want a graphical workspace for conversations, diffs, pl
 
 Editors and ACP are for users who want DotCraft embedded directly into development tools, including Unity, Obsidian, and JetBrains IDEs. The key idea is not a separate editor-only agent, but an ACP bridge that connects the editor to the same AppServer runtime. Start with the [ACP Mode Guide](./docs/en/acp_guide.md); for Unity specifically, see the [Unity Integration Guide](./docs/en/unity_guide.md) and the [Unity Client README](./src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/README.md).
 
-### QQ / WeCom
+### Social Channels
 
-QQ / WeCom are for bringing the same workspace into IM-based bot scenarios, while continuing to reuse the same session, approval, and task flows. See the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
+QQ / WeCom are DotCraft's native social channels and require no extra dependencies. For setup details, see the [QQ Bot Guide](./docs/en/qq_bot_guide.md) and [WeCom Guide](./docs/en/wecom_guide.md).
 
-![qqbot](https://github.com/DotHarness/resources/raw/master/dotcraft/qqbot.gif)
+For more social channels, DotCraft integrates through SDK-based extensions. See the [Python SDK](./sdk/python/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
 
-### External Channels
-
-DotCraft can also integrate with external channels over the AppServer wire protocol, so you can connect platforms such as Telegram, Feishu/Lark, WeChat, Discord, Slack, or your own internal chat system without embedding the adapter into the main process.
-
-The Python and TypeScript SDKs (`DotCraftClient`, `ChannelAdapter`) make it easier to build these adapters, and the repository includes reference implementations:
-
-- **Telegram** (Python SDK): long polling, inline-keyboard approvals, and full end-to-end integration. See the [Python SDK](./sdk/python/README.md).
-
-- **Feishu / Lark** (TypeScript SDK): WebSocket event subscription, interactive approval cards, and a full external-channel integration example. See the [Feishu package](./sdk/typescript/packages/channel-feishu/README.md) and [TypeScript SDK](./sdk/typescript/README.md).
-
-- **WeChat** (TypeScript SDK): WebSocket transport, QR-code login, text-keyword approvals. See the [TypeScript SDK](./sdk/typescript/README.md).
+DotCraft currently includes integrations for Telegram, WeChat, and Feishu/Lark.
 
 | Telegram (Python SDK) | WeChat (TypeScript SDK) |
 |:---:|:---:|
@@ -188,18 +180,18 @@ The Python and TypeScript SDKs (`DotCraftClient`, `ChannelAdapter`) make it easi
 
 ### Automations
 
-Automations are for running local tasks and GitHub-driven workflows. The key optimization here is that automation tasks are orchestrated by a shared `AutomationOrchestrator` and reuse the same session runtime, rather than living as a separate sidecar scripting system. See the [Automations Guide](./docs/en/automations_guide.md).
+Automations are for running local tasks and GitHub-driven workflows. See the [Automations Guide](./docs/en/automations_guide.md).
 
 | Desktop Automations | GitHub tracker |
 |:---:|:---:|
 | ![desktop-github](https://github.com/DotHarness/resources/raw/master/dotcraft/desktop_github.png) | ![github-tracker](https://github.com/DotHarness/resources/raw/master/dotcraft/github-tracker.png) |
 | View automated tasks in the desktop application. | Automatic PR reviews. |
 
-## 🛡️ Operations And Governance
+## 🛡️ Observability and Governance
 
 ### Dashboard
 
-Dashboard is DotCraft's visual inspection and configuration surface for sessions, traces, and workspace settings. When `ApiKey` is missing, it also serves as the setup-only entry point for initial configuration. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
+Dashboard is DotCraft's visual inspection and configuration surface for sessions, traces, and workspace settings. See the [Dashboard Guide](./docs/en/dash_board_guide.md) for details.
 
 | Usage overview | Session trace |
 |:---:|:---:|
