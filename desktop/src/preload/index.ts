@@ -120,6 +120,8 @@ export interface ConfigDescriptorWire {
   key: string
   displayLabel: string
   description: string
+  localizedDisplayLabel?: Partial<Record<'en' | 'zh-Hans', string>>
+  localizedDescription?: Partial<Record<'en' | 'zh-Hans', string>>
   required: boolean
   dataKind: string
   masked: boolean

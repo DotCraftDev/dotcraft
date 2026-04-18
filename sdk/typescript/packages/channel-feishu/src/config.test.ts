@@ -56,3 +56,24 @@ test("accepts minimal valid config", () => {
   const config = validConfig();
   assert.doesNotThrow(() => validateFeishuConfig(config));
 });
+
+test("accepts brand=lark", () => {
+  const config = validConfig();
+  config.feishu.brand = "lark";
+  assert.doesNotThrow(() => validateFeishuConfig(config));
+});
+
+test("throws ConfigValidationError when feishu.brand is invalid", () => {
+  const config = validConfig() as unknown as {
+    dotcraft: Record<string, unknown>;
+    feishu: Record<string, unknown>;
+  };
+  config.feishu.brand = "custom.example.com";
+  assert.throws(
+    () => validateFeishuConfig(config),
+    (error: unknown) =>
+      error instanceof ConfigValidationError &&
+      Array.isArray(error.fields) &&
+      error.fields.includes("feishu.brand"),
+  );
+});
