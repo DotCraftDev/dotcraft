@@ -1548,6 +1548,9 @@ public sealed class AppServerRequestHandler(
 
     // Fix 10: Shared HttpClient for image URL fetch (best-effort, text-only is the primary path).
     private static readonly HttpClient ImageHttpClient = new();
+    internal const string LocalImagePathMetadataKey = "localImage.path";
+    internal const string LocalImageMimeTypeMetadataKey = "localImage.mimeType";
+    internal const string LocalImageFileNameMetadataKey = "localImage.fileName";
 
     /// <summary>
     /// Converts wire input parts to <see cref="AIContent"/>, resolving image and localImage parts
@@ -1565,7 +1568,7 @@ public sealed class AppServerRequestHandler(
             switch (part.Type)
             {
                 case "localImage" when part.Path is { } path:
-                    content = await ResolveLocalImageAsync(path, ct);
+                    content = await ResolveLocalImageAsync(path, part.MimeType, part.FileName, ct);
                     break;
                 case "image" when part.Url is { } url:
                     content = await ResolveRemoteImageAsync(url, ct);
@@ -1579,13 +1582,24 @@ public sealed class AppServerRequestHandler(
         return result;
     }
 
-    private static async Task<AIContent> ResolveLocalImageAsync(string path, CancellationToken ct)
+    private static async Task<AIContent> ResolveLocalImageAsync(
+        string path,
+        string? mimeTypeHint,
+        string? fileNameHint,
+        CancellationToken ct)
     {
         try
         {
             var bytes = await File.ReadAllBytesAsync(path, ct);
             var mediaType = InferMediaType(path);
-            return new DataContent(bytes, mediaType);
+            var data = new DataContent(bytes, mediaType);
+            data.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+            data.AdditionalProperties[LocalImagePathMetadataKey] = path;
+            if (!string.IsNullOrWhiteSpace(mimeTypeHint))
+                data.AdditionalProperties[LocalImageMimeTypeMetadataKey] = mimeTypeHint.Trim();
+            if (!string.IsNullOrWhiteSpace(fileNameHint))
+                data.AdditionalProperties[LocalImageFileNameMetadataKey] = fileNameHint.Trim();
+            return data;
         }
         catch
         {

@@ -1,5 +1,6 @@
 import type { ImageAttachment } from '../types/conversation'
 import type { ConversationItem, ConversationTurn } from '../types/conversation'
+import type { InputPart } from '../types/conversation'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 
@@ -27,12 +28,17 @@ export async function startTurnWithOptimisticUI({
   renameThreadFromText = true
 }: StartTurnParams): Promise<boolean> {
   const trimmed = text.trim()
-  const inputParts: Array<{ type: string; text?: string; path?: string }> = []
+  const inputParts: InputPart[] = []
   if (trimmed.length > 0) {
     inputParts.push({ type: 'text', text: trimmed })
   }
   for (const img of images) {
-    inputParts.push({ type: 'localImage', path: img.tempPath })
+    inputParts.push({
+      type: 'localImage',
+      path: img.tempPath,
+      mimeType: img.mimeType,
+      fileName: img.fileName
+    })
   }
   if (inputParts.length === 0) {
     return false
@@ -58,6 +64,11 @@ export async function startTurnWithOptimisticUI({
       status: 'completed',
       text: trimmed,
       imageDataUrls: images.map((i) => i.dataUrl),
+      images: images.map((i) => ({
+        path: i.tempPath,
+        mimeType: i.mimeType,
+        fileName: i.fileName
+      })),
       createdAt: optimisticNow,
       completedAt: optimisticNow
     }]

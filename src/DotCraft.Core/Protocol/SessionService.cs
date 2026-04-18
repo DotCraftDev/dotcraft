@@ -403,6 +403,7 @@ public sealed class SessionService(
 
         // Extract plain text from content parts for display and persistence
         var text = string.Concat(content.OfType<TextContent>().Select(t => t.Text));
+        var images = ExtractUserMessageImages(content);
 
         var userItem = new SessionItem
         {
@@ -420,7 +421,8 @@ public sealed class SessionService(
                 SenderRole = sender?.SenderRole,
                 ChannelName = turnOriginChannel,
                 ChannelContext = turnChannelContext,
-                GroupId = sender?.GroupId ?? channelInfo?.GroupId
+                GroupId = sender?.GroupId ?? channelInfo?.GroupId,
+                Images = images.Count > 0 ? images : null
             }
         };
 
@@ -1165,6 +1167,51 @@ public sealed class SessionService(
 
     private static string ResolveApprovalSource(string? channelName) =>
         channelName?.ToLowerInvariant() ?? "console";
+
+    private static List<UserMessageImage> ExtractUserMessageImages(IList<AIContent> content)
+    {
+        var images = new List<UserMessageImage>();
+        foreach (var part in content.OfType<DataContent>())
+        {
+            if (part.AdditionalProperties == null)
+                continue;
+            if (!TryGetStringProperty(part.AdditionalProperties, AppServer.AppServerRequestHandler.LocalImagePathMetadataKey, out var path))
+                continue;
+            var image = new UserMessageImage
+            {
+                Path = path,
+                MimeType = TryGetStringProperty(
+                    part.AdditionalProperties,
+                    AppServer.AppServerRequestHandler.LocalImageMimeTypeMetadataKey,
+                    out var mimeType)
+                    ? mimeType
+                    : null,
+                FileName = TryGetStringProperty(
+                    part.AdditionalProperties,
+                    AppServer.AppServerRequestHandler.LocalImageFileNameMetadataKey,
+                    out var fileName)
+                    ? fileName
+                    : null
+            };
+            images.Add(image);
+        }
+        return images;
+    }
+
+    private static bool TryGetStringProperty(
+        IReadOnlyDictionary<string, object?> properties,
+        string key,
+        out string value)
+    {
+        value = string.Empty;
+        if (!properties.TryGetValue(key, out var raw) || raw == null)
+            return false;
+        var text = raw as string ?? raw.ToString();
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        value = text.Trim();
+        return true;
+    }
 
     private static void RegisterCommandExecutionIfNeeded(
         FunctionCallContent functionCall,

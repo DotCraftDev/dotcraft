@@ -33,6 +33,7 @@ import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
+import type { InputPart } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
@@ -1013,6 +1014,11 @@ export function App(): JSX.Element {
               status: 'completed',
               text: effectivePendingText,
               imageDataUrls: pendingImages?.map((i) => i.dataUrl),
+              images: pendingImages?.map((i) => ({
+                path: i.tempPath,
+                mimeType: i.mimeType,
+                fileName: i.fileName
+              })),
               createdAt: optimisticNow,
               completedAt: optimisticNow
             }
@@ -1025,12 +1031,17 @@ export function App(): JSX.Element {
             }
             useConversationStore.getState().addOptimisticTurn(optimisticTurn)
 
-            const inputParts: Array<{ type: string; text?: string; path?: string }> = []
+            const inputParts: InputPart[] = []
             if (effectivePendingText.length > 0) {
               inputParts.push({ type: 'text', text: effectivePendingText })
             }
             for (const img of pendingImages ?? []) {
-              inputParts.push({ type: 'localImage', path: img.tempPath })
+              inputParts.push({
+                type: 'localImage',
+                path: img.tempPath,
+                mimeType: img.mimeType,
+                fileName: img.fileName
+              })
             }
             if (inputParts.length === 0) {
               useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)

@@ -3,6 +3,27 @@ using System.Text.Json.Nodes;
 namespace DotCraft.Protocol;
 
 /// <summary>
+/// Metadata for a user-provided local image attachment.
+/// </summary>
+public sealed record UserMessageImage
+{
+    /// <summary>
+    /// Absolute path to the local image attachment.
+    /// </summary>
+    public string Path { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Optional MIME type hint supplied by the input channel.
+    /// </summary>
+    public string? MimeType { get; init; }
+
+    /// <summary>
+    /// Optional original file name supplied by the input channel.
+    /// </summary>
+    public string? FileName { get; init; }
+}
+
+/// <summary>
 /// Payload for UserMessage items.
 /// </summary>
 public sealed record UserMessagePayload
@@ -38,6 +59,11 @@ public sealed record UserMessagePayload
     /// Group or chat identifier when the message originates from a group context.
     /// </summary>
     public string? GroupId { get; init; }
+
+    /// <summary>
+    /// Optional local image metadata used by clients to rehydrate user message attachments.
+    /// </summary>
+    public IReadOnlyList<UserMessageImage>? Images { get; init; }
 }
 
 /// <summary>

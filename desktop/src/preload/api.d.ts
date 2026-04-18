@@ -248,6 +248,7 @@ declare global {
         openNewWindow(): Promise<void>
         checkLock(wsPath: string): Promise<{ locked: boolean; pid?: number }>
         saveImageToTemp(params: { dataUrl: string; fileName?: string }): Promise<{ path: string }>
+        readImageAsDataUrl(params: { path: string }): Promise<{ dataUrl: string }>
         searchFiles(params: {
           query: string
           workspacePath: string

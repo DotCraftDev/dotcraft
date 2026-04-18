@@ -148,6 +148,7 @@ function TurnBlock({
           key={item.id}
           text={item.text ?? ''}
           imageDataUrls={item.imageDataUrls}
+          images={item.images}
         />
       ))}
 

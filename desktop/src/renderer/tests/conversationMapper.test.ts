@@ -68,6 +68,27 @@ describe('wireItemToConversationItem — nested payload format (thread/read)', (
     expect(item.type).toBe('userMessage')
   })
 
+  it('extracts images metadata from payload.images for userMessage', () => {
+    const item = wireItemToConversationItem({
+      id: 'i2b',
+      type: 'userMessage',
+      status: 'completed',
+      payloadKind: 'userMessage',
+      payload: {
+        text: 'look at this',
+        images: [
+          { path: '/ws/.craft/attachments/images/a.png', mimeType: 'image/png', fileName: 'a.png' },
+          { path: '/ws/.craft/attachments/images/b.jpg' }
+        ]
+      },
+      createdAt: '2025-01-01T00:00:00Z'
+    })
+    expect(item.images).toEqual([
+      { path: '/ws/.craft/attachments/images/a.png', mimeType: 'image/png', fileName: 'a.png' },
+      { path: '/ws/.craft/attachments/images/b.jpg' }
+    ])
+  })
+
   it('extracts reasoning from payload.text for reasoningContent', () => {
     const item = wireItemToConversationItem({
       id: 'i3',
