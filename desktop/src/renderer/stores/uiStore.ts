@@ -68,6 +68,8 @@ export interface UIState {
   } | null
   /** Unsent draft on ConversationWelcome, preserved across thread navigation. */
   welcomeDraft: WelcomeDraft | null
+  /** Per-turn dismissal marker for the plan approval composer. */
+  planApprovalDismissed: Record<string, boolean>
 }
 
 interface UIStore extends UIState {
@@ -105,6 +107,8 @@ interface UIStore extends UIState {
   cancelPendingWelcomeTurnForThread(threadId: string): void
   setWelcomeDraft(draft: Omit<WelcomeDraft, 'updatedAt'> | null): void
   clearWelcomeDraft(): void
+  dismissPlanApproval(turnId: string): void
+  resetPlanApprovalDismissed(): void
 }
 
 /** Internal state not exposed in UIState but used for timeout management */
@@ -126,6 +130,7 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   composerPrefill: null,
   pendingWelcomeTurn: null,
   welcomeDraft: null,
+  planApprovalDismissed: {},
 
   setActiveMainView(view) {
     set({ activeMainView: view })
@@ -133,7 +138,7 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   goToNewChat() {
     useThreadStore.getState().setActiveThreadId(null)
-    set({ activeMainView: 'conversation' })
+    set({ activeMainView: 'conversation', planApprovalDismissed: {} })
   },
 
   setAutomationsTab(tab) {
@@ -266,6 +271,20 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   clearWelcomeDraft() {
     set({ welcomeDraft: null })
+  },
+
+  dismissPlanApproval(turnId) {
+    if (!turnId) return
+    set((state) => ({
+      planApprovalDismissed: {
+        ...state.planApprovalDismissed,
+        [turnId]: true
+      }
+    }))
+  },
+
+  resetPlanApprovalDismissed() {
+    set({ planApprovalDismissed: {} })
   },
 
   // Internal state for timeout timer (not exposed in UIState interface)

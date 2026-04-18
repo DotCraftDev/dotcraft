@@ -1437,6 +1437,34 @@ export function selectStreamingPlanDraft(
   return buildStreamingPlanDraft(match.itemId, match.rawArgs)
 }
 
+/**
+ * Returns the most recent completed turn whose last completed tool call is a
+ * successful CreatePlan invocation. Used by the plan approval composer.
+ */
+export function selectLatestCreatePlanTurnId(state: ConversationState): string | null {
+  for (let turnIdx = state.turns.length - 1; turnIdx >= 0; turnIdx -= 1) {
+    const turn = state.turns[turnIdx]
+    if (turn.status !== 'completed') {
+      continue
+    }
+    for (let itemIdx = turn.items.length - 1; itemIdx >= 0; itemIdx -= 1) {
+      const item = turn.items[itemIdx]
+      if (item.type !== 'toolCall') {
+        continue
+      }
+      if (
+        item.toolName === 'CreatePlan'
+        && item.status === 'completed'
+        && item.success !== false
+      ) {
+        return turn.id
+      }
+      return null
+    }
+  }
+  return null
+}
+
 // Expose store to E2E / debug tooling via a window global (browser only)
 if (typeof window !== 'undefined') {
   ;(window as unknown as Record<string, unknown>).__CONVERSATION_STORE_STATE = () =>

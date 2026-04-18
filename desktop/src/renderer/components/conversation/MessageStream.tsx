@@ -6,6 +6,7 @@ import { UserMessageBlock } from './UserMessageBlock'
 import { AgentResponseBlock } from './AgentResponseBlock'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
 import type { ConversationItem, ConversationTurn } from '../../types/conversation'
+import { isAcceptPlanSentinel } from '../../utils/planAcceptSentinel'
 
 /** Module-level scroll position cache — ephemeral, not persisted to storage. */
 const scrollPositionCache = new Map<string, number>()
@@ -134,7 +135,10 @@ function TurnBlock({
   isLastTurn
 }: TurnBlockProps): JSX.Element {
   // Separate user-input items from agent items
-  const userItems = turn.items.filter((i: ConversationItem) => i.type === 'userMessage')
+  const userItems = turn.items.filter(
+    (i: ConversationItem) =>
+      i.type === 'userMessage' && !isAcceptPlanSentinel(i.text ?? '')
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

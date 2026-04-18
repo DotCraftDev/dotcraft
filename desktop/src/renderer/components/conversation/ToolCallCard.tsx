@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { translate, type AppLocale } from '../../../shared/locales'
 import type { ConversationItem } from '../../types/conversation'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -27,6 +27,7 @@ import {
   getStreamingToolDisplay
 } from '../../utils/toolCallDisplay'
 import { PlanToolOutput } from './PlanToolOutput'
+import { CreatePlanCard, hasCreatePlanDisplayData } from './CreatePlanCard'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -51,13 +52,16 @@ function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): 
 export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [expanded, setExpanded] = useState(false)
+  const [autoExpanded, setAutoExpanded] = useState(false)
+  const [userInteracted, setUserInteracted] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const autoExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
   const isShellTool = isShellToolName(toolName)
   const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
-  const canExpandWhileRunning = isShellTool || isStreamingFileTool
+  const canExpandWhileRunning = true
   const streamingDisplay = getStreamingToolDisplay(
     toolName,
     item.argumentsPreview ?? null,
@@ -93,8 +97,56 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 
   function toggleExpand(): void {
     if (!isRunning || canExpandWhileRunning) {
+      setUserInteracted(true)
+      if (autoExpandTimerRef.current != null) {
+        clearTimeout(autoExpandTimerRef.current)
+        autoExpandTimerRef.current = null
+      }
+      setAutoExpanded(false)
       setExpanded((v) => !v)
     }
+  }
+
+  useEffect(() => {
+    if (toolName === 'CreatePlan') {
+      return
+    }
+    if (isRunning) {
+      if (!userInteracted && !expanded && autoExpandTimerRef.current == null) {
+        autoExpandTimerRef.current = setTimeout(() => {
+          setExpanded(true)
+          setAutoExpanded(true)
+          autoExpandTimerRef.current = null
+        }, 400)
+      }
+      return
+    }
+
+    if (autoExpandTimerRef.current != null) {
+      clearTimeout(autoExpandTimerRef.current)
+      autoExpandTimerRef.current = null
+    }
+    if (autoExpanded && !userInteracted && expanded) {
+      setExpanded(false)
+      setAutoExpanded(false)
+      return
+    }
+    if (autoExpanded) {
+      setAutoExpanded(false)
+    }
+  }, [autoExpanded, expanded, isRunning, toolName, userInteracted])
+
+  useEffect(() => {
+    return () => {
+      if (autoExpandTimerRef.current != null) {
+        clearTimeout(autoExpandTimerRef.current)
+        autoExpandTimerRef.current = null
+      }
+    }
+  }, [])
+
+  if (toolName === 'CreatePlan' && hasCreatePlanDisplayData(item)) {
+    return <CreatePlanCard item={item} locale={locale} />
   }
 
   if (isRunning) {
@@ -163,12 +215,19 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
                 locale={locale}
                 planTodos={planTodos}
               />
-            ) : (
+            ) : isStreamingFileTool ? (
               <RunningFileToolPreview
                 item={item}
                 locale={locale}
                 streamingContent={streamingDisplay.parsedPreview?.content ?? null}
                 streamingPath={streamingDisplay.parsedPreview?.path ?? null}
+              />
+            ) : (
+              <RunningGenericToolPreview
+                toolName={toolName}
+                args={args}
+                locale={locale}
+                planTodos={planTodos}
               />
             )}
           </div>
@@ -516,6 +575,42 @@ function RunningFileToolPreview(
           Waiting for content...
         </div>
       )}
+    </div>
+  )
+}
+
+function RunningGenericToolPreview(
+  {
+    toolName,
+    args,
+    locale,
+    planTodos
+  }: {
+    toolName: string
+    args: Record<string, unknown> | undefined
+    locale: AppLocale
+    planTodos?: Array<{ id: string; content: string }>
+  }
+): JSX.Element {
+  const invocation = formatExpandedInvocation(toolName, args, locale, { planTodos })
+  return (
+    <div className="selectable" style={{ fontSize: '12px', lineHeight: '1.5' }}>
+      {invocation && (
+        <div
+          style={{
+            color: 'var(--text-dimmed)',
+            marginBottom: '6px',
+            fontFamily: 'var(--font-mono)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word'
+          }}
+        >
+          {invocation}
+        </div>
+      )}
+      <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>
+        {translate(locale, 'toolCall.genericRunning')}
+      </div>
     </div>
   )
 }
