@@ -103,6 +103,57 @@ describe('PlanApprovalComposer', () => {
     expect(useUIStore.getState().planApprovalDismissed['turn-3']).toBe(true)
   })
 
+  it('uses latest thread, workspace, and turn ids after rerender when accepting via keyboard', async () => {
+    const initialThreadId = 'thread-1'
+    const initialWorkspacePath = 'F:\\dotcraft'
+    const initialTurnId = 'turn-1'
+    const nextThreadId = 'thread-2'
+    const nextWorkspacePath = 'F:\\another-workspace'
+    const nextTurnId = 'turn-2'
+
+    const { rerender } = render(
+      <LocaleProvider>
+        <PlanApprovalComposer
+          threadId={initialThreadId}
+          workspacePath={initialWorkspacePath}
+          turnId={initialTurnId}
+        />
+      </LocaleProvider>
+    )
+
+    rerender(
+      <LocaleProvider>
+        <PlanApprovalComposer
+          threadId={nextThreadId}
+          workspacePath={nextWorkspacePath}
+          turnId={nextTurnId}
+        />
+      </LocaleProvider>
+    )
+
+    fireEvent.keyDown(window, { key: '1' })
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('thread/mode/set', {
+        threadId: nextThreadId,
+        mode: 'agent'
+      })
+    })
+    await waitFor(() => {
+      const turnStartCall = appServerSendRequest.mock.calls.find(([method]) => method === 'turn/start')
+      expect(turnStartCall).toBeDefined()
+      const payload = turnStartCall?.[1] as {
+        threadId: string
+        identity?: { channelContext?: string; workspacePath?: string }
+      }
+      expect(payload.threadId).toBe(nextThreadId)
+      expect(payload.identity?.channelContext).toBe(`workspace:${nextWorkspacePath}`)
+      expect(payload.identity?.workspacePath).toBe(nextWorkspacePath)
+    })
+    expect(useUIStore.getState().planApprovalDismissed[nextTurnId]).toBe(true)
+    expect(useUIStore.getState().planApprovalDismissed[initialTurnId]).not.toBe(true)
+  })
+
   it('dismisses via clicking Esc hint button', () => {
     renderWithLocale(
       <PlanApprovalComposer threadId="thread-1" workspacePath="F:\\dotcraft" turnId="turn-4" />

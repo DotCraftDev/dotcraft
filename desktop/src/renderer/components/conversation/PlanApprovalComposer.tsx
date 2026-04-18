@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -32,7 +32,7 @@ export function PlanApprovalComposer({
   const trimmed = text.trim()
   const submitAsNo = trimmed.length > 0
 
-  async function handleAcceptPlan(): Promise<void> {
+  const handleAcceptPlan = useCallback(async (): Promise<void> => {
     if (sendInFlightRef.current) return
     sendInFlightRef.current = true
     dismissPlanApproval(turnId)
@@ -51,7 +51,7 @@ export function PlanApprovalComposer({
       renameThreadFromText: false
     })
     sendInFlightRef.current = false
-  }
+  }, [dismissPlanApproval, locale, setThreadMode, t, threadId, turnId, workspacePath])
 
   async function handleSubmit(): Promise<void> {
     if (sendInFlightRef.current) return
@@ -86,7 +86,7 @@ export function PlanApprovalComposer({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dismissPlanApproval, editorFocused, turnId])
+  }, [dismissPlanApproval, editorFocused, handleAcceptPlan, turnId])
 
   return (
     <div style={{ flexShrink: 0 }}>
