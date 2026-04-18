@@ -28,6 +28,7 @@ import {
 } from '../../utils/toolCallDisplay'
 import { PlanToolOutput } from './PlanToolOutput'
 import { CreatePlanCard, hasCreatePlanDisplayData } from './CreatePlanCard'
+import { ToolCollapseChevron } from './ToolCollapseChevron'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -208,7 +209,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
             {runningElapsedLabel}
           </span>
-          {canExpandWhileRunning && <Chevron expanded={expanded} />}
+          {canExpandWhileRunning && <ToolCollapseChevron expanded={expanded} />}
         </button>
 
         {expanded && canExpandWhileRunning && (
@@ -296,7 +297,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           </span>
         )}
 
-        <Chevron expanded={expanded} />
+        <ToolCollapseChevron expanded={expanded} />
       </button>
 
       {expanded && (
@@ -501,21 +502,6 @@ function normalizeTodoStatus(value: unknown): 'pending' | 'in_progress' | 'compl
     return value
   }
   return 'pending'
-}
-
-function Chevron({ expanded }: { expanded: boolean }): JSX.Element {
-  return (
-    <span
-      style={{
-        color: 'var(--text-dimmed)',
-        fontSize: '10px',
-        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-        transition: 'transform 150ms ease'
-      }}
-    >
-      ▼
-    </span>
-  )
 }
 
 function Spinner(): JSX.Element {

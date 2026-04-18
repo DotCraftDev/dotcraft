@@ -12,6 +12,7 @@ import { aggregateToolCalls } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
 import type { SubAgentEntry } from '../../types/toolCall'
+import { ToolCollapseChevron } from './ToolCollapseChevron'
 
 interface AgentResponseBlockProps {
   turn: ConversationTurn
@@ -254,16 +255,7 @@ function GroupedToolCallRow({ label, items }: GroupedToolCallRowProps): JSX.Elem
           {allCompleted ? '✓' : '…'}
         </span>
         <span style={{ flex: 1 }}>{label}</span>
-        <span
-          style={{
-            color: 'var(--text-dimmed)',
-            fontSize: '10px',
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 150ms ease'
-          }}
-        >
-          ▾
-        </span>
+        <ToolCollapseChevron expanded={expanded} />
       </button>
       {expanded && (
         <div style={{ paddingLeft: '16px' }}>
