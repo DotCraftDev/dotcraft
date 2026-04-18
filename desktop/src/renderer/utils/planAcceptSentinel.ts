@@ -8,5 +8,5 @@ export function isAcceptPlanSentinel(text: string): boolean {
 }
 
 export function acceptPlanSentinelFor(locale: AppLocale): string {
-  return locale === 'zh' ? ACCEPT_PLAN_SENTINEL_ZH : ACCEPT_PLAN_SENTINEL_EN
+  return locale === 'zh-Hans' ? ACCEPT_PLAN_SENTINEL_ZH : ACCEPT_PLAN_SENTINEL_EN
 }
