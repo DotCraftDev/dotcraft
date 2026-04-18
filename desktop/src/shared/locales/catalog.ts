@@ -880,7 +880,7 @@ const MESSAGES_EN = {
   // MCP
   'settings.mcp.title': 'MCP Servers',
   'settings.mcp.description':
-    'Connect custom MCP servers stored in workspace `.craft/config.json`.',
+    'Connect custom MCP servers stored in workspace.',
   'settings.mcp.addServer': '+ Add Server',
   'settings.mcp.empty.title': 'No custom MCP servers connected',
   'settings.mcp.empty.hint':
@@ -1759,7 +1759,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   // MCP
   'settings.mcp.title': 'MCP Servers',
   'settings.mcp.description':
-    '连接存储在工作区 `.craft/config.json` 中的自定义 MCP 服务器。',
+    '连接存储在工作区中的自定义 MCP 服务器。',
   'settings.mcp.addServer': '+ 添加服务器',
   'settings.mcp.empty.title': '尚未连接自定义 MCP 服务器',
   'settings.mcp.empty.hint': '添加一个服务器以配置本地 stdio 或 Streamable HTTP 的 MCP 连接。',
