@@ -43,18 +43,18 @@ describe('aggregateToolCalls', () => {
     }
   })
 
-  it('groups GrepFiles and FindFiles along with ReadFile', () => {
+  it('groups consecutive explore tools into one group', () => {
     const items = [
       makeItem('ReadFile', '1'),
       makeItem('GrepFiles', '2'),
-      makeItem('FindFiles', '3'),
-      makeItem('ListDirectory', '4')
+      makeItem('FindFiles', '3')
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(1)
     expect(result[0].kind).toBe('group')
     if (result[0].kind === 'group') {
-      expect(result[0].label).toBe('Explored 4 files')
+      expect(result[0].items).toHaveLength(3)
+      expect(result[0].label).toBe('Explored 3 files')
     }
   })
 

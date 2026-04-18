@@ -13,7 +13,7 @@ import {
 type ToolArgs = Record<string, unknown> | undefined
 type PlanTodoLike = { id?: string; content?: string }
 
-const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles', 'ListDirectory'])
+const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles'])
 export const FILE_WRITE_TOOLS = new Set(['WriteFile', 'EditFile'])
 
 /**

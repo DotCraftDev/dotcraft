@@ -1,14 +1,14 @@
 import type { ConversationItem } from '../types/conversation'
 
 /** Tool names that can be collapsed into an "Explored N files" group */
-const AGGREGATABLE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles', 'ListDirectory'])
+const AGGREGATABLE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles'])
 
 export type AggregatedToolCall =
   | { kind: 'single'; item: ConversationItem }
   | { kind: 'group'; items: ConversationItem[]; label: string }
 
 /**
- * Groups consecutive aggregatable tool calls (ReadFile, GrepFiles, FindFiles, ListDirectory)
+ * Groups consecutive aggregatable tool calls (ReadFile, GrepFiles, FindFiles)
  * into a single summary card. Non-aggregatable tools are kept as individual entries.
  *
  * Example: [ReadFile, ReadFile, WriteFile] → [group(2), single(WriteFile)]
