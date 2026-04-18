@@ -10,23 +10,11 @@ const BREAKPOINT_NO_DETAIL = 900   // 900-1199px: detail panel auto-collapses
  * Subscribes to window resize events and applies breakpoint rules from spec §8.2.
  */
 export function useResponsiveLayout(): void {
-  const { setSidebarCollapsed, setDetailPanelVisible } = useUIStore()
+  const setResponsiveLayout = useUIStore((state) => state.setResponsiveLayout)
 
   useEffect(() => {
     function applyBreakpoint(width: number): void {
-      if (width >= BREAKPOINT_FULL) {
-        // All panels visible
-        setSidebarCollapsed(false)
-        setDetailPanelVisible(true)
-      } else if (width >= BREAKPOINT_NO_DETAIL) {
-        // Detail panel auto-collapses, sidebar stays expanded
-        setSidebarCollapsed(false)
-        setDetailPanelVisible(false)
-      } else {
-        // Both collapse: sidebar to icon-only, detail hidden
-        setSidebarCollapsed(true)
-        setDetailPanelVisible(false)
-      }
+      setResponsiveLayout(classifyWidth(width))
     }
 
     // Apply on mount
@@ -46,7 +34,7 @@ export function useResponsiveLayout(): void {
       window.removeEventListener('resize', handleResize)
       if (debounceTimer) clearTimeout(debounceTimer)
     }
-  }, [setSidebarCollapsed, setDetailPanelVisible])
+  }, [setResponsiveLayout])
 }
 
 /**

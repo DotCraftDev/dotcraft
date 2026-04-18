@@ -33,10 +33,16 @@ export interface UIState {
   activeMainView: ActiveMainView
   /** Active tab inside Automations view (spec §21.1). */
   automationsTab: AutomationsTab
+  /** User preference for whether the sidebar is collapsed when width allows it. */
+  sidebarPreferredCollapsed: boolean
   sidebarCollapsed: boolean
   sidebarWidth: number
+  /** User preference for whether the detail panel is visible when width allows it. */
+  detailPanelPreferredVisible: boolean
   detailPanelVisible: boolean
   detailPanelWidth: number
+  /** Current responsive layout classification used to constrain panel visibility. */
+  responsiveLayout: 'full' | 'no-detail' | 'collapsed'
   activeDetailTab: DetailPanelTab
   /** Currently selected file path in the Changes tab */
   selectedChangedFile: string | null
@@ -82,6 +88,7 @@ interface UIStore extends UIState {
   setSidebarWidth(width: number): void
   toggleDetailPanel(): void
   setDetailPanelVisible(visible: boolean): void
+  setResponsiveLayout(layout: 'full' | 'no-detail' | 'collapsed'): void
   setDetailPanelWidth(width: number): void
   setActiveDetailTab(tab: DetailPanelTab): void
   selectChangedFile(filePath: string | null): void
@@ -116,13 +123,41 @@ interface InternalState {
   _pendingWelcomeTimer: ReturnType<typeof setTimeout> | null
 }
 
+export function resolveResponsivePanels(
+  layout: UIState['responsiveLayout'],
+  sidebarPreferredCollapsed: boolean,
+  detailPanelPreferredVisible: boolean
+): Pick<UIState, 'sidebarCollapsed' | 'detailPanelVisible'> {
+  switch (layout) {
+    case 'collapsed':
+      return {
+        sidebarCollapsed: true,
+        detailPanelVisible: false
+      }
+    case 'no-detail':
+      return {
+        sidebarCollapsed: sidebarPreferredCollapsed,
+        detailPanelVisible: false
+      }
+    case 'full':
+    default:
+      return {
+        sidebarCollapsed: sidebarPreferredCollapsed,
+        detailPanelVisible: detailPanelPreferredVisible
+      }
+  }
+}
+
 export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   activeMainView: 'conversation',
   automationsTab: 'tasks',
+  sidebarPreferredCollapsed: false,
   sidebarCollapsed: false,
   sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
+  detailPanelPreferredVisible: true,
   detailPanelVisible: true,
   detailPanelWidth: DETAIL_DEFAULT_WIDTH,
+  responsiveLayout: 'full',
   activeDetailTab: 'changes',
   selectedChangedFile: null,
   autoShowTriggeredForTurn: null,
@@ -146,11 +181,28 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   },
 
   toggleSidebar() {
-    set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }))
+    set((state) => {
+      const sidebarPreferredCollapsed = !state.sidebarPreferredCollapsed
+      return {
+        sidebarPreferredCollapsed,
+        ...resolveResponsivePanels(
+          state.responsiveLayout,
+          sidebarPreferredCollapsed,
+          state.detailPanelPreferredVisible
+        )
+      }
+    })
   },
 
   setSidebarCollapsed(collapsed: boolean) {
-    set({ sidebarCollapsed: collapsed })
+    set((state) => ({
+      sidebarPreferredCollapsed: collapsed,
+      ...resolveResponsivePanels(
+        state.responsiveLayout,
+        collapsed,
+        state.detailPanelPreferredVisible
+      )
+    }))
   },
 
   setSidebarWidth(width: number) {
@@ -159,11 +211,39 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   },
 
   toggleDetailPanel() {
-    set((state) => ({ detailPanelVisible: !state.detailPanelVisible }))
+    set((state) => {
+      const detailPanelPreferredVisible = !state.detailPanelPreferredVisible
+      return {
+        detailPanelPreferredVisible,
+        ...resolveResponsivePanels(
+          state.responsiveLayout,
+          state.sidebarPreferredCollapsed,
+          detailPanelPreferredVisible
+        )
+      }
+    })
   },
 
   setDetailPanelVisible(visible: boolean) {
-    set({ detailPanelVisible: visible })
+    set((state) => ({
+      detailPanelPreferredVisible: visible,
+      ...resolveResponsivePanels(
+        state.responsiveLayout,
+        state.sidebarPreferredCollapsed,
+        visible
+      )
+    }))
+  },
+
+  setResponsiveLayout(layout) {
+    set((state) => ({
+      responsiveLayout: layout,
+      ...resolveResponsivePanels(
+        layout,
+        state.sidebarPreferredCollapsed,
+        state.detailPanelPreferredVisible
+      )
+    }))
   },
 
   setDetailPanelWidth(width: number) {
@@ -172,11 +252,17 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   },
 
   setActiveDetailTab(tab: DetailPanelTab) {
-    set({ activeDetailTab: tab })
-    // Auto-show the panel when switching to a tab
-    if (!get().detailPanelVisible) {
-      set({ detailPanelVisible: true })
-    }
+    const state = get()
+    const detailPanelPreferredVisible = true
+    set({
+      activeDetailTab: tab,
+      detailPanelPreferredVisible,
+      ...resolveResponsivePanels(
+        state.responsiveLayout,
+        state.sidebarPreferredCollapsed,
+        detailPanelPreferredVisible
+      )
+    })
   },
 
   selectChangedFile(filePath) {
@@ -184,7 +270,18 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   },
 
   showChangesForFile(filePath) {
-    set({ activeDetailTab: 'changes', detailPanelVisible: true, selectedChangedFile: filePath })
+    const state = get()
+    const detailPanelPreferredVisible = true
+    set({
+      activeDetailTab: 'changes',
+      selectedChangedFile: filePath,
+      detailPanelPreferredVisible,
+      ...resolveResponsivePanels(
+        state.responsiveLayout,
+        state.sidebarPreferredCollapsed,
+        detailPanelPreferredVisible
+      )
+    })
   },
 
   markAutoShowForTurn(turnId) {
