@@ -275,6 +275,55 @@ describe('ToolCallCard shell rendering', () => {
     expect(screen.getAllByText('Searched "dotcraft"').length).toBeGreaterThan(0)
     vi.useRealTimers()
   })
+
+  it('keeps lingering card expanded until lingering ends', () => {
+    vi.useFakeTimers()
+    const runningItem: ConversationItem = {
+      id: 'tool-linger',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'Exec',
+      toolCallId: 'exec-linger-1',
+      arguments: { command: 'sleep 10' },
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+    const completedItem: ConversationItem = {
+      ...runningItem,
+      status: 'completed',
+      result: '',
+      success: true,
+      duration: 700
+    }
+
+    const { rerender } = render(
+      <LocaleProvider>
+        <ToolCallCard item={runningItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    act(() => {
+      vi.advanceTimersByTime(450)
+    })
+
+    expect(screen.getByText('Waiting for output...')).toBeInTheDocument()
+
+    rerender(
+      <LocaleProvider>
+        <ToolCallCard item={completedItem} turnId="turn-1" isLingering />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Waiting for output...')).toBeInTheDocument()
+
+    rerender(
+      <LocaleProvider>
+        <ToolCallCard item={completedItem} turnId="turn-1" isLingering={false} />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByText('Waiting for output...')).toBeNull()
+    vi.useRealTimers()
+  })
 })
 
 describe('ToolCallCard todo rendering safety', () => {

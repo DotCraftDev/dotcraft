@@ -32,6 +32,7 @@ import { ToolCollapseChevron } from './ToolCollapseChevron'
 interface ToolCallCardProps {
   item: ConversationItem
   turnId: string
+  isLingering?: boolean
 }
 
 function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
@@ -49,13 +50,18 @@ function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): 
   return toolResultPending
 }
 
-export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCallCardProps): JSX.Element {
+export const ToolCallCard = memo(function ToolCallCard({
+  item,
+  turnId,
+  isLingering = false
+}: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [expanded, setExpanded] = useState(false)
   const [autoExpanded, setAutoExpanded] = useState(false)
   const [userInteracted, setUserInteracted] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const autoExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lingerCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
@@ -105,6 +111,10 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
         clearTimeout(autoExpandTimerRef.current)
         autoExpandTimerRef.current = null
       }
+      if (lingerCollapseTimerRef.current != null) {
+        clearTimeout(lingerCollapseTimerRef.current)
+        lingerCollapseTimerRef.current = null
+      }
       setAutoExpanded(false)
       setExpanded((v) => !v)
     }
@@ -116,6 +126,10 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
         clearTimeout(autoExpandTimerRef.current)
         autoExpandTimerRef.current = null
       }
+      if (lingerCollapseTimerRef.current != null) {
+        clearTimeout(lingerCollapseTimerRef.current)
+        lingerCollapseTimerRef.current = null
+      }
       if (autoExpanded) {
         setAutoExpanded(false)
       }
@@ -123,6 +137,10 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
     }
 
     if (isRunning) {
+      if (lingerCollapseTimerRef.current != null) {
+        clearTimeout(lingerCollapseTimerRef.current)
+        lingerCollapseTimerRef.current = null
+      }
       if (!userInteracted && !expanded && autoExpandTimerRef.current == null) {
         autoExpandTimerRef.current = setTimeout(() => {
           setExpanded(true)
@@ -137,21 +155,48 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
       clearTimeout(autoExpandTimerRef.current)
       autoExpandTimerRef.current = null
     }
-    if (autoExpanded && !userInteracted && expanded) {
+
+    const shouldAutoCollapse = !userInteracted && expanded && (autoExpanded || isLingering)
+    if (shouldAutoCollapse) {
+      if (isLingering) {
+        if (lingerCollapseTimerRef.current == null) {
+          lingerCollapseTimerRef.current = setTimeout(() => {
+            setExpanded(false)
+            setAutoExpanded(false)
+            lingerCollapseTimerRef.current = null
+          }, 1500)
+        }
+        return
+      }
+
+      if (lingerCollapseTimerRef.current != null) {
+        clearTimeout(lingerCollapseTimerRef.current)
+        lingerCollapseTimerRef.current = null
+      }
       setExpanded(false)
       setAutoExpanded(false)
       return
     }
+
+    if (lingerCollapseTimerRef.current != null) {
+      clearTimeout(lingerCollapseTimerRef.current)
+      lingerCollapseTimerRef.current = null
+    }
+
     if (autoExpanded) {
       setAutoExpanded(false)
     }
-  }, [autoExpandEligible, autoExpanded, expanded, isRunning, userInteracted])
+  }, [autoExpandEligible, autoExpanded, expanded, isLingering, isRunning, userInteracted])
 
   useEffect(() => {
     return () => {
       if (autoExpandTimerRef.current != null) {
         clearTimeout(autoExpandTimerRef.current)
         autoExpandTimerRef.current = null
+      }
+      if (lingerCollapseTimerRef.current != null) {
+        clearTimeout(lingerCollapseTimerRef.current)
+        lingerCollapseTimerRef.current = null
       }
     }
   }, [])
