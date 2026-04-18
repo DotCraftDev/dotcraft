@@ -672,6 +672,7 @@ describe('onPlanUpdated', () => {
     s().onPlanUpdated({
       title: 'My Plan',
       overview: 'Build something cool',
+      content: '# Full Plan\n\nBody text',
       todos: [
         { id: '1', content: 'Step 1', status: 'completed' },
         { id: '2', content: 'Step 2', status: 'in_progress' }
@@ -682,20 +683,28 @@ describe('onPlanUpdated', () => {
     expect(plan).not.toBeNull()
     expect(plan?.title).toBe('My Plan')
     expect(plan?.overview).toBe('Build something cool')
+    expect(plan?.content).toBe('# Full Plan\n\nBody text')
     expect(plan?.todos).toHaveLength(2)
     expect(plan?.todos[0].status).toBe('completed')
     expect(plan?.todos[1].status).toBe('in_progress')
   })
 
   it('replaces old plan on subsequent updates', () => {
-    s().onPlanUpdated({ title: 'Old Plan', overview: '', todos: [] })
-    s().onPlanUpdated({ title: 'New Plan', overview: 'Updated', todos: [] })
+    s().onPlanUpdated({ title: 'Old Plan', overview: '', content: 'Old content', todos: [] })
+    s().onPlanUpdated({ title: 'New Plan', overview: 'Updated', content: 'New content', todos: [] })
 
     expect(s().plan?.title).toBe('New Plan')
+    expect(s().plan?.content).toBe('New content')
+  })
+
+  it('falls back to empty content when plan/updated does not include content', () => {
+    s().onPlanUpdated({ title: 'Legacy Plan', overview: 'Legacy payload', todos: [] })
+
+    expect(s().plan?.content).toBe('')
   })
 
   it('reset() clears the plan', () => {
-    s().onPlanUpdated({ title: 'Some Plan', overview: '', todos: [] })
+    s().onPlanUpdated({ title: 'Some Plan', overview: '', content: '', todos: [] })
     expect(s().plan).not.toBeNull()
 
     s().reset()

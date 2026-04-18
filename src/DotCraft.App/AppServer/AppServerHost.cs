@@ -1053,6 +1053,7 @@ public sealed class AppServerHost(
             {
                 title = plan.Title,
                 overview = plan.Overview,
+                content = plan.Content,
                 todos = plan.Todos.Select(t => new
                 {
                     id = t.Id,

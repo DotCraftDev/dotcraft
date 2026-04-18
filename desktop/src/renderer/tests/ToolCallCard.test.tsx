@@ -210,3 +210,94 @@ describe('ToolCallCard todo rendering safety', () => {
     expect(screen.getByText('Started to-do')).toBeInTheDocument()
   })
 })
+
+describe('ToolCallCard CreatePlan rendering', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        }
+      }
+    })
+  })
+
+  it('renders completed CreatePlan as a rich plan block with markdown content', () => {
+    const item: ConversationItem = {
+      id: 'create-plan-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'CreatePlan',
+      toolCallId: 'create-plan-call-1',
+      arguments: {
+        title: 'Release Plan',
+        overview: 'Ship the feature in two phases.',
+        plan: '# Final heading\n\n- add tests\n- run smoke checks',
+        todos: [
+          { id: 'tests', content: 'Add tests', status: 'in_progress' },
+          { id: 'smoke', content: 'Run smoke checks', status: 'pending' }
+        ]
+      },
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Plan: Release Plan')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(screen.getByText('Overview')).toBeInTheDocument()
+    expect(screen.getByText('Plan content')).toBeInTheDocument()
+    expect(screen.getByText('Final heading')).toBeInTheDocument()
+    expect(screen.getByText('add tests')).toBeInTheDocument()
+    expect(screen.getByText('Add tests')).toBeInTheDocument()
+    expect(screen.getByText('Run smoke checks')).toBeInTheDocument()
+  })
+
+  it('switches cleanly from streaming preview to completed rich CreatePlan output', () => {
+    const startedItem: ConversationItem = {
+      id: 'create-plan-2',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'CreatePlan',
+      toolCallId: 'create-plan-call-2',
+      argumentsPreview: '{"title":"Migration","overview":"Rolling update"',
+      createdAt: new Date().toISOString()
+    }
+
+    const completedItem: ConversationItem = {
+      ...startedItem,
+      status: 'completed',
+      arguments: {
+        title: 'Migration',
+        overview: 'Rolling update',
+        plan: '# Done plan\n\nMove traffic in batches.',
+        todos: [{ id: 'rollout', content: 'Roll out by cluster', status: 'completed' }]
+      },
+      success: true,
+      result: 'Plan created.'
+    }
+
+    const { rerender } = render(
+      <LocaleProvider>
+        <ToolCallCard item={startedItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Drafting plan: Migration...')).toBeInTheDocument()
+
+    rerender(
+      <LocaleProvider>
+        <ToolCallCard item={completedItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Plan: Migration')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByText('Done plan')).toBeInTheDocument()
+    expect(screen.getByText('Roll out by cluster')).toBeInTheDocument()
+  })
+})

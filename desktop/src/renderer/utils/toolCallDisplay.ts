@@ -255,6 +255,14 @@ export function formatCollapsedToolLabel(
   const todoLabel = formatTodoLabel(toolName, args, locale, options?.planTodos)
   if (todoLabel) return todoLabel
 
+  if (toolName === 'CreatePlan') {
+    const title = typeof args?.title === 'string' ? args.title.trim() : ''
+    if (title) {
+      return translate(locale, 'toolCall.plan.collapsedLabel', { title })
+    }
+    return translate(locale, 'toolCall.plan.collapsedLabelFallback')
+  }
+
   if (EXPLORE_TOOLS.has(toolName)) {
     const path = (args?.path as string | undefined) ?? (args?.pattern as string | undefined) ?? ''
     const filename = path ? getFilename(path) : ''

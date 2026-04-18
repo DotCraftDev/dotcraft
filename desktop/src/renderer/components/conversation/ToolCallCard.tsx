@@ -26,6 +26,7 @@ import {
   formatExpandedInvocation,
   getStreamingToolDisplay
 } from '../../utils/toolCallDisplay'
+import { PlanToolOutput } from './PlanToolOutput'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -153,6 +154,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
             {isShellTool ? (
               <ExpandedContent
+                itemId={item.id}
                 toolName={toolName}
                 args={args}
                 result={shellOutput}
@@ -232,6 +234,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
       {expanded && (
         <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
           <ExpandedContent
+            itemId={item.id}
             toolName={toolName}
             args={args}
             result={isShellTool ? shellOutput : item.result}
@@ -247,6 +250,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 })
 
 interface ExpandedContentProps {
+  itemId: string
   toolName: string
   args: Record<string, unknown> | undefined
   result: string | undefined
@@ -257,6 +261,7 @@ interface ExpandedContentProps {
 }
 
 function ExpandedContent({
+  itemId,
   toolName,
   args,
   result,
@@ -265,6 +270,20 @@ function ExpandedContent({
   locale,
   planTodos
 }: ExpandedContentProps): JSX.Element {
+  if (toolName === 'CreatePlan') {
+    const parsedPlan = parseCompletedCreatePlanArgs(args)
+    return (
+      <PlanToolOutput
+        itemId={itemId}
+        title={parsedPlan.title}
+        overview={parsedPlan.overview}
+        content={parsedPlan.content}
+        todos={parsedPlan.todos}
+        locale={locale}
+      />
+    )
+  }
+
   if (FILE_WRITE_TOOLS.has(toolName) && fileDiff) {
     return <InlineDiffView diff={fileDiff.diff} />
   }
@@ -384,6 +403,36 @@ function ExpandedContent({
       )}
     </div>
   )
+}
+
+function parseCompletedCreatePlanArgs(args: Record<string, unknown> | undefined): {
+  title: string
+  overview: string
+  content: string
+  todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed' | 'cancelled' }>
+} {
+  const title = typeof args?.title === 'string' ? args.title : ''
+  const overview = typeof args?.overview === 'string' ? args.overview : ''
+  const content = typeof args?.plan === 'string' ? args.plan : ''
+  const todos = Array.isArray(args?.todos)
+    ? args.todos
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry != null)
+      .map((entry, index) => ({
+        id: typeof entry.id === 'string' && entry.id.trim().length > 0 ? entry.id : `todo-${index}`,
+        content: typeof entry.content === 'string' ? entry.content : '',
+        status: normalizeTodoStatus(entry.status)
+      }))
+      .filter((todo) => todo.content.trim().length > 0)
+    : []
+
+  return { title, overview, content, todos }
+}
+
+function normalizeTodoStatus(value: unknown): 'pending' | 'in_progress' | 'completed' | 'cancelled' {
+  if (value === 'in_progress' || value === 'completed' || value === 'cancelled') {
+    return value
+  }
+  return 'pending'
 }
 
 function Chevron({ expanded }: { expanded: boolean }): JSX.Element {

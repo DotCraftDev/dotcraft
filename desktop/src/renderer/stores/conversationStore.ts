@@ -32,6 +32,7 @@ export interface PlanTodoItem {
 export interface AgentPlan {
   title: string
   overview: string
+  content: string
   todos: PlanTodoItem[]
 }
 
@@ -1275,6 +1276,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     const plan: AgentPlan = {
       title: (rawPlan.title as string) ?? '',
       overview: (rawPlan.overview as string) ?? '',
+      content: (rawPlan.content as string) ?? '',
       todos: (rawPlan.todos as PlanTodoItem[]) ?? []
     }
     set({ plan })

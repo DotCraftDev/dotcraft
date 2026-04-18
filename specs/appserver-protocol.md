@@ -1403,6 +1403,7 @@ This notification is independent of the Turn event stream. Clients that do not n
 {
   "title": "Implement user authentication",
   "overview": "Add JWT-based auth with login and registration endpoints",
+  "content": "## Scope\n\nImplement backend auth endpoints and middleware.\n\n## Steps\n\n1. Add User model\n2. Add login/register APIs\n3. Add JWT middleware",
   "todos": [
     {
       "id": "setup-models",
@@ -1430,6 +1431,7 @@ This notification is independent of the Turn event stream. Clients that do not n
 |-------|------|-------------|
 | `title` | string | Plan title. |
 | `overview` | string | Brief plan overview/description. May be empty. |
+| `content` | string | Full Markdown plan body. May be empty. |
 | `todos` | PlanTodo[] | Complete list of plan tasks. |
 
 `PlanTodo` fields:
@@ -1440,6 +1442,8 @@ This notification is independent of the Turn event stream. Clients that do not n
 | `content` | string | Human-readable task description. |
 | `priority` | string | One of: `"high"`, `"medium"`, `"low"`. |
 | `status` | string | One of: `"pending"`, `"in_progress"`, `"completed"`, `"cancelled"`. |
+
+Compatibility note: older servers may omit `content`; clients should treat missing `content` as an empty string.
 
 **Emission rules**:
 
