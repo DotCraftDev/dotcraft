@@ -24,11 +24,15 @@ beforeEach(() => {
   cs().reset()
   // Reset UI store state manually
   useUIStore.setState({
+    sidebarPreferredCollapsed: false,
+    sidebarCollapsed: false,
+    detailPanelPreferredVisible: true,
     selectedChangedFile: null,
     autoShowTriggeredForTurn: null,
     autoShowPlanForItem: null,
     activeDetailTab: 'changes',
-    detailPanelVisible: true
+    detailPanelVisible: true,
+    responsiveLayout: 'full'
   })
 })
 

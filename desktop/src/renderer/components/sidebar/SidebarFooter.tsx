@@ -1,13 +1,13 @@
 import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
 import { ConnectionStatusIndicator } from '../ConnectionStatusIndicator'
-import { Settings } from 'lucide-react'
 import {
   SIDEBAR_NAV_BORDER_INACTIVE,
   SIDEBAR_NAV_ICON_SLOT,
   SIDEBAR_NAV_LABEL,
   SIDEBAR_NAV_ROW_OUTER
 } from './sidebarNavRowStyles'
+import { SettingsIcon } from '../ui/AppIcons'
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
@@ -56,7 +56,9 @@ export function SidebarFooter(): JSX.Element {
         }}
       >
         <span style={SIDEBAR_NAV_ICON_SLOT}>
-          <Settings size={14} strokeWidth={1.5} aria-hidden style={{ display: 'block', flexShrink: 0 }} />
+          <span style={{ display: 'block', flexShrink: 0 }}>
+            <SettingsIcon />
+          </span>
         </span>
         <span style={SIDEBAR_NAV_LABEL}>{t('sidebarFooter.settings')}</span>
       </button>

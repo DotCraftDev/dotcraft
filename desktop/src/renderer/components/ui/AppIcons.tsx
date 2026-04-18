@@ -11,6 +11,7 @@ import {
   GitCommitVertical,
   Monitor,
   RotateCw,
+  Settings,
   Sparkle,
   SquareTerminal
 } from 'lucide-react'
@@ -134,4 +135,8 @@ export function ClockIcon({ size = 16 }: { size?: number }): JSX.Element {
 
 export function HeartbeatIcon({ size = 16 }: { size?: number }): JSX.Element {
   return <Activity size={size} strokeWidth={1.8} aria-hidden="true" />
+}
+
+export function SettingsIcon({ size = 16 }: { size?: number }): JSX.Element {
+  return <Settings size={size} strokeWidth={1.8} aria-hidden="true" />
 }

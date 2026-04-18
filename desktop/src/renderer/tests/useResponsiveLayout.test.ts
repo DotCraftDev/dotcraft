@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { classifyWidth } from '../hooks/useResponsiveLayout'
+import { resolveResponsivePanels } from '../stores/uiStore'
 
 /**
  * Tests for the responsive layout breakpoint logic.
@@ -43,5 +44,41 @@ describe('classifyWidth (responsive breakpoint logic)', () => {
   it('classifies very small widths as "collapsed"', () => {
     expect(classifyWidth(400)).toBe('collapsed')
     expect(classifyWidth(0)).toBe('collapsed')
+  })
+})
+
+describe('resolveResponsivePanels', () => {
+  it('keeps user-hidden detail panel hidden in full layout', () => {
+    expect(resolveResponsivePanels('full', false, false)).toEqual({
+      sidebarCollapsed: false,
+      detailPanelVisible: false
+    })
+  })
+
+  it('temporarily hides detail in no-detail layout without changing sidebar preference', () => {
+    expect(resolveResponsivePanels('no-detail', true, true)).toEqual({
+      sidebarCollapsed: true,
+      detailPanelVisible: false
+    })
+  })
+
+  it('temporarily collapses both panels in collapsed layout', () => {
+    expect(resolveResponsivePanels('collapsed', false, true)).toEqual({
+      sidebarCollapsed: true,
+      detailPanelVisible: false
+    })
+  })
+
+  it('restores the original preferences when returning to full layout', () => {
+    const hiddenByBreakpoint = resolveResponsivePanels('collapsed', false, false)
+    expect(hiddenByBreakpoint).toEqual({
+      sidebarCollapsed: true,
+      detailPanelVisible: false
+    })
+
+    expect(resolveResponsivePanels('full', false, false)).toEqual({
+      sidebarCollapsed: false,
+      detailPanelVisible: false
+    })
   })
 })
