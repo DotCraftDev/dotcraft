@@ -2,6 +2,7 @@ import type { FileDiff } from '../../types/toolCall'
 
 interface InlineDiffViewProps {
   diff: FileDiff
+  streaming?: boolean
 }
 
 /**
@@ -9,7 +10,7 @@ interface InlineDiffViewProps {
  * Shows line-by-line additions (green) and deletions (red) with context lines.
  * Spec §M4-5: expand file diff variant.
  */
-export function InlineDiffView({ diff }: InlineDiffViewProps): JSX.Element {
+export function InlineDiffView({ diff, streaming = false }: InlineDiffViewProps): JSX.Element {
   const totalAdd = diff.additions
   const totalDel = diff.deletions
 
@@ -45,6 +46,22 @@ export function InlineDiffView({ diff }: InlineDiffViewProps): JSX.Element {
           <span style={{ color: 'var(--text-dimmed)' }}>(new file)</span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
+          {streaming && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text-dimmed)' }}>
+              <span
+                className="animate-spin-custom"
+                style={{
+                  display: 'inline-block',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  border: '1px solid var(--border-active)',
+                  borderTopColor: 'var(--accent)'
+                }}
+              />
+              <span>streaming</span>
+            </span>
+          )}
           {totalAdd > 0 && (
             <span style={{ color: 'var(--success)' }}>+{totalAdd}</span>
           )}
@@ -116,6 +133,9 @@ export function InlineDiffView({ diff }: InlineDiffViewProps): JSX.Element {
                   }}
                 >
                   {line.content}
+                  {streaming && line.type === 'add' && hunkIdx === diff.diffHunks.length - 1 && lineIdx === hunk.lines.length - 1 && (
+                    <span style={{ color: 'var(--accent)', marginLeft: '2px' }}>▌</span>
+                  )}
                 </span>
               </div>
             ))}
@@ -123,7 +143,7 @@ export function InlineDiffView({ diff }: InlineDiffViewProps): JSX.Element {
         ))}
         {diff.diffHunks.length === 0 && (
           <div style={{ padding: '8px', color: 'var(--text-dimmed)' }}>
-            No changes
+            {streaming ? 'Waiting for content...' : 'No changes'}
           </div>
         )}
       </div>

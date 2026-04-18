@@ -18,7 +18,6 @@ import {
 } from '../../utils/webToolDisplay'
 import { InlineDiffView } from './InlineDiffView'
 import { isShellToolName } from '../../utils/shellTools'
-import { MarkdownRenderer } from './MarkdownRenderer'
 import {
   FILE_WRITE_TOOLS,
   extractPartialJsonStringValue,
@@ -93,9 +92,11 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const runningElapsedLabel = `${(elapsedMs / 1000).toFixed(1)}s`
 
   const itemDiffs = useConversationStore((s) => s.itemDiffs)
+  const streamingItemDiffs = useConversationStore((s) => s.streamingItemDiffs)
   const plan = useConversationStore((s) => s.plan)
   const planTodos = plan?.todos
   const fileDiff = FILE_WRITE_TOOLS.has(toolName) ? itemDiffs.get(item.id) : undefined
+  const streamingFileDiff = FILE_WRITE_TOOLS.has(toolName) ? streamingItemDiffs.get(item.id) : undefined
 
   function toggleExpand(): void {
     if (!isRunning || canExpandWhileRunning) {
@@ -226,12 +227,15 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
                 planTodos={planTodos}
               />
             ) : isStreamingFileTool ? (
-              <RunningFileToolPreview
-                item={item}
-                locale={locale}
-                streamingContent={streamingDisplay.parsedPreview?.content ?? null}
-                streamingPath={streamingDisplay.parsedPreview?.path ?? null}
-              />
+              streamingFileDiff ? (
+                <InlineDiffView diff={streamingFileDiff} streaming />
+              ) : (
+                <RunningFileToolPreview
+                  item={item}
+                  locale={locale}
+                  streamingPath={streamingDisplay.parsedPreview?.path ?? null}
+                />
+              )
             ) : (
               <RunningGenericToolPreview
                 toolName={toolName}
@@ -525,22 +529,13 @@ function RunningFileToolPreview(
   {
     item,
     locale,
-    streamingContent,
     streamingPath
   }: {
     item: ConversationItem
     locale: AppLocale
-    streamingContent: string | null
     streamingPath: string | null
   }
 ): JSX.Element {
-  // Prefer the dedicated streamingFileContent slot (populated by Write/Edit
-  // pipeline) and fall back to the tolerant partial-JSON extraction so we
-  // render content as soon as any preview is available.
-  const contentPreview = item.streamingFileContent
-    ?? streamingContent
-    ?? extractPartialJsonStringValue(item.argumentsPreview ?? '', 'content')
-    ?? ''
   const pathPreview = streamingPath
     ?? extractPartialJsonStringValue(item.argumentsPreview ?? '', 'path')
   const fileName = pathPreview ? pathPreview.split(/[\\/]/).pop() ?? pathPreview : ''
@@ -554,22 +549,9 @@ function RunningFileToolPreview(
       <div style={{ color: 'var(--text-dimmed)', marginBottom: '6px' }}>
         {tip}
       </div>
-      {contentPreview ? (
-        <div
-          style={{
-            margin: 0,
-            maxHeight: '200px',
-            overflow: 'auto',
-            paddingRight: '4px'
-          }}
-        >
-          <MarkdownRenderer content={contentPreview} />
-        </div>
-      ) : (
-        <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>
-          Waiting for content...
-        </div>
-      )}
+      <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>
+        Waiting for content...
+      </div>
     </div>
   )
 }

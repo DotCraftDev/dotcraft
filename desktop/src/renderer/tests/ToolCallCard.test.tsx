@@ -4,6 +4,7 @@ import { LocaleProvider } from '../contexts/LocaleContext'
 import { ToolCallCard } from '../components/conversation/ToolCallCard'
 import { useConversationStore } from '../stores/conversationStore'
 import type { ConversationItem } from '../types/conversation'
+import type { FileDiff } from '../types/toolCall'
 
 function renderWithLocale(node: JSX.Element): void {
   render(<LocaleProvider>{node}</LocaleProvider>)
@@ -42,6 +43,47 @@ describe('ToolCallCard shell rendering', () => {
     fireEvent.click(screen.getByRole('button'))
 
     expect(screen.getByText((content) => content.includes('line 1'))).toBeInTheDocument()
+  })
+
+  it('renders streaming InlineDiffView for running WriteFile tool calls', () => {
+    const item: ConversationItem = {
+      id: 'tool-write-streaming',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'WriteFile',
+      toolCallId: 'write-streaming-1',
+      createdAt: new Date().toISOString()
+    }
+    const streamingDiff: FileDiff = {
+      filePath: 'src/live.ts',
+      turnId: 'turn-1',
+      turnIds: ['turn-1'],
+      additions: 1,
+      deletions: 0,
+      diffHunks: [
+        {
+          oldStart: 0,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 1,
+          lines: [{ type: 'add', content: 'const live = true' }]
+        }
+      ],
+      status: 'written',
+      isNewFile: true,
+      originalContent: '',
+      currentContent: 'const live = true'
+    }
+    useConversationStore.setState({
+      streamingItemDiffs: new Map([[item.id, streamingDiff]])
+    })
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(screen.getByText('src/live.ts')).toBeInTheDocument()
+    expect(screen.getByText('streaming')).toBeInTheDocument()
+    expect(screen.queryByText('Waiting for content...')).toBeNull()
   })
 
   it('keeps showing the running timer for Exec after the toolCall item is completed but command execution is still in progress', () => {
