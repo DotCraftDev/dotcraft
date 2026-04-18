@@ -175,33 +175,78 @@ describe('aggregateToolCalls', () => {
     if (result[2].kind === 'group') expect(result[2].category).toBe('shell')
   })
 
-  it('does not group when write items are still live', () => {
+  it('keeps settled write prefix grouped when trailing write item is live', () => {
     const items = [
-      makeItem('WriteFile', '1', { status: 'streaming' }),
-      makeItem('EditFile', '2')
+      makeItem('WriteFile', '1'),
+      makeItem('EditFile', '2'),
+      makeItem('WriteFile', '3', { status: 'streaming' })
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(2)
-    expect(result[0].kind).toBe('single')
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].category).toBe('write')
+      expect(result[0].items.map((item) => item.id)).toEqual(['1', '2'])
+    }
     expect(result[1].kind).toBe('single')
+    if (result[1].kind === 'single') {
+      expect(result[1].item.id).toBe('3')
+    }
   })
 
-  it('does not group when shell execution is still in progress', () => {
+  it('keeps settled shell prefix grouped when trailing shell execution is live', () => {
     const items = [
       makeItem('Exec', '1', {
         status: 'completed',
-        executionStatus: 'inProgress'
+        executionStatus: 'completed',
+        result: 'done',
+        success: true
       }),
       makeItem('RunCommand', '2', {
         status: 'completed',
         executionStatus: 'completed',
         result: 'done',
         success: true
+      }),
+      makeItem('BashCommand', '3', {
+        status: 'completed',
+        executionStatus: 'inProgress'
       })
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(2)
-    expect(result[0].kind).toBe('single')
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].category).toBe('shell')
+      expect(result[0].items.map((item) => item.id)).toEqual(['1', '2'])
+    }
     expect(result[1].kind).toBe('single')
+    if (result[1].kind === 'single') {
+      expect(result[1].item.id).toBe('3')
+    }
+  })
+
+  it('does not de-aggregate settled prefix and suffix around a live item', () => {
+    const items = [
+      makeItem('ReadFile', '1'),
+      makeItem('FindFiles', '2'),
+      makeItem('ReadFile', '3', { status: 'streaming' }),
+      makeItem('GrepFiles', '4'),
+      makeItem('ReadFile', '5')
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(3)
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].items.map((item) => item.id)).toEqual(['1', '2'])
+    }
+    expect(result[1].kind).toBe('single')
+    if (result[1].kind === 'single') {
+      expect(result[1].item.id).toBe('3')
+    }
+    expect(result[2].kind).toBe('group')
+    if (result[2].kind === 'group') {
+      expect(result[2].items.map((item) => item.id)).toEqual(['4', '5'])
+    }
   })
 })

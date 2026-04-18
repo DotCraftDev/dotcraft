@@ -16,34 +16,57 @@ function lookupChangedFile(path: string, changedFiles: Map<string, FileDiff>): F
   )
 }
 
+function normalizePathKey(path: string): string {
+  return path.trim().replace(/\\/g, '/')
+}
+
 function getWriteCounts(items: ConversationItem[], changedFiles: Map<string, FileDiff>): {
   createdCount: number
   modifiedCount: number
 } {
-  let createdCount = 0
-  let modifiedCount = 0
+  const createdPaths = new Set<string>()
+  const modifiedPaths = new Set<string>()
+  let fallbackPathIndex = 0
+
+  const getPathKey = (item: ConversationItem): string => {
+    const rawPath = getPathArgument(item)
+    if (rawPath.trim().length > 0) {
+      return normalizePathKey(rawPath)
+    }
+
+    fallbackPathIndex += 1
+    return `__unknown_modified_${fallbackPathIndex}`
+  }
 
   for (const item of items) {
     if (item.toolName === 'EditFile') {
-      modifiedCount += 1
+      modifiedPaths.add(getPathKey(item))
       continue
     }
 
     if (item.toolName === 'WriteFile') {
       const path = getPathArgument(item)
       const diff = path ? lookupChangedFile(path, changedFiles) : undefined
+      const key = getPathKey(item)
       if (diff?.isNewFile === true) {
-        createdCount += 1
+        createdPaths.add(key)
+        modifiedPaths.delete(key)
       } else {
-        modifiedCount += 1
+        if (!createdPaths.has(key)) {
+          modifiedPaths.add(key)
+        }
       }
       continue
     }
 
-    modifiedCount += 1
+    modifiedPaths.add(getPathKey(item))
   }
 
-  return { createdCount, modifiedCount }
+  for (const createdPath of createdPaths) {
+    modifiedPaths.delete(createdPath)
+  }
+
+  return { createdCount: createdPaths.size, modifiedCount: modifiedPaths.size }
 }
 
 export function formatToolGroupLabel(
