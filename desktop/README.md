@@ -56,6 +56,8 @@ npx electron-builder --win   # or --mac / --linux
 
 **Chat** — Sidebar lists threads; create with **New thread** (`Ctrl+N`). Type in the composer; the agent streams replies and tool use in the main column.
 
+**Image attachments** — Pasted/dropped images are saved under `.craft/attachments/images/` and user message metadata stores attachment path + MIME/name, so switching threads or restarting the app can rehydrate thumbnails from disk.
+
 **Detail panel** (`Ctrl+Shift+B`) — **Changes**: diffs for edits; revert/re-apply where supported. **Plan** / **Terminal** when available.
 
 **Git** — The app can **stage selected changed files and commit** with a message from the Changes flow (`window.api.git.commit`). It does **not** replace a full Git client (no clone, pull, or branch UI here).

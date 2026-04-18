@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 
@@ -199,6 +200,42 @@ public sealed class AppServerTurnTests : IDisposable
         Assert.DoesNotContain(AppServerMethods.ItemAgentMessageDelta, methods);
         Assert.DoesNotContain(AppServerMethods.ItemReasoningDelta, methods);
         Assert.Contains(AppServerMethods.TurnCompleted, methods);
+    }
+
+    [Fact]
+    public async Task TurnStart_LocalImageMetadata_IsAttachedToDataContent()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+        _h.Service.EnqueueSubmitEvents(thread.Id, AppServerTestHarness.BuildTurnEventSequence(thread.Id));
+
+        var localImagePath = Path.Combine(_h.Identity.WorkspacePath, ".craft", "attachments", "images", "test.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(localImagePath)!);
+        await File.WriteAllBytesAsync(localImagePath, [0x89, 0x50, 0x4E, 0x47]);
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnStart, new
+        {
+            threadId = thread.Id,
+            input = new[]
+            {
+                new
+                {
+                    type = "localImage",
+                    path = localImagePath,
+                    mimeType = "image/png",
+                    fileName = "test.png"
+                }
+            }
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsSuccessResponse(response);
+
+        var dataContent = Assert.IsType<DataContent>(_h.Service.LastSubmittedContent.Single());
+        Assert.NotNull(dataContent.AdditionalProperties);
+        Assert.Equal(localImagePath, dataContent.AdditionalProperties!["localImage.path"]?.ToString());
+        Assert.Equal("image/png", dataContent.AdditionalProperties!["localImage.mimeType"]?.ToString());
+        Assert.Equal("test.png", dataContent.AdditionalProperties!["localImage.fileName"]?.ToString());
     }
 
     [Fact]

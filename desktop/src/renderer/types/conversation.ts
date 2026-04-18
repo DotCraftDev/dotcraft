@@ -53,6 +53,8 @@ export interface ConversationItem {
   text?: string
   /** Optimistic-only: data URLs for user-attached images (not persisted by server) */
   imageDataUrls?: string[]
+  /** Persisted local image metadata for user messages (rehydrated via thread/read). */
+  images?: UserMessageImageRef[]
   /** Reasoning text for reasoningContent items */
   reasoning?: string
   /** Tool name for toolCall items */
@@ -116,7 +118,13 @@ export interface ConversationTurn {
 /** Supported input part types for turn/start */
 export type InputPart =
   | { type: 'text'; text: string }
-  | { type: 'localImage'; path: string }
+  | { type: 'localImage'; path: string; mimeType?: string; fileName?: string }
+
+export interface UserMessageImageRef {
+  path: string
+  mimeType?: string
+  fileName?: string
+}
 
 /** User-attached image in the composer (temp file + preview) */
 export interface ImageAttachment {
@@ -141,6 +149,24 @@ export type ThreadMode = 'agent' | 'plan'
 export function wireItemToConversationItem(raw: Record<string, unknown>): ConversationItem {
   const type = (raw.type as ItemType) ?? 'agentMessage'
   const payload = (raw.payload ?? {}) as Record<string, unknown>
+  const payloadImagesRaw = (raw.images ?? payload.images) as unknown
+  const payloadImages = Array.isArray(payloadImagesRaw)
+    ? payloadImagesRaw
+      .map((entry) => {
+        if (entry == null || typeof entry !== 'object') return null
+        const obj = entry as Record<string, unknown>
+        const path = typeof obj.path === 'string' ? obj.path.trim() : ''
+        if (!path) return null
+        const mimeType = typeof obj.mimeType === 'string' ? obj.mimeType.trim() : ''
+        const fileName = typeof obj.fileName === 'string' ? obj.fileName.trim() : ''
+        return {
+          path,
+          ...(mimeType ? { mimeType } : {}),
+          ...(fileName ? { fileName } : {})
+        } satisfies UserMessageImageRef
+      })
+      .filter((img): img is UserMessageImageRef => img != null)
+    : undefined
   return {
     id: (raw.id as string) ?? '',
     type,
@@ -176,6 +202,7 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (payload.result as string | undefined),
     success: (raw.success as boolean | undefined)
       ?? (payload.success as boolean | undefined),
+    images: payloadImages,
     createdAt: (raw.createdAt as string) ?? new Date().toISOString(),
     completedAt: (raw.completedAt as string | undefined)
   }

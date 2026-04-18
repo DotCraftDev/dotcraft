@@ -20,6 +20,7 @@ import {
 } from '../shared/titleBarOverlay'
 import {
   invalidateFileIndex,
+  readImageAsDataUrl,
   saveImageDataUrlToTemp,
   searchWorkspaceFiles,
   warmFileSearchIndex
@@ -813,7 +814,7 @@ export function registerIpcHandlers(
     return checkWorkspaceLock(wsPath)
   })
 
-  // Renderer -> Main: save clipboard/drag image bytes to .craft/tmp/images for localImage wire part
+  // Renderer -> Main: save clipboard/drag image bytes to .craft/attachments/images for localImage wire part
   handleSafe(
     'workspace:save-image-to-temp',
     async (_event, params: { dataUrl: string; fileName?: string }) => {
@@ -824,6 +825,20 @@ export function registerIpcHandlers(
       const loc = mainLocale(callbacks)
       const pathAbs = await saveImageDataUrlToTemp(ws, params.dataUrl, params.fileName, loc)
       return { path: pathAbs }
+    }
+  )
+
+  // Renderer -> Main: read local attachment image and return data URL for rehydration.
+  handleSafe(
+    'workspace:read-image-as-data-url',
+    async (_event, params: { path: string }) => {
+      const ws = workspacePath
+      if (!ws) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
+      }
+      const loc = mainLocale(callbacks)
+      const dataUrl = await readImageAsDataUrl(ws, params.path, loc)
+      return { dataUrl }
     }
   )
 
@@ -1249,6 +1264,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:open-new-window')
   ipcMain.removeHandler('workspace:check-lock')
   ipcMain.removeHandler('workspace:save-image-to-temp')
+  ipcMain.removeHandler('workspace:read-image-as-data-url')
   ipcMain.removeHandler('workspace:search-files')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')

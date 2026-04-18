@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Sparkle } from 'lucide-react'
 import { useConversationStore } from '../../stores/conversationStore'
 import { ImageLightbox } from './ImageLightbox'
 import { MessageCopyButton } from './MessageCopyButton'
 import { parseUserMessageSegments } from './parseUserMessageSegments'
+import type { UserMessageImageRef } from '../../types/conversation'
+
+const imageDataUrlCache = new Map<string, string>()
 
 interface UserMessageBlockProps {
   text: string
   imageDataUrls?: string[]
+  images?: UserMessageImageRef[]
 }
 
 /**
@@ -15,12 +19,63 @@ interface UserMessageBlockProps {
  * Plain text only — no Markdown. Spec §10.3.2
  * `@relative/path` tokens (from RichInputArea) render as compact file chips.
  */
-export function UserMessageBlock({ text, imageDataUrls }: UserMessageBlockProps): JSX.Element {
+export function UserMessageBlock({ text, imageDataUrls, images }: UserMessageBlockProps): JSX.Element {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
+  const [hydratedImageDataUrls, setHydratedImageDataUrls] = useState<string[]>(imageDataUrls ?? [])
+  const [failedImageCount, setFailedImageCount] = useState(0)
   const workspacePath = useConversationStore((s) => s.workspacePath)
-  const hasImages = imageDataUrls != null && imageDataUrls.length > 0
+  const hasImages = hydratedImageDataUrls.length > 0
   const segments = text.length > 0 ? parseUserMessageSegments(text) : []
+
+  useEffect(() => {
+    let cancelled = false
+
+    const hydrateImages = async (): Promise<void> => {
+      if (Array.isArray(imageDataUrls) && imageDataUrls.length > 0) {
+        if (cancelled) return
+        setHydratedImageDataUrls(imageDataUrls)
+        setFailedImageCount(0)
+        return
+      }
+      if (!Array.isArray(images) || images.length === 0) {
+        if (cancelled) return
+        setHydratedImageDataUrls([])
+        setFailedImageCount(0)
+        return
+      }
+
+      const loaded: string[] = []
+      let failed = 0
+      for (const image of images) {
+        const cached = imageDataUrlCache.get(image.path)
+        if (cached) {
+          loaded.push(cached)
+          continue
+        }
+        try {
+          const result = await window.api.workspace.readImageAsDataUrl({ path: image.path })
+          const dataUrl = result.dataUrl
+          if (dataUrl) {
+            imageDataUrlCache.set(image.path, dataUrl)
+            loaded.push(dataUrl)
+          } else {
+            failed++
+          }
+        } catch {
+          failed++
+        }
+      }
+      if (cancelled) return
+      setHydratedImageDataUrls(loaded)
+      setFailedImageCount(failed)
+    }
+
+    void hydrateImages()
+    return () => {
+      cancelled = true
+    }
+  }, [imageDataUrls, images])
 
   return (
     <>
@@ -54,7 +109,7 @@ export function UserMessageBlock({ text, imageDataUrls }: UserMessageBlockProps)
               gap: '8px'
             }}
           >
-            {imageDataUrls!.map((url, idx) => (
+            {hydratedImageDataUrls.map((url, idx) => (
               <button
                 key={`${idx}-${url.slice(0, 32)}`}
                 type="button"
@@ -85,6 +140,11 @@ export function UserMessageBlock({ text, imageDataUrls }: UserMessageBlockProps)
               </button>
             ))}
           </div>
+        )}
+        {!hasImages && failedImageCount > 0 && (
+          <span style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
+            {failedImageCount === 1 ? 'Image unavailable' : `${failedImageCount} images unavailable`}
+          </span>
         )}
         {text.length > 0 && (
           <span>

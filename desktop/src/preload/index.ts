@@ -539,10 +539,17 @@ const api = {
     },
 
     /**
-     * Writes a data URL image to `.craft/tmp/images/` and returns the absolute path for `localImage`.
+     * Writes a data URL image to `.craft/attachments/images/` and returns the absolute path for `localImage`.
      */
     saveImageToTemp(params: { dataUrl: string; fileName?: string }): Promise<{ path: string }> {
       return ipcRenderer.invoke('workspace:save-image-to-temp', params)
+    },
+
+    /**
+     * Reads an attached image from disk and returns a data URL for UI rehydration.
+     */
+    readImageAsDataUrl(params: { path: string }): Promise<{ dataUrl: string }> {
+      return ipcRenderer.invoke('workspace:read-image-as-data-url', params)
     },
 
     /**

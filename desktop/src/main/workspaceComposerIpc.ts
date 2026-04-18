@@ -221,8 +221,22 @@ export function invalidateFileIndex(): void {
   }
 }
 
+function isPathWithin(parent: string, target: string): boolean {
+  const resolvedParent = path.resolve(parent)
+  const resolvedTarget = path.resolve(target)
+  return resolvedTarget === resolvedParent || resolvedTarget.startsWith(`${resolvedParent}${path.sep}`)
+}
+
+function inferMimeTypeFromPath(absPath: string): string {
+  const ext = path.extname(absPath).toLowerCase()
+  return (
+    Object.entries(MIME_TO_EXT).find(([, mappedExt]) => mappedExt === ext)?.[0]
+    ?? 'image/png'
+  )
+}
+
 /**
- * Writes a data URL to `.craft/tmp/images/<uuid>.<ext>` under the workspace.
+ * Writes a data URL to `.craft/attachments/images/<uuid>.<ext>` under the workspace.
  * Returns absolute path on disk.
  */
 export async function saveImageDataUrlToTemp(
@@ -248,10 +262,44 @@ export async function saveImageDataUrlToTemp(
     throw new Error(translate(locale, 'ipc.clipboardNotImage'))
   }
   const ext = MIME_TO_EXT[mime] ?? (path.extname(suggestedFileName ?? '') || '.png')
-  const dir = path.join(resolved, '.craft', 'tmp', 'images')
+  const dir = path.join(resolved, '.craft', 'attachments', 'images')
   await fs.mkdir(dir, { recursive: true })
   const fileName = `${randomUUID()}${ext.startsWith('.') ? ext : `.${ext}`}`
   const absPath = path.join(dir, fileName)
   await fs.writeFile(absPath, buf)
   return absPath
+}
+
+/**
+ * Reads an image file under workspace attachment folders and returns a data URL.
+ * Supports the current `.craft/attachments/images` and legacy `.craft/tmp/images`.
+ */
+export async function readImageAsDataUrl(
+  workspaceRoot: string,
+  absPath: string,
+  locale: AppLocale = DEFAULT_LOCALE
+): Promise<string> {
+  const resolvedRoot = path.resolve(workspaceRoot)
+  const resolvedPath = path.resolve(absPath)
+  const attachmentsDir = path.join(resolvedRoot, '.craft', 'attachments', 'images')
+  const legacyTmpDir = path.join(resolvedRoot, '.craft', 'tmp', 'images')
+  const allowed =
+    isPathWithin(attachmentsDir, resolvedPath) ||
+    isPathWithin(legacyTmpDir, resolvedPath)
+  if (!allowed) {
+    throw new Error(
+      translate(locale, 'ipc.pathOutsideWorkspace', { path: absPath })
+    )
+  }
+  const buf = await fs.readFile(resolvedPath)
+  if (buf.length > MAX_IMAGE_BYTES) {
+    throw new Error(
+      translate(locale, 'ipc.imageTooLarge', { bytes: buf.length, max: MAX_IMAGE_BYTES })
+    )
+  }
+  const mimeType = inferMimeTypeFromPath(resolvedPath)
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(translate(locale, 'ipc.clipboardNotImage'))
+  }
+  return `data:${mimeType};base64,${buf.toString('base64')}`
 }

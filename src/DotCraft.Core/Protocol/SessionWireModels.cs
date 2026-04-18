@@ -220,6 +220,16 @@ public sealed record SessionWireInputPart
     /// Local image file path. Present when <see cref="Type"/> is "localImage".
     /// </summary>
     public string? Path { get; init; }
+
+    /// <summary>
+    /// Optional local image MIME type hint. Present when <see cref="Type"/> is "localImage".
+    /// </summary>
+    public string? MimeType { get; init; }
+
+    /// <summary>
+    /// Optional local image file name hint. Present when <see cref="Type"/> is "localImage".
+    /// </summary>
+    public string? FileName { get; init; }
 }
 
 /// <summary>

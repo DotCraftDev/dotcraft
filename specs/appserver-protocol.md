@@ -771,7 +771,12 @@ The response is returned **immediately** with the initial Turn object (status `"
 
 - `{ "type": "text", "text": "..." }` — plain text input.
 - `{ "type": "image", "url": "https://..." }` — remote image URL.
-- `{ "type": "localImage", "path": "/tmp/screenshot.png" }` — local image file path.
+- `{ "type": "localImage", "path": "/tmp/screenshot.png", "mimeType": "image/png", "fileName": "screenshot.png" }` — local image file path with optional UI metadata.
+
+`localImage` optional metadata fields:
+
+- `mimeType` (string, optional): client-observed MIME type for UI rehydration hints.
+- `fileName` (string, optional): original filename from paste/drop context for UI display.
 
 `SenderContext`:
 

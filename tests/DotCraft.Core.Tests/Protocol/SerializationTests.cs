@@ -96,7 +96,21 @@ public class SerializationTests
             CreatedAt = new DateTimeOffset(2026, 3, 15, 10, 0, 0, TimeSpan.Zero),
             CompletedAt = new DateTimeOffset(2026, 3, 15, 10, 0, 1, TimeSpan.Zero)
         };
-        item.Payload = new UserMessagePayload { Text = "Hello!", SenderId = "u123", SenderName = "Alice" };
+        item.Payload = new UserMessagePayload
+        {
+            Text = "Hello!",
+            SenderId = "u123",
+            SenderName = "Alice",
+            Images =
+            [
+                new UserMessageImage
+                {
+                    Path = "/workspace/.craft/attachments/images/hello.png",
+                    MimeType = "image/png",
+                    FileName = "hello.png"
+                }
+            ]
+        };
 
         var json = JsonSerializer.Serialize(item, Opts);
         var deserialized = JsonSerializer.Deserialize<SessionItem>(json, Opts);
@@ -114,6 +128,11 @@ public class SerializationTests
         Assert.Equal("Hello!", payload.Text);
         Assert.Equal("u123", payload.SenderId);
         Assert.Equal("Alice", payload.SenderName);
+        Assert.NotNull(payload.Images);
+        Assert.Single(payload.Images!);
+        Assert.Equal("/workspace/.craft/attachments/images/hello.png", payload.Images[0].Path);
+        Assert.Equal("image/png", payload.Images[0].MimeType);
+        Assert.Equal("hello.png", payload.Images[0].FileName);
     }
 
     [Fact]

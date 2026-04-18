@@ -296,7 +296,18 @@ Each Item type has a specific payload structure:
 {
   "text": string,          // The user's input text
   "senderId": string,      // Individual sender within a group session (nullable, see Section 17.1)
-  "senderName": string     // Display name of the sender (nullable)
+  "senderName": string,    // Display name of the sender (nullable)
+  "senderRole": string,    // Sender role when available from channel adapter (nullable)
+  "channelName": string,   // Originating channel for this user message (nullable)
+  "channelContext": string,// Channel-specific context for this message (nullable)
+  "groupId": string,       // Group/chat identifier (nullable)
+  "images": [              // Optional local image metadata for UI rehydration
+    {
+      "path": string,      // Absolute attachment path on host
+      "mimeType": string,  // Optional MIME hint
+      "fileName": string   // Optional original filename
+    }
+  ]
 }
 ```
 
@@ -1311,7 +1322,14 @@ Add to `UserMessage` payload:
 {
   "text": string,
   "senderId": string,          // Individual sender within a group session (nullable)
-  "senderName": string         // Display name of the sender (nullable)
+  "senderName": string,        // Display name of the sender (nullable)
+  "images": [                  // Optional local image metadata for UI rehydration
+    {
+      "path": string,
+      "mimeType": string,
+      "fileName": string
+    }
+  ]
 }
 ```
 
