@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { ConversationItem, ConversationTurn } from '../../types/conversation'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallCard } from './ToolCallCard'
@@ -10,9 +10,13 @@ import { TurnCompletionSummary } from './TurnCompletionSummary'
 import { ApprovalCard } from './ApprovalCard'
 import { aggregateToolCalls } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
+import type { ToolGroupCategory } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
 import type { SubAgentEntry } from '../../types/toolCall'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
+import { useLocale } from '../../contexts/LocaleContext'
+import { formatToolGroupLabel } from '../../utils/toolGroupLabel'
+import { isShellToolName } from '../../utils/shellTools'
 
 interface AgentResponseBlockProps {
   turn: ConversationTurn
@@ -211,8 +215,9 @@ function renderAggregatedEntry(
   return (
     <GroupedToolCallRow
       key={`group-${turnId}-${offset}`}
-      label={entry.label}
+      category={entry.category}
       items={entry.items}
+      turnId={turnId}
     />
   )
 }
@@ -220,22 +225,43 @@ function renderAggregatedEntry(
 // ── Grouped tool call row ─────────────────────────────────────────────────────
 
 interface GroupedToolCallRowProps {
-  label: string
+  category: ToolGroupCategory
   items: ConversationItem[]
+  turnId: string
 }
 
 /**
- * Collapsed summary row for a group of consecutive aggregatable tool calls
- * (e.g., "Explored 3 files"). Expandable to show each individual item.
+ * Collapsed summary row for a group of consecutive aggregated tool calls.
+ * Expandable to show each individual child tool card.
  */
-function GroupedToolCallRow({ label, items }: GroupedToolCallRowProps): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
-  const allCompleted = items.every((i) => i.status === 'completed')
+function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps): JSX.Element {
+  const locale = useLocale()
+  const changedFiles = useConversationStore((s) => s.changedFiles)
+  const label = formatToolGroupLabel(category, items, locale, changedFiles)
+  const hasRunningItems = items.some(isGroupedItemRunning)
+  const hasFailedItems = items.some(isGroupedItemFailed)
+  const shouldAutoExpand = hasRunningItems || hasFailedItems
+  const [expanded, setExpanded] = useState(shouldAutoExpand)
+  const [userInteracted, setUserInteracted] = useState(false)
+
+  useEffect(() => {
+    if (!userInteracted) {
+      setExpanded(shouldAutoExpand)
+    }
+  }, [shouldAutoExpand, userInteracted])
+
+  const statusIcon = hasFailedItems ? '✕' : (hasRunningItems ? '…' : '✓')
+  const statusColor = hasFailedItems
+    ? 'var(--error)'
+    : (hasRunningItems ? 'var(--text-dimmed)' : 'var(--success)')
 
   return (
     <div>
       <button
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => {
+          setUserInteracted(true)
+          setExpanded((v) => !v)
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -251,8 +277,8 @@ function GroupedToolCallRow({ label, items }: GroupedToolCallRowProps): JSX.Elem
           borderRadius: '4px'
         }}
       >
-        <span style={{ color: allCompleted ? 'var(--success)' : 'var(--text-dimmed)', fontSize: '11px' }}>
-          {allCompleted ? '✓' : '…'}
+        <span style={{ color: statusColor, fontSize: '11px' }}>
+          {statusIcon}
         </span>
         <span style={{ flex: 1 }}>{label}</span>
         <ToolCollapseChevron expanded={expanded} />
@@ -260,10 +286,34 @@ function GroupedToolCallRow({ label, items }: GroupedToolCallRowProps): JSX.Elem
       {expanded && (
         <div style={{ paddingLeft: '16px' }}>
           {items.map((item) => (
-            <ToolCallCard key={item.id} item={item} turnId={''} />
+            <ToolCallCard key={item.id} item={item} turnId={turnId} />
           ))}
         </div>
       )}
     </div>
   )
+}
+
+function isGroupedItemRunning(item: ConversationItem): boolean {
+  const toolName = item.toolName ?? ''
+  if (!isShellToolName(toolName)) {
+    return item.status !== 'completed'
+  }
+
+  if (item.executionStatus != null) {
+    if (item.executionStatus === 'inProgress') return true
+    // Legacy: wire item lifecycle "started" was mistakenly stored as executionStatus.
+    if (String(item.executionStatus) === 'started') return true
+    return false
+  }
+
+  if (item.status !== 'completed') return true
+  return item.result === undefined && item.success === undefined
+}
+
+function isGroupedItemFailed(item: ConversationItem): boolean {
+  const executionFailed = item.executionStatus === 'failed'
+    || item.executionStatus === 'cancelled'
+    || (item.exitCode != null && item.exitCode !== 0)
+  return item.success === false || executionFailed
 }
