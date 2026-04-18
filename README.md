@@ -85,50 +85,7 @@ Here is how that differs from a traditional gateway-style architecture:
 
 <div align="center">DotCraft connects different entry points to the same project-scoped workspace, while the Unified Session Core handles execution, state, and orchestration.</div>
 
-```mermaid
-flowchart LR
-    Cli["CLI"]
-    Tui["TUI"]
-    Desktop["Desktop"]
-    AppSrv["AppServer"]
-    Ide["ACP / IDE"]
-    ExtCh["IM Channels"]
-    Automations["Automations"]
-    LocalSource["Local Source"]
-    GitHubSource["GitHub Source"]
-
-    subgraph Workspace [".craft/"]
-        Core["Unified Session Core"]
-    end
-
-    Dashboard["Dashboard"]
-
-    Cli --> AppSrv
-    Tui --> AppSrv
-    Desktop --> AppSrv
-    Ide --> AppSrv
-    AppSrv --> Workspace
-    AppSrv --> Automations
-    Automations --> LocalSource
-    Automations --> GitHubSource
-    ExtCh -->|"SDK / JSON-RPC"| AppSrv
-    Workspace --> Dashboard
-
-    style Core fill:#0969da,color:#ffffff,stroke:#0550ae
-    style Workspace fill:#ddf4ff,stroke:#54aeff,color:#0550ae
-    style Dashboard fill:#e5a50a,color:#ffffff,stroke:#bf8700
-    style Cli fill:#57606a,color:#ffffff,stroke:#424a53
-    style Tui fill:#57606a,color:#ffffff,stroke:#424a53
-    style Desktop fill:#57606a,color:#ffffff,stroke:#424a53
-    style AppSrv fill:#57606a,color:#ffffff,stroke:#424a53
-    style Ide fill:#57606a,color:#ffffff,stroke:#424a53
-    style ExtCh fill:#57606a,color:#ffffff,stroke:#424a53
-    style Automations fill:#8250df,color:#ffffff,stroke:#6639ba
-    style LocalSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
-    style GitHubSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
-```
-
-Based on that structure, you can choose the entry point that best fits your workflow:
+You can choose the entry point that best fits your workflow:
 
 | If you want to... | Start here |
 |---|---|
@@ -137,7 +94,7 @@ Based on that structure, you can choose the entry point that best fits your work
 | Run DotCraft as a headless server | [AppServer](#appserver) |
 | Use a graphical desktop client | [Desktop](#desktop) |
 | Use DotCraft in an editor or IDE | [Editors and ACP](#editors-and-acp) |
-| Connect a chat bot | [QQ / WeCom](#qq--wecom) and [External Channels](#external-channels) |
+| Connect a chat bot | [Social Channels](#social-channels) |
 | Run automations (Local / GitHub) | [Automations](#automations) |
 
 | **CLI** | **TUI** |

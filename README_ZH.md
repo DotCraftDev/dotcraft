@@ -86,50 +86,8 @@ DotCraft 围绕 **统一会话核心（Unified Session Core）** 组织不同入
 
 <div align="center">dotcraft 将不同入口连接同一个项目级工作空间，由统一会话核心负责承接执行、状态与编排。</div>
 
-```mermaid
-flowchart LR
-    Cli["CLI"]
-    Tui["TUI"]
-    Desktop["Desktop"]
-    AppSrv["AppServer"]
-    Ide["ACP / IDE"]
-    ExtCh["IM Channels"]
-    Automations["Automations"]
-    LocalSource["Local Source"]
-    GitHubSource["GitHub Source"]
 
-    subgraph Workspace [".craft/"]
-        Core["Unified Session Core"]
-    end
-
-    Dashboard["Dashboard"]
-
-    Cli --> AppSrv
-    Tui --> AppSrv
-    Desktop --> AppSrv
-    Ide --> AppSrv
-    AppSrv --> Workspace
-    AppSrv --> Automations
-    Automations --> LocalSource
-    Automations --> GitHubSource
-    ExtCh -->|"SDK / JSON-RPC"| AppSrv
-    Workspace --> Dashboard
-
-    style Core fill:#0969da,color:#ffffff,stroke:#0550ae
-    style Workspace fill:#ddf4ff,stroke:#54aeff,color:#0550ae
-    style Dashboard fill:#e5a50a,color:#ffffff,stroke:#bf8700
-    style Cli fill:#57606a,color:#ffffff,stroke:#424a53
-    style Tui fill:#57606a,color:#ffffff,stroke:#424a53
-    style Desktop fill:#57606a,color:#ffffff,stroke:#424a53
-    style AppSrv fill:#57606a,color:#ffffff,stroke:#424a53
-    style Ide fill:#57606a,color:#ffffff,stroke:#424a53
-    style ExtCh fill:#57606a,color:#ffffff,stroke:#424a53
-    style Automations fill:#8250df,color:#ffffff,stroke:#6639ba
-    style LocalSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
-    style GitHubSource fill:#f6f8fa,color:#57606a,stroke:#d0d7de
-```
-
-基于这套结构，你可以再按自己的使用场景选择最合适的入口：
+你可以按自己的使用场景选择最合适的入口：
 
 | 如果你想... | 从这里开始 |
 |---|---|
@@ -138,7 +96,7 @@ flowchart LR
 | 以无头服务器方式运行 | [AppServer](#appserver) |
 | 使用图形化桌面客户端 | [Desktop 桌面应用](#desktop-桌面应用) |
 | 在编辑器或 IDE 中使用 | [编辑器与 ACP](#编辑器与-acp) |
-| 接入聊天机器人 | [QQ / 企业微信](#qq--企业微信) 和 [External Channels](#external-channels外部渠道适配器) |
+| 接入聊天机器人 | [社交渠道](#社交渠道) |
 | 运行自动化任务（Local / GitHub） | [Automations](#automations) |
 
 | **CLI** | **TUI** |
