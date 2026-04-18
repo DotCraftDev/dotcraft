@@ -1360,63 +1360,71 @@ export function SettingsView({
       aria-label={t('settings.title')}
       style={{
         display: 'flex',
-        flexDirection: 'column',
+        flexDirection: 'row',
         height: '100%',
         minHeight: 0,
         backgroundColor: 'var(--bg-primary)'
       }}
     >
-      <header
+      <aside
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          padding: '16px 20px',
-          borderBottom: '1px solid var(--border-default)',
+          width: '170px',
+          borderRight: '1px solid var(--border-default)',
+          backgroundColor: 'var(--bg-secondary)',
+          padding: '12px 0',
           flexShrink: 0
         }}
       >
-        <BackToAppButton onClick={closeSettings} />
-        <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-          {t('settings.title')}
-        </h1>
-      </header>
+        {tabs.map((tab) => {
+          const active = activeSettingsTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveSettingsTab(tab.id)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '10px 14px',
+                border: 'none',
+                background: active ? 'var(--bg-tertiary)' : 'transparent',
+                borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
+                color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                fontSize: '13px',
+                fontWeight: active ? 600 : 500,
+                cursor: 'pointer'
+              }}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+      </aside>
 
-      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <aside
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0
+        }}
+      >
+        <header
           style={{
-            width: '170px',
-            borderRight: '1px solid var(--border-default)',
-            backgroundColor: 'var(--bg-secondary)',
-            padding: '12px 0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border-default)',
             flexShrink: 0
           }}
         >
-          {tabs.map((tab) => {
-            const active = activeSettingsTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveSettingsTab(tab.id)}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '10px 14px',
-                  border: 'none',
-                  background: active ? 'var(--bg-tertiary)' : 'transparent',
-                  borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
-                  color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  fontSize: '13px',
-                  fontWeight: active ? 600 : 500,
-                  cursor: 'pointer'
-                }}
-              >
-                {tab.label}
-              </button>
-            )
-          })}
-        </aside>
+          <BackToAppButton onClick={closeSettings} />
+          <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            {t('settings.title')}
+          </h1>
+        </header>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
           <div style={{ maxWidth: activeSettingsTab === 'mcp' ? '760px' : '560px' }}>
@@ -2418,12 +2426,10 @@ export function SettingsView({
             )}
           </div>
         </main>
-      </div>
 
       <footer
         style={{
           padding: '12px 20px',
-          borderTop: '1px solid var(--border-default)',
           display: 'flex',
           justifyContent: 'flex-end',
           gap: '8px',
@@ -2446,6 +2452,7 @@ export function SettingsView({
           </button>
         )}
       </footer>
+      </div>
     </div>
   )
 }

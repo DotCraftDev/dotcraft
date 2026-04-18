@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ToolCallCard } from '../components/conversation/ToolCallCard'
 import { useConversationStore } from '../stores/conversationStore'
@@ -128,6 +128,111 @@ describe('ToolCallCard shell rendering', () => {
 
     vi.useRealTimers()
   })
+
+  it('auto-expands eligible running tools after threshold and auto-collapses when completed', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-13T10:00:00.000Z'))
+    const runningItem: ConversationItem = {
+      id: 'tool-auto-open',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'Exec',
+      toolCallId: 'exec-auto-open-1',
+      arguments: { command: 'sleep 10' },
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+    const completedItem: ConversationItem = {
+      ...runningItem,
+      status: 'completed',
+      result: 'ok',
+      success: true,
+      duration: 820
+    }
+
+    const { rerender } = render(
+      <LocaleProvider>
+        <ToolCallCard item={runningItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByText('Running...')).toBeNull()
+
+    act(() => {
+      vi.advanceTimersByTime(450)
+    })
+
+    expect(screen.getByText('Waiting for output...')).toBeInTheDocument()
+
+    rerender(
+      <LocaleProvider>
+        <ToolCallCard item={completedItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByText('Waiting for output...')).toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('does not auto-expand non-eligible tools while running', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-13T10:00:00.000Z'))
+    const runningItem: ConversationItem = {
+      id: 'tool-no-auto-open',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'WebFetch',
+      toolCallId: 'webfetch-2',
+      arguments: { url: 'https://dotcraft.ai' },
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={runningItem} turnId="turn-1" />)
+
+    act(() => {
+      vi.advanceTimersByTime(450)
+    })
+
+    expect(screen.queryByText('Running...')).toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('keeps user-selected expansion state after running completes', () => {
+    vi.useFakeTimers()
+    const runningItem: ConversationItem = {
+      id: 'tool-user-open',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'WebSearch',
+      toolCallId: 'websearch-1',
+      arguments: { query: 'dotcraft' },
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+    const completedItem: ConversationItem = {
+      ...runningItem,
+      status: 'completed',
+      result: 'done',
+      success: true,
+      duration: 500
+    }
+
+    const { rerender } = render(
+      <LocaleProvider>
+        <ToolCallCard item={runningItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByText('Running...')).toBeInTheDocument()
+
+    rerender(
+      <LocaleProvider>
+        <ToolCallCard item={completedItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.getAllByText('Searched "dotcraft"').length).toBeGreaterThan(0)
+    vi.useRealTimers()
+  })
 })
 
 describe('ToolCallCard todo rendering safety', () => {
@@ -208,5 +313,99 @@ describe('ToolCallCard todo rendering safety', () => {
     renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
 
     expect(screen.getByText('Started to-do')).toBeInTheDocument()
+  })
+})
+
+describe('ToolCallCard CreatePlan rendering', () => {
+  beforeEach(() => {
+    useConversationStore.getState().reset()
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        }
+      }
+    })
+  })
+
+  it('renders completed CreatePlan as preview card and expands on demand', () => {
+    const item: ConversationItem = {
+      id: 'create-plan-1',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'CreatePlan',
+      toolCallId: 'create-plan-call-1',
+      arguments: {
+        title: 'Release Plan',
+        overview: 'Ship the feature in two phases.',
+        plan: '# Final heading\n\n- add tests\n- run smoke checks',
+        todos: [
+          { id: 'tests', content: 'Add tests', status: 'in_progress' },
+          { id: 'smoke', content: 'Run smoke checks', status: 'pending' }
+        ]
+      },
+      success: true,
+      createdAt: new Date().toISOString()
+    }
+
+    renderWithLocale(<ToolCallCard item={item} turnId="turn-1" />)
+
+    expect(screen.getByText('Plan')).toBeInTheDocument()
+    expect(screen.getByText('Release Plan')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Expand plan/ }).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByRole('button', { name: /Expand plan/ })[0])
+
+    expect(screen.getByText('Final heading')).toBeInTheDocument()
+    expect(screen.getByText('add tests')).toBeInTheDocument()
+    expect(screen.getByText('Add tests')).toBeInTheDocument()
+    expect(screen.getByText('Run smoke checks')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Collapse/ })).toBeInTheDocument()
+  })
+
+  it('keeps preview mode from streaming to completed until user expands', () => {
+    const startedItem: ConversationItem = {
+      id: 'create-plan-2',
+      type: 'toolCall',
+      status: 'started',
+      toolName: 'CreatePlan',
+      toolCallId: 'create-plan-call-2',
+      argumentsPreview: '{"title":"Migration","overview":"Rolling update","plan":"# Draft heading\\n\\n- step 1"}',
+      createdAt: new Date().toISOString()
+    }
+
+    const completedItem: ConversationItem = {
+      ...startedItem,
+      status: 'completed',
+      arguments: {
+        title: 'Migration',
+        overview: 'Rolling update',
+        plan: '# Done plan\n\nMove traffic in batches.',
+        todos: [{ id: 'rollout', content: 'Roll out by cluster', status: 'completed' }]
+      },
+      success: true,
+      result: 'Plan created.'
+    }
+
+    const { rerender } = render(
+      <LocaleProvider>
+        <ToolCallCard item={startedItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Migration')).toBeInTheDocument()
+    expect(screen.getByText('Draft heading')).toBeInTheDocument()
+
+    rerender(
+      <LocaleProvider>
+        <ToolCallCard item={completedItem} turnId="turn-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Migration')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Expand plan/ }).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByRole('button', { name: /Expand plan/ })[0])
+    expect(screen.getByText('Done plan')).toBeInTheDocument()
+    expect(screen.getByText('Roll out by cluster')).toBeInTheDocument()
   })
 })

@@ -40,4 +40,26 @@ describe('parseUserMessageFileRefs', () => {
       { type: 'fileRef', relativePath: 'b/c' }
     ])
   })
+
+  it('parses skill marker into skillRef segment', () => {
+    expect(parseUserMessageFileRefs('[[Use Skill: browser]]')).toEqual([
+      { type: 'skillRef', skillName: 'browser' }
+    ])
+  })
+
+  it('parses mixed file refs and skill markers', () => {
+    expect(parseUserMessageFileRefs('Check @src/foo.ts then [[Use Skill: code-review]] now')).toEqual([
+      { type: 'text', value: 'Check ' },
+      { type: 'fileRef', relativePath: 'src/foo.ts' },
+      { type: 'text', value: ' then ' },
+      { type: 'skillRef', skillName: 'code-review' },
+      { type: 'text', value: ' now' }
+    ])
+  })
+
+  it('treats plain "Use Skill:" text as normal text', () => {
+    expect(parseUserMessageFileRefs('Please Use Skill: browser today')).toEqual([
+      { type: 'text', value: 'Please Use Skill: browser today' }
+    ])
+  })
 })

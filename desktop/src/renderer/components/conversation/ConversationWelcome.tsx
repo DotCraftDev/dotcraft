@@ -5,6 +5,7 @@ import { useConnectionStore } from '../../stores/connectionStore'
 import { useModelCatalogStore } from '../../stores/modelCatalogStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useSkillsStore } from '../../stores/skillsStore'
 import { addToast } from '../../stores/toastStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import type { ImageAttachment, ThreadMode } from '../../types/conversation'
@@ -91,11 +92,27 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const busy = starting || !isConnected
   const showMentionPopover = atQuery !== null && !mentionDismissed
   const canUseCommandPicker = capabilities?.commandManagement === true
-  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseCommandPicker
+  const canUseSkillPicker = capabilities?.skillsManagement === true
+  const canUseSlashPicker = canUseCommandPicker || canUseSkillPicker
+  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseSlashPicker
   const { commands: customCommands, status: customCommandStatus } = useCustomCommandCatalog({
     enabled: canUseCommandPicker,
     locale
   })
+  const skills = useSkillsStore((s) => s.skills)
+  const skillsLoading = useSkillsStore((s) => s.loading)
+  const fetchSkills = useSkillsStore((s) => s.fetchSkills)
+  const availableSkills = useMemo(
+    () =>
+      skills
+        .filter((skill) => skill.available)
+        .map((skill) => ({
+          name: skill.name.replace(/^\/+/, ''),
+          description: skill.description
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [skills]
+  )
   const modelApiAvailable =
     isConnected &&
     capabilities?.modelCatalogManagement === true &&
@@ -170,11 +187,20 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     richRef.current?.insertCommandTag(commandName)
   }, [])
 
+  const onSelectSkill = useCallback((skillName: string): void => {
+    richRef.current?.insertSkillTag(skillName)
+  }, [])
+
   useEffect(() => {
     if (isConnected) {
       richRef.current?.focus()
     }
   }, [isConnected])
+
+  useEffect(() => {
+    if (!canUseSkillPicker) return
+    void fetchSkills()
+  }, [canUseSkillPicker, fetchSkills])
 
   useEffect(() => {
     const welcomeDraft = initialWelcomeDraftRef.current
@@ -574,9 +600,11 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                 <CommandSearchPopover
                   query={slashQuery ?? ''}
                   visible={showSlashPopover}
-                  loading={customCommandStatus === 'loading'}
+                  loading={customCommandStatus === 'loading' || skillsLoading}
                   commands={customCommands}
-                  onSelect={onSelectCommand}
+                  skills={availableSkills}
+                  onSelectCommand={onSelectCommand}
+                  onSelectSkill={onSelectSkill}
                   onDismiss={() => {
                     setSlashDismissed(true)
                   }}

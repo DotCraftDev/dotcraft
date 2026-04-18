@@ -32,7 +32,6 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [13. Full Turn Example](#13-full-turn-example)
   - [13.1 ACP client turn (extension proxy)](#131-acp-client-turn-extension-proxy)
   - [13.2 Standard wire turn (no ACP)](#132-standard-wire-turn-no-acp)
-- [14. Relationship to Codex App Server](#14-relationship-to-codex-app-server)
 - [15. WebSocket Transport](#15-websocket-transport)
 - [16. Cron Management Methods](#16-cron-management-methods)
 - [17. Heartbeat Management Methods](#17-heartbeat-management-methods)
@@ -43,6 +42,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [22. MCP Management Methods](#22-mcp-management-methods)
 - [24. Workspace Config Methods](#24-workspace-config-methods)
 - [25. GitHub Tracker Config Methods](#25-github-tracker-config-methods)
+- [26. Design Inspiration](#26-design-inspiration)
 
 ---
 
@@ -1080,6 +1080,12 @@ Streamed arguments delta for a `toolCall` item. Concatenate `delta` values in or
 2. zero or more `item/toolCall/argumentsDelta`.
 3. `item/completed` with the final `toolCall` payload, including complete `payload.arguments`.
 
+Server coverage:
+
+- Argument deltas are emitted for **every tool by default**, including built-in, module-contributed, and MCP tools. Individual tools can opt out via a server-side annotation, in which case clients only observe `item/started` followed by `item/completed` with no deltas.
+- Clients MUST NOT assume a specific built-in set has streaming enabled. Render UX based on the presence of `argumentsDelta` events for a given `toolCall` item.
+- Clients are expected to render tool-specific UX only for tools they recognise; for unknown tool names (for example MCP tools), render a generic "generating parameters" placeholder without displaying the raw JSON to the user.
+
 Client handling rules:
 
 - `deltaKind` is fixed to `toolCallArguments`.
@@ -1397,6 +1403,7 @@ This notification is independent of the Turn event stream. Clients that do not n
 {
   "title": "Implement user authentication",
   "overview": "Add JWT-based auth with login and registration endpoints",
+  "content": "## Scope\n\nImplement backend auth endpoints and middleware.\n\n## Steps\n\n1. Add User model\n2. Add login/register APIs\n3. Add JWT middleware",
   "todos": [
     {
       "id": "setup-models",
@@ -1424,6 +1431,7 @@ This notification is independent of the Turn event stream. Clients that do not n
 |-------|------|-------------|
 | `title` | string | Plan title. |
 | `overview` | string | Brief plan overview/description. May be empty. |
+| `content` | string | Full Markdown plan body. May be empty. |
 | `todos` | PlanTodo[] | Complete list of plan tasks. |
 
 `PlanTodo` fields:
@@ -1434,6 +1442,8 @@ This notification is independent of the Turn event stream. Clients that do not n
 | `content` | string | Human-readable task description. |
 | `priority` | string | One of: `"high"`, `"medium"`, `"low"`. |
 | `status` | string | One of: `"pending"`, `"in_progress"`, `"completed"`, `"cancelled"`. |
+
+Compatibility note: older servers may omit `content`; clients should treat missing `content` as an empty string.
 
 **Emission rules**:
 
@@ -2127,41 +2137,6 @@ Client                                          Server
   |    tokenUsage: { ... }, items: [...] }        |
   |<----------------------------------------------|
 ```
-
----
-
-## 14. Relationship to Codex App Server
-
-This protocol is modeled after Codex App Server. The following table summarizes key differences:
-
-| Aspect | Codex App Server | DotCraft Wire Protocol |
-|--------|------------------|------------------------|
-| JSON-RPC header | Omitted (`"jsonrpc":"2.0"` not sent) | Included (standard JSON-RPC 2.0 compliance) |
-| Primary transport | stdio JSONL | stdio JSONL |
-| Optional transport | WebSocket (experimental) | WebSocket (experimental) |
-| Thread primitives | `thread/start`, `resume`, `fork`, `list`, `read`, `archive`, `unarchive` | `thread/start`, `resume`, `list`, `read`, `pause`, `archive`, `delete` |
-| Turn primitives | `turn/start`, `turn/steer`, `turn/interrupt` | `turn/start`, `turn/interrupt` |
-| Item types | `userMessage`, `agentMessage`, `reasoning`, `commandExecution`, `fileChange`, `mcpToolCall`, etc. | `userMessage`, `agentMessage`, `reasoningContent`, `toolCall`, `toolResult`, `approvalRequest`, `approvalResponse`, `error` |
-| Approval model | Per-item-type requests (`commandExecution/requestApproval`, `fileChange/requestApproval`) | Unified `item/approval/request` with `approvalType` discriminator |
-| Turn failure | Encoded in `turn/completed` with `status: "failed"` | Separate `turn/failed` notification |
-| Turn cancel | Encoded in `turn/completed` with `status: "interrupted"` | Separate `turn/cancelled` notification |
-| Auth | Built-in (`account/login`, ChatGPT OAuth) | Outside wire protocol scope; handled by bearer token or channel auth |
-| Config | `config/read`, `config/value/write` | `thread/config/update`, `thread/mode/set`, `workspace/config/update` |
-| Review | `review/start`, `enteredReviewMode`, `exitedReviewMode` | Not in v1 (future extension) |
-| Skills/Apps | `skills/list`, `app/list`, `plugin/list` | `skills/list`, `skills/read`, `skills/setEnabled` with `skillsManagement` capability |
-| Command exec | `command/exec` (standalone sandbox execution) | Not in v1 core; ACP extension surface |
-| Filesystem | `fs/readFile`, `fs/writeFile`, etc. | Not in v1 core; ACP extension surface |
-| Extension model | Experimental API opt-in via `capabilities.experimentalApi` | `ext/<namespace>/...` method namespace |
-
-### 14.1 Design Rationale for Key Differences
-
-**Unified approval request**: Codex uses separate request methods per item type (`commandExecution/requestApproval`, `fileChange/requestApproval`). DotCraft uses a single `item/approval/request` with an `approvalType` discriminator. This aligns approval handling across item types.
-
-**Separate failure/cancel notifications**: Codex encodes turn failure and interruption as `turn/completed` with different status values. DotCraft uses distinct `turn/failed` and `turn/cancelled` notifications, so callers do not need to inspect `turn/completed.status` to distinguish outcomes.
-
-**No `turn/steer`**: Codex supports `turn/steer` to inject additional user input into a running turn. DotCraft's Session Protocol does not currently model mid-turn user input injection. This may be added as a future extension.
-
-**No `thread/fork`**: Codex supports forking a thread into a new branch. DotCraft's Session Protocol does not currently model thread forking. This may be added as a future extension.
 
 ---
 
@@ -3707,3 +3682,19 @@ Clients should check `capabilities.extensions.githubTrackerConfig` before callin
 | Code | Constant | When |
 |------|----------|------|
 | `-32090` | `GitHubTrackerConfigValidationFailed` | The payload violates GitHub tracker config validation rules. |
+
+---
+
+## 26. Design Inspiration
+
+The DotCraft AppServer Protocol's architecture references the Codex App Server
+design. The overall structural approach - a JSON-RPC 2.0 surface layered around
+Thread / Turn / Item primitives, streaming event notifications, and a
+bidirectional approval flow - was adopted as the starting point for this
+specification.
+
+From that starting point, the protocol has been adapted to DotCraft's domain
+model and implementation goals. The specific methods, notifications, item
+types, capability flags, transport behaviors, and extension surfaces in this
+document are defined on their own terms in the preceding sections and should
+be treated as the authoritative contract.

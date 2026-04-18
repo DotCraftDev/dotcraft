@@ -6,8 +6,10 @@ import { addToast } from '../../stores/toastStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
+import { useSkillsStore } from '../../stores/skillsStore'
 import { resolveCustomCommandExecution } from '../../utils/customCommandExecution'
-import type { ConversationItem, ConversationTurn, ImageAttachment } from '../../types/conversation'
+import type { ImageAttachment } from '../../types/conversation'
+import { startTurnWithOptimisticUI } from '../../utils/startTurn'
 import { PendingMessageIndicator } from './PendingMessageIndicator'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 import { ImageStrip } from './ImageStrip'
@@ -90,13 +92,34 @@ export function InputComposer({
   const isRunning = turnStatus === 'running'
   const isWaitingApproval = turnStatus === 'waitingApproval'
   const canUseCommandPicker = capabilities?.commandManagement === true
+  const canUseSkillPicker = capabilities?.skillsManagement === true
+  const canUseSlashPicker = canUseCommandPicker || canUseSkillPicker
 
   const showMentionPopover = atQuery !== null && !mentionDismissed
-  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseCommandPicker
+  const showSlashPopover = slashQuery !== null && !slashDismissed && canUseSlashPicker
   const { commands: customCommands, status: customCommandStatus } = useCustomCommandCatalog({
     enabled: canUseCommandPicker,
     locale
   })
+  const skills = useSkillsStore((s) => s.skills)
+  const skillsLoading = useSkillsStore((s) => s.loading)
+  const fetchSkills = useSkillsStore((s) => s.fetchSkills)
+  const availableSkills = useMemo(
+    () =>
+      skills
+        .filter((skill) => skill.available)
+        .map((skill) => ({
+          name: skill.name.replace(/^\/+/, ''),
+          description: skill.description
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [skills]
+  )
+
+  useEffect(() => {
+    if (!canUseSkillPicker) return
+    void fetchSkills()
+  }, [canUseSkillPicker, fetchSkills])
 
   const handleAtQuery = useCallback((q: string | null): void => {
     setAtQuery(q)
@@ -287,66 +310,13 @@ export function InputComposer({
       const capturedImages = [...images]
       richRef.current?.clear()
       setImages([])
-
-      const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === effectiveThreadId)
-      if (!threadEntry?.displayName) {
-        const autoName =
-          effectiveText.length > 50 ? effectiveText.slice(0, 50) + '...' : effectiveText || t('toast.imageMessage')
-        useThreadStore.getState().renameThread(effectiveThreadId, autoName)
-      }
-
-      const optimisticItemId = `local-${Date.now()}`
-      const optimisticTurnId = `local-turn-${Date.now()}`
-      const optimisticNow = new Date().toISOString()
-      const userItem: ConversationItem = {
-        id: optimisticItemId,
-        type: 'userMessage',
-        status: 'completed',
-        text: effectiveText,
-        imageDataUrls: capturedImages.map((i) => i.dataUrl),
-        createdAt: optimisticNow,
-        completedAt: optimisticNow
-      }
-      const optimisticTurn: ConversationTurn = {
-        id: optimisticTurnId,
+      await startTurnWithOptimisticUI({
         threadId: effectiveThreadId,
-        status: 'running',
-        items: [userItem],
-        startedAt: optimisticNow
-      }
-      useConversationStore.getState().addOptimisticTurn(optimisticTurn)
-
-      const inputParts: Array<{ type: string; text?: string; path?: string }> = []
-      if (effectiveText.length > 0) {
-        inputParts.push({ type: 'text', text: effectiveText })
-      }
-      for (const img of capturedImages) {
-        inputParts.push({ type: 'localImage', path: img.tempPath })
-      }
-      if (inputParts.length === 0) {
-        useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
-        return
-      }
-
-      try {
-        const result = await window.api.appServer.sendRequest('turn/start', {
-          threadId: effectiveThreadId,
-          input: inputParts,
-          identity: {
-            channelName: 'dotcraft-desktop',
-            userId: 'local',
-            channelContext: `workspace:${workspacePath}`,
-            workspacePath
-          }
-        })
-        const res = result as { turn?: { id?: string } }
-        if (res.turn?.id) {
-          useConversationStore.getState().promoteOptimisticTurn(optimisticTurnId, res.turn.id)
-        }
-      } catch (err) {
-        console.error('turn/start failed:', err)
-        useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
-      }
+        workspacePath,
+        text: effectiveText,
+        images: capturedImages,
+        fallbackThreadName: t('toast.imageMessage')
+      })
     } finally {
       sendInFlightRef.current = false
     }
@@ -391,6 +361,10 @@ export function InputComposer({
     richRef.current?.insertCommandTag(commandName)
   }, [])
 
+  const onSelectSkill = useCallback((skillName: string): void => {
+    richRef.current?.insertSkillTag(skillName)
+  }, [])
+
   return (
     <div style={{ flexShrink: 0 }}>
       {pendingMessage && <PendingMessageIndicator message={pendingMessage} />}
@@ -416,9 +390,11 @@ export function InputComposer({
               <CommandSearchPopover
                 query={slashQuery ?? ''}
                 visible={showSlashPopover}
-                loading={customCommandStatus === 'loading'}
+                loading={customCommandStatus === 'loading' || skillsLoading}
                 commands={customCommands}
-                onSelect={onSelectCommand}
+                skills={availableSkills}
+                onSelectCommand={onSelectCommand}
+                onSelectSkill={onSelectSkill}
                 onDismiss={() => {
                   setSlashDismissed(true)
                 }}

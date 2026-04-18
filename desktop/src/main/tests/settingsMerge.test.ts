@@ -60,4 +60,16 @@ describe('mergeUpdatedSettings', () => {
       token: 'abc'
     })
   })
+
+  it('keeps lastOpenEditorId when explicitly provided', () => {
+    const current: AppSettings = {
+      lastOpenEditorId: 'explorer'
+    }
+
+    const next = mergeUpdatedSettings(current, {
+      lastOpenEditorId: 'cursor'
+    })
+
+    expect(next.lastOpenEditorId).toBe('cursor')
+  })
 })

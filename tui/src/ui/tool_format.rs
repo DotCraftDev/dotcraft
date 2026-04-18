@@ -5,6 +5,34 @@ use crate::app::state::PlanTodo;
 use serde_json::Value;
 use unicode_width::UnicodeWidthChar;
 
+/// Names of built-in DotCraft tools (PascalCase) that TUI recognises and renders
+/// with bespoke streaming copy. Tools outside this set (e.g. MCP / external
+/// modules) fall back to a generic "Generating parameters..." placeholder and
+/// never show raw argument JSON to the user while the call is in flight.
+pub const BUILTIN_TOOLS: &[&str] = &[
+    "ReadFile",
+    "WriteFile",
+    "EditFile",
+    "GrepFiles",
+    "FindFiles",
+    "Exec",
+    "WebSearch",
+    "WebFetch",
+    "SpawnSubagent",
+    "LSP",
+    "SearchTools",
+    "Cron",
+    "CommitSuggest",
+    "CreatePlan",
+    "UpdateTodos",
+    "TodoWrite",
+];
+
+/// Returns `true` when the tool name matches a built-in DotCraft tool.
+pub fn is_builtin_tool(tool_name: &str) -> bool {
+    BUILTIN_TOOLS.iter().any(|n| *n == tool_name)
+}
+
 /// Full-sentence invocations from `CoreToolDisplays` (e.g. `Searched "…"`). These must not be
 /// combined with the TUI `Calling`/`Called` prefixes — see [`invocation_needs_calling_called_prefix`].
 fn try_standalone_invocation_sentence(
@@ -34,7 +62,11 @@ fn try_standalone_invocation_sentence(
 }
 
 /// Streaming-friendly sentence for in-flight tool calls.
-/// Unlike committed labels, this prefers present-progress wording for file tools.
+///
+/// For built-in tools we render bespoke, human-readable present-progress copy
+/// derived from tolerantly parsed partial JSON. For unknown tools (e.g. MCP or
+/// module-contributed tools) we render a generic `"Generating parameters for X..."`
+/// placeholder so the user never sees a raw argument JSON dump mid-stream.
 pub fn format_active_invocation_display(
     tool_name: &str,
     args: &str,
@@ -44,7 +76,20 @@ pub fn format_active_invocation_display(
         "WriteFile" => format_file_running_label(args, "Writing to", "Writing file"),
         "EditFile" => format_file_running_label(args, "Editing", "Editing file"),
         "ReadFile" => format_read_file_running_label(args),
-        _ => format_invocation_display_with_plan(tool_name, args, plan_todos),
+        "GrepFiles" => format_grep_running_label(args),
+        "FindFiles" => format_find_running_label(args),
+        "Exec" => format_exec_running_label(args),
+        "WebSearch" => format_web_search_running_label(args),
+        "WebFetch" => format_web_fetch_running_label(args),
+        "SpawnSubagent" => format_spawn_subagent_running_label(args),
+        "LSP" => format_lsp_running_label(args),
+        "SearchTools" => format_search_tools_running_label(args),
+        "Cron" => format_cron_running_label(args),
+        "CommitSuggest" => "Preparing commit message...".to_string(),
+        "CreatePlan" => format_create_plan_running_label(args),
+        "TodoWrite" | "UpdateTodos" => format_todos_running_label(args, plan_todos),
+        _ if is_builtin_tool(tool_name) => format!("Calling {tool_name}..."),
+        _ => format!("Generating parameters for {tool_name}..."),
     }
 }
 
@@ -163,14 +208,141 @@ fn format_file_edit_label(args: &str) -> Option<String> {
 }
 
 fn format_file_running_label(args: &str, action_with_name: &str, action_generic: &str) -> String {
-    let parsed = match parse_json(args) {
-        Some(v) => v,
-        None => return format!("{action_generic}..."),
-    };
-    match get_string(&parsed, "path") {
-        Some(path) => format!("{action_with_name} {}...", extract_filename(&path)),
-        None => format!("{action_generic}..."),
+    // Prefer tolerant partial-JSON extraction so running labels render on the
+    // first chunk — waiting for a fully parseable JSON defeats the streaming UX.
+    if let Some(path) = extract_partial_json_string_value(args, "path") {
+        return format!("{action_with_name} {}...", extract_filename(&path));
     }
+    format!("{action_generic}...")
+}
+
+fn format_grep_running_label(args: &str) -> String {
+    let pattern = extract_partial_json_string_value(args, "pattern");
+    let path = extract_partial_json_string_value(args, "path").filter(|p| !p.is_empty());
+    match (pattern, path) {
+        (Some(p), Some(dir)) => {
+            let p = truncate_chars(&p, 40);
+            format!("Searching \"{p}\" in {dir}...")
+        }
+        (Some(p), None) => {
+            let p = truncate_chars(&p, 40);
+            format!("Searching \"{p}\"...")
+        }
+        (None, Some(dir)) => format!("Searching files in {dir}..."),
+        (None, None) => "Searching files...".to_string(),
+    }
+}
+
+fn format_find_running_label(args: &str) -> String {
+    let pattern = extract_partial_json_string_value(args, "pattern");
+    let path = extract_partial_json_string_value(args, "path").filter(|p| !p.is_empty());
+    match (pattern, path) {
+        (Some(p), Some(dir)) => {
+            let p = truncate_chars(&p, 40);
+            format!("Finding \"{p}\" in {dir}...")
+        }
+        (Some(p), None) => {
+            let p = truncate_chars(&p, 40);
+            format!("Finding \"{p}\"...")
+        }
+        _ => "Finding files...".to_string(),
+    }
+}
+
+fn format_exec_running_label(args: &str) -> String {
+    match extract_partial_json_string_value(args, "command") {
+        Some(cmd) => {
+            let one_line = cmd.lines().next().unwrap_or(&cmd).to_string();
+            let compact = truncate_chars(&one_line, 80);
+            format!("Running: {compact}")
+        }
+        None => "Running command...".to_string(),
+    }
+}
+
+fn format_web_search_running_label(args: &str) -> String {
+    match extract_partial_json_string_value(args, "query") {
+        Some(q) => {
+            let t = truncate_chars(&q, 80);
+            format!("Searching the web for \"{t}\"...")
+        }
+        None => "Searching the web...".to_string(),
+    }
+}
+
+fn format_web_fetch_running_label(args: &str) -> String {
+    match extract_partial_json_string_value(args, "url") {
+        Some(u) => {
+            let t = truncate_chars(&u, 80);
+            format!("Fetching {t}...")
+        }
+        None => "Fetching URL...".to_string(),
+    }
+}
+
+fn format_spawn_subagent_running_label(args: &str) -> String {
+    let label = extract_partial_json_string_value(args, "label").filter(|s| !s.is_empty());
+    let task = extract_partial_json_string_value(args, "task").filter(|s| !s.is_empty());
+    match (label, task) {
+        (Some(l), _) => {
+            let t = truncate_chars(&l, 60);
+            format!("Spawning subagent: {t}...")
+        }
+        (None, Some(t)) => {
+            let t = truncate_chars(&t, 60);
+            format!("Spawning subagent for: {t}...")
+        }
+        _ => "Spawning subagent...".to_string(),
+    }
+}
+
+fn format_lsp_running_label(args: &str) -> String {
+    let op = extract_partial_json_string_value(args, "operation").filter(|s| !s.is_empty());
+    let file = extract_partial_json_string_value(args, "filePath").filter(|s| !s.is_empty());
+    match (op, file) {
+        (Some(o), Some(f)) => format!("Running LSP {o} on {}...", extract_filename(&f)),
+        (Some(o), None) => format!("Running LSP {o}..."),
+        (None, Some(f)) => format!("Running LSP on {}...", extract_filename(&f)),
+        _ => "Running LSP...".to_string(),
+    }
+}
+
+fn format_search_tools_running_label(args: &str) -> String {
+    match extract_partial_json_string_value(args, "query") {
+        Some(q) => {
+            let t = truncate_chars(&q, 60);
+            format!("Searching tools: \"{t}\"...")
+        }
+        None => "Searching tools...".to_string(),
+    }
+}
+
+fn format_cron_running_label(args: &str) -> String {
+    let action = extract_partial_json_string_value(args, "action").filter(|s| !s.is_empty());
+    match action.as_deref() {
+        Some("add") => "Scheduling cron job...".to_string(),
+        Some("list") => "Listing cron jobs...".to_string(),
+        Some("remove") => "Removing cron job...".to_string(),
+        Some(other) => format!("Running cron {other}..."),
+        None => "Configuring cron...".to_string(),
+    }
+}
+
+fn format_create_plan_running_label(args: &str) -> String {
+    match extract_partial_json_string_value(args, "title") {
+        Some(t) if !t.is_empty() => {
+            let compact = truncate_chars(&t, 60);
+            format!("Drafting plan: {compact}...")
+        }
+        _ => "Drafting plan...".to_string(),
+    }
+}
+
+fn format_todos_running_label(args: &str, _plan_todos: Option<&[PlanTodo]>) -> String {
+    // During streaming the todos array may not be valid JSON yet; a short
+    // placeholder is better than dumping raw JSON to the terminal.
+    let _ = args;
+    "Updating to-dos...".to_string()
 }
 
 fn truncate_summary(content: &str) -> String {
@@ -330,6 +502,11 @@ pub fn extract_partial_json_string_value(json: &str, key: &str) -> Option<String
 fn format_generic_invocation(name: &str, args: &str) -> String {
     if args.is_empty() {
         return format!("{name}()");
+    }
+    // Non-built-in tools (MCP, external modules) never surface raw argument
+    // JSON to the user — we only show the tool name.
+    if !is_builtin_tool(name) {
+        return name.to_string();
     }
     if let Ok(v) = serde_json::from_str::<Value>(args) {
         if let Some(obj) = v.as_object() {
@@ -715,5 +892,86 @@ mod tests {
         let partial = r#"{"path":"src\main.rs","content":"hel"#;
         let value = extract_partial_json_string_value(partial, "path").expect("path");
         assert_eq!(value, r#"src\main.rs"#);
+    }
+
+    #[test]
+    fn active_invocation_writefile_uses_partial_path() {
+        // Content body is still incomplete but path was already streamed —
+        // the running label should already show the filename.
+        let partial = r#"{"path":"src/demo.rs","content":"let x"#;
+        assert_eq!(
+            format_active_invocation_display("WriteFile", partial, None),
+            "Writing to demo.rs..."
+        );
+    }
+
+    #[test]
+    fn active_invocation_exec_shows_command_first_line() {
+        let partial = r#"{"command":"npm install"#;
+        assert_eq!(
+            format_active_invocation_display("Exec", partial, None),
+            "Running: npm install"
+        );
+    }
+
+    #[test]
+    fn active_invocation_websearch_shows_query() {
+        let partial = r#"{"query":"rust async streams"#;
+        assert_eq!(
+            format_active_invocation_display("WebSearch", partial, None),
+            "Searching the web for \"rust async streams\"..."
+        );
+    }
+
+    #[test]
+    fn active_invocation_grep_shows_pattern_and_path() {
+        let partial = r#"{"pattern":"TODO","path":"src"#;
+        assert_eq!(
+            format_active_invocation_display("GrepFiles", partial, None),
+            "Searching \"TODO\" in src..."
+        );
+    }
+
+    #[test]
+    fn active_invocation_mcp_tool_uses_generic_placeholder() {
+        // Unknown / external tool names never leak raw JSON args — they render
+        // as "Generating parameters for X..." until the tool call completes.
+        let partial = r#"{"url":"https://foo.example/secret"#;
+        assert_eq!(
+            format_active_invocation_display("acme_mcp_tool", partial, None),
+            "Generating parameters for acme_mcp_tool..."
+        );
+    }
+
+    #[test]
+    fn active_invocation_create_plan_shows_title() {
+        let partial = r#"{"title":"Ship feature X","overview":"Not yet"#;
+        assert_eq!(
+            format_active_invocation_display("CreatePlan", partial, None),
+            "Drafting plan: Ship feature X..."
+        );
+    }
+
+    #[test]
+    fn active_invocation_create_plan_without_title() {
+        let partial = r#"{"overview":"#;
+        assert_eq!(
+            format_active_invocation_display("CreatePlan", partial, None),
+            "Drafting plan..."
+        );
+    }
+
+    #[test]
+    fn generic_invocation_hides_json_for_non_builtin_tool() {
+        let args = r#"{"url":"https://foo.example/secret"}"#;
+        // External tool: no argument JSON leaks into the rendered label.
+        assert_eq!(format_invocation_display("acme_mcp_tool", args), "acme_mcp_tool");
+    }
+
+    #[test]
+    fn is_builtin_tool_matches_known_names() {
+        assert!(is_builtin_tool("ReadFile"));
+        assert!(is_builtin_tool("CreatePlan"));
+        assert!(!is_builtin_tool("acme_mcp_tool"));
     }
 }

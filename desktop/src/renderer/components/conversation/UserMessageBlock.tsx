@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { Sparkle } from 'lucide-react'
 import { useConversationStore } from '../../stores/conversationStore'
 import { ImageLightbox } from './ImageLightbox'
-import { parseUserMessageFileRefs } from './parseUserMessageFileRefs'
+import { MessageCopyButton } from './MessageCopyButton'
+import { parseUserMessageSegments } from './parseUserMessageSegments'
 
 interface UserMessageBlockProps {
   text: string
@@ -15,13 +17,16 @@ interface UserMessageBlockProps {
  */
 export function UserMessageBlock({ text, imageDataUrls }: UserMessageBlockProps): JSX.Element {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [hovered, setHovered] = useState(false)
   const workspacePath = useConversationStore((s) => s.workspacePath)
   const hasImages = imageDataUrls != null && imageDataUrls.length > 0
-  const segments = text.length > 0 ? parseUserMessageFileRefs(text) : []
+  const segments = text.length > 0 ? parseUserMessageSegments(text) : []
 
   return (
     <>
       <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           backgroundColor: 'var(--user-message-bg)',
           borderRadius: '8px',
@@ -35,7 +40,9 @@ export function UserMessageBlock({ text, imageDataUrls }: UserMessageBlockProps)
           maxWidth: '85%',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px'
+          gap: '8px',
+          userSelect: 'text',
+          position: 'relative'
         }}
       >
         {hasImages && (
@@ -84,21 +91,54 @@ export function UserMessageBlock({ text, imageDataUrls }: UserMessageBlockProps)
             {segments.map((seg, idx) =>
               seg.type === 'text' ? (
                 <span key={`t-${idx}`}>{seg.value}</span>
-              ) : (
+              ) : seg.type === 'fileRef' ? (
                 <FileRefChip
                   key={`f-${idx}-${seg.relativePath}`}
                   relativePath={seg.relativePath}
                   workspacePath={workspacePath}
                 />
+              ) : (
+                <SkillRefChip key={`s-${idx}-${seg.skillName}`} skillName={seg.skillName} />
               )
             )}
           </span>
         )}
+        <MessageCopyButton
+          getText={() => text}
+          visible={hovered && text.length > 0}
+        />
       </div>
       {lightboxSrc != null && (
         <ImageLightbox src={lightboxSrc} onClose={() => { setLightboxSrc(null) }} />
       )}
     </>
+  )
+}
+
+function SkillRefChip({ skillName }: { skillName: string }): JSX.Element {
+  return (
+    <span
+      title={`Use Skill: ${skillName}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        verticalAlign: 'baseline',
+        margin: '0 1px',
+        padding: '1px 6px',
+        borderRadius: '6px',
+        border: '1px solid color-mix(in srgb, var(--success) 38%, transparent)',
+        background: 'color-mix(in srgb, var(--success) 16%, transparent)',
+        color: 'var(--success)',
+        fontSize: '13px',
+        whiteSpace: 'nowrap',
+        userSelect: 'none',
+        fontWeight: 600
+      }}
+    >
+      <Sparkle size={12} strokeWidth={2.25} aria-hidden />
+      <span>{skillName}</span>
+    </span>
   )
 }
 

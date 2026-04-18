@@ -7,12 +7,31 @@ import {
   useState,
   type ForwardedRef
 } from 'react'
-import { COMMAND_REF_CLASS, FILE_REF_CLASS } from './richInputConstants'
-import { serializeEditor, truncateEditorDomToSerializedLength } from './richInputSerialization'
+import {
+  COMMAND_REF_CLASS,
+  FILE_REF_CLASS,
+  RICH_REFS_CLIPBOARD_MIME,
+  SKILL_REF_CLASS
+} from './richInputConstants'
+import {
+  serializeEditor,
+  serializeSkillMarker,
+  truncateEditorDomToSerializedLength
+} from './richInputSerialization'
+import { SPARKLE_ICON_SVG, TERMINAL_ICON_SVG } from './refIconSvgs'
 
 const MAX_ROWS = 8
 const MAX_TEXT_LEN = 100_000
 const PLACEHOLDER = 'Ask DotCraft anything…'
+const SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
+
+type RefType = 'file' | 'command' | 'skill'
+
+type ClipboardSegment =
+  | { type: 'text'; value: string }
+  | { type: 'file'; relativePath: string }
+  | { type: 'command'; command: string }
+  | { type: 'skill'; skillName: string }
 
 export interface RichInputAreaHandle {
   getText: () => string
@@ -20,6 +39,7 @@ export interface RichInputAreaHandle {
   focus: () => void
   insertFileTag: (relativePath: string) => void
   insertCommandTag: (commandName: string) => void
+  insertSkillTag: (skillName: string) => void
   /** Replace editor content with plain text. */
   setContent: (text: string) => void
   /** Replace editor content with plain text (used for composer prefill). */
@@ -56,6 +76,10 @@ function linearizeForTriggers(root: HTMLElement): string {
       return
     }
     if (el.classList.contains(FILE_REF_CLASS) || el.classList.contains(COMMAND_REF_CLASS)) {
+      out += ' '
+      return
+    }
+    if (el.classList.contains(SKILL_REF_CLASS)) {
       out += ' '
       return
     }
@@ -106,7 +130,11 @@ function walkToLinearOffset(
     if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') {
       return null
     }
-    if (el.classList.contains(FILE_REF_CLASS) || el.classList.contains(COMMAND_REF_CLASS)) {
+    if (
+      el.classList.contains(FILE_REF_CLASS) ||
+      el.classList.contains(COMMAND_REF_CLASS) ||
+      el.classList.contains(SKILL_REF_CLASS)
+    ) {
       if (pos + 1 >= target) {
         return { node: el, offset: 0 }
       }
@@ -144,8 +172,150 @@ function parseSlashQuery(beforeCaret: string): { fullMatch: string; query: strin
 function isInlineTagElement(node: Node | null): node is HTMLElement {
   return (
     node instanceof HTMLElement &&
-    (node.classList.contains(FILE_REF_CLASS) || node.classList.contains(COMMAND_REF_CLASS))
+    (node.classList.contains(FILE_REF_CLASS) ||
+      node.classList.contains(COMMAND_REF_CLASS) ||
+      node.classList.contains(SKILL_REF_CLASS))
   )
+}
+
+function createRefSpan(kind: RefType, value: string): HTMLSpanElement {
+  const span = document.createElement('span')
+  const label = document.createElement('span')
+  const icon = document.createElement('span')
+  const removeIcon = document.createElement('span')
+  span.setAttribute('contenteditable', 'false')
+  span.setAttribute('data-ref-type', kind)
+  span.style.display = 'inline-flex'
+  span.style.alignItems = 'center'
+  span.style.gap = '4px'
+  span.style.padding = '1px 6px'
+  span.style.fontSize = '13px'
+  span.style.verticalAlign = 'baseline'
+  span.style.whiteSpace = 'nowrap'
+  span.style.userSelect = 'none'
+  span.style.cursor = 'default'
+  span.style.borderRadius = kind === 'file' ? '4px' : '6px'
+
+  icon.className = 'dc-ref-icon dc-ref-icon-default'
+  icon.setAttribute('aria-hidden', 'true')
+  removeIcon.className = 'dc-ref-icon dc-ref-icon-remove'
+  removeIcon.setAttribute('aria-hidden', 'true')
+  removeIcon.textContent = '✕'
+  removeIcon.style.fontWeight = '700'
+  removeIcon.style.cursor = 'pointer'
+
+  label.className = 'dc-ref-label'
+  if (kind === 'file') {
+    span.className = FILE_REF_CLASS
+    span.style.background = 'var(--bg-tertiary)'
+    span.setAttribute('data-relative-path', value)
+    const fileName = value.split('/').pop() ?? value
+    label.textContent = fileName
+    icon.textContent = '📄'
+    span.title = value
+  } else if (kind === 'command') {
+    span.className = COMMAND_REF_CLASS
+    span.style.background = 'color-mix(in srgb, var(--accent) 16%, transparent)'
+    span.style.border = '1px solid color-mix(in srgb, var(--accent) 38%, transparent)'
+    span.style.color = 'var(--accent)'
+    span.style.fontWeight = '600'
+    span.setAttribute('data-command', value)
+    label.textContent = value.startsWith('/') ? value.slice(1) : value
+    icon.innerHTML = TERMINAL_ICON_SVG
+  } else {
+    span.className = SKILL_REF_CLASS
+    span.style.background = 'color-mix(in srgb, var(--success) 16%, transparent)'
+    span.style.border = '1px solid color-mix(in srgb, var(--success) 38%, transparent)'
+    span.style.color = 'var(--success)'
+    span.style.fontWeight = '600'
+    span.setAttribute('data-skill', value)
+    label.textContent = value
+    icon.innerHTML = SPARKLE_ICON_SVG
+    span.title = `Use Skill: ${value}`
+  }
+  span.append(icon, removeIcon, label)
+  return span
+}
+
+function parseSkillMarkersFromText(text: string): ClipboardSegment[] {
+  const out: ClipboardSegment[] = []
+  let cursor = 0
+  SKILL_MARKER_RE.lastIndex = 0
+  let match = SKILL_MARKER_RE.exec(text)
+  while (match) {
+    if (match.index > cursor) {
+      out.push({ type: 'text', value: text.slice(cursor, match.index) })
+    }
+    const name = match[1]?.trim() ?? ''
+    if (name) {
+      out.push({ type: 'skill', skillName: name })
+    } else {
+      out.push({ type: 'text', value: match[0] })
+    }
+    cursor = match.index + match[0].length
+    match = SKILL_MARKER_RE.exec(text)
+  }
+  if (cursor < text.length) {
+    out.push({ type: 'text', value: text.slice(cursor) })
+  }
+  return out.length > 0 ? out : [{ type: 'text', value: text }]
+}
+
+function collectClipboardSegmentsFromRoot(root: HTMLElement): ClipboardSegment[] {
+  const out: ClipboardSegment[] = []
+  const pushText = (value: string): void => {
+    if (!value) return
+    const prev = out[out.length - 1]
+    if (prev?.type === 'text') {
+      prev.value += value
+      return
+    }
+    out.push({ type: 'text', value })
+  }
+  const walk = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      pushText(node.textContent ?? '')
+      return
+    }
+    if (!(node instanceof HTMLElement)) return
+    if (node.classList.contains(FILE_REF_CLASS)) {
+      const relativePath = node.getAttribute('data-relative-path') ?? ''
+      if (relativePath) out.push({ type: 'file', relativePath })
+      return
+    }
+    if (node.classList.contains(COMMAND_REF_CLASS)) {
+      const command = node.getAttribute('data-command') ?? ''
+      if (command) out.push({ type: 'command', command })
+      return
+    }
+    if (node.classList.contains(SKILL_REF_CLASS)) {
+      const skillName = node.getAttribute('data-skill') ?? ''
+      if (skillName) out.push({ type: 'skill', skillName })
+      return
+    }
+    if (node.tagName === 'BR') {
+      pushText('\n')
+      return
+    }
+    for (const child of Array.from(node.childNodes)) {
+      walk(child)
+    }
+  }
+  for (const child of Array.from(root.childNodes)) {
+    walk(child)
+  }
+  return out
+}
+
+function clipboardSegmentsToPlainText(segments: ClipboardSegment[]): string {
+  let out = ''
+  for (const seg of segments) {
+    if (seg.type === 'text') out += seg.value
+    else if (seg.type === 'file') out += `@${seg.relativePath}`
+    else if (seg.type === 'command') out += seg.command
+    else out += serializeSkillMarker(seg.skillName)
+  }
+  return out
 }
 
 export const RichInputArea = forwardRef(function RichInputArea(
@@ -174,7 +344,8 @@ export const RichInputArea = forwardRef(function RichInputArea(
       const t = el.textContent?.replace(/\u00a0/g, ' ').trim() ?? ''
       const hasTags =
         el.querySelector(`.${FILE_REF_CLASS}`) !== null ||
-        el.querySelector(`.${COMMAND_REF_CLASS}`) !== null
+        el.querySelector(`.${COMMAND_REF_CLASS}`) !== null ||
+        el.querySelector(`.${SKILL_REF_CLASS}`) !== null
       setShowPh(!t && !hasTags)
     }, [])
 
@@ -208,21 +379,17 @@ export const RichInputArea = forwardRef(function RichInputArea(
       editorRef.current?.focus()
     }, [])
 
-    const insertFileTag = useCallback(
-      (relativePath: string): void => {
+    const replaceQueryRangeWithRef = useCallback(
+      (kind: RefType, value: string, parsed: { fullMatch: string; query: string }, trigger: '@' | '/'): void => {
         const el = editorRef.current
         if (!el) return
         const before = textBeforeCaretForTriggers(el)
-        const parsed = parseAtQuery(before)
-        if (!parsed) return
-
         const endLinear = before.length
-        const leadingWs = parsed.fullMatch.length > 0 && parsed.fullMatch[0] !== '@' ? 1 : 0
+        const leadingWs = parsed.fullMatch.length > 0 && parsed.fullMatch[0] !== trigger ? 1 : 0
         const startLinear = endLinear - parsed.fullMatch.length + leadingWs
         const startLoc = walkToLinearOffset(el, startLinear)
         const endLoc = walkToLinearOffset(el, endLinear)
         if (!startLoc || !endLoc) return
-
         const range = document.createRange()
         try {
           range.setStart(startLoc.node, startLoc.offset)
@@ -231,25 +398,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         } catch {
           return
         }
-
-        const span = document.createElement('span')
-        span.className = FILE_REF_CLASS
-        span.setAttribute('data-relative-path', relativePath)
-        span.setAttribute('contenteditable', 'false')
-        span.style.display = 'inline-flex'
-        span.style.alignItems = 'center'
-        span.style.borderRadius = '4px'
-        span.style.background = 'var(--bg-tertiary)'
-        span.style.padding = '1px 6px'
-        span.style.fontSize = '13px'
-        span.style.verticalAlign = 'baseline'
-        span.style.whiteSpace = 'nowrap'
-        span.style.userSelect = 'none'
-        span.style.gap = '4px'
-        const fileName = relativePath.split('/').pop() ?? relativePath
-        span.textContent = `📄 ${fileName}`
-        span.title = relativePath
-
+        const span = createRefSpan(kind, value)
         const space = document.createTextNode('\u00a0')
         range.insertNode(span)
         range.setStartAfter(span)
@@ -259,7 +408,6 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const sel = window.getSelection()
         sel?.removeAllRanges()
         sel?.addRange(range)
-
         onAtQuery?.(null)
         onSlashQuery?.(null)
         syncEmpty()
@@ -267,6 +415,18 @@ export const RichInputArea = forwardRef(function RichInputArea(
         onContentChange?.()
       },
       [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
+    )
+
+    const insertFileTag = useCallback(
+      (relativePath: string): void => {
+        const el = editorRef.current
+        if (!el) return
+        const before = textBeforeCaretForTriggers(el)
+        const parsed = parseAtQuery(before)
+        if (!parsed) return
+        replaceQueryRangeWithRef('file', relativePath, parsed, '@')
+      },
+      [replaceQueryRangeWithRef]
     )
 
     const insertCommandTag = useCallback(
@@ -278,58 +438,23 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const before = textBeforeCaretForTriggers(el)
         const parsed = parseSlashQuery(before)
         if (!parsed) return
-
-        const endLinear = before.length
-        const leadingWs = parsed.fullMatch.length > 0 && parsed.fullMatch[0] !== '/' ? 1 : 0
-        const startLinear = endLinear - parsed.fullMatch.length + leadingWs
-        const startLoc = walkToLinearOffset(el, startLinear)
-        const endLoc = walkToLinearOffset(el, endLinear)
-        if (!startLoc || !endLoc) return
-
-        const range = document.createRange()
-        try {
-          range.setStart(startLoc.node, startLoc.offset)
-          range.setEnd(endLoc.node, endLoc.offset)
-          range.deleteContents()
-        } catch {
-          return
-        }
-
-        const span = document.createElement('span')
-        span.className = COMMAND_REF_CLASS
-        span.setAttribute('data-command', command)
-        span.setAttribute('contenteditable', 'false')
-        span.style.display = 'inline-flex'
-        span.style.alignItems = 'center'
-        span.style.borderRadius = '6px'
-        span.style.background = 'color-mix(in srgb, var(--accent) 16%, transparent)'
-        span.style.border = '1px solid color-mix(in srgb, var(--accent) 38%, transparent)'
-        span.style.color = 'var(--accent)'
-        span.style.padding = '1px 6px'
-        span.style.fontSize = '13px'
-        span.style.verticalAlign = 'baseline'
-        span.style.whiteSpace = 'nowrap'
-        span.style.userSelect = 'none'
-        span.style.fontWeight = '600'
-        span.textContent = command
-
-        const space = document.createTextNode('\u00a0')
-        range.insertNode(span)
-        range.setStartAfter(span)
-        range.insertNode(space)
-        range.setStartAfter(space)
-        range.collapse(true)
-        const sel = window.getSelection()
-        sel?.removeAllRanges()
-        sel?.addRange(range)
-
-        onAtQuery?.(null)
-        onSlashQuery?.(null)
-        syncEmpty()
-        adjustHeight()
-        onContentChange?.()
+        replaceQueryRangeWithRef('command', command, parsed, '/')
       },
-      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
+      [replaceQueryRangeWithRef]
+    )
+
+    const insertSkillTag = useCallback(
+      (skillName: string): void => {
+        const el = editorRef.current
+        if (!el) return
+        const name = skillName.trim().replace(/^\/+/, '')
+        if (!name) return
+        const before = textBeforeCaretForTriggers(el)
+        const parsed = parseSlashQuery(before)
+        if (!parsed) return
+        replaceQueryRangeWithRef('skill', name, parsed, '/')
+      },
+      [replaceQueryRangeWithRef]
     )
 
     const setPlainText = useCallback(
@@ -354,10 +479,11 @@ export const RichInputArea = forwardRef(function RichInputArea(
         focus: focusEditor,
         insertFileTag,
         insertCommandTag,
+        insertSkillTag,
         setContent: setPlainText,
         setPlainText
       }),
-      [getText, clear, focusEditor, insertCommandTag, insertFileTag, setPlainText]
+      [getText, clear, focusEditor, insertCommandTag, insertFileTag, insertSkillTag, setPlainText]
     )
 
     useEffect(() => {
@@ -457,6 +583,94 @@ export const RichInputArea = forwardRef(function RichInputArea(
       [disabled, onInput, onSubmit, onToggleModeShortcut, suppressSubmit]
     )
 
+    const insertClipboardSegmentsAtCaret = useCallback(
+      (segments: ClipboardSegment[]): void => {
+        const editor = editorRef.current
+        if (!editor) return
+        const sel = window.getSelection()
+        if (!sel || sel.rangeCount === 0) return
+        const range = sel.getRangeAt(0)
+        if (!editor.contains(range.startContainer)) return
+
+        const frag = document.createDocumentFragment()
+        const marker = document.createTextNode('')
+        for (const seg of segments) {
+          if (seg.type === 'text') {
+            if (seg.value.length > 0) frag.appendChild(document.createTextNode(seg.value))
+            continue
+          }
+          if (seg.type === 'file') {
+            frag.appendChild(createRefSpan('file', seg.relativePath))
+            frag.appendChild(document.createTextNode('\u00a0'))
+            continue
+          }
+          if (seg.type === 'command') {
+            frag.appendChild(createRefSpan('command', seg.command))
+            frag.appendChild(document.createTextNode('\u00a0'))
+            continue
+          }
+          frag.appendChild(createRefSpan('skill', seg.skillName))
+          frag.appendChild(document.createTextNode('\u00a0'))
+        }
+        frag.appendChild(marker)
+
+        range.deleteContents()
+        range.insertNode(frag)
+        range.setStartAfter(marker)
+        range.collapse(true)
+        marker.remove()
+        sel.removeAllRanges()
+        sel.addRange(range)
+      },
+      []
+    )
+
+    const onEditorClick = useCallback(
+      (e: React.MouseEvent<HTMLDivElement>): void => {
+        const target = e.target
+        if (!(target instanceof HTMLElement)) return
+        if (!target.classList.contains('dc-ref-icon-remove')) return
+        const tag = target.closest('[data-ref-type]')
+        if (!(tag instanceof HTMLElement)) return
+        e.preventDefault()
+        e.stopPropagation()
+        const next = tag.nextSibling
+        const prev = tag.previousSibling
+        tag.remove()
+        if (next?.nodeType === Node.TEXT_NODE && (next.textContent === '\u00a0' || next.textContent === ' ')) {
+          next.remove()
+        } else if (
+          prev?.nodeType === Node.TEXT_NODE &&
+          (prev.textContent === '\u00a0' || prev.textContent === ' ')
+        ) {
+          prev.remove()
+        }
+        onInput()
+      },
+      [onInput]
+    )
+
+    const onCopyOrCut = useCallback(
+      (e: React.ClipboardEvent<HTMLDivElement>, cut: boolean): void => {
+        const editor = editorRef.current
+        const sel = window.getSelection()
+        if (!editor || !sel || sel.rangeCount === 0 || sel.isCollapsed) return
+        const range = sel.getRangeAt(0)
+        if (!editor.contains(range.commonAncestorContainer)) return
+        const container = document.createElement('div')
+        container.appendChild(range.cloneContents())
+        const segments = collectClipboardSegmentsFromRoot(container)
+        const plainText = clipboardSegmentsToPlainText(segments)
+        e.preventDefault()
+        e.clipboardData.setData('text/plain', plainText)
+        e.clipboardData.setData(RICH_REFS_CLIPBOARD_MIME, JSON.stringify({ version: 1, segments }))
+        if (!cut) return
+        range.deleteContents()
+        onInput()
+      },
+      [onInput]
+    )
+
     const onPaste = useCallback(
       (e: React.ClipboardEvent<HTMLDivElement>): void => {
         const items = Array.from(e.clipboardData.items)
@@ -467,21 +681,38 @@ export const RichInputArea = forwardRef(function RichInputArea(
           if (file) onPasteImage(file)
           return
         }
+        const richPayload = e.clipboardData.getData(RICH_REFS_CLIPBOARD_MIME)
+        if (richPayload.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(richPayload) as { segments?: ClipboardSegment[] }
+            const segments = Array.isArray(parsed.segments) ? parsed.segments : []
+            if (segments.length > 0) {
+              e.preventDefault()
+              insertClipboardSegmentsAtCaret(segments)
+              onInput()
+              return
+            }
+          } catch {
+            // Ignore malformed payload and fall back to plain text.
+          }
+        }
         const pasted = e.clipboardData.getData('text/plain')
         if (pasted.length > MAX_TEXT_LEN) {
           e.preventDefault()
           const truncated = pasted.slice(0, MAX_TEXT_LEN)
-          document.execCommand('insertText', false, truncated)
+          const segments = parseSkillMarkersFromText(truncated)
+          insertClipboardSegmentsAtCaret(segments)
           onInput()
           onPasteTextOversized?.()
           return
         }
         e.preventDefault()
         const text = e.clipboardData.getData('text/plain')
-        document.execCommand('insertText', false, text)
+        const segments = parseSkillMarkersFromText(text)
+        insertClipboardSegmentsAtCaret(segments)
         onInput()
       },
-      [onInput, onPasteImage, onPasteTextOversized]
+      [insertClipboardSegmentsAtCaret, onInput, onPasteImage, onPasteTextOversized]
     )
 
     return (
@@ -496,6 +727,26 @@ export const RichInputArea = forwardRef(function RichInputArea(
           .rich-input-area[data-chrome="default"]:focus {
             border-color: var(--border-active);
           }
+          .dc-file-ref .dc-ref-icon-remove,
+          .dc-command-ref .dc-ref-icon-remove,
+          .dc-skill-ref .dc-ref-icon-remove {
+            display: none;
+          }
+          .dc-ref-icon-default {
+            display: inline-flex;
+            align-items: center;
+          }
+          .dc-file-ref:hover .dc-ref-icon-default,
+          .dc-command-ref:hover .dc-ref-icon-default,
+          .dc-skill-ref:hover .dc-ref-icon-default {
+            display: none;
+          }
+          .dc-file-ref:hover .dc-ref-icon-remove,
+          .dc-command-ref:hover .dc-ref-icon-remove,
+          .dc-skill-ref:hover .dc-ref-icon-remove {
+            display: inline-flex;
+            cursor: pointer;
+          }
         `}</style>
         <div
           ref={editorRef}
@@ -508,7 +759,10 @@ export const RichInputArea = forwardRef(function RichInputArea(
           data-empty={showPh ? 'true' : 'false'}
           data-chrome={chrome}
           onInput={onInput}
+          onClick={onEditorClick}
           onKeyDown={onKeyDown}
+          onCopy={(e) => onCopyOrCut(e, false)}
+          onCut={(e) => onCopyOrCut(e, true)}
           onPaste={onPaste}
           onFocus={() => onFocusChange?.(true)}
           onBlur={() => onFocusChange?.(false)}

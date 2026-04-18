@@ -273,7 +273,7 @@ This section defines how Wire Protocol notifications and server-initiated reques
 | `item/started` (type: `approvalRequest`) | Pause rendering; handled separately via approval flow (§10). |
 | `item/agentMessage/delta` | Append `delta` to `active_streaming.message_buffer`. |
 | `item/reasoning/delta` | Append `delta` to `active_streaming.reasoning_buffer`. Set `active_streaming.is_reasoning = true`. |
-| `item/toolCall/argumentsDelta` | Append `delta` to matching `ActiveToolCall.arguments` (prefer matching by `callId`; fallback to latest unfinished tool call). Used for progressive argument preview rendering. |
+| `item/toolCall/argumentsDelta` | Append `delta` to matching `ActiveToolCall.arguments` (prefer matching by `callId`; fallback to latest unfinished tool call). Used for progressive argument preview rendering. The TUI renders a bespoke running label for each known built-in tool (`WriteFile`, `EditFile`, `ReadFile`, `GrepFiles`, `Exec`, `CreatePlan`, `WebSearch`, LSP tools, etc.) extracted tolerantly from the partial JSON, and falls back to a generic `Generating parameters for <toolName>...` label for unknown tools without leaking raw JSON to the user. |
 | `item/completed` (type: `agentMessage`) | Finalize: move `active_streaming.message_buffer` to a `HistoryEntry::AgentMessage`. |
 | `item/completed` (type: `toolResult`) | Mark matching `ActiveToolCall` as completed. Set `duration = Instant::now() - started_at`. Store result summary. |
 | `item/approval/resolved` | Clear `pending_approval`. Resume normal rendering. |

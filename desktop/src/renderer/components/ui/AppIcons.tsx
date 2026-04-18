@@ -2,10 +2,13 @@ import type { CSSProperties, JSX } from 'react'
 import {
   Activity,
   Bot,
+  ChevronDown,
   CircleCheck,
+  Code2,
   Clock,
   ExternalLink,
   Folder,
+  GitCommitVertical,
   Monitor,
   RotateCw,
   Sparkle,
@@ -26,6 +29,18 @@ export function CheckCircleIcon({ size = 16 }: { size?: number }): JSX.Element {
 
 export function OpenInBrowserIcon({ size = 16 }: { size?: number }): JSX.Element {
   return <ExternalLink size={size} strokeWidth={1.8} aria-hidden="true" />
+}
+
+export function CommitIcon({ size = 16 }: { size?: number }): JSX.Element {
+  return <GitCommitVertical size={size} strokeWidth={1.8} aria-hidden="true" />
+}
+
+export function EditorGenericIcon({ size = 16 }: { size?: number }): JSX.Element {
+  return <Code2 size={size} strokeWidth={1.8} aria-hidden="true" />
+}
+
+export function ChevronDownIcon({ size = 16 }: { size?: number }): JSX.Element {
+  return <ChevronDown size={size} strokeWidth={1.8} aria-hidden="true" />
 }
 
 export function SparkIcon({ size = 16 }: { size?: number }): JSX.Element {
@@ -102,6 +117,14 @@ export function IDEIcon({ size = 16 }: { size?: number }): JSX.Element {
 }
 
 export function TerminalIcon({ size = 16 }: { size?: number }): JSX.Element {
+  return <SquareTerminal size={size} strokeWidth={1.8} aria-hidden="true" />
+}
+
+export function ExplorerIcon({ size = 16 }: { size?: number }): JSX.Element {
+  return <Folder size={size} strokeWidth={1.8} aria-hidden="true" />
+}
+
+export function TerminalBashIcon({ size = 16 }: { size?: number }): JSX.Element {
   return <SquareTerminal size={size} strokeWidth={1.8} aria-hidden="true" />
 }
 

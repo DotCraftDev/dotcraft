@@ -8,7 +8,7 @@ export interface FeishuConfig {
     appSecret: string;
     verificationToken?: string;
     encryptKey?: string;
-    brand?: "feishu" | "lark" | string;
+    brand?: "feishu" | "lark";
     approvalTimeoutMs?: number;
     groupMentionRequired?: boolean;
     ackReactionEmoji?: string;

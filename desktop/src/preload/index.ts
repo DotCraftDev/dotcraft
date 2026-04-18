@@ -12,6 +12,24 @@ export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
+export type EditorId =
+  | 'explorer'
+  | 'vs'
+  | 'cursor'
+  | 'vscode'
+  | 'rider'
+  | 'webstorm'
+  | 'idea'
+  | 'github-desktop'
+  | 'git-bash'
+  | 'terminal'
+
+export interface EditorInfo {
+  id: EditorId
+  labelKey: string
+  iconKey: string
+  iconDataUrl?: string
+}
 
 export interface NotificationPayload {
   method: string
@@ -102,6 +120,8 @@ export interface ConfigDescriptorWire {
   key: string
   displayLabel: string
   description: string
+  localizedDisplayLabel?: Partial<Record<'en' | 'zh-Hans', string>>
+  localizedDescription?: Partial<Record<'en' | 'zh-Hans', string>>
   required: boolean
   dataKind: string
   masked: boolean
@@ -402,6 +422,14 @@ const api = {
      */
     openExternal(url: string): Promise<void> {
       return ipcRenderer.invoke('shell:open-external', url)
+    },
+
+    listEditors(): Promise<EditorInfo[]> {
+      return ipcRenderer.invoke('editors:list')
+    },
+
+    launchEditor(id: EditorId, cwd: string): Promise<void> {
+      return ipcRenderer.invoke('editors:launch', id, cwd)
     }
   },
 
@@ -638,6 +666,7 @@ const api = {
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]
+      lastOpenEditorId?: EditorId
     }> {
       return ipcRenderer.invoke('settings:get')
     },
@@ -670,6 +699,7 @@ const api = {
       theme?: 'dark' | 'light'
       locale?: 'en' | 'zh-Hans'
       visibleChannels?: string[]
+      lastOpenEditorId?: EditorId
     }): Promise<void> {
       return ipcRenderer.invoke('settings:set', partial)
     }

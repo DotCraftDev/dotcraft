@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Sparkle, Terminal } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import type { CustomCommandInfo } from '../../hooks/useCustomCommandCatalog'
+
+export interface SlashSkillInfo {
+  name: string
+  description: string
+}
 
 interface CommandSearchPopoverProps {
   query: string
   visible: boolean
   loading: boolean
   commands: CustomCommandInfo[]
-  onSelect: (commandName: string) => void
+  skills?: SlashSkillInfo[]
+  onSelectCommand: (commandName: string) => void
+  onSelectSkill?: (skillName: string) => void
   onDismiss: () => void
 }
 
@@ -16,12 +24,15 @@ export function CommandSearchPopover({
   visible,
   loading,
   commands,
-  onSelect,
+  skills,
+  onSelectCommand,
+  onSelectSkill,
   onDismiss
 }: CommandSearchPopoverProps): JSX.Element | null {
   const t = useT()
+  const skillList = skills ?? []
   const [highlight, setHighlight] = useState(0)
-  const filtered = useMemo(() => {
+  const filteredCommands = useMemo(() => {
     const prefix = query.toLowerCase()
     if (!prefix) return commands
     return commands.filter((cmd) => {
@@ -32,10 +43,22 @@ export function CommandSearchPopover({
       })
     })
   }, [commands, query])
+  const filteredSkills = useMemo(() => {
+    const prefix = query.toLowerCase()
+    if (!prefix) return skillList
+    return skillList.filter((skill) => skill.name.toLowerCase().startsWith(prefix))
+  }, [query, skillList])
+  const entries = useMemo(
+    () => [
+      ...filteredCommands.map((command) => ({ type: 'command' as const, command })),
+      ...filteredSkills.map((skill) => ({ type: 'skill' as const, skill }))
+    ],
+    [filteredCommands, filteredSkills]
+  )
 
   useEffect(() => {
     setHighlight(0)
-  }, [filtered, query])
+  }, [entries, query])
 
   useEffect(() => {
     if (!visible) return
@@ -46,11 +69,11 @@ export function CommandSearchPopover({
         onDismiss()
         return
       }
-      if (filtered.length === 0) return
+      if (entries.length === 0) return
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         e.stopPropagation()
-        setHighlight((h) => Math.min(filtered.length - 1, h + 1))
+        setHighlight((h) => Math.min(entries.length - 1, h + 1))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         e.stopPropagation()
@@ -58,15 +81,17 @@ export function CommandSearchPopover({
       } else if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault()
         e.stopPropagation()
-        const command = filtered[highlight]
-        if (command) onSelect(command.name)
+        const item = entries[highlight]
+        if (!item) return
+        if (item.type === 'command') onSelectCommand(item.command.name)
+        else onSelectSkill?.(item.skill.name)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => {
       window.removeEventListener('keydown', onKey, true)
     }
-  }, [filtered, highlight, onDismiss, onSelect, visible])
+  }, [entries, highlight, onDismiss, onSelectCommand, onSelectSkill, visible])
 
   if (!visible) return null
 
@@ -92,87 +117,176 @@ export function CommandSearchPopover({
     >
       {loading && (
         <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-          {t('commandSearch.loading')}
+          {t('slashSearch.loading')}
         </div>
       )}
-      {!loading && filtered.length === 0 && query.trim() !== '' && (
+      {!loading && entries.length === 0 && query.trim() !== '' && (
         <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-          {t('commandSearch.noMatch')}
+          {t('slashSearch.noMatch')}
         </div>
       )}
-      {!loading && filtered.length === 0 && query.trim() === '' && (
+      {!loading && entries.length === 0 && query.trim() === '' && (
         <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-          {t('commandSearch.hint')}
+          {t('slashSearch.hint')}
         </div>
       )}
-      {filtered.map((cmd, i) => (
-        <button
-          key={cmd.name}
-          type="button"
-          role="option"
-          aria-selected={i === highlight}
-          onMouseEnter={() => {
-            setHighlight(i)
-          }}
-          onClick={() => {
-            onSelect(cmd.name)
-          }}
-          style={{
-            display: 'flex',
-            width: '100%',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '7px 12px',
-            border: 'none',
-            background: i === highlight ? 'var(--bg-active)' : 'transparent',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-            textAlign: 'left'
-          }}
-        >
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              borderRadius: '5px',
-              padding: '1px 6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--accent) 38%, transparent)',
-              color: 'var(--accent)',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            {highlightMatch(cmd.name, query)}
-          </span>
-          <span
-            style={{
-              fontSize: '12px',
-              color: 'var(--text-secondary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
-            }}
-            title={cmd.description}
-          >
-            {cmd.description || t('commandSearch.noDescription')}
-          </span>
-        </button>
-      ))}
+      {!loading && filteredCommands.length > 0 && (
+        <SectionHeader label={t('slashSearch.commandsGroup')} />
+      )}
+      {!loading &&
+        filteredCommands.map((cmd) => {
+          const index = entries.findIndex((entry) => entry.type === 'command' && entry.command.name === cmd.name)
+          return (
+            <button
+              key={cmd.name}
+              type="button"
+              role="option"
+              aria-selected={index === highlight}
+              onMouseEnter={() => {
+                setHighlight(index)
+              }}
+              onClick={() => {
+                onSelectCommand(cmd.name)
+              }}
+              style={{
+                display: 'flex',
+                width: '100%',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '7px 12px',
+                border: 'none',
+                background: index === highlight ? 'var(--bg-active)' : 'transparent',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                textAlign: 'left'
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  borderRadius: '5px',
+                  padding: '1px 6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--accent) 38%, transparent)',
+                  color: 'var(--accent)',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <Terminal size={11} strokeWidth={2} aria-hidden />
+                {highlightMatch(cmd.name.replace(/^\/+/, ''), query)}
+              </span>
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+                title={cmd.description}
+              >
+                {cmd.description || t('slashSearch.noDescription')}
+              </span>
+            </button>
+          )
+        })}
+      {!loading && filteredSkills.length > 0 && (
+        <SectionHeader label={t('slashSearch.skillsGroup')} />
+      )}
+      {!loading &&
+        filteredSkills.map((skill) => {
+          const index = entries.findIndex((entry) => entry.type === 'skill' && entry.skill.name === skill.name)
+          return (
+            <button
+              key={skill.name}
+              type="button"
+              role="option"
+              aria-selected={index === highlight}
+              onMouseEnter={() => {
+                setHighlight(index)
+              }}
+              onClick={() => {
+                onSelectSkill?.(skill.name)
+              }}
+              style={{
+                display: 'flex',
+                width: '100%',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '7px 12px',
+                border: 'none',
+                background: index === highlight ? 'var(--bg-active)' : 'transparent',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                textAlign: 'left'
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  borderRadius: '5px',
+                  padding: '1px 6px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  background: 'color-mix(in srgb, var(--success) 16%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--success) 38%, transparent)',
+                  color: 'var(--success)',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <Sparkle size={11} strokeWidth={2} aria-hidden />
+                {highlightMatch(skill.name, query)}
+              </span>
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+                title={skill.description}
+              >
+                {skill.description || t('slashSearch.noDescription')}
+              </span>
+            </button>
+          )
+        })}
+    </div>
+  )
+}
+
+function SectionHeader({ label }: { label: string }): JSX.Element {
+  return (
+    <div
+      style={{
+        padding: '4px 12px 3px',
+        fontSize: '11px',
+        color: 'var(--text-dimmed)',
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.04em'
+      }}
+    >
+      {label}
     </div>
   )
 }
 
 function highlightMatch(name: string, query: string): JSX.Element {
-  const target = name.slice(1)
+  const target = name.replace(/^\/+/, '')
   const lower = target.toLowerCase()
   const lowerQuery = query.toLowerCase()
   const idx = lower.indexOf(lowerQuery)
-  if (!query || idx < 0) return <>{name}</>
+  if (!query || idx < 0) return <>{target}</>
   return (
     <>
-      /
       {target.slice(0, idx)}
       <span style={{ color: 'var(--text-primary)' }}>{target.slice(idx, idx + query.length)}</span>
       {target.slice(idx + query.length)}

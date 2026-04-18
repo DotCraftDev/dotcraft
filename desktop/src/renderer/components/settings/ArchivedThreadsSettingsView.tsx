@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState, type CSSProperties, type JSX } from 'react'
+import { Trash2 } from 'lucide-react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { addToast } from '../../stores/toastStore'
 import { useThreadStore } from '../../stores/threadStore'
 import type { SessionIdentity, ThreadSummary } from '../../types/thread'
 import { formatRelativeTime } from '../../utils/relativeTime'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
+import { ContextMenu, type ContextMenuPosition } from '../ui/ContextMenu'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 
 interface ArchivedThreadsSettingsViewProps {
@@ -36,6 +39,10 @@ export function ArchivedThreadsSettingsView({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [restoringIds, setRestoringIds] = useState<Set<string>>(new Set())
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
+  const [deletingAll, setDeletingAll] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ threadId: string; position: ContextMenuPosition } | null>(null)
+  const confirm = useConfirmDialog()
 
   const loadArchivedThreads = useCallback(async () => {
     if (!workspacePath) {
@@ -106,8 +113,100 @@ export function ArchivedThreadsSettingsView({
     }
   }
 
+  async function confirmDeleteThread(threadId: string): Promise<void> {
+    const ok = await confirm({
+      title: t('archivedThreads.deleteConfirmTitle'),
+      message: t('archivedThreads.deleteConfirmMessage'),
+      confirmLabel: t('archivedThreads.delete'),
+      danger: true
+    })
+    if (!ok) return
+    setDeletingIds((current) => {
+      const next = new Set(current)
+      next.add(threadId)
+      return next
+    })
+    try {
+      await window.api.appServer.sendRequest('thread/delete', { threadId })
+      setThreads((current) => current.filter((thread) => thread.id !== threadId))
+      useThreadStore.getState().removeThread(threadId)
+      onThreadListRefreshRequested?.()
+      addToast(t('archivedThreads.deleteSuccess'), 'success')
+    } catch (err) {
+      addToast(
+        t('archivedThreads.deleteFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setDeletingIds((current) => {
+        const next = new Set(current)
+        next.delete(threadId)
+        return next
+      })
+    }
+  }
+
+  async function confirmDeleteAll(): Promise<void> {
+    if (threads.length === 0 || deletingAll) return
+    const ok = await confirm({
+      title: t('archivedThreads.deleteAllConfirmTitle'),
+      message: t('archivedThreads.deleteAllConfirmMessage', { count: threads.length }),
+      confirmLabel: t('archivedThreads.deleteAll'),
+      danger: true
+    })
+    if (!ok) return
+    setDeletingAll(true)
+    const failures: string[] = []
+    for (const thread of [...threads]) {
+      try {
+        await window.api.appServer.sendRequest('thread/delete', { threadId: thread.id })
+        setThreads((current) => current.filter((item) => item.id !== thread.id))
+        useThreadStore.getState().removeThread(thread.id)
+      } catch (err) {
+        failures.push(thread.displayName?.trim() || thread.id)
+        console.error('thread/delete failed:', err)
+      }
+    }
+    onThreadListRefreshRequested?.()
+    if (failures.length === 0) {
+      addToast(t('archivedThreads.deleteAllSuccess'), 'success')
+    } else {
+      addToast(
+        t('archivedThreads.bulkDeleteSummary', {
+          success: Math.max(threads.length - failures.length, 0),
+          failed: failures.length
+        }),
+        'warning'
+      )
+    }
+    setDeletingAll(false)
+  }
+
   return (
-    <SettingsGroup title={t('archivedThreads.title')} description={t('archivedThreads.description')}>
+    <SettingsGroup
+      title={t('archivedThreads.title')}
+      description={t('archivedThreads.description')}
+      headerAction={
+        !loading && !error ? (
+          <button
+            type="button"
+            onClick={() => {
+              void confirmDeleteAll()
+            }}
+            disabled={threads.length === 0 || deletingAll}
+            style={{
+              ...actionButtonStyle(threads.length === 0 || deletingAll),
+              borderColor: 'color-mix(in srgb, var(--error) 46%, transparent)',
+              color: 'var(--error)'
+            }}
+          >
+            {deletingAll ? t('archivedThreads.deletingAll') : t('archivedThreads.deleteAll')}
+          </button>
+        ) : undefined
+      }
+    >
       {loading && (
         <SettingsRow>
           <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>{t('archivedThreads.loading')}</div>
@@ -134,9 +233,17 @@ export function ArchivedThreadsSettingsView({
         threads.map((thread) => {
           const displayName = thread.displayName?.trim() || t('sidebar.newConversation')
           const restoring = restoringIds.has(thread.id)
+          const deleting = deletingIds.has(thread.id)
           return (
             <SettingsRow
               key={thread.id}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setContextMenu({
+                  threadId: thread.id,
+                  position: { x: e.clientX, y: e.clientY }
+                })
+              }}
               label={
                 <span
                   style={{
@@ -159,20 +266,67 @@ export function ArchivedThreadsSettingsView({
                 </>
               }
               control={
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleRestore(thread.id)
-                  }}
-                  disabled={restoring}
-                  style={actionButtonStyle(restoring)}
-                >
-                  {restoring ? t('archivedThreads.restoring') : t('archivedThreads.restore')}
-                </button>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleRestore(thread.id)
+                    }}
+                    disabled={restoring || deleting}
+                    style={actionButtonStyle(restoring || deleting)}
+                  >
+                    {restoring ? t('archivedThreads.restoring') : t('archivedThreads.restore')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void confirmDeleteThread(thread.id)
+                    }}
+                    disabled={restoring || deleting}
+                    title={t('archivedThreads.delete')}
+                    aria-label={t('archivedThreads.delete')}
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '6px',
+                      border: '1px solid color-mix(in srgb, var(--error) 46%, transparent)',
+                      background: 'transparent',
+                      color: 'var(--error)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: restoring || deleting ? 'default' : 'pointer',
+                      opacity: restoring || deleting ? 0.7 : 1
+                    }}
+                  >
+                    <Trash2 size={14} strokeWidth={2} aria-hidden />
+                  </button>
+                </div>
               }
             />
           )
         })}
+      {contextMenu && (
+        <ContextMenu
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+          items={[
+            {
+              label: t('archivedThreads.restore'),
+              onClick: () => {
+                void handleRestore(contextMenu.threadId)
+              }
+            },
+            {
+              label: t('archivedThreads.delete'),
+              danger: true,
+              onClick: () => {
+                void confirmDeleteThread(contextMenu.threadId)
+              }
+            }
+          ]}
+        />
+      )}
     </SettingsGroup>
   )
 }

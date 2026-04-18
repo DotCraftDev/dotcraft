@@ -32,10 +32,9 @@ type FeishuApiPayload = {
   raw: unknown;
 };
 
-function resolveBrand(brand?: string): string | Lark.Domain {
+function resolveBrand(brand?: FeishuConfig["feishu"]["brand"]): Lark.Domain {
   if (!brand || brand === "feishu") return Lark.Domain.Feishu;
-  if (brand === "lark") return Lark.Domain.Lark;
-  return brand.replace(/\/+$/, "");
+  return Lark.Domain.Lark;
 }
 
 async function extractBufferFromResponse(
@@ -926,12 +925,9 @@ function extensionFromContentType(contentType?: string): string {
   }
 }
 
-function resolveApiBaseUrl(brand?: string): string {
+function resolveApiBaseUrl(brand?: FeishuConfig["feishu"]["brand"]): string {
   if (!brand || brand === "feishu") return "https://open.feishu.cn";
-  if (brand === "lark") return "https://open.larksuite.com";
-
-  const normalized = brand.replace(/\/+$/, "");
-  return /^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`;
+  return "https://open.larksuite.com";
 }
 
 function toFeishuFileType(fileName: string, mediaType?: string): string {

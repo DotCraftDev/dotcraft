@@ -45,6 +45,11 @@ export interface UIState {
    * Prevents re-triggering after the user manually hides the panel.
    */
   autoShowTriggeredForTurn: string | null
+  /**
+   * Tracks the streaming CreatePlan item ID for which the Plan tab auto-switch
+   * has already been triggered.
+   */
+  autoShowPlanForItem: string | null
   /** Text to pre-fill into the InputComposer when its next mounts. */
   composerPrefill: string | null
   /**
@@ -63,6 +68,8 @@ export interface UIState {
   } | null
   /** Unsent draft on ConversationWelcome, preserved across thread navigation. */
   welcomeDraft: WelcomeDraft | null
+  /** Per-turn dismissal marker for the plan approval composer. */
+  planApprovalDismissed: Record<string, boolean>
 }
 
 interface UIStore extends UIState {
@@ -82,6 +89,8 @@ interface UIStore extends UIState {
   showChangesForFile(filePath: string): void
   /** Mark auto-show as triggered for a given turn (prevents re-trigger) */
   markAutoShowForTurn(turnId: string): void
+  /** Mark plan auto-switch as triggered for a given CreatePlan item. */
+  markAutoShowPlanForItem(itemId: string): void
   /** Set text to be picked up by InputComposer on its next mount. */
   setComposerPrefill(text: string): void
   /** Read and clear the prefill text atomically. */
@@ -98,6 +107,8 @@ interface UIStore extends UIState {
   cancelPendingWelcomeTurnForThread(threadId: string): void
   setWelcomeDraft(draft: Omit<WelcomeDraft, 'updatedAt'> | null): void
   clearWelcomeDraft(): void
+  dismissPlanApproval(turnId: string): void
+  resetPlanApprovalDismissed(): void
 }
 
 /** Internal state not exposed in UIState but used for timeout management */
@@ -115,9 +126,11 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   activeDetailTab: 'changes',
   selectedChangedFile: null,
   autoShowTriggeredForTurn: null,
+  autoShowPlanForItem: null,
   composerPrefill: null,
   pendingWelcomeTurn: null,
   welcomeDraft: null,
+  planApprovalDismissed: {},
 
   setActiveMainView(view) {
     set({ activeMainView: view })
@@ -125,7 +138,7 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   goToNewChat() {
     useThreadStore.getState().setActiveThreadId(null)
-    set({ activeMainView: 'conversation' })
+    set({ activeMainView: 'conversation', planApprovalDismissed: {} })
   },
 
   setAutomationsTab(tab) {
@@ -176,6 +189,10 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   markAutoShowForTurn(turnId) {
     set({ autoShowTriggeredForTurn: turnId })
+  },
+
+  markAutoShowPlanForItem(itemId) {
+    set({ autoShowPlanForItem: itemId })
   },
 
   setComposerPrefill(text) {
@@ -254,6 +271,20 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   clearWelcomeDraft() {
     set({ welcomeDraft: null })
+  },
+
+  dismissPlanApproval(turnId) {
+    if (!turnId) return
+    set((state) => ({
+      planApprovalDismissed: {
+        ...state.planApprovalDismissed,
+        [turnId]: true
+      }
+    }))
+  },
+
+  resetPlanApprovalDismissed() {
+    set({ planApprovalDismissed: {} })
   },
 
   // Internal state for timeout timer (not exposed in UIState interface)

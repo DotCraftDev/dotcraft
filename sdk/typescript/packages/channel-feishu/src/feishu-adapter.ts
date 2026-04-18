@@ -60,6 +60,7 @@ export function validateFeishuConfig(rawConfig: unknown): asserts rawConfig is F
   const wsUrl = String(dotcraft.wsUrl ?? "").trim();
   const appId = String(feishu.appId ?? "").trim();
   const appSecret = String(feishu.appSecret ?? "").trim();
+  const brand = String(feishu.brand ?? "").trim();
   if (!wsUrl) {
     fields.push("dotcraft.wsUrl");
   } else if (!/^wss?:\/\//i.test(wsUrl)) {
@@ -67,6 +68,9 @@ export function validateFeishuConfig(rawConfig: unknown): asserts rawConfig is F
   }
   if (!appId) fields.push("feishu.appId");
   if (!appSecret) fields.push("feishu.appSecret");
+  if (brand && brand !== "feishu" && brand !== "lark") {
+    throw new ConfigValidationError("feishu.brand must be either 'feishu' or 'lark'.", ["feishu.brand"]);
+  }
   if (fields.length > 0) {
     throw new ConfigValidationError(`Missing required fields: ${fields.join(", ")}`, fields);
   }

@@ -13,8 +13,90 @@ import {
 type ToolArgs = Record<string, unknown> | undefined
 type PlanTodoLike = { id?: string; content?: string }
 
-const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles', 'ListDirectory'])
+const EXPLORE_TOOLS = new Set(['ReadFile', 'GrepFiles', 'FindFiles'])
 export const FILE_WRITE_TOOLS = new Set(['WriteFile', 'EditFile'])
+
+/**
+ * Built-in DotCraft tool names (PascalCase). Tools in this set get bespoke
+ * streaming-running copy and parsed parameter previews; tools outside it are
+ * treated as external (MCP / module-contributed) and never render raw argument
+ * JSON to the user while streaming — we show `Generating parameters for X...`
+ * until the final tool-call arrives.
+ */
+export const BUILTIN_TOOLS = new Set<string>([
+  'ReadFile',
+  'WriteFile',
+  'EditFile',
+  'GrepFiles',
+  'FindFiles',
+  'Exec',
+  'WebSearch',
+  'WebFetch',
+  'SpawnSubagent',
+  'LSP',
+  'SearchTools',
+  'Cron',
+  'CommitSuggest',
+  'CreatePlan',
+  'UpdateTodos',
+  'TodoWrite'
+])
+
+export function isBuiltinTool(toolName: string): boolean {
+  return BUILTIN_TOOLS.has(toolName)
+}
+
+/**
+ * Best-effort extraction of a string field from a partial JSON fragment.
+ * Tolerates incomplete strings (returns whatever has arrived so far when the
+ * closing quote is missing). Mirrors the helper in TUI's `tool_format.rs`.
+ */
+export function extractPartialJsonStringValue(json: string, key: string): string | null {
+  const keyPattern = `"${key}"`
+  const keyIndex = json.indexOf(keyPattern)
+  if (keyIndex < 0) return null
+  const colonIndex = json.indexOf(':', keyIndex + keyPattern.length)
+  if (colonIndex < 0) return null
+  const quoteIndex = json.indexOf('"', colonIndex + 1)
+  if (quoteIndex < 0) return null
+
+  let escaped = false
+  let out = ''
+  for (let i = quoteIndex + 1; i < json.length; i += 1) {
+    const ch = json[i]
+    if (escaped) {
+      switch (ch) {
+        case 'n': out += '\n'; break
+        case 'r': out += '\r'; break
+        case 't': out += '\t'; break
+        case 'b': out += '\b'; break
+        case 'f': out += '\f'; break
+        case '\\': out += '\\'; break
+        case '"': out += '"'; break
+        case '/': out += '/'; break
+        default: out += '\\' + ch; break
+      }
+      escaped = false
+      continue
+    }
+    if (ch === '\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      return out
+    }
+    out += ch
+  }
+
+  return out
+}
+
+function truncateChars(value: string, max: number): string {
+  const arr = Array.from(value)
+  if (arr.length <= max) return value
+  return arr.slice(0, max).join('') + '...'
+}
 
 function getFilename(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
@@ -173,6 +255,14 @@ export function formatCollapsedToolLabel(
   const todoLabel = formatTodoLabel(toolName, args, locale, options?.planTodos)
   if (todoLabel) return todoLabel
 
+  if (toolName === 'CreatePlan') {
+    const title = typeof args?.title === 'string' ? args.title.trim() : ''
+    if (title) {
+      return translate(locale, 'toolCall.plan.collapsedLabel', { title })
+    }
+    return translate(locale, 'toolCall.plan.collapsedLabelFallback')
+  }
+
   if (EXPLORE_TOOLS.has(toolName)) {
     const path = (args?.path as string | undefined) ?? (args?.pattern as string | undefined) ?? ''
     const filename = path ? getFilename(path) : ''
@@ -209,8 +299,248 @@ export function formatCollapsedToolLabel(
 
 function formatGenericInvocation(toolName: string, args: ToolArgs): string | null {
   if (!args || Object.keys(args).length === 0) return null
+  // Non-built-in tools (MCP / external modules) never surface raw argument
+  // JSON to the user; show only the tool name as a label.
+  if (!isBuiltinTool(toolName)) {
+    return toolName
+  }
   const entries = Object.entries(args).map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
   return `${toolName}(${entries.join(', ')})`
+}
+
+/**
+ * Parsed preview extracted from the streaming JSON delta for a tool call.
+ * Populated only for built-in tools with a streaming-aware rendering.
+ */
+export interface StreamingParsedPreview {
+  /** File path preview for WriteFile / EditFile (used to render a diff header). */
+  path?: string | null
+  /** File content / newText preview for WriteFile / EditFile. */
+  content?: string | null
+  /** Partial CreatePlan draft, populated progressively while streaming. */
+  planDraft?: {
+    title?: string | null
+    overview?: string | null
+    plan?: string | null
+  }
+}
+
+export interface StreamingToolDisplay {
+  /** Running label shown next to the spinner. */
+  label: string
+  /** Parsed preview data; absent for non-built-in tools. */
+  parsedPreview?: StreamingParsedPreview
+}
+
+/**
+ * Builds the running label + parsed preview for a streaming tool call.
+ *
+ * `argumentsPreview` is the concatenated argument JSON fragments received so
+ * far (may be invalid JSON). For built-in tools we extract known parameter
+ * fields and return a human-readable present-progress label; for unknown
+ * tools we return a generic placeholder that never contains raw JSON.
+ */
+export function getStreamingToolDisplay(
+  toolName: string,
+  argumentsPreview: string | null | undefined,
+  locale: AppLocale
+): StreamingToolDisplay {
+  const rawArgs = argumentsPreview ?? ''
+
+  if (!isBuiltinTool(toolName)) {
+    return {
+      label: translate(locale, 'toolCall.streaming.genericExternal', { toolName })
+    }
+  }
+
+  switch (toolName) {
+    case 'ReadFile': {
+      const path = extractPartialJsonStringValue(rawArgs, 'path')
+      const filename = path ? getFilename(path) : ''
+      return {
+        label: filename
+          ? translate(locale, 'toolCall.streaming.readingFile', { filename })
+          : translate(locale, 'toolCall.streaming.readingGeneric')
+      }
+    }
+    case 'WriteFile': {
+      const path = extractPartialJsonStringValue(rawArgs, 'path')
+      const content = extractPartialJsonStringValue(rawArgs, 'content')
+      const filename = path ? getFilename(path) : ''
+      return {
+        label: filename
+          ? translate(locale, 'toolCall.writingFile', { filename })
+          : translate(locale, 'toolCall.writingGeneric'),
+        parsedPreview: { path, content }
+      }
+    }
+    case 'EditFile': {
+      const path = extractPartialJsonStringValue(rawArgs, 'path')
+      const content = extractPartialJsonStringValue(rawArgs, 'newText')
+        ?? extractPartialJsonStringValue(rawArgs, 'content')
+      const filename = path ? getFilename(path) : ''
+      return {
+        label: filename
+          ? translate(locale, 'toolCall.editingFile', { filename })
+          : translate(locale, 'toolCall.editingGeneric'),
+        parsedPreview: { path, content }
+      }
+    }
+    case 'GrepFiles': {
+      const pattern = extractPartialJsonStringValue(rawArgs, 'pattern')
+      const path = extractPartialJsonStringValue(rawArgs, 'path')
+      const truncatedPattern = pattern ? truncateChars(pattern, 40) : ''
+      if (truncatedPattern && path) {
+        return {
+          label: translate(locale, 'toolCall.streaming.searchingGrepIn', {
+            pattern: truncatedPattern,
+            path
+          })
+        }
+      }
+      if (truncatedPattern) {
+        return {
+          label: translate(locale, 'toolCall.streaming.searchingGrep', {
+            pattern: truncatedPattern
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.searchingGeneric') }
+    }
+    case 'FindFiles': {
+      const pattern = extractPartialJsonStringValue(rawArgs, 'pattern')
+      const path = extractPartialJsonStringValue(rawArgs, 'path')
+      const truncatedPattern = pattern ? truncateChars(pattern, 40) : ''
+      if (truncatedPattern && path) {
+        return {
+          label: translate(locale, 'toolCall.streaming.findingFilesIn', {
+            pattern: truncatedPattern,
+            path
+          })
+        }
+      }
+      if (truncatedPattern) {
+        return {
+          label: translate(locale, 'toolCall.streaming.findingFiles', {
+            pattern: truncatedPattern
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.findingGeneric') }
+    }
+    case 'Exec': {
+      const command = extractPartialJsonStringValue(rawArgs, 'command')
+      if (command) {
+        const firstLine = command.split('\n')[0] ?? command
+        return {
+          label: translate(locale, 'toolCall.streaming.runningCommand', {
+            command: truncateChars(firstLine, 80)
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.runningGeneric') }
+    }
+    case 'WebSearch': {
+      const query = extractPartialJsonStringValue(rawArgs, 'query')
+      if (query) {
+        return {
+          label: translate(locale, 'toolCall.streaming.webSearch', {
+            query: truncateChars(query, 80)
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.webSearchGeneric') }
+    }
+    case 'WebFetch': {
+      const url = extractPartialJsonStringValue(rawArgs, 'url')
+      if (url) {
+        return {
+          label: translate(locale, 'toolCall.streaming.webFetch', {
+            url: truncateChars(url, 80)
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.webFetchGeneric') }
+    }
+    case 'SpawnSubagent': {
+      const label = extractPartialJsonStringValue(rawArgs, 'label')
+      const task = extractPartialJsonStringValue(rawArgs, 'task')
+      if (label) {
+        return {
+          label: translate(locale, 'toolCall.streaming.spawnSubagent', {
+            label: truncateChars(label, 60)
+          })
+        }
+      }
+      if (task) {
+        return {
+          label: translate(locale, 'toolCall.streaming.spawnSubagentTask', {
+            task: truncateChars(task, 60)
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.spawnSubagentGeneric') }
+    }
+    case 'LSP': {
+      const op = extractPartialJsonStringValue(rawArgs, 'operation')
+      const filePath = extractPartialJsonStringValue(rawArgs, 'filePath')
+      const filename = filePath ? getFilename(filePath) : ''
+      if (op && filename) {
+        return {
+          label: translate(locale, 'toolCall.streaming.lspOpOnFile', { op, filename })
+        }
+      }
+      if (op) {
+        return { label: translate(locale, 'toolCall.streaming.lspOp', { op }) }
+      }
+      return { label: translate(locale, 'toolCall.streaming.lspGeneric') }
+    }
+    case 'SearchTools': {
+      const query = extractPartialJsonStringValue(rawArgs, 'query')
+      if (query) {
+        return {
+          label: translate(locale, 'toolCall.streaming.searchTools', {
+            query: truncateChars(query, 60)
+          })
+        }
+      }
+      return { label: translate(locale, 'toolCall.streaming.searchToolsGeneric') }
+    }
+    case 'Cron': {
+      const action = extractPartialJsonStringValue(rawArgs, 'action')
+      if (action === 'add') return { label: translate(locale, 'toolCall.streaming.cronAdd') }
+      if (action === 'list') return { label: translate(locale, 'toolCall.streaming.cronList') }
+      if (action === 'remove') return { label: translate(locale, 'toolCall.streaming.cronRemove') }
+      return { label: translate(locale, 'toolCall.streaming.cronGeneric') }
+    }
+    case 'CommitSuggest': {
+      return { label: translate(locale, 'toolCall.streaming.commitSuggest') }
+    }
+    case 'CreatePlan': {
+      const title = extractPartialJsonStringValue(rawArgs, 'title')
+      const overview = extractPartialJsonStringValue(rawArgs, 'overview')
+      const plan = extractPartialJsonStringValue(rawArgs, 'plan')
+      return {
+        label: title
+          ? translate(locale, 'toolCall.streaming.draftingPlanTitled', {
+              title: truncateChars(title, 60)
+            })
+          : translate(locale, 'toolCall.streaming.draftingPlan'),
+        parsedPreview: {
+          planDraft: { title, overview, plan }
+        }
+      }
+    }
+    case 'TodoWrite':
+    case 'UpdateTodos': {
+      return { label: translate(locale, 'toolCall.streaming.updatingTodos') }
+    }
+    default: {
+      return {
+        label: translate(locale, 'toolCall.streaming.genericBuiltin', { toolName })
+      }
+    }
+  }
 }
 
 export function formatExpandedInvocation(

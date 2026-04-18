@@ -5,6 +5,17 @@ export type ProxyOAuthProvider = 'codex' | 'claude' | 'gemini' | 'qwen' | 'iflow
 export type WorkspaceSetupState = 'no-workspace' | 'needs-setup' | 'ready'
 export type WorkspaceBootstrapProfile = 'default' | 'developer' | 'personal-assistant'
 export type WorkspaceLanguage = 'Chinese' | 'English'
+export type EditorId =
+  | 'explorer'
+  | 'vs'
+  | 'cursor'
+  | 'vscode'
+  | 'rider'
+  | 'webstorm'
+  | 'idea'
+  | 'github-desktop'
+  | 'git-bash'
+  | 'terminal'
 
 export interface NotificationPayload {
   method: string
@@ -95,6 +106,8 @@ export interface ConfigDescriptorWire {
   key: string
   displayLabel: string
   description: string
+  localizedDisplayLabel?: Partial<Record<'en' | 'zh-Hans', string>>
+  localizedDescription?: Partial<Record<'en' | 'zh-Hans', string>>
   required: boolean
   dataKind: string
   masked: boolean
@@ -140,6 +153,13 @@ export interface ModulesRescanSummaryPayload {
   removedModuleIds: string[]
   changedModuleIds: string[]
   changedRunningModuleIds: string[]
+}
+
+export interface EditorInfo {
+  id: EditorId
+  labelKey: string
+  iconKey: string
+  iconDataUrl?: string
 }
 
 declare global {
@@ -200,6 +220,8 @@ declare global {
         openPath(path: string): Promise<string>
         /** Opens http(s) URLs in the system browser (validated in the main process). */
         openExternal(url: string): Promise<void>
+        listEditors(): Promise<EditorInfo[]>
+        launchEditor(id: EditorId, cwd: string): Promise<void>
       }
       file: {
         writeFile(absPath: string, content: string): Promise<void>
@@ -291,6 +313,7 @@ declare global {
           theme?: 'dark' | 'light'
           locale?: 'en' | 'zh-Hans'
           visibleChannels?: string[]
+          lastOpenEditorId?: EditorId
         }>
         set(
           partial: {
@@ -318,6 +341,7 @@ declare global {
             theme?: 'dark' | 'light'
             locale?: 'en' | 'zh-Hans'
             visibleChannels?: string[]
+            lastOpenEditorId?: EditorId
           }
         ): Promise<void>
       }

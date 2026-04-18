@@ -5,7 +5,7 @@ import { useLocale } from './contexts/LocaleContext'
 import { basename } from './utils/path'
 import { initConnectionStore, useConnectionStore } from './stores/connectionStore'
 import { useThreadStore } from './stores/threadStore'
-import { useConversationStore } from './stores/conversationStore'
+import { selectStreamingPlanItemId, useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { useCustomCommandCatalog } from './hooks/useCustomCommandCatalog'
 import { ThreePanel } from './components/layout/ThreePanel'
@@ -742,6 +742,18 @@ export function App(): JSX.Element {
     useUIStore.getState().setActiveDetailTab('changes')
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changedFilesSize])
+
+  // -------------------------------------------------------------------------
+  // Auto-switch detail panel to Plan tab when CreatePlan starts streaming
+  // -------------------------------------------------------------------------
+  const streamingPlanItemId = useConversationStore(selectStreamingPlanItemId)
+  useEffect(() => {
+    if (!streamingPlanItemId) return
+    const uiState = useUIStore.getState()
+    if (uiState.autoShowPlanForItem === streamingPlanItemId) return
+    useUIStore.getState().markAutoShowPlanForItem(streamingPlanItemId)
+    useUIStore.getState().setActiveDetailTab('plan')
+  }, [streamingPlanItemId])
 
   // -------------------------------------------------------------------------
   // Global keyboard shortcuts

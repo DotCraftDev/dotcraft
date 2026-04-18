@@ -39,34 +39,37 @@ describe('aggregateToolCalls', () => {
     expect(result[0].kind).toBe('group')
     if (result[0].kind === 'group') {
       expect(result[0].items).toHaveLength(3)
-      expect(result[0].label).toBe('Explored 3 files')
+      expect(result[0].category).toBe('explore')
     }
   })
 
-  it('groups GrepFiles and FindFiles along with ReadFile', () => {
+  it('groups consecutive explore tools into one group', () => {
     const items = [
       makeItem('ReadFile', '1'),
       makeItem('GrepFiles', '2'),
-      makeItem('FindFiles', '3'),
-      makeItem('ListDirectory', '4')
+      makeItem('FindFiles', '3')
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(1)
     expect(result[0].kind).toBe('group')
     if (result[0].kind === 'group') {
-      expect(result[0].label).toBe('Explored 4 files')
+      expect(result[0].items).toHaveLength(3)
+      expect(result[0].category).toBe('explore')
     }
   })
 
-  it('does not aggregate non-aggregatable tools', () => {
+  it('groups consecutive write tools into one group', () => {
     const items = [
       makeItem('WriteFile', '1'),
-      makeItem('WriteFile', '2')
+      makeItem('EditFile', '2')
     ]
     const result = aggregateToolCalls(items)
-    expect(result).toHaveLength(2)
-    expect(result[0].kind).toBe('single')
-    expect(result[1].kind).toBe('single')
+    expect(result).toHaveLength(1)
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].category).toBe('write')
+      expect(result[0].items).toHaveLength(2)
+    }
   })
 
   it('handles mixed sequences: [ReadFile, WriteFile, ReadFile, ReadFile]', () => {
@@ -91,14 +94,29 @@ describe('aggregateToolCalls', () => {
     // Third: group of 2 ReadFiles
     expect(result[2].kind).toBe('group')
     if (result[2].kind === 'group') {
-      expect(result[2].label).toBe('Explored 2 files')
+      expect(result[2].category).toBe('explore')
     }
   })
 
-  it('keeps Exec as individual cards even if consecutive', () => {
+  it('groups consecutive shell tools into one group', () => {
     const items = [
       makeItem('Exec', '1'),
-      makeItem('Exec', '2')
+      makeItem('RunCommand', '2'),
+      makeItem('BashCommand', '3')
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(1)
+    expect(result[0].kind).toBe('group')
+    if (result[0].kind === 'group') {
+      expect(result[0].category).toBe('shell')
+      expect(result[0].items).toHaveLength(3)
+    }
+  })
+
+  it('keeps non-aggregatable tools as individual cards', () => {
+    const items = [
+      makeItem('SpawnSubagent', '1'),
+      makeItem('SpawnSubagent', '2')
     ]
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(2)
@@ -116,7 +134,39 @@ describe('aggregateToolCalls', () => {
     const result = aggregateToolCalls(items)
     expect(result).toHaveLength(3)
     if (result[0].kind === 'single') expect(result[0].item.toolName).toBe('Exec')
-    if (result[1].kind === 'group') expect(result[1].label).toBe('Explored 2 files')
+    if (result[1].kind === 'group') expect(result[1].category).toBe('explore')
     if (result[2].kind === 'single') expect(result[2].item.toolName).toBe('WriteFile')
+  })
+
+  it('does not aggregate across category transitions', () => {
+    const items = [
+      makeItem('ReadFile', '1'),
+      makeItem('WriteFile', '2'),
+      makeItem('Exec', '3')
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(3)
+    for (const entry of result) {
+      expect(entry.kind).toBe('single')
+    }
+  })
+
+  it('groups each category independently in a mixed run', () => {
+    const items = [
+      makeItem('ReadFile', '1'),
+      makeItem('FindFiles', '2'),
+      makeItem('WriteFile', '3'),
+      makeItem('EditFile', '4'),
+      makeItem('Exec', '5'),
+      makeItem('RunCommand', '6')
+    ]
+    const result = aggregateToolCalls(items)
+    expect(result).toHaveLength(3)
+    expect(result[0].kind).toBe('group')
+    expect(result[1].kind).toBe('group')
+    expect(result[2].kind).toBe('group')
+    if (result[0].kind === 'group') expect(result[0].category).toBe('explore')
+    if (result[1].kind === 'group') expect(result[1].category).toBe('write')
+    if (result[2].kind === 'group') expect(result[2].category).toBe('shell')
   })
 })

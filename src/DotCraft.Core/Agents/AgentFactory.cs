@@ -24,9 +24,6 @@ namespace DotCraft.Agents;
 /// </summary>
 public sealed class AgentFactory : IAsyncDisposable
 {
-    private static readonly IReadOnlySet<string> StreamedToolCallArgumentTools =
-        new HashSet<string>(["WriteFile", "EditFile"], StringComparer.Ordinal);
-
     private readonly AppConfig _config;
     private readonly ChatClient _chatClient;
     private readonly ConcurrentDictionary<string, TokenTracker> _tokenTrackers = new();
@@ -392,9 +389,11 @@ public sealed class AgentFactory : IAsyncDisposable
                 fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
             return fic;
         });
+        var streamOptOutTools = BuildStreamOptOutToolNames(
+            tools, deferredRegistry?.DeferredTools.Values);
         chatClientBuilder.Use(innerClient => new StreamingToolCallPreviewChatClient(innerClient)
         {
-            StreamableToolNames = StreamedToolCallArgumentTools
+            IsStreamableTool = name => !streamOptOutTools.Contains(name)
         });
         if (deferredRegistry != null)
         {
@@ -481,9 +480,12 @@ public sealed class AgentFactory : IAsyncDisposable
                 fic.AdditionalTools = deferredRegistry.ActivatedToolsList;
             return fic;
         });
+        var streamOptOutTools = BuildStreamOptOutToolNames(
+            CreateDefaultTools(),
+            deferredRegistry?.DeferredTools.Values);
         chatClientBuilder.Use(innerClient => new StreamingToolCallPreviewChatClient(innerClient)
         {
-            StreamableToolNames = StreamedToolCallArgumentTools
+            IsStreamableTool = name => !streamOptOutTools.Contains(name)
         });
         if (deferredRegistry != null)
         {
@@ -562,6 +564,41 @@ public sealed class AgentFactory : IAsyncDisposable
         return config.EnabledTools.Count == 0
             ? []
             : new HashSet<string>(config.EnabledTools, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Builds the set of tool names that should opt out of streaming argument deltas.
+    /// A tool opts out when its underlying method carries
+    /// <c>[StreamArguments(false)]</c>. Tools without an <c>UnderlyingMethod</c>
+    /// (e.g. MCP tools) are always streamable.
+    /// </summary>
+    internal static HashSet<string> BuildStreamOptOutToolNames(
+        IEnumerable<AITool> primary,
+        IEnumerable<AITool>? additional = null)
+    {
+        var optOut = new HashSet<string>(StringComparer.Ordinal);
+        CollectOptOuts(primary, optOut);
+        if (additional != null)
+            CollectOptOuts(additional, optOut);
+        return optOut;
+    }
+
+    private static void CollectOptOuts(IEnumerable<AITool> tools, HashSet<string> optOut)
+    {
+        foreach (var tool in tools)
+        {
+            if (tool is not AIFunction fn)
+                continue;
+
+            var method = fn.UnderlyingMethod;
+            if (method is null)
+                continue;
+
+            var attr = (StreamArgumentsAttribute?)Attribute.GetCustomAttribute(
+                method, typeof(StreamArgumentsAttribute), inherit: true);
+            if (attr is not null && !attr.Enabled)
+                optOut.Add(fn.Name);
+        }
     }
 
     private ChatOptions CreateChatOptions(IEnumerable<AITool> tools, string? instructions = null)

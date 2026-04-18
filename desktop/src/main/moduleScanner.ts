@@ -7,6 +7,8 @@ export interface ConfigDescriptorWire {
   key: string
   displayLabel: string
   description: string
+  localizedDisplayLabel?: Partial<Record<'en' | 'zh-Hans', string>>
+  localizedDescription?: Partial<Record<'en' | 'zh-Hans', string>>
   required: boolean
   dataKind: string
   masked: boolean
@@ -58,18 +60,39 @@ function asStringArray(value: unknown): string[] | null {
   return parsed.length === value.length ? parsed : null
 }
 
+function asLocalizedStringMap(
+  value: unknown
+): Partial<Record<'en' | 'zh-Hans', string>> | null {
+  if (value == null) return {}
+  if (typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const localized: Partial<Record<'en' | 'zh-Hans', string>> = {}
+  for (const [key, item] of Object.entries(record)) {
+    if (key !== 'en' && key !== 'zh-Hans') return null
+    if (typeof item !== 'string') return null
+    localized[key] = item
+  }
+  return localized
+}
+
 function parseConfigDescriptor(value: unknown): ConfigDescriptorWire | null {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) return null
   const item = value as Record<string, unknown>
   const key = asNonEmptyString(item.key)
   const displayLabel = asNonEmptyString(item.displayLabel)
   const description = typeof item.description === 'string' ? item.description : ''
+  const localizedDisplayLabel =
+    item.localizedDisplayLabel == null ? undefined : asLocalizedStringMap(item.localizedDisplayLabel)
+  const localizedDescription =
+    item.localizedDescription == null ? undefined : asLocalizedStringMap(item.localizedDescription)
   const dataKind = asNonEmptyString(item.dataKind)
   const enumValues = item.enumValues == null ? undefined : asStringArray(item.enumValues)
   if (
     key === null ||
     displayLabel === null ||
     dataKind === null ||
+    localizedDisplayLabel === null ||
+    localizedDescription === null ||
     typeof item.required !== 'boolean' ||
     typeof item.masked !== 'boolean' ||
     typeof item.interactiveSetupOnly !== 'boolean' ||
@@ -81,6 +104,8 @@ function parseConfigDescriptor(value: unknown): ConfigDescriptorWire | null {
     key,
     displayLabel,
     description,
+    localizedDisplayLabel,
+    localizedDescription,
     required: item.required,
     dataKind,
     masked: item.masked,

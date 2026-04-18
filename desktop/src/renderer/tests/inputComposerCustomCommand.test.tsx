@@ -14,6 +14,16 @@ function renderWithLocale(node: JSX.Element): void {
   render(<LocaleProvider>{node}</LocaleProvider>)
 }
 
+function setCaretToEnd(element: HTMLElement): void {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 describe('InputComposer custom command expansion', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -28,6 +38,20 @@ describe('InputComposer custom command expansion', () => {
               description: 'Review files',
               category: 'custom',
               requiresAdmin: false
+            }
+          ]
+        }
+      }
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            {
+              name: 'browser',
+              description: 'Browse web pages',
+              source: 'builtin',
+              available: true,
+              enabled: true,
+              path: '/skills/browser/SKILL.md'
             }
           ]
         }
@@ -73,7 +97,8 @@ describe('InputComposer custom command expansion', () => {
     useConnectionStore.setState({
       status: 'connected',
       capabilities: {
-        commandManagement: true
+        commandManagement: true,
+        skillsManagement: true
       }
     })
     useThreadStore.setState({
@@ -173,6 +198,33 @@ describe('InputComposer custom command expansion', () => {
     await waitFor(() => {
       const turnStartCalls = appServerSendRequest.mock.calls.filter((call) => call[0] === 'turn/start')
       expect(turnStartCalls).toHaveLength(1)
+    })
+  })
+
+  it('inserts skill via slash and serializes marker text', async () => {
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+    })
+
+    const textbox = screen.getByRole('textbox')
+    fireEvent.focus(textbox)
+    textbox.textContent = '/browser'
+    setCaretToEnd(textbox)
+    fireEvent.input(textbox)
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+
+    await waitFor(() => {
+      const turnStartCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'turn/start')
+      expect(turnStartCall).toBeDefined()
+      expect(turnStartCall?.[1]).toEqual(
+        expect.objectContaining({
+          threadId: 'thread-1',
+          input: [{ type: 'text', text: '[[Use Skill: browser]]' }]
+        })
+      )
     })
   })
 })

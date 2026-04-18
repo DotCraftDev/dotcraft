@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useThreadStore } from '../../stores/threadStore'
-import { useConversationStore } from '../../stores/conversationStore'
+import { selectLatestCreatePlanTurnId, useConversationStore } from '../../stores/conversationStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useModelCatalogStore } from '../../stores/modelCatalogStore'
 import { addToast } from '../../stores/toastStore'
+import { useUIStore } from '../../stores/uiStore'
 import { ThreadHeader } from '../conversation/ThreadHeader'
 import { MessageStream } from '../conversation/MessageStream'
 import { TurnStatusIndicator } from '../conversation/TurnStatusIndicator'
 import { InputComposer } from '../conversation/InputComposer'
+import { PlanApprovalComposer } from '../conversation/PlanApprovalComposer'
 import { ConversationWelcome } from '../conversation/ConversationWelcome'
 import type { ThreadConfigurationWire } from '../../types/thread'
 import { parseJsonConfig } from '../../../shared/jsonConfig'
@@ -25,9 +27,14 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
   const { activeThread, activeThreadId, loading } = useThreadStore()
   const turns = useConversationStore((s) => s.turns)
   const turnStatus = useConversationStore((s) => s.turnStatus)
+  const threadMode = useConversationStore((s) => s.threadMode)
+  const pendingApproval = useConversationStore((s) => s.pendingApproval)
+  const latestCreatePlanTurnId = useConversationStore(selectLatestCreatePlanTurnId)
   const connectionStatus = useConnectionStore((s) => s.status)
   const connectionErrorMessage = useConnectionStore((s) => s.errorMessage)
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const planApprovalDismissed = useUIStore((s) => s.planApprovalDismissed)
+  const resetPlanApprovalDismissed = useUIStore((s) => s.resetPlanApprovalDismissed)
   const modelOptions = useModelCatalogStore((s) => s.modelOptions)
   const modelCatalogStatus = useModelCatalogStore((s) => s.status)
   const modelListUnsupportedEndpoint = useModelCatalogStore((s) => s.modelListUnsupportedEndpoint)
@@ -41,6 +48,11 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
     connectionStatus === 'connected' &&
     Boolean(activeThreadId)
   const modelLoading = modelApiAvailable && modelCatalogStatus === 'loading'
+  const showPlanApproval = threadMode === 'plan'
+    && turnStatus === 'idle'
+    && pendingApproval == null
+    && latestCreatePlanTurnId != null
+    && planApprovalDismissed[latestCreatePlanTurnId] !== true
 
   const workspaceConfigPath = useMemo(() => {
     if (!workspacePath) return ''
@@ -117,6 +129,10 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
     readWorkspaceConfig,
     resolveEffectiveModel
   ])
+
+  useEffect(() => {
+    resetPlanApprovalDismissed()
+  }, [activeThreadId, resetPlanApprovalDismissed])
 
   const handleModelChange = useCallback(
     async (nextModel: string): Promise<void> => {
@@ -269,18 +285,26 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
       <TurnStatusIndicator threadId={activeThread.id} />
 
       {/* Input composer */}
-      <InputComposer
-        threadId={activeThread.id}
-        workspacePath={workspacePath}
-        modelName={modelName}
-        modelOptions={modelOptions}
-        modelLoading={modelLoading}
-        modelDisabled={modelApplying || !modelApiAvailable}
-        modelListUnsupportedEndpoint={modelListUnsupportedEndpoint}
-        onModelChange={(m) => {
-          void handleModelChange(m)
-        }}
-      />
+      {showPlanApproval && latestCreatePlanTurnId ? (
+        <PlanApprovalComposer
+          threadId={activeThread.id}
+          workspacePath={workspacePath}
+          turnId={latestCreatePlanTurnId}
+        />
+      ) : (
+        <InputComposer
+          threadId={activeThread.id}
+          workspacePath={workspacePath}
+          modelName={modelName}
+          modelOptions={modelOptions}
+          modelLoading={modelLoading}
+          modelDisabled={modelApplying || !modelApiAvailable}
+          modelListUnsupportedEndpoint={modelListUnsupportedEndpoint}
+          onModelChange={(m) => {
+            void handleModelChange(m)
+          }}
+        />
+      )}
     </div>
   )
 }

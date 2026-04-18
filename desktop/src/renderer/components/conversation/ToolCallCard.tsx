@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { translate, type AppLocale } from '../../../shared/locales'
 import type { ConversationItem } from '../../types/conversation'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -21,9 +21,14 @@ import { isShellToolName } from '../../utils/shellTools'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import {
   FILE_WRITE_TOOLS,
+  extractPartialJsonStringValue,
   formatCollapsedToolLabel,
-  formatExpandedInvocation
+  formatExpandedInvocation,
+  getStreamingToolDisplay
 } from '../../utils/toolCallDisplay'
+import { PlanToolOutput } from './PlanToolOutput'
+import { CreatePlanCard, hasCreatePlanDisplayData } from './CreatePlanCard'
+import { ToolCollapseChevron } from './ToolCollapseChevron'
 
 interface ToolCallCardProps {
   item: ConversationItem
@@ -48,13 +53,22 @@ function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): 
 export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [expanded, setExpanded] = useState(false)
+  const [autoExpanded, setAutoExpanded] = useState(false)
+  const [userInteracted, setUserInteracted] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const autoExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const toolName = item.toolName ?? 'tool'
   const args = item.arguments
   const isShellTool = isShellToolName(toolName)
   const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
-  const canExpandWhileRunning = isShellTool || isStreamingFileTool
+  const autoExpandEligible = isShellTool || isStreamingFileTool
+  const canExpandWhileRunning = true
+  const streamingDisplay = getStreamingToolDisplay(
+    toolName,
+    item.argumentsPreview ?? null,
+    locale
+  )
   const shellExecutionRunning = isShellExecutionRunning(item, isShellTool)
   const isRunning = isShellTool ? shellExecutionRunning : item.status !== 'completed'
   const shellOutput = item.aggregatedOutput ?? item.result ?? ''
@@ -85,8 +99,64 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 
   function toggleExpand(): void {
     if (!isRunning || canExpandWhileRunning) {
+      setUserInteracted(true)
+      if (autoExpandTimerRef.current != null) {
+        clearTimeout(autoExpandTimerRef.current)
+        autoExpandTimerRef.current = null
+      }
+      setAutoExpanded(false)
       setExpanded((v) => !v)
     }
+  }
+
+  useEffect(() => {
+    if (!autoExpandEligible) {
+      if (autoExpandTimerRef.current != null) {
+        clearTimeout(autoExpandTimerRef.current)
+        autoExpandTimerRef.current = null
+      }
+      if (autoExpanded) {
+        setAutoExpanded(false)
+      }
+      return
+    }
+
+    if (isRunning) {
+      if (!userInteracted && !expanded && autoExpandTimerRef.current == null) {
+        autoExpandTimerRef.current = setTimeout(() => {
+          setExpanded(true)
+          setAutoExpanded(true)
+          autoExpandTimerRef.current = null
+        }, 400)
+      }
+      return
+    }
+
+    if (autoExpandTimerRef.current != null) {
+      clearTimeout(autoExpandTimerRef.current)
+      autoExpandTimerRef.current = null
+    }
+    if (autoExpanded && !userInteracted && expanded) {
+      setExpanded(false)
+      setAutoExpanded(false)
+      return
+    }
+    if (autoExpanded) {
+      setAutoExpanded(false)
+    }
+  }, [autoExpandEligible, autoExpanded, expanded, isRunning, userInteracted])
+
+  useEffect(() => {
+    return () => {
+      if (autoExpandTimerRef.current != null) {
+        clearTimeout(autoExpandTimerRef.current)
+        autoExpandTimerRef.current = null
+      }
+    }
+  }, [])
+
+  if (toolName === 'CreatePlan' && hasCreatePlanDisplayData(item)) {
+    return <CreatePlanCard item={item} locale={locale} />
   }
 
   if (isRunning) {
@@ -118,35 +188,35 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
         >
           <Spinner />
           <span style={{ flex: 1 }}>
-            {isShellTool ? (
+            {isShellTool && args ? (
               <span style={{ color: 'var(--text-primary)' }}>
                 {formatCollapsedToolLabel(toolName, args, locale, { planTodos })}
               </span>
-            ) : toolName === CRON_TOOL_NAME ? (
+            ) : toolName === CRON_TOOL_NAME && args ? (
               <span style={{ color: 'var(--text-primary)' }}>
                 {formatCronRunningLabel(args, locale)}
               </span>
-            ) : isWebToolName(toolName) && !invocationNeedsCallingPrefix(toolName, args) ? (
+            ) : isWebToolName(toolName) && args && !invocationNeedsCallingPrefix(toolName, args) ? (
               <span style={{ color: 'var(--text-primary)' }}>
                 {formatInvocationDisplay(toolName, args, locale)}
               </span>
             ) : (
-              <>
-                {translate(locale, 'toolCall.calling')}{' '}
-                <strong style={{ color: 'var(--text-primary)' }}>{toolName}</strong>
-              </>
+              <span style={{ color: 'var(--text-primary)' }}>
+                {streamingDisplay.label}
+              </span>
             )}
           </span>
           <span style={{ color: 'var(--text-dimmed)', marginLeft: '8px', flexShrink: 0 }}>
             {runningElapsedLabel}
           </span>
-          {canExpandWhileRunning && <Chevron expanded={expanded} />}
+          {canExpandWhileRunning && <ToolCollapseChevron expanded={expanded} />}
         </button>
 
         {expanded && canExpandWhileRunning && (
           <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
             {isShellTool ? (
               <ExpandedContent
+                itemId={item.id}
                 toolName={toolName}
                 args={args}
                 result={shellOutput}
@@ -155,8 +225,20 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
                 locale={locale}
                 planTodos={planTodos}
               />
+            ) : isStreamingFileTool ? (
+              <RunningFileToolPreview
+                item={item}
+                locale={locale}
+                streamingContent={streamingDisplay.parsedPreview?.content ?? null}
+                streamingPath={streamingDisplay.parsedPreview?.path ?? null}
+              />
             ) : (
-              <RunningFileToolPreview item={item} locale={locale} />
+              <RunningGenericToolPreview
+                toolName={toolName}
+                args={args}
+                locale={locale}
+                planTodos={planTodos}
+              />
             )}
           </div>
         )}
@@ -215,12 +297,13 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
           </span>
         )}
 
-        <Chevron expanded={expanded} />
+        <ToolCollapseChevron expanded={expanded} />
       </button>
 
       {expanded && (
         <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
           <ExpandedContent
+            itemId={item.id}
             toolName={toolName}
             args={args}
             result={isShellTool ? shellOutput : item.result}
@@ -236,6 +319,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
 })
 
 interface ExpandedContentProps {
+  itemId: string
   toolName: string
   args: Record<string, unknown> | undefined
   result: string | undefined
@@ -246,6 +330,7 @@ interface ExpandedContentProps {
 }
 
 function ExpandedContent({
+  itemId,
   toolName,
   args,
   result,
@@ -254,6 +339,20 @@ function ExpandedContent({
   locale,
   planTodos
 }: ExpandedContentProps): JSX.Element {
+  if (toolName === 'CreatePlan') {
+    const parsedPlan = parseCompletedCreatePlanArgs(args)
+    return (
+      <PlanToolOutput
+        itemId={itemId}
+        title={parsedPlan.title}
+        overview={parsedPlan.overview}
+        content={parsedPlan.content}
+        todos={parsedPlan.todos}
+        locale={locale}
+      />
+    )
+  }
+
   if (FILE_WRITE_TOOLS.has(toolName) && fileDiff) {
     return <InlineDiffView diff={fileDiff.diff} />
   }
@@ -375,19 +474,34 @@ function ExpandedContent({
   )
 }
 
-function Chevron({ expanded }: { expanded: boolean }): JSX.Element {
-  return (
-    <span
-      style={{
-        color: 'var(--text-dimmed)',
-        fontSize: '10px',
-        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-        transition: 'transform 150ms ease'
-      }}
-    >
-      ▼
-    </span>
-  )
+function parseCompletedCreatePlanArgs(args: Record<string, unknown> | undefined): {
+  title: string
+  overview: string
+  content: string
+  todos: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed' | 'cancelled' }>
+} {
+  const title = typeof args?.title === 'string' ? args.title : ''
+  const overview = typeof args?.overview === 'string' ? args.overview : ''
+  const content = typeof args?.plan === 'string' ? args.plan : ''
+  const todos = Array.isArray(args?.todos)
+    ? args.todos
+      .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry != null)
+      .map((entry, index) => ({
+        id: typeof entry.id === 'string' && entry.id.trim().length > 0 ? entry.id : `todo-${index}`,
+        content: typeof entry.content === 'string' ? entry.content : '',
+        status: normalizeTodoStatus(entry.status)
+      }))
+      .filter((todo) => todo.content.trim().length > 0)
+    : []
+
+  return { title, overview, content, todos }
+}
+
+function normalizeTodoStatus(value: unknown): 'pending' | 'in_progress' | 'completed' | 'cancelled' {
+  if (value === 'in_progress' || value === 'completed' || value === 'cancelled') {
+    return value
+  }
+  return 'pending'
 }
 
 function Spinner(): JSX.Element {
@@ -407,70 +521,28 @@ function Spinner(): JSX.Element {
   )
 }
 
-function extractPartialJsonStringValue(json: string, key: string): string | null {
-  const keyPattern = `"${key}"`
-  const keyIndex = json.indexOf(keyPattern)
-  if (keyIndex < 0) return null
-  const colonIndex = json.indexOf(':', keyIndex + keyPattern.length)
-  if (colonIndex < 0) return null
-  const quoteIndex = json.indexOf('"', colonIndex + 1)
-  if (quoteIndex < 0) return null
-
-  let escaped = false
-  let out = ''
-  for (let i = quoteIndex + 1; i < json.length; i += 1) {
-    const ch = json[i]
-    if (escaped) {
-      switch (ch) {
-        case 'n':
-          out += '\n'
-          break
-        case 'r':
-          out += '\r'
-          break
-        case 't':
-          out += '\t'
-          break
-        case 'b':
-          out += '\b'
-          break
-        case 'f':
-          out += '\f'
-          break
-        case '\\':
-          out += '\\'
-          break
-        case '"':
-          out += '"'
-          break
-        case '/':
-          out += '/'
-          break
-        default:
-          out += '\\' + ch
-          break
-      }
-      escaped = false
-      continue
-    }
-    if (ch === '\\') {
-      escaped = true
-      continue
-    }
-    if (ch === '"') {
-      return out
-    }
-    out += ch
-  }
-
-  return out
-}
-
 function RunningFileToolPreview(
-  { item, locale }: { item: ConversationItem; locale: AppLocale }
+  {
+    item,
+    locale,
+    streamingContent,
+    streamingPath
+  }: {
+    item: ConversationItem
+    locale: AppLocale
+    streamingContent: string | null
+    streamingPath: string | null
+  }
 ): JSX.Element {
-  const contentPreview = item.streamingFileContent ?? ''
-  const pathPreview = extractPartialJsonStringValue(item.argumentsPreview ?? '', 'path')
+  // Prefer the dedicated streamingFileContent slot (populated by Write/Edit
+  // pipeline) and fall back to the tolerant partial-JSON extraction so we
+  // render content as soon as any preview is available.
+  const contentPreview = item.streamingFileContent
+    ?? streamingContent
+    ?? extractPartialJsonStringValue(item.argumentsPreview ?? '', 'content')
+    ?? ''
+  const pathPreview = streamingPath
+    ?? extractPartialJsonStringValue(item.argumentsPreview ?? '', 'path')
   const fileName = pathPreview ? pathPreview.split(/[\\/]/).pop() ?? pathPreview : ''
   const isEditFile = item.toolName === 'EditFile'
   const tip = fileName
@@ -498,6 +570,42 @@ function RunningFileToolPreview(
           Waiting for content...
         </div>
       )}
+    </div>
+  )
+}
+
+function RunningGenericToolPreview(
+  {
+    toolName,
+    args,
+    locale,
+    planTodos
+  }: {
+    toolName: string
+    args: Record<string, unknown> | undefined
+    locale: AppLocale
+    planTodos?: Array<{ id: string; content: string }>
+  }
+): JSX.Element {
+  const invocation = formatExpandedInvocation(toolName, args, locale, { planTodos })
+  return (
+    <div className="selectable" style={{ fontSize: '12px', lineHeight: '1.5' }}>
+      {invocation && (
+        <div
+          style={{
+            color: 'var(--text-dimmed)',
+            marginBottom: '6px',
+            fontFamily: 'var(--font-mono)',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word'
+          }}
+        >
+          {invocation}
+        </div>
+      )}
+      <div style={{ color: 'var(--text-dimmed)', fontSize: '11px' }}>
+        {translate(locale, 'toolCall.genericRunning')}
+      </div>
     </div>
   )
 }

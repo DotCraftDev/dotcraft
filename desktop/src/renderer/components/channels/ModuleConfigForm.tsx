@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { DiscoveredModule, ModuleStatusEntry } from '../../../preload/api.d'
-import { useT } from '../../contexts/LocaleContext'
+import { useLocale, useT } from '../../contexts/LocaleContext'
 import type { ChannelConnectionState } from './ChannelCard'
 import { FieldCard, FormActions, SecretInput, StatusPill, formStyles } from './FormShared'
 import { ToggleSwitch } from './ToggleSwitch'
@@ -143,6 +143,7 @@ export function ModuleConfigForm({
   logsLoading,
   onLoadLogs
 }: ModuleConfigFormProps): JSX.Element {
+  const locale = useLocale()
   const t = useT()
   const [listTextByKey, setListTextByKey] = useState<Record<string, string>>({})
   const [objectTextByKey, setObjectTextByKey] = useState<Record<string, string>>({})
@@ -177,8 +178,18 @@ export function ModuleConfigForm({
   const showQrPanel = module.requiresInteractiveSetup && qrPhase !== 'idle'
   const hasVariants = variantModules.length > 1
 
+  const resolveDescriptorLabel = (
+    descriptor: DiscoveredModule['configDescriptors'][number]
+  ): string => descriptor.localizedDisplayLabel?.[locale] ?? descriptor.displayLabel
+
+  const resolveDescriptorDescription = (
+    descriptor: DiscoveredModule['configDescriptors'][number]
+  ): string => descriptor.localizedDescription?.[locale] ?? descriptor.description
+
   const renderDescriptorField = (descriptor: DiscoveredModule['configDescriptors'][number]): JSX.Element => {
     const value = getNestedValue(config, descriptor.key)
+    const displayLabel = resolveDescriptorLabel(descriptor)
+    const description = resolveDescriptorDescription(descriptor)
     const requiredSuffix = descriptor.required ? ` (${t('channels.modules.required')})` : ''
     const placeholder = descriptor.defaultValue === undefined ? undefined : String(descriptor.defaultValue)
 
@@ -190,8 +201,8 @@ export function ModuleConfigForm({
             onChange={(checked) => {
               onChange(applyValueChange(config, descriptor.key, checked))
             }}
-            label={`${descriptor.displayLabel}${requiredSuffix}`}
-            description={descriptor.description}
+            label={`${displayLabel}${requiredSuffix}`}
+            description={description}
           />
         </div>
       )
@@ -199,9 +210,11 @@ export function ModuleConfigForm({
 
     if (descriptor.dataKind === 'enum') {
       const enumValues = descriptor.enumValues ?? []
+      const placeholderLabel =
+        placeholder !== undefined && !enumValues.includes(placeholder) ? placeholder : ''
       return (
         <div key={descriptor.key} style={formStyles.fieldGroup}>
-          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <label style={formStyles.label}>{`${displayLabel}${requiredSuffix}`}</label>
           <select
             value={typeof value === 'string' ? value : ''}
             onChange={(event) => {
@@ -212,7 +225,7 @@ export function ModuleConfigForm({
             style={formStyles.input}
           >
             <option value="" disabled={descriptor.required}>
-              {placeholder ?? ''}
+              {placeholderLabel}
             </option>
             {enumValues.map((item) => (
               <option key={item} value={item}>
@@ -220,9 +233,9 @@ export function ModuleConfigForm({
               </option>
             ))}
           </select>
-          {!!descriptor.description && (
+          {!!description && (
             <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {descriptor.description}
+              {description}
             </div>
           )}
         </div>
@@ -235,7 +248,7 @@ export function ModuleConfigForm({
         (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').join('\n') : '')
       return (
         <div key={descriptor.key} style={formStyles.fieldGroup}>
-          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <label style={formStyles.label}>{`${displayLabel}${requiredSuffix}`}</label>
           <textarea
             value={textValue}
             placeholder={placeholder}
@@ -252,9 +265,9 @@ export function ModuleConfigForm({
             onBlur={formStyles.inputBlur}
             style={{ ...formStyles.input, minHeight: '90px', height: 'auto', padding: '8px 10px' }}
           />
-          {!!descriptor.description && (
+          {!!description && (
             <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {descriptor.description}
+              {description}
             </div>
           )}
         </div>
@@ -265,7 +278,7 @@ export function ModuleConfigForm({
       const textValue = objectTextByKey[descriptor.key] ?? (value == null ? '' : JSON.stringify(value, null, 2))
       return (
         <div key={descriptor.key} style={formStyles.fieldGroup}>
-          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <label style={formStyles.label}>{`${displayLabel}${requiredSuffix}`}</label>
           <textarea
             value={textValue}
             placeholder={placeholder}
@@ -289,9 +302,9 @@ export function ModuleConfigForm({
             onFocus={formStyles.inputFocus}
             style={{ ...formStyles.input, minHeight: '120px', height: 'auto', padding: '8px 10px' }}
           />
-          {!!descriptor.description && (
+          {!!description && (
             <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {descriptor.description}
+              {description}
             </div>
           )}
         </div>
@@ -301,7 +314,7 @@ export function ModuleConfigForm({
     if (descriptor.dataKind === 'number') {
       return (
         <div key={descriptor.key} style={formStyles.fieldGroup}>
-          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <label style={formStyles.label}>{`${displayLabel}${requiredSuffix}`}</label>
           <input
             type="number"
             value={typeof value === 'number' && Number.isFinite(value) ? String(value) : ''}
@@ -321,9 +334,9 @@ export function ModuleConfigForm({
             onBlur={formStyles.inputBlur}
             style={formStyles.input}
           />
-          {!!descriptor.description && (
+          {!!description && (
             <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {descriptor.description}
+              {description}
             </div>
           )}
         </div>
@@ -333,7 +346,7 @@ export function ModuleConfigForm({
     if (descriptor.dataKind === 'path') {
       return (
         <div key={descriptor.key} style={formStyles.fieldGroup}>
-          <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+          <label style={formStyles.label}>{`${displayLabel}${requiredSuffix}`}</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <input
               type="text"
@@ -357,9 +370,9 @@ export function ModuleConfigForm({
               }}
             />
           </div>
-          {!!descriptor.description && (
+          {!!description && (
             <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-              {descriptor.description}
+              {description}
             </div>
           )}
         </div>
@@ -369,7 +382,7 @@ export function ModuleConfigForm({
     const isSecret = descriptor.dataKind === 'secret' || descriptor.masked
     return (
       <div key={descriptor.key} style={formStyles.fieldGroup}>
-        <label style={formStyles.label}>{`${descriptor.displayLabel}${requiredSuffix}`}</label>
+        <label style={formStyles.label}>{`${displayLabel}${requiredSuffix}`}</label>
         {isSecret ? (
           <SecretInput
             value={toText(value)}
@@ -393,9 +406,9 @@ export function ModuleConfigForm({
             style={formStyles.input}
           />
         )}
-        {!!descriptor.description && (
+        {!!description && (
           <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-dimmed)' }}>
-            {descriptor.description}
+            {description}
           </div>
         )}
       </div>

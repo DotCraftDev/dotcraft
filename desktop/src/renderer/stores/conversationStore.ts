@@ -32,6 +32,7 @@ export interface PlanTodoItem {
 export interface AgentPlan {
   title: string
   overview: string
+  content: string
   todos: PlanTodoItem[]
 }
 
@@ -1275,6 +1276,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     const plan: AgentPlan = {
       title: (rawPlan.title as string) ?? '',
       overview: (rawPlan.overview as string) ?? '',
+      content: (rawPlan.content as string) ?? '',
       todos: (rawPlan.todos as PlanTodoItem[]) ?? []
     }
     set({ plan })
@@ -1292,6 +1294,176 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     }))
   }
 }))
+
+// ---------------------------------------------------------------------------
+// Derived selectors
+// ---------------------------------------------------------------------------
+
+/**
+ * Partial plan draft reconstructed from the in-flight `CreatePlan` tool call's
+ * `argumentsPreview`. `null` when no active CreatePlan stream is happening.
+ *
+ * Used by the Desktop plan panel to render the plan live as the agent types
+ * the arguments JSON, before `plan/updated` fires on completion.
+ */
+export interface StreamingPlanDraft {
+  itemId: string
+  title: string | null
+  overview: string | null
+  plan: string | null
+  todos: Array<{ id?: string; content?: string; status?: PlanTodoStatus | string }>
+}
+
+interface StreamingCreatePlanMatch {
+  itemId: string
+  rawArgs: string
+}
+
+/**
+ * Extract a partial JSON array for the `todos` / `plan.todos` field without
+ * requiring the buffer to be fully parseable. Best-effort: returns a partial
+ * list of `{id, content, status}` objects whose closing quotes have arrived.
+ */
+function extractPartialTodos(rawArgs: string): StreamingPlanDraft['todos'] {
+  if (!rawArgs) return []
+  const needle = '"todos"'
+  const keyIndex = rawArgs.indexOf(needle)
+  if (keyIndex < 0) return []
+  const colonIndex = rawArgs.indexOf(':', keyIndex + needle.length)
+  if (colonIndex < 0) return []
+  const arrayStart = rawArgs.indexOf('[', colonIndex + 1)
+  if (arrayStart < 0) return []
+
+  const entries: StreamingPlanDraft['todos'] = []
+  let i = arrayStart + 1
+  while (i < rawArgs.length) {
+    const objStart = rawArgs.indexOf('{', i)
+    if (objStart < 0) break
+    let depth = 1
+    let j = objStart + 1
+    let inString = false
+    let escaped = false
+    while (j < rawArgs.length && depth > 0) {
+      const ch = rawArgs[j]
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (ch === '\\') {
+          escaped = true
+        } else if (ch === '"') {
+          inString = false
+        }
+      } else if (ch === '"') {
+        inString = true
+      } else if (ch === '{') {
+        depth += 1
+      } else if (ch === '}') {
+        depth -= 1
+        if (depth === 0) {
+          break
+        }
+      }
+      j += 1
+    }
+    if (depth !== 0) {
+      // Object not yet closed — object is still streaming; stop here.
+      break
+    }
+    const chunk = rawArgs.slice(objStart, j + 1)
+    entries.push({
+      id: extractPartialJsonStringValue(chunk, 'id') ?? undefined,
+      content: extractPartialJsonStringValue(chunk, 'content') ?? undefined,
+      status: extractPartialJsonStringValue(chunk, 'status') ?? undefined
+    })
+    i = j + 1
+  }
+  return entries
+}
+
+function findStreamingCreatePlanCall(state: ConversationState): StreamingCreatePlanMatch | null {
+  // Prefer the active turn; fall back to scanning the most recent non-completed call.
+  const activeTurnId = state.activeTurnId
+  const turn = activeTurnId
+    ? state.turns.find((t) => t.id === activeTurnId)
+    : undefined
+  const turns = turn ? [turn] : [...state.turns].reverse()
+
+  for (const t of turns) {
+    for (let idx = t.items.length - 1; idx >= 0; idx -= 1) {
+      const item = t.items[idx]
+      if (
+        item.type === 'toolCall'
+        && item.toolName === 'CreatePlan'
+        && item.status !== 'completed'
+      ) {
+        return {
+          itemId: item.id,
+          rawArgs: item.argumentsPreview ?? ''
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+export function selectStreamingPlanItemId(state: ConversationState): string | null {
+  return findStreamingCreatePlanCall(state)?.itemId ?? null
+}
+
+export function selectStreamingPlanRawArgs(state: ConversationState): string | null {
+  return findStreamingCreatePlanCall(state)?.rawArgs ?? null
+}
+
+export function buildStreamingPlanDraft(itemId: string, rawArgs: string): StreamingPlanDraft {
+  return {
+    itemId,
+    title: extractPartialJsonStringValue(rawArgs, 'title'),
+    overview: extractPartialJsonStringValue(rawArgs, 'overview'),
+    plan: extractPartialJsonStringValue(rawArgs, 'plan'),
+    todos: extractPartialTodos(rawArgs)
+  }
+}
+
+/**
+ * Zustand selector: returns the partial plan draft from the newest active
+ * `CreatePlan` tool call, or null when no such call is in flight.
+ */
+export function selectStreamingPlanDraft(
+  state: ConversationState
+): StreamingPlanDraft | null {
+  const match = findStreamingCreatePlanCall(state)
+  if (!match) return null
+  return buildStreamingPlanDraft(match.itemId, match.rawArgs)
+}
+
+/**
+ * Returns the most recent completed turn whose last completed tool call is a
+ * successful CreatePlan invocation. Used by the plan approval composer.
+ */
+export function selectLatestCreatePlanTurnId(state: ConversationState): string | null {
+  for (let turnIdx = state.turns.length - 1; turnIdx >= 0; turnIdx -= 1) {
+    const turn = state.turns[turnIdx]
+    if (turn.status !== 'completed') {
+      continue
+    }
+    for (let itemIdx = turn.items.length - 1; itemIdx >= 0; itemIdx -= 1) {
+      const item = turn.items[itemIdx]
+      if (item.type !== 'toolCall') {
+        continue
+      }
+      if (
+        item.toolName === 'CreatePlan'
+        && item.status === 'completed'
+        && item.success !== false
+      ) {
+        return turn.id
+      }
+      return null
+    }
+  }
+  return null
+}
 
 // Expose store to E2E / debug tooling via a window global (browser only)
 if (typeof window !== 'undefined') {
