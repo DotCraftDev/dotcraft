@@ -106,15 +106,22 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
       }
       // Aggregate consecutive explore-tools within this run
       const aggregated = aggregateToolCalls(toolRun)
+      const runNodes: React.ReactNode[] = []
+      let lastSpawnSubagentIndex = -1
+
       for (const entry of aggregated) {
-        renderNodes.push(
-          renderAggregatedEntry(entry, turn.id, renderNodes.length)
+        runNodes.push(
+          renderAggregatedEntry(entry, turn.id, renderNodes.length + runNodes.length)
         )
+        if (entry.kind === 'single' && entry.item.toolName === 'SpawnSubagent') {
+          lastSpawnSubagentIndex = runNodes.length - 1
+        }
       }
 
-      const hasSpawnSubagent = toolRun.some((toolItem) => toolItem.toolName === 'SpawnSubagent')
-      if (!subAgentBlockInserted && hasSpawnSubagent) {
-        renderNodes.push(
+      if (!subAgentBlockInserted && lastSpawnSubagentIndex >= 0) {
+        runNodes.splice(
+          lastSpawnSubagentIndex + 1,
+          0,
           <SubAgentProgressBlock
             key={`subagent-progress-${turn.id}`}
             entries={resolvedSubAgentEntries}
@@ -122,6 +129,8 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         )
         subAgentBlockInserted = true
       }
+
+      renderNodes.push(...runNodes)
     } else if (item.type === 'reasoningContent') {
       const isLiveStreaming =
         isRunning && item.status === 'streaming' && item.id === activeItemId
