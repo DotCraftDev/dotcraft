@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useState } from 'react'
 import type { ConversationItem, ConversationTurn } from '../../types/conversation'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallCard } from './ToolCallCard'
@@ -11,12 +11,12 @@ import { ApprovalCard } from './ApprovalCard'
 import { aggregateToolCalls } from '../../utils/toolCallAggregation'
 import type { AggregatedToolCall } from '../../utils/toolCallAggregation'
 import type { ToolGroupCategory } from '../../utils/toolCallAggregation'
+import { isToolItemLive } from '../../utils/toolCallAggregation'
 import { useConversationStore } from '../../stores/conversationStore'
 import type { SubAgentEntry } from '../../types/toolCall'
 import { ToolCollapseChevron } from './ToolCollapseChevron'
 import { useLocale } from '../../contexts/LocaleContext'
 import { formatToolGroupLabel } from '../../utils/toolGroupLabel'
-import { isShellToolName } from '../../utils/shellTools'
 
 interface AgentResponseBlockProps {
   turn: ConversationTurn
@@ -238,30 +238,17 @@ function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps
   const locale = useLocale()
   const changedFiles = useConversationStore((s) => s.changedFiles)
   const label = formatToolGroupLabel(category, items, locale, changedFiles)
-  const hasRunningItems = items.some(isGroupedItemRunning)
   const hasFailedItems = items.some(isGroupedItemFailed)
-  const shouldAutoExpand = hasRunningItems || hasFailedItems
-  const [expanded, setExpanded] = useState(shouldAutoExpand)
-  const [userInteracted, setUserInteracted] = useState(false)
-
-  useEffect(() => {
-    if (!userInteracted) {
-      setExpanded(shouldAutoExpand)
-    }
-  }, [shouldAutoExpand, userInteracted])
-
-  const statusIcon = hasFailedItems ? '✕' : (hasRunningItems ? '…' : '✓')
+  const [expanded, setExpanded] = useState(false)
+  const statusIcon = hasFailedItems ? '✕' : '✓'
   const statusColor = hasFailedItems
     ? 'var(--error)'
-    : (hasRunningItems ? 'var(--text-dimmed)' : 'var(--success)')
+    : 'var(--success)'
 
   return (
     <div>
       <button
-        onClick={() => {
-          setUserInteracted(true)
-          setExpanded((v) => !v)
-        }}
+        onClick={() => setExpanded((v) => !v)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -294,24 +281,8 @@ function GroupedToolCallRow({ category, items, turnId }: GroupedToolCallRowProps
   )
 }
 
-function isGroupedItemRunning(item: ConversationItem): boolean {
-  const toolName = item.toolName ?? ''
-  if (!isShellToolName(toolName)) {
-    return item.status !== 'completed'
-  }
-
-  if (item.executionStatus != null) {
-    if (item.executionStatus === 'inProgress') return true
-    // Legacy: wire item lifecycle "started" was mistakenly stored as executionStatus.
-    if (String(item.executionStatus) === 'started') return true
-    return false
-  }
-
-  if (item.status !== 'completed') return true
-  return item.result === undefined && item.success === undefined
-}
-
 function isGroupedItemFailed(item: ConversationItem): boolean {
+  if (isToolItemLive(item)) return false
   const executionFailed = item.executionStatus === 'failed'
     || item.executionStatus === 'cancelled'
     || (item.exitCode != null && item.exitCode !== 0)
