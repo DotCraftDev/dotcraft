@@ -61,6 +61,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   const args = item.arguments
   const isShellTool = isShellToolName(toolName)
   const isStreamingFileTool = FILE_WRITE_TOOLS.has(toolName)
+  const autoExpandEligible = isShellTool || isStreamingFileTool
   const canExpandWhileRunning = true
   const streamingDisplay = getStreamingToolDisplay(
     toolName,
@@ -108,9 +109,17 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
   }
 
   useEffect(() => {
-    if (toolName === 'CreatePlan') {
+    if (!autoExpandEligible) {
+      if (autoExpandTimerRef.current != null) {
+        clearTimeout(autoExpandTimerRef.current)
+        autoExpandTimerRef.current = null
+      }
+      if (autoExpanded) {
+        setAutoExpanded(false)
+      }
       return
     }
+
     if (isRunning) {
       if (!userInteracted && !expanded && autoExpandTimerRef.current == null) {
         autoExpandTimerRef.current = setTimeout(() => {
@@ -134,7 +143,7 @@ export const ToolCallCard = memo(function ToolCallCard({ item, turnId }: ToolCal
     if (autoExpanded) {
       setAutoExpanded(false)
     }
-  }, [autoExpanded, expanded, isRunning, toolName, userInteracted])
+  }, [autoExpandEligible, autoExpanded, expanded, isRunning, userInteracted])
 
   useEffect(() => {
     return () => {
