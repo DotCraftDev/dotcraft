@@ -270,6 +270,7 @@ declare global {
         switch(newPath: string): Promise<void>
         clearSelection(): Promise<void>
         getRecent(): Promise<Array<{ path: string; name: string; lastOpenedAt: string }>>
+        clearRecent(): Promise<void>
         getStatus(): Promise<WorkspaceStatusPayload>
         onStatusChange(
           callback: (status: WorkspaceStatusPayload) => void

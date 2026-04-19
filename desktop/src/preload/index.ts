@@ -541,6 +541,10 @@ const api = {
       return ipcRenderer.invoke('workspace:get-recent')
     },
 
+    clearRecent(): Promise<void> {
+      return ipcRenderer.invoke('workspace:clear-recent')
+    },
+
     getStatus(): Promise<WorkspaceStatusPayload> {
       return ipcRenderer.invoke('workspace:get-status')
     },

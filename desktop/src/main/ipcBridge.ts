@@ -306,6 +306,8 @@ export interface IpcHandlerCallbacks {
   updateSettings: (partial: Partial<AppSettings>) => void
   /** Returns the recent workspaces list. */
   getRecentWorkspaces: () => RecentWorkspace[]
+  /** Clears and persists the recent workspaces list. */
+  clearRecentWorkspaces?: () => void
   /** Returns the latest known connection status snapshot. */
   getConnectionStatus: () => ConnectionStatusPayload
   /** Returns the latest known workspace selection/setup snapshot. */
@@ -332,6 +334,7 @@ export interface IpcHandlerCallbacks {
  * - `workspace:switch`            (renderer -> main, invoke) -> triggers workspace switch
  * - `workspace:clear-selection`   (renderer -> main, invoke) -> returns to the welcome screen
  * - `workspace:get-recent`        (renderer -> main, invoke) -> returns recent workspaces
+ * - `workspace:clear-recent`      (renderer -> main, invoke) -> clears recent workspaces
  * - `workspace:get-status`        (renderer -> main, invoke) -> returns current workspace setup state
  * - `workspace:run-setup`         (renderer -> main, invoke) -> runs the one-shot setup command
  * - `workspace:open-new-window`   (renderer -> main, invoke) -> opens a new window
@@ -805,6 +808,10 @@ export function registerIpcHandlers(
   // Renderer -> Main: get recent workspaces
   handleSafe('workspace:get-recent', () => {
     return callbacks?.getRecentWorkspaces() ?? []
+  })
+
+  handleSafe('workspace:clear-recent', () => {
+    callbacks?.clearRecentWorkspaces?.()
   })
 
   handleSafe('workspace:get-status', () => {

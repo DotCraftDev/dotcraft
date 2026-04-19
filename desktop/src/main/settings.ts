@@ -223,3 +223,12 @@ export function addRecentWorkspace(settings: AppSettings, workspacePath: string)
 export function getRecentWorkspaces(settings: AppSettings): RecentWorkspace[] {
   return settings.recentWorkspaces ?? []
 }
+
+/**
+ * Clears the persisted recent workspace list.
+ * Mutates and returns the settings object.
+ */
+export function clearRecentWorkspaces(settings: AppSettings): AppSettings {
+  settings.recentWorkspaces = []
+  return settings
+}

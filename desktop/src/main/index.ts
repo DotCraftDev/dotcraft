@@ -27,6 +27,7 @@ import {
   loadSettings,
   saveSettings,
   addRecentWorkspace,
+  clearRecentWorkspaces,
   getRecentWorkspaces,
   type AppSettings,
   type BinarySource,
@@ -748,6 +749,10 @@ function buildCallbacks(): IpcHandlerCallbacks {
       }
     },
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
+    clearRecentWorkspaces: () => {
+      clearRecentWorkspaces(sharedSettings)
+      saveSettings(sharedSettings)
+    },
     getConnectionStatus: () => lastConnectionStatus,
     getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath),
     getProxyStatus: () => proxyStatus,

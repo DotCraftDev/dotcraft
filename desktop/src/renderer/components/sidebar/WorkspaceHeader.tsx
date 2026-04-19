@@ -77,6 +77,20 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
     }
   }
 
+  async function clearRecentWorkspaces(): Promise<void> {
+    const confirmed = window.confirm(
+      `${t('workspaceHeader.clearRecentConfirmTitle')}\n\n${t('workspaceHeader.clearRecentConfirmMessage')}`
+    )
+    if (!confirmed) return
+    try {
+      await window.api.workspace.clearRecent()
+      setRecents([])
+      setShowRecents(false)
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div
       ref={ref}
@@ -241,6 +255,35 @@ export function WorkspaceHeader({ workspaceName, workspacePath }: WorkspaceHeade
                     </span>
                   </button>
                 ))}
+                <div
+                  style={{
+                    height: '1px',
+                    backgroundColor: 'var(--border-default)',
+                    margin: '4px 0'
+                  }}
+                />
+                <button
+                  onClick={() => { void clearRecentWorkspaces() }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    width: '100%',
+                    padding: '7px 14px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    textAlign: 'left'
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+                  }}
+                >
+                  {t('workspaceHeader.clearRecentWorkspaces')}
+                </button>
               </div>
             )}
           </div>
