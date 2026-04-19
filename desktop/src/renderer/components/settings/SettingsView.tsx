@@ -546,7 +546,6 @@ export function SettingsView({
     apiKey: null,
     endPoint: null
   })
-  const [llmModel, setLlmModel] = useState('')
   const [llmApiKey, setLlmApiKey] = useState('')
   const [llmEndPoint, setLlmEndPoint] = useState('')
   const [applyingLlm, setApplyingLlm] = useState(false)
@@ -573,7 +572,6 @@ export function SettingsView({
   const canRestartManagedAppServer = savedConnectionMode !== 'remote'
   const proxyLockActive = proxyStatusText === 'running'
   const llmDirty =
-    llmModel.trim() !== (workspaceCoreBaseline.model ?? '') ||
     llmApiKey.trim() !== (workspaceCoreBaseline.apiKey ?? '') ||
     llmEndPoint.trim() !== (workspaceCoreBaseline.endPoint ?? '')
   const connectionDirty =
@@ -598,7 +596,6 @@ export function SettingsView({
       const core = await window.api.workspaceConfig.getCore()
       setWorkspaceCoreBaseline(core)
       if (!llmDirty) {
-        setLlmModel(core.model ?? '')
         setLlmApiKey(core.apiKey ?? '')
         setLlmEndPoint(core.endPoint ?? '')
       }
@@ -681,7 +678,6 @@ export function SettingsView({
       .getCore()
       .then((core) => {
         setWorkspaceCoreBaseline(core)
-        setLlmModel(core.model ?? '')
         setLlmApiKey(core.apiKey ?? '')
         setLlmEndPoint(core.endPoint ?? '')
       })
@@ -1375,11 +1371,15 @@ export function SettingsView({
     setRestartingProxy(true)
     setSaving(true)
     try {
+      const willEnable = proxyEnabled
       await persistProxySettings()
-      await window.api.proxy.restartManaged()
-      setProxyStatusText('running')
-      setProxyStatusError('')
-      addToast(t('settings.proxy.restartSuccess'), 'success')
+      if (willEnable) {
+        await window.api.proxy.restartManaged()
+      }
+      const status = await window.api.proxy.getStatus()
+      setProxyStatusText(status.status)
+      setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
+      addToast(willEnable ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
     } catch (err) {
       addToast(
         t('settings.proxy.restartFailed', {
@@ -1571,13 +1571,9 @@ export function SettingsView({
   }
 
   async function handleApplyLlmAndRestart(): Promise<void> {
-    const model = llmModel.trim()
     const apiKey = llmApiKey.trim()
     const endPoint = llmEndPoint.trim()
     const payload: Record<string, string | null> = {}
-    if (model !== (workspaceCoreBaseline.model ?? '')) {
-      payload.model = model || null
-    }
     if (!proxyLockActive && apiKey !== (workspaceCoreBaseline.apiKey ?? '')) {
       payload.apiKey = apiKey || null
     }
@@ -1617,8 +1613,9 @@ export function SettingsView({
   }
 
   async function handleApplyAndRestartAll(): Promise<void> {
+    const needsAppServerRestart = connectionDirty || llmDirty
     setSaving(true)
-    setRestartingAppServer(true)
+    setRestartingAppServer(needsAppServerRestart)
     try {
       if (connectionDirty) {
         await persistConnectionSettings()
@@ -1628,7 +1625,6 @@ export function SettingsView({
       const apiKey = llmApiKey.trim()
       const endPoint = llmEndPoint.trim()
       const payload: Record<string, string | null> = {}
-      if (model !== (workspaceCoreBaseline.model ?? '')) payload.model = model || null
       if (!proxyLockActive && apiKey !== (workspaceCoreBaseline.apiKey ?? '')) payload.apiKey = apiKey || null
       if (!proxyLockActive && endPoint !== (workspaceCoreBaseline.endPoint ?? '')) payload.endPoint = endPoint || null
       if (Object.keys(payload).length > 0) {
@@ -1639,13 +1635,34 @@ export function SettingsView({
           endPoint: result.endPoint ?? workspaceCoreBaseline.endPoint ?? null
         })
       }
-      setExpectedRestart(true)
-      await window.api.appServer.restartManaged()
-      addToast(t('settings.restartAppServerSuccess'), 'success')
+
+      let proxyApplied = false
+      let proxyEnabledAfterApply = proxyEnabled
+      if (proxyDirty) {
+        proxyApplied = true
+        proxyEnabledAfterApply = proxyEnabled
+        await persistProxySettings()
+        if (proxyEnabledAfterApply) {
+          await window.api.proxy.restartManaged()
+        }
+        const status = await window.api.proxy.getStatus()
+        setProxyStatusText(status.status)
+        setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
+      }
+
+      if (needsAppServerRestart) {
+        setExpectedRestart(true)
+        await window.api.appServer.restartManaged()
+        addToast(t('settings.restartAppServerSuccess'), 'success')
+      } else if (proxyApplied) {
+        addToast(proxyEnabledAfterApply ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
+      }
     } catch (err) {
-      setExpectedRestart(false)
+      if (needsAppServerRestart) {
+        setExpectedRestart(false)
+      }
       addToast(
-        t('settings.restartAppServerFailed', {
+        t(needsAppServerRestart && !proxyDirty ? 'settings.restartAppServerFailed' : 'settings.saveFailed', {
           error: err instanceof Error ? err.message : String(err)
         }),
         'error'
@@ -1822,12 +1839,20 @@ export function SettingsView({
                 <SettingsGroup title={t('settings.llm.title')}>
                   {proxyLockActive && (
                     <SettingsRow>
-                      <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                        {t('settings.llm.proxyLock.banner')}{' '}
+                      <div
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '10px'
+                        }}
+                      >
+                        <span style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>{t('settings.llm.proxyLock.banner')}</span>
                         <button
                           type="button"
                           onClick={() => setActiveSettingsTab('proxy')}
-                          style={{ ...secondaryButtonStyle(false), padding: '2px 8px', marginLeft: '8px' }}
+                          style={{ ...secondaryButtonStyle(false), padding: '2px 8px', flexShrink: 0 }}
                         >
                           {t('settings.llm.proxyLock.openProxyTab')}
                         </button>
@@ -1868,25 +1893,13 @@ export function SettingsView({
                     }
                   />
                   <SettingsRow
-                    label={t('settings.llm.model')}
-                    control={
-                      <input
-                        type="text"
-                        value={llmModel}
-                        onChange={(e) => setLlmModel(e.target.value)}
-                        style={inputStyle(true)}
-                        placeholder="gpt-4o-mini"
-                      />
-                    }
-                  />
-                  <SettingsRow
                     control={
                       <button
                         type="button"
                         onClick={() => {
                           void handleApplyLlmAndRestart()
                         }}
-                        disabled={!llmDirty || applyingLlm || restartingAppServer || (proxyLockActive && llmModel.trim() === (workspaceCoreBaseline.model ?? ''))}
+                        disabled={!llmDirty || applyingLlm || restartingAppServer}
                         style={primaryButtonStyle(!llmDirty || applyingLlm || restartingAppServer)}
                       >
                         {t('settings.llm.applyAndRestart')}
@@ -2141,18 +2154,34 @@ export function SettingsView({
                     control={
                       <button
                         type="button"
-                        aria-label={restartingProxy ? t('settings.proxy.restarting') : t('settings.proxy.restart')}
+                        aria-label={
+                          restartingProxy
+                            ? t('settings.proxy.restarting')
+                            : proxyDirty
+                              ? proxyEnabled
+                                ? t('settings.proxy.applyAndRestart')
+                                : t('settings.proxy.saveAndStop')
+                              : t('settings.proxy.restart')
+                        }
                         onClick={() => {
                           void handleRestartProxy()
                         }}
-                        disabled={restartingProxy || saving || !proxyEnabled}
-                        style={secondaryActionButtonStyle(restartingProxy || saving || !proxyEnabled)}
+                        disabled={restartingProxy || saving || (!proxyDirty && !proxyEnabled)}
+                        style={secondaryActionButtonStyle(restartingProxy || saving || (!proxyDirty && !proxyEnabled))}
                       >
                         <RefreshIcon
                           size={16}
                           style={restartingProxy ? { animation: 'spin 0.8s linear infinite' } : undefined}
                         />
-                        <span>{restartingProxy ? t('settings.action.restarting') : t('settings.action.restart')}</span>
+                        <span>
+                          {restartingProxy
+                            ? t('settings.action.restarting')
+                            : proxyDirty
+                              ? proxyEnabled
+                                ? t('settings.proxy.applyAndRestart')
+                                : t('settings.proxy.saveAndStop')
+                              : t('settings.action.restart')}
+                        </span>
                       </button>
                     }
                   />
