@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useState } from 'react'
 import type { ConversationItem, ConversationTurn } from '../../types/conversation'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ToolCallCard } from './ToolCallCard'
@@ -79,7 +79,6 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
     ?? (isActiveTurn
       ? liveSubAgentEntries
       : (turn.subAgentEntries ?? (isLastTurn ? liveSubAgentEntries : [])))
-  const [dismissedLingerId, setDismissedLingerId] = useState<string | null>(null)
 
   // Exclude user messages and toolResult items (toolResults are merged into their
   // parent toolCall items by the store, not rendered independently)
@@ -94,7 +93,6 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   // Consecutive toolCall items are grouped so the aggregation utility can merge
   // "Explored N files" runs, while respecting the chronological position.
   const renderNodes: React.ReactNode[] = []
-  let trailingLingerId: string | undefined
   let subAgentBlockInserted = false
   let i = 0
 
@@ -112,20 +110,13 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
         toolRun.push(renderableItems[i])
       }
       const isTrailingRun = i + 1 >= renderableItems.length
-      const { entries, lingerId } = planToolRunRender(toolRun, {
-        isRunning,
-        isTrailingRun,
-        dismissedLingerId: dismissedLingerId ?? undefined
-      })
-      if (isTrailingRun) {
-        trailingLingerId = lingerId
-      }
+      const { entries } = planToolRunRender(toolRun, { isRunning, isTrailingRun })
       const runNodes: React.ReactNode[] = []
       let lastSpawnSubagentIndex = -1
 
       for (const entry of entries) {
         runNodes.push(
-          renderAggregatedEntry(entry, turn.id, renderNodes.length + runNodes.length, lingerId)
+          renderAggregatedEntry(entry, turn.id, renderNodes.length + runNodes.length)
         )
         if (entry.kind === 'single' && entry.item.toolName === 'SpawnSubagent') {
           lastSpawnSubagentIndex = runNodes.length - 1
@@ -183,16 +174,6 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
     i++
   }
 
-  useEffect(() => {
-    if (!trailingLingerId) return
-    if (dismissedLingerId === trailingLingerId) return
-
-    const timer = setTimeout(() => {
-      setDismissedLingerId(trailingLingerId)
-    }, 1500)
-    return () => clearTimeout(timer)
-  }, [dismissedLingerId, trailingLingerId])
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       {renderNodes}
@@ -220,8 +201,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
 function renderAggregatedEntry(
   entry: AggregatedToolCall,
   turnId: string,
-  offset: number,
-  lingerId?: string
+  offset: number
 ): React.ReactNode {
   if (entry.kind === 'single') {
     return (
@@ -229,7 +209,6 @@ function renderAggregatedEntry(
         key={entry.item.id}
         item={entry.item}
         turnId={turnId}
-        isLingering={lingerId != null && entry.item.id === lingerId}
       />
     )
   }
