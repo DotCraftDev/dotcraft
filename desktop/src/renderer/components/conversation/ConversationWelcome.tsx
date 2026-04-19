@@ -315,12 +315,11 @@ export function ConversationWelcome({
 
       const result = raw as WelcomeSuggestionsWireResult
       if (result.source !== 'dynamic' || !Array.isArray(result.items) || result.items.length === 0) {
-        if (result.source === 'none' || result.source === 'fallback') {
-          suggestionFingerprintRef.current = null
-          setDynamicSuggestions(null)
-          setSuggestionsStatus('idle')
-        }
+        suggestionFingerprintRef.current = null
+        setDynamicSuggestions(null)
+        setSuggestionsStatus('idle')
         return
+      }
       }
       if (result.fingerprint && result.fingerprint === suggestionFingerprintRef.current) {
         setSuggestionsStatus('ready')
