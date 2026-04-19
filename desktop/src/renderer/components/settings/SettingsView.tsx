@@ -116,6 +116,43 @@ function normalizeWorkspaceCoreResult(value: unknown): WorkspaceCoreConfigResult
   }
 }
 
+type WorkspaceCoreReadApi = {
+  workspaceConfig?: {
+    getCore?: (() => Promise<unknown>) | undefined
+  } | undefined
+} | undefined
+
+function getWorkspaceCoreReader(api: WorkspaceCoreReadApi): (() => Promise<unknown>) | null {
+  const getCore = api?.workspaceConfig?.getCore
+  return typeof getCore === 'function' ? getCore : null
+}
+
+export async function readWorkspaceCoreSafeFromApi(
+  api: WorkspaceCoreReadApi
+): Promise<WorkspaceCoreConfigResult> {
+  const getCore = getWorkspaceCoreReader(api)
+  if (!getCore) {
+    return createEmptyWorkspaceCoreResult()
+  }
+
+  try {
+    return normalizeWorkspaceCoreResult(await getCore())
+  } catch {
+    return createEmptyWorkspaceCoreResult()
+  }
+}
+
+export async function readWorkspaceCoreStrictFromApi(
+  api: WorkspaceCoreReadApi
+): Promise<WorkspaceCoreConfigResult> {
+  const getCore = getWorkspaceCoreReader(api)
+  if (!getCore) {
+    throw new Error('Workspace core API is unavailable')
+  }
+
+  return normalizeWorkspaceCoreResult(await getCore())
+}
+
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
 type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
@@ -606,7 +643,7 @@ export function SettingsView({
   const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
   const [applyingWelcomeSuggestions, setApplyingWelcomeSuggestions] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const workspaceCoreApiAvailable = typeof window.api?.workspaceConfig?.getCore === 'function'
+  const workspaceCoreApiAvailable = getWorkspaceCoreReader(window.api) != null
 
   const [mcpServers, setMcpServers] = useState<McpServerConfigWire[]>([])
   const [mcpLoading, setMcpLoading] = useState(false)
@@ -695,15 +732,11 @@ export function SettingsView({
   }
 
   async function readWorkspaceCoreSafe(): Promise<WorkspaceCoreConfigResult> {
-    if (!workspaceCoreApiAvailable) {
-      return createEmptyWorkspaceCoreResult()
-    }
+    return readWorkspaceCoreSafeFromApi(window.api)
+  }
 
-    try {
-      return normalizeWorkspaceCoreResult(await window.api.workspaceConfig.getCore())
-    } catch {
-      return createEmptyWorkspaceCoreResult()
-    }
+  async function readWorkspaceCoreStrict(): Promise<WorkspaceCoreConfigResult> {
+    return readWorkspaceCoreStrictFromApi(window.api)
   }
 
   async function reloadWorkspaceCore(): Promise<void> {
@@ -1515,7 +1548,7 @@ export function SettingsView({
       if (willEnable) {
         await window.api.proxy.restartManaged()
       }
-      const core = await readWorkspaceCoreSafe()
+      const core = await readWorkspaceCoreStrict()
       const workspaceCoreChanged = hasWorkspaceCoreChanged(core.workspace)
       applyWorkspaceCoreBaseline(core, !workspaceCoreChanged && llmDirty)
       if (workspaceCoreChanged) {
@@ -1747,7 +1780,7 @@ export function SettingsView({
       await window.api.appServer.sendRequest('workspace/config/update', payload)
       setExpectedRestart(true)
       await window.api.appServer.restartManaged()
-      const core = await readWorkspaceCoreSafe()
+      const core = await readWorkspaceCoreStrict()
       applyWorkspaceCoreBaseline(core, false)
       addToast(t('settings.restartAppServerSuccess'), 'success')
     } catch (err) {
@@ -1797,7 +1830,7 @@ export function SettingsView({
         setProxyStatusText(status.status)
         setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
 
-        latestCore = await readWorkspaceCoreSafe()
+        latestCore = await readWorkspaceCoreStrict()
         const workspaceCoreChanged = hasWorkspaceCoreChanged(latestCore.workspace)
         if (workspaceCoreChanged && !needsAppServerRestart) {
           setRestartingAppServer(true)
@@ -1810,7 +1843,7 @@ export function SettingsView({
         setExpectedRestart(true)
         await window.api.appServer.restartManaged()
         if (!latestCore) {
-          latestCore = await readWorkspaceCoreSafe()
+          latestCore = await readWorkspaceCoreStrict()
         }
         applyWorkspaceCoreBaseline(latestCore, false)
         addToast(t('settings.restartAppServerSuccess'), 'success')
