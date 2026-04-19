@@ -1,5 +1,8 @@
+import { useT } from '../../contexts/LocaleContext'
+import type { PendingComposerMessage } from '../../types/conversation'
+
 interface PendingMessageIndicatorProps {
-  message: string
+  message: PendingComposerMessage
 }
 
 /**
@@ -7,8 +10,14 @@ interface PendingMessageIndicatorProps {
  * Only rendered when pendingMessage !== null in conversationStore.
  */
 export function PendingMessageIndicator({ message }: PendingMessageIndicatorProps): JSX.Element {
-  // Truncate long messages in the indicator
-  const displayText = message.length > 80 ? `${message.slice(0, 80)}…` : message
+  const t = useT()
+  const trimmedText = message.text.trim()
+  const filesCount = message.files?.length ?? 0
+  const displaySource =
+    trimmedText.length > 0
+      ? trimmedText
+      : t('composer.queuedFileReferences', { count: filesCount })
+  const displayText = displaySource.length > 80 ? `${displaySource.slice(0, 80)}…` : displaySource
 
   return (
     <div

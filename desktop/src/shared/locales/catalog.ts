@@ -461,6 +461,7 @@ const MESSAGES_EN = {
   'composer.attachFileAria': 'Add attachment',
   'composer.attachImage': 'Attach image',
   'composer.referenceFile': 'Reference file',
+  'composer.queuedFileReferences': 'Queued follow-up with {{count}} file reference(s)',
   'composer.removeImageAria': 'Remove image',
   'composer.removeFileAria': 'Remove file',
 
@@ -1394,6 +1395,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'composer.attachFileAria': '添加附件',
   'composer.attachImage': '附加图片',
   'composer.referenceFile': '引用文件',
+  'composer.queuedFileReferences': '已排队后续消息，包含 {{count}} 个文件引用',
   'composer.removeImageAria': '移除图片',
   'composer.removeFileAria': '移除文件',
 

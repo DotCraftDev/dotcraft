@@ -6,6 +6,7 @@ import { useConnectionStore } from '../stores/connectionStore'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useUIStore } from '../stores/uiStore'
+import { useToastStore } from '../stores/toastStore'
 
 const settingsGet = vi.fn()
 const appServerSendRequest = vi.fn()
@@ -84,6 +85,7 @@ describe('InputComposer custom command expansion', () => {
     useConversationStore.getState().reset()
     useConnectionStore.getState().reset()
     useThreadStore.getState().reset()
+    useToastStore.setState({ toasts: [] })
     useUIStore.setState({
       activeMainView: 'conversation',
       automationsTab: 'tasks',
@@ -311,5 +313,117 @@ describe('InputComposer custom command expansion', () => {
       expect(saveImageToTemp).toHaveBeenCalled()
       expect(screen.getByText('notes.txt')).toBeInTheDocument()
     })
+  })
+
+  it('queues structured pending messages while running so slash commands keep their leading slash', async () => {
+    pickFiles.mockResolvedValue([
+      { path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }
+    ])
+    useConversationStore.setState({
+      turnStatus: 'running',
+      activeTurnId: 'turn-running'
+    })
+
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    const textbox = screen.getByRole('textbox')
+    textbox.textContent = '/code-review'
+    fireEvent.input(textbox)
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reference file' }))
+
+    expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+
+    expect(useConversationStore.getState().pendingMessage).toEqual({
+      text: '/code-review',
+      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+    })
+    expect(screen.getByText(/Queued:/)).toHaveTextContent('/code-review')
+  })
+
+  it('shows a file-reference queue label instead of raw markers when queued text is empty', async () => {
+    pickFiles.mockResolvedValue([
+      { path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }
+    ])
+    useConversationStore.setState({
+      turnStatus: 'running',
+      activeTurnId: 'turn-running'
+    })
+
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reference file' }))
+
+    expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+
+    expect(useConversationStore.getState().pendingMessage).toEqual({
+      text: '',
+      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+    })
+    expect(screen.getByText(/Queued:/)).toHaveTextContent(/Queued follow-up with 1 file reference/)
+    expect(screen.queryByText(/\[\[Attached File:/)).not.toBeInTheDocument()
+  })
+
+  it('drops queued images but preserves queued text and files while warning the user', async () => {
+    useConversationStore.setState({
+      turnStatus: 'running',
+      activeTurnId: 'turn-running'
+    })
+
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    const surface = screen
+      .getByRole('textbox')
+      .closest('div[style*="border-radius: 20px"]') as HTMLElement
+
+    const image = new File(['image-bytes'], 'diagram.png', { type: 'image/png' })
+    Object.defineProperty(image, 'path', { configurable: true, value: 'C:\\temp\\diagram.png' })
+    const note = new File(['notes'], 'notes.txt', { type: 'text/plain' })
+    Object.defineProperty(note, 'path', { configurable: true, value: 'C:\\temp\\notes.txt' })
+
+    fireEvent.drop(surface, {
+      dataTransfer: {
+        files: [image, note],
+        items: [
+          {
+            kind: 'file',
+            getAsFile: () => image,
+            webkitGetAsEntry: () => ({ isDirectory: false })
+          },
+          {
+            kind: 'file',
+            getAsFile: () => note,
+            webkitGetAsEntry: () => ({ isDirectory: false })
+          }
+        ]
+      }
+    })
+
+    await waitFor(() => {
+      expect(saveImageToTemp).toHaveBeenCalled()
+      expect(screen.getByText('notes.txt')).toBeInTheDocument()
+    })
+
+    const textbox = screen.getByRole('textbox')
+    textbox.textContent = '/code-review'
+    fireEvent.input(textbox)
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(useConversationStore.getState().pendingMessage).toEqual({
+        text: '/code-review',
+        files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+      })
+    })
+    expect(
+      useToastStore.getState().toasts.some((toast) =>
+        toast.message.includes('Image attachments cannot be queued')
+      )
+    ).toBe(true)
   })
 })

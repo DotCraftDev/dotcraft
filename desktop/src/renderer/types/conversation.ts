@@ -125,6 +125,11 @@ export interface ComposerFileAttachment {
   fileName: string
 }
 
+export interface PendingComposerMessage {
+  text: string
+  files?: ComposerFileAttachment[]
+}
+
 export interface UserMessageImageRef {
   path: string
   mimeType?: string

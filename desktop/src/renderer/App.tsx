@@ -435,30 +435,35 @@ export function App(): JSX.Element {
                 const path = workspacePathRef.current
                 void (async () => {
                   let effectiveThreadId = activeId
-                  let effectiveText = pending
-                  const commandResult = await resolveCustomCommandExecution({
-                    text: pending,
-                    threadId: activeId,
-                    commands: customCommandsRef.current,
-                    sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
-                  })
-                  if (commandResult.message) {
-                    addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
+                  let effectiveText = pending.text.trim()
+                  const pendingFiles = pending.files ?? []
+                  if (effectiveText.length > 0) {
+                    const commandResult = await resolveCustomCommandExecution({
+                      text: effectiveText,
+                      threadId: activeId,
+                      commands: customCommandsRef.current,
+                      sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
+                    })
+                    if (commandResult.message) {
+                      addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
+                    }
+                    if (commandResult.sessionResetThreadSummary) {
+                      useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
+                    }
+                    if (commandResult.sessionResetThreadId) {
+                      effectiveThreadId = commandResult.sessionResetThreadId
+                      useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
+                    }
+                    if (commandResult.matchedCustomCommand) {
+                      if (!commandResult.shouldSendTurn) return
+                      effectiveText = commandResult.textForTurn.trim()
+                    }
                   }
-                  if (commandResult.sessionResetThreadSummary) {
-                    useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
-                  }
-                  if (commandResult.sessionResetThreadId) {
-                    effectiveThreadId = commandResult.sessionResetThreadId
-                    useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
-                  }
-                  if (commandResult.matchedCustomCommand) {
-                    if (!commandResult.shouldSendTurn) return
-                    effectiveText = commandResult.textForTurn.trim()
-                  }
+                  const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectiveText)
+                  if (serializedPendingText.length === 0) return
                   await window.api.appServer.sendRequest('turn/start', {
                     threadId: effectiveThreadId,
-                    input: [{ type: 'text', text: effectiveText }],
+                    input: [{ type: 'text', text: serializedPendingText }],
                     identity: {
                       channelName: 'dotcraft-desktop',
                       userId: 'local',

@@ -10,7 +10,6 @@ import { useSkillsStore } from '../../stores/skillsStore'
 import { resolveCustomCommandExecution } from '../../utils/customCommandExecution'
 import type { ComposerFileAttachment, ImageAttachment } from '../../types/conversation'
 import { startTurnWithOptimisticUI } from '../../utils/startTurn'
-import { serializeAttachedFileMarkers } from '../../utils/attachedFileMarkers'
 import {
   classifyDroppedComposerFiles,
   extForFile,
@@ -256,11 +255,15 @@ export function InputComposer({
     if (modelLoading) return
 
     if (isRunning) {
-      const queuedText = serializeAttachedFileMarkers(files, trimmed)
       if (images.length > 0) {
         addToast(t('input.imageAttachmentsQueued'), 'warning')
       }
-      setPendingMessage(queuedText)
+      if (trimmed || files.length > 0) {
+        setPendingMessage({
+          text: trimmed,
+          files: files.length > 0 ? [...files] : undefined
+        })
+      }
       richRef.current?.clear()
       setImages([])
       setFiles([])
