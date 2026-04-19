@@ -5,6 +5,7 @@ export function markdownToTelegramHtml(text: string): string {
 
   const codeBlocks: string[] = [];
   const inlineCodes: string[] = [];
+  const linkHrefs: string[] = [];
 
   let output = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (_match, code: string) => {
     codeBlocks.push(code);
@@ -19,7 +20,10 @@ export function markdownToTelegramHtml(text: string): string {
   output = output.replace(/^#{1,6}\s+(.+)$/gm, "$1");
   output = output.replace(/^>\s*(.*)$/gm, "$1");
   output = output.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-  output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  output = output.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, linkText: string, href: string) => {
+    linkHrefs.push(href);
+    return `<a href="\u0000LK${linkHrefs.length - 1}\u0000">${linkText}</a>`;
+  });
   output = output.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
   output = output.replace(/__(.+?)__/g, "<b>$1</b>");
   output = output.replace(/(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])/g, "<i>$1</i>");
@@ -34,6 +38,10 @@ export function markdownToTelegramHtml(text: string): string {
   for (let index = 0; index < codeBlocks.length; index += 1) {
     const escaped = escapeHtml(codeBlocks[index] ?? "");
     output = output.replace(`\u0000CB${index}\u0000`, `<pre><code>${escaped}</code></pre>`);
+  }
+
+  for (let index = 0; index < linkHrefs.length; index += 1) {
+    output = output.replace(`\u0000LK${index}\u0000`, linkHrefs[index] ?? "");
   }
 
   return output;
