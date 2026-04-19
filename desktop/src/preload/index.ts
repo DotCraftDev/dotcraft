@@ -611,9 +611,6 @@ const api = {
     running(): Promise<ModuleStatusMap> {
       return ipcRenderer.invoke('modules:running')
     },
-    nodeCheck(): Promise<{ available: boolean; version?: string }> {
-      return ipcRenderer.invoke('modules:node-check')
-    },
     getLogs(moduleId: string): Promise<{ lines: string[] }> {
       return ipcRenderer.invoke('modules:get-logs', { moduleId })
     },

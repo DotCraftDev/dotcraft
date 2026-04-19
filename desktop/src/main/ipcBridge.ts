@@ -88,11 +88,6 @@ export interface ProxyStatusPayload {
   pid?: number
 }
 
-interface NodeRuntimeStatusPayload {
-  available: boolean
-  version?: string
-}
-
 interface ModulesRescanSummaryPayload {
   addedModuleIds: string[]
   removedModuleIds: string[]
@@ -352,31 +347,9 @@ function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
 let moduleProcessManager: ModuleProcessManager | null = null
 let ensureModulesScanned: (() => Promise<DiscoveredModule[]>) | null = null
 let getSettingsSnapshotForModules: (() => AppSettings) | null = null
-let nodeRuntimeStatus: NodeRuntimeStatusPayload = { available: false }
 
 function normalizeChannelName(channelName: string): string {
   return channelName.trim().toLowerCase()
-}
-
-async function detectNodeRuntime(): Promise<NodeRuntimeStatusPayload> {
-  if (app.isPackaged) {
-    return { available: true, version: `v${process.versions.node}` }
-  }
-  return new Promise<NodeRuntimeStatusPayload>((resolve) => {
-    execFile('node', ['--version'], { windowsHide: true }, (error, stdout) => {
-      if (error) {
-        resolve({ available: false })
-        return
-      }
-      const version = stdout.trim()
-      resolve(version ? { available: true, version } : { available: true })
-    })
-  })
-}
-
-export async function refreshNodeRuntimeStatus(): Promise<NodeRuntimeStatusPayload> {
-  nodeRuntimeStatus = await detectNodeRuntime()
-  return nodeRuntimeStatus
 }
 
 function getNestedValue(config: Record<string, unknown>, dottedKey: string): unknown {
@@ -1049,9 +1022,6 @@ export function registerIpcHandlers(
       if (!module) {
         return { ok: false, error: `Module '${params.moduleId}' not found` }
       }
-      if (!nodeRuntimeStatus.available) {
-        return { ok: false, error: 'Node.js is required to run channel modules' }
-      }
       try {
         const configPath = path.join(workspacePath, '.craft', module.configFileName)
         const raw = await fs.readFile(configPath, 'utf-8')
@@ -1092,13 +1062,6 @@ export function registerIpcHandlers(
 
   handleSafe('modules:running', async (): Promise<ModuleStatusMap> => {
     return moduleProcessManager?.getStatusMap() ?? {}
-  })
-
-  handleSafe('modules:node-check', async (): Promise<NodeRuntimeStatusPayload> => {
-    if (!nodeRuntimeStatus.available && nodeRuntimeStatus.version === undefined) {
-      return refreshNodeRuntimeStatus()
-    }
-    return nodeRuntimeStatus
   })
 
   handleSafe(
@@ -1280,7 +1243,6 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('modules:start')
   ipcMain.removeHandler('modules:stop')
   ipcMain.removeHandler('modules:running')
-  ipcMain.removeHandler('modules:node-check')
   ipcMain.removeHandler('modules:get-logs')
   ipcMain.removeHandler('modules:qr-status')
   if (moduleProcessManager) {

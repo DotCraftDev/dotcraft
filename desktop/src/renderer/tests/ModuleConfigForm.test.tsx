@@ -66,7 +66,6 @@ function renderForm(locale: 'en' | 'zh-Hans') {
         onSave={vi.fn()}
         saving={false}
         persistedEnabled={false}
-        nodeAvailable={true}
         wsAvailable={true}
         onStart={vi.fn()}
         onStop={vi.fn()}

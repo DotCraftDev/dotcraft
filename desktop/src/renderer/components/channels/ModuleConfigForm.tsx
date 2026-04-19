@@ -19,7 +19,6 @@ interface ModuleConfigFormProps {
   logoPath?: string
   moduleStatus?: ModuleStatusEntry
   persistedEnabled: boolean
-  nodeAvailable: boolean
   wsAvailable: boolean
   onStart: () => void
   onStop: () => void
@@ -132,7 +131,6 @@ export function ModuleConfigForm({
   logoPath,
   moduleStatus,
   persistedEnabled,
-  nodeAvailable,
   wsAvailable,
   onStart,
   onStop,
@@ -171,10 +169,7 @@ export function ModuleConfigForm({
     moduleStatus?.processState === 'starting' ||
     moduleStatus?.processState === 'running'
   const enableDisabled =
-    !nodeAvailable ||
-    starting ||
-    moduleStatus?.processState === 'starting' ||
-    moduleStatus?.processState === 'stopping'
+    starting || moduleStatus?.processState === 'starting' || moduleStatus?.processState === 'stopping'
   const showQrPanel = module.requiresInteractiveSetup && qrPhase !== 'idle'
   const hasVariants = variantModules.length > 1
 
@@ -513,11 +508,6 @@ export function ModuleConfigForm({
           }}
           label={t('channels.modules.enable')}
         />
-        {!nodeAvailable && (
-          <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--error, #ff453a)' }}>
-            {t('channels.modules.nodeMissing')}
-          </div>
-        )}
         {!wsAvailable && (
           <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--warning, #ff9f0a)' }}>
             {t('channels.modules.wsRequired')}

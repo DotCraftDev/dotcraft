@@ -78,7 +78,6 @@ vi.mock('../externalEditors', () => ({
 import {
   createServerRequestBridge,
   registerIpcHandlers,
-  refreshNodeRuntimeStatus,
   sanitizeHttpOrHttpsUrl,
   openExternalHttpUrl
 } from '../ipcBridge'
@@ -171,7 +170,6 @@ describe('registerIpcHandlers', () => {
       { id: 'explorer', labelKey: 'editors.explorer', iconKey: 'explorer' }
     ])
     launchEditorMock.mockResolvedValue(undefined)
-    await refreshNodeRuntimeStatus()
   })
 
   it('registers editors:list and returns detected editor entries', async () => {

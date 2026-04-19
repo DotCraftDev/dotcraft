@@ -210,8 +210,6 @@ const MESSAGES_EN = {
   'channels.modules.source.user': 'User-installed',
   'channels.modules.required': 'Required',
   'channels.modules.enable': 'Enable channel',
-  'channels.modules.nodeMissing':
-    'Node.js is required to run channel modules. Install Node.js 20+ and restart Desktop.',
   'channels.modules.wsRequired':
     "Channel modules require WebSocket connection. Please switch connection mode to 'Stdio + WebSocket' or 'WebSocket' in Settings > Connection.",
   'channels.modules.missingRequired': 'Required fields missing: {{fields}}',
@@ -1130,8 +1128,6 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'channels.modules.source.user': '用户安装',
   'channels.modules.required': '必填',
   'channels.modules.enable': '启用渠道',
-  'channels.modules.nodeMissing':
-    '运行渠道模块需要 Node.js。请安装 Node.js 20+ 后重启 Desktop。',
   'channels.modules.wsRequired':
     '渠道模块依赖 WebSocket 连接。请在「设置 > 连接」中将连接模式切换为「Stdio + WebSocket」或「WebSocket」。',
   'channels.modules.missingRequired': '缺少必填字段：{{fields}}',
