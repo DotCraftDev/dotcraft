@@ -122,6 +122,45 @@ describe('truncateEditorDomToSerializedLength', () => {
     expect(serializeEditor(root)).toBe('Check @src/foo.ts then /code-review and [[Use Skill: browser]]')
   })
 
+  it('keeps default fragment output unchanged when spacer insertion is not requested', () => {
+    const root = document.createElement('div')
+    const segments: ComposerDraftSegment[] = [
+      { type: 'file', relativePath: 'src/foo.ts' },
+      { type: 'command', command: '/code-review' },
+      { type: 'skill', skillName: 'browser' }
+    ]
+
+    root.appendChild(buildEditorFragmentFromSegments(segments))
+
+    expect(Array.from(root.childNodes)).toHaveLength(3)
+    expect(root.childNodes[0]).toBe(root.querySelector(`.${FILE_REF_CLASS}`))
+    expect(root.childNodes[1]).toBe(root.querySelector(`.${COMMAND_REF_CLASS}`))
+    expect(root.childNodes[2]).toBe(root.querySelector(`.${SKILL_REF_CLASS}`))
+  })
+
+  it('adds non-breaking space text nodes after ref segments when requested', () => {
+    const root = document.createElement('div')
+    const segments: ComposerDraftSegment[] = [
+      { type: 'file', relativePath: 'src/foo.ts' },
+      { type: 'command', command: '/code-review' },
+      { type: 'skill', skillName: 'browser' }
+    ]
+
+    root.appendChild(buildEditorFragmentFromSegments(segments, { addSpacers: true }))
+
+    const children = Array.from(root.childNodes)
+    expect(children).toHaveLength(6)
+    expect(children[0]).toBe(root.querySelector(`.${FILE_REF_CLASS}`))
+    expect(children[1]?.nodeType).toBe(Node.TEXT_NODE)
+    expect(children[1]?.textContent).toBe('\u00a0')
+    expect(children[2]).toBe(root.querySelector(`.${COMMAND_REF_CLASS}`))
+    expect(children[3]?.nodeType).toBe(Node.TEXT_NODE)
+    expect(children[3]?.textContent).toBe('\u00a0')
+    expect(children[4]).toBe(root.querySelector(`.${SKILL_REF_CLASS}`))
+    expect(children[5]?.nodeType).toBe(Node.TEXT_NODE)
+    expect(children[5]?.textContent).toBe('\u00a0')
+  })
+
   it('parses legacy draft text into file, command, and skill segments conservatively', () => {
     expect(parseLegacyComposerText('Check @src/foo.ts /code-review [[Use Skill: browser]] now')).toEqual([
       { type: 'text', value: 'Check ' },

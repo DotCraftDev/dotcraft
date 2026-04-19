@@ -126,8 +126,16 @@ export function stringifyComposerDraftSegments(segments: ComposerDraftSegment[])
   return out
 }
 
-export function buildEditorFragmentFromSegments(segments: ComposerDraftSegment[]): DocumentFragment {
+type BuildEditorFragmentOptions = {
+  addSpacers?: boolean
+}
+
+export function buildEditorFragmentFromSegments(
+  segments: ComposerDraftSegment[],
+  options: BuildEditorFragmentOptions = {}
+): DocumentFragment {
   const frag = document.createDocumentFragment()
+  const { addSpacers = false } = options
   for (const seg of segments) {
     if (seg.type === 'text') {
       if (seg.value.length > 0) {
@@ -137,13 +145,16 @@ export function buildEditorFragmentFromSegments(segments: ComposerDraftSegment[]
     }
     if (seg.type === 'file') {
       frag.appendChild(createRefSpan('file', seg.relativePath))
+      if (addSpacers) frag.appendChild(document.createTextNode('\u00a0'))
       continue
     }
     if (seg.type === 'command') {
       frag.appendChild(createRefSpan('command', seg.command))
+      if (addSpacers) frag.appendChild(document.createTextNode('\u00a0'))
       continue
     }
     frag.appendChild(createRefSpan('skill', seg.skillName))
+    if (addSpacers) frag.appendChild(document.createTextNode('\u00a0'))
   }
   return frag
 }

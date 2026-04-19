@@ -11,6 +11,7 @@ import { useUIStore } from '../stores/uiStore'
 const fileReadFile = vi.fn()
 const appServerSendRequest = vi.fn()
 const saveImageToTemp = vi.fn()
+const pickFiles = vi.fn()
 const settingsGet = vi.fn()
 
 function renderWelcome() {
@@ -38,6 +39,7 @@ describe('ConversationWelcome composer', () => {
       activeDetailTab: 'changes',
       selectedChangedFile: null,
       autoShowTriggeredForTurn: null,
+      autoShowPlanForItem: null,
       composerPrefill: null,
       pendingWelcomeTurn: null,
       welcomeDraft: null,
@@ -94,7 +96,8 @@ describe('ConversationWelcome composer', () => {
           readFile: fileReadFile
         },
         workspace: {
-          saveImageToTemp
+          saveImageToTemp,
+          pickFiles
         }
       }
     })
@@ -119,6 +122,25 @@ describe('ConversationWelcome composer', () => {
     expect(listbox.getAttribute('style')).toContain('var(--bg-secondary)')
     const sendButton = screen.getByRole('button', { name: 'Send message' })
     expect(sendButton.querySelector('svg')?.getAttribute('width')).toBe('20')
+    expect(sendButton.getAttribute('style')).toContain('color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)')
+    expect(sendButton.getAttribute('style')).toContain('var(--text-dimmed)')
+    expect(screen.queryByText('Attach file')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add attachment' })).toBeInTheDocument()
+  })
+
+  it('opens the compact attachment menu and still routes file references through pickFiles', async () => {
+    pickFiles.mockResolvedValue([{ path: 'C:\\temp\\brief.md', fileName: 'brief.md' }])
+
+    renderWelcome()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+    expect(screen.getByRole('menuitem', { name: 'Attach image' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reference file' }))
+
+    await waitFor(() => {
+      expect(pickFiles).toHaveBeenCalled()
+      expect(screen.getByText('brief.md')).toBeInTheDocument()
+    })
   })
 
   it('creates a thread and stores the pending welcome turn on first send', async () => {
@@ -247,6 +269,30 @@ describe('ConversationWelcome composer', () => {
       expect(useUIStore.getState().pendingWelcomeTurn).toMatchObject({
         threadId: 'thread-welcome',
         text: 'Check @src/foo.ts /code-review [[Use Skill: browser]]'
+      })
+    })
+  })
+
+  it('hydrates file attachments from welcomeDraft and keeps them when creating the pending welcome turn', async () => {
+    useUIStore.getState().setWelcomeDraft({
+      text: 'Review this file',
+      images: [],
+      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }],
+      mode: 'agent',
+      model: 'Default'
+    })
+
+    renderWelcome()
+
+    expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => {
+      expect(useUIStore.getState().pendingWelcomeTurn).toMatchObject({
+        threadId: 'thread-welcome',
+        text: 'Review this file',
+        files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
       })
     })
   })

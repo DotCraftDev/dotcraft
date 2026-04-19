@@ -525,6 +525,10 @@ const api = {
       return ipcRenderer.invoke('workspace:pick-folder')
     },
 
+    pickFiles(): Promise<Array<{ path: string; fileName: string }>> {
+      return ipcRenderer.invoke('workspace:pick-files')
+    },
+
     /**
      * Triggers a full workspace switch to the given path.
      * The Main process tears down the current AppServer and spawns a new one.

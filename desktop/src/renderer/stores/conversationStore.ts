@@ -5,7 +5,8 @@ import type {
   TurnStatus,
   ThreadMode,
   ApprovalDecision,
-  ApprovalState
+  ApprovalState,
+  PendingComposerMessage
 } from '../types/conversation'
 import { wireTurnToConversationTurn } from '../types/conversation'
 import { isShellToolName } from '../utils/shellTools'
@@ -83,7 +84,7 @@ interface ConversationState {
   /** Transient system label: "Compacting context...", "Consolidating memory..." */
   systemLabel: string | null
   /** Queued follow-up message (sent when current turn completes) */
-  pendingMessage: string | null
+  pendingMessage: PendingComposerMessage | null
   /** Current agent operating mode */
   threadMode: ThreadMode
   /** Workspace root path (for cumulative diff disk reads) */
@@ -140,7 +141,7 @@ interface ConversationActions {
   onUsageDelta(inputTokens: number, outputTokens: number): void
   /** system/event notification */
   onSystemEvent(kind: string): void
-  setPendingMessage(msg: string | null): void
+  setPendingMessage(msg: PendingComposerMessage | null): void
   setThreadMode(mode: ThreadMode): void
   /** Add an optimistic (locally-created) turn before server confirms */
   addOptimisticTurn(turn: ConversationTurn): void
@@ -518,7 +519,6 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
   onTurnCompleted(rawTurn) {
     const turn = wireTurnToConversationTurn(rawTurn)
     set((state) => {
-      const pending = state.pendingMessage
       return {
         turns: state.turns.map((t) =>
           t.id === turn.id

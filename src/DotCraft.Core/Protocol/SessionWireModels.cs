@@ -237,6 +237,9 @@ public sealed record SessionWireInputPart
 /// </summary>
 public static class SessionWireMapper
 {
+    private const string AttachedFileMarkerPrefix = "[[Attached File: ";
+    private const string AttachedFileMarkerSuffix = "]]";
+
     /// <summary>
     /// Maps a thread into the wire DTO without turn history.
     /// Equivalent to <c>thread.ToWire(includeTurns: false)</c>.
@@ -401,12 +404,59 @@ public static class SessionWireMapper
     public static AIContent ToAIContent(this SessionWireInputPart part) =>
         part.Type switch
         {
-            "text" => new TextContent(part.Text ?? string.Empty),
+            "text" => new TextContent(ExpandAttachedFileMarkersForModel(part.Text ?? string.Empty)),
             // image/localImage: AppServer must resolve to DataContent(bytes, mediaType) before dispatch
             "image" when part.Url is { } url => new TextContent($"[image:{url}]"),
             "localImage" when part.Path is { } path => new TextContent($"[localImage:{path}]"),
             _ => new TextContent(part.Text ?? string.Empty)
         };
+
+    private static string ExpandAttachedFileMarkersForModel(string text)
+    {
+        var (files, bodyText) = ParseLeadingAttachedFileMarkers(text);
+        if (files.Count == 0)
+            return text;
+
+        var pathBlock = string.Join('\n', files);
+        return string.IsNullOrEmpty(bodyText)
+            ? pathBlock
+            : $"{pathBlock}\n\n{bodyText}";
+    }
+
+    private static (List<string> Files, string BodyText) ParseLeadingAttachedFileMarkers(string text)
+    {
+        var normalized = text.Replace("\r\n", "\n");
+        var lines = normalized.Split('\n');
+        var files = new List<string>();
+        var index = 0;
+
+        while (index < lines.Length)
+        {
+            var line = lines[index] ?? string.Empty;
+            if (!line.StartsWith(AttachedFileMarkerPrefix, StringComparison.Ordinal)
+                || !line.EndsWith(AttachedFileMarkerSuffix, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            var path = line.Substring(
+                AttachedFileMarkerPrefix.Length,
+                line.Length - AttachedFileMarkerPrefix.Length - AttachedFileMarkerSuffix.Length).Trim();
+            if (string.IsNullOrWhiteSpace(path))
+                break;
+
+            files.Add(path);
+            index++;
+        }
+
+        if (files.Count == 0)
+            return (files, text);
+
+        if (index < lines.Length && string.IsNullOrEmpty(lines[index]))
+            index++;
+
+        return (files, string.Join('\n', lines[index..]));
+    }
 
     /// <summary>
     /// Converts an <see cref="AIContent"/> into a wire input part for serialization.

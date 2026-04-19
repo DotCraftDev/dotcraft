@@ -516,7 +516,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const range = sel.getRangeAt(0)
         if (!editor.contains(range.startContainer)) return
 
-        const frag = buildEditorFragmentFromSegments(segments)
+        const frag = buildEditorFragmentFromSegments(segments, { addSpacers: true })
         const marker = document.createTextNode('')
         frag.appendChild(marker)
 

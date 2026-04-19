@@ -1,10 +1,12 @@
 import type { CSSProperties, DragEventHandler, JSX, ReactNode } from 'react'
 import { Square } from 'lucide-react'
 
+type ComposerActionButtonTone = 'enabled' | 'disabled'
+
 interface ComposerShellProps {
   dragOver: boolean
   dropLabel: string
-  imageStrip?: ReactNode
+  attachmentStrip?: ReactNode
   editor: ReactNode
   footerLeading: ReactNode
   footerAction: ReactNode
@@ -20,12 +22,13 @@ interface ComposerModeSwitchProps {
   onToggle: () => void
   agentLabel: string
   planLabel: string
+  title?: string
 }
 
 export function ComposerShell({
   dragOver,
   dropLabel,
-  imageStrip,
+  attachmentStrip,
   editor,
   footerLeading,
   footerAction,
@@ -81,7 +84,7 @@ export function ComposerShell({
           </div>
         )}
 
-        {imageStrip}
+        {attachmentStrip}
         {editor}
 
         <div
@@ -106,7 +109,8 @@ export function ComposerModeSwitch({
   value,
   onToggle,
   agentLabel,
-  planLabel
+  planLabel,
+  title
 }: ComposerModeSwitchProps): JSX.Element {
   const activeLabel = value === 'agent' ? agentLabel : planLabel
   const activeTone = value === 'agent' ? 'var(--success)' : 'var(--info)'
@@ -116,6 +120,7 @@ export function ComposerModeSwitch({
       type="button"
       onClick={onToggle}
       aria-label={activeLabel}
+      title={title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -182,6 +187,17 @@ export const composerActionButtonStyle: CSSProperties = {
   cursor: 'pointer',
   boxShadow: '0 4px 10px rgba(0, 0, 0, 0.16)',
   transition: 'background-color 100ms ease, transform 100ms ease'
+}
+
+export function composerSendButtonStyle(tone: ComposerActionButtonTone): CSSProperties {
+  const enabled = tone === 'enabled'
+
+  return {
+    ...composerActionButtonStyle,
+    backgroundColor: enabled ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
+    color: enabled ? '#1f2328' : 'var(--text-dimmed)',
+    cursor: enabled ? 'pointer' : 'default'
+  }
 }
 
 export function SendIcon(): JSX.Element {

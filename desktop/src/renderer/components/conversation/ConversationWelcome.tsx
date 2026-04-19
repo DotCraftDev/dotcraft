@@ -8,20 +8,26 @@ import { useUIStore } from '../../stores/uiStore'
 import { useSkillsStore } from '../../stores/skillsStore'
 import { addToast } from '../../stores/toastStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
-import type { ImageAttachment, ThreadMode } from '../../types/conversation'
+import type { ComposerFileAttachment, ImageAttachment, ThreadMode } from '../../types/conversation'
 import type { ComposerDraftSegment } from '../../types/composerDraft'
 import type { ThreadSummary } from '../../types/thread'
 import { parseJsonConfig } from '../../../shared/jsonConfig'
+import {
+  classifyDroppedComposerFiles,
+  isImageFile,
+  mergeComposerFileAttachments
+} from '../../utils/composerAttachments'
 import { CommandSearchPopover } from './CommandSearchPopover'
 import { FileSearchPopover } from './FileSearchPopover'
-import { ImageStrip } from './ImageStrip'
+import { AttachmentStrip } from './AttachmentStrip'
+import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 import { ModelPicker } from './ModelPicker'
 import {
   ComposerModeSwitch,
   ComposerShell,
   SendIcon,
-  composerActionButtonStyle,
+  composerSendButtonStyle,
   composerModelPillStyle
 } from './ComposerShell'
 
@@ -40,18 +46,6 @@ const MAX_IMAGES = 5
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const WELCOME_DRAFT_DEBOUNCE_MS = 250
 
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'])
-
-function extForFile(name: string): string {
-  const i = name.lastIndexOf('.')
-  return i >= 0 ? name.slice(i).toLowerCase() : ''
-}
-
-function isImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true
-  return IMAGE_EXTENSIONS.has(extForFile(file.name))
-}
-
 /**
  * Welcome state when the workspace is connected but no thread is selected.
  * Keeps the composer centered in the page so users can start a conversation
@@ -61,6 +55,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const t = useT()
   const [contentRevision, setContentRevision] = useState(0)
   const [images, setImages] = useState<ImageAttachment[]>([])
+  const [files, setFiles] = useState<ComposerFileAttachment[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [editorFocused, setEditorFocused] = useState(false)
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
@@ -218,6 +213,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     latestDraftTextRef.current = welcomeDraft.text
     latestDraftSegmentsRef.current = [...(welcomeDraft.segments ?? [])]
     setImages(welcomeDraft.images)
+    setFiles([...(welcomeDraft.files ?? [])])
     setWelcomeMode(welcomeDraft.mode)
     setModelName(welcomeDraft.model || 'Default')
     setContentRevision((n) => n + 1)
@@ -258,10 +254,11 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     const segments = richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
     const hasText = text.trim().length > 0
     const hasImages = images.length > 0
+    const hasFiles = files.length > 0
     const model = modelName || 'Default'
     const hasCustomSettings = welcomeMode !== 'agent' || model !== 'Default'
 
-    if (!hasText && !hasImages && !hasCustomSettings) {
+    if (!hasText && !hasImages && !hasFiles && !hasCustomSettings) {
       clearWelcomeDraft()
       return
     }
@@ -270,10 +267,11 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       text,
       segments: [...segments],
       images: [...images],
+      files: [...files],
       mode: welcomeMode,
       model
     })
-  }, [clearWelcomeDraft, images, modelName, setWelcomeDraft, welcomeMode])
+  }, [clearWelcomeDraft, files, images, modelName, setWelcomeDraft, welcomeMode])
 
   useEffect(() => {
     if (!draftHydratedRef.current) return
@@ -283,7 +281,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     return () => {
       clearTimeout(timer)
     }
-  }, [contentRevision, flushWelcomeDraft, images, modelName, welcomeMode])
+  }, [contentRevision, files, flushWelcomeDraft, images, modelName, welcomeMode])
 
   useEffect(() => {
     return () => {
@@ -342,7 +340,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const sendFromWelcome = useCallback(async (): Promise<void> => {
     const trimmed = (richRef.current?.getText() ?? '').trim()
     if (
-      (!trimmed && images.length === 0) ||
+      (!trimmed && images.length === 0 && files.length === 0) ||
       sendInFlightRef.current ||
       connectionStatus !== 'connected' ||
       modelLoading
@@ -353,6 +351,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     sendInFlightRef.current = true
     setStarting(true)
     const capturedImages = [...images]
+    const capturedFiles = [...files]
     const capturedMode = welcomeMode
     const capturedModel = modelName === 'Default' ? '' : modelName
     try {
@@ -374,6 +373,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         threadId: res.thread.id,
         text: trimmed,
         images: capturedImages.length > 0 ? capturedImages : undefined,
+        files: capturedFiles.length > 0 ? capturedFiles : undefined,
         mode: capturedMode,
         model: capturedModel
       })
@@ -382,6 +382,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       useUIStore.getState().setActiveMainView('conversation')
       richRef.current?.clear()
       setImages([])
+      setFiles([])
     } catch (err) {
       console.error('Failed to start thread from welcome composer:', err)
     } finally {
@@ -389,6 +390,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       setStarting(false)
     }
   }, [
+    files,
     images,
     connectionStatus,
     workspacePath,
@@ -419,36 +421,48 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     setDragOver(true)
   }, [])
 
+  const addPickedFiles = useCallback((picked: Array<{ path: string; fileName: string }>): void => {
+    if (picked.length === 0) return
+    setFiles((prev) => mergeComposerFileAttachments(prev, picked))
+  }, [])
+
+  const pickFiles = useCallback(async (): Promise<void> => {
+    try {
+      const picked = await window.api.workspace.pickFiles()
+      addPickedFiles(picked)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      addToast(t('input.pickFilesFailed', { error: msg }), 'error')
+    }
+  }, [addPickedFiles, t])
+
   const onDragLeave = useCallback((e: React.DragEvent): void => {
     e.preventDefault()
     e.stopPropagation()
     setDragOver(false)
   }, [])
 
+  const attachImages = useCallback((picked: File[]): void => {
+    for (const file of picked) {
+      onPasteImage(file)
+    }
+  }, [onPasteImage])
+
   const onDrop = useCallback(
     (e: React.DragEvent): void => {
       e.preventDefault()
       e.stopPropagation()
       setDragOver(false)
-      const fl = Array.from(e.dataTransfer.files || [])
-      let rejected = 0
-      for (const file of fl) {
-        if (!isImageFile(file)) {
-          rejected++
-          continue
-        }
-        const reader = new FileReader()
-        reader.onload = () => {
-          const dataUrl = reader.result as string
-          void saveDataUrlAsTemp(dataUrl, file.name, file.type || 'image/png')
-        }
-        reader.readAsDataURL(file)
+      const { imageFiles, fileAttachments, skippedCount } = classifyDroppedComposerFiles(e.dataTransfer)
+      attachImages(imageFiles)
+      if (fileAttachments.length > 0) {
+        setFiles((prev) => mergeComposerFileAttachments(prev, fileAttachments))
       }
-      if (rejected > 0) {
-        addToast(t('input.nonImageRejected', { count: rejected }), 'warning')
+      if (skippedCount > 0) {
+        addToast(t('input.dropItemsSkipped', { count: skippedCount }), 'warning')
       }
     },
-    [saveDataUrlAsTemp, t]
+    [attachImages, t]
   )
 
   const toggleWelcomeMode = useCallback((): void => {
@@ -462,8 +476,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   const canSend = useMemo(() => {
     const textLen = (richRef.current?.getText() ?? '').trim().length
-    return (textLen > 0 || images.length > 0) && isConnected && !starting && !modelLoading
-  }, [contentRevision, images.length, isConnected, starting, modelLoading])
+    return (textLen > 0 || images.length > 0 || files.length > 0) && isConnected && !starting && !modelLoading
+  }, [contentRevision, files.length, images.length, isConnected, starting, modelLoading])
 
   return (
     <div
@@ -502,7 +516,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               flexDirection: 'column',
               alignItems: 'center',
               gap: '8px',
-              marginBottom: '24px'
+              marginBottom: '18px'
             }}
           >
             <h1
@@ -532,12 +546,18 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               onDrop={onDrop}
               opacity={starting ? 0.65 : 1}
               focused={editorFocused}
-              imageStrip={
-                <ImageStrip
+              attachmentStrip={
+                <AttachmentStrip
                   images={images}
-                  onRemove={(idx) => {
+                  files={files}
+                  onRemoveImage={(idx) => {
                     setImages((prev) => prev.filter((_, i) => i !== idx))
                   }}
+                  onRemoveFile={(idx) => {
+                    setFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }}
+                  removeImageLabel={t('composer.removeImageAria')}
+                  removeFileLabel={t('composer.removeFileAria')}
                 />
               }
               editor={
@@ -600,6 +620,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               }
               footerLeading={
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+                  <ComposerAttachmentMenu
+                    title={t('composer.attachFileTitle')}
+                    ariaLabel={t('composer.attachFileAria')}
+                    attachImageLabel={t('composer.attachImage')}
+                    referenceFileLabel={t('composer.referenceFile')}
+                    onAttachImages={attachImages}
+                    onReferenceFiles={() => {
+                      void pickFiles()
+                    }}
+                  />
+
                   <ComposerModeSwitch
                     value={welcomeMode}
                     onToggle={() => {
@@ -607,6 +638,9 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                     }}
                     agentLabel={t('composer.mode.agent')}
                     planLabel={t('composer.mode.plan')}
+                    title={t('composer.modeTitle', {
+                      mode: welcomeMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
+                    })}
                   />
 
                   <ModelPicker
@@ -632,12 +666,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   disabled={!canSend}
                   title={t('welcome.sendTitle')}
                   aria-label={t('welcome.sendAria')}
-                  style={{
-                    ...composerActionButtonStyle,
-                    backgroundColor: canSend ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
-                    color: canSend ? '#1f2328' : 'var(--text-dimmed)',
-                    cursor: canSend ? 'pointer' : 'default'
-                  }}
+                  style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
                 >
                   <SendIcon />
                 </button>

@@ -120,6 +120,16 @@ export type InputPart =
   | { type: 'text'; text: string }
   | { type: 'localImage'; path: string; mimeType?: string; fileName?: string }
 
+export interface ComposerFileAttachment {
+  path: string
+  fileName: string
+}
+
+export interface PendingComposerMessage {
+  text: string
+  files?: ComposerFileAttachment[]
+}
+
 export interface UserMessageImageRef {
   path: string
   mimeType?: string

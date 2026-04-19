@@ -270,6 +270,7 @@ declare global {
       }
       workspace: {
         pickFolder(): Promise<string | null>
+        pickFiles(): Promise<Array<{ path: string; fileName: string }>>
         switch(newPath: string): Promise<void>
         clearSelection(): Promise<void>
         getRecent(): Promise<Array<{ path: string; name: string; lastOpenedAt: string }>>

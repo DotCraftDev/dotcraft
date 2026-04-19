@@ -346,12 +346,18 @@ describe('system events', () => {
 
 describe('pending message', () => {
   it('stores pending message', () => {
-    s().setPendingMessage('Follow-up question')
-    expect(s().pendingMessage).toBe('Follow-up question')
+    s().setPendingMessage({
+      text: 'Follow-up question',
+      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+    })
+    expect(s().pendingMessage).toEqual({
+      text: 'Follow-up question',
+      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+    })
   })
 
   it('clears pending message', () => {
-    s().setPendingMessage('text')
+    s().setPendingMessage({ text: 'text' })
     s().setPendingMessage(null)
     expect(s().pendingMessage).toBeNull()
   })
@@ -375,7 +381,7 @@ describe('reset', () => {
   it('clears all state back to initial values', () => {
     s().onTurnStarted(makeTurn())
     s().onAgentMessageDelta('some text')
-    s().setPendingMessage('pending')
+    s().setPendingMessage({ text: 'pending' })
     s().reset()
 
     const state = s()

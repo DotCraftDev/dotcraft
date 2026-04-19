@@ -354,6 +354,7 @@ export interface IpcHandlerCallbacks {
  * - `window:set-title`            (renderer -> main, invoke) -> sets window title
  * - `window:get-workspace-path`   (renderer -> main, invoke) -> returns workspace path
  * - `workspace:pick-folder`       (renderer -> main, invoke) -> opens native folder picker
+ * - `workspace:pick-files`        (renderer -> main, invoke) -> opens native file picker
  * - `workspace:switch`            (renderer -> main, invoke) -> triggers workspace switch
  * - `workspace:clear-selection`   (renderer -> main, invoke) -> returns to the welcome screen
  * - `workspace:get-recent`        (renderer -> main, invoke) -> returns recent workspaces
@@ -806,6 +807,24 @@ export function registerIpcHandlers(
     )
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
+  })
+
+  handleSafe('workspace:pick-files', async () => {
+    const focusedWin = BrowserWindow.getFocusedWindow()
+    const result = await dialog.showOpenDialog(
+      focusedWin ?? BrowserWindow.getAllWindows()[0],
+      {
+        title: 'Select Files',
+        properties: ['openFile', 'multiSelections']
+      }
+    )
+    if (result.canceled || result.filePaths.length === 0) {
+      return [] as Array<{ path: string; fileName: string }>
+    }
+    return result.filePaths.map((filePath) => ({
+      path: filePath,
+      fileName: path.basename(filePath)
+    }))
   })
 
   // Renderer -> Main: switch to a different workspace
@@ -1289,6 +1308,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('file:exists')
   ipcMain.removeHandler('git:commit')
   ipcMain.removeHandler('workspace:pick-folder')
+  ipcMain.removeHandler('workspace:pick-files')
   ipcMain.removeHandler('workspace:switch')
   ipcMain.removeHandler('workspace:clear-selection')
   ipcMain.removeHandler('workspace:get-recent')

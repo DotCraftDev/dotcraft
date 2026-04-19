@@ -33,12 +33,14 @@ import { ChannelsView } from './components/channels/ChannelsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
+import { serializeAttachedFileMarkers } from './utils/attachedFileMarkers'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { InputPart } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { resolveCustomCommandExecution } from './utils/customCommandExecution'
+import { getFallbackThreadName } from './utils/threadFallbackName'
 import {
   resolveWorkspaceConfigChangedPayload,
   type WorkspaceConfigChangedPayload
@@ -434,30 +436,35 @@ export function App(): JSX.Element {
                 const path = workspacePathRef.current
                 void (async () => {
                   let effectiveThreadId = activeId
-                  let effectiveText = pending
-                  const commandResult = await resolveCustomCommandExecution({
-                    text: pending,
-                    threadId: activeId,
-                    commands: customCommandsRef.current,
-                    sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
-                  })
-                  if (commandResult.message) {
-                    addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
+                  let effectiveText = pending.text.trim()
+                  const pendingFiles = pending.files ?? []
+                  if (effectiveText.length > 0) {
+                    const commandResult = await resolveCustomCommandExecution({
+                      text: effectiveText,
+                      threadId: activeId,
+                      commands: customCommandsRef.current,
+                      sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
+                    })
+                    if (commandResult.message) {
+                      addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
+                    }
+                    if (commandResult.sessionResetThreadSummary) {
+                      useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
+                    }
+                    if (commandResult.sessionResetThreadId) {
+                      effectiveThreadId = commandResult.sessionResetThreadId
+                      useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
+                    }
+                    if (commandResult.matchedCustomCommand) {
+                      if (!commandResult.shouldSendTurn) return
+                      effectiveText = commandResult.textForTurn.trim()
+                    }
                   }
-                  if (commandResult.sessionResetThreadSummary) {
-                    useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
-                  }
-                  if (commandResult.sessionResetThreadId) {
-                    effectiveThreadId = commandResult.sessionResetThreadId
-                    useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
-                  }
-                  if (commandResult.matchedCustomCommand) {
-                    if (!commandResult.shouldSendTurn) return
-                    effectiveText = commandResult.textForTurn.trim()
-                  }
+                  const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectiveText)
+                  if (serializedPendingText.length === 0) return
                   await window.api.appServer.sendRequest('turn/start', {
                     threadId: effectiveThreadId,
-                    input: [{ type: 'text', text: effectiveText }],
+                    input: [{ type: 'text', text: serializedPendingText }],
                     identity: {
                       channelName: 'dotcraft-desktop',
                       userId: 'local',
@@ -959,6 +966,7 @@ export function App(): JSX.Element {
             const path = workspacePathRef.current
             const pendingText = pendingWelcome.text.trim()
             const pendingImages = pendingWelcome.images
+            const pendingFiles = pendingWelcome.files ?? []
             let effectiveThreadId = threadId
             let effectivePendingText = pendingText
             const welcomeMode = pendingWelcome.mode ?? 'agent'
@@ -1027,12 +1035,17 @@ export function App(): JSX.Element {
             }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === effectiveThreadId)
             if (!threadEntry?.displayName) {
-              const autoName =
-                effectivePendingText.length > 50
-                  ? effectivePendingText.slice(0, 50) + '...'
-                  : effectivePendingText || translate(localeRef.current, 'toast.imageMessage')
+              const autoName = getFallbackThreadName({
+                visibleText: effectivePendingText,
+                imagesCount: pendingImages?.length ?? 0,
+                filesCount: pendingFiles.length,
+                fallbackThreadName: translate(localeRef.current, 'toast.imageMessage'),
+                fileFallbackThreadName: translate(localeRef.current, 'toast.fileReferenceMessage'),
+                attachmentFallbackThreadName: translate(localeRef.current, 'toast.attachmentMessage')
+              })
               useThreadStore.getState().renameThread(effectiveThreadId, autoName)
             }
+            const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectivePendingText)
             const optimisticItemId = `local-${Date.now()}`
             const optimisticTurnId = `local-turn-${Date.now()}`
             const optimisticNow = new Date().toISOString()
@@ -1040,7 +1053,7 @@ export function App(): JSX.Element {
               id: optimisticItemId,
               type: 'userMessage',
               status: 'completed',
-              text: effectivePendingText,
+              text: serializedPendingText,
               imageDataUrls: pendingImages?.map((i) => i.dataUrl),
               images: pendingImages?.map((i) => ({
                 path: i.tempPath,
@@ -1060,8 +1073,8 @@ export function App(): JSX.Element {
             useConversationStore.getState().addOptimisticTurn(optimisticTurn)
 
             const inputParts: InputPart[] = []
-            if (effectivePendingText.length > 0) {
-              inputParts.push({ type: 'text', text: effectivePendingText })
+            if (serializedPendingText.length > 0) {
+              inputParts.push({ type: 'text', text: serializedPendingText })
             }
             for (const img of pendingImages ?? []) {
               inputParts.push({
