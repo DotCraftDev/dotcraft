@@ -168,7 +168,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        $modules = @('channel-feishu', 'channel-weixin')
+        $modules = @('channel-feishu', 'channel-weixin', 'channel-telegram')
         foreach ($mod in $modules) {
           $src = "sdk/typescript/packages/$mod"
           $dst = "desktop/resources/modules/$mod"
@@ -182,7 +182,7 @@ jobs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        for mod in channel-feishu channel-weixin; do
+        for mod in channel-feishu channel-weixin channel-telegram; do
           src="sdk/typescript/packages/$mod"
           dst="desktop/resources/modules/$mod"
           mkdir -p "$dst"

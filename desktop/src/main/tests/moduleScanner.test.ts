@@ -83,4 +83,52 @@ describe('scanModules', () => {
       })
     ])
   })
+
+  it('discovers telegram-standard manifests as desktop social modules', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'dotcraft-modules-'))
+    const moduleDir = join(tempRoot, 'channel-telegram')
+    await mkdir(moduleDir, { recursive: true })
+    await writeFile(
+      join(moduleDir, 'manifest.json'),
+      JSON.stringify(
+        {
+          moduleId: 'telegram-standard',
+          channelName: 'telegram',
+          displayName: 'Telegram',
+          packageName: '@dotcraft/channel-telegram',
+          configFileName: 'telegram.json',
+          supportedTransports: ['websocket'],
+          requiresInteractiveSetup: false,
+          variant: 'standard',
+          configDescriptors: [
+            {
+              key: 'telegram.botToken',
+              displayLabel: 'Telegram Bot Token',
+              description: 'Bot token issued by BotFather.',
+              required: true,
+              dataKind: 'secret',
+              masked: true,
+              interactiveSetupOnly: false
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    )
+
+    const modules = await scanModules({ modulesDirectory: tempRoot }, true)
+    expect(modules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          moduleId: 'telegram-standard',
+          channelName: 'telegram',
+          displayName: 'Telegram',
+          configFileName: 'telegram.json',
+          requiresInteractiveSetup: false
+        })
+      ])
+    )
+  })
 })

@@ -12,12 +12,6 @@ import { WeComConfigForm } from './WeComConfigForm'
 import { ModuleConfigForm } from './ModuleConfigForm'
 import { useChannelConfig } from './useChannelConfig'
 import {
-  PRESET_EXTERNAL_CHANNELS,
-  PRESET_EXTERNAL_CHANNELS_BY_NAME,
-  createPresetExternalDraft,
-  type PresetExternalChannel
-} from './presetExternalChannels'
-import {
   ExternalChannelConfigForm,
   type ExternalChannelConfigWire
 } from './ExternalChannelConfigForm'
@@ -47,7 +41,7 @@ interface ExternalChannelViewModel {
   name: string
   draft: ExternalChannelConfigWire
   configured: boolean
-  preset?: PresetExternalChannel
+  isLegacyTelegram: boolean
 }
 
 interface ModuleQrState {
@@ -77,6 +71,10 @@ function isModuleWsAvailable(mode: ConnectionMode): boolean {
 
 function normalizeChannelName(value: string): string {
   return value.trim().toLowerCase()
+}
+
+function isLegacyTelegramExternal(channelName: string, moduleChannelNames: Set<string>): boolean {
+  return normalizeChannelName(channelName) === 'telegram' && moduleChannelNames.has('telegram')
 }
 
 function groupModulesByChannel(
@@ -480,13 +478,8 @@ export function ChannelsView(): JSX.Element {
         if (selected) {
           setExternalDraft(cloneExternalChannel(selected))
         } else {
-          const preset = PRESET_EXTERNAL_CHANNELS_BY_NAME.get(selectedName.toLowerCase())
-          if (preset) {
-            setExternalDraft(createPresetExternalDraft(preset.name))
-          } else {
-            setSelectedChannelKey('native:qq')
-            setExternalDraft(createEmptyExternalChannel())
-          }
+          setSelectedChannelKey('native:qq')
+          setExternalDraft(createEmptyExternalChannel())
         }
       }
     } catch (err) {
@@ -501,39 +494,17 @@ export function ChannelsView(): JSX.Element {
     if (!externalManagementEnabled) return []
 
     const moduleChannelNames = new Set(modules.map((module) => module.channelName.toLowerCase()))
-    const persistedByName = new Map<string, ExternalChannelConfigWire>()
-    for (const channel of externalChannels) {
-      persistedByName.set(channel.name.toLowerCase(), channel)
-    }
 
     const merged: ExternalChannelViewModel[] = []
-    for (const preset of PRESET_EXTERNAL_CHANNELS) {
-      if (moduleChannelNames.has(preset.name.toLowerCase())) continue
-      const persisted = persistedByName.get(preset.name.toLowerCase())
-      if (persisted) {
-        merged.push({
-          name: persisted.name,
-          draft: cloneExternalChannel(persisted),
-          configured: true,
-          preset
-        })
-      } else {
-        merged.push({
-          name: preset.name,
-          draft: createPresetExternalDraft(preset.name),
-          configured: false,
-          preset
-        })
-      }
-    }
-
     for (const channel of externalChannels) {
-      if (moduleChannelNames.has(channel.name.toLowerCase())) continue
-      if (PRESET_EXTERNAL_CHANNELS_BY_NAME.has(channel.name.toLowerCase())) continue
+      const normalizedName = channel.name.toLowerCase()
+      const isLegacyTelegram = isLegacyTelegramExternal(channel.name, moduleChannelNames)
+      if (moduleChannelNames.has(normalizedName) && !isLegacyTelegram) continue
       merged.push({
         name: channel.name,
         draft: cloneExternalChannel(channel),
-        configured: true
+        configured: true,
+        isLegacyTelegram
       })
     }
 
@@ -856,10 +827,8 @@ export function ChannelsView(): JSX.Element {
     try {
       await window.api.appServer.sendRequest('externalChannel/remove', { name })
       await reloadExternalChannels()
-      if (!PRESET_EXTERNAL_CHANNELS_BY_NAME.has(name.toLowerCase())) {
-        setSelectedChannelKey('native:qq')
-        setExternalDraft(createEmptyExternalChannel())
-      }
+      setSelectedChannelKey('native:qq')
+      setExternalDraft(createEmptyExternalChannel())
       addToast(t('channels.external.removed'), 'success')
     } catch (err) {
       addToast(
@@ -1175,12 +1144,12 @@ export function ChannelsView(): JSX.Element {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {externalChannelCards.map((channel) => {
                 const status = externalStatusByName.get(channel.name.toLowerCase()) ?? 'notConfigured'
-                const label = channel.preset ? t(channel.preset.nameKey) : channel.name
                 return (
                   <ChannelCard
                     key={channel.name}
-                    logoPath={channel.preset?.logoPath}
-                    label={label}
+                    logoPath={channel.isLegacyTelegram ? moduleLogoPath(channel.name) : undefined}
+                    label={channel.name}
+                    badgeText={channel.isLegacyTelegram ? t('channels.external.legacyTelegramBadge') : undefined}
                     status={status}
                     statusLabel={t(statusLabelKey(status))}
                     active={selectedChannelKey === `external:${channel.name}`}
@@ -1281,28 +1250,33 @@ export function ChannelsView(): JSX.Element {
                   {t('channels.external.unavailable')}
                 </div>
               ) : (
-                <ExternalChannelConfigForm
-                  value={externalDraft}
-                  saving={savingExternal}
-                  deleting={deletingExternal}
-                  isNew={selectedExternalName === '__new__'}
-                  logoPath={selectedExternalCard?.preset?.logoPath}
-                  headerTitle={
-                    selectedExternalCard?.preset ? t(selectedExternalCard.preset.titleKey) : undefined
-                  }
-                  status={
-                    selectedExternalName === '__new__'
-                      ? deriveExternalStatus(
-                          '__new__',
-                          externalDraft.enabled,
-                          false,
-                          channelStatusMap,
-                          fallbackConnected
-                        )
-                      : externalStatusByName.get(selectedExternalName.toLowerCase()) ?? 'notConfigured'
-                  }
-                  statusLabel={t(
-                    statusLabelKey(
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {selectedExternalCard?.isLegacyTelegram && (
+                    <div
+                      style={{
+                        border: '1px solid color-mix(in srgb, var(--warning) 40%, var(--border-default))',
+                        background: 'color-mix(in srgb, var(--warning) 10%, var(--bg-secondary))',
+                        color: 'var(--text-primary)',
+                        borderRadius: 10,
+                        padding: '12px 14px',
+                        fontSize: 13,
+                        lineHeight: 1.5
+                      }}
+                    >
+                      {t('channels.external.legacyTelegramWarning')}
+                    </div>
+                  )}
+                  <ExternalChannelConfigForm
+                    value={externalDraft}
+                    saving={savingExternal}
+                    deleting={deletingExternal}
+                    isNew={selectedExternalName === '__new__'}
+                    logoPath={
+                      selectedExternalCard?.isLegacyTelegram
+                        ? moduleLogoPath(selectedExternalCard.name)
+                        : undefined
+                    }
+                    status={
                       selectedExternalName === '__new__'
                         ? deriveExternalStatus(
                             '__new__',
@@ -1312,18 +1286,31 @@ export function ChannelsView(): JSX.Element {
                             fallbackConnected
                           )
                         : externalStatusByName.get(selectedExternalName.toLowerCase()) ?? 'notConfigured'
-                    )
-                  )}
-                  onChange={setExternalDraft}
-                  onSave={() => void handleSaveExternal()}
-                  onDelete={
-                    selectedExternalName === '__new__'
-                      ? undefined
-                      : () => {
-                          void handleDeleteExternal()
-                        }
-                  }
-                />
+                    }
+                    statusLabel={t(
+                      statusLabelKey(
+                        selectedExternalName === '__new__'
+                          ? deriveExternalStatus(
+                              '__new__',
+                              externalDraft.enabled,
+                              false,
+                              channelStatusMap,
+                              fallbackConnected
+                            )
+                          : externalStatusByName.get(selectedExternalName.toLowerCase()) ?? 'notConfigured'
+                      )
+                    )}
+                    onChange={setExternalDraft}
+                    onSave={() => void handleSaveExternal()}
+                    onDelete={
+                      selectedExternalName === '__new__'
+                        ? undefined
+                        : () => {
+                            void handleDeleteExternal()
+                          }
+                    }
+                  />
+                </div>
               )}
             </div>
           )}
