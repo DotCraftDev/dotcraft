@@ -488,7 +488,7 @@ export class TelegramAdapter extends ModuleChannelAdapter<TelegramConfig> {
       await this.requireBot().api.editMessageReplyMarkup(message.chat.id, message.message_id, {
         reply_markup: undefined,
       });
-      const text = "text" in message ? String(message.text ?? "") : "";
+      const text = "text" in message ? escapeHtml(String(message.text ?? "")) : "";
       await this.requireBot().api.editMessageText(
         message.chat.id,
         message.message_id,
