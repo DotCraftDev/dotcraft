@@ -11,6 +11,7 @@ describe('mergeAvailableChannels', () => {
       [
         { channelName: 'weixin' },
         { channelName: 'feishu' },
+        { channelName: 'telegram' },
         { channelName: 'cron' }
       ]
     )
@@ -19,7 +20,8 @@ describe('mergeAvailableChannels', () => {
       { name: 'qq', category: 'social' },
       { name: 'acp', category: 'builtin' },
       { name: 'weixin', category: 'social' },
-      { name: 'feishu', category: 'social' }
+      { name: 'feishu', category: 'social' },
+      { name: 'telegram', category: 'social' }
     ])
   })
 

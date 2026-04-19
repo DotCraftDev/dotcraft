@@ -5,7 +5,7 @@ export interface ChannelInfoLike {
   category?: string
 }
 
-const SOCIAL_MODULE_CHANNELS = new Set(['weixin', 'wechat', 'feishu'])
+const SOCIAL_MODULE_CHANNELS = new Set(['weixin', 'wechat', 'feishu', 'telegram'])
 
 function normalizeName(name: string): string {
   return name.trim().toLowerCase()

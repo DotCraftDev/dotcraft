@@ -8,11 +8,12 @@ Mirrors the Python package `dotcraft_wire` under `sdk/python/`.
 
 ## TypeScript Package Set
 
-The TypeScript external channel stack is delivered as three packages:
+The TypeScript external channel stack is delivered as four packages:
 
 - `dotcraft-wire` (shared SDK: wire client, adapter base, module contract types)
 - `@dotcraft/channel-feishu` (first-party Feishu/Lark module package)
 - `@dotcraft/channel-weixin` (first-party Weixin module package)
+- `@dotcraft/channel-telegram` (first-party Telegram module package)
 
 For host-side module loading and lifecycle integration, see:
 
@@ -171,6 +172,7 @@ Use PascalCase for channel tool names. For display metadata, prefer setting `cha
 
 - `packages/channel-weixin/` for the Weixin module package
 - `packages/channel-feishu/` for the Feishu/Lark module package
+- `packages/channel-telegram/` for the Telegram module package
 
 ## Debugging
 

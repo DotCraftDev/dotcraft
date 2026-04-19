@@ -1,7 +1,8 @@
 {
   "references": [
     { "path": "./packages/channel-feishu" },
-    { "path": "./packages/channel-weixin" }
+    { "path": "./packages/channel-weixin" },
+    { "path": "./packages/channel-telegram" }
   ],
   "compilerOptions": {
     "target": "ES2022",

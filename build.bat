@@ -141,6 +141,7 @@ if exist resources\modules (
 )
 mkdir resources\modules\channel-feishu
 mkdir resources\modules\channel-weixin
+mkdir resources\modules\channel-telegram
 copy /Y "..\sdk\typescript\packages\channel-feishu\manifest.json" "resources\modules\channel-feishu\manifest.json"
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage channel-feishu manifest.json for Desktop build.
@@ -174,6 +175,24 @@ if %ERRORLEVEL% neq 0 (
 xcopy /E /I /Y "..\sdk\typescript\packages\channel-weixin\dist" "resources\modules\channel-weixin\dist" >nul
 if %ERRORLEVEL% neq 0 (
     echo Failed to stage channel-weixin dist artifacts for Desktop build.
+    cd ..
+    goto :failure
+)
+copy /Y "..\sdk\typescript\packages\channel-telegram\manifest.json" "resources\modules\channel-telegram\manifest.json"
+if %ERRORLEVEL% neq 0 (
+    echo Failed to stage channel-telegram manifest.json for Desktop build.
+    cd ..
+    goto :failure
+)
+copy /Y "..\sdk\typescript\packages\channel-telegram\package.json" "resources\modules\channel-telegram\package.json"
+if %ERRORLEVEL% neq 0 (
+    echo Failed to stage channel-telegram package.json for Desktop build.
+    cd ..
+    goto :failure
+)
+xcopy /E /I /Y "..\sdk\typescript\packages\channel-telegram\dist" "resources\modules\channel-telegram\dist" >nul
+if %ERRORLEVEL% neq 0 (
+    echo Failed to stage channel-telegram dist artifacts for Desktop build.
     cd ..
     goto :failure
 )

@@ -277,6 +277,9 @@ const MESSAGES_EN = {
     'WebSocket channels do not require local process fields. The adapter must connect back to the AppServer WebSocket endpoint.',
   'channels.external.delete': 'Delete',
   'channels.external.removed': 'External channel removed.',
+  'channels.external.legacyTelegramBadge': 'Legacy',
+  'channels.external.legacyTelegramWarning':
+    'This is the legacy Telegram external-channel config. Telegram now ships as a built-in TypeScript module for desktop, so keep this entry only if you still need the old Python adapter and remove it manually when you are done.',
   'channels.qq.title': 'QQ',
   'channels.qq.host': 'Host',
   'channels.qq.port': 'Port',
@@ -293,12 +296,7 @@ const MESSAGES_EN = {
   'channels.weixin.title': 'WeChat',
   'channels.weixin.transportNote':
     'This channel uses external WebSocket adapter mode and requires AppServer WebSocket to be enabled.',
-  'channels.telegram.title': 'Telegram',
   'channels.feishu.title': 'Feishu',
-  'channels.telegram.command': 'Command',
-  'channels.telegram.args': 'Args',
-  'channels.telegram.workingDirectory': 'Working directory',
-  'channels.telegram.botToken': 'Telegram bot token',
 
   // Welcome
   'welcome.tagline': 'Select a workspace folder to get started.',
@@ -1236,6 +1234,9 @@ const MESSAGES_ZH: Record<MessageId, string> = {
     'WebSocket 渠道不需要本地进程字段；外部适配器会主动连接到 AppServer 的 WebSocket 端点。',
   'channels.external.delete': '删除',
   'channels.external.removed': '外部渠道已删除。',
+  'channels.external.legacyTelegramBadge': '旧版',
+  'channels.external.legacyTelegramWarning':
+    '这是旧版 Telegram external-channel 配置。Desktop 现在已经内置 TypeScript Telegram 模块，只有在你仍需要旧 Python 适配器时才保留这条配置；确认不再使用后请手动删除。',
   'channels.qq.title': 'QQ',
   'channels.qq.host': 'Host',
   'channels.qq.port': '端口',
@@ -1251,12 +1252,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'channels.wecom.removeRobot': '删除',
   'channels.weixin.title': '微信',
   'channels.weixin.transportNote': '该渠道使用外部 WebSocket 适配器模式，需要启用 AppServer WebSocket。',
-  'channels.telegram.title': 'Telegram',
   'channels.feishu.title': '飞书',
-  'channels.telegram.command': '命令',
-  'channels.telegram.args': '参数',
-  'channels.telegram.workingDirectory': '工作目录',
-  'channels.telegram.botToken': 'Telegram Bot Token',
 
   'welcome.tagline': '选择工作区文件夹以开始。',
   'welcome.language': '语言',
