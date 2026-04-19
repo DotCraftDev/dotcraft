@@ -40,6 +40,7 @@ import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { resolveCustomCommandExecution } from './utils/customCommandExecution'
+import { getFallbackThreadName } from './utils/threadFallbackName'
 import {
   resolveWorkspaceConfigChangedPayload,
   type WorkspaceConfigChangedPayload
@@ -1034,10 +1035,14 @@ export function App(): JSX.Element {
             }
             const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === effectiveThreadId)
             if (!threadEntry?.displayName) {
-              const autoName =
-                effectivePendingText.length > 50
-                  ? effectivePendingText.slice(0, 50) + '...'
-                  : effectivePendingText || translate(localeRef.current, 'toast.imageMessage')
+              const autoName = getFallbackThreadName({
+                visibleText: effectivePendingText,
+                imagesCount: pendingImages?.length ?? 0,
+                filesCount: pendingFiles.length,
+                fallbackThreadName: translate(localeRef.current, 'toast.imageMessage'),
+                fileFallbackThreadName: translate(localeRef.current, 'toast.fileReferenceMessage'),
+                attachmentFallbackThreadName: translate(localeRef.current, 'toast.attachmentMessage')
+              })
               useThreadStore.getState().renameThread(effectiveThreadId, autoName)
             }
             const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectivePendingText)

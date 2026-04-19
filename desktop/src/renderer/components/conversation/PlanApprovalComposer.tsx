@@ -47,6 +47,8 @@ export function PlanApprovalComposer({
       workspacePath,
       text: acceptPlanSentinelFor(locale),
       fallbackThreadName: t('toast.imageMessage'),
+      fileFallbackThreadName: t('toast.fileReferenceMessage'),
+      attachmentFallbackThreadName: t('toast.attachmentMessage'),
       includeUserPreview: false,
       renameThreadFromText: false
     })
@@ -64,7 +66,9 @@ export function PlanApprovalComposer({
       threadId,
       workspacePath,
       text: trimmed,
-      fallbackThreadName: t('toast.imageMessage')
+      fallbackThreadName: t('toast.imageMessage'),
+      fileFallbackThreadName: t('toast.fileReferenceMessage'),
+      attachmentFallbackThreadName: t('toast.attachmentMessage')
     })
     if (started) {
       dismissPlanApproval(turnId)

@@ -318,7 +318,9 @@ export function InputComposer({
         text: effectiveText,
         images: capturedImages,
         files: capturedFiles,
-        fallbackThreadName: t('toast.imageMessage')
+        fallbackThreadName: t('toast.imageMessage'),
+        fileFallbackThreadName: t('toast.fileReferenceMessage'),
+        attachmentFallbackThreadName: t('toast.attachmentMessage')
       })
     } finally {
       sendInFlightRef.current = false

@@ -4,6 +4,7 @@ import type { InputPart } from '../types/conversation'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 import { serializeAttachedFileMarkers } from './attachedFileMarkers'
+import { getFallbackThreadName } from './threadFallbackName'
 
 interface StartTurnParams {
   threadId: string
@@ -12,6 +13,8 @@ interface StartTurnParams {
   images?: ImageAttachment[]
   files?: ComposerFileAttachment[]
   fallbackThreadName: string
+  fileFallbackThreadName?: string
+  attachmentFallbackThreadName?: string
   includeUserPreview?: boolean
   renameThreadFromText?: boolean
 }
@@ -27,6 +30,8 @@ export async function startTurnWithOptimisticUI({
   images = [],
   files = [],
   fallbackThreadName,
+  fileFallbackThreadName,
+  attachmentFallbackThreadName,
   includeUserPreview = true,
   renameThreadFromText = true
 }: StartTurnParams): Promise<boolean> {
@@ -51,10 +56,14 @@ export async function startTurnWithOptimisticUI({
   if (renameThreadFromText) {
     const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
     if (!threadEntry?.displayName) {
-      const autoName =
-        visibleText.length > 50
-          ? `${visibleText.slice(0, 50)}...`
-          : visibleText || fallbackThreadName
+      const autoName = getFallbackThreadName({
+        visibleText,
+        imagesCount: images.length,
+        filesCount: files.length,
+        fallbackThreadName,
+        fileFallbackThreadName,
+        attachmentFallbackThreadName
+      })
       useThreadStore.getState().renameThread(threadId, autoName)
     }
   }

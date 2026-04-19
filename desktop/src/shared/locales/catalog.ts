@@ -425,6 +425,8 @@ const MESSAGES_EN = {
   'toast.threadArchived': 'This conversation was archived by another client',
   'toast.copied': 'Copied to clipboard',
   'toast.imageMessage': 'Image message',
+  'toast.fileReferenceMessage': 'File reference message',
+  'toast.attachmentMessage': 'Attachment message',
   'conversation.copyMessage': 'Copy message',
   'conversation.copySelection': 'Copy selection',
 
@@ -1363,6 +1365,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'toast.threadArchived': '此会话已被其他客户端归档',
   'toast.copied': '已复制到剪贴板',
   'toast.imageMessage': '图片消息',
+  'toast.fileReferenceMessage': '文件引用消息',
+  'toast.attachmentMessage': '附件消息',
   'conversation.copyMessage': '复制消息',
   'conversation.copySelection': '复制所选内容',
 
