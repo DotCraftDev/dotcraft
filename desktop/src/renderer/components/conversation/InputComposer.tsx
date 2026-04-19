@@ -29,7 +29,7 @@ import {
   ComposerShell,
   SendIcon,
   StopIcon,
-  composerActionButtonStyle,
+  composerSendButtonStyle,
   composerModelPillStyle
 } from './ComposerShell'
 
@@ -507,7 +507,7 @@ export function InputComposer({
                 onClick={stopTurn}
                 title={t('composer.stopTitle')}
                 aria-label={t('composer.stopAria')}
-                style={composerActionButtonStyle('enabled')}
+                style={composerSendButtonStyle('enabled')}
               >
                 <StopIcon />
               </button>
@@ -520,7 +520,7 @@ export function InputComposer({
                 disabled={!canSend}
                 title={t('composer.sendTitleAlt')}
                 aria-label={t('composer.sendAriaAlt')}
-                style={composerActionButtonStyle(canSend ? 'enabled' : 'disabled')}
+                style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
               >
                 <SendIcon />
               </button>

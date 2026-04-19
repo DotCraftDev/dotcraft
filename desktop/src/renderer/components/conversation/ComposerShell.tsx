@@ -175,29 +175,28 @@ export function composerModelPillStyle(color: string, disabled = false): CSSProp
   }
 }
 
-export function composerActionButtonStyle(tone: ComposerActionButtonTone): CSSProperties {
+export const composerActionButtonStyle: CSSProperties = {
+  width: '32px',
+  height: '32px',
+  borderRadius: '999px',
+  border: 'none',
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  boxShadow: '0 4px 10px rgba(0, 0, 0, 0.16)',
+  transition: 'background-color 100ms ease, transform 100ms ease'
+}
+
+export function composerSendButtonStyle(tone: ComposerActionButtonTone): CSSProperties {
   const enabled = tone === 'enabled'
 
   return {
-    width: '32px',
-    height: '32px',
-    borderRadius: '999px',
-    border: enabled
-      ? '1px solid color-mix(in srgb, var(--bg-primary) 24%, var(--border-default))'
-      : '1px solid var(--border-default)',
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: enabled ? 'pointer' : 'default',
-    boxShadow: enabled
-      ? '0 4px 10px color-mix(in srgb, var(--bg-primary) 18%, transparent)'
-      : 'none',
-    transition: 'background-color 100ms ease, border-color 100ms ease, color 100ms ease, transform 100ms ease',
-    backgroundColor: enabled
-      ? 'color-mix(in srgb, var(--bg-primary) 8%, var(--bg-secondary))'
-      : 'color-mix(in srgb, var(--bg-primary) 72%, var(--bg-secondary))',
-    color: enabled ? 'var(--text-primary)' : 'var(--text-dimmed)'
+    ...composerActionButtonStyle,
+    backgroundColor: enabled ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
+    color: enabled ? '#1f2328' : 'var(--text-dimmed)',
+    cursor: enabled ? 'pointer' : 'default'
   }
 }
 

@@ -27,7 +27,7 @@ import {
   ComposerModeSwitch,
   ComposerShell,
   SendIcon,
-  composerActionButtonStyle,
+  composerSendButtonStyle,
   composerModelPillStyle
 } from './ComposerShell'
 
@@ -516,7 +516,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               flexDirection: 'column',
               alignItems: 'center',
               gap: '8px',
-              marginBottom: '24px'
+              marginBottom: '18px'
             }}
           >
             <h1
@@ -666,7 +666,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   disabled={!canSend}
                   title={t('welcome.sendTitle')}
                   aria-label={t('welcome.sendAria')}
-                  style={composerActionButtonStyle(canSend ? 'enabled' : 'disabled')}
+                  style={composerSendButtonStyle(canSend ? 'enabled' : 'disabled')}
                 >
                   <SendIcon />
                 </button>

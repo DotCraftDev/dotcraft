@@ -103,11 +103,11 @@ describe('InputComposer layout', () => {
 
     expect(sendButton).toBeInTheDocument()
     expect(svg?.getAttribute('width')).toBe('20')
-    expect(sendButton.getAttribute('style')).not.toContain('#f5f6f7')
-    expect(sendButton.getAttribute('style')).not.toContain('#1f2328')
+    expect(sendButton.getAttribute('style')).toContain('color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)')
+    expect(sendButton.getAttribute('style')).toContain('var(--text-dimmed)')
   })
 
-  it('uses the themed action button style for the running stop button', () => {
+  it('matches the running stop button to the enabled send button style', () => {
     useConversationStore.setState({
       turnStatus: 'running',
       activeTurnId: 'turn-123'
@@ -121,6 +121,7 @@ describe('InputComposer layout', () => {
     expect(stopButton.getAttribute('style')).not.toContain('var(--error)')
     expect(stopButton.getAttribute('style')).not.toContain('#fff')
     expect(stopButton.getAttribute('style')).not.toContain('#ffffff')
-    expect(stopButton.getAttribute('style')).toContain('var(--text-primary)')
+    expect(stopButton.getAttribute('style')).toContain('rgb(245, 246, 247)')
+    expect(stopButton.getAttribute('style')).toContain('rgb(31, 35, 40)')
   })
 })
