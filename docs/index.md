@@ -23,3 +23,5 @@
 [Automations 指南](./automations_guide.md) - 自动化任务管线、本地任务与 GitHub Issue/PR 编排、Agent 派发与人工审核
 
 [DashBoard 调试工具指南](./dash_board_guide.md) - 内置 Web 调试界面、Trace 数据查看
+
+[设置生效层级指南](./settings-lifecycle.md) - 三层生效模型、Proxy 锁、AppServer 重启语义

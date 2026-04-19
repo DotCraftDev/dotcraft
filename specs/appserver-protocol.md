@@ -222,6 +222,8 @@ Client                              Server
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
 
+`capabilities.configChange` is an opt-out capability. When omitted, the server treats it as `true` and may push `workspace/configChanged` notifications. Modern clients should declare it explicitly for clarity, even when using the default behavior.
+
 **`acpExtensions` object** (when present):
 
 | Field | Type | Description |
@@ -2850,6 +2852,8 @@ Enable or disable a skill. Disabled skills remain on disk but are excluded from 
 
 The `skill` field contains the updated `SkillInfo` object reflecting the new `enabled` state.
 
+On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "skills/setEnabled"` and `regions: ["skills"]`.
+
 **Errors**:
 
 | Code | When |
@@ -3258,10 +3262,13 @@ Creates or replaces one MCP server definition.
 
 - Upsert replaces the full logical server entry.
 - Persistence shape and storage location are server-defined.
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "mcp/upsert"` and `regions: ["mcp"]`.
 
 ### 22.6 `mcp/remove`
 
 Removes one MCP server definition by name.
+
+On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "mcp/remove"` and `regions: ["mcp"]`.
 
 ### 22.7 `McpServerStatus` Wire DTO
 
@@ -3430,10 +3437,13 @@ Creates or replaces one external channel definition.
 
 - Upsert replaces the full logical channel entry.
 - Persistence shape and storage location are server-defined.
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "externalChannel/upsert"` and `regions: ["externalChannel"]`.
 
 ### 23.6 `externalChannel/remove`
 
 Removes one external channel definition by name.
+
+On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "externalChannel/remove"` and `regions: ["externalChannel"]`.
 
 ### 23.7 Error Codes
 
@@ -3528,6 +3538,7 @@ If `model` is removed, the result returns:
 - Server preserves unrelated configuration state.
 - At least one of `model`, `apiKey`, or `endPoint` must be provided.
 - Key matching is case-insensitive and normalized in-place (`Model`, `ApiKey`, `EndPoint`).
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`.
 
 ### 24.4 Capability Advertisement
 
@@ -3573,6 +3584,11 @@ Semantics:
 - Notification is emitted after write completion and in-process state update.
 - Payload is intentionally coarse; clients should re-read relevant state (`skills/list`, `mcp/list`, etc.) when needed.
 - Unknown region tags are forward-compatible and must be ignored by clients that do not recognize them.
+
+### 24.6 Backward Compatibility
+
+- Clients that set `capabilities.configChange = false` are supported indefinitely and simply do not receive `workspace/configChanged` on that connection.
+- Servers that predate M2 may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
 
 ## 25. GitHub Tracker Config Methods
 

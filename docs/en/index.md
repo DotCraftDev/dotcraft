@@ -23,3 +23,5 @@ Read the DotCraft documentation to get started quickly
 [Automations Guide](./automations_guide.md) - Automation pipeline, local tasks and GitHub issue/PR orchestration, agent dispatch and human review
 
 [DashBoard Debugging Tool Guide](./dash_board_guide.md) - Built-in Web debugging UI, Trace data viewer
+
+[Settings Lifecycle Guide](./settings-lifecycle.md) - Three-tier model, proxy lock, AppServer restart semantics
