@@ -35,7 +35,8 @@ export function useSettingsWorkspaceConfigChangeEffects({
     const workspaceCoreChanged =
       changedRegions.has('workspace.model') ||
       changedRegions.has('workspace.apiKey') ||
-      changedRegions.has('workspace.endpoint')
+      changedRegions.has('workspace.endpoint') ||
+      changedRegions.has('welcomeSuggestions')
 
     if (workspaceCoreChanged) {
       if (llmDirty && change.source !== 'workspace/config/update') {

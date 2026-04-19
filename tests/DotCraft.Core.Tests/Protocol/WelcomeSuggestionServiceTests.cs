@@ -4,6 +4,7 @@ using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Tools;
 using DotCraft.Tests.Sessions.Protocol.AppServer;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol;
 
@@ -27,7 +28,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SuggestAsync_WhenHistoryIsInsufficient_ReturnsFallback()
+    public async Task SuggestAsync_WhenHistoryIsInsufficient_ReturnsNoneAndSkipsModel()
     {
         await CreateThreadWithMessagesAsync("Need help", "/new", "thanks");
 
@@ -39,13 +40,45 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
             MaxItems = 4
         });
 
-        Assert.Equal("fallback", result.Source);
-        Assert.Equal(4, result.Items.Count);
+        Assert.Equal("none", result.Source);
+        Assert.Empty(result.Items);
+        Assert.Empty(_sessionService.LastSubmittedContent);
         Assert.Null(_sessionService.LastSubmittedMessages);
     }
 
     [Fact]
-    public async Task SuggestAsync_FiltersNoise_UsesWorkspaceMemory_AndDeletesTempThread()
+    public async Task SuggestAsync_WhenWorkspaceConfigDisablesSuggestions_ReturnsNone()
+    {
+        Directory.CreateDirectory(_craftPath);
+        await File.WriteAllTextAsync(
+            Path.Combine(_craftPath, "config.json"),
+            """
+            {
+              "WelcomeSuggestions": {
+                "Enabled": false
+              }
+            }
+            """);
+
+        await CreateThreadWithMessagesAsync(
+            "Review the Desktop welcome flow and identify where dynamic quick suggestions should plug in.",
+            "Trace how thread history and workspace memory are loaded for the current workspace.");
+
+        var service = CreateService();
+
+        var result = await service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        });
+
+        Assert.Equal("none", result.Source);
+        Assert.Empty(result.Items);
+        Assert.Empty(_sessionService.LastSubmittedContent);
+    }
+
+    [Fact]
+    public async Task SuggestAsync_FiltersNoise_UsesServerManagedTempThread_AndDeletesTempThread()
     {
         var thread = await CreateThreadWithMessagesAsync(
             "Review the Desktop welcome flow and identify where dynamic quick suggestions should plug in.",
@@ -132,14 +165,11 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
 
         Assert.Equal("dynamic", result.Source);
         Assert.Equal(4, result.Items.Count);
-        Assert.NotNull(_sessionService.LastSubmittedMessages);
-        var evidenceMessage = Assert.Single(_sessionService.LastSubmittedMessages!);
-        Assert.Contains("Desktop welcome flow", evidenceMessage.Text);
-        Assert.Contains("thread history", evidenceMessage.Text);
-        Assert.Contains("MEMORY.md", evidenceMessage.Text);
-        Assert.DoesNotContain("/new", evidenceMessage.Text);
-        Assert.DoesNotContain("thanks", evidenceMessage.Text);
-        Assert.DoesNotContain("继续", evidenceMessage.Text);
+        Assert.NotEmpty(_sessionService.LastSubmittedContent);
+        Assert.Null(_sessionService.LastSubmittedMessages);
+        Assert.Contains(
+            "Use the welcome suggestion tools to inspect recent workspace history and memory",
+            string.Concat(_sessionService.LastSubmittedContent.OfType<TextContent>().Select(item => item.Text)));
 
         var remainingThreads = await _threadStore.LoadIndexAsync();
         Assert.Equal(initialThreadCount, remainingThreads.Count);

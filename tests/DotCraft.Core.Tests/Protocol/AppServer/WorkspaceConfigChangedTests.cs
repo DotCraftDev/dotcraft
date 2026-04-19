@@ -73,7 +73,24 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
     }
 
     [Fact]
-    public async Task WorkspaceConfigUpdate_ModelApiKeyEndPoint_EmitsAllWorkspaceRegions()
+    public async Task WorkspaceConfigUpdate_WelcomeSuggestionsOnly_EmitsWelcomeSuggestionsRegion()
+    {
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        var req = harness.BuildRequest(AppServerMethods.WorkspaceConfigUpdate, new
+        {
+            welcomeSuggestionsEnabled = false
+        });
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        AssertSingleConfigChanged(sent, AppServerMethods.WorkspaceConfigUpdate, ConfigChangeRegions.WelcomeSuggestions);
+    }
+
+    [Fact]
+    public async Task WorkspaceConfigUpdate_ModelApiKeyEndPointAndWelcomeSuggestions_EmitsAllWorkspaceRegions()
     {
         using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
         using var bridge = AttachConfigChangedBridge(harness);
@@ -83,7 +100,8 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
         {
             model = "gpt-4o-mini",
             apiKey = "sk-live-key",
-            endPoint = "https://example.com/v1"
+            endPoint = "https://example.com/v1",
+            welcomeSuggestionsEnabled = false
         });
         await harness.ExecuteRequestAsync(req);
 
@@ -94,7 +112,8 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
             [
                 ConfigChangeRegions.WorkspaceModel,
                 ConfigChangeRegions.WorkspaceApiKey,
-                ConfigChangeRegions.WorkspaceEndPoint
+                ConfigChangeRegions.WorkspaceEndPoint,
+                ConfigChangeRegions.WelcomeSuggestions
             ]);
     }
 

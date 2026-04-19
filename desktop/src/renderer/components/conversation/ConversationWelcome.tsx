@@ -21,6 +21,7 @@ import { CommandSearchPopover } from './CommandSearchPopover'
 import { FileSearchPopover } from './FileSearchPopover'
 import { AttachmentStrip } from './AttachmentStrip'
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
+import { SparkIcon } from '../ui/AppIcons'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 import { ModelPicker } from './ModelPicker'
 import {
@@ -30,9 +31,12 @@ import {
   composerSendButtonStyle,
   composerModelPillStyle
 } from './ComposerShell'
+import type { WorkspaceConfigChangedPayload } from '../../utils/workspaceConfigChanged'
 
 interface ConversationWelcomeProps {
   workspacePath: string
+  workspaceConfigChange?: WorkspaceConfigChangedPayload | null
+  workspaceConfigChangeSeq?: number
 }
 
 interface Suggestion {
@@ -63,7 +67,11 @@ const WELCOME_DRAFT_DEBOUNCE_MS = 250
  * Keeps the composer centered in the page so users can start a conversation
  * without clicking New Thread first; quick-start rows prefill the composer.
  */
-export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps): JSX.Element {
+export function ConversationWelcome({
+  workspacePath,
+  workspaceConfigChange = null,
+  workspaceConfigChangeSeq = 0
+}: ConversationWelcomeProps): JSX.Element {
   const t = useT()
   const [contentRevision, setContentRevision] = useState(0)
   const [images, setImages] = useState<ImageAttachment[]>([])
@@ -81,6 +89,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
   const [modelName, setModelName] = useState<string>('Default')
   const [modelApplying, setModelApplying] = useState(false)
+  const [welcomeSuggestionsConfigReady, setWelcomeSuggestionsConfigReady] = useState(false)
+  const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
   const sendInFlightRef = useRef(false)
   const skipDraftPersistRef = useRef(false)
   const draftHydratedRef = useRef(false)
@@ -88,6 +98,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const latestDraftSegmentsRef = useRef<ComposerDraftSegment[]>([])
   const initialWelcomeDraftRef = useRef(useUIStore.getState().welcomeDraft)
   const suggestionFingerprintRef = useRef<string | null>(null)
+  const suggestionRequestSeqRef = useRef(0)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -142,6 +153,14 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     return parseJsonConfig<Record<string, unknown>>(raw, {})
   }, [workspaceConfigPath])
 
+  const getCaseInsensitiveValue = useCallback((record: Record<string, unknown>, key: string): unknown => {
+    const expected = key.toLowerCase()
+    for (const [candidate, value] of Object.entries(record)) {
+      if (candidate.toLowerCase() === expected) return value
+    }
+    return undefined
+  }, [])
+
   const resolveModelFromConfig = useCallback((cfg: Record<string, unknown>): string => {
     const modelRaw = cfg.Model ?? cfg.model
     if (typeof modelRaw !== 'string') return 'Default'
@@ -149,6 +168,15 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     if (trimmed.length === 0 || trimmed === 'Default') return 'Default'
     return trimmed
   }, [])
+
+  const resolveWelcomeSuggestionsEnabled = useCallback((cfg: Record<string, unknown>): boolean => {
+    const section = getCaseInsensitiveValue(cfg, 'WelcomeSuggestions')
+    if (section == null || typeof section !== 'object' || Array.isArray(section)) {
+      return true
+    }
+    const enabled = getCaseInsensitiveValue(section as Record<string, unknown>, 'Enabled')
+    return typeof enabled === 'boolean' ? enabled : true
+  }, [getCaseInsensitiveValue])
 
   const suggestions: Suggestion[] = useMemo(
     () => [
@@ -186,14 +214,85 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     && (capabilities.extensions as Record<string, unknown>).welcomeSuggestions === true
 
   useEffect(() => {
-    let cancelled = false
+    let disposed = false
+    const loadFlag = async (): Promise<void> => {
+      if (!workspaceConfigPath) {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(true)
+          setWelcomeSuggestionsConfigReady(true)
+        }
+        return
+      }
 
-    if (!isConnected || !workspacePath || !welcomeSuggestionsSupported) {
+      try {
+        const cfg = await readWorkspaceConfig()
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(resolveWelcomeSuggestionsEnabled(cfg))
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      } catch {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(true)
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      }
+    }
+
+    void loadFlag()
+    return () => {
+      disposed = true
+    }
+  }, [readWorkspaceConfig, resolveWelcomeSuggestionsEnabled, workspaceConfigPath])
+
+  useEffect(() => {
+    if (workspaceConfigChange == null || workspaceConfigChangeSeq === 0) return
+    if (!workspaceConfigChange.regions.includes('welcomeSuggestions')) return
+
+    let disposed = false
+    void readWorkspaceConfig()
+      .then((cfg) => {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(resolveWelcomeSuggestionsEnabled(cfg))
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(true)
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [
+    readWorkspaceConfig,
+    resolveWelcomeSuggestionsEnabled,
+    workspaceConfigChange,
+    workspaceConfigChangeSeq
+  ])
+
+  useEffect(() => {
+    if (welcomeSuggestionsEnabled) return
+    suggestionRequestSeqRef.current += 1
+    suggestionFingerprintRef.current = null
+    setDynamicSuggestions(null)
+  }, [welcomeSuggestionsEnabled])
+
+  useEffect(() => {
+    const requestSeq = ++suggestionRequestSeqRef.current
+
+    if (
+      !welcomeSuggestionsConfigReady ||
+      !isConnected ||
+      !workspacePath ||
+      !welcomeSuggestionsSupported ||
+      !welcomeSuggestionsEnabled
+    ) {
       setDynamicSuggestions(null)
       suggestionFingerprintRef.current = null
-      return () => {
-        cancelled = true
-      }
+      return
     }
 
     void window.api.appServer.sendRequest('welcome/suggestions', {
@@ -205,19 +304,25 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       },
       maxItems: 4
     }).then((raw) => {
-      if (cancelled) return
+      if (requestSeq !== suggestionRequestSeqRef.current) return
+
       const result = raw as WelcomeSuggestionsWireResult
-      if (result.source !== 'dynamic' || !Array.isArray(result.items) || result.items.length === 0) return
+      if (result.source !== 'dynamic' || !Array.isArray(result.items) || result.items.length === 0) {
+        if (result.source === 'none' || result.source === 'fallback') {
+          suggestionFingerprintRef.current = null
+          setDynamicSuggestions(null)
+        }
+        return
+      }
       if (result.fingerprint && result.fingerprint === suggestionFingerprintRef.current) return
 
-      const iconCycle: Suggestion['icon'][] = [FileText, Bug, Sparkles, BookText]
       const mapped = result.items
-        .map((item, idx) => {
+        .map((item) => {
           const title = typeof item.title === 'string' ? item.title.trim() : ''
           const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
           if (!title || !prompt) return null
           return {
-            icon: iconCycle[idx % iconCycle.length],
+            icon: SparkIcon,
             title,
             prompt
           } satisfies Suggestion
@@ -228,15 +333,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       suggestionFingerprintRef.current = typeof result.fingerprint === 'string' ? result.fingerprint : null
       setDynamicSuggestions(mapped)
     }).catch(() => {
-      if (!cancelled) {
-        setDynamicSuggestions(null)
-      }
+      if (requestSeq !== suggestionRequestSeqRef.current) return
+      suggestionFingerprintRef.current = null
+      setDynamicSuggestions(null)
     })
-
-    return () => {
-      cancelled = true
-    }
-  }, [isConnected, welcomeSuggestionsSupported, workspacePath])
+  }, [
+    isConnected,
+    welcomeSuggestionsConfigReady,
+    welcomeSuggestionsEnabled,
+    welcomeSuggestionsSupported,
+    workspacePath
+  ])
 
   const displayedSuggestions = dynamicSuggestions ?? suggestions
 

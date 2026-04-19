@@ -34,6 +34,7 @@ const MESSAGES_EN = {
   'settings.connectionMode.stdioAndWebSocket': 'Stdio + WebSocket',
   'settings.connectionMode.remote': 'Remote WebSocket',
   'settings.tab.general': 'General',
+  'settings.tab.personalization': 'Personalization',
   'settings.tab.connection': 'Connection',
   'settings.tab.proxy': 'API Proxy',
   'settings.tab.usage': 'Usage',
@@ -58,6 +59,11 @@ const MESSAGES_EN = {
   'settings.restartAppServerSuccess': 'AppServer restarted',
   'settings.restartAppServerFailed': 'Failed to restart AppServer: {{error}}',
   'settings.theme': 'Theme',
+  'settings.personalization.description': 'Control workspace-specific welcome screen personalization.',
+  'settings.personalization.welcomeSuggestions': 'Enable personalized welcome suggestions',
+  'settings.personalization.welcomeSuggestionsHint':
+    'Generate welcome suggestions from recent workspace threads and long-term memory instead of only showing the default static shortcuts.',
+  'settings.personalization.welcomeSuggestionsSaveFailed': 'Failed to save welcome suggestions setting: {{error}}',
   'settings.theme.dark': 'Dark',
   'settings.theme.light': 'Light',
   'settings.save': 'Save',
@@ -924,6 +930,7 @@ const MESSAGES_EN = {
 
   // Settings groups (Codex-style section headers)
   'settings.group.general': 'General',
+  'settings.group.personalization': 'Personalization',
   'settings.group.connection': 'Connection',
   'settings.group.appServer': 'AppServer',
   'settings.group.proxyToggle': 'API proxy',
@@ -1011,6 +1018,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.connectionMode.stdioAndWebSocket': 'Stdio + WebSocket',
   'settings.connectionMode.remote': '远程 WebSocket',
   'settings.tab.general': '常规',
+  'settings.tab.personalization': '个性化',
   'settings.tab.connection': '连接',
   'settings.tab.proxy': 'API 代理',
   'settings.tab.usage': '用量',
@@ -1035,6 +1043,11 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.restartAppServerSuccess': 'AppServer 已重启',
   'settings.restartAppServerFailed': '重启 AppServer 失败：{{error}}',
   'settings.theme': '主题',
+  'settings.personalization.description': '控制当前工作区欢迎页的个性化行为。',
+  'settings.personalization.welcomeSuggestions': '启用个性化欢迎建议',
+  'settings.personalization.welcomeSuggestionsHint':
+    '根据当前工作区最近线程和长期记忆生成欢迎建议，而不是只显示默认的静态快捷项。',
+  'settings.personalization.welcomeSuggestionsSaveFailed': '保存欢迎建议设置失败：{{error}}',
   'settings.theme.dark': '深色',
   'settings.theme.light': '浅色',
   'settings.save': '保存',
@@ -1861,6 +1874,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
 
   // Settings 分组标题
   'settings.group.general': '常规',
+  'settings.group.personalization': '个性化',
   'settings.group.connection': '连接',
   'settings.group.appServer': 'AppServer',
   'settings.group.proxyToggle': 'API 代理',

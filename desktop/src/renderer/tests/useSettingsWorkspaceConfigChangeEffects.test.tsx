@@ -111,4 +111,31 @@ describe('useSettingsWorkspaceConfigChangeEffects', () => {
       expect(clearServerChannels).toHaveBeenCalledTimes(1)
     })
   })
+
+  it('reloads workspace core when welcome suggestions config changes', async () => {
+    const reloadWorkspaceCore = vi.fn()
+    const { rerender } = render(
+      <HookHost
+        change={null}
+        changeSeq={0}
+        reloadWorkspaceCore={reloadWorkspaceCore}
+      />
+    )
+
+    rerender(
+      <HookHost
+        change={{
+          source: 'workspace/config/update',
+          regions: ['welcomeSuggestions'],
+          changedAt: '2026-04-19T10:15:03Z'
+        }}
+        changeSeq={1}
+        reloadWorkspaceCore={reloadWorkspaceCore}
+      />
+    )
+
+    await waitFor(() => {
+      expect(reloadWorkspaceCore).toHaveBeenCalledTimes(1)
+    })
+  })
 })

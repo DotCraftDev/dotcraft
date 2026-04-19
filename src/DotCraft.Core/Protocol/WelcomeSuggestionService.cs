@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
+using DotCraft.Configuration;
 using DotCraft.Memory;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Tools;
@@ -27,18 +27,20 @@ public sealed class WelcomeSuggestionService(
 {
     private const int DefaultMaxItems = 4;
     private const int MaxItemsLimit = 4;
-    private const int RecentThreadLimit = 12;
+    internal const int RecentThreadLimit = 12;
     private const int MaxSnippetCount = 20;
     private const int MinSnippetLength = 15;
     private const int MaxSnippetLength = 300;
-    private const int MemoryCharsLimit = 5_000;
-    private const int HistoryTailCharsLimit = 3_000;
-    private const int TotalMemoryCharsLimit = 8_000;
+    internal const int MemoryCharsLimit = 5_000;
+    internal const int HistoryTailCharsLimit = 3_000;
+    internal const int TotalMemoryCharsLimit = 8_000;
+    private const int MinimumSnippetsForDynamicSuggestions = 2;
     private static readonly TimeSpan SuggestTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
 
     private readonly ConcurrentDictionary<string, WelcomeSuggestionCacheEntry> _cache = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, Lazy<Task<WelcomeSuggestionsResult>>> _inflight = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task<WelcomeSuggestionsResult>>> _inflight =
+        new(StringComparer.Ordinal);
 
     public async Task<WelcomeSuggestionsResult> SuggestAsync(
         WelcomeSuggestionsParams parameters,
@@ -48,14 +50,19 @@ public sealed class WelcomeSuggestionService(
         if (parameters.Identity == null)
             throw new InvalidOperationException("identity is required.");
 
-        var workspacePath = NormalizeWorkspace(parameters.Identity.WorkspacePath);
+        var workspacePath = NormalizeWorkspacePath(parameters.Identity.WorkspacePath);
         if (string.IsNullOrWhiteSpace(workspacePath))
             throw new InvalidOperationException("identity.workspacePath is required.");
-        if (!string.Equals(workspacePath, NormalizeWorkspace(workspaceRoot), StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(workspacePath, NormalizeWorkspacePath(workspaceRoot), StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Requested workspace is not hosted by this AppServer instance.");
 
         var maxItems = ClampMaxItems(parameters.MaxItems);
+        if (!IsWelcomeSuggestionsEnabled(workspacePath))
+            return BuildNoSuggestionsResult(string.Empty);
+
         var evidence = await BuildEvidenceAsync(workspacePath, maxItems, cancellationToken).ConfigureAwait(false);
+        if (!evidence.HasSufficientContext)
+            return BuildNoSuggestionsResult(evidence.Fingerprint);
 
         if (_cache.TryGetValue(evidence.CacheKey, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
             return cached.Result;
@@ -82,15 +89,8 @@ public sealed class WelcomeSuggestionService(
         int maxItems,
         CancellationToken cancellationToken)
     {
-        WelcomeSuggestionsResult result;
-        if (evidence.Snippets.Count < 3 && string.IsNullOrWhiteSpace(evidence.MemoryContext))
-        {
-            result = BuildFallbackResult(maxItems, evidence.Fingerprint);
-        }
-        else
-        {
-            result = await GenerateDynamicSuggestionsAsync(identity, evidence, maxItems, cancellationToken).ConfigureAwait(false);
-        }
+        var result = await GenerateDynamicSuggestionsAsync(identity, evidence, maxItems, cancellationToken)
+            .ConfigureAwait(false);
 
         _cache[evidence.CacheKey] = new WelcomeSuggestionCacheEntry(
             result,
@@ -126,7 +126,7 @@ public sealed class WelcomeSuggestionService(
                         ApprovalPolicy = ApprovalPolicy.AutoApprove,
                         AgentInstructions = WelcomeSuggestionInstructions.SystemPrompt
                     },
-                    HistoryMode.Client,
+                    HistoryMode.Server,
                     displayName: "[internal] Welcome suggestions",
                     ct: linked.Token)
                 .ConfigureAwait(false);
@@ -134,15 +134,12 @@ public sealed class WelcomeSuggestionService(
             tempThreadId = tempThread.Id;
             tempThread.Metadata[WelcomeSuggestionConstants.InternalMetadataKey] =
                 WelcomeSuggestionConstants.InternalMetadataValue;
-
-            var history = BuildEvidenceMessages(evidence, maxItems);
-            var userPrompt = BuildGenerationPrompt(maxItems);
+            await threadStore.SaveThreadAsync(tempThread, linked.Token).ConfigureAwait(false);
 
             List<WelcomeSuggestionItem>? items = null;
             await foreach (var evt in sessionService.SubmitInputAsync(
                                tempThreadId,
-                               userPrompt,
-                               messages: history,
+                               [new TextContent(BuildGenerationPrompt(maxItems))],
                                ct: linked.Token).ConfigureAwait(false))
             {
                 if (evt.EventType != SessionEventType.ItemCompleted || evt.ItemPayload == null)
@@ -169,10 +166,15 @@ public sealed class WelcomeSuggestionService(
                 Fingerprint = evidence.Fingerprint
             };
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger?.LogWarning("Welcome suggestion generation timed out; returning no personalized suggestions.");
+            return BuildNoSuggestionsResult(evidence.Fingerprint);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger?.LogWarning(ex, "Welcome suggestion generation failed; falling back to static suggestions.");
-            return BuildFallbackResult(maxItems, evidence.Fingerprint);
+            logger?.LogWarning(ex, "Welcome suggestion generation failed; returning no personalized suggestions.");
+            return BuildNoSuggestionsResult(evidence.Fingerprint);
         }
         finally
         {
@@ -181,7 +183,8 @@ public sealed class WelcomeSuggestionService(
                 try
                 {
                     using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                    await sessionService.DeleteThreadPermanentlyAsync(tempThreadId, cleanupCts.Token).ConfigureAwait(false);
+                    await sessionService.DeleteThreadPermanentlyAsync(tempThreadId, cleanupCts.Token)
+                        .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -202,7 +205,7 @@ public sealed class WelcomeSuggestionService(
     {
         var summaries = (await threadStore.LoadIndexAsync(cancellationToken).ConfigureAwait(false))
             .Where(summary =>
-                string.Equals(NormalizeWorkspace(summary.WorkspacePath), workspacePath, StringComparison.OrdinalIgnoreCase)
+                string.Equals(NormalizeWorkspacePath(summary.WorkspacePath), workspacePath, StringComparison.OrdinalIgnoreCase)
                 && summary.Status != ThreadStatus.Archived
                 && !IsInternalThread(summary))
             .OrderByDescending(summary => summary.LastActiveAt)
@@ -232,8 +235,8 @@ public sealed class WelcomeSuggestionService(
         }
 
         var memoryText = TrimToLimit(memoryStore.ReadLongTerm(), MemoryCharsLimit);
-        var historyText = TrimToLimit(ReadHistoryTail(), HistoryTailCharsLimit);
-        var combinedMemory = CombineMemory(memoryText, historyText);
+        var historyText = ReadHistoryTailFromFile(memoryStore.HistoryFilePath, HistoryTailCharsLimit);
+        var combinedMemory = CombineMemory(memoryText, historyText, TotalMemoryCharsLimit);
         var fingerprint = BuildFingerprint(
             workspacePath,
             maxItems,
@@ -248,47 +251,27 @@ public sealed class WelcomeSuggestionService(
             snippets,
             combinedMemory,
             fingerprint,
-            $"{fingerprint}:{maxItems}");
+            $"{fingerprint}:{maxItems}",
+            snippets.Count >= MinimumSnippetsForDynamicSuggestions || !string.IsNullOrWhiteSpace(combinedMemory));
     }
 
-    private static ChatMessage[] BuildEvidenceMessages(WelcomeSuggestionEvidence evidence, int maxItems)
+    private bool IsWelcomeSuggestionsEnabled(string workspacePath)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine($"Generate exactly {maxItems} welcome suggestions.");
-        sb.AppendLine();
-
-        if (evidence.Threads.Count > 0)
+        try
         {
-            sb.AppendLine("Recent threads:");
-            foreach (var thread in evidence.Threads)
-            {
-                var name = string.IsNullOrWhiteSpace(thread.DisplayName) ? thread.Id : thread.DisplayName.Trim();
-                sb.Append("- ").Append(name);
-                sb.Append(" | origin=").Append(thread.OriginChannel);
-                sb.Append(" | lastActiveAt=").AppendLine(thread.LastActiveAt.ToString("O"));
-            }
-            sb.AppendLine();
+            var configPath = Path.Combine(workspacePath, ".craft", "config.json");
+            var mergedConfig = AppConfig.LoadWithGlobalFallback(configPath);
+            return mergedConfig.WelcomeSuggestions.Enabled;
         }
-
-        if (evidence.Snippets.Count > 0)
+        catch (Exception ex)
         {
-            sb.AppendLine("Recent user intent snippets:");
-            foreach (var snippet in evidence.Snippets)
-                sb.Append("- ").AppendLine(snippet);
-            sb.AppendLine();
+            logger?.LogDebug(ex, "Failed to resolve welcome suggestion config; defaulting to enabled.");
+            return true;
         }
-
-        if (!string.IsNullOrWhiteSpace(evidence.MemoryContext))
-        {
-            sb.AppendLine("Workspace memory:");
-            sb.AppendLine(evidence.MemoryContext);
-        }
-
-        return [new ChatMessage(ChatRole.User, sb.ToString().Trim())];
     }
 
     private static string BuildGenerationPrompt(int maxItems) =>
-        $"Call {WelcomeSuggestionMethods.ToolName} now with exactly {maxItems} suggestions.";
+        $"Use the welcome suggestion tools to inspect recent workspace history and memory, then call {WelcomeSuggestionMethods.ToolName} exactly once with exactly {maxItems} suggestions.";
 
     private static List<WelcomeSuggestionItem> ParseSuggestionItems(JsonObject? arguments, int maxItems)
     {
@@ -386,7 +369,7 @@ public sealed class WelcomeSuggestionService(
 
     private static string NormalizeForDedup(string text) => text.Trim().ToLowerInvariant();
 
-    private static string CombineMemory(string memoryText, string historyText)
+    internal static string CombineMemory(string memoryText, string historyText, int totalMemoryCharsLimit)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(memoryText))
@@ -404,29 +387,28 @@ public sealed class WelcomeSuggestionService(
         }
 
         var combined = sb.ToString().Trim();
-        return TrimToLimit(combined, TotalMemoryCharsLimit);
+        return TrimToLimit(combined, totalMemoryCharsLimit);
     }
 
-    private string ReadHistoryTail()
+    internal static string ReadHistoryTailFromFile(string historyFilePath, int maxChars)
     {
-        if (!File.Exists(memoryStore.HistoryFilePath))
+        if (!File.Exists(historyFilePath))
             return string.Empty;
 
         try
         {
-            var content = File.ReadAllText(memoryStore.HistoryFilePath, Encoding.UTF8);
-            if (content.Length <= HistoryTailCharsLimit)
+            var content = File.ReadAllText(historyFilePath, Encoding.UTF8);
+            if (content.Length <= maxChars)
                 return content;
-            return content[^HistoryTailCharsLimit..];
+            return content[^maxChars..];
         }
-        catch (Exception ex)
+        catch
         {
-            logger?.LogDebug(ex, "Failed to read HISTORY.md tail for welcome suggestions.");
             return string.Empty;
         }
     }
 
-    private static string TrimToLimit(string? text, int maxChars)
+    internal static string TrimToLimit(string? text, int maxChars)
     {
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
@@ -434,52 +416,14 @@ public sealed class WelcomeSuggestionService(
         return trimmed.Length <= maxChars ? trimmed : trimmed[^maxChars..].TrimStart();
     }
 
-    private static WelcomeSuggestionsResult BuildFallbackResult(int maxItems, string fingerprint) =>
+    private static WelcomeSuggestionsResult BuildNoSuggestionsResult(string fingerprint) =>
         new()
         {
-            Items =
-            [
-                .. GetFallbackItems()
-                    .Take(maxItems)
-                    .Select(item => new WelcomeSuggestionItem
-                    {
-                        Title = item.Title,
-                        Prompt = item.Prompt,
-                        Reason = item.Reason
-                    })
-            ],
-            Source = "fallback",
+            Items = [],
+            Source = "none",
             GeneratedAt = DateTimeOffset.UtcNow,
             Fingerprint = fingerprint
         };
-
-    private static IReadOnlyList<WelcomeSuggestionItem> GetFallbackItems() =>
-    [
-        new()
-        {
-            Title = "Explore this workspace",
-            Prompt = "Give me a quick overview of this project: what it does, its structure, and where the main entry points are.",
-            Reason = "Static fallback overview prompt."
-        },
-        new()
-        {
-            Title = "Find likely bugs",
-            Prompt = "Scan the codebase for potential bugs, error-prone patterns, or unhandled edge cases and suggest fixes.",
-            Reason = "Static fallback bug-finding prompt."
-        },
-        new()
-        {
-            Title = "Plan a new feature",
-            Prompt = "Help me design and implement a new feature for this project. Describe what you want to build.",
-            Reason = "Static fallback feature-design prompt."
-        },
-        new()
-        {
-            Title = "Write docs",
-            Prompt = "Generate clear documentation for this codebase: README sections, inline comments, and API docs.",
-            Reason = "Static fallback documentation prompt."
-        }
-    ];
 
     private static string BuildFingerprint(
         string workspacePath,
@@ -508,7 +452,7 @@ public sealed class WelcomeSuggestionService(
     private static DateTimeOffset GetFileTimestamp(string path) =>
         File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.UnixEpoch;
 
-    private static bool IsInternalThread(ThreadSummary summary)
+    internal static bool IsInternalThread(ThreadSummary summary)
     {
         if (summary.Metadata.TryGetValue(WelcomeSuggestionConstants.InternalMetadataKey, out var value)
             && string.Equals(value, WelcomeSuggestionConstants.InternalMetadataValue, StringComparison.OrdinalIgnoreCase))
@@ -526,7 +470,7 @@ public sealed class WelcomeSuggestionService(
             || string.Equals(summary.OriginChannel, CommitMessageSuggestConstants.ChannelName, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string NormalizeWorkspace(string? path) =>
+    internal static string NormalizeWorkspacePath(string? path) =>
         string.IsNullOrWhiteSpace(path)
             ? string.Empty
             : Path.GetFullPath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
@@ -543,7 +487,8 @@ public sealed class WelcomeSuggestionService(
         IReadOnlyList<string> Snippets,
         string MemoryContext,
         string Fingerprint,
-        string CacheKey);
+        string CacheKey,
+        bool HasSufficientContext);
 
     private sealed record WelcomeSuggestionCacheEntry(
         WelcomeSuggestionsResult Result,

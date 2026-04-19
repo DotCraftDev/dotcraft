@@ -1147,7 +1147,7 @@ public sealed class WelcomeSuggestionsResult
 {
     public List<WelcomeSuggestionItem> Items { get; set; } = [];
 
-    public string Source { get; set; } = "fallback";
+    public string Source { get; set; } = "none";
 
     public DateTimeOffset GeneratedAt { get; set; }
 
@@ -1272,6 +1272,12 @@ public sealed class WorkspaceConfigUpdateParams
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? EndPoint { get; set; }
+
+    /// <summary>
+    /// Workspace-level toggle for personalized welcome suggestions. Null removes the workspace override.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool? WelcomeSuggestionsEnabled { get; set; }
 }
 
 /// <summary>
@@ -1299,6 +1305,13 @@ public sealed class WorkspaceConfigUpdateResult
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? EndPoint { get; set; }
+
+    /// <summary>
+    /// Persisted workspace personalized-welcome-suggestions toggle after normalization.
+    /// Null means the workspace override was removed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public bool? WelcomeSuggestionsEnabled { get; set; }
 }
 
 /// <summary>

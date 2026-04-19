@@ -73,9 +73,9 @@ describe('ConversationWelcome composer', () => {
     appServerSendRequest.mockImplementation(async (method: string) => {
       if (method === 'welcome/suggestions') {
         return {
-          source: 'fallback',
+          source: 'none',
           items: [],
-          fingerprint: 'fallback'
+          fingerprint: 'none'
         }
       }
       if (method === 'thread/start') {
@@ -345,6 +345,34 @@ describe('ConversationWelcome composer', () => {
 
     expect(await screen.findByText('Review desktop welcome flow')).toBeInTheDocument()
     expect(screen.queryByText('Explore this workspace')).not.toBeInTheDocument()
+  })
+
+  it('keeps static welcome suggestions when the server returns none', async () => {
+    renderWelcome()
+
+    expect(await screen.findByRole('button', { name: 'Explore this workspace' })).toBeInTheDocument()
+    await waitFor(() => {
+      const methods = appServerSendRequest.mock.calls.map((call) => call[0])
+      expect(methods).toContain('welcome/suggestions')
+    })
+  })
+
+  it('does not request welcome suggestions when the workspace config disables them', async () => {
+    fileReadFile.mockResolvedValue(
+      JSON.stringify({
+        WelcomeSuggestions: {
+          Enabled: false
+        }
+      })
+    )
+
+    renderWelcome()
+
+    await screen.findByRole('button', { name: 'Explore this workspace' })
+    await waitFor(() => {
+      const methods = appServerSendRequest.mock.calls.map((call) => call[0])
+      expect(methods).not.toContain('welcome/suggestions')
+    })
   })
 
   it('clicking a dynamic suggestion prefills the welcome composer', async () => {

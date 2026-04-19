@@ -108,7 +108,7 @@ public static class ServiceRegistration
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
         services.AddSingleton<ActiveRunRegistry>();
         services.AddSingleton(new ThreadStore(botPath));
-        services.AddSingleton<IToolProfileRegistry>(_ =>
+        services.AddSingleton<IToolProfileRegistry>(sp =>
         {
             var reg = new ToolProfileRegistry();
             reg.Register(
@@ -116,7 +116,13 @@ public static class ServiceRegistration
                 new[] { new CommitSuggestToolProvider() });
             reg.Register(
                 WelcomeSuggestionConstants.ToolProfileName,
-                new[] { new WelcomeSuggestionToolProvider() });
+                new[]
+                {
+                    new WelcomeSuggestionToolProvider(
+                        sp.GetRequiredService<ThreadStore>(),
+                        sp.GetRequiredService<MemoryStore>(),
+                        workspacePath)
+                });
             return reg;
         });
 

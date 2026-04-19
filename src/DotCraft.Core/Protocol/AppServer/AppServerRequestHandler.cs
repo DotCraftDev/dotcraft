@@ -1257,26 +1257,38 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigUpdate);
         if (!msg.Params.HasValue || msg.Params.Value.ValueKind != JsonValueKind.Object)
-            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', or 'endPoint' is required.");
+            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', 'endPoint', or 'welcomeSuggestionsEnabled' is required.");
 
         var hasModel = TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out var modelEl);
         var hasApiKey = TryGetCaseInsensitiveProperty(msg.Params.Value, "apiKey", out var apiKeyEl);
         var hasEndPoint = TryGetCaseInsensitiveProperty(msg.Params.Value, "endPoint", out var endPointEl);
-        if (!hasModel && !hasApiKey && !hasEndPoint)
-            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', or 'endPoint' is required.");
+        var hasWelcomeSuggestionsEnabled = TryGetCaseInsensitiveProperty(
+            msg.Params.Value,
+            "welcomeSuggestionsEnabled",
+            out var welcomeSuggestionsEnabledEl);
+        if (!hasModel && !hasApiKey && !hasEndPoint && !hasWelcomeSuggestionsEnabled)
+        {
+            throw AppServerErrors.InvalidParams(
+                "At least one of 'model', 'apiKey', 'endPoint', or 'welcomeSuggestionsEnabled' is required.");
+        }
 
         var model = hasModel ? ParseNullableString(modelEl, "model") : null;
         var apiKey = hasApiKey ? ParseNullableString(apiKeyEl, "apiKey") : null;
         var endPoint = hasEndPoint ? ParseNullableString(endPointEl, "endPoint") : null;
+        var welcomeSuggestionsEnabled = hasWelcomeSuggestionsEnabled
+            ? ParseNullableBoolean(welcomeSuggestionsEnabledEl, "welcomeSuggestionsEnabled")
+            : null;
 
         var saveResult = SaveWorkspaceCoreConfig(
             workspaceCraftPath,
             hasModel ? NormalizeWorkspaceModel(model) : null,
             hasApiKey ? NormalizeOptionalString(apiKey) : null,
             hasEndPoint ? NormalizeOptionalString(endPoint) : null,
+            welcomeSuggestionsEnabled,
             hasModel,
             hasApiKey,
-            hasEndPoint);
+            hasEndPoint,
+            hasWelcomeSuggestionsEnabled);
 
         var changedRegions = new List<string>();
         if (saveResult.ModelChanged)
@@ -1285,6 +1297,8 @@ public sealed class AppServerRequestHandler(
             changedRegions.Add(ConfigChangeRegions.WorkspaceApiKey);
         if (saveResult.EndPointChanged)
             changedRegions.Add(ConfigChangeRegions.WorkspaceEndPoint);
+        if (saveResult.WelcomeSuggestionsChanged)
+            changedRegions.Add(ConfigChangeRegions.WelcomeSuggestions);
         if (changedRegions.Count > 0)
         {
             _appConfigMonitor?.NotifyChanged(
@@ -1296,7 +1310,8 @@ public sealed class AppServerRequestHandler(
         {
             Model = saveResult.Model,
             ApiKey = saveResult.ApiKey,
-            EndPoint = saveResult.EndPoint
+            EndPoint = saveResult.EndPoint,
+            WelcomeSuggestionsEnabled = saveResult.WelcomeSuggestionsEnabled
         });
     }
 
@@ -1858,9 +1873,11 @@ public sealed class AppServerRequestHandler(
         string? model,
         string? apiKey,
         string? endPoint,
+        bool? welcomeSuggestionsEnabled,
         bool updateModel,
         bool updateApiKey,
-        bool updateEndPoint)
+        bool updateEndPoint,
+        bool updateWelcomeSuggestionsEnabled)
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         Directory.CreateDirectory(workspaceCraftPath);
@@ -1869,14 +1886,19 @@ public sealed class AppServerRequestHandler(
         var modelKey = FindCaseInsensitiveKey(root, "Model");
         var apiKeyKey = FindCaseInsensitiveKey(root, "ApiKey");
         var endPointKey = FindCaseInsensitiveKey(root, "EndPoint");
+        var welcomeSection = GetOrCreateConfigSection(root, "WelcomeSuggestions", createIfMissing: updateWelcomeSuggestionsEnabled);
+        var welcomeEnabledKey = welcomeSection == null ? null : FindCaseInsensitiveKey(welcomeSection, "Enabled");
 
         var existingModel = NormalizeWorkspaceModel(ReadConfigStringValue(root, modelKey));
         var existingApiKey = NormalizeOptionalString(ReadConfigStringValue(root, apiKeyKey));
         var existingEndPoint = NormalizeOptionalString(ReadConfigStringValue(root, endPointKey));
+        var existingWelcomeSuggestionsEnabled = ReadConfigBooleanValue(welcomeSection, welcomeEnabledKey);
 
         var modelChanged = updateModel && !string.Equals(existingModel, model, StringComparison.Ordinal);
         var apiKeyChanged = updateApiKey && !string.Equals(existingApiKey, apiKey, StringComparison.Ordinal);
         var endPointChanged = updateEndPoint && !string.Equals(existingEndPoint, endPoint, StringComparison.Ordinal);
+        var welcomeSuggestionsChanged = updateWelcomeSuggestionsEnabled
+            && existingWelcomeSuggestionsEnabled != welcomeSuggestionsEnabled;
 
         if (updateModel)
             UpsertOrRemoveConfigValue(root, modelKey, "Model", model);
@@ -1884,8 +1906,15 @@ public sealed class AppServerRequestHandler(
             UpsertOrRemoveConfigValue(root, apiKeyKey, "ApiKey", apiKey);
         if (updateEndPoint)
             UpsertOrRemoveConfigValue(root, endPointKey, "EndPoint", endPoint);
+        if (updateWelcomeSuggestionsEnabled)
+        {
+            var section = GetOrCreateConfigSection(root, "WelcomeSuggestions", createIfMissing: true)!;
+            var sectionEnabledKey = FindCaseInsensitiveKey(section, "Enabled");
+            UpsertOrRemoveConfigValue(section, sectionEnabledKey, "Enabled", welcomeSuggestionsEnabled);
+            RemoveConfigSectionIfEmpty(root, "WelcomeSuggestions");
+        }
 
-        if (modelChanged || apiKeyChanged || endPointChanged)
+        if (modelChanged || apiKeyChanged || endPointChanged || welcomeSuggestionsChanged)
         {
             var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
@@ -1896,9 +1925,13 @@ public sealed class AppServerRequestHandler(
             Model = updateModel ? model : existingModel,
             ApiKey = updateApiKey ? apiKey : existingApiKey,
             EndPoint = updateEndPoint ? endPoint : existingEndPoint,
+            WelcomeSuggestionsEnabled = updateWelcomeSuggestionsEnabled
+                ? welcomeSuggestionsEnabled
+                : existingWelcomeSuggestionsEnabled,
             ModelChanged = modelChanged,
             ApiKeyChanged = apiKeyChanged,
-            EndPointChanged = endPointChanged
+            EndPointChanged = endPointChanged,
+            WelcomeSuggestionsChanged = welcomeSuggestionsChanged
         };
     }
 
@@ -1945,6 +1978,22 @@ public sealed class AppServerRequestHandler(
         root[existingKey ?? canonicalKey] = value;
     }
 
+    private static void UpsertOrRemoveConfigValue(
+        JsonObject root,
+        string? existingKey,
+        string canonicalKey,
+        bool? value)
+    {
+        if (!value.HasValue)
+        {
+            if (existingKey != null)
+                root.Remove(existingKey);
+            return;
+        }
+
+        root[existingKey ?? canonicalKey] = value.Value;
+    }
+
     private static string? ParseNullableString(JsonElement element, string fieldName)
     {
         return element.ValueKind switch
@@ -1952,6 +2001,17 @@ public sealed class AppServerRequestHandler(
             JsonValueKind.Null => null,
             JsonValueKind.String => element.GetString(),
             _ => throw AppServerErrors.InvalidParams($"'{fieldName}' must be a string or null.")
+        };
+    }
+
+    private static bool? ParseNullableBoolean(JsonElement element, string fieldName)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw AppServerErrors.InvalidParams($"'{fieldName}' must be a boolean or null.")
         };
     }
 
@@ -1966,6 +2026,50 @@ public sealed class AppServerRequestHandler(
         return value.TryGetValue<string>(out var result) ? result : null;
     }
 
+    private static bool? ReadConfigBooleanValue(JsonObject? root, string? key)
+    {
+        if (root == null || string.IsNullOrEmpty(key))
+            return null;
+        if (!root.TryGetPropertyValue(key, out var node) || node == null)
+            return null;
+        if (node is not JsonValue value)
+            return null;
+        return value.TryGetValue<bool>(out var result) ? result : null;
+    }
+
+    private static JsonObject? GetOrCreateConfigSection(JsonObject root, string canonicalKey, bool createIfMissing)
+    {
+        var existingKey = FindCaseInsensitiveKey(root, canonicalKey);
+        if (existingKey != null)
+        {
+            if (root[existingKey] is JsonObject existingObject)
+                return existingObject;
+            if (!createIfMissing)
+                return null;
+
+            var replacement = new JsonObject();
+            root[existingKey] = replacement;
+            return replacement;
+        }
+
+        if (!createIfMissing)
+            return null;
+
+        var section = new JsonObject();
+        root[canonicalKey] = section;
+        return section;
+    }
+
+    private static void RemoveConfigSectionIfEmpty(JsonObject root, string canonicalKey)
+    {
+        var existingKey = FindCaseInsensitiveKey(root, canonicalKey);
+        if (existingKey == null)
+            return;
+
+        if (root[existingKey] is JsonObject obj && obj.Count == 0)
+            root.Remove(existingKey);
+    }
+
     private sealed class WorkspaceConfigSaveResult
     {
         public string? Model { get; init; }
@@ -1974,11 +2078,15 @@ public sealed class AppServerRequestHandler(
 
         public string? EndPoint { get; init; }
 
+        public bool? WelcomeSuggestionsEnabled { get; init; }
+
         public bool ModelChanged { get; init; }
 
         public bool ApiKeyChanged { get; init; }
 
         public bool EndPointChanged { get; init; }
+
+        public bool WelcomeSuggestionsChanged { get; init; }
     }
 
     private static bool TryGetCaseInsensitiveProperty(JsonElement obj, string expectedName, out JsonElement value)

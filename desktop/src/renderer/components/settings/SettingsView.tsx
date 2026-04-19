@@ -71,6 +71,7 @@ interface McpTestResultWire {
 interface WorkspaceCoreConfig {
   apiKey: string | null
   endPoint: string | null
+  welcomeSuggestionsEnabled: boolean | null
 }
 
 interface WorkspaceCoreConfigResult {
@@ -79,7 +80,7 @@ interface WorkspaceCoreConfigResult {
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
-type SettingsTab = 'general' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
+type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
 type ProxyProviderStatus = 'idle' | 'checking' | 'pending' | 'ok' | 'error'
 
@@ -552,17 +553,21 @@ export function SettingsView({
   } | null>(null)
   const [workspaceCoreBaseline, setWorkspaceCoreBaseline] = useState<WorkspaceCoreConfig>({
     apiKey: null,
-    endPoint: null
+    endPoint: null,
+    welcomeSuggestionsEnabled: null
   })
   const [userDefaultCore, setUserDefaultCore] = useState<WorkspaceCoreConfig>({
     apiKey: null,
-    endPoint: null
+    endPoint: null,
+    welcomeSuggestionsEnabled: null
   })
   const [apiKeyOverrideActive, setApiKeyOverrideActive] = useState(true)
   const [endPointOverrideActive, setEndPointOverrideActive] = useState(true)
   const [llmApiKey, setLlmApiKey] = useState('')
   const [llmEndPoint, setLlmEndPoint] = useState('')
   const [applyingLlm, setApplyingLlm] = useState(false)
+  const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
+  const [applyingWelcomeSuggestions, setApplyingWelcomeSuggestions] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [mcpServers, setMcpServers] = useState<McpServerConfigWire[]>([])
@@ -623,6 +628,12 @@ export function SettingsView({
     setWorkspaceCoreBaseline(core.workspace)
     setUserDefaultCore(core.userDefaults)
 
+    const resolvedWelcomeSuggestionsEnabled =
+      core.workspace.welcomeSuggestionsEnabled ??
+      core.userDefaults.welcomeSuggestionsEnabled ??
+      true
+    setWelcomeSuggestionsEnabled(resolvedWelcomeSuggestionsEnabled)
+
     if (keepDraftValues) {
       return
     }
@@ -653,6 +664,31 @@ export function SettingsView({
       // Ignore pull failures during reconnect windows.
     }
   }
+
+  const handleWelcomeSuggestionsToggle = useCallback(
+    async (checked: boolean): Promise<void> => {
+      const previous = welcomeSuggestionsEnabled
+      setWelcomeSuggestionsEnabled(checked)
+      setApplyingWelcomeSuggestions(true)
+      try {
+        const result = await window.api.appServer.sendRequest('workspace/config/update', {
+          welcomeSuggestionsEnabled: checked
+        }) as { welcomeSuggestionsEnabled?: boolean | null }
+        const persisted = typeof result?.welcomeSuggestionsEnabled === 'boolean'
+          ? result.welcomeSuggestionsEnabled
+          : checked
+        setWelcomeSuggestionsEnabled(persisted)
+        await reloadWorkspaceCore()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setWelcomeSuggestionsEnabled(previous)
+        addToast(t('settings.personalization.welcomeSuggestionsSaveFailed', { error: msg }), 'error')
+      } finally {
+        setApplyingWelcomeSuggestions(false)
+      }
+    },
+    [reloadWorkspaceCore, t, welcomeSuggestionsEnabled]
+  )
 
   useSettingsWorkspaceConfigChangeEffects({
     change: workspaceConfigChange,
@@ -1751,6 +1787,7 @@ export function SettingsView({
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: t('settings.tab.general') },
+    { id: 'personalization', label: t('settings.tab.personalization') },
     { id: 'connection', label: t('settings.tab.connection') },
     { id: 'proxy', label: t('settings.tab.proxy') },
     { id: 'usage', label: t('settings.tab.usage') },
@@ -2038,6 +2075,27 @@ export function SettingsView({
                         {t('settings.llm.applyAndRestart')}
                       </button>
                     }
+                  />
+                </SettingsGroup>
+              </div>
+              </GeneralPanel>
+            )}
+
+            {activeSettingsTab === 'personalization' && (
+              <GeneralPanel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <SettingsGroup
+                  title={t('settings.group.personalization')}
+                  description={t('settings.personalization.description')}
+                >
+                  <ToggleSwitch
+                    checked={welcomeSuggestionsEnabled}
+                    disabled={applyingWelcomeSuggestions}
+                    onChange={(checked) => {
+                      void handleWelcomeSuggestionsToggle(checked)
+                    }}
+                    label={t('settings.personalization.welcomeSuggestions')}
+                    description={t('settings.personalization.welcomeSuggestionsHint')}
                   />
                 </SettingsGroup>
               </div>
