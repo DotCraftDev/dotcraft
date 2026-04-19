@@ -23,6 +23,11 @@ public sealed class MemoryStore
     }
 
     /// <summary>
+    /// Gets the path to the MEMORY.md file.
+    /// </summary>
+    public string LongTermFilePath => _longTermFile;
+
+    /// <summary>
     /// Gets the path to the HISTORY.md file.
     /// </summary>
     public string HistoryFilePath => _historyFile;

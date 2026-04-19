@@ -1120,6 +1120,40 @@ public sealed class WorkspaceCommitMessageSuggestResult
     public string Message { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Params for <see cref="AppServerMethods.WelcomeSuggestions"/>.
+/// </summary>
+public sealed class WelcomeSuggestionsParams
+{
+    public SessionIdentity Identity { get; set; } = new();
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxItems { get; set; }
+}
+
+public sealed class WelcomeSuggestionItem
+{
+    public string Title { get; set; } = string.Empty;
+
+    public string Prompt { get; set; } = string.Empty;
+
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.WelcomeSuggestions"/>.
+/// </summary>
+public sealed class WelcomeSuggestionsResult
+{
+    public List<WelcomeSuggestionItem> Items { get; set; } = [];
+
+    public string Source { get; set; } = "fallback";
+
+    public DateTimeOffset GeneratedAt { get; set; }
+
+    public string Fingerprint { get; set; } = string.Empty;
+}
+
 // ───── channel/status (Desktop runtime status, spec Section 20) ─────
 
 /// <summary>
@@ -1520,6 +1554,7 @@ public static class AppServerMethods
 
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
     public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
+    public const string WelcomeSuggestions = "welcome/suggestions";
     public const string WorkspaceConfigSchema = "workspace/config/schema";
     public const string WorkspaceConfigUpdate = "workspace/config/update";
     public const string WorkspaceConfigChanged = "workspace/configChanged";

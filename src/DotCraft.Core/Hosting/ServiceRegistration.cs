@@ -114,6 +114,9 @@ public static class ServiceRegistration
             reg.Register(
                 CommitMessageSuggestConstants.ToolProfileName,
                 new[] { new CommitSuggestToolProvider() });
+            reg.Register(
+                WelcomeSuggestionConstants.ToolProfileName,
+                new[] { new WelcomeSuggestionToolProvider() });
             return reg;
         });
 

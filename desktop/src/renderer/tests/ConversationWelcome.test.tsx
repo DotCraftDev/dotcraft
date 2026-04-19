@@ -56,7 +56,10 @@ describe('ConversationWelcome composer', () => {
       capabilities: {
         commandManagement: true,
         modelCatalogManagement: true,
-        workspaceConfigManagement: true
+        workspaceConfigManagement: true,
+        extensions: {
+          welcomeSuggestions: true
+        }
       }
     })
     useModelCatalogStore.setState({
@@ -68,6 +71,13 @@ describe('ConversationWelcome composer', () => {
     fileReadFile.mockResolvedValue('{}')
     settingsGet.mockResolvedValue({ locale: 'en' })
     appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return {
+          source: 'fallback',
+          items: [],
+          fingerprint: 'fallback'
+        }
+      }
       if (method === 'thread/start') {
         return {
           thread: {
@@ -158,8 +168,9 @@ describe('ConversationWelcome composer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     await waitFor(() => {
-      expect(appServerSendRequest.mock.calls[1]?.[0]).toBe('thread/start')
-      const payload = appServerSendRequest.mock.calls[1]?.[1] as {
+      const threadStartCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'thread/start')
+      expect(threadStartCall?.[0]).toBe('thread/start')
+      const payload = threadStartCall?.[1] as {
         historyMode?: string
         identity?: { workspacePath?: string }
       }
@@ -295,5 +306,83 @@ describe('ConversationWelcome composer', () => {
         files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
       })
     })
+  })
+
+  it('replaces static welcome suggestions when dynamic suggestions load successfully', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return {
+          source: 'dynamic',
+          fingerprint: 'dynamic-1',
+          items: [
+            {
+              title: 'Review desktop welcome flow',
+              prompt: 'Review the Desktop welcome flow and identify where we should inject dynamic quick suggestions.'
+            },
+            {
+              title: 'Map thread history inputs',
+              prompt: 'Trace how current workspace thread history is loaded so we can feed it into welcome suggestion generation.'
+            }
+          ]
+        }
+      }
+      if (method === 'thread/start') {
+        return {
+          thread: {
+            id: 'thread-welcome',
+            displayName: 'Welcome thread',
+            status: 'active',
+            originChannel: 'dotcraft-desktop',
+            createdAt: '2026-04-16T08:00:00.000Z',
+            lastActiveAt: '2026-04-16T08:00:00.000Z'
+          }
+        }
+      }
+      return {}
+    })
+
+    renderWelcome()
+
+    expect(await screen.findByText('Review desktop welcome flow')).toBeInTheDocument()
+    expect(screen.queryByText('Explore this workspace')).not.toBeInTheDocument()
+  })
+
+  it('clicking a dynamic suggestion prefills the welcome composer', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return {
+          source: 'dynamic',
+          fingerprint: 'dynamic-2',
+          items: [
+            {
+              title: 'Audit workspace memory usage',
+              prompt: 'Audit how workspace memory is currently loaded and suggest how to reuse it for welcome suggestions.'
+            }
+          ]
+        }
+      }
+      if (method === 'thread/start') {
+        return {
+          thread: {
+            id: 'thread-welcome',
+            displayName: 'Welcome thread',
+            status: 'active',
+            originChannel: 'dotcraft-desktop',
+            createdAt: '2026-04-16T08:00:00.000Z',
+            lastActiveAt: '2026-04-16T08:00:00.000Z'
+          }
+        }
+      }
+      return {}
+    })
+
+    renderWelcome()
+
+    const dynamicButton = await screen.findByRole('button', { name: 'Audit workspace memory usage' })
+    fireEvent.click(dynamicButton)
+
+    expect((await screen.findByRole('textbox')).textContent).toContain(
+      'Audit how workspace memory is currently loaded'
+    )
   })
 })

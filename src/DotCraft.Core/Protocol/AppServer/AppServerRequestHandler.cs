@@ -38,6 +38,7 @@ public sealed class AppServerRequestHandler(
     Action<CronJobWireInfo, bool>? broadcastCronStateChanged = null,
     Action<McpStatusInfoWire>? broadcastMcpStatusChanged = null,
     ICommitMessageSuggestService? commitMessageSuggest = null,
+    IWelcomeSuggestionService? welcomeSuggestionService = null,
     string? dashboardUrl = null,
     WireAcpExtensionProxy? wireAcpExtensionProxy = null,
     CommandRegistry? commandRegistry = null,
@@ -110,6 +111,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.TurnStart,
         AppServerMethods.TurnInterrupt,
         AppServerMethods.WorkspaceCommitMessageSuggest,
+        AppServerMethods.WelcomeSuggestions,
         AppServerMethods.WorkspaceConfigSchema,
         AppServerMethods.WorkspaceConfigUpdate,
         AppServerMethods.CronList,
@@ -214,6 +216,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.AutomationTaskReject => RouteAutomation(h => h.HandleTaskRejectAsync(msg, ct)),
                 AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
                 AppServerMethods.WorkspaceCommitMessageSuggest => HandleWorkspaceCommitMessageSuggestAsync(msg, ct),
+                AppServerMethods.WelcomeSuggestions => HandleWelcomeSuggestionsAsync(msg, ct),
                 AppServerMethods.WorkspaceConfigSchema => HandleWorkspaceConfigSchemaAsync(msg, ct),
                 AppServerMethods.WorkspaceConfigUpdate => HandleWorkspaceConfigUpdateAsync(msg, ct),
                 _ => TryHandleExtensionAsync(method, msg, ct)
@@ -271,6 +274,8 @@ public sealed class AppServerRequestHandler(
         var capabilityBuilder = new AppServerCapabilityBuilder(capabilities, workspaceCraftPath);
         foreach (var contributor in _capabilityContributors)
             contributor.ContributeCapabilities(capabilityBuilder);
+        if (welcomeSuggestionService != null)
+            capabilityBuilder.SetExtension("welcomeSuggestions", true);
 
         var result = new AppServerInitializeResult
         {
@@ -978,6 +983,26 @@ public sealed class AppServerRequestHandler(
         catch (KeyNotFoundException ex)
         {
             throw AppServerErrors.ThreadNotFound(ExtractQuotedId(ex.Message));
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw AppServerErrors.InvalidRequest(ex.Message);
+        }
+    }
+
+    private async Task<object?> HandleWelcomeSuggestionsAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        if (welcomeSuggestionService == null)
+            throw AppServerErrors.InvalidRequest("Welcome suggestions are not available on this connection.");
+
+        var p = GetParams<WelcomeSuggestionsParams>(msg);
+        p.Identity = NormalizeIdentityWorkspace(p.Identity);
+        if (string.IsNullOrWhiteSpace(p.Identity.WorkspacePath))
+            throw AppServerErrors.InvalidParams("'identity.workspacePath' is required.");
+
+        try
+        {
+            return await welcomeSuggestionService.SuggestAsync(p, ct);
         }
         catch (InvalidOperationException ex)
         {

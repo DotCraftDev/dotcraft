@@ -41,6 +41,18 @@ interface Suggestion {
   prompt: string
 }
 
+interface WelcomeSuggestionWireItem {
+  title?: string
+  prompt?: string
+  reason?: string
+}
+
+interface WelcomeSuggestionsWireResult {
+  items?: WelcomeSuggestionWireItem[]
+  source?: string
+  fingerprint?: string
+}
+
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -60,6 +72,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [editorFocused, setEditorFocused] = useState(false)
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
+  const [dynamicSuggestions, setDynamicSuggestions] = useState<Suggestion[] | null>(null)
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [mentionDismissed, setMentionDismissed] = useState(false)
   const [slashQuery, setSlashQuery] = useState<string | null>(null)
@@ -74,6 +87,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const latestDraftTextRef = useRef('')
   const latestDraftSegmentsRef = useRef<ComposerDraftSegment[]>([])
   const initialWelcomeDraftRef = useRef(useUIStore.getState().welcomeDraft)
+  const suggestionFingerprintRef = useRef<string | null>(null)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -165,6 +179,66 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     ],
     [t]
   )
+
+  const welcomeSuggestionsSupported = capabilities?.extensions != null
+    && typeof capabilities.extensions === 'object'
+    && capabilities.extensions !== null
+    && (capabilities.extensions as Record<string, unknown>).welcomeSuggestions === true
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!isConnected || !workspacePath || !welcomeSuggestionsSupported) {
+      setDynamicSuggestions(null)
+      suggestionFingerprintRef.current = null
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void window.api.appServer.sendRequest('welcome/suggestions', {
+      identity: {
+        channelName: 'dotcraft-desktop',
+        userId: 'local',
+        channelContext: `workspace:${workspacePath}`,
+        workspacePath
+      },
+      maxItems: 4
+    }).then((raw) => {
+      if (cancelled) return
+      const result = raw as WelcomeSuggestionsWireResult
+      if (result.source !== 'dynamic' || !Array.isArray(result.items) || result.items.length === 0) return
+      if (result.fingerprint && result.fingerprint === suggestionFingerprintRef.current) return
+
+      const iconCycle: Suggestion['icon'][] = [FileText, Bug, Sparkles, BookText]
+      const mapped = result.items
+        .map((item, idx) => {
+          const title = typeof item.title === 'string' ? item.title.trim() : ''
+          const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
+          if (!title || !prompt) return null
+          return {
+            icon: iconCycle[idx % iconCycle.length],
+            title,
+            prompt
+          } satisfies Suggestion
+        })
+        .filter((item): item is Suggestion => item !== null)
+
+      if (mapped.length === 0) return
+      suggestionFingerprintRef.current = typeof result.fingerprint === 'string' ? result.fingerprint : null
+      setDynamicSuggestions(mapped)
+    }).catch(() => {
+      if (!cancelled) {
+        setDynamicSuggestions(null)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isConnected, welcomeSuggestionsSupported, workspacePath])
+
+  const displayedSuggestions = dynamicSuggestions ?? suggestions
 
   const handleAtQuery = useCallback((q: string | null): void => {
     setAtQuery(q)
@@ -683,7 +757,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               marginTop: '-4px'
             }}
           >
-            {suggestions.map((s, idx) => {
+            {displayedSuggestions.map((s, idx) => {
               const Icon = s.icon
               return (
                 <button
