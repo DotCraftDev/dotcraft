@@ -119,6 +119,8 @@ describe('ConversationWelcome composer', () => {
     expect(listbox.getAttribute('style')).toContain('var(--bg-secondary)')
     const sendButton = screen.getByRole('button', { name: 'Send message' })
     expect(sendButton.querySelector('svg')?.getAttribute('width')).toBe('20')
+    expect(sendButton.getAttribute('style')).not.toContain('#f5f6f7')
+    expect(sendButton.getAttribute('style')).not.toContain('#1f2328')
   })
 
   it('creates a thread and stores the pending welcome turn on first send', async () => {

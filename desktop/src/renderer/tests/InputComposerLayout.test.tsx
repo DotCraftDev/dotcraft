@@ -103,5 +103,24 @@ describe('InputComposer layout', () => {
 
     expect(sendButton).toBeInTheDocument()
     expect(svg?.getAttribute('width')).toBe('20')
+    expect(sendButton.getAttribute('style')).not.toContain('#f5f6f7')
+    expect(sendButton.getAttribute('style')).not.toContain('#1f2328')
+  })
+
+  it('uses the themed action button style for the running stop button', () => {
+    useConversationStore.setState({
+      turnStatus: 'running',
+      activeTurnId: 'turn-123'
+    })
+
+    renderComposer()
+
+    const stopButton = screen.getByRole('button', { name: 'Stop turn' })
+
+    expect(stopButton).toBeInTheDocument()
+    expect(stopButton.getAttribute('style')).not.toContain('var(--error)')
+    expect(stopButton.getAttribute('style')).not.toContain('#fff')
+    expect(stopButton.getAttribute('style')).not.toContain('#ffffff')
+    expect(stopButton.getAttribute('style')).toContain('var(--text-primary)')
   })
 })

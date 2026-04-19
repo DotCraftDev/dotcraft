@@ -632,12 +632,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                   disabled={!canSend}
                   title={t('welcome.sendTitle')}
                   aria-label={t('welcome.sendAria')}
-                  style={{
-                    ...composerActionButtonStyle,
-                    backgroundColor: canSend ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
-                    color: canSend ? '#1f2328' : 'var(--text-dimmed)',
-                    cursor: canSend ? 'pointer' : 'default'
-                  }}
+                  style={composerActionButtonStyle(canSend ? 'enabled' : 'disabled')}
                 >
                   <SendIcon />
                 </button>

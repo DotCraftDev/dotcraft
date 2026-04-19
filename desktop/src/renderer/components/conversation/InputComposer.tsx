@@ -472,11 +472,7 @@ export function InputComposer({
                 onClick={stopTurn}
                 title={t('composer.stopTitle')}
                 aria-label={t('composer.stopAria')}
-                style={{
-                  ...composerActionButtonStyle,
-                  backgroundColor: 'var(--error)',
-                  color: '#fff'
-                }}
+                style={composerActionButtonStyle('enabled')}
               >
                 <StopIcon />
               </button>
@@ -489,12 +485,7 @@ export function InputComposer({
                 disabled={!canSend}
                 title={t('composer.sendTitleAlt')}
                 aria-label={t('composer.sendAriaAlt')}
-                style={{
-                  ...composerActionButtonStyle,
-                  backgroundColor: canSend ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
-                  color: canSend ? '#1f2328' : 'var(--text-dimmed)',
-                  cursor: canSend ? 'pointer' : 'default'
-                }}
+                style={composerActionButtonStyle(canSend ? 'enabled' : 'disabled')}
               >
                 <SendIcon />
               </button>
