@@ -164,7 +164,7 @@ public sealed class WelcomeSuggestionService(
         {
             try
             {
-                return await lazy.Value.ConfigureAwait(false);
+                return await lazy.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -175,7 +175,7 @@ public sealed class WelcomeSuggestionService(
         }
         finally
         {
-            _inflight.TryRemove(evidence.CacheKey, out _);
+            _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<WelcomeSuggestionsResult>>>(evidence.CacheKey, lazy));
         }
     }
 

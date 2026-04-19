@@ -367,7 +367,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
 
         var secondResult = await secondTask;
 
-        await Assert.ThrowsAsync<OperationCanceledException>(async () => await firstTask);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await firstTask);
         Assert.Equal("none", secondResult.Source);
         Assert.Empty(secondResult.Items);
     }
@@ -399,7 +399,108 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         cts.Cancel();
         gate.TrySetResult();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(async () => await task);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
+    }
+
+    [Fact]
+    public async Task SuggestAsync_WhenSecondSharedCallerIsCanceled_ThrowsPromptlyWithoutCancelingFirstCaller()
+    {
+        await CreateThreadWithMessagesAsync(
+            "Review welcome suggestion inflight sharing behavior.",
+            "Ensure each caller can cancel independently.");
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _sessionService.SubmitInputHandler = (threadId, _, _) =>
+        {
+            gate.Task.GetAwaiter().GetResult();
+            return
+            [
+                new SessionEvent
+                {
+                    EventId = "evt_second_caller_cancel",
+                    EventType = SessionEventType.ItemCompleted,
+                    ThreadId = threadId,
+                    TurnId = "turn_001",
+                    ItemId = "item_001",
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Payload = new SessionItem
+                    {
+                        Id = "item_001",
+                        TurnId = "turn_001",
+                        Type = ItemType.ToolCall,
+                        Status = ItemStatus.Completed,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        CompletedAt = DateTimeOffset.UtcNow,
+                        Payload = new ToolCallPayload
+                        {
+                            ToolName = WelcomeSuggestionMethods.ToolName,
+                            CallId = "call_second_caller_cancel",
+                            Arguments = new JsonObject
+                            {
+                                ["items"] = new JsonArray
+                                {
+                                    new JsonObject
+                                    {
+                                        ["title"] = "Review welcome flow",
+                                        ["prompt"] = "Review the Desktop welcome flow and point out where dynamic quick suggestions should be injected.",
+                                        ["reason"] = "The recent history repeatedly mentions Desktop welcome flow work."
+                                    },
+                                    new JsonObject
+                                    {
+                                        ["title"] = "Trace thread history",
+                                        ["prompt"] = "Trace how current-workspace thread history is loaded so we can reuse it to generate welcome suggestions.",
+                                        ["reason"] = "Recent threads focus on thread history loading."
+                                    },
+                                    new JsonObject
+                                    {
+                                        ["title"] = "Reuse workspace memory",
+                                        ["prompt"] = "Audit how MEMORY.md and HISTORY.md are loaded today and propose the cleanest way to feed them into welcome suggestions.",
+                                        ["reason"] = "Workspace memory appears in both recent messages and HISTORY.md."
+                                    },
+                                    new JsonObject
+                                    {
+                                        ["title"] = "Tune suggestion wording",
+                                        ["prompt"] = "Design four welcome suggestions that feel like likely next tasks for this workspace instead of generic feature categories.",
+                                        ["reason"] = "Recent user intent explicitly asks for next-task style suggestions."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ];
+        };
+
+        var service = CreateService();
+        var firstTask = service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        }, CancellationToken.None);
+
+        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0);
+
+        using var secondCallerCts = new CancellationTokenSource();
+        var secondTask = service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        }, secondCallerCts.Token);
+
+        try
+        {
+            secondCallerCts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await secondTask)
+                .WaitAsync(TimeSpan.FromSeconds(1));
+        }
+        finally
+        {
+            gate.TrySetResult();
+        }
+
+        var firstResult = await firstTask;
+        Assert.Equal("dynamic", firstResult.Source);
+        Assert.Equal(4, firstResult.Items.Count);
     }
 
     private WelcomeSuggestionService CreateService() =>
