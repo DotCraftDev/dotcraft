@@ -9,6 +9,7 @@ import { useSkillsStore } from '../../stores/skillsStore'
 import { addToast } from '../../stores/toastStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import type { ImageAttachment, ThreadMode } from '../../types/conversation'
+import type { ComposerDraftSegment } from '../../types/composerDraft'
 import type { ThreadSummary } from '../../types/thread'
 import { parseJsonConfig } from '../../../shared/jsonConfig'
 import { CommandSearchPopover } from './CommandSearchPopover'
@@ -76,6 +77,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const skipDraftPersistRef = useRef(false)
   const draftHydratedRef = useRef(false)
   const latestDraftTextRef = useRef('')
+  const latestDraftSegmentsRef = useRef<ComposerDraftSegment[]>([])
   const initialWelcomeDraftRef = useRef(useUIStore.getState().welcomeDraft)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
@@ -209,8 +211,12 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       return
     }
 
-    richRef.current?.setContent(welcomeDraft.text)
+    richRef.current?.setContent({
+      text: welcomeDraft.text,
+      segments: welcomeDraft.segments
+    })
     latestDraftTextRef.current = welcomeDraft.text
+    latestDraftSegmentsRef.current = [...(welcomeDraft.segments ?? [])]
     setImages(welcomeDraft.images)
     setWelcomeMode(welcomeDraft.mode)
     setModelName(welcomeDraft.model || 'Default')
@@ -249,6 +255,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const flushWelcomeDraft = useCallback((): void => {
     if (skipDraftPersistRef.current) return
     const text = richRef.current?.getText() ?? latestDraftTextRef.current
+    const segments = richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
     const hasText = text.trim().length > 0
     const hasImages = images.length > 0
     const model = modelName || 'Default'
@@ -261,6 +268,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
     setWelcomeDraft({
       text,
+      segments: [...segments],
       images: [...images],
       mode: welcomeMode,
       model
@@ -360,6 +368,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
       skipDraftPersistRef.current = true
       latestDraftTextRef.current = ''
+      latestDraftSegmentsRef.current = []
       clearWelcomeDraft()
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
@@ -573,6 +582,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                       onSlashQuery={handleSlashQuery}
                       onContentChange={() => {
                         latestDraftTextRef.current = richRef.current?.getText() ?? latestDraftTextRef.current
+                        latestDraftSegmentsRef.current =
+                          richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
                         setContentRevision((n) => n + 1)
                       }}
                       onFocusChange={setEditorFocused}

@@ -1,7 +1,251 @@
 import { COMMAND_REF_CLASS, FILE_REF_CLASS, SKILL_REF_CLASS } from './richInputConstants'
+import { SPARKLE_ICON_SVG, TERMINAL_ICON_SVG } from './refIconSvgs'
+import type { ComposerDraftSegment } from '../../types/composerDraft'
+
+type RefType = Exclude<ComposerDraftSegment, { type: 'text' }>['type']
+type Match = { type: 'file' | 'command' | 'skill'; start: number; end: number; value: string }
 
 export function serializeSkillMarker(skillName: string): string {
   return `[[Use Skill: ${skillName}]]`
+}
+
+function pushTextSegment(out: ComposerDraftSegment[], value: string): void {
+  if (!value) return
+  const prev = out[out.length - 1]
+  if (prev?.type === 'text') {
+    prev.value += value
+    return
+  }
+  out.push({ type: 'text', value })
+}
+
+export function createRefSpan(kind: RefType, value: string): HTMLSpanElement {
+  const span = document.createElement('span')
+  const label = document.createElement('span')
+  const icon = document.createElement('span')
+  const removeIcon = document.createElement('span')
+  span.setAttribute('contenteditable', 'false')
+  span.setAttribute('data-ref-type', kind)
+  span.style.display = 'inline-flex'
+  span.style.alignItems = 'center'
+  span.style.gap = '4px'
+  span.style.padding = '1px 6px'
+  span.style.fontSize = '13px'
+  span.style.verticalAlign = 'baseline'
+  span.style.whiteSpace = 'nowrap'
+  span.style.userSelect = 'none'
+  span.style.cursor = 'default'
+  span.style.borderRadius = kind === 'file' ? '4px' : '6px'
+
+  icon.className = 'dc-ref-icon dc-ref-icon-default'
+  icon.setAttribute('aria-hidden', 'true')
+  removeIcon.className = 'dc-ref-icon dc-ref-icon-remove'
+  removeIcon.setAttribute('aria-hidden', 'true')
+  removeIcon.textContent = '✕'
+  removeIcon.style.fontWeight = '700'
+  removeIcon.style.cursor = 'pointer'
+
+  label.className = 'dc-ref-label'
+  if (kind === 'file') {
+    span.className = FILE_REF_CLASS
+    span.style.background = 'var(--bg-tertiary)'
+    span.setAttribute('data-relative-path', value)
+    const fileName = value.split('/').pop() ?? value
+    label.textContent = fileName
+    icon.textContent = '📄'
+    span.title = value
+  } else if (kind === 'command') {
+    span.className = COMMAND_REF_CLASS
+    span.style.background = 'color-mix(in srgb, var(--accent) 16%, transparent)'
+    span.style.border = '1px solid color-mix(in srgb, var(--accent) 38%, transparent)'
+    span.style.color = 'var(--accent)'
+    span.style.fontWeight = '600'
+    span.setAttribute('data-command', value)
+    label.textContent = value.startsWith('/') ? value.slice(1) : value
+    icon.innerHTML = TERMINAL_ICON_SVG
+  } else {
+    span.className = SKILL_REF_CLASS
+    span.style.background = 'color-mix(in srgb, var(--success) 16%, transparent)'
+    span.style.border = '1px solid color-mix(in srgb, var(--success) 38%, transparent)'
+    span.style.color = 'var(--success)'
+    span.style.fontWeight = '600'
+    span.setAttribute('data-skill', value)
+    label.textContent = value
+    icon.innerHTML = SPARKLE_ICON_SVG
+    span.title = `Use Skill: ${value}`
+  }
+  span.append(icon, removeIcon, label)
+  return span
+}
+
+export function collectComposerDraftSegments(root: HTMLElement): ComposerDraftSegment[] {
+  const out: ComposerDraftSegment[] = []
+  const walk = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      pushTextSegment(out, node.textContent ?? '')
+      return
+    }
+    if (!(node instanceof HTMLElement)) return
+    if (node.classList.contains(FILE_REF_CLASS)) {
+      const relativePath = node.getAttribute('data-relative-path') ?? ''
+      if (relativePath) out.push({ type: 'file', relativePath })
+      return
+    }
+    if (node.classList.contains(COMMAND_REF_CLASS)) {
+      const command = node.getAttribute('data-command') ?? ''
+      if (command) out.push({ type: 'command', command })
+      return
+    }
+    if (node.classList.contains(SKILL_REF_CLASS)) {
+      const skillName = node.getAttribute('data-skill') ?? ''
+      if (skillName) out.push({ type: 'skill', skillName })
+      return
+    }
+    if (node.tagName === 'BR') {
+      pushTextSegment(out, '\n')
+      return
+    }
+    for (const child of Array.from(node.childNodes)) {
+      walk(child)
+    }
+  }
+  for (const child of Array.from(root.childNodes)) {
+    walk(child)
+  }
+  return out
+}
+
+export function stringifyComposerDraftSegments(segments: ComposerDraftSegment[]): string {
+  let out = ''
+  for (const seg of segments) {
+    if (seg.type === 'text') out += seg.value
+    else if (seg.type === 'file') out += `@${seg.relativePath}`
+    else if (seg.type === 'command') out += seg.command
+    else out += serializeSkillMarker(seg.skillName)
+  }
+  return out
+}
+
+export function buildEditorFragmentFromSegments(segments: ComposerDraftSegment[]): DocumentFragment {
+  const frag = document.createDocumentFragment()
+  for (const seg of segments) {
+    if (seg.type === 'text') {
+      if (seg.value.length > 0) {
+        frag.appendChild(document.createTextNode(seg.value))
+      }
+      continue
+    }
+    if (seg.type === 'file') {
+      frag.appendChild(createRefSpan('file', seg.relativePath))
+      continue
+    }
+    if (seg.type === 'command') {
+      frag.appendChild(createRefSpan('command', seg.command))
+      continue
+    }
+    frag.appendChild(createRefSpan('skill', seg.skillName))
+  }
+  return frag
+}
+
+export function replaceEditorContentFromSegments(root: HTMLElement, segments: ComposerDraftSegment[]): void {
+  root.innerHTML = ''
+  root.appendChild(buildEditorFragmentFromSegments(segments))
+}
+
+const SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
+
+function findNextFileRef(text: string, from: number): Match | null {
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '@' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      let j = i + 1
+      while (j < text.length && !/\s/.test(text[j]!)) {
+        j++
+      }
+      const relativePath = text.slice(i + 1, j)
+      if (relativePath.length > 0) {
+        return { type: 'file', start: i, end: j, value: relativePath }
+      }
+    }
+    i++
+  }
+  return null
+}
+
+function findNextSkillRef(text: string, from: number): Match | null {
+  SKILL_MARKER_RE.lastIndex = from
+  const match = SKILL_MARKER_RE.exec(text)
+  if (!match) return null
+  const skillName = match[1]?.trim() ?? ''
+  if (!skillName) return null
+  return {
+    type: 'skill',
+    start: match.index,
+    end: match.index + match[0].length,
+    value: skillName
+  }
+}
+
+function isLegacyCommandToken(token: string): boolean {
+  return /^\/[a-z0-9][a-z0-9-]*$/i.test(token)
+}
+
+function findNextCommandRef(text: string, from: number): Match | null {
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '/' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      let j = i + 1
+      while (j < text.length && !/\s/.test(text[j]!)) {
+        j++
+      }
+      const token = text.slice(i, j)
+      if (isLegacyCommandToken(token)) {
+        return { type: 'command', start: i, end: j, value: token }
+      }
+    }
+    i++
+  }
+  return null
+}
+
+export function parseLegacyComposerText(text: string): ComposerDraftSegment[] {
+  const out: ComposerDraftSegment[] = []
+  let cursor = 0
+
+  while (cursor < text.length) {
+    const matches = [
+      findNextFileRef(text, cursor),
+      findNextCommandRef(text, cursor),
+      findNextSkillRef(text, cursor)
+    ].filter((match): match is Match => match != null)
+
+    if (matches.length === 0) {
+      pushTextSegment(out, text.slice(cursor))
+      break
+    }
+
+    const next = matches.reduce((best, match) => {
+      if (match.start < best.start) return match
+      return best
+    })
+
+    if (next.start > cursor) {
+      pushTextSegment(out, text.slice(cursor, next.start))
+    }
+
+    if (next.type === 'file') {
+      out.push({ type: 'file', relativePath: next.value })
+    } else if (next.type === 'command') {
+      out.push({ type: 'command', command: next.value })
+    } else {
+      out.push({ type: 'skill', skillName: next.value })
+    }
+
+    cursor = next.end
+  }
+
+  return out
 }
 
 export function serializeEditor(root: HTMLElement): string {

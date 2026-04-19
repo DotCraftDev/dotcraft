@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { COMMAND_REF_CLASS, FILE_REF_CLASS } from '../components/conversation/richInputConstants'
-import { serializeEditor, truncateEditorDomToSerializedLength } from '../components/conversation/richInputSerialization'
+import { COMMAND_REF_CLASS, FILE_REF_CLASS, SKILL_REF_CLASS } from '../components/conversation/richInputConstants'
+import {
+  buildEditorFragmentFromSegments,
+  collectComposerDraftSegments,
+  parseLegacyComposerText,
+  serializeEditor,
+  truncateEditorDomToSerializedLength
+} from '../components/conversation/richInputSerialization'
+import type { ComposerDraftSegment } from '../types/composerDraft'
 
 function makeFileRef(relativePath: string): HTMLSpanElement {
   const s = document.createElement('span')
@@ -15,6 +22,14 @@ function makeCommandRef(command: string): HTMLSpanElement {
   s.className = COMMAND_REF_CLASS
   s.setAttribute('data-command', command)
   s.textContent = command
+  return s
+}
+
+function makeSkillRef(skillName: string): HTMLSpanElement {
+  const s = document.createElement('span')
+  s.className = SKILL_REF_CLASS
+  s.setAttribute('data-skill', skillName)
+  s.textContent = skillName
   return s
 }
 
@@ -67,5 +82,61 @@ describe('truncateEditorDomToSerializedLength', () => {
     truncateEditorDomToSerializedLength(root, 5)
     expect(serializeEditor(root)).toBe('x')
     expect(root.querySelectorAll(`.${COMMAND_REF_CLASS}`).length).toBe(0)
+  })
+
+  it('collects mixed text and ref segments from editor DOM', () => {
+    const root = document.createElement('div')
+    root.appendChild(document.createTextNode('Check '))
+    root.appendChild(makeFileRef('src/foo.ts'))
+    root.appendChild(document.createTextNode(' then '))
+    root.appendChild(makeCommandRef('/code-review'))
+    root.appendChild(document.createTextNode(' with '))
+    root.appendChild(makeSkillRef('browser'))
+
+    expect(collectComposerDraftSegments(root)).toEqual([
+      { type: 'text', value: 'Check ' },
+      { type: 'file', relativePath: 'src/foo.ts' },
+      { type: 'text', value: ' then ' },
+      { type: 'command', command: '/code-review' },
+      { type: 'text', value: ' with ' },
+      { type: 'skill', skillName: 'browser' }
+    ])
+  })
+
+  it('rebuilds editor DOM from structured segments without changing serialized text', () => {
+    const root = document.createElement('div')
+    const segments: ComposerDraftSegment[] = [
+      { type: 'text', value: 'Check ' },
+      { type: 'file', relativePath: 'src/foo.ts' },
+      { type: 'text', value: ' then ' },
+      { type: 'command', command: '/code-review' },
+      { type: 'text', value: ' and ' },
+      { type: 'skill', skillName: 'browser' }
+    ]
+
+    root.appendChild(buildEditorFragmentFromSegments(segments))
+
+    expect(root.querySelector(`.${FILE_REF_CLASS}`)).not.toBeNull()
+    expect(root.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
+    expect(root.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
+    expect(serializeEditor(root)).toBe('Check @src/foo.ts then /code-review and [[Use Skill: browser]]')
+  })
+
+  it('parses legacy draft text into file, command, and skill segments conservatively', () => {
+    expect(parseLegacyComposerText('Check @src/foo.ts /code-review [[Use Skill: browser]] now')).toEqual([
+      { type: 'text', value: 'Check ' },
+      { type: 'file', relativePath: 'src/foo.ts' },
+      { type: 'text', value: ' ' },
+      { type: 'command', command: '/code-review' },
+      { type: 'text', value: ' ' },
+      { type: 'skill', skillName: 'browser' },
+      { type: 'text', value: ' now' }
+    ])
+  })
+
+  it('does not misclassify plain text email or slash path as refs in legacy parsing', () => {
+    expect(parseLegacyComposerText('email user@domain.com and path /usr/bin ok')).toEqual([
+      { type: 'text', value: 'email user@domain.com and path /usr/bin ok' }
+    ])
   })
 })

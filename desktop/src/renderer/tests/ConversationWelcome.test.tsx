@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ConversationWelcome } from '../components/conversation/ConversationWelcome'
+import { COMMAND_REF_CLASS, FILE_REF_CLASS, SKILL_REF_CLASS } from '../components/conversation/richInputConstants'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useModelCatalogStore } from '../stores/modelCatalogStore'
 import { useThreadStore } from '../stores/threadStore'
@@ -180,5 +181,73 @@ describe('ConversationWelcome composer', () => {
       model: 'gpt-5.4-mini'
     })
     expect(useUIStore.getState().welcomeDraft?.text).toContain('Give me a quick overview of this project')
+  })
+
+  it('hydrates structured welcome drafts back into inline tags', async () => {
+    useUIStore.getState().setWelcomeDraft({
+      text: 'Check @src/foo.ts then /code-review and [[Use Skill: browser]]',
+      segments: [
+        { type: 'text', value: 'Check ' },
+        { type: 'file', relativePath: 'src/foo.ts' },
+        { type: 'text', value: ' then ' },
+        { type: 'command', command: '/code-review' },
+        { type: 'text', value: ' and ' },
+        { type: 'skill', skillName: 'browser' }
+      ],
+      images: [],
+      mode: 'agent',
+      model: 'Default'
+    })
+
+    const mounted = renderWelcome()
+
+    const textbox = await screen.findByRole('textbox')
+    await waitFor(() => {
+      expect(textbox.querySelector(`.${FILE_REF_CLASS}`)).not.toBeNull()
+      expect(textbox.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
+      expect(textbox.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
+    })
+    expect(textbox.textContent).not.toContain('[[Use Skill: browser]]')
+
+    mounted.unmount()
+
+    expect(useUIStore.getState().welcomeDraft).toMatchObject({
+      text: 'Check @src/foo.ts then /code-review and [[Use Skill: browser]]'
+    })
+    expect(useUIStore.getState().welcomeDraft?.segments).toEqual([
+      { type: 'text', value: 'Check ' },
+      { type: 'file', relativePath: 'src/foo.ts' },
+      { type: 'text', value: ' then ' },
+      { type: 'command', command: '/code-review' },
+      { type: 'text', value: ' and ' },
+      { type: 'skill', skillName: 'browser' }
+    ])
+  })
+
+  it('restores legacy text drafts into tags and keeps serialized text when sending', async () => {
+    useUIStore.getState().setWelcomeDraft({
+      text: 'Check @src/foo.ts /code-review [[Use Skill: browser]]',
+      images: [],
+      mode: 'agent',
+      model: 'Default'
+    })
+
+    renderWelcome()
+
+    const textbox = await screen.findByRole('textbox')
+    await waitFor(() => {
+      expect(textbox.querySelector(`.${FILE_REF_CLASS}`)).not.toBeNull()
+      expect(textbox.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
+      expect(textbox.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => {
+      expect(useUIStore.getState().pendingWelcomeTurn).toMatchObject({
+        threadId: 'thread-welcome',
+        text: 'Check @src/foo.ts /code-review [[Use Skill: browser]]'
+      })
+    })
   })
 })
