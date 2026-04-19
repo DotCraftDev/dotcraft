@@ -94,6 +94,7 @@ export async function buildTelegramBotCommands(
 
 export function parseTargetChatId(target: string): number | null {
   const raw = String(target).trim();
+  if (!raw) return null;
   const normalized = raw.startsWith("group:")
     ? raw.slice("group:".length)
     : raw.startsWith("user:")
