@@ -299,9 +299,6 @@ export function ChannelsView(): JSX.Element {
   const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null)
   const [variantSwitchingChannel, setVariantSwitchingChannel] = useState<string | null>(null)
   const [activeModuleVariants, setActiveModuleVariants] = useState<Record<string, string>>({})
-  const [nodeRuntime, setNodeRuntime] = useState<{ available: boolean; version?: string }>(
-    { available: false }
-  )
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>('stdio')
   const [moduleLogsById, setModuleLogsById] = useState<Record<string, string[]>>({})
   const [loadingLogsModuleId, setLoadingLogsModuleId] = useState<string | null>(null)
@@ -352,11 +349,6 @@ export function ChannelsView(): JSX.Element {
         }
       })
       .catch(() => {})
-
-    window.api.modules
-      .nodeCheck()
-      .then((status) => setNodeRuntime(status))
-      .catch(() => setNodeRuntime({ available: false }))
 
     const onFocus = () => {
       void window.api.settings
@@ -761,10 +753,6 @@ export function ChannelsView(): JSX.Element {
     }
     if (!isModuleWsAvailable(currentConnectionMode)) {
       addToast(t('channels.modules.wsRequired'), 'error')
-      return
-    }
-    if (!nodeRuntime.available) {
-      addToast(t('channels.modules.nodeMissing'), 'error')
       return
     }
     setTogglingModuleId(moduleId)
@@ -1214,22 +1202,6 @@ export function ChannelsView(): JSX.Element {
         </aside>
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
-          {!nodeRuntime.available && (
-            <div
-              style={{
-                marginBottom: '12px',
-                border: '1px solid rgba(255, 159, 10, 0.45)',
-                backgroundColor: 'rgba(255, 159, 10, 0.12)',
-                borderRadius: '8px',
-                padding: '10px 12px',
-                fontSize: '12px',
-                color: 'var(--warning, #ff9f0a)'
-              }}
-            >
-              {t('channels.modules.nodeMissing')}
-            </div>
-          )}
-
           {loading && (
             <div style={{ fontSize: '13px', color: 'var(--text-dimmed)' }}>{t('channels.loading')}</div>
           )}
@@ -1284,7 +1256,6 @@ export function ChannelsView(): JSX.Element {
               persistedEnabled={
                 persistedModuleEnabledByChannelName.get(selectedModule.channelName.toLowerCase()) === true
               }
-              nodeAvailable={nodeRuntime.available}
               wsAvailable={isModuleWsAvailable(connectionMode)}
               onStart={() => {
                 void handleStartModule(selectedModule.moduleId)

@@ -278,7 +278,6 @@ declare global {
         }): Promise<{ ok: boolean; error?: string; missingFields?: string[] }>
         stop(params: { moduleId: string }): Promise<{ ok: boolean; error?: string }>
         running(): Promise<ModuleStatusMap>
-        nodeCheck(): Promise<{ available: boolean; version?: string }>
         getLogs(moduleId: string): Promise<{ lines: string[] }>
         qrStatus(moduleId: string): Promise<{ active: boolean; qrDataUrl: string | null }>
         onStatusChanged(callback: (statusMap: ModuleStatusMap) => void): UnsubscribeFn

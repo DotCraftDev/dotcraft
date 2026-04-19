@@ -6,6 +6,7 @@ import { useSetUiLocale, useT } from '../../contexts/LocaleContext'
 import type { MessageKey } from '../../../shared/locales'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 import { mergeAvailableChannels } from '../../utils/availableChannels'
+import { PRESET_EXTERNAL_CHANNELS } from '../channels/presetExternalChannels'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { SecretInput } from '../channels/FormShared'
@@ -16,6 +17,7 @@ import { IconButton } from '../ui/IconButton'
 import { InputWithAction } from '../ui/InputWithAction'
 import { SelectionCard, ResolvedPill } from '../ui/SelectionCard'
 import { PillSwitch } from '../ui/PillSwitch'
+import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { BackToAppButton } from '../ui/BackToAppButton'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
 import {
@@ -524,6 +526,7 @@ export function SettingsView({
   const [testingMcp, setTestingMcp] = useState(false)
   const [savingMcp, setSavingMcp] = useState(false)
   const [deletingMcp, setDeletingMcp] = useState(false)
+  const [togglingServerName, setTogglingServerName] = useState<string | null>(null)
   const [mcpTestResult, setMcpTestResult] = useState<McpTestResultWire | null>(null)
 
   const mcpEnabled = capabilities?.mcpManagement === true
@@ -762,7 +765,17 @@ export function SettingsView({
           ? ((channelListResult.value as { channels?: ChannelInfoWire[] }).channels ?? [])
           : []
         const modules = modulesResult.status === 'fulfilled' ? modulesResult.value : []
-        setServerChannels(mergeAvailableChannels(serverList, modules))
+        const mergedChannels = mergeAvailableChannels(serverList, modules)
+        const mergedChannelNames = new Set(
+          mergedChannels.map((channel) => channel.name.trim().toLowerCase()).filter((name) => name.length > 0)
+        )
+        for (const preset of PRESET_EXTERNAL_CHANNELS) {
+          const presetName = preset.name.trim().toLowerCase()
+          if (!presetName || mergedChannelNames.has(presetName)) continue
+          mergedChannels.push({ name: preset.name, category: 'social' })
+          mergedChannelNames.add(presetName)
+        }
+        setServerChannels(mergedChannels)
         setChannelListError(!channelListOk)
       })
       .catch(() => {
@@ -953,6 +966,26 @@ export function SettingsView({
       addToast(`Failed to save MCP server: ${err instanceof Error ? err.message : String(err)}`, 'error')
     } finally {
       setSavingMcp(false)
+    }
+  }
+
+  async function handleMcpQuickToggle(server: McpServerConfigWire, nextEnabled: boolean): Promise<void> {
+    setTogglingServerName(server.name)
+    try {
+      await window.api.appServer.sendRequest('mcp/upsert', {
+        server: {
+          ...server,
+          enabled: nextEnabled
+        }
+      })
+      await Promise.all([reloadMcpServers(), reloadMcpStatuses()])
+    } catch (err) {
+      addToast(
+        `Failed to ${nextEnabled ? 'enable' : 'disable'} MCP server: ${err instanceof Error ? err.message : String(err)}`,
+        'error'
+      )
+    } finally {
+      setTogglingServerName((current) => (current === server.name ? null : current))
     }
   }
 
@@ -2118,32 +2151,63 @@ export function SettingsView({
                       mergedMcpServers.map((server) => {
                         const status = mcpStatuses[server.name.trim().toLowerCase()]
                         const tone = getStatusTone(t, status)
+                        const isToggling = togglingServerName === server.name
                         const transportLabel =
                           server.transport === 'stdio'
                             ? t('settings.mcp.transport.stdio')
                             : t('settings.mcp.transport.http')
+                        const toolCountLabel =
+                          typeof status?.toolCount === 'number'
+                            ? t('settings.mcp.toolsCountSuffix', { count: status.toolCount }).replace(/^ · /, '')
+                            : null
                         return (
-                          <button
+                          <div
                             key={server.name}
-                            type="button"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Edit MCP server ${server.name}`}
                             onClick={() => startMcpDraft(server)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                startMcpDraft(server)
+                              }
+                            }}
                             style={{
                               ...cardStyle(),
                               display: 'flex',
-                              alignItems: 'flex-start',
+                              alignItems: 'center',
                               justifyContent: 'space-between',
                               gap: '16px',
                               cursor: 'pointer',
-                              textAlign: 'left'
+                              textAlign: 'left',
+                              opacity: isToggling ? 0.7 : 1
                             }}
                           >
-                            <div style={{ minWidth: 0 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
                                 {server.name}
                               </div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
-                                {transportLabel}
-                                {!server.enabled ? t('settings.mcp.disabledSuffix') : ''}
+                              <div
+                                style={{
+                                  marginTop: '4px',
+                                  fontSize: '12px',
+                                  color: 'var(--text-dimmed)',
+                                  display: 'flex',
+                                  flexWrap: 'wrap',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                <span>{transportLabel}</span>
+                                <span aria-hidden>·</span>
+                                <span style={{ color: tone.color, fontWeight: 500 }}>{tone.label}</span>
+                                {toolCountLabel && (
+                                  <>
+                                    <span aria-hidden>·</span>
+                                    <span>{toolCountLabel}</span>
+                                  </>
+                                )}
                               </div>
                               {status?.lastError && (
                                 <div style={{ fontSize: '12px', color: '#f85149', marginTop: '8px' }}>
@@ -2151,20 +2215,21 @@ export function SettingsView({
                                 </div>
                               )}
                             </div>
-                            <div
-                              style={{
-                                flexShrink: 0,
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                color: tone.color
-                              }}
+                            <span
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={(event) => event.stopPropagation()}
+                              style={{ flexShrink: 0, display: 'inline-flex' }}
                             >
-                              {tone.label}
-                              {typeof status?.toolCount === 'number'
-                                ? t('settings.mcp.toolsCountSuffix', { count: status.toolCount })
-                                : ''}
-                            </div>
-                          </button>
+                              <PillSwitch
+                                checked={server.enabled}
+                                disabled={isToggling}
+                                onChange={(checked) => {
+                                  void handleMcpQuickToggle(server, checked)
+                                }}
+                                aria-label={`Toggle MCP server ${server.name}`}
+                              />
+                            </span>
+                          </div>
                         )
                       })}
                   </>
@@ -2229,20 +2294,20 @@ export function SettingsView({
                           )
                         })}
                       </div>
-                      <label style={{ ...sectionLabelStyle(), marginTop: '12px' }}>
-                        <input
-                          type="checkbox"
-                          checked={mcpDraft.enabled}
-                          onChange={(e) =>
-                            setMcpDraft((prev) => ({
-                              ...prev,
-                              enabled: e.target.checked
-                            }))
-                          }
-                          style={{ marginRight: '8px' }}
-                        />
-                        {t('settings.mcp.field.enabled')}
-                      </label>
+                    </div>
+
+                    <div style={cardStyle()}>
+                      <ToggleSwitch
+                        checked={mcpDraft.enabled}
+                        onChange={(checked) =>
+                          setMcpDraft((prev) => ({
+                            ...prev,
+                            enabled: checked
+                          }))
+                        }
+                        label={t('settings.mcp.field.enabled')}
+                        description={t('settings.mcp.field.enabledDescription')}
+                      />
                     </div>
 
                     {mcpDraft.transport === 'stdio' && (
