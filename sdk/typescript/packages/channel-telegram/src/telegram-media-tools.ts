@@ -418,7 +418,17 @@ function fileNameFromPath(fullPath: string): string {
 }
 
 function extension(value: string): string {
-  const normalized = value.toLowerCase();
+  let normalized = value.toLowerCase();
+  try {
+    const url = new URL(normalized);
+    normalized = url.pathname;
+  } catch {
+    // Not a full URL; strip query/fragment manually
+    const qIndex = normalized.indexOf("?");
+    if (qIndex >= 0) normalized = normalized.slice(0, qIndex);
+    const hIndex = normalized.indexOf("#");
+    if (hIndex >= 0) normalized = normalized.slice(0, hIndex);
+  }
   const index = normalized.lastIndexOf(".");
   if (index < 0) {
     return "";
