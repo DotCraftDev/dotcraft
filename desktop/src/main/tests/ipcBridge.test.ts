@@ -78,6 +78,7 @@ vi.mock('../externalEditors', () => ({
 import {
   createServerRequestBridge,
   registerIpcHandlers,
+  unregisterIpcHandlers,
   sanitizeHttpOrHttpsUrl,
   openExternalHttpUrl
 } from '../ipcBridge'
@@ -642,6 +643,58 @@ describe('registerIpcHandlers', () => {
     resolveUpdate?.()
     await pending
     expect(settled).toBe(true)
+  })
+})
+
+describe('unregisterIpcHandlers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('removes workspace-config:get-core and workspace:clear-recent handlers during teardown', () => {
+    unregisterIpcHandlers()
+
+    const removedChannels = vi.mocked(ipcMain.removeHandler).mock.calls.map(([channel]) => channel)
+    expect(removedChannels).toContain('workspace-config:get-core')
+    expect(removedChannels).toContain('workspace:clear-recent')
+    expect(removedChannels.filter((channel) => channel === 'workspace-config:get-core')).toHaveLength(1)
+    expect(removedChannels.filter((channel) => channel === 'workspace:clear-recent')).toHaveLength(1)
+  })
+
+  it('removes the new workspace handlers after they are registered', () => {
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(),
+      getRecentWorkspaces: vi.fn(() => []),
+      clearRecentWorkspaces: vi.fn(),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    vi.mocked(ipcMain.removeHandler).mockClear()
+
+    unregisterIpcHandlers()
+
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('workspace-config:get-core')
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('workspace:clear-recent')
   })
 })
 
