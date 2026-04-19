@@ -32,14 +32,16 @@ export function useSettingsWorkspaceConfigChangeEffects({
     lastHandledSeqRef.current = changeSeq
 
     const changedRegions = new Set(change.regions)
-    const workspaceCoreChanged =
+    const llmCoreChanged =
       changedRegions.has('workspace.model') ||
       changedRegions.has('workspace.apiKey') ||
-      changedRegions.has('workspace.endpoint') ||
+      changedRegions.has('workspace.endpoint')
+    const workspaceCoreChanged =
+      llmCoreChanged ||
       changedRegions.has('welcomeSuggestions')
 
     if (workspaceCoreChanged) {
-      if (llmDirty && change.source !== 'workspace/config/update') {
+      if (llmCoreChanged && llmDirty && change.source !== 'workspace/config/update') {
         onExternalLlmChangeNotice()
       }
       void reloadWorkspaceCore()

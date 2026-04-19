@@ -138,4 +138,37 @@ describe('useSettingsWorkspaceConfigChangeEffects', () => {
       expect(reloadWorkspaceCore).toHaveBeenCalledTimes(1)
     })
   })
+
+  it('does not show LLM external-change notice when only welcome suggestions changed', async () => {
+    const onExternalLlmChangeNotice = vi.fn()
+    const reloadWorkspaceCore = vi.fn()
+    const { rerender } = render(
+      <HookHost
+        change={null}
+        changeSeq={0}
+        llmDirty={true}
+        onExternalLlmChangeNotice={onExternalLlmChangeNotice}
+        reloadWorkspaceCore={reloadWorkspaceCore}
+      />
+    )
+
+    rerender(
+      <HookHost
+        change={{
+          source: 'manual-edit',
+          regions: ['welcomeSuggestions'],
+          changedAt: '2026-04-19T10:15:03Z'
+        }}
+        changeSeq={1}
+        llmDirty={true}
+        onExternalLlmChangeNotice={onExternalLlmChangeNotice}
+        reloadWorkspaceCore={reloadWorkspaceCore}
+      />
+    )
+
+    await waitFor(() => {
+      expect(reloadWorkspaceCore).toHaveBeenCalledTimes(1)
+    })
+    expect(onExternalLlmChangeNotice).not.toHaveBeenCalled()
+  })
 })
