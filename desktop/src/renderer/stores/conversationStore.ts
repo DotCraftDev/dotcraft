@@ -264,6 +264,25 @@ function mergeCommandExecutionAcrossItems(
   return items.map((i) => mergeCommandExecutionIntoToolCall(i, commandExecution))
 }
 
+function findMatchingCommandExecution(
+  items: ConversationItem[],
+  toolCallId: string | undefined
+): ConversationItem | undefined {
+  if (!toolCallId) return undefined
+  return items.find(
+    (item) => item.type === 'commandExecution' && item.toolCallId === toolCallId
+  )
+}
+
+function mergeExistingCommandExecutionIntoToolCall(
+  item: ConversationItem,
+  items: ConversationItem[]
+): ConversationItem {
+  if (item.type !== 'toolCall') return item
+  const commandExecution = findMatchingCommandExecution(items, item.toolCallId)
+  return commandExecution ? mergeCommandExecutionIntoToolCall(item, commandExecution) : item
+}
+
 const SYSTEM_LABELS: Record<string, string | null> = {
   compacting: 'Compacting context...',
   consolidating: 'Consolidating memory...',
@@ -628,8 +647,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     } else if (type === 'toolCall' || type === 'externalChannelToolCall') {
       // Extract nested payload for toolCall items (wire protocol: item.payload.{toolName,callId,arguments})
       const itemPayload = (item?.payload ?? {}) as Record<string, unknown>
-      // Add a started tool call item to the active turn, storing arguments for diff extraction
-      const newItem: ConversationItem = {
+      const baseItem: ConversationItem = {
         id: itemId ?? '',
         type: type as 'toolCall' | 'externalChannelToolCall',
         status: 'started',
@@ -642,7 +660,17 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
       }
       set((state) => ({
         turns: state.turns.map((t) =>
-          t.id === turnId ? { ...t, items: sortItemsByCreatedAt([...t.items, newItem]) } : t
+          t.id !== turnId
+            ? t
+            : {
+                ...t,
+                items: sortItemsByCreatedAt([
+                  ...t.items,
+                  type === 'toolCall'
+                    ? mergeExistingCommandExecutionIntoToolCall(baseItem, t.items)
+                    : baseItem
+                ])
+              }
         )
       }))
     } else if (type === 'commandExecution') {
@@ -1006,14 +1034,14 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
                 items: sortItemsByCreatedAt(
                   t.items.map((i) =>
                     i.id === itemId
-                      ? {
+                      ? mergeExistingCommandExecutionIntoToolCall({
                           ...i,
                           status: 'completed' as const,
                           completedAt: (item?.completedAt as string),
                           arguments: completedArgs ?? i.arguments,
                           toolName: completedToolName ?? i.toolName,
                           toolCallId: completedCallId ?? i.toolCallId
-                        }
+                        }, t.items)
                       : i
                   )
                 )
