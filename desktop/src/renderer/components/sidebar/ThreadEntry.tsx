@@ -214,14 +214,6 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             >
               {displayName}
             </span>
-            {showOriginBadge && (
-              <ChannelIconBadge
-                channelName={thread.originChannel}
-                tooltip={t('threadEntry.originChannel', { channel: thread.originChannel })}
-                muted={!isActive}
-                size={24}
-              />
-            )}
           </>
         )}
 
@@ -229,8 +221,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           <div
             ref={actionSlotRef}
             style={{
-              width: '72px',
-              minWidth: '72px',
+              width: '96px',
+              minWidth: '96px',
               marginLeft: '4px',
               flexShrink: 0,
               position: 'relative',
@@ -244,6 +236,26 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               resetArchiveActionState()
             }}
           >
+            {showOriginBadge && (
+              <span
+                aria-hidden={showArchiveConfirm}
+                style={{
+                  marginRight: '6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  opacity: showArchiveConfirm ? 0 : 1,
+                  pointerEvents: showArchiveConfirm ? 'none' : 'auto',
+                  transition: 'opacity 120ms ease'
+                }}
+              >
+                <ChannelIconBadge
+                  channelName={thread.originChannel}
+                  tooltip={t('threadEntry.originChannel', { channel: thread.originChannel })}
+                  muted={!isActive}
+                  size={20}
+                />
+              </span>
+            )}
             <span
               aria-hidden={showArchiveAction}
               style={{
@@ -251,6 +263,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                 color: 'var(--text-dimmed)',
                 lineHeight: 1,
                 whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
                 opacity: showArchiveAction ? 0 : 1,
                 transition: 'opacity 120ms ease'
               }}

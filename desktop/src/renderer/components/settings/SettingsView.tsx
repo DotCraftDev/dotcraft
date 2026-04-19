@@ -6,6 +6,7 @@ import { useSetUiLocale, useT } from '../../contexts/LocaleContext'
 import type { MessageKey } from '../../../shared/locales'
 import { ensureVisibleChannelsSeeded } from '../../utils/visibleChannelsDefaults'
 import { mergeAvailableChannels } from '../../utils/availableChannels'
+import { PRESET_EXTERNAL_CHANNELS } from '../channels/presetExternalChannels'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { SecretInput } from '../channels/FormShared'
@@ -764,7 +765,17 @@ export function SettingsView({
           ? ((channelListResult.value as { channels?: ChannelInfoWire[] }).channels ?? [])
           : []
         const modules = modulesResult.status === 'fulfilled' ? modulesResult.value : []
-        setServerChannels(mergeAvailableChannels(serverList, modules))
+        const mergedChannels = mergeAvailableChannels(serverList, modules)
+        const mergedChannelNames = new Set(
+          mergedChannels.map((channel) => channel.name.trim().toLowerCase()).filter((name) => name.length > 0)
+        )
+        for (const preset of PRESET_EXTERNAL_CHANNELS) {
+          const presetName = preset.name.trim().toLowerCase()
+          if (!presetName || mergedChannelNames.has(presetName)) continue
+          mergedChannels.push({ name: preset.name, category: 'social' })
+          mergedChannelNames.add(presetName)
+        }
+        setServerChannels(mergedChannels)
         setChannelListError(!channelListOk)
       })
       .catch(() => {
