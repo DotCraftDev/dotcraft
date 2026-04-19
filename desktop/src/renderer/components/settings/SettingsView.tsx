@@ -1004,7 +1004,6 @@ export function SettingsView({
         setProxyBinarySource(baselineProxy.binarySource)
         setProxyBinaryPath(baselineProxy.binaryPath)
       }
-      setLlmModel(workspaceCoreBaseline.model ?? '')
       setLlmApiKey(workspaceCoreBaseline.apiKey ?? '')
       setLlmEndPoint(workspaceCoreBaseline.endPoint ?? '')
     }
@@ -1594,7 +1593,6 @@ export function SettingsView({
         endPoint: result.endPoint ?? workspaceCoreBaseline.endPoint ?? null
       }
       setWorkspaceCoreBaseline(nextBaseline)
-      setLlmModel(nextBaseline.model ?? '')
       setLlmApiKey(nextBaseline.apiKey ?? '')
       setLlmEndPoint(nextBaseline.endPoint ?? '')
       addToast(t('settings.restartAppServerSuccess'), 'success')
@@ -1621,7 +1619,6 @@ export function SettingsView({
         await persistConnectionSettings()
       }
 
-      const model = llmModel.trim()
       const apiKey = llmApiKey.trim()
       const endPoint = llmEndPoint.trim()
       const payload: Record<string, string | null> = {}
