@@ -21,6 +21,8 @@ internal sealed class TestableSessionService : ISessionService
     public IReadOnlyList<(string threadId, string turnId)> CancelledTurns => _cancelledTurns;
     public IReadOnlyList<(string threadId, string turnId, string requestId, SessionApprovalDecision decision)> ResolvedApprovals => _resolvedApprovals;
     public IReadOnlyList<AIContent> LastSubmittedContent { get; private set; } = [];
+    public IReadOnlyList<ChatMessage>? LastSubmittedMessages { get; private set; }
+    public Func<string, IList<AIContent>, ChatMessage[]?, IEnumerable<SessionEvent>>? SubmitInputHandler { get; set; }
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
@@ -228,6 +230,9 @@ internal sealed class TestableSessionService : ISessionService
         CancellationToken ct = default)
     {
         LastSubmittedContent = content.ToList();
+        LastSubmittedMessages = messages?.ToList();
+        if (SubmitInputHandler != null)
+            return YieldEvents([.. SubmitInputHandler(threadId, content, messages)], ct);
         if (_submitQueue.TryGetValue(threadId, out var queue) && queue.TryDequeue(out var events))
             return YieldEvents(events, ct);
 

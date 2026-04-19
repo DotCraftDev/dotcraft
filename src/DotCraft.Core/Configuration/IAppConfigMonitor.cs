@@ -43,6 +43,7 @@ public static class ConfigChangeRegions
     public const string WorkspaceModel = "workspace.model";
     public const string WorkspaceApiKey = "workspace.apiKey";
     public const string WorkspaceEndPoint = "workspace.endpoint";
+    public const string WelcomeSuggestions = "welcomeSuggestions";
     public const string Skills = "skills";
     public const string Mcp = "mcp";
     public const string ExternalChannel = "externalChannel";

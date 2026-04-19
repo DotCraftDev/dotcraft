@@ -1288,7 +1288,11 @@ export function App(): JSX.Element {
             ) : activeMainView === 'automations' ? (
               <AutomationsView />
             ) : (
-              <ConversationPanel workspacePath={workspacePath} />
+              <ConversationPanel
+                workspacePath={workspacePath}
+                workspaceConfigChange={workspaceConfigChange}
+                workspaceConfigChangeSeq={workspaceConfigChangeSeq}
+              />
             )
           }
           detail={<DetailPanel workspacePath={workspacePath} />}

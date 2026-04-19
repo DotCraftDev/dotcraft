@@ -131,6 +131,10 @@ public sealed class ThreadStore
                 if (thread != null)
                     entries.Add(ThreadSummary.FromThread(thread));
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch
             {
                 // Skip corrupt files

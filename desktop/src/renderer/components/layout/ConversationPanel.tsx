@@ -13,9 +13,12 @@ import { PlanApprovalComposer } from '../conversation/PlanApprovalComposer'
 import { ConversationWelcome } from '../conversation/ConversationWelcome'
 import type { ThreadConfigurationWire } from '../../types/thread'
 import { parseJsonConfig } from '../../../shared/jsonConfig'
+import type { WorkspaceConfigChangedPayload } from '../../utils/workspaceConfigChanged'
 
 interface ConversationPanelProps {
   workspacePath?: string
+  workspaceConfigChange?: WorkspaceConfigChangedPayload | null
+  workspaceConfigChangeSeq?: number
 }
 
 /**
@@ -23,7 +26,11 @@ interface ConversationPanelProps {
  * Composes: ThreadHeader, MessageStream, TurnStatusIndicator, InputComposer.
  * Spec §10
  */
-export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps): JSX.Element {
+export function ConversationPanel({
+  workspacePath = '',
+  workspaceConfigChange = null,
+  workspaceConfigChangeSeq = 0
+}: ConversationPanelProps): JSX.Element {
   const { activeThread, activeThreadId, loading } = useThreadStore()
   const turns = useConversationStore((s) => s.turns)
   const turnStatus = useConversationStore((s) => s.turnStatus)
@@ -207,7 +214,13 @@ export function ConversationPanel({ workspacePath = '' }: ConversationPanelProps
 
   // No thread selected — show Codex-style welcome card
   if (!activeThread) {
-    return <ConversationWelcome workspacePath={workspacePath} />
+    return (
+      <ConversationWelcome
+        workspacePath={workspacePath}
+        workspaceConfigChange={workspaceConfigChange}
+        workspaceConfigChangeSeq={workspaceConfigChangeSeq}
+      />
+    )
   }
 
   const threadName = activeThread.displayName ?? 'New conversation'

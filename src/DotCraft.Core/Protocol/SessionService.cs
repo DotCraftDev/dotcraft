@@ -504,6 +504,15 @@ public sealed class SessionService(
 
                 // Step 5b: Load/create AgentSession
                 var agent = _threadAgents.GetValueOrDefault(threadId, defaultAgent);
+
+                // Bind tracing and token tracking before session creation so session metadata
+                // captured during CreateSessionAsync / LoadOrCreateSessionAsync is attributed
+                // to the correct ephemeral or persisted thread.
+                TracingChatClient.CurrentSessionKey = threadId;
+                TracingChatClient.ResetCallState(threadId);
+                var tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
+                TokenTracker.Current = tokenTracker;
+
                 AgentSession session;
                 if (thread.HistoryMode == HistoryMode.Client && messages != null)
                 {
@@ -541,13 +550,7 @@ public sealed class SessionService(
                     }
                 }
 
-                // Step 5e: Set tracing context
-                TracingChatClient.CurrentSessionKey = threadId;
-                TracingChatClient.ResetCallState(threadId);
-                var tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
-                TokenTracker.Current = tokenTracker;
-
-                // Step 5f: Set up approval service override
+                // Step 5e: Set up approval service override
                 var approvalPolicy = thread.Configuration?.ApprovalPolicy ?? ApprovalPolicy.Default;
                 IApprovalService turnApprovalService;
                 switch (approvalPolicy)

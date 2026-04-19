@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.4 |
+| **Version** | 0.2.6 |
 | **Status** | Living |
-| **Date** | 2026-04-11 |
+| **Date** | 2026-04-19 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 
 Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) and related AppServer capabilities to out-of-process clients, enabling them to create and resume threads, submit turns, stream events, participate in approval flows, and call server-level management methods through one transport-stable contract.
@@ -17,6 +17,7 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [3. Initialization](#3-initialization)
 - [4. Thread Methods](#4-thread-methods)
 - [5. Turn Methods](#5-turn-methods)
+  - [5.4 `welcome/suggestions`](#54-welcomesuggestions)
 - [6. Event Notifications](#6-event-notifications)
   - [6.5 SubAgent Notifications](#65-subagent-notifications)
   - [6.6 Usage Notifications](#66-usage-notifications)
@@ -69,7 +70,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. Workspace model persistence method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -319,7 +320,8 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
     "externalChannelManagement": true,
     "mcpStatus": true,
     "extensions": {
-      "githubTrackerConfig": true
+      "githubTrackerConfig": true,
+      "welcomeSuggestions": true
     }
   }
 }
@@ -346,7 +348,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
 | `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
 | `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). |
-| `capabilities.extensions` | object | Optional module capability registry keyed by extension name. Each value is extension-defined metadata; boolean `true` means the extension methods are available. |
+| `capabilities.extensions` | object | Optional module capability registry keyed by extension name. Each value is extension-defined metadata; boolean `true` means the extension methods are available. Example: `capabilities.extensions.welcomeSuggestions = true` advertises support for `welcome/suggestions`. |
 
 ### 3.3 `initialized`
 
@@ -875,6 +877,52 @@ Suggest a git commit message from the **source thread’s** recent conversation 
 **Errors** (non-exhaustive): source thread not found; paths outside workspace; not a git repository; empty diff; model did not emit the `CommitSuggest` tool; timeout. If the server cannot run the suggest pipeline (e.g. no session service), it returns an appropriate JSON-RPC error.
 
 **Note**: The server may create and delete an **ephemeral** thread for this operation. Clients may observe transient `thread/*` / `turn/*` notifications for that internal thread; implementations typically filter or ignore threads whose origin channel marks commit-message generation.
+
+### 5.4 `welcome/suggestions`
+
+Return welcome-screen quick suggestions for the current workspace. This method is intended for clients that render an empty or ready-to-start conversation state and want to show a small set of prompts that feel relevant to the user's recent work.
+
+The result is advisory and read-only. The server may derive these suggestions from recent workspace thread history, workspace-scoped long-term memory, or other workspace-local evidence, but the exact generation strategy is server-owned and not part of the wire contract.
+
+**Direction**: client → server (request)
+
+**Capability advertisement**: clients should check `capabilities.extensions.welcomeSuggestions` before calling this method. If the capability is absent or `false`, the server returns `-32601` (`Method not found`) or an equivalent capability error.
+
+**Params**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `identity` | `SessionIdentity` | yes | Workspace identity whose history and memory scope the suggestions. `identity.workspacePath` is required. |
+| `maxItems` | number | no | Maximum number of suggestions requested. Defaults to `4`. The server may clamp overly large values. |
+
+**Result**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `items` | `WelcomeSuggestionItem[]` | Suggested welcome actions for the current workspace. |
+| `source` | string | Suggestion source kind. Initial values are `dynamic` and `none`. |
+| `generatedAt` | string | ISO 8601 UTC timestamp describing when this result was generated. |
+| `fingerprint` | string | Stable identifier for the returned evidence/result snapshot. Clients may use it to avoid redundant UI refresh. |
+
+**`WelcomeSuggestionItem`**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Short label suitable for a welcome suggestion list. |
+| `prompt` | string | Full prompt text to prefill into the input composer when the suggestion is chosen. |
+| `reason` | string | Optional explanatory rationale intended for diagnostics, analytics, or non-primary UI surfaces. |
+
+**Semantics**:
+
+- Suggestions should be grounded in the current workspace rather than a global user profile.
+- Suggestions should represent likely next tasks or follow-up asks, not a fixed taxonomy of product features.
+- `source = "dynamic"` means the server returned workspace-specific personalized suggestions.
+- `source = "none"` means the server intentionally did not return personalized suggestions for this call. Typical reasons include insufficient workspace evidence, a workspace-level preference disabling the feature, or transient generation unavailability.
+- When `source = "none"`, `items` may be an empty list. Client-owned default suggestions remain out of band and are not serialized by this method.
+- The server may inspect workspace-local history and memory through internal read-only mechanisms before generating suggestions, but those inspection steps are implementation-defined and not part of the wire contract.
+- Servers may cache results for a short period and return the same `fingerprint` across repeated calls while the underlying workspace evidence has not materially changed.
+
+**Errors** (non-exhaustive): missing `identity.workspacePath`; unsupported capability; invalid `maxItems`; workspace not available.
 
 ---
 
@@ -3512,6 +3560,7 @@ Update workspace-level config values.
 | `model` | string \| null | no | Workspace default model. `null`, empty, or `"Default"` removes the `Model` key so runtime falls back to provider default behavior. |
 | `apiKey` | string \| null | no | Workspace API key. `null` or empty removes the `ApiKey` key. |
 | `endPoint` | string \| null | no | Workspace API endpoint. `null` or empty removes the `EndPoint` key. |
+| `welcomeSuggestionsEnabled` | boolean \| null | no | Workspace-level override for personalized welcome suggestions. `true` enables, `false` disables, and `null` removes the explicit override so server defaults apply. |
 
 **Result**:
 
@@ -3519,7 +3568,8 @@ Update workspace-level config values.
 {
   "model": "gpt-4o-mini",
   "apiKey": "sk-live-key",
-  "endPoint": "https://example.com/v1"
+  "endPoint": "https://example.com/v1",
+  "welcomeSuggestionsEnabled": true
 }
 ```
 
@@ -3536,9 +3586,9 @@ If `model` is removed, the result returns:
 - This method updates **workspace default** only, not any active thread state.
 - Clients that need immediate effect in a running thread should additionally call `thread/config/update`.
 - Server preserves unrelated configuration state.
-- At least one of `model`, `apiKey`, or `endPoint` must be provided.
+- At least one of `model`, `apiKey`, `endPoint`, or `welcomeSuggestionsEnabled` must be provided.
 - Key matching is case-insensitive and normalized in-place (`Model`, `ApiKey`, `EndPoint`).
-- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`.
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`, `welcomeSuggestions`.
 
 ### 24.4 Capability Advertisement
 
@@ -3575,6 +3625,7 @@ Server notification emitted after a successful workspace configuration write.
 | `workspace.model` | `workspace/config/update` |
 | `workspace.apiKey` | `workspace/config/update` |
 | `workspace.endpoint` | `workspace/config/update` |
+| `welcomeSuggestions` | `workspace/config/update` |
 | `skills` | `skills/setEnabled` |
 | `mcp` | `mcp/upsert`, `mcp/remove` |
 | `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |

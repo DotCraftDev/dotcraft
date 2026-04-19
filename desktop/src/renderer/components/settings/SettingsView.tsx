@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type JSX, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type JSX, type SetStateAction } from 'react'
 import { addToast } from '../../stores/toastStore'
 import { applyTheme, resolveTheme, type ThemeMode } from '../../utils/theme'
 import { normalizeLocale, type AppLocale } from '../../../shared/locales'
@@ -71,6 +71,7 @@ interface McpTestResultWire {
 interface WorkspaceCoreConfig {
   apiKey: string | null
   endPoint: string | null
+  welcomeSuggestionsEnabled: boolean | null
 }
 
 interface WorkspaceCoreConfigResult {
@@ -78,8 +79,82 @@ interface WorkspaceCoreConfigResult {
   userDefaults: WorkspaceCoreConfig
 }
 
+const EMPTY_WORKSPACE_CORE_CONFIG: WorkspaceCoreConfig = {
+  apiKey: null,
+  endPoint: null,
+  welcomeSuggestionsEnabled: null
+}
+
+function normalizeWorkspaceCoreConfig(value: unknown): WorkspaceCoreConfig {
+  const source = value != null && typeof value === 'object' ? value as Partial<WorkspaceCoreConfig> : {}
+  return {
+    apiKey: typeof source.apiKey === 'string' ? source.apiKey : null,
+    endPoint: typeof source.endPoint === 'string' ? source.endPoint : null,
+    welcomeSuggestionsEnabled:
+      typeof source.welcomeSuggestionsEnabled === 'boolean'
+        ? source.welcomeSuggestionsEnabled
+        : null
+  }
+}
+
+function createEmptyWorkspaceCoreResult(): WorkspaceCoreConfigResult {
+  return {
+    workspace: { ...EMPTY_WORKSPACE_CORE_CONFIG },
+    userDefaults: { ...EMPTY_WORKSPACE_CORE_CONFIG }
+  }
+}
+
+function normalizeWorkspaceCoreResult(value: unknown): WorkspaceCoreConfigResult {
+  if (value == null || typeof value !== 'object') {
+    return createEmptyWorkspaceCoreResult()
+  }
+
+  const source = value as Partial<WorkspaceCoreConfigResult>
+  return {
+    workspace: normalizeWorkspaceCoreConfig(source.workspace),
+    userDefaults: normalizeWorkspaceCoreConfig(source.userDefaults)
+  }
+}
+
+type WorkspaceCoreReadApi = {
+  workspaceConfig?: {
+    getCore?: (() => Promise<unknown>) | undefined
+  } | undefined
+} | undefined
+
+function getWorkspaceCoreReader(api: WorkspaceCoreReadApi): (() => Promise<unknown>) | null {
+  const getCore = api?.workspaceConfig?.getCore
+  return typeof getCore === 'function' ? getCore : null
+}
+
+export async function readWorkspaceCoreSafeFromApi(
+  api: WorkspaceCoreReadApi
+): Promise<WorkspaceCoreConfigResult> {
+  const getCore = getWorkspaceCoreReader(api)
+  if (!getCore) {
+    return createEmptyWorkspaceCoreResult()
+  }
+
+  try {
+    return normalizeWorkspaceCoreResult(await getCore())
+  } catch {
+    return createEmptyWorkspaceCoreResult()
+  }
+}
+
+export async function readWorkspaceCoreStrictFromApi(
+  api: WorkspaceCoreReadApi
+): Promise<WorkspaceCoreConfigResult> {
+  const getCore = getWorkspaceCoreReader(api)
+  if (!getCore) {
+    throw new Error('Workspace core API is unavailable')
+  }
+
+  return normalizeWorkspaceCoreResult(await getCore())
+}
+
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
-type SettingsTab = 'general' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
+type SettingsTab = 'general' | 'personalization' | 'connection' | 'proxy' | 'usage' | 'channels' | 'archivedThreads' | 'mcp'
 type ProxyRuntimeStatus = 'stopped' | 'starting' | 'running' | 'error'
 type ProxyProviderStatus = 'idle' | 'checking' | 'pending' | 'ok' | 'error'
 
@@ -552,18 +627,23 @@ export function SettingsView({
   } | null>(null)
   const [workspaceCoreBaseline, setWorkspaceCoreBaseline] = useState<WorkspaceCoreConfig>({
     apiKey: null,
-    endPoint: null
+    endPoint: null,
+    welcomeSuggestionsEnabled: null
   })
   const [userDefaultCore, setUserDefaultCore] = useState<WorkspaceCoreConfig>({
     apiKey: null,
-    endPoint: null
+    endPoint: null,
+    welcomeSuggestionsEnabled: null
   })
   const [apiKeyOverrideActive, setApiKeyOverrideActive] = useState(true)
   const [endPointOverrideActive, setEndPointOverrideActive] = useState(true)
   const [llmApiKey, setLlmApiKey] = useState('')
   const [llmEndPoint, setLlmEndPoint] = useState('')
   const [applyingLlm, setApplyingLlm] = useState(false)
+  const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
+  const [applyingWelcomeSuggestions, setApplyingWelcomeSuggestions] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const workspaceCoreApiAvailable = getWorkspaceCoreReader(window.api) != null
 
   const [mcpServers, setMcpServers] = useState<McpServerConfigWire[]>([])
   const [mcpLoading, setMcpLoading] = useState(false)
@@ -623,6 +703,12 @@ export function SettingsView({
     setWorkspaceCoreBaseline(core.workspace)
     setUserDefaultCore(core.userDefaults)
 
+    const resolvedWelcomeSuggestionsEnabled =
+      core.workspace.welcomeSuggestionsEnabled ??
+      core.userDefaults.welcomeSuggestionsEnabled ??
+      true
+    setWelcomeSuggestionsEnabled(resolvedWelcomeSuggestionsEnabled)
+
     if (keepDraftValues) {
       return
     }
@@ -645,14 +731,43 @@ export function SettingsView({
     )
   }
 
-  async function reloadWorkspaceCore(): Promise<void> {
-    try {
-      const core = await window.api.workspaceConfig.getCore()
-      applyWorkspaceCoreBaseline(core, llmDirty)
-    } catch {
-      // Ignore pull failures during reconnect windows.
-    }
+  async function readWorkspaceCoreSafe(): Promise<WorkspaceCoreConfigResult> {
+    return readWorkspaceCoreSafeFromApi(window.api)
   }
+
+  async function readWorkspaceCoreStrict(): Promise<WorkspaceCoreConfigResult> {
+    return readWorkspaceCoreStrictFromApi(window.api)
+  }
+
+  async function reloadWorkspaceCore(): Promise<void> {
+    const core = await readWorkspaceCoreSafe()
+    applyWorkspaceCoreBaseline(core, llmDirty)
+  }
+
+  const handleWelcomeSuggestionsToggle = useCallback(
+    async (checked: boolean): Promise<void> => {
+      const previous = welcomeSuggestionsEnabled
+      setWelcomeSuggestionsEnabled(checked)
+      setApplyingWelcomeSuggestions(true)
+      try {
+        const result = await window.api.appServer.sendRequest('workspace/config/update', {
+          welcomeSuggestionsEnabled: checked
+        }) as { welcomeSuggestionsEnabled?: boolean | null }
+        const persisted = typeof result?.welcomeSuggestionsEnabled === 'boolean'
+          ? result.welcomeSuggestionsEnabled
+          : checked
+        setWelcomeSuggestionsEnabled(persisted)
+        await reloadWorkspaceCore()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setWelcomeSuggestionsEnabled(previous)
+        addToast(t('settings.personalization.welcomeSuggestionsSaveFailed', { error: msg }), 'error')
+      } finally {
+        setApplyingWelcomeSuggestions(false)
+      }
+    },
+    [reloadWorkspaceCore, t, welcomeSuggestionsEnabled]
+  )
 
   useSettingsWorkspaceConfigChangeEffects({
     change: workspaceConfigChange,
@@ -710,13 +825,18 @@ export function SettingsView({
       })
       .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
-    window.api.workspaceConfig
-      .getCore()
+    readWorkspaceCoreSafe()
       .then((core) => {
         applyWorkspaceCoreBaseline(core, false)
       })
-      .catch(() => {})
+    // `readWorkspaceCoreSafe` already normalizes missing bridge / failed reads.
   }, [])
+
+  useEffect(() => {
+    if (!workspaceCoreApiAvailable && activeSettingsTab === 'personalization') {
+      setActiveSettingsTab('general')
+    }
+  }, [activeSettingsTab, workspaceCoreApiAvailable])
 
   useEffect(() => {
     let cancelled = false
@@ -1428,7 +1548,7 @@ export function SettingsView({
       if (willEnable) {
         await window.api.proxy.restartManaged()
       }
-      const core = await window.api.workspaceConfig.getCore()
+      const core = await readWorkspaceCoreStrict()
       const workspaceCoreChanged = hasWorkspaceCoreChanged(core.workspace)
       applyWorkspaceCoreBaseline(core, !workspaceCoreChanged && llmDirty)
       if (workspaceCoreChanged) {
@@ -1660,7 +1780,7 @@ export function SettingsView({
       await window.api.appServer.sendRequest('workspace/config/update', payload)
       setExpectedRestart(true)
       await window.api.appServer.restartManaged()
-      const core = await window.api.workspaceConfig.getCore()
+      const core = await readWorkspaceCoreStrict()
       applyWorkspaceCoreBaseline(core, false)
       addToast(t('settings.restartAppServerSuccess'), 'success')
     } catch (err) {
@@ -1710,7 +1830,7 @@ export function SettingsView({
         setProxyStatusText(status.status)
         setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
 
-        latestCore = await window.api.workspaceConfig.getCore()
+        latestCore = await readWorkspaceCoreStrict()
         const workspaceCoreChanged = hasWorkspaceCoreChanged(latestCore.workspace)
         if (workspaceCoreChanged && !needsAppServerRestart) {
           setRestartingAppServer(true)
@@ -1723,7 +1843,7 @@ export function SettingsView({
         setExpectedRestart(true)
         await window.api.appServer.restartManaged()
         if (!latestCore) {
-          latestCore = await window.api.workspaceConfig.getCore()
+          latestCore = await readWorkspaceCoreStrict()
         }
         applyWorkspaceCoreBaseline(latestCore, false)
         addToast(t('settings.restartAppServerSuccess'), 'success')
@@ -1757,6 +1877,9 @@ export function SettingsView({
     { id: 'channels', label: t('settings.tab.channels') },
     { id: 'archivedThreads', label: t('settings.tab.archivedThreads') }
   ]
+  if (workspaceCoreApiAvailable) {
+    tabs.splice(1, 0, { id: 'personalization', label: t('settings.tab.personalization') })
+  }
   if (mcpEnabled) {
     tabs.push({ id: 'mcp', label: 'MCP' })
   }
@@ -2037,6 +2160,30 @@ export function SettingsView({
                       >
                         {t('settings.llm.applyAndRestart')}
                       </button>
+                    }
+                  />
+                </SettingsGroup>
+              </div>
+              </GeneralPanel>
+            )}
+
+            {workspaceCoreApiAvailable && activeSettingsTab === 'personalization' && (
+              <GeneralPanel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <SettingsGroup
+                  title={t('settings.group.personalization')}
+                >
+                  <SettingsRow
+                    label={t('settings.personalization.welcomeSuggestions')}
+                    description={t('settings.personalization.welcomeSuggestionsHint')}
+                    control={
+                      <PillSwitch
+                        checked={welcomeSuggestionsEnabled}
+                        disabled={applyingWelcomeSuggestions}
+                        onChange={(checked) => {
+                          void handleWelcomeSuggestionsToggle(checked)
+                        }}
+                      />
                     }
                   />
                 </SettingsGroup>

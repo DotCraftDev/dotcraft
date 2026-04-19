@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.3.0 |
+| **Version** | 0.3.2 |
 | **Status** | Living |
-| **Date** | 2026-04-16 |
+| **Date** | 2026-04-19 |
 | **Parent Spec** | [AppServer Protocol](appserver-protocol.md) |
 | **Related Specs** | [TypeScript External Channel Module Contract](typescript-external-channel-module-contract.md) |
 
@@ -19,6 +19,7 @@ Purpose: Define the stable user-experience behavior of **DotCraft Desktop** as a
 - [3. Connection and Session Lifecycle](#3-connection-and-session-lifecycle)
 - [4. Protocol Event to UX Behavior](#4-protocol-event-to-ux-behavior)
 - [5. Core Interaction Flows](#5-core-interaction-flows)
+  - [5.1.1 Welcome Suggestions](#511-welcome-suggestions)
 - [6. Secondary Flows](#6-secondary-flows)
 - [6.7 Settings Surface](#67-settings-surface)
 - [6.8 Channel Modules](#68-channel-modules)
@@ -173,7 +174,7 @@ This section defines how protocol messages affect user-visible behavior. It inte
 | `system/event` | Maintenance steps may be surfaced when relevant but must not overshadow core turn output. |
 | `system/jobResult` | Automation or heartbeat output becomes visible as an out-of-band result associated with its source run. |
 | `cron/stateChanged` | Automation status views refresh to reflect the current job state. |
-| `workspace/configChanged` | Settings-adjacent surfaces re-fetch impacted regions (`skills`, `mcp`, `externalChannel`, workspace config fields) without requiring manual full-page refresh. |
+| `workspace/configChanged` | Settings-adjacent surfaces re-fetch impacted regions (`skills`, `mcp`, `externalChannel`, workspace config fields, including welcome-suggestion personalization state) without requiring manual full-page refresh. |
 
 ### 4.6 General Rules
 
@@ -191,6 +192,20 @@ This section defines how protocol messages affect user-visible behavior. It inte
 2. Client begins connecting and makes connection state visible.
 3. After initialization succeeds, the client loads threads and any capability-gated data needed for the default workspace view.
 4. If no thread is selected, the user is shown a clear starting point for a new conversation.
+
+### 5.1.1 Welcome Suggestions
+
+- When the workspace is connected and the conversation area is in an empty or ready-to-start state, the client may render a small set of welcome suggestions.
+- Welcome suggestions are intended to feel like likely next tasks for the current workspace, not a fixed set of product-category shortcuts.
+- The client may render local fallback suggestions immediately so the empty state remains useful before any server-backed result is available.
+- If the server advertises `capabilities.extensions.welcomeSuggestions`, the client may call `welcome/suggestions` for the active workspace identity after connection is ready.
+- Dynamic welcome-suggestion requests are gated by the current workspace personalization setting. If the workspace has personalized welcome suggestions disabled, the client must not request them and must continue showing only its local default suggestions.
+- The client should replace the visible fallback suggestions only when it receives a valid workspace-specific result (`source = dynamic`).
+- If the capability is absent, the request fails, the request times out, or the server responds with `source = none`, the local fallback suggestions remain visible without forcing an error state.
+- Dynamic suggestions should use a dedicated source icon so users can distinguish personalized recommendations from the static default shortcut set.
+- Suggestions should remain short, diverse, and obviously actionable when shown in a compact list.
+- Choosing a suggestion prefills the input composer with the suggestion's prompt text. It must not auto-send the message or implicitly create a thread before the user confirms submission.
+- The welcome suggestion surface is advisory. It should not be treated as a durable history, a command palette, or a substitute for browsing existing threads.
 
 ### 5.2 Start a New Conversation
 
@@ -339,6 +354,8 @@ Required behavior:
 - Desktop follows the three-tier configuration model defined in [settings-reload-ux-m3.md](settings-reload-ux-m3.md): live-apply fields, subsystem-restart fields, and process-restart fields.
 - `ApiKey` and `EndPoint` are proxy-aware fields. When the managed proxy is active, the fields are locked to proxy-managed values and are not directly editable.
 - The legacy shared footer Save/Cancel pattern is retired. Settings actions are group-scoped (for example Apply, Restart, or Apply & Restart) based on the tier semantics of that group.
+- Desktop exposes a workspace-level `Personalization` tab. In this milestone, it includes an `Enable personalized welcome suggestions` toggle backed by workspace config rather than client-global preferences.
+- Toggling personalized welcome suggestions applies immediately for the active workspace. On success, the client reacts to the resulting `workspace/configChanged` notification and updates the welcome surface without requiring manual refresh or app restart.
 - Edit-race policy is deterministic:
   - Tier A (live-apply) preserves local in-flight edits when the client receives an echo notification for the same logical change.
   - Tier C (process-restart staged edits) discards stale staged values with a user-visible notice when proxy activation invalidates those staged values.

@@ -44,8 +44,16 @@ export function ChevronDownIcon({ size = 16 }: { size?: number }): JSX.Element {
   return <ChevronDown size={size} strokeWidth={1.8} aria-hidden="true" />
 }
 
-export function SparkIcon({ size = 16 }: { size?: number }): JSX.Element {
-  return <Sparkle size={size} strokeWidth={1.8} aria-hidden="true" />
+export function SparkIcon({
+  size = 16,
+  style,
+  strokeWidth = 1.8
+}: {
+  size?: number
+  style?: CSSProperties
+  strokeWidth?: number
+}): JSX.Element {
+  return <Sparkle size={size} strokeWidth={strokeWidth} style={style} aria-hidden="true" />
 }
 
 export function AutomationIcon({ size = 16 }: { size?: number }): JSX.Element {

@@ -24,6 +24,8 @@ export type AutomationsTab = 'tasks' | 'cron'
 export interface WelcomeDraft {
   text: string
   segments?: ComposerDraftSegment[]
+  selectionStart?: number
+  selectionEnd?: number
   images: ImageAttachment[]
   files?: ComposerFileAttachment[]
   mode: ThreadMode
@@ -387,6 +389,8 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         images: [...draft.images],
         files: draft.files ? [...draft.files] : [],
         segments: draft.segments ? [...draft.segments] : undefined,
+        selectionStart: draft.selectionStart,
+        selectionEnd: draft.selectionEnd,
         updatedAt: Date.now()
       }
     })
