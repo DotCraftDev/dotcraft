@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from 'react'
+import { BookText, Bug, FileText, Sparkles } from 'lucide-react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
-import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useModelCatalogStore } from '../../stores/modelCatalogStore'
 import { useThreadStore } from '../../stores/threadStore'
@@ -9,6 +9,7 @@ import { useSkillsStore } from '../../stores/skillsStore'
 import { addToast } from '../../stores/toastStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import type { ImageAttachment, ThreadMode } from '../../types/conversation'
+import type { ComposerDraftSegment } from '../../types/composerDraft'
 import type { ThreadSummary } from '../../types/thread'
 import { parseJsonConfig } from '../../../shared/jsonConfig'
 import { CommandSearchPopover } from './CommandSearchPopover'
@@ -29,7 +30,7 @@ interface ConversationWelcomeProps {
 }
 
 interface Suggestion {
-  icon: string
+  icon: ComponentType<{ size?: number; strokeWidth?: number; style?: CSSProperties }>
   title: string
   prompt: string
 }
@@ -53,8 +54,8 @@ function isImageFile(file: File): boolean {
 
 /**
  * Welcome state when the workspace is connected but no thread is selected.
- * Includes a bottom-pinned composer so users can start a conversation without
- * clicking New Thread first; quick-start cards prefill the composer.
+ * Keeps the composer centered in the page so users can start a conversation
+ * without clicking New Thread first; quick-start rows prefill the composer.
  */
 export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps): JSX.Element {
   const t = useT()
@@ -76,6 +77,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const skipDraftPersistRef = useRef(false)
   const draftHydratedRef = useRef(false)
   const latestDraftTextRef = useRef('')
+  const latestDraftSegmentsRef = useRef<ComposerDraftSegment[]>([])
   const initialWelcomeDraftRef = useRef(useUIStore.getState().welcomeDraft)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
@@ -142,25 +144,25 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const suggestions: Suggestion[] = useMemo(
     () => [
       {
-        icon: '📄',
+        icon: FileText,
         title: t('welcome.suggestion.explore'),
         prompt:
           'Give me a quick overview of this project: what it does, its structure, and where the main entry points are.'
       },
       {
-        icon: '🐛',
+        icon: Bug,
         title: t('welcome.suggestion.bug'),
         prompt:
           'Scan the codebase for potential bugs, error-prone patterns, or unhandled edge cases and suggest fixes.'
       },
       {
-        icon: '✨',
+        icon: Sparkles,
         title: t('welcome.suggestion.feature'),
         prompt:
           'Help me design and implement a new feature for this project. Describe what you want to build.'
       },
       {
-        icon: '📝',
+        icon: BookText,
         title: t('welcome.suggestion.docs'),
         prompt:
           'Generate clear documentation for this codebase: README sections, inline comments, and API docs.'
@@ -209,8 +211,12 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       return
     }
 
-    richRef.current?.setContent(welcomeDraft.text)
+    richRef.current?.setContent({
+      text: welcomeDraft.text,
+      segments: welcomeDraft.segments
+    })
     latestDraftTextRef.current = welcomeDraft.text
+    latestDraftSegmentsRef.current = [...(welcomeDraft.segments ?? [])]
     setImages(welcomeDraft.images)
     setWelcomeMode(welcomeDraft.mode)
     setModelName(welcomeDraft.model || 'Default')
@@ -249,6 +255,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const flushWelcomeDraft = useCallback((): void => {
     if (skipDraftPersistRef.current) return
     const text = richRef.current?.getText() ?? latestDraftTextRef.current
+    const segments = richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
     const hasText = text.trim().length > 0
     const hasImages = images.length > 0
     const model = modelName || 'Default'
@@ -261,6 +268,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
     setWelcomeDraft({
       text,
+      segments: [...segments],
       images: [...images],
       mode: welcomeMode,
       model
@@ -360,6 +368,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
       skipDraftPersistRef.current = true
       latestDraftTextRef.current = ''
+      latestDraftSegmentsRef.current = []
       clearWelcomeDraft()
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
@@ -467,234 +476,228 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
         overflow: 'hidden'
       }}
     >
-      {/* Upper + middle: scrollable + bottom fade toward composer */}
       <div
         style={{
-          position: 'relative',
           flex: 1,
           minHeight: 0,
-          overflow: 'hidden',
+          overflowY: 'auto',
           display: 'flex',
-          flexDirection: 'column'
+          justifyContent: 'center',
+          padding: '48px 24px'
         }}
       >
         <div
           style={{
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
+            width: '100%',
+            maxWidth: '720px',
+            margin: 'auto',
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '24px 24px 16px'
+            alignItems: 'center'
           }}
         >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '20px' }}>
-          <DotCraftLogo size={56} style={{ marginBottom: '16px' }} />
-          <h1
-            style={{
-              fontSize: '22px',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              margin: '0 0 6px 0',
-              letterSpacing: '-0.3px'
-            }}
-          >
-            {t('welcome.heroTitle')}
-          </h1>
-          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0, textAlign: 'center', maxWidth: '420px' }}>
-            {isConnected
-              ? t('welcomeComposer.hint.select')
-              : t('welcomeComposer.hint.connecting')}
-          </p>
-        </div>
-
-        {isConnected && (
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '10px',
-              width: '100%',
-              maxWidth: '520px',
-              marginBottom: '8px'
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '24px'
             }}
           >
-            {suggestions.map((s, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => { fillSuggestion(s.prompt) }}
-                disabled={busy}
-                onMouseEnter={() => setHoveredIdx(idx)}
-                onMouseLeave={() => setHoveredIdx(null)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-start',
-                  gap: '6px',
-                  padding: '14px 16px',
-                  background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                  border: `1px solid ${hoveredIdx === idx ? 'var(--accent)' : 'var(--border-default)'}`,
-                  borderRadius: '10px',
-                  cursor: busy ? 'default' : 'pointer',
-                  textAlign: 'left',
-                  transition: 'border-color 120ms ease, background-color 120ms ease',
-                  opacity: busy ? 0.6 : 1
-                }}
-                aria-label={s.title}
-              >
-                <span style={{ fontSize: '18px', lineHeight: 1 }}>{s.icon}</span>
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    lineHeight: 1.3
-                  }}
-                >
-                  {s.title}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-        </div>
-
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '40px',
-            background: 'linear-gradient(transparent, var(--bg-primary))',
-            pointerEvents: 'none',
-            zIndex: 1
-          }}
-        />
-      </div>
-
-      {/* Bottom composer — same width/padding as InputComposer (full panel width, no max-width cap) */}
-      <div style={{ flexShrink: 0 }}>
-        <ComposerShell
-          dragOver={dragOver}
-          dropLabel={t('composer.dropImage')}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          opacity={starting ? 0.65 : 1}
-          focused={editorFocused}
-          imageStrip={
-            <ImageStrip
-              images={images}
-              onRemove={(idx) => {
-                setImages((prev) => prev.filter((_, i) => i !== idx))
-              }}
-            />
-          }
-          editor={
-            <div style={{ position: 'relative' }}>
-              <div style={{ position: 'relative', minWidth: 0 }}>
-                <CommandSearchPopover
-                  query={slashQuery ?? ''}
-                  visible={showSlashPopover}
-                  loading={customCommandStatus === 'loading' || skillsLoading}
-                  commands={customCommands}
-                  skills={availableSkills}
-                  onSelectCommand={onSelectCommand}
-                  onSelectSkill={onSelectSkill}
-                  onDismiss={() => {
-                    setSlashDismissed(true)
-                  }}
-                />
-                <FileSearchPopover
-                  query={atQuery ?? ''}
-                  visible={showMentionPopover}
-                  workspacePath={workspacePath}
-                  onSelect={onSelectFile}
-                  onDismiss={() => {
-                    setMentionDismissed(true)
-                  }}
-                />
-                <RichInputArea
-                  ref={richRef}
-                  chrome="minimal"
-                  disabled={busy}
-                  suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
-                  onToggleModeShortcut={toggleWelcomeMode}
-                  placeholder={
-                    isConnected
-                      ? t('welcomeComposer.placeholder.ask')
-                      : t('composer.placeholder.connecting')
-                  }
-                  onSubmit={() => {
-                    void sendFromWelcome()
-                  }}
-                  onAtQuery={handleAtQuery}
-                  onSlashQuery={handleSlashQuery}
-                  onContentChange={() => {
-                    latestDraftTextRef.current = richRef.current?.getText() ?? latestDraftTextRef.current
-                    setContentRevision((n) => n + 1)
-                  }}
-                  onFocusChange={setEditorFocused}
-                  onPasteImage={onPasteImage}
-                  onPasteTextOversized={() => {
-                    addToast(
-                      t('input.truncated', { max: MAX_TEXT_LENGTH.toLocaleString() }),
-                      'warning'
-                    )
-                  }}
-                />
-              </div>
-            </div>
-          }
-          footerLeading={
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
-              <ComposerModeSwitch
-                value={welcomeMode}
-                onToggle={() => {
-                  toggleWelcomeMode()
-                }}
-                agentLabel={t('composer.mode.agent')}
-                planLabel={t('composer.mode.plan')}
-              />
-
-              <ModelPicker
-                modelName={modelName}
-                modelOptions={modelApiAvailable ? modelOptions : []}
-                loading={modelLoading}
-                unsupported={modelListUnsupportedEndpoint}
-                disabled={modelApplying || starting}
-                onChange={(nextModel) => {
-                  void handleModelChange(nextModel)
-                }}
-                triggerStyle={composerModelPillStyle(
-                  modelApplying || starting || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
-                  modelApplying || starting || modelLoading
-                )}
-              />
-            </div>
-          }
-          footerAction={
-            <button
-              type="button"
-              onClick={() => { void sendFromWelcome() }}
-              disabled={!canSend}
-              title={t('welcome.sendTitle')}
-              aria-label={t('welcome.sendAria')}
+            <h1
               style={{
-                ...composerActionButtonStyle,
-                backgroundColor: canSend ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
-                color: canSend ? '#1f2328' : 'var(--text-dimmed)',
-                cursor: canSend ? 'pointer' : 'default'
+                fontSize: '26px',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                margin: 0,
+                letterSpacing: '-0.4px'
               }}
             >
-              <SendIcon />
-            </button>
-          }
-        />
+              {t('welcome.heroTitle')}
+            </h1>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, textAlign: 'center', maxWidth: '520px' }}>
+              {isConnected
+                ? t('welcomeComposer.hint.select')
+                : t('welcomeComposer.hint.connecting')}
+            </p>
+          </div>
+
+          <div style={{ width: '100%' }}>
+            <ComposerShell
+              dragOver={dragOver}
+              dropLabel={t('composer.dropImage')}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              opacity={starting ? 0.65 : 1}
+              focused={editorFocused}
+              imageStrip={
+                <ImageStrip
+                  images={images}
+                  onRemove={(idx) => {
+                    setImages((prev) => prev.filter((_, i) => i !== idx))
+                  }}
+                />
+              }
+              editor={
+                <div style={{ position: 'relative' }}>
+                  <div style={{ position: 'relative', minWidth: 0 }}>
+                    <CommandSearchPopover
+                      query={slashQuery ?? ''}
+                      visible={showSlashPopover}
+                      loading={customCommandStatus === 'loading' || skillsLoading}
+                      commands={customCommands}
+                      skills={availableSkills}
+                      onSelectCommand={onSelectCommand}
+                      onSelectSkill={onSelectSkill}
+                      onDismiss={() => {
+                        setSlashDismissed(true)
+                      }}
+                    />
+                    <FileSearchPopover
+                      query={atQuery ?? ''}
+                      visible={showMentionPopover}
+                      workspacePath={workspacePath}
+                      onSelect={onSelectFile}
+                      onDismiss={() => {
+                        setMentionDismissed(true)
+                      }}
+                    />
+                    <RichInputArea
+                      ref={richRef}
+                      chrome="minimal"
+                      disabled={busy}
+                      suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
+                      onToggleModeShortcut={toggleWelcomeMode}
+                      placeholder={
+                        isConnected
+                          ? t('welcomeComposer.placeholder.ask')
+                          : t('composer.placeholder.connecting')
+                      }
+                      onSubmit={() => {
+                        void sendFromWelcome()
+                      }}
+                      onAtQuery={handleAtQuery}
+                      onSlashQuery={handleSlashQuery}
+                      onContentChange={() => {
+                        latestDraftTextRef.current = richRef.current?.getText() ?? latestDraftTextRef.current
+                        latestDraftSegmentsRef.current =
+                          richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
+                        setContentRevision((n) => n + 1)
+                      }}
+                      onFocusChange={setEditorFocused}
+                      onPasteImage={onPasteImage}
+                      onPasteTextOversized={() => {
+                        addToast(
+                          t('input.truncated', { max: MAX_TEXT_LENGTH.toLocaleString() }),
+                          'warning'
+                        )
+                      }}
+                    />
+                  </div>
+                </div>
+              }
+              footerLeading={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+                  <ComposerModeSwitch
+                    value={welcomeMode}
+                    onToggle={() => {
+                      toggleWelcomeMode()
+                    }}
+                    agentLabel={t('composer.mode.agent')}
+                    planLabel={t('composer.mode.plan')}
+                  />
+
+                  <ModelPicker
+                    modelName={modelName}
+                    modelOptions={modelApiAvailable ? modelOptions : []}
+                    loading={modelLoading}
+                    unsupported={modelListUnsupportedEndpoint}
+                    disabled={modelApplying || starting}
+                    onChange={(nextModel) => {
+                      void handleModelChange(nextModel)
+                    }}
+                    triggerStyle={composerModelPillStyle(
+                      modelApplying || starting || modelLoading ? 'var(--text-dimmed)' : 'var(--text-secondary)',
+                      modelApplying || starting || modelLoading
+                    )}
+                  />
+                </div>
+              }
+              footerAction={
+                <button
+                  type="button"
+                  onClick={() => { void sendFromWelcome() }}
+                  disabled={!canSend}
+                  title={t('welcome.sendTitle')}
+                  aria-label={t('welcome.sendAria')}
+                  style={{
+                    ...composerActionButtonStyle,
+                    backgroundColor: canSend ? '#f5f6f7' : 'color-mix(in srgb, var(--bg-primary) 92%, #ffffff 8%)',
+                    color: canSend ? '#1f2328' : 'var(--text-dimmed)',
+                    cursor: canSend ? 'pointer' : 'default'
+                  }}
+                >
+                  <SendIcon />
+                </button>
+              }
+            />
+          </div>
+
+          <div
+            style={{
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              paddingLeft: '14px',
+              marginTop: '-4px'
+            }}
+          >
+            {suggestions.map((s, idx) => {
+              const Icon = s.icon
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => { fillSuggestion(s.prompt) }}
+                  disabled={busy}
+                  onMouseEnter={() => setHoveredIdx(idx)}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    width: 'fit-content',
+                    padding: '6px 10px',
+                    margin: '1px 0',
+                    background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'transparent',
+                    border: 'none',
+                    borderRadius: '8px',
+                    color: 'var(--text-secondary)',
+                    cursor: busy ? 'default' : 'pointer',
+                    textAlign: 'left',
+                    fontSize: '13px',
+                    fontWeight: 400,
+                    lineHeight: 1.4,
+                    transition: 'background-color 120ms ease, color 120ms ease',
+                    opacity: busy ? 0.7 : 1
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.color = 'var(--text-primary)'
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.color = 'var(--text-secondary)'
+                  }}
+                  aria-label={s.title}
+                >
+                  <Icon size={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+                  <span>{s.title}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       </div>
     </div>
   )

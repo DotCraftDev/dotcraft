@@ -103,6 +103,46 @@ This specification defines the contracts and rules so that new modules behave co
 
 - A module's configuration should be independent of other modules in the sense that its section can be understood and validated without coupling to another module's section. Cross-module constraints (e.g. "at least one channel must be enabled when Gateway is enabled") may be expressed in the Gateway module's validator.
 
+### 6.4 ReloadBehavior annotations
+
+- The safe default for module fields is `ProcessRestart`. If you do not annotate reload behavior, schema generation treats the field as process-restart.
+- Only mark a field `Hot` when the owning subsystem truly applies mutations at runtime without restart.
+- Use section-level defaults for consistent behavior across many fields:
+  - `[ConfigSection("SectionKey", DefaultReload = ReloadBehavior.ProcessRestart, HasDefaultReload = true)]`
+- Override per field only where necessary:
+  - `[ConfigField(Reload = ReloadBehavior.Hot, HasReload = true)]`
+- `SubsystemRestart` requires a non-empty subsystem key:
+  - `[ConfigField(Reload = ReloadBehavior.SubsystemRestart, HasReload = true, SubsystemKey = "proxy")]`
+  - Missing `SubsystemKey` is invalid and should fail schema validation.
+
+#### 6.4.1 Example A: Section defaulting to ProcessRestart
+
+```csharp
+[ConfigSection("ExampleChannel", DefaultReload = ReloadBehavior.ProcessRestart, HasDefaultReload = true)]
+public sealed class ExampleChannelConfig
+{
+    public bool Enabled { get; set; } = true;
+    public string Token { get; set; } = string.Empty;
+}
+```
+
+This pattern is equivalent to leaving fields unannotated and is recommended when all changes require process restart.
+
+#### 6.4.2 Example B: One Hot field, rest ProcessRestart
+
+```csharp
+[ConfigSection("ExampleSkills", DefaultReload = ReloadBehavior.ProcessRestart, HasDefaultReload = true)]
+public sealed class ExampleSkillsConfig
+{
+    [ConfigField(Reload = ReloadBehavior.Hot, HasReload = true)]
+    public string[] DisabledSkills { get; set; } = [];
+
+    public bool VerboseLogging { get; set; }
+}
+```
+
+This mirrors the `Skills.DisabledSkills` pattern in the settings reload series: one field is hot-reloadable while other fields stay process-restart by default.
+
 ## 7. Checklist (Normative)
 
 When adding a new module, verify:

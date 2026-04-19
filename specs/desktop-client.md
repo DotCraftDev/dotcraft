@@ -20,7 +20,8 @@ Purpose: Define the stable user-experience behavior of **DotCraft Desktop** as a
 - [4. Protocol Event to UX Behavior](#4-protocol-event-to-ux-behavior)
 - [5. Core Interaction Flows](#5-core-interaction-flows)
 - [6. Secondary Flows](#6-secondary-flows)
-- [6.7 Channel Modules](#67-channel-modules)
+- [6.7 Settings Surface](#67-settings-surface)
+- [6.8 Channel Modules](#68-channel-modules)
 - [7. Keyboard Accessibility and Localization](#7-keyboard-accessibility-and-localization)
 - [8. Error Handling and Recovery](#8-error-handling-and-recovery)
 - [9. Non-Functional UX Requirements](#9-non-functional-ux-requirements)
@@ -91,7 +92,7 @@ The client exposes four user-visible connection states:
 ### 3.3 Initial Load
 
 - After connection becomes `connected`, the client loads the minimum data needed for conversation workflows:
-  - server capabilities
+  - server capabilities (including whether `configChange` notifications are enabled for this connection)
   - thread list for the active workspace identity
   - optional capability-gated surfaces such as skills, automations, or model catalog
 - If no thread exists, the client presents an empty ready state that clearly allows starting a new conversation.
@@ -172,6 +173,7 @@ This section defines how protocol messages affect user-visible behavior. It inte
 | `system/event` | Maintenance steps may be surfaced when relevant but must not overshadow core turn output. |
 | `system/jobResult` | Automation or heartbeat output becomes visible as an out-of-band result associated with its source run. |
 | `cron/stateChanged` | Automation status views refresh to reflect the current job state. |
+| `workspace/configChanged` | Settings-adjacent surfaces re-fetch impacted regions (`skills`, `mcp`, `externalChannel`, workspace config fields) without requiring manual full-page refresh. |
 
 ### 4.6 General Rules
 
@@ -328,11 +330,24 @@ Required behavior:
 - Restoring a thread removes it from the archived list immediately and makes it eligible to reappear in the main thread list after local refresh or status synchronization.
 - If a thread is restored or deleted elsewhere while the archived-thread surface is open, the visible list reconciles automatically without requiring a full app restart.
 
-### 6.7 Channel Modules
+### 6.7 Settings Surface
+
+The Settings surface remains within Desktop scope as a workflow contract rather than a visual-design specification.
+
+Required behavior:
+
+- Desktop follows the three-tier configuration model defined in [settings-reload-ux-m3.md](settings-reload-ux-m3.md): live-apply fields, subsystem-restart fields, and process-restart fields.
+- `ApiKey` and `EndPoint` are proxy-aware fields. When the managed proxy is active, the fields are locked to proxy-managed values and are not directly editable.
+- The legacy shared footer Save/Cancel pattern is retired. Settings actions are group-scoped (for example Apply, Restart, or Apply & Restart) based on the tier semantics of that group.
+- Edit-race policy is deterministic:
+  - Tier A (live-apply) preserves local in-flight edits when the client receives an echo notification for the same logical change.
+  - Tier C (process-restart staged edits) discards stale staged values with a user-visible notice when proxy activation invalidates those staged values.
+
+### 6.8 Channel Modules
 
 This section defines the user-visible workflow for Desktop-managed TypeScript channel modules. It intentionally omits build scripts, package-pipeline internals, IPC method names, and UI component-level design.
 
-#### 6.7.1 Discovery and Identity
+#### 6.8.1 Discovery and Identity
 
 - The Desktop client may expose a Modules group in the Channels workflow for discoverable channel modules.
 - Module discovery is based on static module metadata and must not require Desktop to execute module business logic just to list available modules.
@@ -340,14 +355,14 @@ This section defines the user-visible workflow for Desktop-managed TypeScript ch
 - Module identity is canonicalized by `moduleId` rather than folder name.
 - Invalid or incomplete module metadata must not break the full modules list; invalid entries are skipped while valid modules remain available.
 
-#### 6.7.2 Configuration Workflow
+#### 6.8.2 Configuration Workflow
 
 - Module configuration is workspace-scoped and stored in `.craft/<configFileName>`.
 - Desktop must allow users to view and update module configuration values required for runtime startup.
 - Configuration key semantics and descriptor contracts remain defined by [typescript-external-channel-module-contract.md](typescript-external-channel-module-contract.md).
 - Fields intended for interactive setup only are not treated as ordinary manual-entry fields in the default config workflow.
 
-#### 6.7.3 Enable, Disable, and Runtime Expectations
+#### 6.8.3 Enable, Disable, and Runtime Expectations
 
 - Users can explicitly enable and disable a module from Desktop.
 - Enabling starts the module runtime workflow for the active workspace context.
@@ -355,27 +370,27 @@ This section defines the user-visible workflow for Desktop-managed TypeScript ch
 - Saving configuration while a module is running must produce a clear message when restart or re-enable is required before changes take effect.
 - On app quit or workspace switch, Desktop must not leave module runtimes in an undefined state; active module runtimes are stopped as part of lifecycle teardown.
 
-#### 6.7.4 Module Status Semantics
+#### 6.8.4 Module Status Semantics
 
 - Module status is communicated through user-meaningful states, including at least not configured, connecting, connected, stopped, and error conditions.
 - Desktop may derive module status from both local runtime lifecycle and server-observed channel availability, but the user-facing status must remain coherent and actionable.
 - Module status is distinct from Desktop AppServer connection state. A connected AppServer session does not imply all enabled modules are connected.
 
-#### 6.7.5 Interactive Setup and QR-like Flows
+#### 6.8.5 Interactive Setup and QR-like Flows
 
 - If a module declares that interactive setup may be required, Desktop must provide a corresponding guided workflow.
 - Desktop may consume module-produced temporary setup artifacts from `.craft/tmp/<moduleId>/...` as read-only inputs for user guidance.
 - Interactive setup experiences must handle artifact refresh, expiration, and repeated setup attempts without requiring full app restart.
 - If a previously ready module later re-enters an interactive-setup-required condition, Desktop must surface that requirement again and provide a recovery path.
 
-#### 6.7.6 Variants
+#### 6.8.6 Variants
 
 - Multiple module variants may exist for the same logical `channelName`.
 - Desktop allows selecting which variant is active for a given channel family.
 - At any given time, only one variant is active per logical channel.
 - Switching variants updates the active module context and associated configuration workflow; if the previous variant is running, Desktop stops it before or during the switch.
 
-#### 6.7.7 Refresh and Startup Restore
+#### 6.8.7 Refresh and Startup Restore
 
 - Desktop supports an explicit refresh path that re-evaluates available modules without requiring full application restart.
 - If Desktop supports restoring previously enabled modules on a later launch, that behavior must be best-effort:
@@ -383,7 +398,7 @@ This section defines the user-visible workflow for Desktop-managed TypeScript ch
   - modules without valid workspace configuration are skipped safely
 - Missing restore prerequisites must not block the rest of Desktop startup.
 
-#### 6.7.8 Diagnostics and Preconditions
+#### 6.8.8 Diagnostics and Preconditions
 
 - Desktop must expose clear prerequisite failures for module execution (for example, missing runtime dependencies).
 - Before enabling a module, Desktop validates required configuration fields and surfaces actionable guidance when data is incomplete.

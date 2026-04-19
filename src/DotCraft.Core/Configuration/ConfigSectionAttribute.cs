@@ -35,6 +35,24 @@ public sealed class ConfigSectionAttribute : Attribute
     /// </summary>
     public string? RootKey { get; set; }
 
+    /// <summary>
+    /// Optional default reload behavior for fields in this section.
+    /// This default applies only to the current section and does not cascade
+    /// into nested sections with their own <see cref="ConfigSectionAttribute"/>.
+    /// </summary>
+    public ReloadBehavior DefaultReload { get; set; } = ReloadBehavior.ProcessRestart;
+
+    /// <summary>
+    /// Indicates whether <see cref="DefaultReload"/> is explicitly set for this section.
+    /// </summary>
+    public bool HasDefaultReload { get; set; }
+
+    /// <summary>
+    /// Optional default subsystem key used when <see cref="DefaultReload"/> is
+    /// <see cref="ReloadBehavior.SubsystemRestart"/>.
+    /// </summary>
+    public string? DefaultSubsystemKey { get; set; }
+
     public ConfigSectionAttribute(string key)
     {
         Key = key;

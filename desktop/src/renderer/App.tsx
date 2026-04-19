@@ -17,6 +17,7 @@ import { useReviewPanelStore } from './stores/reviewPanelStore'
 import type { AutomationTask } from './stores/automationsStore'
 import { useModelCatalogStore } from './stores/modelCatalogStore'
 import { useMcpStore, type McpServerStatusWire } from './stores/mcpStore'
+import { useSkillsStore } from './stores/skillsStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -38,6 +39,10 @@ import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { resolveCustomCommandExecution } from './utils/customCommandExecution'
+import {
+  resolveWorkspaceConfigChangedPayload,
+  type WorkspaceConfigChangedPayload
+} from './utils/workspaceConfigChanged'
 import type { DiscoveredModule, ModuleStatusMap, WorkspaceStatusPayload } from '../preload/api.d'
 import './styles/tokens.css'
 
@@ -84,6 +89,8 @@ export function App(): JSX.Element {
 
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
+  const [workspaceConfigChange, setWorkspaceConfigChange] = useState<WorkspaceConfigChangedPayload | null>(null)
+  const [workspaceConfigChangeSeq, setWorkspaceConfigChangeSeq] = useState(0)
   const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceStatusPayload>({
     status: 'no-workspace',
     workspacePath: '',
@@ -91,6 +98,7 @@ export function App(): JSX.Element {
   })
   const [showSetupWizard, setShowSetupWizard] = useState(false)
   const { status, errorType, errorMessage } = useConnectionStore()
+  const isExpectedRestart = useConnectionStore((s) => s.isExpectedRestart)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const canUseCommandExecution = capabilities?.commandManagement === true
   const { commands: customCommands } = useCustomCommandCatalog({
@@ -107,6 +115,7 @@ export function App(): JSX.Element {
   } = useThreadStore()
 
   const workspacePathRef = useRef('')
+  const workspaceConfigChangedDedupeRef = useRef<Map<string, number>>(new Map())
   const moduleConnectedSnapshotRef = useRef<Map<string, boolean>>(new Map())
   const moduleConnectedSnapshotReadyRef = useRef(false)
   const moduleDisplayNameByIdRef = useRef<Map<string, string>>(new Map())
@@ -293,6 +302,9 @@ export function App(): JSX.Element {
       }
       if (caps?.cronManagement) {
         void useCronStore.getState().fetchJobs()
+      }
+      if (caps?.modelCatalogManagement) {
+        void useModelCatalogStore.getState().loadIfNeeded(true)
       }
       const hasTasks = caps?.automations === true
       const hasCron = caps?.cronManagement === true
@@ -696,6 +708,22 @@ export function App(): JSX.Element {
             if (server?.name) {
               useMcpStore.getState().upsertStatus(server)
             }
+            break
+          }
+
+          case 'workspace/configChanged': {
+            const event = resolveWorkspaceConfigChangedPayload(
+              payload,
+              workspaceConfigChangedDedupeRef.current
+            )
+            if (!event) break
+
+            if (event.regions.includes('skills')) {
+              void useSkillsStore.getState().fetchSkills()
+            }
+
+            setWorkspaceConfigChange(event)
+            setWorkspaceConfigChangeSeq((seq) => seq + 1)
             break
           }
 
@@ -1196,6 +1224,22 @@ export function App(): JSX.Element {
       <>
         <ConfirmDialogHost />
         <ToastContainer />
+        {status === 'disconnected' && isExpectedRestart && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'rgba(56, 189, 248, 0.12)',
+              borderBottom: '1px solid rgba(56, 189, 248, 0.35)',
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              flexShrink: 0
+            }}
+          >
+            {translate(locale, 'settings.restartingAppServer')}
+          </div>
+        )}
         {showSlowConnectingHint && (
           <div
             role="status"
@@ -1221,6 +1265,8 @@ export function App(): JSX.Element {
                 onThreadListRefreshRequested={() => {
                   void reloadThreadList()
                 }}
+                workspaceConfigChange={workspaceConfigChange}
+                workspaceConfigChangeSeq={workspaceConfigChangeSeq}
               />
             ) : activeMainView === 'channels' ? (
               <ChannelsView />

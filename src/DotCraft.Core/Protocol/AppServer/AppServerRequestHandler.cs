@@ -46,7 +46,9 @@ public sealed class AppServerRequestHandler(
     IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
     Func<ExternalChannelEntry, CancellationToken, Task>? onExternalChannelUpserted = null,
     Func<string, CancellationToken, Task>? onExternalChannelRemoved = null,
-    SessionStreamDebugLogger? streamDebugLogger = null)
+    SessionStreamDebugLogger? streamDebugLogger = null,
+    IReadOnlyList<ConfigSchemaSection>? configSchema = null,
+    IAppConfigMonitor? appConfigMonitor = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -64,6 +66,8 @@ public sealed class AppServerRequestHandler(
     private readonly McpClientManager? _mcpClientManager = mcpClientManager;
     private readonly Func<ExternalChannelEntry, CancellationToken, Task>? _onExternalChannelUpserted = onExternalChannelUpserted;
     private readonly Func<string, CancellationToken, Task>? _onExternalChannelRemoved = onExternalChannelRemoved;
+    private readonly IReadOnlyList<ConfigSchemaSection> _configSchema = configSchema ?? [];
+    private readonly IAppConfigMonitor? _appConfigMonitor = appConfigMonitor;
 
     /// <summary>
     /// Fallback decision used by <see cref="AppServerEventDispatcher"/> when non-interactive
@@ -106,6 +110,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.TurnStart,
         AppServerMethods.TurnInterrupt,
         AppServerMethods.WorkspaceCommitMessageSuggest,
+        AppServerMethods.WorkspaceConfigSchema,
         AppServerMethods.WorkspaceConfigUpdate,
         AppServerMethods.CronList,
         AppServerMethods.CronRemove,
@@ -209,6 +214,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.AutomationTaskReject => RouteAutomation(h => h.HandleTaskRejectAsync(msg, ct)),
                 AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
                 AppServerMethods.WorkspaceCommitMessageSuggest => HandleWorkspaceCommitMessageSuggestAsync(msg, ct),
+                AppServerMethods.WorkspaceConfigSchema => HandleWorkspaceConfigSchemaAsync(msg, ct),
                 AppServerMethods.WorkspaceConfigUpdate => HandleWorkspaceConfigUpdateAsync(msg, ct),
                 _ => TryHandleExtensionAsync(method, msg, ct)
             });
@@ -507,6 +513,9 @@ public sealed class AppServerRequestHandler(
         var server = MapWireToMcpConfig(p.Server);
         await mcpManager.UpsertAsync(server, ct);
         await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, mcpManager, ct);
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.McpUpsert,
+            [ConfigChangeRegions.Mcp]);
 
         var updated = await mcpManager.GetConfigAsync(server.Name, ct) ?? server;
         var status = (await mcpManager.ListStatusesAsync(ct))
@@ -529,6 +538,9 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.McpServerNotFound(p.Name);
 
         await SaveWorkspaceMcpServersAsync(workspaceCraftPath!, _mcpClientManager, ct);
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.McpRemove,
+            [ConfigChangeRegions.Mcp]);
         return new McpRemoveResult { Removed = true };
     }
 
@@ -582,6 +594,9 @@ public sealed class AppServerRequestHandler(
         SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
         if (_onExternalChannelUpserted != null)
             await _onExternalChannelUpserted(channel, ct);
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.ExternalChannelUpsert,
+            [ConfigChangeRegions.ExternalChannel]);
 
         return new ExternalChannelUpsertResult
         {
@@ -604,6 +619,9 @@ public sealed class AppServerRequestHandler(
         SaveWorkspaceExternalChannels(workspaceCraftPath!, channels);
         if (_onExternalChannelRemoved != null)
             await _onExternalChannelRemoved(p.Name, ct);
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.ExternalChannelRemove,
+            [ConfigChangeRegions.ExternalChannel]);
 
         return new ExternalChannelRemoveResult { Removed = true };
     }
@@ -1214,23 +1232,59 @@ public sealed class AppServerRequestHandler(
         if (string.IsNullOrWhiteSpace(workspaceCraftPath))
             throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigUpdate);
         if (!msg.Params.HasValue || msg.Params.Value.ValueKind != JsonValueKind.Object)
-            throw AppServerErrors.InvalidParams("'model' is required.");
+            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', or 'endPoint' is required.");
 
-        if (!TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out var modelEl))
-            throw AppServerErrors.InvalidParams("'model' is required.");
+        var hasModel = TryGetCaseInsensitiveProperty(msg.Params.Value, "model", out var modelEl);
+        var hasApiKey = TryGetCaseInsensitiveProperty(msg.Params.Value, "apiKey", out var apiKeyEl);
+        var hasEndPoint = TryGetCaseInsensitiveProperty(msg.Params.Value, "endPoint", out var endPointEl);
+        if (!hasModel && !hasApiKey && !hasEndPoint)
+            throw AppServerErrors.InvalidParams("At least one of 'model', 'apiKey', or 'endPoint' is required.");
 
-        var model = modelEl.ValueKind switch
+        var model = hasModel ? ParseNullableString(modelEl, "model") : null;
+        var apiKey = hasApiKey ? ParseNullableString(apiKeyEl, "apiKey") : null;
+        var endPoint = hasEndPoint ? ParseNullableString(endPointEl, "endPoint") : null;
+
+        var saveResult = SaveWorkspaceCoreConfig(
+            workspaceCraftPath,
+            hasModel ? NormalizeWorkspaceModel(model) : null,
+            hasApiKey ? NormalizeOptionalString(apiKey) : null,
+            hasEndPoint ? NormalizeOptionalString(endPoint) : null,
+            hasModel,
+            hasApiKey,
+            hasEndPoint);
+
+        var changedRegions = new List<string>();
+        if (saveResult.ModelChanged)
+            changedRegions.Add(ConfigChangeRegions.WorkspaceModel);
+        if (saveResult.ApiKeyChanged)
+            changedRegions.Add(ConfigChangeRegions.WorkspaceApiKey);
+        if (saveResult.EndPointChanged)
+            changedRegions.Add(ConfigChangeRegions.WorkspaceEndPoint);
+        if (changedRegions.Count > 0)
         {
-            JsonValueKind.Null => null,
-            JsonValueKind.String => modelEl.GetString(),
-            _ => throw AppServerErrors.InvalidParams("'model' must be a string or null.")
-        };
+            _appConfigMonitor?.NotifyChanged(
+                AppServerMethods.WorkspaceConfigUpdate,
+                changedRegions);
+        }
 
-        var normalizedModel = NormalizeWorkspaceModel(model);
-        SaveWorkspaceModelConfig(workspaceCraftPath, normalizedModel);
         return Task.FromResult<object?>(new WorkspaceConfigUpdateResult
         {
-            Model = normalizedModel
+            Model = saveResult.Model,
+            ApiKey = saveResult.ApiKey,
+            EndPoint = saveResult.EndPoint
+        });
+    }
+
+    private Task<object?> HandleWorkspaceConfigSchemaAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        _ = GetParams<WorkspaceConfigSchemaParams>(msg);
+        if (_configSchema.Count == 0)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigSchema);
+
+        return Task.FromResult<object?>(new WorkspaceConfigSchemaResult
+        {
+            Sections = [.. _configSchema]
         });
     }
 
@@ -1346,6 +1400,9 @@ public sealed class AppServerRequestHandler(
 
         SkillsConfigPersistence.WriteWorkspaceDisabledSkills(workspaceCraftPath, disabled);
         skillsLoader.SetDisabledSkills(disabled);
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.SkillsSetEnabled,
+            [ConfigChangeRegions.Skills]);
 
         var updated = skillsLoader.ListSkills(filterUnavailable: false)
             .First(s => string.Equals(s.Name, p.Name, StringComparison.OrdinalIgnoreCase));
@@ -1771,25 +1828,53 @@ public sealed class AppServerRequestHandler(
         return trimmed;
     }
 
-    private static void SaveWorkspaceModelConfig(string workspaceCraftPath, string? model)
+    private static WorkspaceConfigSaveResult SaveWorkspaceCoreConfig(
+        string workspaceCraftPath,
+        string? model,
+        string? apiKey,
+        string? endPoint,
+        bool updateModel,
+        bool updateApiKey,
+        bool updateEndPoint)
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         Directory.CreateDirectory(workspaceCraftPath);
         var root = LoadWorkspaceConfigObject(configPath);
+
         var modelKey = FindCaseInsensitiveKey(root, "Model");
+        var apiKeyKey = FindCaseInsensitiveKey(root, "ApiKey");
+        var endPointKey = FindCaseInsensitiveKey(root, "EndPoint");
 
-        if (string.IsNullOrWhiteSpace(model))
+        var existingModel = NormalizeWorkspaceModel(ReadConfigStringValue(root, modelKey));
+        var existingApiKey = NormalizeOptionalString(ReadConfigStringValue(root, apiKeyKey));
+        var existingEndPoint = NormalizeOptionalString(ReadConfigStringValue(root, endPointKey));
+
+        var modelChanged = updateModel && !string.Equals(existingModel, model, StringComparison.Ordinal);
+        var apiKeyChanged = updateApiKey && !string.Equals(existingApiKey, apiKey, StringComparison.Ordinal);
+        var endPointChanged = updateEndPoint && !string.Equals(existingEndPoint, endPoint, StringComparison.Ordinal);
+
+        if (updateModel)
+            UpsertOrRemoveConfigValue(root, modelKey, "Model", model);
+        if (updateApiKey)
+            UpsertOrRemoveConfigValue(root, apiKeyKey, "ApiKey", apiKey);
+        if (updateEndPoint)
+            UpsertOrRemoveConfigValue(root, endPointKey, "EndPoint", endPoint);
+
+        if (modelChanged || apiKeyChanged || endPointChanged)
         {
-            if (modelKey != null)
-                root.Remove(modelKey);
-        }
-        else
-        {
-            root[modelKey ?? "Model"] = model;
+            var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
         }
 
-        var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(configPath, $"{json}{Environment.NewLine}", new UTF8Encoding(false));
+        return new WorkspaceConfigSaveResult
+        {
+            Model = updateModel ? model : existingModel,
+            ApiKey = updateApiKey ? apiKey : existingApiKey,
+            EndPoint = updateEndPoint ? endPoint : existingEndPoint,
+            ModelChanged = modelChanged,
+            ApiKeyChanged = apiKeyChanged,
+            EndPointChanged = endPointChanged
+        };
     }
 
     private static JsonObject LoadWorkspaceConfigObject(string configPath)
@@ -1817,6 +1902,58 @@ public sealed class AppServerRequestHandler(
         }
 
         return null;
+    }
+
+    private static void UpsertOrRemoveConfigValue(
+        JsonObject root,
+        string? existingKey,
+        string canonicalKey,
+        string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            if (existingKey != null)
+                root.Remove(existingKey);
+            return;
+        }
+
+        root[existingKey ?? canonicalKey] = value;
+    }
+
+    private static string? ParseNullableString(JsonElement element, string fieldName)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => element.GetString(),
+            _ => throw AppServerErrors.InvalidParams($"'{fieldName}' must be a string or null.")
+        };
+    }
+
+    private static string? ReadConfigStringValue(JsonObject root, string? key)
+    {
+        if (string.IsNullOrEmpty(key))
+            return null;
+        if (!root.TryGetPropertyValue(key, out var node) || node == null)
+            return null;
+        if (node is not JsonValue value)
+            return null;
+        return value.TryGetValue<string>(out var result) ? result : null;
+    }
+
+    private sealed class WorkspaceConfigSaveResult
+    {
+        public string? Model { get; init; }
+
+        public string? ApiKey { get; init; }
+
+        public string? EndPoint { get; init; }
+
+        public bool ModelChanged { get; init; }
+
+        public bool ApiKeyChanged { get; init; }
+
+        public bool EndPointChanged { get; init; }
     }
 
     private static bool TryGetCaseInsensitiveProperty(JsonElement obj, string expectedName, out JsonElement value)

@@ -91,6 +91,17 @@ public sealed class ConfigSchemaField
     public string? Hint { get; init; }
 
     /// <summary>
+    /// Declares when this field takes effect after updates.
+    /// </summary>
+    public ReloadBehavior Reload { get; init; } = ReloadBehavior.ProcessRestart;
+
+    /// <summary>
+    /// Optional subsystem key used when <see cref="Reload"/> is
+    /// <see cref="ReloadBehavior.SubsystemRestart"/>.
+    /// </summary>
+    public string? SubsystemKey { get; init; }
+
+    /// <summary>
     /// Default value shown in the UI when no value is configured.
     /// Should match the C# default for the property.
     /// </summary>

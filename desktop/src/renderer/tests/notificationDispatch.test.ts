@@ -17,7 +17,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
+import { useSkillsStore } from '../stores/skillsStore'
 import type { ThreadSummary } from '../types/thread'
+import { resolveWorkspaceConfigChangedPayload } from '../utils/workspaceConfigChanged'
 
 // ---------------------------------------------------------------------------
 // Replay a notification payload through the same dispatch logic as App.tsx.
@@ -33,6 +35,14 @@ function dispatch(payload: { method: string; params: unknown }): void {
   const threads = useThreadStore.getState()
 
   switch (method) {
+    case 'workspace/configChanged': {
+      const event = resolveWorkspaceConfigChangedPayload(payload, workspaceConfigChangedDedupe)
+      if (event?.regions.includes('skills')) {
+        void useSkillsStore.getState().fetchSkills()
+      }
+      break
+    }
+
     case 'turn/started': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
       conv.onTurnStarted(rawTurn)
@@ -151,6 +161,7 @@ function dispatchThreadLifecycle(payload: { method: string; params: unknown }): 
 const s = () => useConversationStore.getState()
 
 const NOW = new Date().toISOString()
+const workspaceConfigChangedDedupe = new Map<string, number>()
 
 function makeTurnPayload(id: string, status = 'running'): Record<string, unknown> {
   return { id, threadId: 'thread-1', status, items: [], startedAt: NOW }
@@ -159,6 +170,7 @@ function makeTurnPayload(id: string, status = 'running'): Record<string, unknown
 beforeEach(() => {
   s().reset()
   useThreadStore.getState().reset()
+  workspaceConfigChangedDedupe.clear()
 })
 
 // ---------------------------------------------------------------------------
@@ -166,6 +178,46 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('notification dispatch payload format', () => {
+  it('dispatches skills refresh for workspace/configChanged notifications', () => {
+    let fetchSkillsCalls = 0
+    useSkillsStore.setState({
+      fetchSkills: async () => {
+        fetchSkillsCalls += 1
+      }
+    })
+
+    dispatch({
+      method: 'workspace/configChanged',
+      params: {
+        source: 'skills/setEnabled',
+        regions: ['skills'],
+        changedAt: NOW
+      }
+    })
+
+    expect(fetchSkillsCalls).toBe(1)
+  })
+
+  it('does not refresh skills for unrelated workspace/configChanged regions', () => {
+    let fetchSkillsCalls = 0
+    useSkillsStore.setState({
+      fetchSkills: async () => {
+        fetchSkillsCalls += 1
+      }
+    })
+
+    dispatch({
+      method: 'workspace/configChanged',
+      params: {
+        source: 'workspace/config/update',
+        regions: ['mcp', 'externalChannel'],
+        changedAt: NOW
+      }
+    })
+
+    expect(fetchSkillsCalls).toBe(0)
+  })
+
   it('dispatches turn/started correctly from { method, params } payload', () => {
     dispatch({
       method: 'turn/started',

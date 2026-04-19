@@ -14,11 +14,16 @@ import {
   SKILL_REF_CLASS
 } from './richInputConstants'
 import {
+  buildEditorFragmentFromSegments,
+  collectComposerDraftSegments,
+  createRefSpan,
+  parseLegacyComposerText,
+  replaceEditorContentFromSegments,
   serializeEditor,
-  serializeSkillMarker,
+  stringifyComposerDraftSegments,
   truncateEditorDomToSerializedLength
 } from './richInputSerialization'
-import { SPARKLE_ICON_SVG, TERMINAL_ICON_SVG } from './refIconSvgs'
+import type { ComposerDraftSegment } from '../../types/composerDraft'
 
 const MAX_ROWS = 8
 const MAX_TEXT_LEN = 100_000
@@ -26,22 +31,18 @@ const PLACEHOLDER = 'Ask DotCraft anything…'
 const SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
 
 type RefType = 'file' | 'command' | 'skill'
-
-type ClipboardSegment =
-  | { type: 'text'; value: string }
-  | { type: 'file'; relativePath: string }
-  | { type: 'command'; command: string }
-  | { type: 'skill'; skillName: string }
+type RichInputContent = string | { text?: string; segments?: ComposerDraftSegment[] }
 
 export interface RichInputAreaHandle {
   getText: () => string
+  getSegments: () => ComposerDraftSegment[]
   clear: () => void
   focus: () => void
   insertFileTag: (relativePath: string) => void
   insertCommandTag: (commandName: string) => void
   insertSkillTag: (skillName: string) => void
-  /** Replace editor content with plain text. */
-  setContent: (text: string) => void
+  /** Replace editor content from stored draft data. */
+  setContent: (content: RichInputContent) => void
   /** Replace editor content with plain text (used for composer prefill). */
   setPlainText: (text: string) => void
 }
@@ -178,67 +179,8 @@ function isInlineTagElement(node: Node | null): node is HTMLElement {
   )
 }
 
-function createRefSpan(kind: RefType, value: string): HTMLSpanElement {
-  const span = document.createElement('span')
-  const label = document.createElement('span')
-  const icon = document.createElement('span')
-  const removeIcon = document.createElement('span')
-  span.setAttribute('contenteditable', 'false')
-  span.setAttribute('data-ref-type', kind)
-  span.style.display = 'inline-flex'
-  span.style.alignItems = 'center'
-  span.style.gap = '4px'
-  span.style.padding = '1px 6px'
-  span.style.fontSize = '13px'
-  span.style.verticalAlign = 'baseline'
-  span.style.whiteSpace = 'nowrap'
-  span.style.userSelect = 'none'
-  span.style.cursor = 'default'
-  span.style.borderRadius = kind === 'file' ? '4px' : '6px'
-
-  icon.className = 'dc-ref-icon dc-ref-icon-default'
-  icon.setAttribute('aria-hidden', 'true')
-  removeIcon.className = 'dc-ref-icon dc-ref-icon-remove'
-  removeIcon.setAttribute('aria-hidden', 'true')
-  removeIcon.textContent = '✕'
-  removeIcon.style.fontWeight = '700'
-  removeIcon.style.cursor = 'pointer'
-
-  label.className = 'dc-ref-label'
-  if (kind === 'file') {
-    span.className = FILE_REF_CLASS
-    span.style.background = 'var(--bg-tertiary)'
-    span.setAttribute('data-relative-path', value)
-    const fileName = value.split('/').pop() ?? value
-    label.textContent = fileName
-    icon.textContent = '📄'
-    span.title = value
-  } else if (kind === 'command') {
-    span.className = COMMAND_REF_CLASS
-    span.style.background = 'color-mix(in srgb, var(--accent) 16%, transparent)'
-    span.style.border = '1px solid color-mix(in srgb, var(--accent) 38%, transparent)'
-    span.style.color = 'var(--accent)'
-    span.style.fontWeight = '600'
-    span.setAttribute('data-command', value)
-    label.textContent = value.startsWith('/') ? value.slice(1) : value
-    icon.innerHTML = TERMINAL_ICON_SVG
-  } else {
-    span.className = SKILL_REF_CLASS
-    span.style.background = 'color-mix(in srgb, var(--success) 16%, transparent)'
-    span.style.border = '1px solid color-mix(in srgb, var(--success) 38%, transparent)'
-    span.style.color = 'var(--success)'
-    span.style.fontWeight = '600'
-    span.setAttribute('data-skill', value)
-    label.textContent = value
-    icon.innerHTML = SPARKLE_ICON_SVG
-    span.title = `Use Skill: ${value}`
-  }
-  span.append(icon, removeIcon, label)
-  return span
-}
-
-function parseSkillMarkersFromText(text: string): ClipboardSegment[] {
-  const out: ClipboardSegment[] = []
+function parseSkillMarkersFromText(text: string): ComposerDraftSegment[] {
+  const out: ComposerDraftSegment[] = []
   let cursor = 0
   SKILL_MARKER_RE.lastIndex = 0
   let match = SKILL_MARKER_RE.exec(text)
@@ -259,63 +201,6 @@ function parseSkillMarkersFromText(text: string): ClipboardSegment[] {
     out.push({ type: 'text', value: text.slice(cursor) })
   }
   return out.length > 0 ? out : [{ type: 'text', value: text }]
-}
-
-function collectClipboardSegmentsFromRoot(root: HTMLElement): ClipboardSegment[] {
-  const out: ClipboardSegment[] = []
-  const pushText = (value: string): void => {
-    if (!value) return
-    const prev = out[out.length - 1]
-    if (prev?.type === 'text') {
-      prev.value += value
-      return
-    }
-    out.push({ type: 'text', value })
-  }
-  const walk = (node: Node): void => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      pushText(node.textContent ?? '')
-      return
-    }
-    if (!(node instanceof HTMLElement)) return
-    if (node.classList.contains(FILE_REF_CLASS)) {
-      const relativePath = node.getAttribute('data-relative-path') ?? ''
-      if (relativePath) out.push({ type: 'file', relativePath })
-      return
-    }
-    if (node.classList.contains(COMMAND_REF_CLASS)) {
-      const command = node.getAttribute('data-command') ?? ''
-      if (command) out.push({ type: 'command', command })
-      return
-    }
-    if (node.classList.contains(SKILL_REF_CLASS)) {
-      const skillName = node.getAttribute('data-skill') ?? ''
-      if (skillName) out.push({ type: 'skill', skillName })
-      return
-    }
-    if (node.tagName === 'BR') {
-      pushText('\n')
-      return
-    }
-    for (const child of Array.from(node.childNodes)) {
-      walk(child)
-    }
-  }
-  for (const child of Array.from(root.childNodes)) {
-    walk(child)
-  }
-  return out
-}
-
-function clipboardSegmentsToPlainText(segments: ClipboardSegment[]): string {
-  let out = ''
-  for (const seg of segments) {
-    if (seg.type === 'text') out += seg.value
-    else if (seg.type === 'file') out += `@${seg.relativePath}`
-    else if (seg.type === 'command') out += seg.command
-    else out += serializeSkillMarker(seg.skillName)
-  }
-  return out
 }
 
 export const RichInputArea = forwardRef(function RichInputArea(
@@ -362,6 +247,12 @@ export const RichInputArea = forwardRef(function RichInputArea(
       const el = editorRef.current
       if (!el) return ''
       return serializeEditor(el).slice(0, MAX_TEXT_LEN)
+    }, [])
+
+    const getSegments = useCallback((): ComposerDraftSegment[] => {
+      const el = editorRef.current
+      if (!el) return []
+      return collectComposerDraftSegments(el)
     }, [])
 
     const clear = useCallback((): void => {
@@ -471,19 +362,52 @@ export const RichInputArea = forwardRef(function RichInputArea(
       [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
     )
 
+    const setStructuredContent = useCallback(
+      (segments: ComposerDraftSegment[]): void => {
+        const el = editorRef.current
+        if (!el) return
+        replaceEditorContentFromSegments(el, segments)
+        if (serializeEditor(el).length > MAX_TEXT_LEN) {
+          truncateEditorDomToSerializedLength(el, MAX_TEXT_LEN)
+        }
+        onAtQuery?.(null)
+        onSlashQuery?.(null)
+        syncEmpty()
+        adjustHeight()
+        onContentChange?.()
+      },
+      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
+    )
+
+    const setContent = useCallback(
+      (content: RichInputContent): void => {
+        const normalized =
+          typeof content === 'string'
+            ? { text: content }
+            : content
+        const segments =
+          Array.isArray(normalized.segments) && normalized.segments.length > 0
+            ? normalized.segments
+            : parseLegacyComposerText(normalized.text ?? '')
+        setStructuredContent(segments)
+      },
+      [setStructuredContent]
+    )
+
     useImperativeHandle(
       ref,
       () => ({
         getText,
+        getSegments,
         clear,
         focus: focusEditor,
         insertFileTag,
         insertCommandTag,
         insertSkillTag,
-        setContent: setPlainText,
+        setContent,
         setPlainText
       }),
-      [getText, clear, focusEditor, insertCommandTag, insertFileTag, insertSkillTag, setPlainText]
+      [getText, getSegments, clear, focusEditor, insertCommandTag, insertFileTag, insertSkillTag, setContent, setPlainText]
     )
 
     useEffect(() => {
@@ -584,7 +508,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
     )
 
     const insertClipboardSegmentsAtCaret = useCallback(
-      (segments: ClipboardSegment[]): void => {
+      (segments: ComposerDraftSegment[]): void => {
         const editor = editorRef.current
         if (!editor) return
         const sel = window.getSelection()
@@ -592,26 +516,8 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const range = sel.getRangeAt(0)
         if (!editor.contains(range.startContainer)) return
 
-        const frag = document.createDocumentFragment()
+        const frag = buildEditorFragmentFromSegments(segments)
         const marker = document.createTextNode('')
-        for (const seg of segments) {
-          if (seg.type === 'text') {
-            if (seg.value.length > 0) frag.appendChild(document.createTextNode(seg.value))
-            continue
-          }
-          if (seg.type === 'file') {
-            frag.appendChild(createRefSpan('file', seg.relativePath))
-            frag.appendChild(document.createTextNode('\u00a0'))
-            continue
-          }
-          if (seg.type === 'command') {
-            frag.appendChild(createRefSpan('command', seg.command))
-            frag.appendChild(document.createTextNode('\u00a0'))
-            continue
-          }
-          frag.appendChild(createRefSpan('skill', seg.skillName))
-          frag.appendChild(document.createTextNode('\u00a0'))
-        }
         frag.appendChild(marker)
 
         range.deleteContents()
@@ -659,8 +565,8 @@ export const RichInputArea = forwardRef(function RichInputArea(
         if (!editor.contains(range.commonAncestorContainer)) return
         const container = document.createElement('div')
         container.appendChild(range.cloneContents())
-        const segments = collectClipboardSegmentsFromRoot(container)
-        const plainText = clipboardSegmentsToPlainText(segments)
+        const segments = collectComposerDraftSegments(container)
+        const plainText = stringifyComposerDraftSegments(segments)
         e.preventDefault()
         e.clipboardData.setData('text/plain', plainText)
         e.clipboardData.setData(RICH_REFS_CLIPBOARD_MIME, JSON.stringify({ version: 1, segments }))
@@ -684,7 +590,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const richPayload = e.clipboardData.getData(RICH_REFS_CLIPBOARD_MIME)
         if (richPayload.trim().length > 0) {
           try {
-            const parsed = JSON.parse(richPayload) as { segments?: ClipboardSegment[] }
+            const parsed = JSON.parse(richPayload) as { segments?: ComposerDraftSegment[] }
             const segments = Array.isArray(parsed.segments) ? parsed.segments : []
             if (segments.length > 0) {
               e.preventDefault()

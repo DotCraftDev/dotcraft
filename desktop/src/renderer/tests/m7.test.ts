@@ -3,7 +3,7 @@ import { useToastStore } from '../stores/toastStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useConversationStore } from '../stores/conversationStore'
 import { useConnectionStore } from '../stores/connectionStore'
-import { addRecentWorkspace, getRecentWorkspaces } from '../../main/settings'
+import { addRecentWorkspace, clearRecentWorkspaces, getRecentWorkspaces } from '../../main/settings'
 import type { AppSettings } from '../../main/settings'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -132,6 +132,32 @@ describe('recent workspaces LRU', () => {
     const entry = getRecentWorkspaces(settings)[0]
     expect(entry.lastOpenedAt >= before).toBe(true)
     expect(entry.lastOpenedAt <= after).toBe(true)
+  })
+
+  it('clears recent workspaces without touching other settings', () => {
+    const settings: AppSettings = {
+      modulesDirectory: '/modules',
+      locale: 'en'
+    }
+    addRecentWorkspace(settings, '/path/a')
+    addRecentWorkspace(settings, '/path/b')
+    const previousLastWorkspacePath = settings.lastWorkspacePath
+
+    clearRecentWorkspaces(settings)
+
+    expect(getRecentWorkspaces(settings)).toEqual([])
+    expect(settings.lastWorkspacePath).toBe(previousLastWorkspacePath)
+    expect(settings.modulesDirectory).toBe('/modules')
+    expect(settings.locale).toBe('en')
+  })
+
+  it('clearRecentWorkspaces is idempotent for empty lists', () => {
+    const settings: AppSettings = {}
+
+    clearRecentWorkspaces(settings)
+    clearRecentWorkspaces(settings)
+
+    expect(getRecentWorkspaces(settings)).toEqual([])
   })
 })
 

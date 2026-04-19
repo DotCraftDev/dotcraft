@@ -86,13 +86,22 @@ public static class ConfigSchemaBuilder
         {
             var itemInstance = TryCreateInstance(type);
             var itemFields = new List<ConfigSchemaField>();
+            var hasSectionDefaultReload = sectionAttr.HasDefaultReload;
+            var sectionDefaultReload = sectionAttr.DefaultReload;
+            var sectionDefaultSubsystemKey = sectionAttr.DefaultSubsystemKey;
             foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 var fieldAttr = prop.GetCustomAttribute<ConfigFieldAttribute>();
                 if (fieldAttr?.Ignore == true) continue;
                 if (prop.PropertyType.GetCustomAttribute<ConfigSectionAttribute>() != null) continue;
                 if (prop.Name == "ExtensionData" || prop.GetCustomAttribute<JsonExtensionDataAttribute>() != null) continue;
-                itemFields.Add(BuildField(prop, fieldAttr, itemInstance));
+                itemFields.Add(BuildField(
+                    prop,
+                    fieldAttr,
+                    itemInstance,
+                    hasSectionDefaultReload,
+                    sectionDefaultReload,
+                    sectionDefaultSubsystemKey));
             }
 
             return new ConfigSchemaSection
@@ -107,6 +116,9 @@ public static class ConfigSchemaBuilder
 
         var instance = TryCreateInstance(type);
         var fields = new List<ConfigSchemaField>();
+        var hasDefaultReload = sectionAttr.HasDefaultReload;
+        var defaultReload = sectionAttr.DefaultReload;
+        var defaultSubsystemKey = sectionAttr.DefaultSubsystemKey;
 
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
@@ -120,7 +132,13 @@ public static class ConfigSchemaBuilder
             // Skip JsonExtensionData / other infra properties
             if (prop.Name == "ExtensionData" || prop.GetCustomAttribute<JsonExtensionDataAttribute>() != null) continue;
 
-            fields.Add(BuildField(prop, fieldAttr, instance));
+            fields.Add(BuildField(
+                prop,
+                fieldAttr,
+                instance,
+                hasDefaultReload,
+                defaultReload,
+                defaultSubsystemKey));
         }
 
         var path = BuildPath(sectionAttr);
@@ -133,12 +151,23 @@ public static class ConfigSchemaBuilder
         };
     }
 
-    private static ConfigSchemaField BuildField(PropertyInfo prop, ConfigFieldAttribute? attr, object? instance)
+    private static ConfigSchemaField BuildField(
+        PropertyInfo prop,
+        ConfigFieldAttribute? attr,
+        object? instance,
+        bool hasSectionDefaultReload,
+        ReloadBehavior sectionDefaultReload,
+        string? sectionDefaultSubsystemKey)
     {
         var inferredType = InferFieldType(prop.PropertyType, attr);
         var defaultValue = instance != null ? NormalizeDefault(prop.GetValue(instance), prop.PropertyType) : null;
         // Explicit options on attribute take priority; otherwise infer from enum type
         var options = attr?.Options ?? InferOptions(prop.PropertyType);
+        var (reload, subsystemKey) = ResolveReloadBehavior(
+            attr,
+            hasSectionDefaultReload,
+            sectionDefaultReload,
+            sectionDefaultSubsystemKey);
 
         int? min = attr?.Min != null && attr.Min != int.MinValue ? attr.Min : null;
         int? max = attr?.Max != null && attr.Max != int.MaxValue ? attr.Max : null;
@@ -153,8 +182,45 @@ public static class ConfigSchemaBuilder
             Min = min,
             Max = max,
             Hint = attr?.Hint,
+            Reload = reload,
+            SubsystemKey = subsystemKey,
             DefaultValue = defaultValue,
         };
+    }
+
+    private static (ReloadBehavior Reload, string? SubsystemKey) ResolveReloadBehavior(
+        ConfigFieldAttribute? attr,
+        bool hasSectionDefaultReload,
+        ReloadBehavior sectionDefaultReload,
+        string? sectionDefaultSubsystemKey)
+    {
+        var hasFieldReload = attr?.HasReload == true;
+        var reload = hasFieldReload
+            ? attr!.Reload
+            : hasSectionDefaultReload
+                ? sectionDefaultReload
+                : ReloadBehavior.ProcessRestart;
+        var subsystemKey = hasFieldReload
+            ? attr!.SubsystemKey
+            : hasSectionDefaultReload
+                ? sectionDefaultSubsystemKey
+                : null;
+
+        if (reload == ReloadBehavior.SubsystemRestart)
+        {
+            if (string.IsNullOrWhiteSpace(subsystemKey))
+                throw new InvalidOperationException("SubsystemKey is required when ReloadBehavior is SubsystemRestart.");
+
+            return (reload, subsystemKey.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(subsystemKey))
+        {
+            throw new InvalidOperationException(
+                "SubsystemKey is only allowed when ReloadBehavior is SubsystemRestart.");
+        }
+
+        return (reload, null);
     }
 
     private static string InferFieldType(Type type, ConfigFieldAttribute? attr)

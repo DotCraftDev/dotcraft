@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { useUIStore, SIDEBAR_COLLAPSED_WIDTH, DETAIL_MIN_WIDTH } from '../../stores/uiStore'
 import { useResponsiveLayout } from '../../hooks/useResponsiveLayout'
+import { useThreadStore } from '../../stores/threadStore'
 
 interface ThreePanelProps {
   sidebar: ReactNode
@@ -30,11 +31,15 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
     detailPanelWidth,
     activeMainView
   } = useUIStore()
+  const activeThreadId = useThreadStore((s) => s.activeThreadId)
+  const isWelcomeState = activeMainView === 'conversation' && !activeThreadId
+
   const effectiveDetailPanelVisible =
     activeMainView === 'settings' ||
     activeMainView === 'channels' ||
     activeMainView === 'skills' ||
-    activeMainView === 'automations'
+    activeMainView === 'automations' ||
+    isWelcomeState
       ? false
       : detailPanelVisible
 

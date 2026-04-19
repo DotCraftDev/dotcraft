@@ -414,7 +414,8 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
             _paths.WorkspacePath,
             _pathBlacklist,
             approvalService,
-            streamDebugLogger: _sp.GetService<SessionStreamDebugLogger>());
+            streamDebugLogger: _sp.GetService<SessionStreamDebugLogger>(),
+            appConfigMonitor: _sp.GetService<IAppConfigMonitor>());
     }
 
     private ExternalChannelHost? RemoveExternalChannelHost_NoLock(string channelName)

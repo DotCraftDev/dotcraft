@@ -23,10 +23,17 @@ export function SkillsView(): JSX.Element {
     toggleSkillEnabled
   } = useSkillsStore()
   const [query, setQuery] = useState('')
+  const [savedSkillName, setSavedSkillName] = useState<string | null>(null)
 
   useEffect(() => {
     void fetchSkills()
   }, [fetchSkills])
+
+  useEffect(() => {
+    if (!savedSkillName) return
+    const timer = window.setTimeout(() => setSavedSkillName(null), 1500)
+    return () => window.clearTimeout(timer)
+  }, [savedSkillName])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -100,6 +107,11 @@ export function SkillsView(): JSX.Element {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
+            {savedSkillName && (
+              <span style={{ fontSize: '12px', color: 'var(--success)' }}>
+                {t('settings.savedToast')}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => void fetchSkills()}
@@ -169,6 +181,7 @@ export function SkillsView(): JSX.Element {
                       onToggleEnabled={async (enabled) => {
                         try {
                           await toggleSkillEnabled(skill.name, enabled)
+                          setSavedSkillName(skill.name)
                         } catch {
                           addToast(t('skills.updateFailed'), 'error')
                         }
@@ -190,6 +203,7 @@ export function SkillsView(): JSX.Element {
           onToggleEnabled={async (enabled) => {
             try {
               await toggleSkillEnabled(selected.name, enabled)
+              setSavedSkillName(selected.name)
               if (!enabled) clearSelection()
               else void selectSkill(selected.name)
             } catch {

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ImageAttachment, ThreadMode } from '../types/conversation'
+import type { ComposerDraftSegment } from '../types/composerDraft'
 import { useThreadStore } from './threadStore'
 
 const SIDEBAR_DEFAULT_WIDTH = 240
@@ -22,6 +23,7 @@ export type AutomationsTab = 'tasks' | 'cron'
 
 export interface WelcomeDraft {
   text: string
+  segments?: ComposerDraftSegment[]
   images: ImageAttachment[]
   mode: ThreadMode
   model: string

@@ -27,6 +27,7 @@ import {
   loadSettings,
   saveSettings,
   addRecentWorkspace,
+  clearRecentWorkspaces,
   getRecentWorkspaces,
   type AppSettings,
   type BinarySource,
@@ -727,7 +728,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
       await ensureProxyRunningForWorkspace(currentWorkspacePath)
     },
     getSettings: () => sharedSettings,
-    updateSettings: (partial) => {
+    updateSettings: async (partial) => {
       const prevLocale = normalizeLocale(sharedSettings.locale)
       const next = mergeUpdatedSettings(sharedSettings, partial)
       Object.assign(sharedSettings, next)
@@ -737,7 +738,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
         proxyManager = null
         proxyStatus = { status: 'stopped' }
         if (currentWorkspacePath) {
-          void scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
+          await scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
             proxyPort: resolveProxySettings(sharedSettings).port,
             proxyApiKey: resolveProxySettings(sharedSettings).apiKey
           })
@@ -748,6 +749,10 @@ function buildCallbacks(): IpcHandlerCallbacks {
       }
     },
     getRecentWorkspaces: () => getRecentWorkspaces(sharedSettings),
+    clearRecentWorkspaces: () => {
+      clearRecentWorkspaces(sharedSettings)
+      saveSettings(sharedSettings)
+    },
     getConnectionStatus: () => lastConnectionStatus,
     getWorkspaceStatus: () => getWorkspaceStatus(currentWorkspacePath),
     getProxyStatus: () => proxyStatus,

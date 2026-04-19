@@ -1,8 +1,10 @@
 using System.Text.Json;
 using DotCraft.Configuration;
+using DotCraft.Mcp;
 using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
+using DotCraft.Skills;
 
 namespace DotCraft.Tests.Sessions.Protocol.AppServer;
 
@@ -22,6 +24,7 @@ internal sealed class AppServerTestHarness : IDisposable
     public TestableSessionService Service { get; }
     public AppServerConnection Connection { get; }
     public AppServerRequestHandler Handler { get; }
+    public IAppConfigMonitor Monitor { get; }
 
     /// <summary>
     /// Default <see cref="SessionIdentity"/> using the harness temp workspace.
@@ -35,7 +38,11 @@ internal sealed class AppServerTestHarness : IDisposable
         IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
         string? workspaceCraftPath = null,
         Func<ExternalChannelEntry, CancellationToken, Task>? onExternalChannelUpserted = null,
-        Func<string, CancellationToken, Task>? onExternalChannelRemoved = null)
+        Func<string, CancellationToken, Task>? onExternalChannelRemoved = null,
+        IReadOnlyList<ConfigSchemaSection>? configSchema = null,
+        IAppConfigMonitor? appConfigMonitor = null,
+        SkillsLoader? skillsLoader = null,
+        McpClientManager? mcpClientManager = null)
     {
         _tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -46,6 +53,7 @@ internal sealed class AppServerTestHarness : IDisposable
         Service = new TestableSessionService(store);
         Transport = new InMemoryTransport();
         Connection = new AppServerConnection();
+        Monitor = appConfigMonitor ?? new AppConfigMonitor(new AppConfig());
         Handler = new AppServerRequestHandler(
             Service, Connection, Transport,
             new ModuleRegistryChannelListContributor(new ModuleRegistry(), null, null),
@@ -55,7 +63,11 @@ internal sealed class AppServerTestHarness : IDisposable
             hostWorkspacePath: _tempDir,
             protocolExtensions: protocolExtensions,
             onExternalChannelUpserted: onExternalChannelUpserted,
-            onExternalChannelRemoved: onExternalChannelRemoved);
+            onExternalChannelRemoved: onExternalChannelRemoved,
+            configSchema: configSchema,
+            appConfigMonitor: Monitor,
+            skillsLoader: skillsLoader,
+            mcpClientManager: mcpClientManager);
 
         Identity = new SessionIdentity
         {
@@ -77,12 +89,14 @@ internal sealed class AppServerTestHarness : IDisposable
     public async Task<JsonDocument> InitializeAsync(
         bool approvalSupport = true,
         bool streamingSupport = true,
+        bool? configChange = null,
         List<string>? optOutMethods = null)
     {
         var caps = new
         {
             approvalSupport,
             streamingSupport,
+            configChange,
             optOutNotificationMethods = optOutMethods ?? []
         };
         var initMsg = BuildRequest(AppServerMethods.Initialize, new

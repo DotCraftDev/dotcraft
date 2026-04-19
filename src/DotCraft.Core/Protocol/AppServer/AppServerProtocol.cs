@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
+using DotCraft.Configuration;
 using DotCraft.Cron;
 
 namespace DotCraft.Protocol.AppServer;
@@ -75,6 +76,12 @@ public sealed class AppServerClientCapabilities
 
     /// <summary>Exact notification method names to suppress for this connection.</summary>
     public List<string>? OptOutNotificationMethods { get; set; }
+
+    /// <summary>
+    /// Whether the client wants to receive <c>workspace/configChanged</c> notifications.
+    /// Default true when omitted.
+    /// </summary>
+    public bool? ConfigChange { get; set; }
 
     /// <summary>
     /// Channel adapter capability (external-channel-adapter.md §5.1).
@@ -1219,6 +1226,18 @@ public sealed class WorkspaceConfigUpdateParams
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? Model { get; set; }
+
+    /// <summary>
+    /// Workspace-level API key. Null/empty removes the ApiKey key.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Workspace-level API endpoint. Null/empty removes the EndPoint key.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? EndPoint { get; set; }
 }
 
 /// <summary>
@@ -1232,6 +1251,57 @@ public sealed class WorkspaceConfigUpdateResult
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? Model { get; set; }
+
+    /// <summary>
+    /// Persisted workspace API key after normalization.
+    /// Null means the key is removed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Persisted workspace endpoint after normalization.
+    /// Null means the key is removed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? EndPoint { get; set; }
+}
+
+/// <summary>
+/// Params for <see cref="AppServerMethods.WorkspaceConfigSchema"/>.
+/// Reserved for future filters.
+/// </summary>
+public sealed class WorkspaceConfigSchemaParams
+{
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.WorkspaceConfigSchema"/>.
+/// </summary>
+public sealed class WorkspaceConfigSchemaResult
+{
+    public List<ConfigSchemaSection> Sections { get; set; } = [];
+}
+
+/// <summary>
+/// Params for <see cref="AppServerMethods.WorkspaceConfigChanged"/>.
+/// </summary>
+public sealed class WorkspaceConfigChangedParams
+{
+    /// <summary>
+    /// RPC source method that triggered the workspace config change.
+    /// </summary>
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Logical workspace config regions changed by this mutation.
+    /// </summary>
+    public List<string> Regions { get; set; } = [];
+
+    /// <summary>
+    /// Server-side UTC timestamp when the change event was emitted.
+    /// </summary>
+    public DateTimeOffset ChangedAt { get; set; }
 }
 
 // ───── githubTracker/* (GitHub tracker config management) ─────
@@ -1450,7 +1520,9 @@ public static class AppServerMethods
 
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
     public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
+    public const string WorkspaceConfigSchema = "workspace/config/schema";
     public const string WorkspaceConfigUpdate = "workspace/config/update";
+    public const string WorkspaceConfigChanged = "workspace/configChanged";
     public const string McpList = "mcp/list";
     public const string McpGet = "mcp/get";
     public const string McpUpsert = "mcp/upsert";

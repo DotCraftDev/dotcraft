@@ -56,4 +56,20 @@ public sealed class ConfigFieldAttribute : Attribute
     ///   [ConfigField(FieldType = "select", Options = new[] { "allow", "deny", "custom" })]
     /// </summary>
     public string[]? Options { get; set; }
+
+    /// <summary>
+    /// Declares when a field change is applied.
+    /// </summary>
+    public ReloadBehavior Reload { get; set; } = ReloadBehavior.ProcessRestart;
+
+    /// <summary>
+    /// Indicates whether <see cref="Reload"/> is explicitly set on this field.
+    /// </summary>
+    public bool HasReload { get; set; }
+
+    /// <summary>
+    /// Optional subsystem key used when <see cref="Reload"/> is
+    /// <see cref="ReloadBehavior.SubsystemRestart"/>.
+    /// </summary>
+    public string? SubsystemKey { get; set; }
 }

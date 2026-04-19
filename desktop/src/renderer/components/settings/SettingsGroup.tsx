@@ -63,6 +63,7 @@ interface SettingsRowProps {
   description?: ReactNode
   htmlFor?: string
   control?: ReactNode
+  controlMinWidth?: number | string
   orientation?: 'inline' | 'block'
   children?: ReactNode
   align?: 'center' | 'flex-start'
@@ -80,6 +81,7 @@ export function SettingsRow({
   description,
   htmlFor,
   control,
+  controlMinWidth,
   orientation = 'inline',
   children,
   align = 'center',
@@ -165,7 +167,7 @@ export function SettingsRow({
           </div>
         )}
       </div>
-      {control !== undefined && <div style={{ flexShrink: 0 }}>{control}</div>}
+      {control !== undefined && <div style={{ flexShrink: 0, minWidth: controlMinWidth }}>{control}</div>}
     </div>
   )
 }

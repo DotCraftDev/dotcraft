@@ -189,6 +189,13 @@ public sealed class AppServerConnection
     public bool SupportsCommandExecutionStreaming =>
         _clientCapabilities?.CommandExecutionStreaming == true;
 
+    /// <summary>
+    /// Returns <c>true</c> if the client wants workspace/configChanged notifications.
+    /// Defaults to true when not specified by the client.
+    /// </summary>
+    public bool SupportsConfigChange =>
+        _clientCapabilities?.ConfigChange != false;
+
     // -------------------------------------------------------------------------
     // Thread subscriptions
     // -------------------------------------------------------------------------

@@ -158,6 +158,7 @@ Client                              Server
   "capabilities": {
     "approvalSupport": true,
     "streamingSupport": true,
+    "configChange": true,
     "optOutNotificationMethods": [],
     "acpExtensions": {
       "fsReadTextFile": true,
@@ -216,9 +217,12 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.commandExecutionStreaming` | boolean | no | Whether the client can consume `commandExecution` items and `item/commandExecution/outputDelta` notifications. Default `false`. |
+| `capabilities.configChange` | boolean | no | Whether the client wants `workspace/configChanged` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
+
+`capabilities.configChange` is an opt-out capability. When omitted, the server treats it as `true` and may push `workspace/configChanged` notifications. Modern clients should declare it explicitly for clarity, even when using the default behavior.
 
 **`acpExtensions` object** (when present):
 
@@ -337,7 +341,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
-| `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration write methods (`workspace/config/update`). |
+| `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). |
 | `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). |
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
 | `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
@@ -2848,6 +2852,8 @@ Enable or disable a skill. Disabled skills remain on disk but are excluded from 
 
 The `skill` field contains the updated `SkillInfo` object reflecting the new `enabled` state.
 
+On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "skills/setEnabled"` and `regions: ["skills"]`.
+
 **Errors**:
 
 | Code | When |
@@ -3256,10 +3262,13 @@ Creates or replaces one MCP server definition.
 
 - Upsert replaces the full logical server entry.
 - Persistence shape and storage location are server-defined.
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "mcp/upsert"` and `regions: ["mcp"]`.
 
 ### 22.6 `mcp/remove`
 
 Removes one MCP server definition by name.
+
+On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "mcp/remove"` and `regions: ["mcp"]`.
 
 ### 22.7 `McpServerStatus` Wire DTO
 
@@ -3428,10 +3437,13 @@ Creates or replaces one external channel definition.
 
 - Upsert replaces the full logical channel entry.
 - Persistence shape and storage location are server-defined.
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "externalChannel/upsert"` and `regions: ["externalChannel"]`.
 
 ### 23.6 `externalChannel/remove`
 
 Removes one external channel definition by name.
+
+On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "externalChannel/remove"` and `regions: ["externalChannel"]`.
 
 ### 23.7 Error Codes
 
@@ -3449,9 +3461,45 @@ These methods provide a server-authoritative write path for workspace-level conf
 
 In v1, the wire surface standardizes workspace model persistence while keeping per-thread overrides in `thread/config/update`.
 
-Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling `workspace/config/update`. If absent or `false`, the server returns `-32601` (Method not found).
+Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). If absent or `false`, the server returns `-32601` (Method not found).
 
-### 24.2 `workspace/config/update`
+### 24.2 `workspace/config/schema`
+
+Return the server-derived workspace config schema, including per-field reload metadata.
+
+**Direction**: client → server (request)
+
+**Params**: `{}`
+
+**Result**:
+
+```json
+{
+  "sections": [
+    {
+      "section": "Core",
+      "order": 0,
+      "path": null,
+      "fields": [
+        {
+          "key": "ApiKey",
+          "type": "password",
+          "sensitive": true,
+          "reload": "processRestart"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Semantics**:
+
+- The payload is additive and forward-compatible; clients must ignore unknown properties.
+- `reload` uses the `ReloadBehavior` enum names serialized as camelCase strings.
+- `subsystemKey` is present only when `reload` is `subsystemRestart`.
+
+### 24.3 `workspace/config/update`
 
 Update workspace-level config values.
 
@@ -3461,13 +3509,17 @@ Update workspace-level config values.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `model` | string \| null | yes | Workspace default model. `null`, empty, or `"Default"` removes the `Model` key so runtime falls back to provider default behavior. |
+| `model` | string \| null | no | Workspace default model. `null`, empty, or `"Default"` removes the `Model` key so runtime falls back to provider default behavior. |
+| `apiKey` | string \| null | no | Workspace API key. `null` or empty removes the `ApiKey` key. |
+| `endPoint` | string \| null | no | Workspace API endpoint. `null` or empty removes the `EndPoint` key. |
 
 **Result**:
 
 ```json
 {
-  "model": "gpt-4o-mini"
+  "model": "gpt-4o-mini",
+  "apiKey": "sk-live-key",
+  "endPoint": "https://example.com/v1"
 }
 ```
 
@@ -3484,11 +3536,59 @@ If `model` is removed, the result returns:
 - This method updates **workspace default** only, not any active thread state.
 - Clients that need immediate effect in a running thread should additionally call `thread/config/update`.
 - Server preserves unrelated configuration state.
-- `Model` key matching is case-insensitive (`Model`, `model`, etc.) and normalized in-place.
+- At least one of `model`, `apiKey`, or `endPoint` must be provided.
+- Key matching is case-insensitive and normalized in-place (`Model`, `ApiKey`, `EndPoint`).
+- On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`.
 
-### 24.3 Capability Advertisement
+### 24.4 Capability Advertisement
 
-Clients must check `capabilities.workspaceConfigManagement` before calling `workspace/config/update`.
+Clients must check `capabilities.workspaceConfigManagement` before calling workspace configuration methods (`workspace/config/schema`, `workspace/config/update`).
+
+Clients may set `capabilities.configChange = false` during `initialize` to suppress server-initiated `workspace/configChanged` notifications for that connection. When omitted, the server treats it as `true`.
+
+### 24.5 `workspace/configChanged`
+
+Server notification emitted after a successful workspace configuration write.
+
+**Direction**: server → client (notification, no `id`)
+
+**Params**:
+
+```json
+{
+  "source": "skills/setEnabled",
+  "regions": ["skills"],
+  "changedAt": "2026-04-19T10:15:03Z"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`). |
+| `regions` | string[] | Coarse region tags describing what changed. |
+| `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
+
+`regions` taxonomy in this milestone:
+
+| Region | Fired by |
+|--------|----------|
+| `workspace.model` | `workspace/config/update` |
+| `workspace.apiKey` | `workspace/config/update` |
+| `workspace.endpoint` | `workspace/config/update` |
+| `skills` | `skills/setEnabled` |
+| `mcp` | `mcp/upsert`, `mcp/remove` |
+| `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |
+
+Semantics:
+
+- Notification is emitted after write completion and in-process state update.
+- Payload is intentionally coarse; clients should re-read relevant state (`skills/list`, `mcp/list`, etc.) when needed.
+- Unknown region tags are forward-compatible and must be ignored by clients that do not recognize them.
+
+### 24.6 Backward Compatibility
+
+- Clients that set `capabilities.configChange = false` are supported indefinitely and simply do not receive `workspace/configChanged` on that connection.
+- Servers that predate M2 may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
 
 ## 25. GitHub Tracker Config Methods
 

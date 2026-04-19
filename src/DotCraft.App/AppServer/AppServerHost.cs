@@ -80,6 +80,8 @@ public sealed class AppServerHost(
     /// DashBoard URL when <see cref="ChannelRunner"/> hosts it; exposed via wire <c>initialize</c>.
     /// </summary>
     private string? _dashboardUrl;
+    private IReadOnlyList<ConfigSchemaSection> _configSchema = [];
+    private readonly IAppConfigMonitor _appConfigMonitor = sp.GetRequiredService<IAppConfigMonitor>();
 
     /// <summary>
     /// Thread-safe set of currently connected transports. Used to broadcast
@@ -95,6 +97,7 @@ public sealed class AppServerHost(
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
+        _appConfigMonitor.Changed += OnAppConfigChanged;
         skillsLoader.SetDisabledSkills(config.Skills.DisabledSkills);
 
         var traceCollector = sp.GetService<TraceCollector>();
@@ -293,6 +296,7 @@ public sealed class AppServerHost(
 
         _channelRunner?.BeginChannelLoops(cancellationToken);
 
+        _configSchema = ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes());
         var appServerConfig = config.GetSection<AppServerConfig>("AppServer");
 
         try
@@ -324,6 +328,7 @@ public sealed class AppServerHost(
         }
         finally
         {
+            _appConfigMonitor.Changed -= OnAppConfigChanged;
             if (_channelRunner != null)
             {
                 try
@@ -381,7 +386,9 @@ public sealed class AppServerHost(
                 _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
             onExternalChannelRemoved: (channelName, ct) =>
                 _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
-            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
+            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
+            configSchema: _configSchema,
+            appConfigMonitor: _appConfigMonitor);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio JSON-RPC 2.0)");
 
@@ -450,7 +457,9 @@ public sealed class AppServerHost(
                 _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
             onExternalChannelRemoved: (channelName, ct) =>
                 _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
-            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
+            streamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
+            configSchema: _configSchema,
+            appConfigMonitor: _appConfigMonitor);
 
         AnsiConsole.MarkupLine("[green][[AppServer]][/] DotCraft AppServer started (stdio + WebSocket)");
 
@@ -541,7 +550,9 @@ public sealed class AppServerHost(
                         _channelRunner?.ApplyExternalChannelUpsertAsync(channel, ct) ?? Task.CompletedTask,
                     onExternalChannelRemoved: (channelName, ct) =>
                         _channelRunner?.ApplyExternalChannelRemoveAsync(channelName, ct) ?? Task.CompletedTask,
-                    streamDebugLogger: sp.GetService<SessionStreamDebugLogger>());
+                    streamDebugLogger: sp.GetService<SessionStreamDebugLogger>(),
+                    configSchema: _configSchema,
+                    appConfigMonitor: _appConfigMonitor);
 
                 // ── Channel adapter routing (external-channel-adapter.md §4.2) ──
                 //
@@ -793,8 +804,15 @@ public sealed class AppServerHost(
     public async ValueTask DisposeAsync()
     {
         mcpClientManager.StatusChanged -= OnMcpStatusChanged;
+        _appConfigMonitor.Changed -= OnAppConfigChanged;
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
+    }
+
+    private void OnAppConfigChanged(object? sender, AppConfigChangedEventArgs e)
+    {
+        _ = sender;
+        BroadcastWorkspaceConfigChanged(e);
     }
 
     private void OnMcpStatusChanged(object? sender, McpServerStatusChangedEventArgs e)
@@ -912,6 +930,39 @@ public sealed class AppServerHost(
         foreach (var (transport, connection) in _activeTransports)
         {
             if (!connection.ShouldSendNotification(AppServerMethods.McpStatusUpdated))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
+    private void BroadcastWorkspaceConfigChanged(AppConfigChangedEventArgs change)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.WorkspaceConfigChanged,
+            @params = new WorkspaceConfigChangedParams
+            {
+                Source = change.Source,
+                Regions = [.. change.Regions],
+                ChangedAt = change.ChangedAt
+            }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.SupportsConfigChange || !connection.ShouldSendNotification(AppServerMethods.WorkspaceConfigChanged))
                 continue;
 
             _ = Task.Run(async () =>

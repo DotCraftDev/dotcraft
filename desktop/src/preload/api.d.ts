@@ -62,6 +62,35 @@ export interface ProxyAuthFileSummary {
   name: string
 }
 
+export type ConfigReloadBehavior = 'processRestart' | 'subsystemRestart' | 'hot' | string
+
+export interface WorkspaceConfigSchemaField {
+  key: string
+  displayName?: string
+  type: string
+  sensitive: boolean
+  options?: string[]
+  min?: number
+  max?: number
+  hint?: string
+  defaultValue?: unknown
+  reload?: ConfigReloadBehavior
+  subsystemKey?: string
+}
+
+export interface WorkspaceConfigSchemaSection {
+  section: string
+  order: number
+  path?: string[]
+  rootKey?: string
+  itemFields?: WorkspaceConfigSchemaField[]
+  fields: WorkspaceConfigSchemaField[]
+}
+
+export interface WorkspaceConfigSchema {
+  sections: WorkspaceConfigSchemaSection[]
+}
+
 export interface ServerRequestPayload {
   bridgeId: string
   method: string
@@ -178,6 +207,7 @@ declare global {
       appServer: {
         sendRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>
         listModels(): Promise<unknown>
+        requestWorkspaceConfigSchema(): Promise<WorkspaceConfigSchema | null>
         getConnectionStatus(): Promise<ConnectionStatusPayload>
         getResolvedBinary(request?: {
           binarySource?: BinarySource
@@ -191,6 +221,12 @@ declare global {
         ): UnsubscribeFn
         onServerRequest(callback: (payload: ServerRequestPayload) => void): UnsubscribeFn
         sendServerResponse(bridgeId: string, result: unknown): void
+      }
+      workspaceConfig: {
+        getCore(): Promise<{
+          workspace: { apiKey: string | null; endPoint: string | null }
+          userDefaults: { apiKey: string | null; endPoint: string | null }
+        }>
       }
       proxy: {
         getStatus(): Promise<ProxyStatusPayload>
@@ -237,6 +273,7 @@ declare global {
         switch(newPath: string): Promise<void>
         clearSelection(): Promise<void>
         getRecent(): Promise<Array<{ path: string; name: string; lastOpenedAt: string }>>
+        clearRecent(): Promise<void>
         getStatus(): Promise<WorkspaceStatusPayload>
         onStatusChange(
           callback: (status: WorkspaceStatusPayload) => void

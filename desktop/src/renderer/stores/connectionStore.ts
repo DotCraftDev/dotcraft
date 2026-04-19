@@ -38,10 +38,12 @@ export interface ConnectionState {
   errorMessage: string | null
   errorType: ConnectionErrorType | null
   binarySource: BinarySource | null
+  isExpectedRestart: boolean
 }
 
 interface ConnectionStore extends ConnectionState {
   setStatus(payload: ConnectionStatusPayload): void
+  setExpectedRestart(expected: boolean): void
   reset(): void
 }
 
@@ -52,7 +54,8 @@ const initialState: ConnectionState = {
   dashboardUrl: null,
   errorMessage: null,
   errorType: null,
-  binarySource: null
+  binarySource: null,
+  isExpectedRestart: false
 }
 
 export const useConnectionStore = create<ConnectionStore>((set) => ({
@@ -60,15 +63,20 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
 
   setStatus(payload: ConnectionStatusPayload) {
     const connected = payload.status === 'connected'
-    set({
+    set((state) => ({
       status: payload.status,
       serverInfo: payload.serverInfo ?? null,
       capabilities: (payload.capabilities as ServerCapabilities) ?? null,
       dashboardUrl: connected ? (payload.dashboardUrl ?? null) : null,
       errorMessage: payload.errorMessage ?? null,
       errorType: (payload.errorType as ConnectionErrorType) ?? null,
-      binarySource: payload.binarySource ?? null
-    })
+      binarySource: payload.binarySource ?? null,
+      isExpectedRestart: connected ? false : state.isExpectedRestart
+    }))
+  },
+
+  setExpectedRestart(expected: boolean) {
+    set({ isExpectedRestart: expected })
   },
 
   reset() {

@@ -1,6 +1,7 @@
 import { app, ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
 import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
+import * as os from 'os'
 import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
 import type {
@@ -167,6 +168,34 @@ function ensureObjectConfig(config: unknown): Record<string, unknown> {
   return config as Record<string, unknown>
 }
 
+function normalizeOptionalStringValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+interface WorkspaceCoreConfigSnapshot {
+  apiKey: string | null
+  endPoint: string | null
+}
+
+async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCoreConfigSnapshot> {
+  try {
+    const raw = await fs.readFile(configPath, 'utf8')
+    const parsed = parseJsonObjectConfig(raw)
+    return {
+      apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
+      endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint)
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code === 'ENOENT') {
+      return { apiKey: null, endPoint: null }
+    }
+    throw error
+  }
+}
+
 function resolveConnectionMode(settings: AppSettings): 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote' {
   const mode = settings.connectionMode
   if (
@@ -297,9 +326,11 @@ export interface IpcHandlerCallbacks {
   /** Returns the current settings object. */
   getSettings: () => AppSettings
   /** Updates and persists partial settings. */
-  updateSettings: (partial: Partial<AppSettings>) => void
+  updateSettings: (partial: Partial<AppSettings>) => void | Promise<void>
   /** Returns the recent workspaces list. */
   getRecentWorkspaces: () => RecentWorkspace[]
+  /** Clears and persists the recent workspaces list. */
+  clearRecentWorkspaces?: () => void
   /** Returns the latest known connection status snapshot. */
   getConnectionStatus: () => ConnectionStatusPayload
   /** Returns the latest known workspace selection/setup snapshot. */
@@ -316,6 +347,7 @@ export interface IpcHandlerCallbacks {
  * - `appserver:server-request`    (main -> renderer, send)   -> server-initiated request
  * - `appserver:connection-status` (main -> renderer, send)   -> connection state changes
  * - `appserver:get-connection-status` (renderer -> main, invoke) -> latest status snapshot
+ * - `appserver:workspace-config-schema` (renderer -> main, invoke) -> workspace config schema metadata
  * - `appserver:resolved-binary`      (renderer -> main, invoke) -> resolves the selected binary source
  * - `appserver:pick-binary`          (renderer -> main, invoke) -> opens native file picker for dotcraft
  * - `appserver:restart-managed`   (renderer -> main, invoke) -> restarts Desktop-managed AppServer
@@ -325,6 +357,7 @@ export interface IpcHandlerCallbacks {
  * - `workspace:switch`            (renderer -> main, invoke) -> triggers workspace switch
  * - `workspace:clear-selection`   (renderer -> main, invoke) -> returns to the welcome screen
  * - `workspace:get-recent`        (renderer -> main, invoke) -> returns recent workspaces
+ * - `workspace:clear-recent`      (renderer -> main, invoke) -> clears recent workspaces
  * - `workspace:get-status`        (renderer -> main, invoke) -> returns current workspace setup state
  * - `workspace:run-setup`         (renderer -> main, invoke) -> runs the one-shot setup command
  * - `workspace:open-new-window`   (renderer -> main, invoke) -> opens a new window
@@ -521,6 +554,38 @@ export function registerIpcHandlers(
       throw new Error(translate(mainLocale(callbacks), 'ipc.appServerNotConnected'))
     }
     return client.sendRequest('model/list', {}, 20_000)
+  })
+
+  handleSafe('appserver:workspace-config-schema', async () => {
+    const client = getWireClient()
+    if (!client) {
+      throw new Error(translate(mainLocale(callbacks), 'ipc.appServerNotConnected'))
+    }
+
+    try {
+      return await client.sendRequest('workspace/config/schema', {}, 20_000)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.toLowerCase().includes('method not found')) {
+        return null
+      }
+      throw error
+    }
+  })
+
+  handleSafe('workspace-config:get-core', async () => {
+    const workspacePath = callbacks?.getWorkspaceStatus().workspacePath?.trim()
+    if (!workspacePath) {
+      return {
+        workspace: { apiKey: null, endPoint: null },
+        userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
+      }
+    }
+
+    return {
+      workspace: await readCoreConfigSnapshot(path.join(workspacePath, '.craft', 'config.json')),
+      userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
+    }
   })
 
   handleSafe('appserver:get-connection-status', () => {
@@ -759,6 +824,10 @@ export function registerIpcHandlers(
     return callbacks?.getRecentWorkspaces() ?? []
   })
 
+  handleSafe('workspace:clear-recent', () => {
+    callbacks?.clearRecentWorkspaces?.()
+  })
+
   handleSafe('workspace:get-status', () => {
     return callbacks?.getWorkspaceStatus() ?? { status: 'no-workspace', workspacePath: '', hasUserConfig: false }
   })
@@ -846,8 +915,8 @@ export function registerIpcHandlers(
   // Renderer -> Main: merge + persist partial settings update
   handleSafe(
     'settings:set',
-    (_event, partial: Partial<AppSettings>) => {
-      callbacks?.updateSettings(partial)
+    async (_event, partial: Partial<AppSettings>) => {
+      await callbacks?.updateSettings(partial)
     }
   )
 
@@ -936,7 +1005,7 @@ export function registerIpcHandlers(
       }
 
       const currentSettings = callbacks?.getSettings() ?? {}
-      callbacks?.updateSettings({
+      await callbacks?.updateSettings({
         activeModuleVariants: {
           ...(currentSettings.activeModuleVariants ?? {}),
           [normalizedChannelName]: moduleId
@@ -1193,6 +1262,8 @@ export function broadcastServerRequest(
 export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
   ipcMain.removeHandler('appserver:model-list')
+  ipcMain.removeHandler('appserver:workspace-config-schema')
+  ipcMain.removeHandler('workspace-config:get-core')
   ipcMain.removeHandler('appserver:get-connection-status')
   ipcMain.removeHandler('appserver:resolved-binary')
   ipcMain.removeHandler('appserver:pick-binary')
@@ -1221,6 +1292,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:switch')
   ipcMain.removeHandler('workspace:clear-selection')
   ipcMain.removeHandler('workspace:get-recent')
+  ipcMain.removeHandler('workspace:clear-recent')
   ipcMain.removeHandler('workspace:get-status')
   ipcMain.removeHandler('workspace:run-setup')
   ipcMain.removeHandler('workspace:list-setup-models')
