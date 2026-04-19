@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { AgentResponseBlock } from '../components/conversation/AgentResponseBlock'
 import type { ConversationItem, ConversationTurn } from '../types/conversation'
@@ -105,5 +105,89 @@ describe('AgentResponseBlock subagent progress placement', () => {
     expect(spawnIndex).toBeGreaterThan(-1)
     expect(bubbleIndex).toBeGreaterThan(-1)
     expect(spawnIndex).toBeLessThan(bubbleIndex)
+  })
+})
+
+describe('AgentResponseBlock tail tool aggregation timing', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        settings: {
+          get: async () => ({ locale: 'en' })
+        }
+      }
+    })
+  })
+
+  it('keeps trailing completed tool run as single cards while the turn is still running', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-tail-running',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:00:00.000Z',
+      items: [
+        makeToolCallItem('tool-1', 'call-1', 'ReadFile', '2026-04-18T11:00:01.000Z'),
+        makeToolCallItem('tool-2', 'call-2', 'FindFiles', '2026-04-18T11:00:02.000Z')
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} isRunning />
+      </LocaleProvider>
+    )
+
+    expect(screen.queryByText('Explored 2 files')).toBeNull()
+    expect(screen.getAllByText('Explored files')).toHaveLength(2)
+  })
+
+  it('aggregates the same tool run once reasoning starts after it', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-tail-unlocked',
+      threadId: 'thread-1',
+      status: 'running',
+      startedAt: '2026-04-18T11:05:00.000Z',
+      items: [
+        makeToolCallItem('tool-1', 'call-1', 'ReadFile', '2026-04-18T11:05:01.000Z'),
+        makeToolCallItem('tool-2', 'call-2', 'FindFiles', '2026-04-18T11:05:02.000Z'),
+        {
+          id: 'reasoning-1',
+          type: 'reasoningContent',
+          status: 'streaming',
+          reasoning: '',
+          createdAt: '2026-04-18T11:05:03.000Z'
+        }
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} isRunning activeItemIdOverride="reasoning-1" />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Explored 2 files')).toBeInTheDocument()
+  })
+
+  it('aggregates trailing tool run after the turn completes', () => {
+    const turn: ConversationTurn = {
+      id: 'turn-tail-completed',
+      threadId: 'thread-1',
+      status: 'completed',
+      startedAt: '2026-04-18T11:10:00.000Z',
+      items: [
+        makeToolCallItem('tool-1', 'call-1', 'ReadFile', '2026-04-18T11:10:01.000Z'),
+        makeToolCallItem('tool-2', 'call-2', 'FindFiles', '2026-04-18T11:10:02.000Z')
+      ]
+    }
+
+    render(
+      <LocaleProvider>
+        <AgentResponseBlock turn={turn} />
+      </LocaleProvider>
+    )
+
+    expect(screen.getByText('Explored 2 files')).toBeInTheDocument()
   })
 })

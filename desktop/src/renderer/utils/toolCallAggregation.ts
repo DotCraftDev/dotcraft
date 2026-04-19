@@ -102,24 +102,15 @@ export function aggregateToolCalls(
 
 export function planToolRunRender(
   toolRun: ConversationItem[],
-  context: { isRunning: boolean; isTrailingRun: boolean; dismissedLingerId?: string }
-): { entries: AggregatedToolCall[]; lingerId?: string } {
+  context: { isRunning: boolean; isTrailingRun: boolean }
+): { entries: AggregatedToolCall[] } {
   if (toolRun.length === 0) {
     return { entries: [] }
   }
 
   if (context.isRunning && context.isTrailingRun) {
-    const lastItem = toolRun[toolRun.length - 1]
-    const lingerDismissed = context.dismissedLingerId === lastItem.id
-    if (isToolItemLive(lastItem) || lingerDismissed) {
-      return { entries: aggregateToolCalls(toolRun) }
-    }
-
-    const prefix = toolRun.slice(0, -1)
-    const prefixEntries = aggregateToolCalls(prefix)
     return {
-      entries: [...prefixEntries, { kind: 'single', item: lastItem }],
-      lingerId: lastItem.id
+      entries: toolRun.map((item) => ({ kind: 'single', item }))
     }
   }
 

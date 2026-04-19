@@ -19,7 +19,7 @@ function makeItem(
 }
 
 describe('planToolRunRender', () => {
-  it('keeps two-item trailing run as singles and marks last completed item as lingering', () => {
+  it('keeps two-item trailing run as singles while the turn is still running', () => {
     const run = [
       makeItem('WriteFile', '1'),
       makeItem('EditFile', '2')
@@ -28,10 +28,9 @@ describe('planToolRunRender', () => {
     const result = planToolRunRender(run, { isRunning: true, isTrailingRun: true })
     expect(result.entries).toHaveLength(2)
     expect(result.entries.every((entry) => entry.kind === 'single')).toBe(true)
-    expect(result.lingerId).toBe('2')
   })
 
-  it('aggregates settled prefix and keeps last completed item as lingering single', () => {
+  it('keeps longer trailing completed runs as singles while the turn is still running', () => {
     const run = [
       makeItem('WriteFile', '1'),
       makeItem('EditFile', '2'),
@@ -39,60 +38,26 @@ describe('planToolRunRender', () => {
     ]
 
     const result = planToolRunRender(run, { isRunning: true, isTrailingRun: true })
-    expect(result.entries).toHaveLength(2)
-    expect(result.entries[0]).toEqual({
-      kind: 'group',
-      category: 'write',
-      items: [run[0], run[1]]
-    })
-    expect(result.entries[1]).toEqual({ kind: 'single', item: run[2] })
-    expect(result.lingerId).toBe('3')
+    expect(result.entries).toEqual([
+      { kind: 'single', item: run[0] },
+      { kind: 'single', item: run[1] },
+      { kind: 'single', item: run[2] }
+    ])
   })
 
-  it('aggregates longer settled prefix and keeps final completed item as lingering single', () => {
+  it('keeps trailing run as singles even when the last item is live', () => {
     const run = [
       makeItem('WriteFile', '1'),
       makeItem('EditFile', '2'),
-      makeItem('EditFile', '3'),
-      makeItem('EditFile', '4')
+      makeItem('EditFile', '3', { status: 'streaming' })
     ]
 
     const result = planToolRunRender(run, { isRunning: true, isTrailingRun: true })
-    expect(result.entries).toHaveLength(2)
-    expect(result.entries[0]).toEqual({
-      kind: 'group',
-      category: 'write',
-      items: [run[0], run[1], run[2]]
-    })
-    expect(result.entries[1]).toEqual({ kind: 'single', item: run[3] })
-    expect(result.lingerId).toBe('4')
-  })
-
-  it('aggregates all entries without lingering when last item is live', () => {
-    const run = [
-      makeItem('WriteFile', '1'),
-      makeItem('EditFile', '2', { status: 'streaming' })
-    ]
-
-    const result = planToolRunRender(run, { isRunning: true, isTrailingRun: true })
-    expect(result.entries).toEqual(aggregateToolCalls(run))
-    expect(result.lingerId).toBeUndefined()
-  })
-
-  it('aggregates all entries after linger has been dismissed', () => {
-    const run = [
-      makeItem('WriteFile', '1'),
-      makeItem('EditFile', '2'),
-      makeItem('EditFile', '3')
-    ]
-
-    const result = planToolRunRender(run, {
-      isRunning: true,
-      isTrailingRun: true,
-      dismissedLingerId: '3'
-    })
-    expect(result.entries).toEqual(aggregateToolCalls(run))
-    expect(result.lingerId).toBeUndefined()
+    expect(result.entries).toEqual([
+      { kind: 'single', item: run[0] },
+      { kind: 'single', item: run[1] },
+      { kind: 'single', item: run[2] }
+    ])
   })
 
   it('aggregates non-trailing run while still running', () => {
@@ -103,7 +68,6 @@ describe('planToolRunRender', () => {
 
     const result = planToolRunRender(run, { isRunning: true, isTrailingRun: false })
     expect(result.entries).toEqual(aggregateToolCalls(run))
-    expect(result.lingerId).toBeUndefined()
   })
 
   it('aggregates trailing run when turn is not running', () => {
@@ -114,6 +78,5 @@ describe('planToolRunRender', () => {
 
     const result = planToolRunRender(run, { isRunning: false, isTrailingRun: true })
     expect(result.entries).toEqual(aggregateToolCalls(run))
-    expect(result.lingerId).toBeUndefined()
   })
 })
