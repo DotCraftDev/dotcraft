@@ -46,7 +46,8 @@ public sealed class AppServerRequestHandler(
     IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
     Func<ExternalChannelEntry, CancellationToken, Task>? onExternalChannelUpserted = null,
     Func<string, CancellationToken, Task>? onExternalChannelRemoved = null,
-    SessionStreamDebugLogger? streamDebugLogger = null)
+    SessionStreamDebugLogger? streamDebugLogger = null,
+    IReadOnlyList<ConfigSchemaSection>? configSchema = null)
 {
     private readonly WireAcpExtensionProxy? _wireAcpExtensionProxy = wireAcpExtensionProxy;
     private readonly CommandRegistry _commandRegistry = commandRegistry
@@ -64,6 +65,7 @@ public sealed class AppServerRequestHandler(
     private readonly McpClientManager? _mcpClientManager = mcpClientManager;
     private readonly Func<ExternalChannelEntry, CancellationToken, Task>? _onExternalChannelUpserted = onExternalChannelUpserted;
     private readonly Func<string, CancellationToken, Task>? _onExternalChannelRemoved = onExternalChannelRemoved;
+    private readonly IReadOnlyList<ConfigSchemaSection> _configSchema = configSchema ?? [];
 
     /// <summary>
     /// Fallback decision used by <see cref="AppServerEventDispatcher"/> when non-interactive
@@ -106,6 +108,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.TurnStart,
         AppServerMethods.TurnInterrupt,
         AppServerMethods.WorkspaceCommitMessageSuggest,
+        AppServerMethods.WorkspaceConfigSchema,
         AppServerMethods.WorkspaceConfigUpdate,
         AppServerMethods.CronList,
         AppServerMethods.CronRemove,
@@ -209,6 +212,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.AutomationTaskReject => RouteAutomation(h => h.HandleTaskRejectAsync(msg, ct)),
                 AppServerMethods.AutomationTaskDelete => RouteAutomation(h => h.HandleTaskDeleteAsync(msg, ct)),
                 AppServerMethods.WorkspaceCommitMessageSuggest => HandleWorkspaceCommitMessageSuggestAsync(msg, ct),
+                AppServerMethods.WorkspaceConfigSchema => HandleWorkspaceConfigSchemaAsync(msg, ct),
                 AppServerMethods.WorkspaceConfigUpdate => HandleWorkspaceConfigUpdateAsync(msg, ct),
                 _ => TryHandleExtensionAsync(method, msg, ct)
             });
@@ -1231,6 +1235,19 @@ public sealed class AppServerRequestHandler(
         return Task.FromResult<object?>(new WorkspaceConfigUpdateResult
         {
             Model = normalizedModel
+        });
+    }
+
+    private Task<object?> HandleWorkspaceConfigSchemaAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        _ = GetParams<WorkspaceConfigSchemaParams>(msg);
+        if (_configSchema.Count == 0)
+            throw AppServerErrors.MethodNotFound(AppServerMethods.WorkspaceConfigSchema);
+
+        return Task.FromResult<object?>(new WorkspaceConfigSchemaResult
+        {
+            Sections = [.. _configSchema]
         });
     }
 

@@ -316,6 +316,7 @@ export interface IpcHandlerCallbacks {
  * - `appserver:server-request`    (main -> renderer, send)   -> server-initiated request
  * - `appserver:connection-status` (main -> renderer, send)   -> connection state changes
  * - `appserver:get-connection-status` (renderer -> main, invoke) -> latest status snapshot
+ * - `appserver:workspace-config-schema` (renderer -> main, invoke) -> workspace config schema metadata
  * - `appserver:resolved-binary`      (renderer -> main, invoke) -> resolves the selected binary source
  * - `appserver:pick-binary`          (renderer -> main, invoke) -> opens native file picker for dotcraft
  * - `appserver:restart-managed`   (renderer -> main, invoke) -> restarts Desktop-managed AppServer
@@ -521,6 +522,23 @@ export function registerIpcHandlers(
       throw new Error(translate(mainLocale(callbacks), 'ipc.appServerNotConnected'))
     }
     return client.sendRequest('model/list', {}, 20_000)
+  })
+
+  handleSafe('appserver:workspace-config-schema', async () => {
+    const client = getWireClient()
+    if (!client) {
+      throw new Error(translate(mainLocale(callbacks), 'ipc.appServerNotConnected'))
+    }
+
+    try {
+      return await client.sendRequest('workspace/config/schema', {}, 20_000)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.toLowerCase().includes('method not found')) {
+        return null
+      }
+      throw error
+    }
   })
 
   handleSafe('appserver:get-connection-status', () => {
@@ -1193,6 +1211,7 @@ export function broadcastServerRequest(
 export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('appserver:send-request')
   ipcMain.removeHandler('appserver:model-list')
+  ipcMain.removeHandler('appserver:workspace-config-schema')
   ipcMain.removeHandler('appserver:get-connection-status')
   ipcMain.removeHandler('appserver:resolved-binary')
   ipcMain.removeHandler('appserver:pick-binary')

@@ -31,5 +31,6 @@ public class ConfigSchemaBuilderMcpTests
         Assert.Equal("keyValueMap", byKey["EnvironmentVariables"].Type);
         Assert.Equal("text", byKey["Url"].Type);
         Assert.Equal("keyValueMap", byKey["Headers"].Type);
+        Assert.Equal(ReloadBehavior.Hot, byKey["Name"].Reload);
     }
 }

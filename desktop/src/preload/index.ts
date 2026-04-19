@@ -76,6 +76,35 @@ export interface ProxyAuthFileSummary {
   name: string
 }
 
+export type ConfigReloadBehavior = 'processRestart' | 'subsystemRestart' | 'hot' | string
+
+export interface WorkspaceConfigSchemaField {
+  key: string
+  displayName?: string
+  type: string
+  sensitive: boolean
+  options?: string[]
+  min?: number
+  max?: number
+  hint?: string
+  defaultValue?: unknown
+  reload?: ConfigReloadBehavior
+  subsystemKey?: string
+}
+
+export interface WorkspaceConfigSchemaSection {
+  section: string
+  order: number
+  path?: string[]
+  rootKey?: string
+  itemFields?: WorkspaceConfigSchemaField[]
+  fields: WorkspaceConfigSchemaField[]
+}
+
+export interface WorkspaceConfigSchema {
+  sections: WorkspaceConfigSchemaSection[]
+}
+
 export interface ServerRequestPayload {
   bridgeId: string
   method: string
@@ -280,6 +309,10 @@ const api = {
 
     listModels(): Promise<unknown> {
       return ipcRenderer.invoke('appserver:model-list')
+    },
+
+    requestWorkspaceConfigSchema(): Promise<WorkspaceConfigSchema | null> {
+      return ipcRenderer.invoke('appserver:workspace-config-schema')
     },
 
     /**

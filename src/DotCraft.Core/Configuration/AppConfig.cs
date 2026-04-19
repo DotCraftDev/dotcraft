@@ -13,11 +13,17 @@ namespace DotCraft.Configuration;
 [ConfigSection("", DisplayName = "Core", Order = 0)]
 public sealed class AppConfig
 {
-    [ConfigField(Sensitive = true, Hint = "Leave blank to inherit from global")]
+    [ConfigField(
+        Sensitive = true,
+        Hint = "Leave blank to inherit from global",
+        Reload = ReloadBehavior.ProcessRestart,
+        HasReload = true)]
     public string ApiKey { get; set; } = string.Empty;
 
+    [ConfigField(Reload = ReloadBehavior.ProcessRestart, HasReload = true)]
     public string Model { get; set; } = "gpt-4o-mini";
 
+    [ConfigField(Reload = ReloadBehavior.ProcessRestart, HasReload = true)]
     public string EndPoint { get; set; } = "https://api.openai.com/v1";
 
     /// <summary>
@@ -642,7 +648,7 @@ public sealed class AppConfig
         /// <summary>
         /// Skill directory names disabled for this workspace (not injected into agent context).
         /// </summary>
-        [ConfigField(Hint = "JSON array of skill names to disable for this workspace")]
+        [ConfigField(Hint = "JSON array of skill names to disable for this workspace", Reload = ReloadBehavior.Hot, HasReload = true)]
         public List<string> DisabledSkills { get; set; } = [];
     }
 

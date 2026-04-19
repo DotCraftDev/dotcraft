@@ -31,5 +31,6 @@ public class ConfigSchemaBuilderLspTests
         var fields = toolsLsp.Fields!.ToDictionary(f => f.Key, f => f);
         Assert.Equal("bool", fields["Enabled"].Type);
         Assert.Equal("number", fields["MaxFileSize"].Type);
+        Assert.Equal(ReloadBehavior.ProcessRestart, fields["Enabled"].Reload);
     }
 }

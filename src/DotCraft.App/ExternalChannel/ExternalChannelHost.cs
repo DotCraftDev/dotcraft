@@ -389,7 +389,8 @@ public sealed class ExternalChannelHost : IChannelService
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
             hostWorkspacePath: _hostWorkspacePath,
-            streamDebugLogger: _streamDebugLogger);
+            streamDebugLogger: _streamDebugLogger,
+            configSchema: ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes()));
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -512,7 +513,8 @@ public sealed class ExternalChannelHost : IChannelService
             heartbeatService: HeartbeatService,
             workspaceCraftPath: _workspaceCraftPath,
             hostWorkspacePath: _hostWorkspacePath,
-            streamDebugLogger: _streamDebugLogger);
+            streamDebugLogger: _streamDebugLogger,
+            configSchema: ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes()));
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +

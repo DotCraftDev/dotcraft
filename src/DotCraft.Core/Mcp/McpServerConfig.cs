@@ -4,7 +4,13 @@ using System.Text.Json.Serialization;
 
 namespace DotCraft.Mcp;
 
-[ConfigSection("McpServers", DisplayName = "MCP Servers", Order = 95, RootKey = "McpServers")]
+[ConfigSection(
+    "McpServers",
+    DisplayName = "MCP Servers",
+    Order = 95,
+    RootKey = "McpServers",
+    DefaultReload = ReloadBehavior.Hot,
+    HasDefaultReload = true)]
 public sealed class McpServerConfig
 {
     public string Name { get; set; } = string.Empty;

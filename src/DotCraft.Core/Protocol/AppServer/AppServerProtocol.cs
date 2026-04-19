@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
+using DotCraft.Configuration;
 using DotCraft.Cron;
 
 namespace DotCraft.Protocol.AppServer;
@@ -1234,6 +1235,22 @@ public sealed class WorkspaceConfigUpdateResult
     public string? Model { get; set; }
 }
 
+/// <summary>
+/// Params for <see cref="AppServerMethods.WorkspaceConfigSchema"/>.
+/// Reserved for future filters.
+/// </summary>
+public sealed class WorkspaceConfigSchemaParams
+{
+}
+
+/// <summary>
+/// Result for <see cref="AppServerMethods.WorkspaceConfigSchema"/>.
+/// </summary>
+public sealed class WorkspaceConfigSchemaResult
+{
+    public List<ConfigSchemaSection> Sections { get; set; } = [];
+}
+
 // ───── githubTracker/* (GitHub tracker config management) ─────
 
 // ───── mcp/* (MCP server management) ─────
@@ -1450,6 +1467,7 @@ public static class AppServerMethods
 
     /// <summary>Generate a suggested git commit message from thread context and diff (Desktop).</summary>
     public const string WorkspaceCommitMessageSuggest = "workspace/commitMessage/suggest";
+    public const string WorkspaceConfigSchema = "workspace/config/schema";
     public const string WorkspaceConfigUpdate = "workspace/config/update";
     public const string McpList = "mcp/list";
     public const string McpGet = "mcp/get";

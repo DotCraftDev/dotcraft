@@ -337,7 +337,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.skillsManagement` | boolean | Server supports skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`). |
 | `capabilities.commandManagement` | boolean | Server supports command management methods (`command/list`, `command/execute`). |
 | `capabilities.modelCatalogManagement` | boolean | Server supports model catalog methods (`model/list`). |
-| `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration write methods (`workspace/config/update`). |
+| `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). |
 | `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). |
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
 | `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
@@ -3449,9 +3449,45 @@ These methods provide a server-authoritative write path for workspace-level conf
 
 In v1, the wire surface standardizes workspace model persistence while keeping per-thread overrides in `thread/config/update`.
 
-Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling `workspace/config/update`. If absent or `false`, the server returns `-32601` (Method not found).
+Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). If absent or `false`, the server returns `-32601` (Method not found).
 
-### 24.2 `workspace/config/update`
+### 24.2 `workspace/config/schema`
+
+Return the server-derived workspace config schema, including per-field reload metadata.
+
+**Direction**: client → server (request)
+
+**Params**: `{}`
+
+**Result**:
+
+```json
+{
+  "sections": [
+    {
+      "section": "Core",
+      "order": 0,
+      "path": null,
+      "fields": [
+        {
+          "key": "ApiKey",
+          "type": "password",
+          "sensitive": true,
+          "reload": "processRestart"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Semantics**:
+
+- The payload is additive and forward-compatible; clients must ignore unknown properties.
+- `reload` uses the `ReloadBehavior` enum names serialized as camelCase strings.
+- `subsystemKey` is present only when `reload` is `subsystemRestart`.
+
+### 24.3 `workspace/config/update`
 
 Update workspace-level config values.
 
@@ -3486,9 +3522,9 @@ If `model` is removed, the result returns:
 - Server preserves unrelated configuration state.
 - `Model` key matching is case-insensitive (`Model`, `model`, etc.) and normalized in-place.
 
-### 24.3 Capability Advertisement
+### 24.4 Capability Advertisement
 
-Clients must check `capabilities.workspaceConfigManagement` before calling `workspace/config/update`.
+Clients must check `capabilities.workspaceConfigManagement` before calling workspace configuration methods (`workspace/config/schema`, `workspace/config/update`).
 
 ## 25. GitHub Tracker Config Methods
 

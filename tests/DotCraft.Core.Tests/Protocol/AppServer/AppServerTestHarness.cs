@@ -35,7 +35,8 @@ internal sealed class AppServerTestHarness : IDisposable
         IEnumerable<IAppServerProtocolExtension>? protocolExtensions = null,
         string? workspaceCraftPath = null,
         Func<ExternalChannelEntry, CancellationToken, Task>? onExternalChannelUpserted = null,
-        Func<string, CancellationToken, Task>? onExternalChannelRemoved = null)
+        Func<string, CancellationToken, Task>? onExternalChannelRemoved = null,
+        IReadOnlyList<ConfigSchemaSection>? configSchema = null)
     {
         _tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -55,7 +56,8 @@ internal sealed class AppServerTestHarness : IDisposable
             hostWorkspacePath: _tempDir,
             protocolExtensions: protocolExtensions,
             onExternalChannelUpserted: onExternalChannelUpserted,
-            onExternalChannelRemoved: onExternalChannelRemoved);
+            onExternalChannelRemoved: onExternalChannelRemoved,
+            configSchema: configSchema);
 
         Identity = new SessionIdentity
         {
