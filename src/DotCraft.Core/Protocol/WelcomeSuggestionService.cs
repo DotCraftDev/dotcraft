@@ -162,7 +162,16 @@ public sealed class WelcomeSuggestionService(
 
         try
         {
-            return await lazy.Value.ConfigureAwait(false);
+            try
+            {
+                return await lazy.Value.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger?.LogDebug(
+                    "Welcome suggestion inflight operation was canceled by a different caller; returning no suggestions for current caller.");
+                return BuildNoSuggestionsResult(evidence.Fingerprint);
+            }
         }
         finally
         {

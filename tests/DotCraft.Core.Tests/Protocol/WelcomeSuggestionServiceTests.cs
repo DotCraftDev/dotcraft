@@ -4,6 +4,7 @@ using DotCraft.Protocol;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Tools;
 using DotCraft.Tests.Sessions.Protocol.AppServer;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol;
@@ -330,8 +331,79 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         Assert.Empty(result.Items);
     }
 
+    [Fact]
+    public async Task SuggestAsync_WhenSharedInflightIsCanceledByAnotherCaller_ReturnsNoneForCurrentCaller()
+    {
+        await CreateThreadWithMessagesAsync(
+            "Review how welcome suggestions reuse workspace history and memory in Desktop.",
+            "Trace the welcome suggestion service and tighten its cancellation behavior.");
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _sessionService.SubmitInputHandler = (_, _, _) =>
+        {
+            gate.Task.GetAwaiter().GetResult();
+            throw new OperationCanceledException();
+        };
+
+        var service = CreateService();
+        using var firstCallerCts = new CancellationTokenSource();
+
+        var firstTask = service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        }, firstCallerCts.Token);
+
+        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0);
+
+        var secondTask = service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        }, CancellationToken.None);
+
+        firstCallerCts.Cancel();
+        gate.TrySetResult();
+
+        var secondResult = await secondTask;
+
+        await Assert.ThrowsAsync<OperationCanceledException>(async () => await firstTask);
+        Assert.Equal("none", secondResult.Source);
+        Assert.Empty(secondResult.Items);
+    }
+
+    [Fact]
+    public async Task SuggestAsync_WhenCurrentCallerIsCanceled_ThrowsOperationCanceledException()
+    {
+        await CreateThreadWithMessagesAsync(
+            "Review the inflight welcome suggestion deduplication behavior.",
+            "Ensure the current caller cancellation still propagates.");
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _sessionService.SubmitInputHandler = (_, _, _) =>
+        {
+            gate.Task.GetAwaiter().GetResult();
+            throw new OperationCanceledException();
+        };
+
+        var service = CreateService();
+        using var cts = new CancellationTokenSource();
+
+        var task = service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        }, cts.Token);
+
+        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0);
+        cts.Cancel();
+        gate.TrySetResult();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(async () => await task);
+    }
+
     private WelcomeSuggestionService CreateService() =>
-        new(_sessionService, _threadStore, _memoryStore, _workspacePath, logger: null);
+        new(_sessionService, _threadStore, _memoryStore, _workspacePath, NullLogger<WelcomeSuggestionService>.Instance);
 
     private SessionIdentity CreateIdentity() => new()
     {
@@ -373,6 +445,18 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         thread.LastActiveAt = DateTimeOffset.UtcNow;
         await _threadStore.SaveThreadAsync(thread);
         return thread;
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 2000)
+    {
+        var started = DateTime.UtcNow;
+        while (!condition())
+        {
+            if ((DateTime.UtcNow - started).TotalMilliseconds > timeoutMs)
+                throw new TimeoutException("Condition was not satisfied in time.");
+
+            await Task.Delay(10);
+        }
     }
 
     public void Dispose()
