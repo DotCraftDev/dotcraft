@@ -560,12 +560,13 @@ export class TelegramAdapter extends ModuleChannelAdapter<TelegramConfig> {
     for (const chunk of splitTelegramMessage(content)) {
       try {
         const html = markdownToTelegramHtml(chunk);
-        await this.requireBot().api.sendMessage(chatId, html, { parse_mode: "HTML" });
+        await api.sendMessage(chatId, html, { parse_mode: "HTML" });
       } catch (error) {
         console.warn(`[telegram] html send failed, retrying as plain text: ${describeTelegramError(error)}`);
-        await this.requireBot().api.sendMessage(chatId, chunk);
+        await api.sendMessage(chatId, chunk);
       }
     }
+  }
   }
 
   private startTyping(chatId: string): void {
