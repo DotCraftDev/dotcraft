@@ -586,6 +586,63 @@ describe('registerIpcHandlers', () => {
     expect(vi.mocked(fs.writeFile)).not.toHaveBeenCalled()
     expect(moduleProcessManagerStartMock).not.toHaveBeenCalled()
   })
+
+  it('awaits async updateSettings in settings:set handler', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
+      handlers.set(channel, handler as (...args: unknown[]) => unknown)
+    })
+
+    let resolveUpdate: (() => void) | null = null
+    const updateSettings = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveUpdate = resolve
+        })
+    )
+
+    registerIpcHandlers(null, () => null, '/workspace', {
+      onSwitchWorkspace: vi.fn().mockResolvedValue(undefined),
+      onClearWorkspaceSelection: vi.fn().mockResolvedValue(undefined),
+      onRunWorkspaceSetup: vi.fn().mockResolvedValue(undefined),
+      onListSetupModels: vi.fn().mockResolvedValue({ kind: 'unsupported' }),
+      onOpenNewWindow: vi.fn(),
+      onRestartManagedAppServer: vi.fn().mockResolvedValue(undefined),
+      onRestartManagedProxy: vi.fn().mockResolvedValue(undefined),
+      getProxyStatus: vi.fn(() => ({ status: 'stopped' })),
+      startProxyOAuth: vi.fn().mockResolvedValue({ url: 'http://127.0.0.1/oauth', state: 's1' }),
+      getProxyOAuthStatus: vi.fn().mockResolvedValue({ status: 'wait' }),
+      getProxyAuthFiles: vi.fn().mockResolvedValue([]),
+      getProxyUsageSummary: vi.fn().mockResolvedValue({
+        totalRequests: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalTokens: 0,
+        failedRequests: 0
+      }),
+      getSettings: vi.fn(() => ({})),
+      updateSettings,
+      getRecentWorkspaces: vi.fn(() => []),
+      getConnectionStatus: vi.fn(() => ({ status: 'disconnected' })),
+      getWorkspaceStatus: vi.fn(() => ({ status: 'no-workspace', workspacePath: '', hasUserConfig: false }))
+    })
+
+    const settingsSet = handlers.get('settings:set')
+    expect(settingsSet).toBeDefined()
+
+    let settled = false
+    const pending = Promise.resolve(settingsSet?.({}, { proxy: { enabled: false } })).then(() => {
+      settled = true
+    })
+
+    await Promise.resolve()
+    expect(updateSettings).toHaveBeenCalledOnce()
+    expect(settled).toBe(false)
+
+    resolveUpdate?.()
+    await pending
+    expect(settled).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------

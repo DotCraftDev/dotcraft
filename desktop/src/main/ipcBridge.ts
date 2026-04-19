@@ -1,6 +1,7 @@
 import { app, ipcMain, BrowserWindow, dialog, Notification, shell } from 'electron'
 import { promises as fs } from 'fs'
 import { execFile } from 'child_process'
+import * as os from 'os'
 import * as path from 'path'
 import type { WireProtocolClient } from './WireProtocolClient'
 import type {
@@ -173,6 +174,28 @@ function normalizeOptionalStringValue(value: unknown): string | null {
   return trimmed === '' ? null : trimmed
 }
 
+interface WorkspaceCoreConfigSnapshot {
+  apiKey: string | null
+  endPoint: string | null
+}
+
+async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCoreConfigSnapshot> {
+  try {
+    const raw = await fs.readFile(configPath, 'utf8')
+    const parsed = parseJsonObjectConfig(raw)
+    return {
+      apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
+      endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint)
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code === 'ENOENT') {
+      return { apiKey: null, endPoint: null }
+    }
+    throw error
+  }
+}
+
 function resolveConnectionMode(settings: AppSettings): 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote' {
   const mode = settings.connectionMode
   if (
@@ -303,7 +326,7 @@ export interface IpcHandlerCallbacks {
   /** Returns the current settings object. */
   getSettings: () => AppSettings
   /** Updates and persists partial settings. */
-  updateSettings: (partial: Partial<AppSettings>) => void
+  updateSettings: (partial: Partial<AppSettings>) => void | Promise<void>
   /** Returns the recent workspaces list. */
   getRecentWorkspaces: () => RecentWorkspace[]
   /** Clears and persists the recent workspaces list. */
@@ -553,24 +576,15 @@ export function registerIpcHandlers(
   handleSafe('workspace-config:get-core', async () => {
     const workspacePath = callbacks?.getWorkspaceStatus().workspacePath?.trim()
     if (!workspacePath) {
-      return { model: null, apiKey: null, endPoint: null }
+      return {
+        workspace: { apiKey: null, endPoint: null },
+        userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
+      }
     }
 
-    const configPath = path.join(workspacePath, '.craft', 'config.json')
-    try {
-      const raw = await fs.readFile(configPath, 'utf8')
-      const parsed = parseJsonObjectConfig(raw)
-      return {
-        model: normalizeOptionalStringValue(parsed.Model ?? parsed.model),
-        apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
-        endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint)
-      }
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException | undefined)?.code
-      if (code === 'ENOENT') {
-        return { model: null, apiKey: null, endPoint: null }
-      }
-      throw error
+    return {
+      workspace: await readCoreConfigSnapshot(path.join(workspacePath, '.craft', 'config.json')),
+      userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
     }
   })
 
@@ -901,8 +915,8 @@ export function registerIpcHandlers(
   // Renderer -> Main: merge + persist partial settings update
   handleSafe(
     'settings:set',
-    (_event, partial: Partial<AppSettings>) => {
-      callbacks?.updateSettings(partial)
+    async (_event, partial: Partial<AppSettings>) => {
+      await callbacks?.updateSettings(partial)
     }
   )
 
@@ -991,7 +1005,7 @@ export function registerIpcHandlers(
       }
 
       const currentSettings = callbacks?.getSettings() ?? {}
-      callbacks?.updateSettings({
+      await callbacks?.updateSettings({
         activeModuleVariants: {
           ...(currentSettings.activeModuleVariants ?? {}),
           [normalizedChannelName]: moduleId

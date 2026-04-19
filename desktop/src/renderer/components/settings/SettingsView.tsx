@@ -66,9 +66,13 @@ interface McpTestResultWire {
 }
 
 interface WorkspaceCoreConfig {
-  model: string | null
   apiKey: string | null
   endPoint: string | null
+}
+
+interface WorkspaceCoreConfigResult {
+  workspace: WorkspaceCoreConfig
+  userDefaults: WorkspaceCoreConfig
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
@@ -542,10 +546,15 @@ export function SettingsView({
     binaryPath: string
   } | null>(null)
   const [workspaceCoreBaseline, setWorkspaceCoreBaseline] = useState<WorkspaceCoreConfig>({
-    model: null,
     apiKey: null,
     endPoint: null
   })
+  const [userDefaultCore, setUserDefaultCore] = useState<WorkspaceCoreConfig>({
+    apiKey: null,
+    endPoint: null
+  })
+  const [apiKeyOverrideActive, setApiKeyOverrideActive] = useState(true)
+  const [endPointOverrideActive, setEndPointOverrideActive] = useState(true)
   const [llmApiKey, setLlmApiKey] = useState('')
   const [llmEndPoint, setLlmEndPoint] = useState('')
   const [applyingLlm, setApplyingLlm] = useState(false)
@@ -571,9 +580,23 @@ export function SettingsView({
   const mcpEnabled = capabilities?.mcpManagement === true
   const canRestartManagedAppServer = savedConnectionMode !== 'remote'
   const proxyLockActive = proxyStatusText === 'running'
+  const llmApiKeyTrimmed = llmApiKey.trim()
+  const llmEndPointTrimmed = llmEndPoint.trim()
+  const apiKeyMatchesInheritedDefault =
+    apiKeyOverrideActive &&
+    (workspaceCoreBaseline.apiKey ?? '') === '' &&
+    userDefaultCore.apiKey != null &&
+    llmApiKeyTrimmed === userDefaultCore.apiKey
+  const endPointMatchesInheritedDefault =
+    endPointOverrideActive &&
+    (workspaceCoreBaseline.endPoint ?? '') === '' &&
+    userDefaultCore.endPoint != null &&
+    llmEndPointTrimmed === userDefaultCore.endPoint
   const llmDirty =
-    llmApiKey.trim() !== (workspaceCoreBaseline.apiKey ?? '') ||
-    llmEndPoint.trim() !== (workspaceCoreBaseline.endPoint ?? '')
+    (llmApiKeyTrimmed !== (workspaceCoreBaseline.apiKey ?? '') && !apiKeyMatchesInheritedDefault) ||
+    (llmEndPointTrimmed !== (workspaceCoreBaseline.endPoint ?? '') && !endPointMatchesInheritedDefault)
+  const showApiKeyInheritedHint = !proxyLockActive && !apiKeyOverrideActive && (userDefaultCore.apiKey ?? '') !== ''
+  const showEndPointInheritedHint = !proxyLockActive && !endPointOverrideActive && (userDefaultCore.endPoint ?? '') !== ''
   const connectionDirty =
     baselineConnection != null &&
     (binarySource !== baselineConnection.binarySource ||
@@ -591,14 +614,36 @@ export function SettingsView({
       proxyBinarySource !== baselineProxy.binarySource ||
       proxyBinaryPath.trim() !== baselineProxy.binaryPath.trim())
 
+  function applyWorkspaceCoreBaseline(core: WorkspaceCoreConfigResult, keepDraftValues: boolean): void {
+    setWorkspaceCoreBaseline(core.workspace)
+    setUserDefaultCore(core.userDefaults)
+
+    if (keepDraftValues) {
+      return
+    }
+
+    const inheritedApiKey = core.userDefaults.apiKey ?? ''
+    const inheritedEndPoint = core.userDefaults.endPoint ?? ''
+    const hasWorkspaceApiKey = (core.workspace.apiKey ?? '') !== ''
+    const hasWorkspaceEndPoint = (core.workspace.endPoint ?? '') !== ''
+
+    setApiKeyOverrideActive(hasWorkspaceApiKey || inheritedApiKey === '')
+    setEndPointOverrideActive(hasWorkspaceEndPoint || inheritedEndPoint === '')
+    setLlmApiKey(hasWorkspaceApiKey ? (core.workspace.apiKey ?? '') : '')
+    setLlmEndPoint(hasWorkspaceEndPoint ? (core.workspace.endPoint ?? '') : '')
+  }
+
+  function hasWorkspaceCoreChanged(nextWorkspaceCore: WorkspaceCoreConfig): boolean {
+    return (
+      (nextWorkspaceCore.apiKey ?? '') !== (workspaceCoreBaseline.apiKey ?? '') ||
+      (nextWorkspaceCore.endPoint ?? '') !== (workspaceCoreBaseline.endPoint ?? '')
+    )
+  }
+
   async function reloadWorkspaceCore(): Promise<void> {
     try {
       const core = await window.api.workspaceConfig.getCore()
-      setWorkspaceCoreBaseline(core)
-      if (!llmDirty) {
-        setLlmApiKey(core.apiKey ?? '')
-        setLlmEndPoint(core.endPoint ?? '')
-      }
+      applyWorkspaceCoreBaseline(core, llmDirty)
     } catch {
       // Ignore pull failures during reconnect windows.
     }
@@ -677,9 +722,7 @@ export function SettingsView({
     window.api.workspaceConfig
       .getCore()
       .then((core) => {
-        setWorkspaceCoreBaseline(core)
-        setLlmApiKey(core.apiKey ?? '')
-        setLlmEndPoint(core.endPoint ?? '')
+        applyWorkspaceCoreBaseline(core, false)
       })
       .catch(() => {})
   }, [])
@@ -777,14 +820,16 @@ export function SettingsView({
   useEffect(() => {
     if (!proxyLockActive) return
     if (
-      llmApiKey.trim() !== (workspaceCoreBaseline.apiKey ?? '') ||
-      llmEndPoint.trim() !== (workspaceCoreBaseline.endPoint ?? '')
+      llmApiKeyTrimmed !== (workspaceCoreBaseline.apiKey ?? '') ||
+      llmEndPointTrimmed !== (workspaceCoreBaseline.endPoint ?? '')
     ) {
+      setApiKeyOverrideActive(true)
+      setEndPointOverrideActive(true)
       setLlmApiKey(workspaceCoreBaseline.apiKey ?? '')
       setLlmEndPoint(workspaceCoreBaseline.endPoint ?? '')
       addToast(t('settings.llm.lockedDiscardedNotice'), 'info')
     }
-  }, [proxyLockActive, llmApiKey, llmEndPoint, workspaceCoreBaseline.apiKey, workspaceCoreBaseline.endPoint, t])
+  }, [proxyLockActive, llmApiKeyTrimmed, llmEndPointTrimmed, workspaceCoreBaseline.apiKey, workspaceCoreBaseline.endPoint, t])
 
   useEffect(() => {
     let cancelled = false
@@ -1004,10 +1049,26 @@ export function SettingsView({
         setProxyBinarySource(baselineProxy.binarySource)
         setProxyBinaryPath(baselineProxy.binaryPath)
       }
-      setLlmApiKey(workspaceCoreBaseline.apiKey ?? '')
-      setLlmEndPoint(workspaceCoreBaseline.endPoint ?? '')
+      setApiKeyOverrideActive((workspaceCoreBaseline.apiKey ?? '') !== '' || (userDefaultCore.apiKey ?? '') === '')
+      setEndPointOverrideActive((workspaceCoreBaseline.endPoint ?? '') !== '' || (userDefaultCore.endPoint ?? '') === '')
+      setLlmApiKey((workspaceCoreBaseline.apiKey ?? '') !== '' ? (workspaceCoreBaseline.apiKey ?? '') : '')
+      setLlmEndPoint((workspaceCoreBaseline.endPoint ?? '') !== '' ? (workspaceCoreBaseline.endPoint ?? '') : '')
     }
     setActiveMainView('conversation')
+  }
+
+  function handleActivateApiKeyOverride(): void {
+    if (proxyLockActive) return
+    if (apiKeyOverrideActive) return
+    setApiKeyOverrideActive(true)
+    setLlmApiKey(userDefaultCore.apiKey ?? '')
+  }
+
+  function handleActivateEndPointOverride(): void {
+    if (proxyLockActive) return
+    if (endPointOverrideActive) return
+    setEndPointOverrideActive(true)
+    setLlmEndPoint(userDefaultCore.endPoint ?? '')
   }
 
   function startMcpDraft(server?: McpServerConfigWire): void {
@@ -1369,24 +1430,45 @@ export function SettingsView({
   async function handleRestartProxy(): Promise<void> {
     setRestartingProxy(true)
     setSaving(true)
+    let appServerRestartAttempted = false
     try {
       const willEnable = proxyEnabled
       await persistProxySettings()
       if (willEnable) {
         await window.api.proxy.restartManaged()
       }
+      const core = await window.api.workspaceConfig.getCore()
+      const workspaceCoreChanged = hasWorkspaceCoreChanged(core.workspace)
+      applyWorkspaceCoreBaseline(core, !workspaceCoreChanged && llmDirty)
+      if (workspaceCoreChanged) {
+        setRestartingAppServer(true)
+        setExpectedRestart(true)
+        appServerRestartAttempted = true
+        await window.api.appServer.restartManaged()
+      }
       const status = await window.api.proxy.getStatus()
       setProxyStatusText(status.status)
       setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
       addToast(willEnable ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
     } catch (err) {
-      addToast(
-        t('settings.proxy.restartFailed', {
-          error: err instanceof Error ? err.message : String(err)
-        }),
-        'error'
-      )
+      if (appServerRestartAttempted) {
+        setExpectedRestart(false)
+        addToast(
+          t('settings.restartAppServerFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          }),
+          'error'
+        )
+      } else {
+        addToast(
+          t('settings.proxy.restartFailed', {
+            error: err instanceof Error ? err.message : String(err)
+          }),
+          'error'
+        )
+      }
     } finally {
+      setRestartingAppServer(false)
       setRestartingProxy(false)
       setSaving(false)
     }
@@ -1584,17 +1666,11 @@ export function SettingsView({
     setApplyingLlm(true)
     setRestartingAppServer(true)
     try {
-      const result = await window.api.appServer.sendRequest('workspace/config/update', payload) as WorkspaceCoreConfig
+      await window.api.appServer.sendRequest('workspace/config/update', payload)
       setExpectedRestart(true)
       await window.api.appServer.restartManaged()
-      const nextBaseline: WorkspaceCoreConfig = {
-        model: result.model ?? null,
-        apiKey: result.apiKey ?? workspaceCoreBaseline.apiKey ?? null,
-        endPoint: result.endPoint ?? workspaceCoreBaseline.endPoint ?? null
-      }
-      setWorkspaceCoreBaseline(nextBaseline)
-      setLlmApiKey(nextBaseline.apiKey ?? '')
-      setLlmEndPoint(nextBaseline.endPoint ?? '')
+      const core = await window.api.workspaceConfig.getCore()
+      applyWorkspaceCoreBaseline(core, false)
       addToast(t('settings.restartAppServerSuccess'), 'success')
     } catch (err) {
       setExpectedRestart(false)
@@ -1611,7 +1687,11 @@ export function SettingsView({
   }
 
   async function handleApplyAndRestartAll(): Promise<void> {
-    const needsAppServerRestart = connectionDirty || llmDirty
+    let needsAppServerRestart = connectionDirty || llmDirty
+    let appServerRestartAttempted = false
+    let proxyApplied = false
+    let proxyEnabledAfterApply = proxyEnabled
+    let latestCore: WorkspaceCoreConfigResult | null = null
     setSaving(true)
     setRestartingAppServer(needsAppServerRestart)
     try {
@@ -1625,16 +1705,9 @@ export function SettingsView({
       if (!proxyLockActive && apiKey !== (workspaceCoreBaseline.apiKey ?? '')) payload.apiKey = apiKey || null
       if (!proxyLockActive && endPoint !== (workspaceCoreBaseline.endPoint ?? '')) payload.endPoint = endPoint || null
       if (Object.keys(payload).length > 0) {
-        const result = await window.api.appServer.sendRequest('workspace/config/update', payload) as WorkspaceCoreConfig
-        setWorkspaceCoreBaseline({
-          model: result.model ?? null,
-          apiKey: result.apiKey ?? workspaceCoreBaseline.apiKey ?? null,
-          endPoint: result.endPoint ?? workspaceCoreBaseline.endPoint ?? null
-        })
+        await window.api.appServer.sendRequest('workspace/config/update', payload)
       }
 
-      let proxyApplied = false
-      let proxyEnabledAfterApply = proxyEnabled
       if (proxyDirty) {
         proxyApplied = true
         proxyEnabledAfterApply = proxyEnabled
@@ -1645,21 +1718,36 @@ export function SettingsView({
         const status = await window.api.proxy.getStatus()
         setProxyStatusText(status.status)
         setProxyStatusError(status.status === 'error' ? status.errorMessage ?? '' : '')
+
+        latestCore = await window.api.workspaceConfig.getCore()
+        const workspaceCoreChanged = hasWorkspaceCoreChanged(latestCore.workspace)
+        if (workspaceCoreChanged && !needsAppServerRestart) {
+          setRestartingAppServer(true)
+        }
+        needsAppServerRestart = needsAppServerRestart || workspaceCoreChanged
       }
 
       if (needsAppServerRestart) {
+        appServerRestartAttempted = true
         setExpectedRestart(true)
         await window.api.appServer.restartManaged()
+        if (!latestCore) {
+          latestCore = await window.api.workspaceConfig.getCore()
+        }
+        applyWorkspaceCoreBaseline(latestCore, false)
         addToast(t('settings.restartAppServerSuccess'), 'success')
       } else if (proxyApplied) {
+        if (latestCore) {
+          applyWorkspaceCoreBaseline(latestCore, false)
+        }
         addToast(proxyEnabledAfterApply ? t('settings.proxy.restartSuccess') : t('settings.proxy.stopSuccess'), 'success')
       }
     } catch (err) {
-      if (needsAppServerRestart) {
+      if (appServerRestartAttempted) {
         setExpectedRestart(false)
       }
       addToast(
-        t(needsAppServerRestart && !proxyDirty ? 'settings.restartAppServerFailed' : 'settings.saveFailed', {
+        t(appServerRestartAttempted ? 'settings.restartAppServerFailed' : 'settings.saveFailed', {
           error: err instanceof Error ? err.message : String(err)
         }),
         'error'
@@ -1858,6 +1946,29 @@ export function SettingsView({
                   )}
                   <SettingsRow
                     label={t('settings.llm.apiKey')}
+                    description={
+                      showApiKeyInheritedHint ? (
+                        <span>
+                          {t('settings.llm.inheritingUserDefault')}
+                          {' '}
+                          <button
+                            type="button"
+                            onClick={handleActivateApiKeyOverride}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: 'var(--link-text)',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              padding: 0
+                            }}
+                          >
+                            {t('settings.llm.viewOrEdit')}
+                          </button>
+                        </span>
+                      ) : undefined
+                    }
+                    controlMinWidth={280}
                     control={
                       proxyLockActive ? (
                         <input
@@ -1865,6 +1976,14 @@ export function SettingsView({
                           value={llmApiKey}
                           readOnly
                           style={{ ...inputStyle(true), opacity: 0.7 }}
+                        />
+                      ) : !apiKeyOverrideActive ? (
+                        <input
+                          type="password"
+                          value=""
+                          readOnly
+                          style={{ ...inputStyle(true), opacity: 0.55 }}
+                          placeholder={t('settings.llm.inheritingUserDefault')}
                         />
                       ) : (
                         <SecretInput
@@ -1878,14 +1997,40 @@ export function SettingsView({
                   />
                   <SettingsRow
                     label={t('settings.llm.endPoint')}
+                    description={
+                      showEndPointInheritedHint ? (
+                        <span>
+                          {t('settings.llm.inheritingUserDefault')}
+                          {' '}
+                          <button
+                            type="button"
+                            onClick={handleActivateEndPointOverride}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: 'var(--link-text)',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              padding: 0
+                            }}
+                          >
+                            {t('settings.llm.viewOrEdit')}
+                          </button>
+                        </span>
+                      ) : undefined
+                    }
+                    controlMinWidth={280}
                     control={
                       <input
                         type="url"
                         value={llmEndPoint}
                         onChange={(e) => setLlmEndPoint(e.target.value)}
-                        style={{ ...inputStyle(true), opacity: proxyLockActive ? 0.7 : 1 }}
+                        style={{
+                          ...inputStyle(true),
+                          opacity: proxyLockActive || !endPointOverrideActive ? 0.55 : 1
+                        }}
                         placeholder="https://api.openai.com/v1"
-                        disabled={proxyLockActive}
+                        disabled={proxyLockActive || !endPointOverrideActive}
                       />
                     }
                   />

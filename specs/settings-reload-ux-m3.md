@@ -343,3 +343,13 @@ When two edits conflict semantically (for example, two clients each set a differ
 3. Should the Proxy-lock banner offer a "Disable proxy and edit" shortcut that stops the proxy before returning to Tier C mode? (Preference: no in M3; the existing Proxy tab is reachable in one click.)
 4. For Tier C groups whose fields are heterogeneous (e.g., Connection tab mixing "connection mode" with "WebSocket port"), should the Apply action be per-field, per-group, or per-tab? (Preference: per-group; the implementation plan picks group boundaries based on current tab layout.)
 5. Should Desktop cache `skills/list` and `mcp/list` across sessions to avoid the initial fetch delay? (Preference: no in M3; refresh is fast and caches add invalidation complexity.)
+
+---
+
+## 17. Post-Implementation Fixes
+
+The following behavior corrections were applied after the first M3 rollout:
+
+1. **LLM field width consistency**: `ApiKey` and `EndPoint` now share the same control width to avoid visual misalignment between masked and plain inputs.
+2. **Inherited default visibility**: when workspace `.craft/config.json` does not define `ApiKey` / `EndPoint`, Settings now indicates the values are inherited from user defaults (`~/.craft/config.json`) and provides a `View / Edit` entry point.
+3. **Proxy disable restart correctness**: disabling API Proxy now waits for workspace override cleanup, reevaluates effective workspace `ApiKey` / `EndPoint`, and triggers AppServer restart when those effective values changed so restart-required banners and runtime state stay consistent.

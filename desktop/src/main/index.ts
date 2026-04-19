@@ -728,7 +728,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
       await ensureProxyRunningForWorkspace(currentWorkspacePath)
     },
     getSettings: () => sharedSettings,
-    updateSettings: (partial) => {
+    updateSettings: async (partial) => {
       const prevLocale = normalizeLocale(sharedSettings.locale)
       const next = mergeUpdatedSettings(sharedSettings, partial)
       Object.assign(sharedSettings, next)
@@ -738,7 +738,7 @@ function buildCallbacks(): IpcHandlerCallbacks {
         proxyManager = null
         proxyStatus = { status: 'stopped' }
         if (currentWorkspacePath) {
-          void scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
+          await scheduleWorkspaceProxyOverrideCleanup(currentWorkspacePath, {
             proxyPort: resolveProxySettings(sharedSettings).port,
             proxyApiKey: resolveProxySettings(sharedSettings).apiKey
           })

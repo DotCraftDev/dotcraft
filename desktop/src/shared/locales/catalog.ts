@@ -72,6 +72,8 @@ const MESSAGES_EN = {
   'settings.llm.revert': 'Revert',
   'settings.llm.proxyLock.banner': 'API Key and EndPoint are managed by local API Proxy.',
   'settings.llm.proxyLock.openProxyTab': 'Go to API Proxy',
+  'settings.llm.inheritingUserDefault': 'Using user default',
+  'settings.llm.viewOrEdit': 'View / Edit',
   'settings.llm.lockedDiscardedNotice': 'Staged API Key and EndPoint edits were discarded because API Proxy is active.',
   'settings.llm.externalChangeNotice':
     'Another client changed workspace config. Your staged LLM edits are preserved; Revert now targets the latest baseline.',
@@ -1035,6 +1037,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.llm.revert': '还原',
   'settings.llm.proxyLock.banner': 'API Key 和 EndPoint 由本地 API Proxy 管理。',
   'settings.llm.proxyLock.openProxyTab': '前往 API 代理',
+  'settings.llm.inheritingUserDefault': '当前使用用户默认值',
+  'settings.llm.viewOrEdit': '查看/编辑',
   'settings.llm.lockedDiscardedNotice': '由于 API Proxy 正在运行，已丢弃暂存的 API Key 和 EndPoint 修改。',
   'settings.llm.externalChangeNotice':
     '其他客户端已更改工作区配置。你的 LLM 暂存编辑已保留；当前“还原”将回到最新基线。',
