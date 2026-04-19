@@ -303,6 +303,9 @@ export function App(): JSX.Element {
       if (caps?.cronManagement) {
         void useCronStore.getState().fetchJobs()
       }
+      if (caps?.modelCatalogManagement) {
+        void useModelCatalogStore.getState().loadIfNeeded(true)
+      }
       const hasTasks = caps?.automations === true
       const hasCron = caps?.cronManagement === true
       if (hasCron && !hasTasks) {
