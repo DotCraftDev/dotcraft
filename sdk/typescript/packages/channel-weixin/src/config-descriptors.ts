@@ -57,6 +57,7 @@ export const configDescriptors: LocalizedConfigDescriptor[] = [
     dataKind: "string",
     masked: false,
     interactiveSetupOnly: false,
+    advanced: true,
     defaultValue: "https://ilinkai.weixin.qq.com",
   },
   {
