@@ -40,6 +40,9 @@ public sealed class WelcomeSuggestionThreadSummary
 
     [Description("Last activity time in UTC ISO-8601 format.")]
     public string LastActiveAt { get; set; } = string.Empty;
+
+    [Description("A short high-signal preview of the thread's recent user intent.")]
+    public string Preview { get; set; } = string.Empty;
 }
 
 public sealed class WelcomeThreadHistoryResult
@@ -52,6 +55,12 @@ public sealed class WelcomeThreadHistoryResult
 
     [Description("Filtered recent user intent snippets from this thread.")]
     public string[] UserSnippets { get; set; } = [];
+
+    [Description("A compact summary of the latest useful agent response in this thread.")]
+    public string AgentSummary { get; set; } = string.Empty;
+
+    [Description("One to three dominant intents inferred from the thread history.")]
+    public string[] DominantIntents { get; set; } = [];
 }
 
 public sealed class WelcomeWorkspaceMemoryResult
@@ -64,6 +73,9 @@ public sealed class WelcomeWorkspaceMemoryResult
 
     [Description("Combined workspace memory context.")]
     public string Combined { get; set; } = string.Empty;
+
+    [Description("Short highlights extracted from workspace memory and recent history.")]
+    public string[] MemoryHighlights { get; set; } = [];
 }
 
 public sealed class WelcomeSuggestionToolItem
@@ -109,16 +121,23 @@ internal sealed class WelcomeSuggestionToolMethods(
                 && !WelcomeSuggestionService.IsInternalThread(summary))
             .OrderByDescending(summary => summary.LastActiveAt)
             .Take(Math.Clamp(limit, 1, MaxRecentThreadLimit))
-            .Select(summary => new WelcomeSuggestionThreadSummary
+            .ToList();
+
+        var results = new List<WelcomeSuggestionThreadSummary>(recentThreads.Count);
+        foreach (var summary in recentThreads)
+        {
+            var thread = await threadStore.LoadThreadAsync(summary.Id, CancellationToken.None).ConfigureAwait(false);
+            results.Add(new WelcomeSuggestionThreadSummary
             {
                 Id = summary.Id,
                 DisplayName = string.IsNullOrWhiteSpace(summary.DisplayName) ? summary.Id : summary.DisplayName.Trim(),
                 OriginChannel = summary.OriginChannel,
-                LastActiveAt = summary.LastActiveAt.ToString("O")
-            })
-            .ToList();
+                LastActiveAt = summary.LastActiveAt.ToString("O"),
+                Preview = thread == null ? string.Empty : WelcomeSuggestionService.BuildThreadPreview(thread)
+            });
+        }
 
-        return recentThreads;
+        return results;
     }
 
     [Tool(
@@ -144,7 +163,9 @@ internal sealed class WelcomeSuggestionToolMethods(
         {
             ThreadId = thread.Id,
             DisplayName = string.IsNullOrWhiteSpace(thread.DisplayName) ? thread.Id : thread.DisplayName.Trim(),
-            UserSnippets = snippets
+            UserSnippets = snippets,
+            AgentSummary = WelcomeSuggestionService.ExtractAgentSummary(thread),
+            DominantIntents = WelcomeSuggestionService.ExtractDominantIntents(snippets)
         };
     }
 
@@ -163,7 +184,8 @@ internal sealed class WelcomeSuggestionToolMethods(
         {
             Memory = memoryText,
             HistoryTail = historyTail,
-            Combined = combined
+            Combined = combined,
+            MemoryHighlights = WelcomeSuggestionService.ExtractMemoryHighlights(memoryText, historyTail)
         });
     }
 

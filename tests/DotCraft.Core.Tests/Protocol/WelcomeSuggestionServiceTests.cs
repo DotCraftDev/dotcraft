@@ -168,14 +168,166 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         Assert.NotEmpty(_sessionService.LastSubmittedContent);
         Assert.Null(_sessionService.LastSubmittedMessages);
         Assert.Contains(
-            "Use the welcome suggestion tools to inspect recent workspace history and memory",
+            "Inspect recent workspace history and memory, infer the likely next tasks",
             string.Concat(_sessionService.LastSubmittedContent.OfType<TextContent>().Select(item => item.Text)));
 
         var remainingThreads = await _threadStore.LoadIndexAsync();
         Assert.Equal(initialThreadCount, remainingThreads.Count);
         Assert.DoesNotContain(remainingThreads, summary =>
             string.Equals(summary.OriginChannel, WelcomeSuggestionConstants.ChannelName, StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(thread.Id, remainingThreads.First().Id);
+        Assert.Contains(remainingThreads, summary => summary.Id == thread.Id);
+    }
+
+    [Fact]
+    public async Task ReadWelcomeThreadHistory_ReturnsSnippets_AgentSummary_AndDominantIntents()
+    {
+        var thread = await _sessionService.CreateThreadAsync(CreateIdentity());
+        var turnId = SessionIdGenerator.NewTurnId(1);
+        thread.Turns.Add(new SessionTurn
+        {
+            Id = turnId,
+            ThreadId = thread.Id,
+            Status = TurnStatus.Completed,
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Items =
+            [
+                new SessionItem
+                {
+                    Id = SessionIdGenerator.NewItemId(1),
+                    TurnId = turnId,
+                    Type = ItemType.UserMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    Payload = new UserMessagePayload
+                    {
+                        Text = "Trace how welcome suggestions reuse workspace memory and thread history in Desktop."
+                    }
+                },
+                new SessionItem
+                {
+                    Id = SessionIdGenerator.NewItemId(2),
+                    TurnId = turnId,
+                    Type = ItemType.AgentMessage,
+                    Status = ItemStatus.Completed,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    Payload = new AgentMessagePayload
+                    {
+                        Text = "The likely implementation path is to reuse the welcome suggestion service and tighten the prompt plus evidence extraction."
+                    }
+                }
+            ]
+        });
+
+        await _threadStore.SaveThreadAsync(thread);
+        var methods = new WelcomeSuggestionToolMethods(_threadStore, _memoryStore, _workspacePath);
+
+        var result = await methods.ReadWelcomeThreadHistory(thread.Id);
+
+        Assert.Equal(thread.Id, result.ThreadId);
+        Assert.NotEmpty(result.UserSnippets);
+        Assert.Contains("workspace memory", result.UserSnippets[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("implementation path", result.AgentSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(result.DominantIntents);
+    }
+
+    [Fact]
+    public async Task ReadWelcomeWorkspaceMemory_ExtractsHighlights()
+    {
+        _memoryStore.WriteLongTerm("""
+            The current focus is improving Desktop welcome suggestions.
+            Make the generated prompts specific to thread history and memory.
+            """);
+        _memoryStore.AppendHistory("""
+            Welcome suggestion output should mention concrete modules, prompts, or settings instead of generic onboarding.
+            """);
+
+        var methods = new WelcomeSuggestionToolMethods(_threadStore, _memoryStore, _workspacePath);
+
+        var result = await methods.ReadWelcomeWorkspaceMemory();
+
+        Assert.NotEmpty(result.MemoryHighlights);
+        Assert.Contains(result.MemoryHighlights, item => item.Contains("welcome suggestions", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SuggestAsync_WhenModelReturnsGenericSuggestions_ReturnsNone()
+    {
+        await CreateThreadWithMessagesAsync(
+            "Review how welcome suggestions are generated from workspace history and memory.",
+            "Tighten the prompt so suggestions mention specific modules and tasks.");
+
+        _sessionService.SubmitInputHandler = (threadId, _, _) =>
+        {
+            return
+            [
+                new SessionEvent
+                {
+                    EventId = "evt_generic",
+                    EventType = SessionEventType.ItemCompleted,
+                    ThreadId = threadId,
+                    TurnId = "turn_001",
+                    ItemId = "item_001",
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Payload = new SessionItem
+                    {
+                        Id = "item_001",
+                        TurnId = "turn_001",
+                        Type = ItemType.ToolCall,
+                        Status = ItemStatus.Completed,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        CompletedAt = DateTimeOffset.UtcNow,
+                        Payload = new ToolCallPayload
+                        {
+                            ToolName = WelcomeSuggestionMethods.ToolName,
+                            CallId = "call_generic",
+                            Arguments = new JsonObject
+                            {
+                                ["items"] = new JsonArray
+                                {
+                                    new JsonObject
+                                    {
+                                        ["title"] = "Explore features",
+                                        ["prompt"] = "What features does DotCraft Desktop offer?",
+                                        ["reason"] = "Generic onboarding."
+                                    },
+                                    new JsonObject
+                                    {
+                                        ["title"] = "Learn the basics",
+                                        ["prompt"] = "Teach me the basics of using DotCraft.",
+                                        ["reason"] = "Generic onboarding."
+                                    },
+                                    new JsonObject
+                                    {
+                                        ["title"] = "Workspace setup",
+                                        ["prompt"] = "Help me set up my workspace.",
+                                        ["reason"] = "Generic onboarding."
+                                    },
+                                    new JsonObject
+                                    {
+                                        ["title"] = "New project",
+                                        ["prompt"] = "Help me start a new project.",
+                                        ["reason"] = "Generic onboarding."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ];
+        };
+
+        var service = CreateService();
+        var result = await service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        });
+
+        Assert.Equal("none", result.Source);
+        Assert.Empty(result.Items);
     }
 
     private WelcomeSuggestionService CreateService() =>

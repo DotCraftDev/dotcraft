@@ -31,12 +31,99 @@ public sealed class WelcomeSuggestionService(
     private const int MaxSnippetCount = 20;
     private const int MinSnippetLength = 15;
     private const int MaxSnippetLength = 300;
+    private const int MaxAgentSummaryChars = 220;
+    private const int MaxPreviewChars = 120;
+    private const int MaxHighlightCount = 5;
     internal const int MemoryCharsLimit = 5_000;
     internal const int HistoryTailCharsLimit = 3_000;
     internal const int TotalMemoryCharsLimit = 8_000;
     private const int MinimumSnippetsForDynamicSuggestions = 2;
     private static readonly TimeSpan SuggestTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+    private static readonly string[] SpecificitySignals =
+    [
+        ".cs",
+        ".tsx",
+        ".ts",
+        ".md",
+        ".json",
+        "api",
+        "agent",
+        "bug",
+        "component",
+        "config",
+        "endpoint",
+        "file",
+        "history",
+        "icon",
+        "memory",
+        "model",
+        "module",
+        "page",
+        "prompt",
+        "protocol",
+        "service",
+        "setting",
+        "settings",
+        "suggest",
+        "suggestion",
+        "test",
+        "tests",
+        "thread",
+        "tool",
+        "trace",
+        "ui",
+        "ux",
+        "welcome",
+        "workspace",
+        "配置",
+        "协议",
+        "线程",
+        "历史",
+        "记忆",
+        "模型",
+        "提示词",
+        "组件",
+        "页面",
+        "服务",
+        "测试",
+        "图标",
+        "输入框",
+        "建议",
+        "欢迎页",
+        "工作区",
+        "修复",
+        "排查"
+    ];
+    private static readonly string[] ActionSignals =
+    [
+        "add",
+        "adjust",
+        "analyze",
+        "audit",
+        "debug",
+        "design",
+        "fix",
+        "implement",
+        "investigate",
+        "map",
+        "refine",
+        "review",
+        "trace",
+        "tune",
+        "update",
+        "wire",
+        "优化",
+        "分析",
+        "修复",
+        "排查",
+        "实现",
+        "调整",
+        "梳理",
+        "审查",
+        "追踪",
+        "更新"
+    ];
 
     private readonly ConcurrentDictionary<string, WelcomeSuggestionCacheEntry> _cache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Lazy<Task<WelcomeSuggestionsResult>>> _inflight =
@@ -271,7 +358,7 @@ public sealed class WelcomeSuggestionService(
     }
 
     private static string BuildGenerationPrompt(int maxItems) =>
-        $"Use the welcome suggestion tools to inspect recent workspace history and memory, then call {WelcomeSuggestionMethods.ToolName} exactly once with exactly {maxItems} suggestions.";
+        $"Inspect recent workspace history and memory, infer the likely next tasks, and call {WelcomeSuggestionMethods.ToolName} exactly once with exactly {maxItems} concrete suggestions. If you cannot produce {maxItems} concrete suggestions, do not call the tool.";
 
     private static List<WelcomeSuggestionItem> ParseSuggestionItems(JsonObject? arguments, int maxItems)
     {
@@ -291,6 +378,8 @@ public sealed class WelcomeSuggestionService(
             var prompt = SanitizeSuggestionField(obj["prompt"]?.GetValue<string>(), 500);
             var reason = SanitizeSuggestionField(obj["reason"]?.GetValue<string>(), 200);
             if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(prompt))
+                continue;
+            if (!IsSpecificSuggestion(title, prompt))
                 continue;
 
             items.Add(new WelcomeSuggestionItem
@@ -319,6 +408,8 @@ public sealed class WelcomeSuggestionService(
 
     internal static IEnumerable<string> ExtractUserSnippets(SessionThread thread)
     {
+        var ranked = new List<(int Index, int Score, string Text)>();
+        var index = 0;
         foreach (var turn in thread.Turns)
         {
             foreach (var item in turn.Items)
@@ -329,9 +420,15 @@ public sealed class WelcomeSuggestionService(
                 var normalized = NormalizeSnippet(payload.Text);
                 if (normalized == null)
                     continue;
-
-                yield return normalized;
+                ranked.Add((index++, ScoreSnippetSpecificity(normalized), normalized));
             }
+        }
+
+        foreach (var entry in ranked
+                     .OrderByDescending(entry => entry.Score)
+                     .ThenByDescending(entry => entry.Index))
+        {
+            yield return entry.Text;
         }
     }
 
@@ -368,6 +465,57 @@ public sealed class WelcomeSuggestionService(
     }
 
     private static string NormalizeForDedup(string text) => text.Trim().ToLowerInvariant();
+
+    internal static string BuildThreadPreview(SessionThread thread)
+    {
+        var preview = ExtractUserSnippets(thread).FirstOrDefault();
+        return string.IsNullOrWhiteSpace(preview) ? string.Empty : SanitizeSuggestionField(preview, MaxPreviewChars);
+    }
+
+    internal static string ExtractAgentSummary(SessionThread thread)
+    {
+        foreach (var turn in thread.Turns.OrderByDescending(turn => turn.StartedAt))
+        {
+            foreach (var item in turn.Items.AsEnumerable().Reverse())
+            {
+                if (item.Type != ItemType.AgentMessage || item.AsAgentMessage is not { } payload)
+                    continue;
+                var summary = NormalizeSnippet(payload.Text) ?? SanitizeSuggestionField(payload.Text, MaxAgentSummaryChars);
+                if (!string.IsNullOrWhiteSpace(summary))
+                    return SanitizeSuggestionField(summary, MaxAgentSummaryChars);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    internal static string[] ExtractDominantIntents(IEnumerable<string> snippets)
+    {
+        var normalized = snippets
+            .Select(SimplifyIntentPhrase)
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .GroupBy(text => text, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count())
+            .ThenByDescending(group => group.Key.Length)
+            .Select(group => group.Key)
+            .Take(3)
+            .ToArray();
+
+        return normalized;
+    }
+
+    internal static string[] ExtractMemoryHighlights(string memoryText, string historyText)
+    {
+        return ExtractCandidateHighlights(memoryText)
+            .Concat(ExtractCandidateHighlights(historyText))
+            .Where(text => ScoreSnippetSpecificity(text) > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(ScoreSnippetSpecificity)
+            .ThenByDescending(text => text.Length)
+            .Take(MaxHighlightCount)
+            .Select(text => SanitizeSuggestionField(text, 180))
+            .ToArray();
+    }
 
     internal static string CombineMemory(string memoryText, string historyText, int totalMemoryCharsLimit)
     {
@@ -414,6 +562,78 @@ public sealed class WelcomeSuggestionService(
             return string.Empty;
         var trimmed = text.Trim();
         return trimmed.Length <= maxChars ? trimmed : trimmed[^maxChars..].TrimStart();
+    }
+
+    private static bool IsSpecificSuggestion(string title, string prompt)
+    {
+        return HasSpecificitySignal(title) || (HasSpecificitySignal(prompt) && HasActionSignal(prompt));
+    }
+
+    private static bool HasSpecificitySignal(string text)
+    {
+        foreach (var signal in SpecificitySignals)
+        {
+            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return text.Contains('/') || text.Contains('\\') || text.Contains('`') || text.Contains('_');
+    }
+
+    private static bool HasActionSignal(string text)
+    {
+        foreach (var signal in ActionSignals)
+        {
+            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    internal static int ScoreSnippetSpecificity(string text)
+    {
+        var score = 0;
+        foreach (var signal in SpecificitySignals)
+        {
+            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
+                score += 3;
+        }
+
+        foreach (var signal in ActionSignals)
+        {
+            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
+                score += 2;
+        }
+
+        if (text.Contains('/') || text.Contains('\\') || text.Contains('.') || text.Contains('`'))
+            score += 2;
+
+        return score;
+    }
+
+    private static string SimplifyIntentPhrase(string text)
+    {
+        var normalized = text.Trim();
+        if (normalized.Length > 90)
+            normalized = normalized[..90].TrimEnd();
+        return normalized;
+    }
+
+    private static IEnumerable<string> ExtractCandidateHighlights(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            yield break;
+
+        var parts = text
+            .Split(['\r', '\n', '.', '!', '?', '。', '！', '？'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var part in parts)
+        {
+            var normalized = NormalizeSnippet(part);
+            if (normalized != null)
+                yield return normalized;
+        }
     }
 
     private static WelcomeSuggestionsResult BuildNoSuggestionsResult(string fingerprint) =>
