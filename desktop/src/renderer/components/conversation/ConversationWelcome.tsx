@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
-import { BookText, Bug, FileText, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useT } from '../../contexts/LocaleContext'
 import { DotCraftLogo } from '../ui/DotCraftLogo'
 import { useConnectionStore } from '../../stores/connectionStore'
@@ -30,7 +29,6 @@ interface ConversationWelcomeProps {
 }
 
 interface Suggestion {
-  icon: ComponentType<{ size?: number; strokeWidth?: number }>
   title: string
   prompt: string
 }
@@ -143,25 +141,21 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const suggestions: Suggestion[] = useMemo(
     () => [
       {
-        icon: FileText,
         title: t('welcome.suggestion.explore'),
         prompt:
           'Give me a quick overview of this project: what it does, its structure, and where the main entry points are.'
       },
       {
-        icon: Bug,
         title: t('welcome.suggestion.bug'),
         prompt:
           'Scan the codebase for potential bugs, error-prone patterns, or unhandled edge cases and suggest fixes.'
       },
       {
-        icon: Sparkles,
         title: t('welcome.suggestion.feature'),
         prompt:
           'Help me design and implement a new feature for this project. Describe what you want to build.'
       },
       {
-        icon: BookText,
         title: t('welcome.suggestion.docs'),
         prompt:
           'Generate clear documentation for this codebase: README sections, inline comments, and API docs.'
@@ -641,53 +635,49 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
           <div
             style={{
               width: '100%',
-              maxWidth: '560px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '4px'
+              alignSelf: 'stretch',
+              paddingLeft: '14px'
             }}
           >
-            {suggestions.map((s, idx) => {
-              const Icon = s.icon
-              return (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => { fillSuggestion(s.prompt) }}
-                  disabled={busy}
-                  onMouseEnter={() => setHoveredIdx(idx)}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    width: '100%',
-                    padding: '10px 12px',
-                    background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'transparent',
-                    border: 'none',
-                    borderRadius: '10px',
-                    color: 'var(--text-primary)',
-                    cursor: busy ? 'default' : 'pointer',
-                    textAlign: 'left',
-                    transition: 'background-color 120ms ease',
-                    opacity: busy ? 0.7 : 1
-                  }}
-                  aria-label={s.title}
-                >
-                  <Icon size={18} strokeWidth={1.8} />
-                  <span
-                    style={{
-                      fontSize: '14px',
-                      fontWeight: 500,
-                      color: 'var(--text-primary)',
-                      lineHeight: 1.3
-                    }}
-                  >
-                    {s.title}
-                  </span>
-                </button>
-              )
-            })}
+            {suggestions.map((s, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => { fillSuggestion(s.prompt) }}
+                disabled={busy}
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  width: 'fit-content',
+                  padding: '6px 10px',
+                  margin: '1px 0',
+                  background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'transparent',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: 'var(--text-secondary)',
+                  cursor: busy ? 'default' : 'pointer',
+                  textAlign: 'left',
+                  fontSize: '13px',
+                  fontWeight: 400,
+                  lineHeight: 1.4,
+                  transition: 'background-color 120ms ease, color 120ms ease',
+                  opacity: busy ? 0.7 : 1
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.color = 'var(--text-primary)'
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.color = 'var(--text-secondary)'
+                }}
+                aria-label={s.title}
+              >
+                {s.title}
+              </button>
+            ))}
           </div>
         </div>
       </div>
