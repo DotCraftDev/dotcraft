@@ -74,6 +74,7 @@ echo.
 
 if not exist "desktop\resources\modules\channel-feishu" mkdir "desktop\resources\modules\channel-feishu"
 if not exist "desktop\resources\modules\channel-weixin" mkdir "desktop\resources\modules\channel-weixin"
+if not exist "desktop\resources\modules\channel-telegram" mkdir "desktop\resources\modules\channel-telegram"
 
 if exist "sdk\typescript\packages\channel-feishu\manifest.json" (
     copy /Y "sdk\typescript\packages\channel-feishu\manifest.json" "desktop\resources\modules\channel-feishu\manifest.json" >nul
@@ -89,6 +90,14 @@ if exist "sdk\typescript\packages\channel-weixin\manifest.json" (
     xcopy /E /I /Y "sdk\typescript\packages\channel-weixin\dist" "desktop\resources\modules\channel-weixin\dist" >nul
 ) else (
     echo WARNING: channel-weixin manifest.json not found. Run sdk\typescript build first.
+)
+
+if exist "sdk\typescript\packages\channel-telegram\manifest.json" (
+    copy /Y "sdk\typescript\packages\channel-telegram\manifest.json" "desktop\resources\modules\channel-telegram\manifest.json" >nul
+    copy /Y "sdk\typescript\packages\channel-telegram\package.json" "desktop\resources\modules\channel-telegram\package.json" >nul
+    xcopy /E /I /Y "sdk\typescript\packages\channel-telegram\dist" "desktop\resources\modules\channel-telegram\dist" >nul
+) else (
+    echo WARNING: channel-telegram manifest.json not found. Run sdk\typescript build first.
 )
 
 echo.

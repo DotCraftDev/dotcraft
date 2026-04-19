@@ -8,11 +8,12 @@
 
 ## TypeScript 包集合
 
-TypeScript 外部渠道能力由以下三个包构成：
+TypeScript 外部渠道能力由以下四个包构成：
 
 - `dotcraft-wire`（共享 SDK：Wire 客户端、适配器基类、模块契约类型）
 - `@dotcraft/channel-feishu`（飞书 / Lark 一方模块包）
 - `@dotcraft/channel-weixin`（微信一方模块包）
+- `@dotcraft/channel-telegram`（Telegram 一方模块包）
 
 宿主侧模块加载与生命周期集成说明见：
 
@@ -47,6 +48,7 @@ const transport = new WebSocketTransport({
 
 - `packages/channel-weixin/`：微信适配器
 - `packages/channel-feishu/`：飞书 / Lark 适配器
+- `packages/channel-telegram/`：Telegram 适配器
 
 ## 调试
 

@@ -147,6 +147,7 @@ $targets = @(
     @{ Type = "npmLock"; Path = "sdk/typescript/package-lock.json"; Name = "dotcraft-wire" },
     @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-feishu/package.json" },
     @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-weixin/package.json" },
+    @{ Type = "packageJson"; Path = "sdk/typescript/packages/channel-telegram/package.json" },
     @{ Type = "packageJson"; Path = "src/DotCraft.UnityClient/Packages/com.dotcraft.unityclient/package.json" }
 )
 
