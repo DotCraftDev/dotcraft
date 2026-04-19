@@ -26,6 +26,7 @@ export interface ServerCapabilities {
   externalChannelManagement?: boolean
   gitHubTrackerConfig?: boolean
   mcpStatus?: boolean
+  extensions?: Record<string, unknown>
   [key: string]: unknown
 }
 

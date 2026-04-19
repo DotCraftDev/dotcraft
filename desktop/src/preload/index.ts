@@ -385,8 +385,16 @@ const api = {
 
   workspaceConfig: {
     getCore(): Promise<{
-      workspace: { apiKey: string | null; endPoint: string | null }
-      userDefaults: { apiKey: string | null; endPoint: string | null }
+      workspace: {
+        apiKey: string | null
+        endPoint: string | null
+        welcomeSuggestionsEnabled: boolean | null
+      }
+      userDefaults: {
+        apiKey: string | null
+        endPoint: string | null
+        welcomeSuggestionsEnabled: boolean | null
+      }
     }> {
       return ipcRenderer.invoke('workspace-config:get-core')
     }

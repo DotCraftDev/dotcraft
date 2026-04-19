@@ -21,6 +21,7 @@ import { CommandSearchPopover } from './CommandSearchPopover'
 import { FileSearchPopover } from './FileSearchPopover'
 import { AttachmentStrip } from './AttachmentStrip'
 import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
+import { SparkIcon } from '../ui/AppIcons'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
 import { ModelPicker } from './ModelPicker'
 import {
@@ -30,9 +31,12 @@ import {
   composerSendButtonStyle,
   composerModelPillStyle
 } from './ComposerShell'
+import type { WorkspaceConfigChangedPayload } from '../../utils/workspaceConfigChanged'
 
 interface ConversationWelcomeProps {
   workspacePath: string
+  workspaceConfigChange?: WorkspaceConfigChangedPayload | null
+  workspaceConfigChangeSeq?: number
 }
 
 interface Suggestion {
@@ -40,6 +44,20 @@ interface Suggestion {
   title: string
   prompt: string
 }
+
+interface WelcomeSuggestionWireItem {
+  title?: string
+  prompt?: string
+  reason?: string
+}
+
+interface WelcomeSuggestionsWireResult {
+  items?: WelcomeSuggestionWireItem[]
+  source?: string
+  fingerprint?: string
+}
+
+type SuggestionsStatus = 'idle' | 'loading' | 'ready'
 
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
@@ -51,7 +69,11 @@ const WELCOME_DRAFT_DEBOUNCE_MS = 250
  * Keeps the composer centered in the page so users can start a conversation
  * without clicking New Thread first; quick-start rows prefill the composer.
  */
-export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps): JSX.Element {
+export function ConversationWelcome({
+  workspacePath,
+  workspaceConfigChange = null,
+  workspaceConfigChangeSeq = 0
+}: ConversationWelcomeProps): JSX.Element {
   const t = useT()
   const [contentRevision, setContentRevision] = useState(0)
   const [images, setImages] = useState<ImageAttachment[]>([])
@@ -60,6 +82,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [editorFocused, setEditorFocused] = useState(false)
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
+  const [dynamicSuggestions, setDynamicSuggestions] = useState<Suggestion[] | null>(null)
+  const [suggestionsStatus, setSuggestionsStatus] = useState<SuggestionsStatus>('idle')
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [mentionDismissed, setMentionDismissed] = useState(false)
   const [slashQuery, setSlashQuery] = useState<string | null>(null)
@@ -68,12 +92,17 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
   const [modelName, setModelName] = useState<string>('Default')
   const [modelApplying, setModelApplying] = useState(false)
+  const [welcomeSuggestionsConfigReady, setWelcomeSuggestionsConfigReady] = useState(false)
+  const [welcomeSuggestionsEnabled, setWelcomeSuggestionsEnabled] = useState(true)
   const sendInFlightRef = useRef(false)
   const skipDraftPersistRef = useRef(false)
   const draftHydratedRef = useRef(false)
   const latestDraftTextRef = useRef('')
   const latestDraftSegmentsRef = useRef<ComposerDraftSegment[]>([])
+  const latestDraftSelectionRef = useRef<{ start: number; end: number } | null>(null)
   const initialWelcomeDraftRef = useRef(useUIStore.getState().welcomeDraft)
+  const suggestionFingerprintRef = useRef<string | null>(null)
+  const suggestionRequestSeqRef = useRef(0)
   const richRef = useRef<RichInputAreaHandle>(null)
   const connectionStatus = useConnectionStore((s) => s.status)
   const capabilities = useConnectionStore((s) => s.capabilities)
@@ -128,6 +157,14 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     return parseJsonConfig<Record<string, unknown>>(raw, {})
   }, [workspaceConfigPath])
 
+  const getCaseInsensitiveValue = useCallback((record: Record<string, unknown>, key: string): unknown => {
+    const expected = key.toLowerCase()
+    for (const [candidate, value] of Object.entries(record)) {
+      if (candidate.toLowerCase() === expected) return value
+    }
+    return undefined
+  }, [])
+
   const resolveModelFromConfig = useCallback((cfg: Record<string, unknown>): string => {
     const modelRaw = cfg.Model ?? cfg.model
     if (typeof modelRaw !== 'string') return 'Default'
@@ -135,6 +172,15 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     if (trimmed.length === 0 || trimmed === 'Default') return 'Default'
     return trimmed
   }, [])
+
+  const resolveWelcomeSuggestionsEnabled = useCallback((cfg: Record<string, unknown>): boolean => {
+    const section = getCaseInsensitiveValue(cfg, 'WelcomeSuggestions')
+    if (section == null || typeof section !== 'object' || Array.isArray(section)) {
+      return true
+    }
+    const enabled = getCaseInsensitiveValue(section as Record<string, unknown>, 'Enabled')
+    return typeof enabled === 'boolean' ? enabled : true
+  }, [getCaseInsensitiveValue])
 
   const suggestions: Suggestion[] = useMemo(
     () => [
@@ -165,6 +211,156 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     ],
     [t]
   )
+
+  const welcomeSuggestionsSupported = capabilities?.extensions != null
+    && typeof capabilities.extensions === 'object'
+    && capabilities.extensions !== null
+    && (capabilities.extensions as Record<string, unknown>).welcomeSuggestions === true
+
+  useEffect(() => {
+    let disposed = false
+    const loadFlag = async (): Promise<void> => {
+      if (!workspaceConfigPath) {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(true)
+          setWelcomeSuggestionsConfigReady(true)
+        }
+        return
+      }
+
+      try {
+        const cfg = await readWorkspaceConfig()
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(resolveWelcomeSuggestionsEnabled(cfg))
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      } catch {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(true)
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      }
+    }
+
+    void loadFlag()
+    return () => {
+      disposed = true
+    }
+  }, [readWorkspaceConfig, resolveWelcomeSuggestionsEnabled, workspaceConfigPath])
+
+  useEffect(() => {
+    if (workspaceConfigChange == null || workspaceConfigChangeSeq === 0) return
+    if (!workspaceConfigChange.regions.includes('welcomeSuggestions')) return
+
+    let disposed = false
+    void readWorkspaceConfig()
+      .then((cfg) => {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(resolveWelcomeSuggestionsEnabled(cfg))
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setWelcomeSuggestionsEnabled(true)
+          setWelcomeSuggestionsConfigReady(true)
+        }
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [
+    readWorkspaceConfig,
+    resolveWelcomeSuggestionsEnabled,
+    workspaceConfigChange,
+    workspaceConfigChangeSeq
+  ])
+
+  useEffect(() => {
+    if (welcomeSuggestionsEnabled) return
+    suggestionRequestSeqRef.current += 1
+    suggestionFingerprintRef.current = null
+    setDynamicSuggestions(null)
+    setSuggestionsStatus('idle')
+  }, [welcomeSuggestionsEnabled])
+
+  useEffect(() => {
+    const requestSeq = ++suggestionRequestSeqRef.current
+
+    if (
+      !welcomeSuggestionsConfigReady ||
+      !isConnected ||
+      !workspacePath ||
+      !welcomeSuggestionsSupported ||
+      !welcomeSuggestionsEnabled
+    ) {
+      setDynamicSuggestions(null)
+      suggestionFingerprintRef.current = null
+      setSuggestionsStatus('idle')
+      return
+    }
+
+    setSuggestionsStatus('loading')
+    void window.api.appServer.sendRequest('welcome/suggestions', {
+      identity: {
+        channelName: 'dotcraft-desktop',
+        userId: 'local',
+        channelContext: `workspace:${workspacePath}`,
+        workspacePath
+      },
+      maxItems: 4
+    }).then((raw) => {
+      if (requestSeq !== suggestionRequestSeqRef.current) return
+
+      const result = raw as WelcomeSuggestionsWireResult
+      if (result.source !== 'dynamic' || !Array.isArray(result.items) || result.items.length === 0) {
+        suggestionFingerprintRef.current = null
+        setDynamicSuggestions(null)
+        setSuggestionsStatus('idle')
+        return
+      }
+      if (result.fingerprint && result.fingerprint === suggestionFingerprintRef.current) {
+        setSuggestionsStatus('ready')
+        return
+      }
+
+      const mapped = result.items
+        .map((item) => {
+          const title = typeof item.title === 'string' ? item.title.trim() : ''
+          const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
+          if (!title || !prompt) return null
+          return {
+            icon: SparkIcon,
+            title,
+            prompt
+          } satisfies Suggestion
+        })
+        .filter((item): item is Suggestion => item !== null)
+
+      if (mapped.length === 0) {
+        setSuggestionsStatus('idle')
+        return
+      }
+      suggestionFingerprintRef.current = typeof result.fingerprint === 'string' ? result.fingerprint : null
+      setDynamicSuggestions(mapped)
+      setSuggestionsStatus('ready')
+    }).catch(() => {
+      if (requestSeq !== suggestionRequestSeqRef.current) return
+      suggestionFingerprintRef.current = null
+      setDynamicSuggestions(null)
+      setSuggestionsStatus('idle')
+    })
+  }, [
+    isConnected,
+    welcomeSuggestionsConfigReady,
+    welcomeSuggestionsEnabled,
+    welcomeSuggestionsSupported,
+    workspacePath
+  ])
+
+  const displayedSuggestions = dynamicSuggestions ?? suggestions
+  const showSuggestionSkeleton = suggestionsStatus === 'loading'
 
   const handleAtQuery = useCallback((q: string | null): void => {
     setAtQuery(q)
@@ -210,6 +406,14 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       text: welcomeDraft.text,
       segments: welcomeDraft.segments
     })
+    richRef.current?.setSelectionRange({
+      start: welcomeDraft.selectionStart ?? welcomeDraft.text.length,
+      end: welcomeDraft.selectionEnd ?? welcomeDraft.selectionStart ?? welcomeDraft.text.length
+    })
+    latestDraftSelectionRef.current = {
+      start: welcomeDraft.selectionStart ?? welcomeDraft.text.length,
+      end: welcomeDraft.selectionEnd ?? welcomeDraft.selectionStart ?? welcomeDraft.text.length
+    }
     latestDraftTextRef.current = welcomeDraft.text
     latestDraftSegmentsRef.current = [...(welcomeDraft.segments ?? [])]
     setImages(welcomeDraft.images)
@@ -252,11 +456,13 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     if (skipDraftPersistRef.current) return
     const text = richRef.current?.getText() ?? latestDraftTextRef.current
     const segments = richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
+    const selection = latestDraftSelectionRef.current ?? richRef.current?.getSelectionRange()
     const hasText = text.trim().length > 0
     const hasImages = images.length > 0
     const hasFiles = files.length > 0
     const model = modelName || 'Default'
     const hasCustomSettings = welcomeMode !== 'agent' || model !== 'Default'
+    const fallbackCaret = text.length
 
     if (!hasText && !hasImages && !hasFiles && !hasCustomSettings) {
       clearWelcomeDraft()
@@ -266,6 +472,8 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
     setWelcomeDraft({
       text,
       segments: [...segments],
+      selectionStart: selection?.start ?? fallbackCaret,
+      selectionEnd: selection?.end ?? fallbackCaret,
       images: [...images],
       files: [...files],
       mode: welcomeMode,
@@ -368,6 +576,7 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
       skipDraftPersistRef.current = true
       latestDraftTextRef.current = ''
       latestDraftSegmentsRef.current = []
+      latestDraftSelectionRef.current = null
       clearWelcomeDraft()
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
@@ -471,7 +680,16 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
 
   function fillSuggestion(prompt: string): void {
     richRef.current?.setPlainText(prompt)
-    setTimeout(() => richRef.current?.focus(), 0)
+    setTimeout(() => {
+      latestDraftSelectionRef.current = {
+        start: prompt.length,
+        end: prompt.length
+      }
+      richRef.current?.setSelectionRange({
+        start: prompt.length,
+        end: prompt.length
+      })
+    }, 0)
   }
 
   const canSend = useMemo(() => {
@@ -606,6 +824,11 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
                           richRef.current?.getSegments() ?? latestDraftSegmentsRef.current
                         setContentRevision((n) => n + 1)
                       }}
+                      onSelectionChange={(range) => {
+                        if (range) {
+                          latestDraftSelectionRef.current = range
+                        }
+                      }}
                       onFocusChange={setEditorFocused}
                       onPasteImage={onPasteImage}
                       onPasteTextOversized={() => {
@@ -679,52 +902,101 @@ export function ConversationWelcome({ workspacePath }: ConversationWelcomeProps)
               width: '100%',
               display: 'flex',
               flexDirection: 'column',
-              paddingLeft: '14px',
-              marginTop: '-4px'
+              marginTop: '8px',
+              gap: '4px'
             }}
           >
-            {suggestions.map((s, idx) => {
-              const Icon = s.icon
-              return (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => { fillSuggestion(s.prompt) }}
-                  disabled={busy}
-                  onMouseEnter={() => setHoveredIdx(idx)}
-                  onMouseLeave={() => setHoveredIdx(null)}
+            {showSuggestionSkeleton
+              ? Array.from({ length: 4 }, (_, idx) => (
+                <div
+                  key={`skeleton-${idx}`}
+                  aria-hidden="true"
+                  data-testid="welcome-suggestion-skeleton"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
-                    width: 'fit-content',
+                    gap: '10px',
+                    width: '100%',
+                    minHeight: '34px',
+                    boxSizing: 'border-box',
                     padding: '6px 10px',
-                    margin: '1px 0',
-                    background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'transparent',
-                    border: 'none',
                     borderRadius: '8px',
-                    color: 'var(--text-secondary)',
-                    cursor: busy ? 'default' : 'pointer',
-                    textAlign: 'left',
-                    fontSize: '13px',
-                    fontWeight: 400,
-                    lineHeight: 1.4,
-                    transition: 'background-color 120ms ease, color 120ms ease',
-                    opacity: busy ? 0.7 : 1
+                    opacity: 0.9
                   }}
-                  onFocus={(e) => {
-                    e.currentTarget.style.color = 'var(--text-primary)'
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.color = 'var(--text-secondary)'
-                  }}
-                  aria-label={s.title}
                 >
-                  <Icon size={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-                  <span>{s.title}</span>
-                </button>
-              )
-            })}
+                  <span
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '999px',
+                      background: 'var(--bg-tertiary)',
+                      flexShrink: 0
+                    }}
+                  />
+                  <span
+                    style={{
+                      height: '12px',
+                      borderRadius: '999px',
+                      background: 'var(--bg-tertiary)',
+                      width: `${78 - idx * 8}%`,
+                      maxWidth: idx === 3 ? '220px' : '320px'
+                    }}
+                  />
+                </div>
+              ))
+              : displayedSuggestions.map((s, idx) => {
+                const Icon = s.icon
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => { fillSuggestion(s.prompt) }}
+                    disabled={busy}
+                    onMouseEnter={() => setHoveredIdx(idx)}
+                    onMouseLeave={() => setHoveredIdx(null)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      width: '100%',
+                      minHeight: '34px',
+                      boxSizing: 'border-box',
+                      padding: '6px 10px',
+                      margin: 0,
+                      background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'transparent',
+                      border: 'none',
+                      borderRadius: '8px',
+                      color: 'var(--text-secondary)',
+                      cursor: busy ? 'default' : 'pointer',
+                      textAlign: 'left',
+                      fontSize: '13px',
+                      fontWeight: 400,
+                      lineHeight: 1.4,
+                      transition: 'background-color 120ms ease, color 120ms ease',
+                      opacity: busy ? 0.7 : 1
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.color = 'var(--text-primary)'
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.color = 'var(--text-secondary)'
+                    }}
+                    aria-label={s.title}
+                  >
+                    <Icon size={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+                    <span
+                      style={{
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {s.title}
+                    </span>
+                  </button>
+                )
+              })}
           </div>
         </div>
       </div>

@@ -32,10 +32,13 @@ const SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
 
 type RefType = 'file' | 'command' | 'skill'
 type RichInputContent = string | { text?: string; segments?: ComposerDraftSegment[] }
+type SelectionRange = { start: number; end: number }
 
 export interface RichInputAreaHandle {
   getText: () => string
   getSegments: () => ComposerDraftSegment[]
+  getSelectionRange: () => SelectionRange | null
+  setSelectionRange: (range: SelectionRange) => void
   clear: () => void
   focus: () => void
   insertFileTag: (relativePath: string) => void
@@ -58,6 +61,7 @@ interface RichInputAreaProps {
   onAtQuery?: (query: string | null) => void
   onSlashQuery?: (query: string | null) => void
   onContentChange?: () => void
+  onSelectionChange?: (range: SelectionRange | null) => void
   onFocusChange?: (focused: boolean) => void
   onPasteImage?: (file: File) => void
   onPasteTextOversized?: () => void
@@ -110,6 +114,100 @@ function textBeforeCaretForTriggers(root: HTMLElement): string {
   const div = document.createElement('div')
   div.appendChild(frag)
   return linearizeForTriggers(div)
+}
+
+function linearLengthOfNode(node: Node): number {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node.textContent ?? '').length
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return 0
+  const el = node as HTMLElement
+  if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') return 0
+  if (
+    el.classList.contains(FILE_REF_CLASS) ||
+    el.classList.contains(COMMAND_REF_CLASS) ||
+    el.classList.contains(SKILL_REF_CLASS) ||
+    el.tagName === 'BR'
+  ) {
+    return 1
+  }
+
+  let total = 0
+  for (const child of Array.from(node.childNodes)) {
+    total += linearLengthOfNode(child)
+  }
+  return total
+}
+
+function linearOffsetFromPoint(root: HTMLElement, node: Node, offset: number): number | null {
+  if (!root.contains(node) && root !== node) return null
+  const range = document.createRange()
+  try {
+    range.selectNodeContents(root)
+    range.setEnd(node, offset)
+  } catch {
+    return null
+  }
+  const frag = range.cloneContents()
+  const div = document.createElement('div')
+  div.appendChild(frag)
+  return linearizeForTriggers(div).length
+}
+
+function locateLinearBoundary(root: HTMLElement, target: number): { node: Node; offset: number } {
+  const totalLength = linearLengthOfNode(root)
+  const clamped = Math.max(0, Math.min(target, totalLength))
+
+  function walk(parent: Node, startPos: number): { found: { node: Node; offset: number } | null; nextPos: number } {
+    let pos = startPos
+    const children = Array.from(parent.childNodes)
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index]!
+      if (clamped === pos) {
+        return { found: { node: parent, offset: index }, nextPos: pos }
+      }
+
+      if (child.nodeType === Node.TEXT_NODE) {
+        const len = (child.textContent ?? '').length
+        if (clamped <= pos + len) {
+          return { found: { node: child, offset: clamped - pos }, nextPos: clamped }
+        }
+        pos += len
+        continue
+      }
+
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const el = child as HTMLElement
+        if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') {
+          continue
+        }
+        if (
+          el.classList.contains(FILE_REF_CLASS) ||
+          el.classList.contains(COMMAND_REF_CLASS) ||
+          el.classList.contains(SKILL_REF_CLASS) ||
+          el.tagName === 'BR'
+        ) {
+          pos += 1
+          if (clamped === pos) {
+            return { found: { node: parent, offset: index + 1 }, nextPos: pos }
+          }
+          continue
+        }
+
+        const nested = walk(child, pos)
+        if (nested.found) return nested
+        pos = nested.nextPos
+      }
+    }
+
+    if (clamped === pos) {
+      return { found: { node: parent, offset: children.length }, nextPos: pos }
+    }
+    return { found: null, nextPos: pos }
+  }
+
+  const located = walk(root, 0).found
+  return located ?? { node: root, offset: root.childNodes.length }
 }
 
 function walkToLinearOffset(
@@ -214,6 +312,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
     onAtQuery,
     onSlashQuery,
     onContentChange,
+    onSelectionChange,
     onFocusChange,
     onPasteImage,
     onPasteTextOversized
@@ -221,6 +320,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
   ref: ForwardedRef<RichInputAreaHandle>
 ) {
     const editorRef = useRef<HTMLDivElement>(null)
+    const lastSelectionRangeRef = useRef<SelectionRange | null>(null)
     const [showPh, setShowPh] = useState(true)
 
     const syncEmpty = useCallback(() => {
@@ -255,6 +355,64 @@ export const RichInputArea = forwardRef(function RichInputArea(
       return collectComposerDraftSegments(el)
     }, [])
 
+    const readSelectionRange = useCallback((): SelectionRange | null => {
+      const el = editorRef.current
+      const sel = window.getSelection()
+      if (!el || !sel || sel.rangeCount === 0) return null
+      const range = sel.getRangeAt(0)
+      if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return null
+
+      const start = linearOffsetFromPoint(el, range.startContainer, range.startOffset)
+      const end = linearOffsetFromPoint(el, range.endContainer, range.endOffset)
+      if (start == null || end == null) return null
+      return { start, end }
+    }, [])
+
+    const getSelectionRange = useCallback((): SelectionRange | null => {
+      const current = readSelectionRange()
+      if (current) {
+        lastSelectionRangeRef.current = current
+        return current
+      }
+      return lastSelectionRangeRef.current
+    }, [readSelectionRange])
+
+    const captureSelectionRange = useCallback((): void => {
+      const current = readSelectionRange()
+      if (current) {
+        lastSelectionRangeRef.current = current
+      }
+      onSelectionChange?.(current)
+    }, [onSelectionChange, readSelectionRange])
+
+    const setSelectionRange = useCallback((range: SelectionRange): void => {
+      const el = editorRef.current
+      if (!el) return
+
+      const totalLength = linearLengthOfNode(el)
+      const start = Math.max(0, Math.min(range.start, totalLength))
+      const end = Math.max(start, Math.min(range.end, totalLength))
+      const startLoc = locateLinearBoundary(el, start)
+      const endLoc = locateLinearBoundary(el, end)
+      const nextRange = document.createRange()
+
+      try {
+        nextRange.setStart(startLoc.node, startLoc.offset)
+        nextRange.setEnd(endLoc.node, endLoc.offset)
+      } catch {
+        const fallback = locateLinearBoundary(el, totalLength)
+        nextRange.setStart(fallback.node, fallback.offset)
+        nextRange.setEnd(fallback.node, fallback.offset)
+      }
+
+      el.focus()
+      const sel = window.getSelection()
+      sel?.removeAllRanges()
+      sel?.addRange(nextRange)
+      lastSelectionRangeRef.current = { start, end }
+      onSelectionChange?.({ start, end })
+    }, [onSelectionChange])
+
     const clear = useCallback((): void => {
       const el = editorRef.current
       if (!el) return
@@ -263,8 +421,10 @@ export const RichInputArea = forwardRef(function RichInputArea(
       onSlashQuery?.(null)
       setShowPh(true)
       adjustHeight()
+      lastSelectionRangeRef.current = { start: 0, end: 0 }
+      onSelectionChange?.({ start: 0, end: 0 })
       onContentChange?.()
-    }, [adjustHeight, onAtQuery, onContentChange, onSlashQuery])
+    }, [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSlashQuery])
 
     const focusEditor = useCallback((): void => {
       editorRef.current?.focus()
@@ -357,9 +517,17 @@ export const RichInputArea = forwardRef(function RichInputArea(
         onSlashQuery?.(null)
         syncEmpty()
         adjustHeight()
+        lastSelectionRangeRef.current = {
+          start: text.length,
+          end: text.length
+        }
+        onSelectionChange?.({
+          start: text.length,
+          end: text.length
+        })
         onContentChange?.()
       },
-      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
+      [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSlashQuery, syncEmpty]
     )
 
     const setStructuredContent = useCallback(
@@ -374,9 +542,18 @@ export const RichInputArea = forwardRef(function RichInputArea(
         onSlashQuery?.(null)
         syncEmpty()
         adjustHeight()
+        const contentLength = linearLengthOfNode(el)
+        lastSelectionRangeRef.current = {
+          start: contentLength,
+          end: contentLength
+        }
+        onSelectionChange?.({
+          start: contentLength,
+          end: contentLength
+        })
         onContentChange?.()
       },
-      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
+      [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSlashQuery, syncEmpty]
     )
 
     const setContent = useCallback(
@@ -399,6 +576,8 @@ export const RichInputArea = forwardRef(function RichInputArea(
       () => ({
         getText,
         getSegments,
+        getSelectionRange,
+        setSelectionRange,
         clear,
         focus: focusEditor,
         insertFileTag,
@@ -407,7 +586,19 @@ export const RichInputArea = forwardRef(function RichInputArea(
         setContent,
         setPlainText
       }),
-      [getText, getSegments, clear, focusEditor, insertCommandTag, insertFileTag, insertSkillTag, setContent, setPlainText]
+      [
+        getText,
+        getSegments,
+        getSelectionRange,
+        setSelectionRange,
+        clear,
+        focusEditor,
+        insertCommandTag,
+        insertFileTag,
+        insertSkillTag,
+        setContent,
+        setPlainText
+      ]
     )
 
     useEffect(() => {
@@ -450,6 +641,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
       syncEmpty()
       adjustHeight()
       emitTriggerQueries()
+      captureSelectionRange()
       onContentChange?.()
       const el = editorRef.current
       if (el && serializeEditor(el).length > MAX_TEXT_LEN) {
@@ -457,9 +649,10 @@ export const RichInputArea = forwardRef(function RichInputArea(
         syncEmpty()
         adjustHeight()
         emitTriggerQueries()
+        captureSelectionRange()
         onContentChange?.()
       }
-    }, [adjustHeight, emitTriggerQueries, onContentChange, syncEmpty])
+    }, [adjustHeight, captureSelectionRange, emitTriggerQueries, onContentChange, syncEmpty])
 
     const onKeyDown = useCallback(
       (e: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -659,6 +852,9 @@ export const RichInputArea = forwardRef(function RichInputArea(
           role="textbox"
           aria-multiline="true"
           aria-placeholder={placeholder}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
           contentEditable={!disabled}
           suppressContentEditableWarning
           data-placeholder={placeholder}
@@ -667,10 +863,15 @@ export const RichInputArea = forwardRef(function RichInputArea(
           onInput={onInput}
           onClick={onEditorClick}
           onKeyDown={onKeyDown}
+          onKeyUp={captureSelectionRange}
+          onMouseUp={captureSelectionRange}
           onCopy={(e) => onCopyOrCut(e, false)}
           onCut={(e) => onCopyOrCut(e, true)}
           onPaste={onPaste}
-          onFocus={() => onFocusChange?.(true)}
+          onFocus={() => {
+            captureSelectionRange()
+            onFocusChange?.(true)
+          }}
           onBlur={() => onFocusChange?.(false)}
           className="rich-input-area"
           style={{

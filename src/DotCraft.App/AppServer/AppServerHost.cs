@@ -157,6 +157,12 @@ public sealed class AppServerHost(
         sessionService.ThreadDeletedForBroadcast = BroadcastThreadDeleted;
         sessionService.ThreadRenamedForBroadcast = BroadcastThreadRenamed;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
+        var welcomeSuggestionService = new WelcomeSuggestionService(
+            sessionService,
+            sp.GetRequiredService<ThreadStore>(),
+            memoryStore,
+            paths.WorkspacePath,
+            sp.GetService<ILoggerFactory>()?.CreateLogger<WelcomeSuggestionService>());
         mcpClientManager.StatusChanged += OnMcpStatusChanged;
 
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
@@ -308,21 +314,21 @@ public sealed class AppServerHost(
                     // Pure WebSocket mode: no stdio transport; the WebSocket server is
                     // the main loop. Stdout remains available for normal console output.
                     // -------------------------------------------------------------------
-                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, cancellationToken);
+                    await RunWebSocketOnlyAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, welcomeSuggestionService, cancellationToken);
                     break;
 
                 case AppServerMode.StdioAndWebSocket:
                     // -------------------------------------------------------------------
                     // Dual mode: stdio main loop + WebSocket listener running in parallel.
                     // -------------------------------------------------------------------
-                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, cancellationToken);
+                    await RunStdioWithWebSocketAsync(appServerConfig.WebSocket, sessionService, commitMessageSuggest, welcomeSuggestionService, cancellationToken);
                     break;
 
                 default:
                     // -------------------------------------------------------------------
                     // Stdio-only mode (default): standard subprocess JSON-RPC over stdio.
                     // -------------------------------------------------------------------
-                    await RunStdioOnlyAsync(sessionService, commitMessageSuggest, cancellationToken);
+                    await RunStdioOnlyAsync(sessionService, commitMessageSuggest, welcomeSuggestionService, cancellationToken);
                     break;
             }
         }
@@ -359,6 +365,7 @@ public sealed class AppServerHost(
     private async Task RunStdioOnlyAsync(
         ISessionService sessionService,
         ICommitMessageSuggestService commitMessageSuggest,
+        IWelcomeSuggestionService welcomeSuggestionService,
         CancellationToken cancellationToken)
     {
         await using var transport = StdioTransport.CreateStdio();
@@ -376,6 +383,7 @@ public sealed class AppServerHost(
             automationsHandler: _automationsHandler,
             broadcastCronStateChanged: BroadcastCronStateChanged,
             commitMessageSuggest: commitMessageSuggest,
+            welcomeSuggestionService: welcomeSuggestionService,
             dashboardUrl: _dashboardUrl,
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
             channelStatusProvider: _channelRunner,
@@ -406,9 +414,16 @@ public sealed class AppServerHost(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
         ICommitMessageSuggestService commitMessageSuggest,
+        IWelcomeSuggestionService welcomeSuggestionService,
         CancellationToken cancellationToken)
     {
-        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, commitMessageSuggest, cancellationToken, externalChannelRegistry);
+        var (wsApp, wsUrl) = BuildWebSocketApp(
+            wsConfig,
+            sessionService,
+            commitMessageSuggest,
+            welcomeSuggestionService,
+            cancellationToken,
+            externalChannelRegistry);
 
         AnsiConsole.MarkupLine(
             $"[green][[AppServer]][/] DotCraft AppServer started (WebSocket at ws://{wsConfig.Host}:{wsConfig.Port}/ws)");
@@ -421,11 +436,18 @@ public sealed class AppServerHost(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
         ICommitMessageSuggestService commitMessageSuggest,
+        IWelcomeSuggestionService welcomeSuggestionService,
         CancellationToken cancellationToken)
     {
         // Build the WebSocket app and start it explicitly so that bind failures
         // surface immediately (fail-fast) instead of being deferred to finally.
-        var (wsApp, wsUrl) = BuildWebSocketApp(wsConfig, sessionService, commitMessageSuggest, cancellationToken, externalChannelRegistry);
+        var (wsApp, wsUrl) = BuildWebSocketApp(
+            wsConfig,
+            sessionService,
+            commitMessageSuggest,
+            welcomeSuggestionService,
+            cancellationToken,
+            externalChannelRegistry);
         wsApp.Urls.Add(wsUrl);
         await wsApp.StartAsync(cancellationToken);
 
@@ -447,6 +469,7 @@ public sealed class AppServerHost(
             automationsHandler: _automationsHandler,
             broadcastCronStateChanged: BroadcastCronStateChanged,
             commitMessageSuggest: commitMessageSuggest,
+            welcomeSuggestionService: welcomeSuggestionService,
             dashboardUrl: _dashboardUrl,
             wireAcpExtensionProxy: _wireAcpExtensionProxy,
             channelStatusProvider: _channelRunner,
@@ -483,6 +506,7 @@ public sealed class AppServerHost(
         WebSocketServerConfig wsConfig,
         ISessionService sessionService,
         ICommitMessageSuggestService commitMessageSuggest,
+        IWelcomeSuggestionService welcomeSuggestionService,
         CancellationToken hostCt,
         ExternalChannelRegistry? channelRegistry = null)
     {
@@ -540,6 +564,7 @@ public sealed class AppServerHost(
                     automationsHandler: _automationsHandler,
                     broadcastCronStateChanged: BroadcastCronStateChanged,
                     commitMessageSuggest: commitMessageSuggest,
+                    welcomeSuggestionService: welcomeSuggestionService,
                     dashboardUrl: _dashboardUrl,
                     wireAcpExtensionProxy: _wireAcpExtensionProxy,
                     channelStatusProvider: _channelRunner,

@@ -14,6 +14,77 @@ const saveImageToTemp = vi.fn()
 const pickFiles = vi.fn()
 const settingsGet = vi.fn()
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+function linearizeSelection(root: Node): string {
+  let out = ''
+  const walk = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.textContent ?? ''
+      return
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const el = node as HTMLElement
+    if (
+      el.classList.contains(FILE_REF_CLASS) ||
+      el.classList.contains(COMMAND_REF_CLASS) ||
+      el.classList.contains(SKILL_REF_CLASS) ||
+      el.tagName === 'BR'
+    ) {
+      out += ' '
+      return
+    }
+    for (const child of Array.from(node.childNodes)) {
+      walk(child)
+    }
+  }
+  walk(root)
+  return out
+}
+
+function getTextboxSelection(textbox: HTMLElement): { start: number; end: number } | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+  const range = selection.getRangeAt(0)
+  if (!textbox.contains(range.startContainer) || !textbox.contains(range.endContainer)) return null
+
+  const startRange = document.createRange()
+  startRange.selectNodeContents(textbox)
+  startRange.setEnd(range.startContainer, range.startOffset)
+  const endRange = document.createRange()
+  endRange.selectNodeContents(textbox)
+  endRange.setEnd(range.endContainer, range.endOffset)
+
+  const startContainer = document.createElement('div')
+  startContainer.appendChild(startRange.cloneContents())
+  const endContainer = document.createElement('div')
+  endContainer.appendChild(endRange.cloneContents())
+
+  return {
+    start: linearizeSelection(startContainer).length,
+    end: linearizeSelection(endContainer).length
+  }
+}
+
+function setTextboxCaret(textbox: HTMLElement, offset: number): void {
+  const textNode = textbox.firstChild
+  if (!textNode) throw new Error('textbox has no text node')
+  const range = document.createRange()
+  range.setStart(textNode, offset)
+  range.setEnd(textNode, offset)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
 function renderWelcome() {
   return render(
     <LocaleProvider>
@@ -56,7 +127,10 @@ describe('ConversationWelcome composer', () => {
       capabilities: {
         commandManagement: true,
         modelCatalogManagement: true,
-        workspaceConfigManagement: true
+        workspaceConfigManagement: true,
+        extensions: {
+          welcomeSuggestions: true
+        }
       }
     })
     useModelCatalogStore.setState({
@@ -68,6 +142,13 @@ describe('ConversationWelcome composer', () => {
     fileReadFile.mockResolvedValue('{}')
     settingsGet.mockResolvedValue({ locale: 'en' })
     appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return {
+          source: 'none',
+          items: [],
+          fingerprint: 'none'
+        }
+      }
       if (method === 'thread/start') {
         return {
           thread: {
@@ -158,8 +239,9 @@ describe('ConversationWelcome composer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     await waitFor(() => {
-      expect(appServerSendRequest.mock.calls[1]?.[0]).toBe('thread/start')
-      const payload = appServerSendRequest.mock.calls[1]?.[1] as {
+      const threadStartCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'thread/start')
+      expect(threadStartCall?.[0]).toBe('thread/start')
+      const payload = threadStartCall?.[1] as {
         historyMode?: string
         identity?: { workspacePath?: string }
       }
@@ -182,6 +264,8 @@ describe('ConversationWelcome composer', () => {
   it('hydrates from welcomeDraft and persists latest draft on unmount', async () => {
     useUIStore.getState().setWelcomeDraft({
       text: 'resume draft message',
+      selectionStart: 6,
+      selectionEnd: 6,
       images: [],
       mode: 'plan',
       model: 'gpt-5.4-mini'
@@ -193,6 +277,9 @@ describe('ConversationWelcome composer', () => {
     await waitFor(() => {
       expect(textbox.textContent).toContain('resume draft message')
     })
+    await waitFor(() => {
+      expect(getTextboxSelection(textbox)).toEqual({ start: 6, end: 6 })
+    })
     expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Explore this workspace' }))
@@ -203,6 +290,37 @@ describe('ConversationWelcome composer', () => {
       model: 'gpt-5.4-mini'
     })
     expect(useUIStore.getState().welcomeDraft?.text).toContain('Give me a quick overview of this project')
+  })
+
+  it('preserves caret position across thread switch and welcome remount', async () => {
+    const firstMount = renderWelcome()
+
+    const textbox = await screen.findByRole('textbox')
+    fireEvent.input(textbox, { target: { textContent: 'restore this caret' } })
+    setTextboxCaret(textbox, 7)
+    fireEvent.mouseUp(textbox)
+
+    await waitFor(() => {
+      expect(getTextboxSelection(textbox)).toEqual({ start: 7, end: 7 })
+    })
+
+    firstMount.unmount()
+
+    expect(useUIStore.getState().welcomeDraft).toMatchObject({
+      text: 'restore this caret',
+      selectionStart: 7,
+      selectionEnd: 7
+    })
+
+    const secondMount = renderWelcome()
+    const restoredTextbox = await screen.findByRole('textbox')
+
+    await waitFor(() => {
+      expect(restoredTextbox.textContent).toContain('restore this caret')
+      expect(getTextboxSelection(restoredTextbox)).toEqual({ start: 7, end: 7 })
+    })
+
+    secondMount.unmount()
   })
 
   it('hydrates structured welcome drafts back into inline tags', async () => {
@@ -295,5 +413,167 @@ describe('ConversationWelcome composer', () => {
         files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
       })
     })
+  })
+
+  it('replaces static welcome suggestions when dynamic suggestions load successfully', async () => {
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return {
+          source: 'dynamic',
+          fingerprint: 'dynamic-1',
+          items: [
+            {
+              title: 'Review desktop welcome flow',
+              prompt: 'Review the Desktop welcome flow and identify where we should inject dynamic quick suggestions.'
+            },
+            {
+              title: 'Map thread history inputs',
+              prompt: 'Trace how current workspace thread history is loaded so we can feed it into welcome suggestion generation.'
+            }
+          ]
+        }
+      }
+      if (method === 'thread/start') {
+        return {
+          thread: {
+            id: 'thread-welcome',
+            displayName: 'Welcome thread',
+            status: 'active',
+            originChannel: 'dotcraft-desktop',
+            createdAt: '2026-04-16T08:00:00.000Z',
+            lastActiveAt: '2026-04-16T08:00:00.000Z'
+          }
+        }
+      }
+      return {}
+    })
+
+    renderWelcome()
+
+    expect(await screen.findByText('Review desktop welcome flow')).toBeInTheDocument()
+    await waitFor(() => {
+      const methods = appServerSendRequest.mock.calls.map((call) => call[0])
+      expect(methods).toContain('welcome/suggestions')
+    })
+    expect(screen.queryByText('Explore this workspace')).not.toBeInTheDocument()
+  })
+
+  it('keeps static welcome suggestions when the server returns none', async () => {
+    renderWelcome()
+
+    expect(await screen.findByRole('button', { name: 'Explore this workspace' })).toBeInTheDocument()
+    await waitFor(() => {
+      const methods = appServerSendRequest.mock.calls.map((call) => call[0])
+      expect(methods).toContain('welcome/suggestions')
+    })
+    expect(screen.queryAllByTestId('welcome-suggestion-skeleton')).toHaveLength(0)
+  })
+
+  it('does not request welcome suggestions when the workspace config disables them', async () => {
+    fileReadFile.mockResolvedValue(
+      JSON.stringify({
+        WelcomeSuggestions: {
+          Enabled: false
+        }
+      })
+    )
+
+    renderWelcome()
+
+    await screen.findByRole('button', { name: 'Explore this workspace' })
+    await waitFor(() => {
+      const methods = appServerSendRequest.mock.calls.map((call) => call[0])
+      expect(methods).not.toContain('welcome/suggestions')
+    })
+  })
+
+  it('clicking a dynamic suggestion prefills the welcome composer', async () => {
+    const dynamicPrompt = 'Audit how workspace memory is currently loaded and suggest how to reuse it for welcome suggestions.'
+
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return {
+          source: 'dynamic',
+          fingerprint: 'dynamic-2',
+          items: [
+            {
+              title: 'Audit workspace memory usage',
+              prompt: dynamicPrompt
+            }
+          ]
+        }
+      }
+      if (method === 'thread/start') {
+        return {
+          thread: {
+            id: 'thread-welcome',
+            displayName: 'Welcome thread',
+            status: 'active',
+            originChannel: 'dotcraft-desktop',
+            createdAt: '2026-04-16T08:00:00.000Z',
+            lastActiveAt: '2026-04-16T08:00:00.000Z'
+          }
+        }
+      }
+      return {}
+    })
+
+    renderWelcome()
+
+    const dynamicButton = await screen.findByRole('button', { name: 'Audit workspace memory usage' })
+    fireEvent.click(dynamicButton)
+
+    const textbox = await screen.findByRole('textbox')
+    expect(textbox.textContent).toContain('Audit how workspace memory is currently loaded')
+    await waitFor(() => {
+      expect(getTextboxSelection(textbox)).toEqual({
+        start: dynamicPrompt.length,
+        end: dynamicPrompt.length
+      })
+    })
+  })
+
+  it('shows loading skeletons while dynamic suggestions are pending', async () => {
+    const deferred = createDeferred<{
+      source: string
+      fingerprint: string
+      items: Array<{ title: string; prompt: string }>
+    }>()
+
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return deferred.promise
+      }
+      return {}
+    })
+
+    renderWelcome()
+
+    expect(await screen.findAllByTestId('welcome-suggestion-skeleton')).toHaveLength(4)
+    expect(screen.queryByRole('button', { name: 'Explore this workspace' })).not.toBeInTheDocument()
+
+    deferred.resolve({
+      source: 'dynamic',
+      fingerprint: 'dynamic-loading',
+      items: [
+        {
+          title: 'Inspect suggestion loading',
+          prompt: 'Inspect suggestion loading state transitions on the welcome screen.'
+        }
+      ]
+    })
+
+    expect(await screen.findByRole('button', { name: 'Inspect suggestion loading' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryAllByTestId('welcome-suggestion-skeleton')).toHaveLength(0)
+    })
+  })
+
+  it('renders suggestion buttons as full-width rows', async () => {
+    renderWelcome()
+
+    const button = await screen.findByRole('button', { name: 'Explore this workspace' })
+    expect(button.getAttribute('style')).toContain('width: 100%')
+    expect(button.getAttribute('style')).toContain('box-sizing: border-box')
   })
 })

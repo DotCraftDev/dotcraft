@@ -177,6 +177,33 @@ function normalizeOptionalStringValue(value: unknown): string | null {
 interface WorkspaceCoreConfigSnapshot {
   apiKey: string | null
   endPoint: string | null
+  welcomeSuggestionsEnabled: boolean | null
+}
+
+function getCaseInsensitiveRecordValue(
+  record: Record<string, unknown>,
+  key: string
+): unknown {
+  const expected = key.toLowerCase()
+  for (const [candidate, value] of Object.entries(record)) {
+    if (candidate.toLowerCase() === expected) {
+      return value
+    }
+  }
+  return undefined
+}
+
+function readNestedBoolean(
+  record: Record<string, unknown>,
+  sectionKey: string,
+  fieldKey: string
+): boolean | null {
+  const section = getCaseInsensitiveRecordValue(record, sectionKey)
+  if (section == null || typeof section !== 'object' || Array.isArray(section)) {
+    return null
+  }
+  const raw = getCaseInsensitiveRecordValue(section as Record<string, unknown>, fieldKey)
+  return typeof raw === 'boolean' ? raw : null
 }
 
 async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCoreConfigSnapshot> {
@@ -185,12 +212,13 @@ async function readCoreConfigSnapshot(configPath: string): Promise<WorkspaceCore
     const parsed = parseJsonObjectConfig(raw)
     return {
       apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
-      endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint)
+      endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint),
+      welcomeSuggestionsEnabled: readNestedBoolean(parsed, 'WelcomeSuggestions', 'Enabled')
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code
     if (code === 'ENOENT') {
-      return { apiKey: null, endPoint: null }
+      return { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null }
     }
     throw error
   }
@@ -576,12 +604,12 @@ export function registerIpcHandlers(
 
   handleSafe('workspace-config:get-core', async () => {
     const workspacePath = callbacks?.getWorkspaceStatus().workspacePath?.trim()
-    if (!workspacePath) {
-      return {
-        workspace: { apiKey: null, endPoint: null },
-        userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
+      if (!workspacePath) {
+        return {
+          workspace: { apiKey: null, endPoint: null, welcomeSuggestionsEnabled: null },
+          userDefaults: await readCoreConfigSnapshot(path.join(os.homedir(), '.craft', 'config.json'))
+        }
       }
-    }
 
     return {
       workspace: await readCoreConfigSnapshot(path.join(workspacePath, '.craft', 'config.json')),

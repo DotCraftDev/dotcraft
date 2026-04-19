@@ -110,6 +110,9 @@ public sealed class AppConfig
     public SkillsConfig Skills { get; set; } = new();
 
     [ConfigField(Ignore = true)]
+    public WelcomeSuggestionsConfig WelcomeSuggestions { get; set; } = new();
+
+    [ConfigField(Ignore = true)]
     public HooksConfig Hooks { get; set; } = new();
 
     [ConfigField(Ignore = true)]
@@ -652,6 +655,13 @@ public sealed class AppConfig
         public List<string> DisabledSkills { get; set; } = [];
     }
 
+    [ConfigSection("WelcomeSuggestions", DisplayName = "Welcome Suggestions", Order = 59)]
+    public sealed class WelcomeSuggestionsConfig
+    {
+        [ConfigField(Hint = "Enable personalized welcome suggestions on the Desktop welcome screen.", Reload = ReloadBehavior.Hot, HasReload = true)]
+        public bool Enabled { get; set; } = true;
+    }
+
     [ConfigSection("Hooks", DisplayName = "Hooks", Order = 85)]
     public sealed class HooksConfig
     {
@@ -756,4 +766,3 @@ public sealed class AppConfig
         public bool IncludeFullText { get; set; } = true;
     }
 }
-

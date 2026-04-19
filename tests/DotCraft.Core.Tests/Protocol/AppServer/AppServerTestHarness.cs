@@ -42,7 +42,8 @@ internal sealed class AppServerTestHarness : IDisposable
         IReadOnlyList<ConfigSchemaSection>? configSchema = null,
         IAppConfigMonitor? appConfigMonitor = null,
         SkillsLoader? skillsLoader = null,
-        McpClientManager? mcpClientManager = null)
+        McpClientManager? mcpClientManager = null,
+        IWelcomeSuggestionService? welcomeSuggestionService = null)
     {
         _tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -62,6 +63,7 @@ internal sealed class AppServerTestHarness : IDisposable
             workspaceCraftPath: workspaceCraftPath,
             hostWorkspacePath: _tempDir,
             protocolExtensions: protocolExtensions,
+            welcomeSuggestionService: welcomeSuggestionService,
             onExternalChannelUpserted: onExternalChannelUpserted,
             onExternalChannelRemoved: onExternalChannelRemoved,
             configSchema: configSchema,
