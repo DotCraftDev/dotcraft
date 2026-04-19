@@ -597,6 +597,67 @@ describe('notification dispatch payload format', () => {
     expect(toolItem?.executionStatus).toBe('inProgress')
   })
 
+  it('keeps Exec render state live when command execution starts before toolCall completion', () => {
+    dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'cmd_real_order',
+          type: 'commandExecution',
+          payload: {
+            callId: 'exec-real-order',
+            command: 'dir',
+            source: 'host',
+            status: 'inProgress',
+            aggregatedOutput: ''
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/started',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_real_order',
+          type: 'toolCall',
+          payload: {
+            callId: 'exec-real-order',
+            toolName: 'Exec'
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/completed',
+      params: {
+        turnId: 'turn_1',
+        item: {
+          id: 'tool_real_order',
+          type: 'toolCall',
+          payload: {
+            callId: 'exec-real-order',
+            toolName: 'Exec',
+            arguments: { command: 'dir' }
+          }
+        }
+      }
+    })
+    dispatch({
+      method: 'item/commandExecution/outputDelta',
+      params: { threadId: 'thread-1', turnId: 'turn_1', itemId: 'cmd_real_order', delta: 'file.txt\n' }
+    })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool_real_order')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.status).toBe('completed')
+    expect(toolItem?.arguments?.command).toBe('dir')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+    expect(toolItem?.aggregatedOutput).toBe('file.txt\n')
+  })
+
   it('dispatches item/usage/delta and accumulates tokens', () => {
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
     dispatch({ method: 'item/usage/delta', params: { inputTokens: 150, outputTokens: 80 } })

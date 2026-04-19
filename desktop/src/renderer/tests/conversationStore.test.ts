@@ -178,6 +178,93 @@ describe('turn lifecycle', () => {
     expect(toolItem?.executionStatus).toBe('inProgress')
   })
 
+  it('merges an existing command execution into Exec when toolCall starts later', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-pre',
+        type: 'commandExecution',
+        payload: {
+          callId: 'exec-pre',
+          command: 'npm test',
+          source: 'host',
+          status: 'inProgress',
+          aggregatedOutput: 'booting\n'
+        }
+      }
+    })
+
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-pre',
+        type: 'toolCall',
+        payload: {
+          callId: 'exec-pre',
+          toolName: 'Exec',
+          arguments: { command: 'npm test' }
+        }
+      }
+    })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool-pre')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+    expect(toolItem?.aggregatedOutput).toBe('booting\n')
+    expect(toolItem?.commandSource).toBe('host')
+  })
+
+  it('keeps Exec live when toolCall completes after command execution already started', () => {
+    s().onTurnStarted(makeTurn())
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'cmd-live',
+        type: 'commandExecution',
+        payload: {
+          callId: 'exec-live',
+          command: 'npm test',
+          source: 'host',
+          status: 'inProgress',
+          aggregatedOutput: 'booting\n'
+        }
+      }
+    })
+    s().onItemStarted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-live',
+        type: 'toolCall',
+        payload: {
+          callId: 'exec-live',
+          toolName: 'Exec'
+        }
+      }
+    })
+
+    s().onItemCompleted({
+      turnId: 'turn-1',
+      item: {
+        id: 'tool-live',
+        type: 'toolCall',
+        completedAt: new Date().toISOString(),
+        payload: {
+          callId: 'exec-live',
+          toolName: 'Exec',
+          arguments: { command: 'npm test' }
+        }
+      }
+    })
+
+    const toolItem = s().turns[0].items.find((i) => i.id === 'tool-live')
+    expect(toolItem?.type).toBe('toolCall')
+    expect(toolItem?.status).toBe('completed')
+    expect(toolItem?.arguments?.command).toBe('npm test')
+    expect(toolItem?.executionStatus).toBe('inProgress')
+    expect(toolItem?.aggregatedOutput).toBe('booting\n')
+  })
+
   it('mirrors command execution onto matching RunCommand toolCall (not only Exec)', () => {
     s().onTurnStarted(makeTurn())
     s().onItemStarted({

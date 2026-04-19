@@ -10,6 +10,8 @@ function renderWithLocale(node: JSX.Element): void {
   render(<LocaleProvider>{node}</LocaleProvider>)
 }
 
+const collapseAnimationMs = 200
+
 describe('ToolCallCard shell rendering', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
@@ -171,7 +173,7 @@ describe('ToolCallCard shell rendering', () => {
     vi.useRealTimers()
   })
 
-  it('auto-expands eligible running tools after threshold and auto-collapses when completed', () => {
+  it('auto-expands eligible running tools after threshold and auto-collapses after the collapse animation completes', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-04-13T10:00:00.000Z'))
     const runningItem: ConversationItem = {
@@ -211,7 +213,13 @@ describe('ToolCallCard shell rendering', () => {
       </LocaleProvider>
     )
 
-    expect(screen.queryByText('Waiting for output...')).toBeNull()
+    expect(screen.getByText('ok')).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(collapseAnimationMs)
+    })
+
+    expect(screen.queryByText('ok')).toBeNull()
     vi.useRealTimers()
   })
 
@@ -276,6 +284,37 @@ describe('ToolCallCard shell rendering', () => {
     vi.useRealTimers()
   })
 
+  it('keeps content mounted during manual collapse animation before removing it', () => {
+    vi.useFakeTimers()
+    const completedItem: ConversationItem = {
+      id: 'tool-manual-collapse',
+      type: 'toolCall',
+      status: 'completed',
+      toolName: 'Exec',
+      toolCallId: 'exec-manual-collapse-1',
+      arguments: { command: 'echo hello' },
+      result: 'hello',
+      success: true,
+      duration: 120,
+      createdAt: '2026-04-13T10:00:00.000Z'
+    }
+
+    renderWithLocale(<ToolCallCard item={completedItem} turnId="turn-1" />)
+
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByText('hello')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByText('hello')).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(collapseAnimationMs)
+    })
+
+    expect(screen.queryByText('hello')).toBeNull()
+    vi.useRealTimers()
+  })
+
   it('keeps lingering card expanded until lingering ends', () => {
     vi.useFakeTimers()
     const runningItem: ConversationItem = {
@@ -320,6 +359,12 @@ describe('ToolCallCard shell rendering', () => {
         <ToolCallCard item={completedItem} turnId="turn-1" isLingering={false} />
       </LocaleProvider>
     )
+
+    expect(screen.getByText('Waiting for output...')).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(collapseAnimationMs)
+    })
 
     expect(screen.queryByText('Waiting for output...')).toBeNull()
     vi.useRealTimers()

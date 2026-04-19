@@ -35,6 +35,8 @@ interface ToolCallCardProps {
   isLingering?: boolean
 }
 
+const COLLAPSIBLE_TRANSITION_MS = 200
+
 function isShellExecutionRunning(item: ConversationItem, isShellTool: boolean): boolean {
   if (!isShellTool) return false
   if (item.executionStatus != null) {
@@ -57,6 +59,7 @@ export const ToolCallCard = memo(function ToolCallCard({
 }: ToolCallCardProps): JSX.Element {
   const locale = useLocale()
   const [expanded, setExpanded] = useState(false)
+  const [renderExpanded, setRenderExpanded] = useState(false)
   const [autoExpanded, setAutoExpanded] = useState(false)
   const [userInteracted, setUserInteracted] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -81,6 +84,12 @@ export const ToolCallCard = memo(function ToolCallCard({
     || item.executionStatus === 'cancelled'
     || (item.exitCode != null && item.exitCode !== 0)
   const success = item.success !== false && !shellFailed
+
+  useEffect(() => {
+    if (expanded) {
+      setRenderExpanded(true)
+    }
+  }, [expanded])
 
   useEffect(() => {
     const start = item.createdAt ? new Date(item.createdAt).getTime() : Date.now()
@@ -258,7 +267,11 @@ export const ToolCallCard = memo(function ToolCallCard({
           {canExpandWhileRunning && <ToolCollapseChevron expanded={expanded} />}
         </button>
 
-        {expanded && canExpandWhileRunning && (
+        <CollapsibleContent
+          expanded={expanded && canExpandWhileRunning}
+          renderExpanded={renderExpanded && canExpandWhileRunning}
+          setRenderExpanded={setRenderExpanded}
+        >
           <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
             {isShellTool ? (
               <ExpandedContent
@@ -290,7 +303,7 @@ export const ToolCallCard = memo(function ToolCallCard({
               />
             )}
           </div>
-        )}
+        </CollapsibleContent>
       </div>
     )
   }
@@ -349,7 +362,11 @@ export const ToolCallCard = memo(function ToolCallCard({
         <ToolCollapseChevron expanded={expanded} />
       </button>
 
-      {expanded && (
+      <CollapsibleContent
+        expanded={expanded}
+        renderExpanded={renderExpanded}
+        setRenderExpanded={setRenderExpanded}
+      >
         <div style={{ background: 'var(--bg-secondary)', padding: '8px' }}>
           <ExpandedContent
             itemId={item.id}
@@ -362,10 +379,127 @@ export const ToolCallCard = memo(function ToolCallCard({
             planTodos={planTodos}
           />
         </div>
-      )}
+      </CollapsibleContent>
     </div>
   )
 })
+
+interface CollapsibleContentProps {
+  expanded: boolean
+  renderExpanded: boolean
+  setRenderExpanded: (value: boolean) => void
+  children: JSX.Element
+}
+
+function CollapsibleContent({
+  expanded,
+  renderExpanded,
+  setRenderExpanded,
+  children
+}: CollapsibleContentProps): JSX.Element | null {
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
+  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [height, setHeight] = useState<string>('0px')
+  const [opacity, setOpacity] = useState(0)
+  const [translateY, setTranslateY] = useState('-2px')
+
+  useEffect(() => {
+    if (animationFrameRef.current != null) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+    if (transitionTimerRef.current != null) {
+      clearTimeout(transitionTimerRef.current)
+      transitionTimerRef.current = null
+    }
+
+    if (!renderExpanded) {
+      setHeight('0px')
+      setOpacity(0)
+      setTranslateY('-2px')
+      return
+    }
+
+    const measuredHeight = contentRef.current?.scrollHeight ?? 0
+
+    if (expanded) {
+      setHeight('0px')
+      setOpacity(0)
+      setTranslateY('-2px')
+      animationFrameRef.current = requestAnimationFrame(() => {
+        setHeight(`${measuredHeight}px`)
+        setOpacity(1)
+        setTranslateY('0px')
+        animationFrameRef.current = null
+      })
+      transitionTimerRef.current = setTimeout(() => {
+        setHeight('auto')
+        transitionTimerRef.current = null
+      }, COLLAPSIBLE_TRANSITION_MS)
+      return
+    }
+
+    setHeight(`${measuredHeight}px`)
+    setOpacity(1)
+    setTranslateY('0px')
+    animationFrameRef.current = requestAnimationFrame(() => {
+      setHeight('0px')
+      setOpacity(0)
+      setTranslateY('-2px')
+      animationFrameRef.current = null
+    })
+    transitionTimerRef.current = setTimeout(() => {
+      setRenderExpanded(false)
+      transitionTimerRef.current = null
+    }, COLLAPSIBLE_TRANSITION_MS)
+
+    return () => {
+      if (animationFrameRef.current != null) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+      if (transitionTimerRef.current != null) {
+        clearTimeout(transitionTimerRef.current)
+        transitionTimerRef.current = null
+      }
+    }
+  }, [expanded, renderExpanded, setRenderExpanded])
+
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current != null) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+      if (transitionTimerRef.current != null) {
+        clearTimeout(transitionTimerRef.current)
+        transitionTimerRef.current = null
+      }
+    }
+  }, [])
+
+  if (!renderExpanded) {
+    return null
+  }
+
+  return (
+    <div
+      aria-hidden={!expanded}
+      style={{
+        overflow: 'hidden',
+        height,
+        opacity,
+        transform: `translateY(${translateY})`,
+        transition: `height ${COLLAPSIBLE_TRANSITION_MS}ms ease-out, opacity ${COLLAPSIBLE_TRANSITION_MS}ms ease-out, transform ${COLLAPSIBLE_TRANSITION_MS}ms ease-out`
+      }}
+    >
+      <div ref={contentRef}>
+        {children}
+      </div>
+    </div>
+  )
+}
 
 interface ExpandedContentProps {
   itemId: string
