@@ -567,7 +567,6 @@ export class TelegramAdapter extends ModuleChannelAdapter<TelegramConfig> {
       }
     }
   }
-  }
 
   private startTyping(chatId: string): void {
     this.stopTyping(chatId);
