@@ -27,6 +27,10 @@ export function UserMessageBlock({ text, imageDataUrls, images }: UserMessageBlo
   const workspacePath = useConversationStore((s) => s.workspacePath)
   const hasImages = hydratedImageDataUrls.length > 0
   const segments = text.length > 0 ? parseUserMessageSegments(text) : []
+  const attachedFiles = segments.filter(
+    (seg): seg is Extract<(typeof segments)[number], { type: 'attachedFile' }> => seg.type === 'attachedFile'
+  )
+  const textSegments = segments.filter((seg) => seg.type !== 'attachedFile')
 
   useEffect(() => {
     let cancelled = false
@@ -146,9 +150,23 @@ export function UserMessageBlock({ text, imageDataUrls, images }: UserMessageBlo
             {failedImageCount === 1 ? 'Image unavailable' : `${failedImageCount} images unavailable`}
           </span>
         )}
+        {attachedFiles.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}
+          >
+            {attachedFiles.map((file, idx) => (
+              <AttachedFileChip key={`${file.path}-${idx}`} path={file.path} fileName={file.fileName} />
+            ))}
+          </div>
+        )}
         {text.length > 0 && (
           <span>
-            {segments.map((seg, idx) =>
+            {textSegments.map((seg, idx) =>
               seg.type === 'text' ? (
                 <span key={`t-${idx}`}>{seg.value}</span>
               ) : seg.type === 'fileRef' ? (
@@ -228,6 +246,29 @@ function FileRefChip({
         borderRadius: '4px',
         background: 'var(--bg-tertiary)',
         fontSize: '13px',
+        whiteSpace: 'nowrap',
+        userSelect: 'none'
+      }}
+    >
+      <span aria-hidden>📄</span>
+      <span>{fileName}</span>
+    </span>
+  )
+}
+
+function AttachedFileChip({ path, fileName }: { path: string; fileName: string }): JSX.Element {
+  return (
+    <span
+      title={path}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '4px 8px',
+        borderRadius: '8px',
+        border: '1px solid var(--border-default)',
+        background: 'color-mix(in srgb, var(--bg-tertiary) 78%, var(--bg-primary))',
+        fontSize: '12px',
         whiteSpace: 'nowrap',
         userSelect: 'none'
       }}

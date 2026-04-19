@@ -33,6 +33,7 @@ import { ChannelsView } from './components/channels/ChannelsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
+import { serializeAttachedFileMarkers } from './utils/attachedFileMarkers'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
 import type { InputPart } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
@@ -959,6 +960,7 @@ export function App(): JSX.Element {
             const path = workspacePathRef.current
             const pendingText = pendingWelcome.text.trim()
             const pendingImages = pendingWelcome.images
+            const pendingFiles = pendingWelcome.files ?? []
             let effectiveThreadId = threadId
             let effectivePendingText = pendingText
             const welcomeMode = pendingWelcome.mode ?? 'agent'
@@ -1033,6 +1035,7 @@ export function App(): JSX.Element {
                   : effectivePendingText || translate(localeRef.current, 'toast.imageMessage')
               useThreadStore.getState().renameThread(effectiveThreadId, autoName)
             }
+            const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectivePendingText)
             const optimisticItemId = `local-${Date.now()}`
             const optimisticTurnId = `local-turn-${Date.now()}`
             const optimisticNow = new Date().toISOString()
@@ -1040,7 +1043,7 @@ export function App(): JSX.Element {
               id: optimisticItemId,
               type: 'userMessage',
               status: 'completed',
-              text: effectivePendingText,
+              text: serializedPendingText,
               imageDataUrls: pendingImages?.map((i) => i.dataUrl),
               images: pendingImages?.map((i) => ({
                 path: i.tempPath,
@@ -1060,8 +1063,8 @@ export function App(): JSX.Element {
             useConversationStore.getState().addOptimisticTurn(optimisticTurn)
 
             const inputParts: InputPart[] = []
-            if (effectivePendingText.length > 0) {
-              inputParts.push({ type: 'text', text: effectivePendingText })
+            if (serializedPendingText.length > 0) {
+              inputParts.push({ type: 'text', text: serializedPendingText })
             }
             for (const img of pendingImages ?? []) {
               inputParts.push({

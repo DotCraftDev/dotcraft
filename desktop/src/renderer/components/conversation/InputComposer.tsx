@@ -8,14 +8,22 @@ import { useConnectionStore } from '../../stores/connectionStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import { useSkillsStore } from '../../stores/skillsStore'
 import { resolveCustomCommandExecution } from '../../utils/customCommandExecution'
-import type { ImageAttachment } from '../../types/conversation'
+import type { ComposerFileAttachment, ImageAttachment } from '../../types/conversation'
 import { startTurnWithOptimisticUI } from '../../utils/startTurn'
+import { serializeAttachedFileMarkers } from '../../utils/attachedFileMarkers'
+import {
+  classifyDroppedComposerFiles,
+  extForFile,
+  isImageFile,
+  mergeComposerFileAttachments
+} from '../../utils/composerAttachments'
 import { PendingMessageIndicator } from './PendingMessageIndicator'
 import { RichInputArea, type RichInputAreaHandle } from './RichInputArea'
-import { ImageStrip } from './ImageStrip'
+import { AttachmentStrip } from './AttachmentStrip'
 import { FileSearchPopover } from './FileSearchPopover'
 import { CommandSearchPopover } from './CommandSearchPopover'
 import { ModelPicker } from './ModelPicker'
+import { ComposerAttachmentMenu } from './ComposerAttachmentMenu'
 import {
   ComposerModeSwitch,
   ComposerShell,
@@ -28,18 +36,6 @@ import {
 const MAX_TEXT_LENGTH = 100_000
 const MAX_IMAGES = 5
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'])
-
-function extForFile(name: string): string {
-  const i = name.lastIndexOf('.')
-  return i >= 0 ? name.slice(i).toLowerCase() : ''
-}
-
-function isImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true
-  return IMAGE_EXTENSIONS.has(extForFile(file.name))
-}
 
 interface InputComposerProps {
   threadId: string
@@ -69,6 +65,7 @@ export function InputComposer({
 }: InputComposerProps): JSX.Element {
   const t = useT()
   const [images, setImages] = useState<ImageAttachment[]>([])
+  const [files, setFiles] = useState<ComposerFileAttachment[]>([])
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [mentionDismissed, setMentionDismissed] = useState(false)
   const [slashQuery, setSlashQuery] = useState<string | null>(null)
@@ -228,46 +225,45 @@ export function InputComposer({
     setDragOver(false)
   }, [])
 
+  const attachImages = useCallback((picked: File[]): void => {
+    for (const file of picked) {
+      onPasteImage(file)
+    }
+  }, [onPasteImage])
+
   const onDrop = useCallback(
     (e: React.DragEvent): void => {
       e.preventDefault()
       e.stopPropagation()
       setDragOver(false)
-      const fl = Array.from(e.dataTransfer.files || [])
-      let rejected = 0
-      for (const file of fl) {
-        if (!isImageFile(file)) {
-          rejected++
-          continue
-        }
-        const reader = new FileReader()
-        reader.onload = () => {
-          const dataUrl = reader.result as string
-          void saveDataUrlAsTemp(dataUrl, file.name, file.type || 'image/png')
-        }
-        reader.readAsDataURL(file)
+      const { imageFiles, fileAttachments, skippedCount } = classifyDroppedComposerFiles(e.dataTransfer)
+      attachImages(imageFiles)
+      if (fileAttachments.length > 0) {
+        setFiles((prev) => mergeComposerFileAttachments(prev, fileAttachments))
       }
-      if (rejected > 0) {
-        addToast(t('input.nonImageRejected', { count: rejected }), 'warning')
+      if (skippedCount > 0) {
+        addToast(t('input.dropItemsSkipped', { count: skippedCount }), 'warning')
       }
     },
-    [saveDataUrlAsTemp, t]
+    [attachImages, t]
   )
 
   const sendMessage = useCallback(async () => {
     const text = richRef.current?.getText() ?? ''
     const trimmed = text.trim()
-    if (!trimmed && images.length === 0) return
+    if (!trimmed && images.length === 0 && files.length === 0) return
     if (isWaitingApproval) return
     if (modelLoading) return
 
     if (isRunning) {
+      const queuedText = serializeAttachedFileMarkers(files, trimmed)
       if (images.length > 0) {
         addToast(t('input.imageAttachmentsQueued'), 'warning')
       }
-      setPendingMessage(trimmed)
+      setPendingMessage(queuedText)
       richRef.current?.clear()
       setImages([])
+      setFiles([])
       return
     }
 
@@ -297,6 +293,7 @@ export function InputComposer({
           if (!commandResult.shouldSendTurn) {
             richRef.current?.clear()
             setImages([])
+            setFiles([])
             return
           }
           effectiveText = commandResult.textForTurn.trim()
@@ -308,19 +305,22 @@ export function InputComposer({
       }
 
       const capturedImages = [...images]
+      const capturedFiles = [...files]
       richRef.current?.clear()
       setImages([])
+      setFiles([])
       await startTurnWithOptimisticUI({
         threadId: effectiveThreadId,
         workspacePath,
         text: effectiveText,
         images: capturedImages,
+        files: capturedFiles,
         fallbackThreadName: t('toast.imageMessage')
       })
     } finally {
       sendInFlightRef.current = false
     }
-  }, [customCommands, images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
+  }, [customCommands, files, images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
@@ -347,8 +347,23 @@ export function InputComposer({
 
   const canSend = useMemo(() => {
     const textLen = (richRef.current?.getText() ?? '').trim().length
-    return (textLen > 0 || images.length > 0) && !isWaitingApproval && !modelLoading
-  }, [contentRevision, images.length, isWaitingApproval, modelLoading])
+    return (textLen > 0 || images.length > 0 || files.length > 0) && !isWaitingApproval && !modelLoading
+  }, [contentRevision, files.length, images.length, isWaitingApproval, modelLoading])
+
+  const addPickedFiles = useCallback((picked: Array<{ path: string; fileName: string }>): void => {
+    if (picked.length === 0) return
+    setFiles((prev) => mergeComposerFileAttachments(prev, picked))
+  }, [])
+
+  const pickFiles = useCallback(async (): Promise<void> => {
+    try {
+      const picked = await window.api.workspace.pickFiles()
+      addPickedFiles(picked)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      addToast(t('input.pickFilesFailed', { error: msg }), 'error')
+    }
+  }, [addPickedFiles, t])
 
   const onSelectFile = useCallback(
     (relativePath: string): void => {
@@ -376,12 +391,18 @@ export function InputComposer({
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         focused={editorFocused}
-        imageStrip={
-          <ImageStrip
+        attachmentStrip={
+          <AttachmentStrip
             images={images}
-            onRemove={(idx) => {
+            files={files}
+            onRemoveImage={(idx) => {
               setImages((prev) => prev.filter((_, i) => i !== idx))
             }}
+            onRemoveFile={(idx) => {
+              setFiles((prev) => prev.filter((_, i) => i !== idx))
+            }}
+            removeImageLabel={t('composer.removeImageAria')}
+            removeFileLabel={t('composer.removeFileAria')}
           />
         }
         editor={
@@ -441,6 +462,17 @@ export function InputComposer({
         }
         footerLeading={
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+            <ComposerAttachmentMenu
+              title={t('composer.attachFileTitle')}
+              ariaLabel={t('composer.attachFileAria')}
+              attachImageLabel={t('composer.attachImage')}
+              referenceFileLabel={t('composer.referenceFile')}
+              onAttachImages={attachImages}
+              onReferenceFiles={() => {
+                void pickFiles()
+              }}
+            />
+
             <ComposerModeSwitch
               value={threadMode}
               onToggle={() => {
@@ -448,6 +480,9 @@ export function InputComposer({
               }}
               agentLabel={t('composer.mode.agent')}
               planLabel={t('composer.mode.plan')}
+              title={t('composer.modeTitle', {
+                mode: threadMode === 'agent' ? t('composer.mode.agent') : t('composer.mode.plan')
+              })}
             />
 
             <ModelPicker

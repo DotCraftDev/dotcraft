@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ImageAttachment, ThreadMode } from '../types/conversation'
+import type { ComposerFileAttachment, ImageAttachment, ThreadMode } from '../types/conversation'
 import type { ComposerDraftSegment } from '../types/composerDraft'
 import { useThreadStore } from './threadStore'
 
@@ -25,6 +25,7 @@ export interface WelcomeDraft {
   text: string
   segments?: ComposerDraftSegment[]
   images: ImageAttachment[]
+  files?: ComposerFileAttachment[]
   mode: ThreadMode
   model: string
   updatedAt: number
@@ -68,6 +69,7 @@ export interface UIState {
     threadId: string
     text: string
     images?: ImageAttachment[]
+    files?: ComposerFileAttachment[]
     /** Agent/plan chosen on Welcome before thread exists; applied after thread/read. */
     mode?: ThreadMode
     /** Model chosen on Welcome before thread exists; applied after thread/read. */
@@ -106,12 +108,25 @@ interface UIStore extends UIState {
   consumeComposerPrefill(): string | null
   /** Queue first turn for a thread created from the welcome composer. */
   setPendingWelcomeTurn(
-    payload: { threadId: string; text: string; images?: ImageAttachment[]; mode?: ThreadMode; model?: string } | null
+    payload: {
+      threadId: string
+      text: string
+      images?: ImageAttachment[]
+      files?: ComposerFileAttachment[]
+      mode?: ThreadMode
+      model?: string
+    } | null
   ): void
   /** If pending matches threadId, return payload and clear; otherwise return null. */
   consumePendingWelcomeTurnIfMatch(
     threadId: string
-  ): { text: string; images?: ImageAttachment[]; mode?: ThreadMode; model?: string } | null
+  ): {
+    text: string
+    images?: ImageAttachment[]
+    files?: ComposerFileAttachment[]
+    mode?: ThreadMode
+    model?: string
+  } | null
   /** Clear pending welcome turn when it targets the given thread (e.g. thread/read failed). */
   cancelPendingWelcomeTurnForThread(threadId: string): void
   setWelcomeDraft(draft: Omit<WelcomeDraft, 'updatedAt'> | null): void
@@ -338,10 +353,11 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         clearTimeout(timer)
       }
       set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
-      const { text, images, mode, model } = p
+      const { text, images, files, mode, model } = p
       return {
         text,
         ...(images !== undefined ? { images } : {}),
+        ...(files !== undefined ? { files } : {}),
         ...(mode !== undefined ? { mode } : {}),
         ...(model !== undefined ? { model } : {})
       }
@@ -365,7 +381,15 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
       set({ welcomeDraft: null })
       return
     }
-    set({ welcomeDraft: { ...draft, updatedAt: Date.now() } })
+    set({
+      welcomeDraft: {
+        ...draft,
+        images: [...draft.images],
+        files: draft.files ? [...draft.files] : [],
+        segments: draft.segments ? [...draft.segments] : undefined,
+        updatedAt: Date.now()
+      }
+    })
   },
 
   clearWelcomeDraft() {

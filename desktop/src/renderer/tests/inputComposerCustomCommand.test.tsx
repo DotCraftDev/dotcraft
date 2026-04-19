@@ -9,6 +9,8 @@ import { useUIStore } from '../stores/uiStore'
 
 const settingsGet = vi.fn()
 const appServerSendRequest = vi.fn()
+const pickFiles = vi.fn()
+const saveImageToTemp = vi.fn()
 
 function renderWithLocale(node: JSX.Element): void {
   render(<LocaleProvider>{node}</LocaleProvider>)
@@ -28,6 +30,8 @@ describe('InputComposer custom command expansion', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     settingsGet.mockResolvedValue({ locale: 'en' })
+    pickFiles.mockResolvedValue([])
+    saveImageToTemp.mockResolvedValue({ path: 'C:\\temp\\image.png' })
     appServerSendRequest.mockImplementation(async (method: string) => {
       if (method === 'command/list') {
         return {
@@ -73,7 +77,7 @@ describe('InputComposer custom command expansion', () => {
       value: {
         settings: { get: settingsGet },
         appServer: { sendRequest: appServerSendRequest },
-        workspace: { saveImageToTemp: vi.fn() }
+        workspace: { saveImageToTemp, pickFiles }
       }
     })
 
@@ -90,6 +94,7 @@ describe('InputComposer custom command expansion', () => {
       activeDetailTab: 'changes',
       selectedChangedFile: null,
       autoShowTriggeredForTurn: null,
+      autoShowPlanForItem: null,
       composerPrefill: null,
       pendingWelcomeTurn: null,
       _pendingWelcomeTimer: null
@@ -225,6 +230,86 @@ describe('InputComposer custom command expansion', () => {
           input: [{ type: 'text', text: '[[Use Skill: browser]]' }]
         })
       )
+    })
+  })
+
+  it('serializes picked file attachments into attached-file markers on turn/start', async () => {
+    pickFiles.mockResolvedValue([
+      { path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }
+    ])
+
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    const textbox = screen.getByRole('textbox')
+    textbox.textContent = 'Review this file'
+    fireEvent.input(textbox)
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reference file' }))
+
+    expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => {
+      const turnStartCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'turn/start')
+      expect(turnStartCall).toBeDefined()
+      expect(turnStartCall?.[1]).toEqual(
+        expect.objectContaining({
+          threadId: 'thread-1',
+          input: [{ type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\nReview this file' }]
+        })
+      )
+    })
+  })
+
+  it('opens a compact attachment menu with image and file actions', async () => {
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    await waitFor(() => {
+      expect(appServerSendRequest).toHaveBeenCalledWith('skills/list', { includeUnavailable: true })
+    })
+
+    expect(screen.queryByText('Attach file')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add attachment' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Attach image' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Reference file' })).toBeInTheDocument()
+  })
+
+  it('accepts mixed dropped images and files', async () => {
+    renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
+
+    const surface = screen
+      .getByRole('textbox')
+      .closest('div[style*="border-radius: 20px"]') as HTMLElement
+
+    const image = new File(['image-bytes'], 'diagram.png', { type: 'image/png' })
+    Object.defineProperty(image, 'path', { configurable: true, value: 'C:\\temp\\diagram.png' })
+    const note = new File(['notes'], 'notes.txt', { type: 'text/plain' })
+    Object.defineProperty(note, 'path', { configurable: true, value: 'C:\\temp\\notes.txt' })
+
+    fireEvent.drop(surface, {
+      dataTransfer: {
+        files: [image, note],
+        items: [
+          {
+            kind: 'file',
+            getAsFile: () => image,
+            webkitGetAsEntry: () => ({ isDirectory: false })
+          },
+          {
+            kind: 'file',
+            getAsFile: () => note,
+            webkitGetAsEntry: () => ({ isDirectory: false })
+          }
+        ]
+      }
+    })
+
+    await waitFor(() => {
+      expect(saveImageToTemp).toHaveBeenCalled()
+      expect(screen.getByText('notes.txt')).toBeInTheDocument()
     })
   })
 })

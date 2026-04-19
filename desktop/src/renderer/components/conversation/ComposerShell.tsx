@@ -6,7 +6,7 @@ type ComposerActionButtonTone = 'enabled' | 'disabled'
 interface ComposerShellProps {
   dragOver: boolean
   dropLabel: string
-  imageStrip?: ReactNode
+  attachmentStrip?: ReactNode
   editor: ReactNode
   footerLeading: ReactNode
   footerAction: ReactNode
@@ -22,12 +22,13 @@ interface ComposerModeSwitchProps {
   onToggle: () => void
   agentLabel: string
   planLabel: string
+  title?: string
 }
 
 export function ComposerShell({
   dragOver,
   dropLabel,
-  imageStrip,
+  attachmentStrip,
   editor,
   footerLeading,
   footerAction,
@@ -83,7 +84,7 @@ export function ComposerShell({
           </div>
         )}
 
-        {imageStrip}
+        {attachmentStrip}
         {editor}
 
         <div
@@ -108,7 +109,8 @@ export function ComposerModeSwitch({
   value,
   onToggle,
   agentLabel,
-  planLabel
+  planLabel,
+  title
 }: ComposerModeSwitchProps): JSX.Element {
   const activeLabel = value === 'agent' ? agentLabel : planLabel
   const activeTone = value === 'agent' ? 'var(--success)' : 'var(--info)'
@@ -118,6 +120,7 @@ export function ComposerModeSwitch({
       type="button"
       onClick={onToggle}
       aria-label={activeLabel}
+      title={title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

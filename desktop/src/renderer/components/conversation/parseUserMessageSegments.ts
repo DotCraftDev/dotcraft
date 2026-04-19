@@ -1,7 +1,9 @@
 import { serializeSkillMarker } from './richInputSerialization'
+import { parseLeadingAttachedFileMarkers } from '../../utils/attachedFileMarkers'
 
 export type UserMessageSegment =
   | { type: 'text'; value: string }
+  | { type: 'attachedFile'; path: string; fileName: string }
   | { type: 'fileRef'; relativePath: string }
   | { type: 'skillRef'; skillName: string }
 
@@ -51,11 +53,21 @@ function findNextSkillRef(text: string, from: number): Match | null {
  */
 export function parseUserMessageSegments(text: string): UserMessageSegment[] {
   const out: UserMessageSegment[] = []
+  const { files, bodyText } = parseLeadingAttachedFileMarkers(text)
+  for (const file of files) {
+    out.push({
+      type: 'attachedFile',
+      path: file.path,
+      fileName: file.fileName
+    })
+  }
+
+  const source = bodyText
   let cursor = 0
 
-  while (cursor < text.length) {
-    const nextFile = findNextFileRef(text, cursor)
-    const nextSkill = findNextSkillRef(text, cursor)
+  while (cursor < source.length) {
+    const nextFile = findNextFileRef(source, cursor)
+    const nextSkill = findNextSkillRef(source, cursor)
 
     const next =
       nextFile == null
@@ -67,12 +79,14 @@ export function parseUserMessageSegments(text: string): UserMessageSegment[] {
             : nextSkill
 
     if (!next) {
-      out.push({ type: 'text', value: text.slice(cursor) })
+      if (source.length > cursor) {
+        out.push({ type: 'text', value: source.slice(cursor) })
+      }
       break
     }
 
     if (next.start > cursor) {
-      out.push({ type: 'text', value: text.slice(cursor, next.start) })
+      out.push({ type: 'text', value: source.slice(cursor, next.start) })
     }
 
     if (next.type === 'file') {

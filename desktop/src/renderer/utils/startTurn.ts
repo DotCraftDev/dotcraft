@@ -1,14 +1,16 @@
-import type { ImageAttachment } from '../types/conversation'
+import type { ComposerFileAttachment, ImageAttachment } from '../types/conversation'
 import type { ConversationItem, ConversationTurn } from '../types/conversation'
 import type { InputPart } from '../types/conversation'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
+import { serializeAttachedFileMarkers } from './attachedFileMarkers'
 
 interface StartTurnParams {
   threadId: string
   workspacePath: string
   text: string
   images?: ImageAttachment[]
+  files?: ComposerFileAttachment[]
   fallbackThreadName: string
   includeUserPreview?: boolean
   renameThreadFromText?: boolean
@@ -23,14 +25,16 @@ export async function startTurnWithOptimisticUI({
   workspacePath,
   text,
   images = [],
+  files = [],
   fallbackThreadName,
   includeUserPreview = true,
   renameThreadFromText = true
 }: StartTurnParams): Promise<boolean> {
-  const trimmed = text.trim()
+  const visibleText = text.trim()
+  const serializedText = serializeAttachedFileMarkers(files, visibleText)
   const inputParts: InputPart[] = []
-  if (trimmed.length > 0) {
-    inputParts.push({ type: 'text', text: trimmed })
+  if (serializedText.length > 0) {
+    inputParts.push({ type: 'text', text: serializedText })
   }
   for (const img of images) {
     inputParts.push({
@@ -48,9 +52,9 @@ export async function startTurnWithOptimisticUI({
     const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
     if (!threadEntry?.displayName) {
       const autoName =
-        trimmed.length > 50
-          ? `${trimmed.slice(0, 50)}...`
-          : trimmed || fallbackThreadName
+        visibleText.length > 50
+          ? `${visibleText.slice(0, 50)}...`
+          : visibleText || fallbackThreadName
       useThreadStore.getState().renameThread(threadId, autoName)
     }
   }
@@ -62,7 +66,7 @@ export async function startTurnWithOptimisticUI({
       id: `local-${Date.now()}`,
       type: 'userMessage',
       status: 'completed',
-      text: trimmed,
+      text: serializedText,
       imageDataUrls: images.map((i) => i.dataUrl),
       images: images.map((i) => ({
         path: i.tempPath,
