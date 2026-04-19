@@ -9,6 +9,7 @@ import { mergeAvailableChannels } from '../../utils/availableChannels'
 import { PRESET_EXTERNAL_CHANNELS } from '../channels/presetExternalChannels'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
+import { useConfigChangeSubscription } from '../../hooks/useConfigChangeSubscription'
 import { SecretInput } from '../channels/FormShared'
 import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
 import { FolderIcon, OpenInBrowserIcon, RefreshIcon } from '../ui/AppIcons'
@@ -20,6 +21,12 @@ import { PillSwitch } from '../ui/PillSwitch'
 import { ToggleSwitch } from '../channels/ToggleSwitch'
 import { BackToAppButton } from '../ui/BackToAppButton'
 import { SettingsGroup, SettingsRow } from './SettingsGroup'
+import { GeneralPanel } from './panels/GeneralPanel'
+import { ConnectionPanel } from './panels/ConnectionPanel'
+import { ProxyPanel } from './panels/ProxyPanel'
+import { UsagePanel } from './panels/UsagePanel'
+import { ChannelsPanel } from './panels/ChannelsPanel'
+import { McpPanel } from './panels/McpPanel'
 import {
   useMcpStore,
   type McpServerConfigWire,
@@ -56,6 +63,12 @@ interface McpTestResultWire {
   errorCode?: string
   errorMessage?: string
   toolCount?: number
+}
+
+interface WorkspaceCoreConfig {
+  model: string | null
+  apiKey: string | null
+  endPoint: string | null
 }
 
 type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
@@ -459,6 +472,7 @@ export function SettingsView({
   const setUiLocale = useSetUiLocale()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const capabilities = useConnectionStore((s) => s.capabilities)
+  const setExpectedRestart = useConnectionStore((s) => s.setExpectedRestart)
   const dashboardUrl = useConnectionStore((s) => s.dashboardUrl)
   const mcpStatuses = useMcpStore((s) => s.statuses)
   const setMcpStatuses = useMcpStore((s) => s.setStatuses)
@@ -511,6 +525,31 @@ export function SettingsView({
   const [serverChannels, setServerChannels] = useState<ChannelInfoWire[] | null>(null)
   const [channelListError, setChannelListError] = useState(false)
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('general')
+  const [baselineConnection, setBaselineConnection] = useState<{
+    binarySource: BinarySource
+    binaryPath: string
+    connectionMode: ConnectionMode
+    wsHost: string
+    wsPort: string
+    remoteUrl: string
+    remoteToken: string
+  } | null>(null)
+  const [baselineProxy, setBaselineProxy] = useState<{
+    enabled: boolean
+    port: string
+    authDir: string
+    binarySource: BinarySource
+    binaryPath: string
+  } | null>(null)
+  const [workspaceCoreBaseline, setWorkspaceCoreBaseline] = useState<WorkspaceCoreConfig>({
+    model: null,
+    apiKey: null,
+    endPoint: null
+  })
+  const [llmModel, setLlmModel] = useState('')
+  const [llmApiKey, setLlmApiKey] = useState('')
+  const [llmEndPoint, setLlmEndPoint] = useState('')
+  const [applyingLlm, setApplyingLlm] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [mcpServers, setMcpServers] = useState<McpServerConfigWire[]>([])
@@ -528,9 +567,74 @@ export function SettingsView({
   const [deletingMcp, setDeletingMcp] = useState(false)
   const [togglingServerName, setTogglingServerName] = useState<string | null>(null)
   const [mcpTestResult, setMcpTestResult] = useState<McpTestResultWire | null>(null)
+  const [mcpSavedHint, setMcpSavedHint] = useState('')
 
   const mcpEnabled = capabilities?.mcpManagement === true
   const canRestartManagedAppServer = savedConnectionMode !== 'remote'
+  const proxyLockActive = proxyStatusText === 'running'
+  const llmDirty =
+    llmModel.trim() !== (workspaceCoreBaseline.model ?? '') ||
+    llmApiKey.trim() !== (workspaceCoreBaseline.apiKey ?? '') ||
+    llmEndPoint.trim() !== (workspaceCoreBaseline.endPoint ?? '')
+  const connectionDirty =
+    baselineConnection != null &&
+    (binarySource !== baselineConnection.binarySource ||
+      binaryPath.trim() !== baselineConnection.binaryPath.trim() ||
+      connectionMode !== baselineConnection.connectionMode ||
+      wsHost.trim() !== baselineConnection.wsHost.trim() ||
+      wsPort.trim() !== baselineConnection.wsPort.trim() ||
+      remoteUrl.trim() !== baselineConnection.remoteUrl.trim() ||
+      remoteToken.trim() !== baselineConnection.remoteToken.trim())
+  const proxyDirty =
+    baselineProxy != null &&
+    (proxyEnabled !== baselineProxy.enabled ||
+      proxyPort.trim() !== baselineProxy.port.trim() ||
+      proxyAuthDir.trim() !== baselineProxy.authDir.trim() ||
+      proxyBinarySource !== baselineProxy.binarySource ||
+      proxyBinaryPath.trim() !== baselineProxy.binaryPath.trim())
+
+  async function reloadWorkspaceCore(): Promise<void> {
+    try {
+      const core = await window.api.workspaceConfig.getCore()
+      setWorkspaceCoreBaseline(core)
+      if (!llmDirty) {
+        setLlmModel(core.model ?? '')
+        setLlmApiKey(core.apiKey ?? '')
+        setLlmEndPoint(core.endPoint ?? '')
+      }
+    } catch {
+      // Ignore pull failures during reconnect windows.
+    }
+  }
+
+  useConfigChangeSubscription({
+    onWorkspaceModelChanged: (payload) => {
+      if (llmDirty && payload.source !== 'workspace/config/update') {
+        addToast(t('settings.llm.externalChangeNotice'), 'info')
+      }
+      void reloadWorkspaceCore()
+    },
+    onWorkspaceApiKeyChanged: (payload) => {
+      if (llmDirty && payload.source !== 'workspace/config/update') {
+        addToast(t('settings.llm.externalChangeNotice'), 'info')
+      }
+      void reloadWorkspaceCore()
+    },
+    onWorkspaceEndPointChanged: (payload) => {
+      if (llmDirty && payload.source !== 'workspace/config/update') {
+        addToast(t('settings.llm.externalChangeNotice'), 'info')
+      }
+      void reloadWorkspaceCore()
+    },
+    onMcpChanged: () => {
+      if (mcpEnabled) {
+        void Promise.all([reloadMcpServers(), reloadMcpStatuses()])
+      }
+    },
+    onExternalChannelChanged: () => {
+      setServerChannels(null)
+    }
+  })
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -554,9 +658,34 @@ export function SettingsView({
         setTheme(resolveTheme(s.theme))
         setLocale(normalizeLocale(s.locale))
         setVisibleChannels(await ensureVisibleChannelsSeeded(s))
+        setBaselineConnection({
+          binarySource: (s.binarySource ?? (s.appServerBinaryPath ? 'custom' : 'bundled')) as BinarySource,
+          binaryPath: s.appServerBinaryPath ?? '',
+          connectionMode: loadedMode,
+          wsHost: s.webSocket?.host ?? DEFAULT_WS_HOST,
+          wsPort: String(s.webSocket?.port ?? DEFAULT_WS_PORT),
+          remoteUrl: s.remote?.url ?? '',
+          remoteToken: s.remote?.token ?? ''
+        })
+        setBaselineProxy({
+          enabled: s.proxy?.enabled === true,
+          port: String(s.proxy?.port ?? DEFAULT_PROXY_PORT),
+          authDir: s.proxy?.authDir ?? '',
+          binarySource: (s.proxy?.binarySource ?? (s.proxy?.binaryPath ? 'custom' : 'bundled')) as BinarySource,
+          binaryPath: s.proxy?.binaryPath ?? ''
+        })
       })
       .catch(() => {})
     setVersion(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0')
+    window.api.workspaceConfig
+      .getCore()
+      .then((core) => {
+        setWorkspaceCoreBaseline(core)
+        setLlmModel(core.model ?? '')
+        setLlmApiKey(core.apiKey ?? '')
+        setLlmEndPoint(core.endPoint ?? '')
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -648,6 +777,18 @@ export function SettingsView({
       cancelled = true
     }
   }, [proxyEnabled, restartingProxy, saving, proxyStatusRefreshTick])
+
+  useEffect(() => {
+    if (!proxyLockActive) return
+    if (
+      llmApiKey.trim() !== (workspaceCoreBaseline.apiKey ?? '') ||
+      llmEndPoint.trim() !== (workspaceCoreBaseline.endPoint ?? '')
+    ) {
+      setLlmApiKey(workspaceCoreBaseline.apiKey ?? '')
+      setLlmEndPoint(workspaceCoreBaseline.endPoint ?? '')
+      addToast(t('settings.llm.lockedDiscardedNotice'), 'info')
+    }
+  }, [proxyLockActive, llmApiKey, llmEndPoint, workspaceCoreBaseline.apiKey, workspaceCoreBaseline.endPoint, t])
 
   useEffect(() => {
     let cancelled = false
@@ -824,6 +965,12 @@ export function SettingsView({
     }
   }, [mcpEnabled, setMcpStatuses])
 
+  useEffect(() => {
+    if (!mcpSavedHint) return
+    const timer = window.setTimeout(() => setMcpSavedHint(''), 1500)
+    return () => window.clearTimeout(timer)
+  }, [mcpSavedHint])
+
   const channelsByCategory = useMemo(() => {
     const list = serverChannels ?? []
     const map = new Map<string, ChannelInfoWire[]>()
@@ -842,6 +989,29 @@ export function SettingsView({
   }, [mcpServers])
 
   function closeSettings(): void {
+    if (connectionDirty || proxyDirty || llmDirty) {
+      const shouldDiscard = window.confirm(t('settings.pendingChanges.leaveConfirm'))
+      if (!shouldDiscard) return
+      if (baselineConnection) {
+        setBinarySource(baselineConnection.binarySource)
+        setBinaryPath(baselineConnection.binaryPath)
+        setConnectionMode(baselineConnection.connectionMode)
+        setWsHost(baselineConnection.wsHost)
+        setWsPort(baselineConnection.wsPort)
+        setRemoteUrl(baselineConnection.remoteUrl)
+        setRemoteToken(baselineConnection.remoteToken)
+      }
+      if (baselineProxy) {
+        setProxyEnabled(baselineProxy.enabled)
+        setProxyPort(baselineProxy.port)
+        setProxyAuthDir(baselineProxy.authDir)
+        setProxyBinarySource(baselineProxy.binarySource)
+        setProxyBinaryPath(baselineProxy.binaryPath)
+      }
+      setLlmModel(workspaceCoreBaseline.model ?? '')
+      setLlmApiKey(workspaceCoreBaseline.apiKey ?? '')
+      setLlmEndPoint(workspaceCoreBaseline.endPoint ?? '')
+    }
     setActiveMainView('conversation')
   }
 
@@ -957,7 +1127,7 @@ export function SettingsView({
 
       await window.api.appServer.sendRequest('mcp/upsert', { server: payload })
       await Promise.all([reloadMcpServers(), reloadMcpStatuses()])
-      addToast('MCP server saved', 'success')
+      setMcpSavedHint(t('settings.savedToast'))
       if (renameCleanupFailed) {
         addToast('MCP server saved, but the old server entry may still exist', 'error')
       }
@@ -996,7 +1166,7 @@ export function SettingsView({
     try {
       await window.api.appServer.sendRequest('mcp/remove', { name })
       await Promise.all([reloadMcpServers(), reloadMcpStatuses()])
-      addToast('MCP server removed', 'success')
+      setMcpSavedHint(t('settings.savedToast'))
       cancelMcpEdit()
     } catch (err) {
       addToast(`Failed to remove MCP server: ${err instanceof Error ? err.message : String(err)}`, 'error')
@@ -1060,57 +1230,76 @@ export function SettingsView({
     void setVisibleChannelsAndPersist(next)
   }
 
-  async function handleSave(): Promise<void> {
-    setSaving(true)
-    try {
-      const parsedPort = Number.parseInt(wsPort.trim(), 10)
-      const normalizedPort =
-        Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535
-          ? parsedPort
-          : DEFAULT_WS_PORT
-      const parsedProxyPort = Number.parseInt(proxyPort.trim(), 10)
-      const normalizedProxyPort =
-        Number.isInteger(parsedProxyPort) && parsedProxyPort > 0 && parsedProxyPort <= 65535
-          ? parsedProxyPort
-          : DEFAULT_PROXY_PORT
-      await window.api.settings.set({
-        binarySource,
-        appServerBinaryPath: binaryPath.trim() || undefined,
-        connectionMode,
-        webSocket: {
-          host: wsHost.trim() || DEFAULT_WS_HOST,
-          port: normalizedPort
-        },
-        remote: {
-          url: remoteUrl.trim() || undefined,
-          token: remoteToken.trim() || undefined
-        },
-        proxy: {
-          enabled: proxyEnabled,
-          port: normalizedProxyPort,
-          binarySource: proxyBinarySource,
-          binaryPath: proxyBinaryPath.trim() || undefined,
-          authDir: proxyAuthDir.trim() || undefined
-        }
-      })
-      setSavedConnectionMode(connectionMode)
-      addToast(
-        activeSettingsTab === 'connection'
-          ? t('settings.restartAppServerSavedHint')
-          : t('settings.savedToast'),
-        'success'
-      )
-      if (activeSettingsTab !== 'connection' && activeSettingsTab !== 'proxy') {
-        closeSettings()
+  function normalizePortOrDefault(raw: string, defaultPort: number): number {
+    const parsed = Number.parseInt(raw.trim(), 10)
+    return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : defaultPort
+  }
+
+  async function persistConnectionSettings(): Promise<void> {
+    const normalizedPort = normalizePortOrDefault(wsPort, DEFAULT_WS_PORT)
+    await window.api.settings.set({
+      binarySource,
+      appServerBinaryPath: binaryPath.trim() || undefined,
+      connectionMode,
+      webSocket: {
+        host: wsHost.trim() || DEFAULT_WS_HOST,
+        port: normalizedPort
+      },
+      remote: {
+        url: remoteUrl.trim() || undefined,
+        token: remoteToken.trim() || undefined
       }
+    })
+    setSavedConnectionMode(connectionMode)
+    setBaselineConnection({
+      binarySource,
+      binaryPath,
+      connectionMode,
+      wsHost,
+      wsPort: String(normalizedPort),
+      remoteUrl,
+      remoteToken
+    })
+  }
+
+  async function persistProxySettings(): Promise<void> {
+    const normalizedProxyPort = normalizePortOrDefault(proxyPort, DEFAULT_PROXY_PORT)
+    await window.api.settings.set({
+      proxy: {
+        enabled: proxyEnabled,
+        port: normalizedProxyPort,
+        binarySource: proxyBinarySource,
+        binaryPath: proxyBinaryPath.trim() || undefined,
+        authDir: proxyAuthDir.trim() || undefined
+      }
+    })
+    setBaselineProxy({
+      enabled: proxyEnabled,
+      port: String(normalizedProxyPort),
+      authDir: proxyAuthDir,
+      binarySource: proxyBinarySource,
+      binaryPath: proxyBinaryPath
+    })
+  }
+
+  async function handleApplyConnectionAndRestart(): Promise<void> {
+    setSaving(true)
+    setRestartingAppServer(true)
+    try {
+      await persistConnectionSettings()
+      setExpectedRestart(true)
+      await window.api.appServer.restartManaged()
+      addToast(t('settings.restartAppServerSuccess'), 'success')
     } catch (err) {
+      setExpectedRestart(false)
       addToast(
-        t('settings.saveFailed', {
+        t('settings.restartAppServerFailed', {
           error: err instanceof Error ? err.message : String(err)
         }),
         'error'
       )
     } finally {
+      setRestartingAppServer(false)
       setSaving(false)
     }
   }
@@ -1118,9 +1307,11 @@ export function SettingsView({
   async function handleRestartManagedAppServer(): Promise<void> {
     setRestartingAppServer(true)
     try {
+      setExpectedRestart(true)
       await window.api.appServer.restartManaged()
       addToast(t('settings.restartAppServerSuccess'), 'success')
     } catch (err) {
+      setExpectedRestart(false)
       addToast(
         t('settings.restartAppServerFailed', {
           error: err instanceof Error ? err.message : String(err)
@@ -1182,7 +1373,9 @@ export function SettingsView({
 
   async function handleRestartProxy(): Promise<void> {
     setRestartingProxy(true)
+    setSaving(true)
     try {
+      await persistProxySettings()
       await window.api.proxy.restartManaged()
       setProxyStatusText('running')
       setProxyStatusError('')
@@ -1196,6 +1389,7 @@ export function SettingsView({
       )
     } finally {
       setRestartingProxy(false)
+      setSaving(false)
     }
   }
 
@@ -1376,6 +1570,92 @@ export function SettingsView({
     }
   }
 
+  async function handleApplyLlmAndRestart(): Promise<void> {
+    const model = llmModel.trim()
+    const apiKey = llmApiKey.trim()
+    const endPoint = llmEndPoint.trim()
+    const payload: Record<string, string | null> = {}
+    if (model !== (workspaceCoreBaseline.model ?? '')) {
+      payload.model = model || null
+    }
+    if (!proxyLockActive && apiKey !== (workspaceCoreBaseline.apiKey ?? '')) {
+      payload.apiKey = apiKey || null
+    }
+    if (!proxyLockActive && endPoint !== (workspaceCoreBaseline.endPoint ?? '')) {
+      payload.endPoint = endPoint || null
+    }
+    if (Object.keys(payload).length === 0) return
+
+    setApplyingLlm(true)
+    setRestartingAppServer(true)
+    try {
+      const result = await window.api.appServer.sendRequest('workspace/config/update', payload) as WorkspaceCoreConfig
+      setExpectedRestart(true)
+      await window.api.appServer.restartManaged()
+      const nextBaseline: WorkspaceCoreConfig = {
+        model: result.model ?? null,
+        apiKey: result.apiKey ?? workspaceCoreBaseline.apiKey ?? null,
+        endPoint: result.endPoint ?? workspaceCoreBaseline.endPoint ?? null
+      }
+      setWorkspaceCoreBaseline(nextBaseline)
+      setLlmModel(nextBaseline.model ?? '')
+      setLlmApiKey(nextBaseline.apiKey ?? '')
+      setLlmEndPoint(nextBaseline.endPoint ?? '')
+      addToast(t('settings.restartAppServerSuccess'), 'success')
+    } catch (err) {
+      setExpectedRestart(false)
+      addToast(
+        t('settings.restartAppServerFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setRestartingAppServer(false)
+      setApplyingLlm(false)
+    }
+  }
+
+  async function handleApplyAndRestartAll(): Promise<void> {
+    setSaving(true)
+    setRestartingAppServer(true)
+    try {
+      if (connectionDirty) {
+        await persistConnectionSettings()
+      }
+
+      const model = llmModel.trim()
+      const apiKey = llmApiKey.trim()
+      const endPoint = llmEndPoint.trim()
+      const payload: Record<string, string | null> = {}
+      if (model !== (workspaceCoreBaseline.model ?? '')) payload.model = model || null
+      if (!proxyLockActive && apiKey !== (workspaceCoreBaseline.apiKey ?? '')) payload.apiKey = apiKey || null
+      if (!proxyLockActive && endPoint !== (workspaceCoreBaseline.endPoint ?? '')) payload.endPoint = endPoint || null
+      if (Object.keys(payload).length > 0) {
+        const result = await window.api.appServer.sendRequest('workspace/config/update', payload) as WorkspaceCoreConfig
+        setWorkspaceCoreBaseline({
+          model: result.model ?? null,
+          apiKey: result.apiKey ?? workspaceCoreBaseline.apiKey ?? null,
+          endPoint: result.endPoint ?? workspaceCoreBaseline.endPoint ?? null
+        })
+      }
+      setExpectedRestart(true)
+      await window.api.appServer.restartManaged()
+      addToast(t('settings.restartAppServerSuccess'), 'success')
+    } catch (err) {
+      setExpectedRestart(false)
+      addToast(
+        t('settings.restartAppServerFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }),
+        'error'
+      )
+    } finally {
+      setRestartingAppServer(false)
+      setSaving(false)
+    }
+  }
+
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: t('settings.tab.general') },
     { id: 'connection', label: t('settings.tab.connection') },
@@ -1461,53 +1741,165 @@ export function SettingsView({
 
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px' }}>
           <div style={{ maxWidth: activeSettingsTab === 'mcp' ? '760px' : '560px' }}>
+            {(connectionDirty || llmDirty || proxyDirty) && (
+              <div
+                style={{
+                  marginBottom: '12px',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: '10px',
+                  padding: '10px 12px',
+                  background: 'var(--bg-secondary)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {t('settings.pendingChanges.banner', {
+                    tabs: [connectionDirty ? t('settings.tab.connection') : null, llmDirty ? t('settings.llm.title') : null, proxyDirty ? t('settings.tab.proxy') : null].filter(Boolean).join(', ')
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleApplyAndRestartAll()
+                  }}
+                  disabled={restartingAppServer || saving}
+                  style={primaryButtonStyle(restartingAppServer || saving)}
+                >
+                  {t('settings.pendingChanges.applyAll')}
+                </button>
+              </div>
+            )}
             {activeSettingsTab === 'general' && (
-              <SettingsGroup title={t('settings.group.general')}>
-                <SettingsRow
-                  label={t('settings.language')}
-                  htmlFor="settings-language"
-                  control={
-                    <select
-                      id="settings-language"
-                      value={locale}
-                      onChange={(e) => {
-                        void handleLocaleChange(e.target.value as AppLocale)
-                      }}
-                      style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
-                    >
-                      <option value="en">{t('settings.language.en')}</option>
-                      <option value="zh-Hans">{t('settings.language.zhHans')}</option>
-                    </select>
-                  }
-                />
+              <GeneralPanel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <SettingsGroup title={t('settings.group.general')}>
+                  <SettingsRow
+                    label={t('settings.language')}
+                    htmlFor="settings-language"
+                    control={
+                      <select
+                        id="settings-language"
+                        value={locale}
+                        onChange={(e) => {
+                          void handleLocaleChange(e.target.value as AppLocale)
+                        }}
+                        style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
+                      >
+                        <option value="en">{t('settings.language.en')}</option>
+                        <option value="zh-Hans">{t('settings.language.zhHans')}</option>
+                      </select>
+                    }
+                  />
 
-                <SettingsRow
-                  label={t('settings.theme')}
-                  htmlFor="settings-theme"
-                  control={
-                    <select
-                      id="settings-theme"
-                      value={theme}
-                      onChange={(e) => {
-                        void handleThemeChange(e.target.value as ThemeMode)
-                      }}
-                      style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
-                    >
-                      <option value="dark">{t('settings.optionThemeDark')}</option>
-                      <option value="light">{t('settings.optionThemeLight')}</option>
-                    </select>
-                  }
-                />
+                  <SettingsRow
+                    label={t('settings.theme')}
+                    htmlFor="settings-theme"
+                    control={
+                      <select
+                        id="settings-theme"
+                        value={theme}
+                        onChange={(e) => {
+                          void handleThemeChange(e.target.value as ThemeMode)
+                        }}
+                        style={{ ...inputStyle(), width: '180px', cursor: 'pointer' }}
+                      >
+                        <option value="dark">{t('settings.optionThemeDark')}</option>
+                        <option value="light">{t('settings.optionThemeLight')}</option>
+                      </select>
+                    }
+                  />
 
-                <SettingsRow>
-                  <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
-                    DotCraft Desktop {t('settings.version')} {version}
-                  </div>
-                </SettingsRow>
-              </SettingsGroup>
+                  <SettingsRow>
+                    <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                      DotCraft Desktop {t('settings.version')} {version}
+                    </div>
+                  </SettingsRow>
+                </SettingsGroup>
+
+                <SettingsGroup title={t('settings.llm.title')}>
+                  {proxyLockActive && (
+                    <SettingsRow>
+                      <div style={{ fontSize: '12px', color: 'var(--text-dimmed)' }}>
+                        {t('settings.llm.proxyLock.banner')}{' '}
+                        <button
+                          type="button"
+                          onClick={() => setActiveSettingsTab('proxy')}
+                          style={{ ...secondaryButtonStyle(false), padding: '2px 8px', marginLeft: '8px' }}
+                        >
+                          {t('settings.llm.proxyLock.openProxyTab')}
+                        </button>
+                      </div>
+                    </SettingsRow>
+                  )}
+                  <SettingsRow
+                    label={t('settings.llm.apiKey')}
+                    control={
+                      proxyLockActive ? (
+                        <input
+                          type="password"
+                          value={llmApiKey}
+                          readOnly
+                          style={{ ...inputStyle(true), opacity: 0.7 }}
+                        />
+                      ) : (
+                        <SecretInput
+                          value={llmApiKey}
+                          onChange={setLlmApiKey}
+                          style={inputStyle(true)}
+                          placeholder={t('settings.llm.apiKey')}
+                        />
+                      )
+                    }
+                  />
+                  <SettingsRow
+                    label={t('settings.llm.endPoint')}
+                    control={
+                      <input
+                        type="url"
+                        value={llmEndPoint}
+                        onChange={(e) => setLlmEndPoint(e.target.value)}
+                        style={{ ...inputStyle(true), opacity: proxyLockActive ? 0.7 : 1 }}
+                        placeholder="https://api.openai.com/v1"
+                        disabled={proxyLockActive}
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    label={t('settings.llm.model')}
+                    control={
+                      <input
+                        type="text"
+                        value={llmModel}
+                        onChange={(e) => setLlmModel(e.target.value)}
+                        style={inputStyle(true)}
+                        placeholder="gpt-4o-mini"
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    control={
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleApplyLlmAndRestart()
+                        }}
+                        disabled={!llmDirty || applyingLlm || restartingAppServer || (proxyLockActive && llmModel.trim() === (workspaceCoreBaseline.model ?? ''))}
+                        style={primaryButtonStyle(!llmDirty || applyingLlm || restartingAppServer)}
+                      >
+                        {t('settings.llm.applyAndRestart')}
+                      </button>
+                    }
+                  />
+                </SettingsGroup>
+              </div>
+              </GeneralPanel>
             )}
 
             {activeSettingsTab === 'connection' && (
+              <ConnectionPanel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <SettingsGroup title={t('settings.group.connection')}>
                   <SettingsRow
@@ -1655,37 +2047,70 @@ export function SettingsView({
                   {canRestartManagedAppServer && (
                     <SettingsRow
                       label={t('settings.appServerControl')}
-                      description={t('settings.restartAppServerHint')}
+                      description={connectionDirty ? t('settings.pendingChanges.connection') : t('settings.restartAppServerHint')}
                       control={
-                        <button
-                          type="button"
-                          aria-label={
-                            restartingAppServer
-                              ? t('settings.restartingAppServer')
-                              : t('settings.restartAppServer')
-                          }
-                          onClick={() => {
-                            void handleRestartManagedAppServer()
-                          }}
-                          disabled={restartingAppServer || saving}
-                          style={secondaryActionButtonStyle(restartingAppServer || saving)}
-                        >
-                          <RefreshIcon
-                            size={16}
-                            style={restartingAppServer ? { animation: 'spin 0.8s linear infinite' } : undefined}
-                          />
-                          <span>
-                            {restartingAppServer ? t('settings.action.restarting') : t('settings.action.restart')}
-                          </span>
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          {connectionDirty && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!baselineConnection) return
+                                setBinarySource(baselineConnection.binarySource)
+                                setBinaryPath(baselineConnection.binaryPath)
+                                setConnectionMode(baselineConnection.connectionMode)
+                                setWsHost(baselineConnection.wsHost)
+                                setWsPort(baselineConnection.wsPort)
+                                setRemoteUrl(baselineConnection.remoteUrl)
+                                setRemoteToken(baselineConnection.remoteToken)
+                              }}
+                              disabled={restartingAppServer || saving}
+                              style={secondaryActionButtonStyle(restartingAppServer || saving)}
+                            >
+                              {t('settings.llm.revert')}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={
+                              restartingAppServer
+                                ? t('settings.restartingAppServer')
+                                : connectionDirty
+                                  ? t('settings.connection.applyAndRestart')
+                                  : t('settings.restartAppServer')
+                            }
+                            onClick={() => {
+                              if (connectionDirty) {
+                                void handleApplyConnectionAndRestart()
+                              } else {
+                                void handleRestartManagedAppServer()
+                              }
+                            }}
+                            disabled={restartingAppServer || saving}
+                            style={secondaryActionButtonStyle(restartingAppServer || saving)}
+                          >
+                            <RefreshIcon
+                              size={16}
+                              style={restartingAppServer ? { animation: 'spin 0.8s linear infinite' } : undefined}
+                            />
+                            <span>
+                              {restartingAppServer
+                                ? t('settings.action.restarting')
+                                : connectionDirty
+                                  ? t('settings.connection.applyAndRestart')
+                                  : t('settings.action.restart')}
+                            </span>
+                          </button>
+                        </div>
                       }
                     />
                   )}
                 </SettingsGroup>
               </div>
+              </ConnectionPanel>
             )}
 
             {activeSettingsTab === 'proxy' && (
+              <ProxyPanel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <SettingsGroup title={t('settings.group.proxyToggle')}>
                   <SettingsRow
@@ -1972,9 +2397,11 @@ export function SettingsView({
                   )}
                 </div>
               </div>
+              </ProxyPanel>
             )}
 
             {activeSettingsTab === 'usage' && (
+              <UsagePanel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={cardStyle()}>
                   <div
@@ -2004,9 +2431,11 @@ export function SettingsView({
                   </div>
                 </div>
               </div>
+              </UsagePanel>
             )}
 
             {activeSettingsTab === 'channels' && (
+              <ChannelsPanel>
               <SettingsGroup
                 title={t('settings.crossChannelVisibility')}
                 description={t('settings.crossChannelHint')}
@@ -2093,9 +2522,11 @@ export function SettingsView({
                     )
                   })}
               </SettingsGroup>
+              </ChannelsPanel>
             )}
 
             {activeSettingsTab === 'mcp' && (
+              <McpPanel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {!mcpEnabled && (
                   <div style={cardStyle()}>
@@ -2115,6 +2546,11 @@ export function SettingsView({
                         <div style={{ fontSize: '12px', color: 'var(--text-dimmed)', marginTop: '4px' }}>
                           {t('settings.mcp.description')}
                         </div>
+                        {mcpSavedHint && (
+                          <div style={{ fontSize: '12px', color: 'var(--success)', marginTop: '6px' }}>
+                            {mcpSavedHint}
+                          </div>
+                        )}
                       </div>
                       <button type="button" onClick={() => startMcpDraft()} style={primaryButtonStyle(false)}>
                         {t('settings.mcp.addServer')}
@@ -2481,6 +2917,7 @@ export function SettingsView({
                   </div>
                 )}
               </div>
+              </McpPanel>
             )}
 
             {activeSettingsTab === 'archivedThreads' && (
@@ -2492,31 +2929,6 @@ export function SettingsView({
           </div>
         </main>
 
-      <footer
-        style={{
-          padding: '12px 20px',
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '8px',
-          flexShrink: 0
-        }}
-      >
-        <button type="button" onClick={closeSettings} style={secondaryButtonStyle(false)}>
-          {t('common.cancel')}
-        </button>
-        {activeSettingsTab !== 'mcp' && activeSettingsTab !== 'archivedThreads' && activeSettingsTab !== 'usage' && (
-          <button
-            type="button"
-            onClick={() => {
-              void handleSave()
-            }}
-            disabled={saving}
-            style={primaryButtonStyle(saving)}
-          >
-            {saving ? t('settings.saving') : t('settings.save')}
-          </button>
-        )}
-      </footer>
       </div>
     </div>
   )

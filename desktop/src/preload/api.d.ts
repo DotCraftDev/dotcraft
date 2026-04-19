@@ -222,6 +222,9 @@ declare global {
         onServerRequest(callback: (payload: ServerRequestPayload) => void): UnsubscribeFn
         sendServerResponse(bridgeId: string, result: unknown): void
       }
+      workspaceConfig: {
+        getCore(): Promise<{ model: string | null; apiKey: string | null; endPoint: string | null }>
+      }
       proxy: {
         getStatus(): Promise<ProxyStatusPayload>
         getResolvedBinary(request?: {

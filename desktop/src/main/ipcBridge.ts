@@ -167,6 +167,12 @@ function ensureObjectConfig(config: unknown): Record<string, unknown> {
   return config as Record<string, unknown>
 }
 
+function normalizeOptionalStringValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
 function resolveConnectionMode(settings: AppSettings): 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote' {
   const mode = settings.connectionMode
   if (
@@ -536,6 +542,30 @@ export function registerIpcHandlers(
       const message = error instanceof Error ? error.message : String(error)
       if (message.toLowerCase().includes('method not found')) {
         return null
+      }
+      throw error
+    }
+  })
+
+  handleSafe('workspace-config:get-core', async () => {
+    const workspacePath = callbacks?.getWorkspaceStatus().workspacePath?.trim()
+    if (!workspacePath) {
+      return { model: null, apiKey: null, endPoint: null }
+    }
+
+    const configPath = path.join(workspacePath, '.craft', 'config.json')
+    try {
+      const raw = await fs.readFile(configPath, 'utf8')
+      const parsed = parseJsonObjectConfig(raw)
+      return {
+        model: normalizeOptionalStringValue(parsed.Model ?? parsed.model),
+        apiKey: normalizeOptionalStringValue(parsed.ApiKey ?? parsed.apiKey),
+        endPoint: normalizeOptionalStringValue(parsed.EndPoint ?? parsed.endPoint)
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code
+      if (code === 'ENOENT') {
+        return { model: null, apiKey: null, endPoint: null }
       }
       throw error
     }

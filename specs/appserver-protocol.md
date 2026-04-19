@@ -158,6 +158,7 @@ Client                              Server
   "capabilities": {
     "approvalSupport": true,
     "streamingSupport": true,
+    "configChange": true,
     "optOutNotificationMethods": [],
     "acpExtensions": {
       "fsReadTextFile": true,
@@ -216,6 +217,7 @@ Client                              Server
 | `capabilities.approvalSupport` | boolean | no | Whether the client can handle server-initiated approval requests. Default `true`. |
 | `capabilities.streamingSupport` | boolean | no | Whether the client can consume `item/*/delta` notifications. Default `true`. |
 | `capabilities.commandExecutionStreaming` | boolean | no | Whether the client can consume `commandExecution` items and `item/commandExecution/outputDelta` notifications. Default `false`. |
+| `capabilities.configChange` | boolean | no | Whether the client wants `workspace/configChanged` notifications. Default `true`. |
 | `capabilities.optOutNotificationMethods` | string[] | no | Exact notification method names to suppress for this connection. See [Section 10](#10-notification-opt-out). |
 | `capabilities.channelAdapter` | object | no | External channel adapter metadata. When present, the connection is treated as the remote backend for one unified channel runtime. See [external-channel-adapter.md](external-channel-adapter.md). |
 | `capabilities.acpExtensions` | object | no | ACP tool proxy capabilities. When present, the client can handle server-initiated `ext/acp/*` requests. See [Section 11.2](#112-acp-tool-proxy). Default omitted (no ACP support). |
@@ -3497,13 +3499,17 @@ Update workspace-level config values.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `model` | string \| null | yes | Workspace default model. `null`, empty, or `"Default"` removes the `Model` key so runtime falls back to provider default behavior. |
+| `model` | string \| null | no | Workspace default model. `null`, empty, or `"Default"` removes the `Model` key so runtime falls back to provider default behavior. |
+| `apiKey` | string \| null | no | Workspace API key. `null` or empty removes the `ApiKey` key. |
+| `endPoint` | string \| null | no | Workspace API endpoint. `null` or empty removes the `EndPoint` key. |
 
 **Result**:
 
 ```json
 {
-  "model": "gpt-4o-mini"
+  "model": "gpt-4o-mini",
+  "apiKey": "sk-live-key",
+  "endPoint": "https://example.com/v1"
 }
 ```
 
@@ -3520,11 +3526,53 @@ If `model` is removed, the result returns:
 - This method updates **workspace default** only, not any active thread state.
 - Clients that need immediate effect in a running thread should additionally call `thread/config/update`.
 - Server preserves unrelated configuration state.
-- `Model` key matching is case-insensitive (`Model`, `model`, etc.) and normalized in-place.
+- At least one of `model`, `apiKey`, or `endPoint` must be provided.
+- Key matching is case-insensitive and normalized in-place (`Model`, `ApiKey`, `EndPoint`).
 
 ### 24.4 Capability Advertisement
 
 Clients must check `capabilities.workspaceConfigManagement` before calling workspace configuration methods (`workspace/config/schema`, `workspace/config/update`).
+
+Clients may set `capabilities.configChange = false` during `initialize` to suppress server-initiated `workspace/configChanged` notifications for that connection. When omitted, the server treats it as `true`.
+
+### 24.5 `workspace/configChanged`
+
+Server notification emitted after a successful workspace configuration write.
+
+**Direction**: server → client (notification, no `id`)
+
+**Params**:
+
+```json
+{
+  "source": "skills/setEnabled",
+  "regions": ["skills"],
+  "changedAt": "2026-04-19T10:15:03Z"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`). |
+| `regions` | string[] | Coarse region tags describing what changed. |
+| `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
+
+`regions` taxonomy in this milestone:
+
+| Region | Fired by |
+|--------|----------|
+| `workspace.model` | `workspace/config/update` |
+| `workspace.apiKey` | `workspace/config/update` |
+| `workspace.endpoint` | `workspace/config/update` |
+| `skills` | `skills/setEnabled` |
+| `mcp` | `mcp/upsert`, `mcp/remove` |
+| `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |
+
+Semantics:
+
+- Notification is emitted after write completion and in-process state update.
+- Payload is intentionally coarse; clients should re-read relevant state (`skills/list`, `mcp/list`, etc.) when needed.
+- Unknown region tags are forward-compatible and must be ignored by clients that do not recognize them.
 
 ## 25. GitHub Tracker Config Methods
 

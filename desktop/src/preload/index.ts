@@ -383,6 +383,12 @@ const api = {
     }
   },
 
+  workspaceConfig: {
+    getCore(): Promise<{ model: string | null; apiKey: string | null; endPoint: string | null }> {
+      return ipcRenderer.invoke('workspace-config:get-core')
+    }
+  },
+
   proxy: {
     getStatus(): Promise<ProxyStatusPayload> {
       return ipcRenderer.invoke('proxy:get-status')

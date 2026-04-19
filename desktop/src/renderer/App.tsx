@@ -8,6 +8,7 @@ import { useThreadStore } from './stores/threadStore'
 import { selectStreamingPlanItemId, useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { useCustomCommandCatalog } from './hooks/useCustomCommandCatalog'
+import { useConfigChangeSubscription } from './hooks/useConfigChangeSubscription'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
 import { AutomationsView } from './components/automations/AutomationsView'
@@ -17,6 +18,7 @@ import { useReviewPanelStore } from './stores/reviewPanelStore'
 import type { AutomationTask } from './stores/automationsStore'
 import { useModelCatalogStore } from './stores/modelCatalogStore'
 import { useMcpStore, type McpServerStatusWire } from './stores/mcpStore'
+import { useSkillsStore } from './stores/skillsStore'
 import { CustomMenuBar } from './components/layout/CustomMenuBar'
 import { Sidebar } from './components/layout/Sidebar'
 import { ConversationPanel } from './components/layout/ConversationPanel'
@@ -91,6 +93,7 @@ export function App(): JSX.Element {
   })
   const [showSetupWizard, setShowSetupWizard] = useState(false)
   const { status, errorType, errorMessage } = useConnectionStore()
+  const isExpectedRestart = useConnectionStore((s) => s.isExpectedRestart)
   const capabilities = useConnectionStore((s) => s.capabilities)
   const canUseCommandExecution = capabilities?.commandManagement === true
   const { commands: customCommands } = useCustomCommandCatalog({
@@ -134,6 +137,12 @@ export function App(): JSX.Element {
       setLoading(false)
     }
   }, [setThreadList, setLoading])
+
+  useConfigChangeSubscription({
+    onSkillsChanged: () => {
+      void useSkillsStore.getState().fetchSkills()
+    }
+  })
 
   // -------------------------------------------------------------------------
   // Bootstrap: workspace path + connection store
@@ -1196,6 +1205,22 @@ export function App(): JSX.Element {
       <>
         <ConfirmDialogHost />
         <ToastContainer />
+        {status === 'disconnected' && isExpectedRestart && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'rgba(56, 189, 248, 0.12)',
+              borderBottom: '1px solid rgba(56, 189, 248, 0.35)',
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              flexShrink: 0
+            }}
+          >
+            {translate(locale, 'settings.restartingAppServer')}
+          </div>
+        )}
         {showSlowConnectingHint && (
           <div
             role="status"

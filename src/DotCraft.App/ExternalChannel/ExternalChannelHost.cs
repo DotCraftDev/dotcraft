@@ -34,6 +34,7 @@ public sealed class ExternalChannelHost : IChannelService
     private readonly ExternalChannelDeliveryDependencies _delivery;
     private readonly Func<ProcessStartInfo, ManagedChildProcess> _managedChildProcessFactory;
     private readonly SessionStreamDebugLogger? _streamDebugLogger;
+    private readonly IAppConfigMonitor? _appConfigMonitor;
 
     // Current transport/connection/handler — replaced on restart or reconnect
     private IAppServerTransport? _transport;
@@ -72,7 +73,8 @@ public sealed class ExternalChannelHost : IChannelService
         PathBlacklist? pathBlacklist = null,
         IApprovalService? approvalService = null,
         Func<string, object>? deliveryDependenciesFactory = null,
-        SessionStreamDebugLogger? streamDebugLogger = null)
+        SessionStreamDebugLogger? streamDebugLogger = null,
+        IAppConfigMonitor? appConfigMonitor = null)
         : this(
             config,
             sessionService,
@@ -83,7 +85,8 @@ public sealed class ExternalChannelHost : IChannelService
             approvalService,
             deliveryDependenciesFactory,
             ManagedChildProcess.Start,
-            streamDebugLogger)
+            streamDebugLogger,
+            appConfigMonitor)
     {
     }
 
@@ -95,7 +98,8 @@ public sealed class ExternalChannelHost : IChannelService
         string hostWorkspacePath,
         Func<string, object>? deliveryDependenciesFactory,
         Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory,
-        SessionStreamDebugLogger? streamDebugLogger = null)
+        SessionStreamDebugLogger? streamDebugLogger = null,
+        IAppConfigMonitor? appConfigMonitor = null)
         : this(
             config,
             sessionService,
@@ -106,7 +110,8 @@ public sealed class ExternalChannelHost : IChannelService
             approvalService: null,
             deliveryDependenciesFactory,
             managedChildProcessFactory,
-            streamDebugLogger)
+            streamDebugLogger,
+            appConfigMonitor)
     {
     }
 
@@ -120,7 +125,8 @@ public sealed class ExternalChannelHost : IChannelService
         IApprovalService? approvalService,
         Func<string, object>? deliveryDependenciesFactory,
         Func<ProcessStartInfo, ManagedChildProcess> managedChildProcessFactory,
-        SessionStreamDebugLogger? streamDebugLogger = null)
+        SessionStreamDebugLogger? streamDebugLogger = null,
+        IAppConfigMonitor? appConfigMonitor = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _sessionService = sessionService ?? throw new ArgumentNullException(nameof(sessionService));
@@ -131,6 +137,7 @@ public sealed class ExternalChannelHost : IChannelService
         _delivery = CreateDeliveryDependencies(_hostWorkspacePath, pathBlacklist, approvalService, deliveryDependenciesFactory);
         _managedChildProcessFactory = managedChildProcessFactory ?? throw new ArgumentNullException(nameof(managedChildProcessFactory));
         _streamDebugLogger = streamDebugLogger;
+        _appConfigMonitor = appConfigMonitor;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -390,7 +397,8 @@ public sealed class ExternalChannelHost : IChannelService
             workspaceCraftPath: _workspaceCraftPath,
             hostWorkspacePath: _hostWorkspacePath,
             streamDebugLogger: _streamDebugLogger,
-            configSchema: ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes()));
+            configSchema: ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes()),
+            appConfigMonitor: _appConfigMonitor);
 
         // Forward stderr to DotCraft's diagnostic log
         _ = ForwardStderrAsync(process, ct);
@@ -514,7 +522,8 @@ public sealed class ExternalChannelHost : IChannelService
             workspaceCraftPath: _workspaceCraftPath,
             hostWorkspacePath: _hostWorkspacePath,
             streamDebugLogger: _streamDebugLogger,
-            configSchema: ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes()));
+            configSchema: ConfigSchemaBuilder.BuildAll(ConfigSchemaRegistrations.GetAllConfigTypes()),
+            appConfigMonitor: _appConfigMonitor);
 
         AnsiConsole.MarkupLine(
             $"[green][[ExternalChannel]][/] WebSocket adapter [yellow]{Name}[/] connected " +
