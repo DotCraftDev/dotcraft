@@ -37,7 +37,8 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
         var parts = new List<string>
         {
             // Core identity and built-in operating guidance
-            GetIdentity()
+            GetIdentity(),
+            GetWorkingStylePrompt()
         };
 
         // Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md)
@@ -199,6 +200,19 @@ This contains:
 - You should proactively use SpawnSubagent when a research task requires many search rounds, or when independent investigations can run in parallel.
 - Launch multiple subagents concurrently whenever possible — include multiple SpawnSubagent calls in a single response to maximize performance.
 - When you are not confident you can find what you need in 1-2 tool calls, use SpawnSubagent instead.
+""";
+    }
+
+    private static string GetWorkingStylePrompt()
+    {
+        return
+"""
+## Working Style
+- Before the first tool call in a task, briefly explain what you are about to do in 1-2 sentences.
+- If several related tool calls are coming next, group them under one short explanation instead of narrating each trivial action.
+- Keep these explanations concrete and forward-looking: focus on your current read of the task and the immediate next step.
+- During longer exploration, searching, testing, or editing stretches, send brief progress updates when they help the user follow your work.
+- Before making file edits, briefly explain what you are going to change and why.
 """;
     }
 
