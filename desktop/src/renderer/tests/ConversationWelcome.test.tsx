@@ -14,6 +14,67 @@ const saveImageToTemp = vi.fn()
 const pickFiles = vi.fn()
 const settingsGet = vi.fn()
 
+function linearizeSelection(root: Node): string {
+  let out = ''
+  const walk = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.textContent ?? ''
+      return
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const el = node as HTMLElement
+    if (
+      el.classList.contains(FILE_REF_CLASS) ||
+      el.classList.contains(COMMAND_REF_CLASS) ||
+      el.classList.contains(SKILL_REF_CLASS) ||
+      el.tagName === 'BR'
+    ) {
+      out += ' '
+      return
+    }
+    for (const child of Array.from(node.childNodes)) {
+      walk(child)
+    }
+  }
+  walk(root)
+  return out
+}
+
+function getTextboxSelection(textbox: HTMLElement): { start: number; end: number } | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+  const range = selection.getRangeAt(0)
+  if (!textbox.contains(range.startContainer) || !textbox.contains(range.endContainer)) return null
+
+  const startRange = document.createRange()
+  startRange.selectNodeContents(textbox)
+  startRange.setEnd(range.startContainer, range.startOffset)
+  const endRange = document.createRange()
+  endRange.selectNodeContents(textbox)
+  endRange.setEnd(range.endContainer, range.endOffset)
+
+  const startContainer = document.createElement('div')
+  startContainer.appendChild(startRange.cloneContents())
+  const endContainer = document.createElement('div')
+  endContainer.appendChild(endRange.cloneContents())
+
+  return {
+    start: linearizeSelection(startContainer).length,
+    end: linearizeSelection(endContainer).length
+  }
+}
+
+function setTextboxCaret(textbox: HTMLElement, offset: number): void {
+  const textNode = textbox.firstChild
+  if (!textNode) throw new Error('textbox has no text node')
+  const range = document.createRange()
+  range.setStart(textNode, offset)
+  range.setEnd(textNode, offset)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
 function renderWelcome() {
   return render(
     <LocaleProvider>
@@ -193,6 +254,8 @@ describe('ConversationWelcome composer', () => {
   it('hydrates from welcomeDraft and persists latest draft on unmount', async () => {
     useUIStore.getState().setWelcomeDraft({
       text: 'resume draft message',
+      selectionStart: 6,
+      selectionEnd: 6,
       images: [],
       mode: 'plan',
       model: 'gpt-5.4-mini'
@@ -204,6 +267,9 @@ describe('ConversationWelcome composer', () => {
     await waitFor(() => {
       expect(textbox.textContent).toContain('resume draft message')
     })
+    await waitFor(() => {
+      expect(getTextboxSelection(textbox)).toEqual({ start: 6, end: 6 })
+    })
     expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Explore this workspace' }))
@@ -214,6 +280,37 @@ describe('ConversationWelcome composer', () => {
       model: 'gpt-5.4-mini'
     })
     expect(useUIStore.getState().welcomeDraft?.text).toContain('Give me a quick overview of this project')
+  })
+
+  it('preserves caret position across thread switch and welcome remount', async () => {
+    const firstMount = renderWelcome()
+
+    const textbox = await screen.findByRole('textbox')
+    fireEvent.input(textbox, { target: { textContent: 'restore this caret' } })
+    setTextboxCaret(textbox, 7)
+    fireEvent.mouseUp(textbox)
+
+    await waitFor(() => {
+      expect(getTextboxSelection(textbox)).toEqual({ start: 7, end: 7 })
+    })
+
+    firstMount.unmount()
+
+    expect(useUIStore.getState().welcomeDraft).toMatchObject({
+      text: 'restore this caret',
+      selectionStart: 7,
+      selectionEnd: 7
+    })
+
+    const secondMount = renderWelcome()
+    const restoredTextbox = await screen.findByRole('textbox')
+
+    await waitFor(() => {
+      expect(restoredTextbox.textContent).toContain('restore this caret')
+      expect(getTextboxSelection(restoredTextbox)).toEqual({ start: 7, end: 7 })
+    })
+
+    secondMount.unmount()
   })
 
   it('hydrates structured welcome drafts back into inline tags', async () => {
@@ -376,6 +473,8 @@ describe('ConversationWelcome composer', () => {
   })
 
   it('clicking a dynamic suggestion prefills the welcome composer', async () => {
+    const dynamicPrompt = 'Audit how workspace memory is currently loaded and suggest how to reuse it for welcome suggestions.'
+
     appServerSendRequest.mockImplementation(async (method: string) => {
       if (method === 'welcome/suggestions') {
         return {
@@ -384,7 +483,7 @@ describe('ConversationWelcome composer', () => {
           items: [
             {
               title: 'Audit workspace memory usage',
-              prompt: 'Audit how workspace memory is currently loaded and suggest how to reuse it for welcome suggestions.'
+              prompt: dynamicPrompt
             }
           ]
         }
@@ -409,8 +508,13 @@ describe('ConversationWelcome composer', () => {
     const dynamicButton = await screen.findByRole('button', { name: 'Audit workspace memory usage' })
     fireEvent.click(dynamicButton)
 
-    expect((await screen.findByRole('textbox')).textContent).toContain(
-      'Audit how workspace memory is currently loaded'
-    )
+    const textbox = await screen.findByRole('textbox')
+    expect(textbox.textContent).toContain('Audit how workspace memory is currently loaded')
+    await waitFor(() => {
+      expect(getTextboxSelection(textbox)).toEqual({
+        start: dynamicPrompt.length,
+        end: dynamicPrompt.length
+      })
+    })
   })
 })
