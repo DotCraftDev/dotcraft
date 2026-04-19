@@ -320,7 +320,6 @@ export function ConversationWelcome({
         setSuggestionsStatus('idle')
         return
       }
-      }
       if (result.fingerprint && result.fingerprint === suggestionFingerprintRef.current) {
         setSuggestionsStatus('ready')
         return
