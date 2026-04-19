@@ -14,6 +14,16 @@ const saveImageToTemp = vi.fn()
 const pickFiles = vi.fn()
 const settingsGet = vi.fn()
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 function linearizeSelection(root: Node): string {
   let out = ''
   const walk = (node: Node): void => {
@@ -441,6 +451,10 @@ describe('ConversationWelcome composer', () => {
     renderWelcome()
 
     expect(await screen.findByText('Review desktop welcome flow')).toBeInTheDocument()
+    await waitFor(() => {
+      const methods = appServerSendRequest.mock.calls.map((call) => call[0])
+      expect(methods).toContain('welcome/suggestions')
+    })
     expect(screen.queryByText('Explore this workspace')).not.toBeInTheDocument()
   })
 
@@ -452,6 +466,7 @@ describe('ConversationWelcome composer', () => {
       const methods = appServerSendRequest.mock.calls.map((call) => call[0])
       expect(methods).toContain('welcome/suggestions')
     })
+    expect(screen.queryAllByTestId('welcome-suggestion-skeleton')).toHaveLength(0)
   })
 
   it('does not request welcome suggestions when the workspace config disables them', async () => {
@@ -516,5 +531,49 @@ describe('ConversationWelcome composer', () => {
         end: dynamicPrompt.length
       })
     })
+  })
+
+  it('shows loading skeletons while dynamic suggestions are pending', async () => {
+    const deferred = createDeferred<{
+      source: string
+      fingerprint: string
+      items: Array<{ title: string; prompt: string }>
+    }>()
+
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return deferred.promise
+      }
+      return {}
+    })
+
+    renderWelcome()
+
+    expect(await screen.findAllByTestId('welcome-suggestion-skeleton')).toHaveLength(4)
+    expect(screen.queryByRole('button', { name: 'Explore this workspace' })).not.toBeInTheDocument()
+
+    deferred.resolve({
+      source: 'dynamic',
+      fingerprint: 'dynamic-loading',
+      items: [
+        {
+          title: 'Inspect suggestion loading',
+          prompt: 'Inspect suggestion loading state transitions on the welcome screen.'
+        }
+      ]
+    })
+
+    expect(await screen.findByRole('button', { name: 'Inspect suggestion loading' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryAllByTestId('welcome-suggestion-skeleton')).toHaveLength(0)
+    })
+  })
+
+  it('renders suggestion buttons as full-width rows', async () => {
+    renderWelcome()
+
+    const button = await screen.findByRole('button', { name: 'Explore this workspace' })
+    expect(button.getAttribute('style')).toContain('width: 100%')
+    expect(button.getAttribute('style')).toContain('box-sizing: border-box')
   })
 })

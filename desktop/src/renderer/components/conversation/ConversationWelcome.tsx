@@ -322,7 +322,10 @@ export function ConversationWelcome({
         }
         return
       }
-      if (result.fingerprint && result.fingerprint === suggestionFingerprintRef.current) return
+      if (result.fingerprint && result.fingerprint === suggestionFingerprintRef.current) {
+        setSuggestionsStatus('ready')
+        return
+      }
 
       const mapped = result.items
         .map((item) => {
@@ -337,7 +340,10 @@ export function ConversationWelcome({
         })
         .filter((item): item is Suggestion => item !== null)
 
-      if (mapped.length === 0) return
+      if (mapped.length === 0) {
+        setSuggestionsStatus('idle')
+        return
+      }
       suggestionFingerprintRef.current = typeof result.fingerprint === 'string' ? result.fingerprint : null
       setDynamicSuggestions(mapped)
       setSuggestionsStatus('ready')
