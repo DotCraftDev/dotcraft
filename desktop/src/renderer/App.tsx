@@ -8,7 +8,6 @@ import { useThreadStore } from './stores/threadStore'
 import { selectStreamingPlanItemId, useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { useCustomCommandCatalog } from './hooks/useCustomCommandCatalog'
-import { useConfigChangeSubscription } from './hooks/useConfigChangeSubscription'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
 import { AutomationsView } from './components/automations/AutomationsView'
@@ -40,6 +39,10 @@ import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
 import { resolveCustomCommandExecution } from './utils/customCommandExecution'
+import {
+  resolveWorkspaceConfigChangedPayload,
+  type WorkspaceConfigChangedPayload
+} from './utils/workspaceConfigChanged'
 import type { DiscoveredModule, ModuleStatusMap, WorkspaceStatusPayload } from '../preload/api.d'
 import './styles/tokens.css'
 
@@ -86,6 +89,8 @@ export function App(): JSX.Element {
 
   const [workspacePath, setWorkspacePath] = useState('')
   const [workspaceName, setWorkspaceName] = useState('DotCraft')
+  const [workspaceConfigChange, setWorkspaceConfigChange] = useState<WorkspaceConfigChangedPayload | null>(null)
+  const [workspaceConfigChangeSeq, setWorkspaceConfigChangeSeq] = useState(0)
   const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceStatusPayload>({
     status: 'no-workspace',
     workspacePath: '',
@@ -110,6 +115,7 @@ export function App(): JSX.Element {
   } = useThreadStore()
 
   const workspacePathRef = useRef('')
+  const workspaceConfigChangedDedupeRef = useRef<Map<string, number>>(new Map())
   const moduleConnectedSnapshotRef = useRef<Map<string, boolean>>(new Map())
   const moduleConnectedSnapshotReadyRef = useRef(false)
   const moduleDisplayNameByIdRef = useRef<Map<string, string>>(new Map())
@@ -137,12 +143,6 @@ export function App(): JSX.Element {
       setLoading(false)
     }
   }, [setThreadList, setLoading])
-
-  useConfigChangeSubscription({
-    onSkillsChanged: () => {
-      void useSkillsStore.getState().fetchSkills()
-    }
-  })
 
   // -------------------------------------------------------------------------
   // Bootstrap: workspace path + connection store
@@ -711,6 +711,22 @@ export function App(): JSX.Element {
             break
           }
 
+          case 'workspace/configChanged': {
+            const event = resolveWorkspaceConfigChangedPayload(
+              payload,
+              workspaceConfigChangedDedupeRef.current
+            )
+            if (!event) break
+
+            if (event.regions.includes('skills')) {
+              void useSkillsStore.getState().fetchSkills()
+            }
+
+            setWorkspaceConfigChange(event)
+            setWorkspaceConfigChangeSeq((seq) => seq + 1)
+            break
+          }
+
           default:
             break
         }
@@ -1249,6 +1265,8 @@ export function App(): JSX.Element {
                 onThreadListRefreshRequested={() => {
                   void reloadThreadList()
                 }}
+                workspaceConfigChange={workspaceConfigChange}
+                workspaceConfigChangeSeq={workspaceConfigChangeSeq}
               />
             ) : activeMainView === 'channels' ? (
               <ChannelsView />

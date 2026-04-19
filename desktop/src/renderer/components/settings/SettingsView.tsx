@@ -9,7 +9,7 @@ import { mergeAvailableChannels } from '../../utils/availableChannels'
 import { PRESET_EXTERNAL_CHANNELS } from '../channels/presetExternalChannels'
 import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
-import { useConfigChangeSubscription } from '../../hooks/useConfigChangeSubscription'
+import { useSettingsWorkspaceConfigChangeEffects } from '../../hooks/useSettingsWorkspaceConfigChangeEffects'
 import { SecretInput } from '../channels/FormShared'
 import { ArchivedThreadsSettingsView } from './ArchivedThreadsSettingsView'
 import { FolderIcon, OpenInBrowserIcon, RefreshIcon } from '../ui/AppIcons'
@@ -34,6 +34,7 @@ import {
   type McpTransport
 } from '../../stores/mcpStore'
 import type { BinarySource, ProxyAuthFileSummary, ProxyOAuthProvider } from '../../../preload/api'
+import type { WorkspaceConfigChangedPayload } from '../../utils/workspaceConfigChanged'
 
 declare const __APP_VERSION__: string | undefined
 
@@ -45,6 +46,8 @@ interface ChannelInfoWire {
 interface SettingsViewProps {
   workspacePath?: string
   onThreadListRefreshRequested?: () => void
+  workspaceConfigChange?: WorkspaceConfigChangedPayload | null
+  workspaceConfigChangeSeq?: number
 }
 
 interface KeyValueRow {
@@ -470,7 +473,9 @@ function EditableKeyValueList({
 
 export function SettingsView({
   workspacePath,
-  onThreadListRefreshRequested
+  onThreadListRefreshRequested,
+  workspaceConfigChange = null,
+  workspaceConfigChangeSeq = 0
 }: SettingsViewProps): JSX.Element {
   const t = useT()
   const setUiLocale = useSetUiLocale()
@@ -649,31 +654,17 @@ export function SettingsView({
     }
   }
 
-  useConfigChangeSubscription({
-    onWorkspaceModelChanged: (payload) => {
-      if (llmDirty && payload.source !== 'workspace/config/update') {
-        addToast(t('settings.llm.externalChangeNotice'), 'info')
-      }
-      void reloadWorkspaceCore()
+  useSettingsWorkspaceConfigChangeEffects({
+    change: workspaceConfigChange,
+    changeSeq: workspaceConfigChangeSeq,
+    llmDirty,
+    mcpEnabled,
+    onExternalLlmChangeNotice: () => {
+      addToast(t('settings.llm.externalChangeNotice'), 'info')
     },
-    onWorkspaceApiKeyChanged: (payload) => {
-      if (llmDirty && payload.source !== 'workspace/config/update') {
-        addToast(t('settings.llm.externalChangeNotice'), 'info')
-      }
-      void reloadWorkspaceCore()
-    },
-    onWorkspaceEndPointChanged: (payload) => {
-      if (llmDirty && payload.source !== 'workspace/config/update') {
-        addToast(t('settings.llm.externalChangeNotice'), 'info')
-      }
-      void reloadWorkspaceCore()
-    },
-    onMcpChanged: () => {
-      if (mcpEnabled) {
-        void Promise.all([reloadMcpServers(), reloadMcpStatuses()])
-      }
-    },
-    onExternalChannelChanged: () => {
+    reloadWorkspaceCore,
+    reloadMcpData: () => Promise.all([reloadMcpServers(), reloadMcpStatuses()]),
+    clearServerChannels: () => {
       setServerChannels(null)
     }
   })
