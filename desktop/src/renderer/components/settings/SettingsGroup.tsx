@@ -167,7 +167,7 @@ export function SettingsRow({
           </div>
         )}
       </div>
-      {control !== undefined && <div style={{ flexShrink: 0, width: controlMinWidth }}>{control}</div>}
+      {control !== undefined && <div style={{ flexShrink: 0, minWidth: controlMinWidth }}>{control}</div>}
     </div>
   )
 }
