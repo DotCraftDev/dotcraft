@@ -32,6 +32,11 @@ export interface TelegramMessageLike {
 }
 
 export interface TelegramApiLike {
+  sendMessage(
+    chatId: number | string,
+    text: string,
+    other?: Record<string, unknown>,
+  ): Promise<TelegramMessageLike>;
   sendDocument(
     chatId: number | string,
     document: InputFile | string,

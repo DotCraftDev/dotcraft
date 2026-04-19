@@ -15,6 +15,15 @@ import {
 class FakeTelegramApi implements TelegramApiLike {
   readonly calls: Array<{ method: string; chatId: number | string; other?: Record<string, unknown> }> = [];
 
+  async sendMessage(
+    chatId: number | string,
+    _text: string,
+    other?: Record<string, unknown>,
+  ): Promise<{ message_id: number }> {
+    this.calls.push({ method: "sendMessage", chatId, other });
+    return { message_id: 9 };
+  }
+
   async sendDocument(
     chatId: number | string,
     _document: unknown,
