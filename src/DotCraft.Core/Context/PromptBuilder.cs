@@ -11,7 +11,8 @@ namespace DotCraft.Context;
 public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLoader, string craftPath, string workspacePath,
     CustomCommandLoader? customCommandLoader = null, AgentModeManager? modeManager = null, PlanStore? planStore = null,
     Func<string?>? sessionIdProvider = null, bool sandboxEnabled = false,
-    IReadOnlyList<string>? deferredMcpServerNames = null)
+    IReadOnlyList<string>? deferredMcpServerNames = null,
+    string? subAgentProfilesSection = null)
 {
     private readonly string _craftPath = Path.GetFullPath(craftPath);
 
@@ -37,9 +38,13 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
         var parts = new List<string>
         {
             // Core identity and built-in operating guidance
-            GetIdentity(),
-            GetWorkingStylePrompt()
+            GetIdentity()
         };
+
+        if (!string.IsNullOrWhiteSpace(subAgentProfilesSection))
+            parts.Add(subAgentProfilesSection);
+
+        parts.Add(GetWorkingStylePrompt());
 
         // Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md)
         var bootstrapContent = LoadBootstrapFiles();

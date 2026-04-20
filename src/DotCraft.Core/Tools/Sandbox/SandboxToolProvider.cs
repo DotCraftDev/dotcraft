@@ -60,7 +60,11 @@ public sealed class SandboxToolProvider : IAgentToolProvider
             blacklist: context.PathBlacklist,
             sandboxManager: sandboxManager,
             traceCollector: context.TraceCollector);
-        var agentTools = new AgentTools(subAgentManager);
+        var subAgentCoordinator = new SubAgentCoordinator(
+            context.WorkspacePath,
+            [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
+            context.Config.SubAgentProfiles);
+        var agentTools = new AgentTools(subAgentCoordinator);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 
         // Web tools — no isolation needed, reuse as-is

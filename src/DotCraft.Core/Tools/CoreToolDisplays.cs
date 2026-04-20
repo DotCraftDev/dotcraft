@@ -478,6 +478,9 @@ public static class CoreToolDisplays
         return $"Spawned subagent: {SubAgentManager.NormalizeLabel(label, task)}";
     }
 
+    public static string InspectSubagentProfiles(IDictionary<string, object?>? args)
+        => "Inspect subagent profiles";
+
     public static string CreatePlan(IDictionary<string, object?>? args)
         => $"Created plan: {ToolDisplayHelpers.Truncate(ToolDisplayHelpers.GetString(args, "title") ?? "plan", 60)}";
 

@@ -23,10 +23,11 @@ public sealed class MemoryContextProvider(
     PlanStore? planStore = null,
     Func<string?>? sessionIdProvider = null,
     bool sandboxEnabled = false,
-    IReadOnlyList<string>? deferredMcpServerNames = null)
+    IReadOnlyList<string>? deferredMcpServerNames = null,
+    string? subAgentProfilesSection = null)
     : AIContextProvider
 {
-    private readonly PromptBuilder _promptBuilder = new(memoryStore, skillsLoader, dotCraftPath, workspacePath, customCommandLoader, modeManager, planStore, sessionIdProvider, sandboxEnabled, deferredMcpServerNames);
+    private readonly PromptBuilder _promptBuilder = new(memoryStore, skillsLoader, dotCraftPath, workspacePath, customCommandLoader, modeManager, planStore, sessionIdProvider, sandboxEnabled, deferredMcpServerNames, subAgentProfilesSection);
 
     protected override ValueTask<AIContext> InvokingCoreAsync(InvokingContext context, CancellationToken cancellationToken = default)
     {

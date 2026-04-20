@@ -415,6 +415,14 @@ public sealed class AgentFactory : IAsyncDisposable
         // Custom instructions: skip MemoryContextProvider so ChatOptions.Instructions is the system prompt (e.g. commit-suggest).
         if (string.IsNullOrWhiteSpace(instructions))
         {
+            string? subAgentProfilesSection = null;
+            if (tools.Any(t => string.Equals(t.Name, "SpawnSubagent", StringComparison.OrdinalIgnoreCase)))
+            {
+                subAgentProfilesSection = SubAgentProfilePromptSectionBuilder.Build(
+                    ctx.Config.SubAgentProfiles,
+                    SubAgentProfileRegistry.KnownRuntimeTypes);
+            }
+
             // When deferred loading is active, derive connected server names from the
             // ToolServerMap so the system prompt can list them for the model.
             IReadOnlyList<string>? deferredServerNames = null;
@@ -438,7 +446,8 @@ public sealed class AgentFactory : IAsyncDisposable
                     _planStore,
                     () => TracingChatClient.CurrentSessionKey,
                     sandboxEnabled: _config.Tools.Sandbox.Enabled,
-                    deferredMcpServerNames: deferredServerNames));
+                    deferredMcpServerNames: deferredServerNames,
+                    subAgentProfilesSection: subAgentProfilesSection));
         }
 
         return configuredChatClient.AsAIAgent(options);

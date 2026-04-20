@@ -33,7 +33,11 @@ public sealed class CoreToolProvider : IAgentToolProvider
             reasoningConfig: context.Config.Reasoning,
             blacklist: context.PathBlacklist,
             traceCollector: context.TraceCollector);
-        var agentTools = new AgentTools(subAgentManager);
+        var subAgentCoordinator = new SubAgentCoordinator(
+            context.WorkspacePath,
+            [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
+            context.Config.SubAgentProfiles);
+        var agentTools = new AgentTools(subAgentCoordinator);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 
         // File tools

@@ -37,6 +37,34 @@ public sealed class PromptBuilderTests : IDisposable
         Assert.Contains("# Plan Mode - System Reminder", prompt);
     }
 
+    [Fact]
+    public void BuildSystemPrompt_WithSubAgentProfilesSection_InsertsItAfterIdentityAndBeforeBootstrap()
+    {
+        Directory.CreateDirectory(_tempRoot);
+        File.WriteAllText(Path.Combine(_tempRoot, "AGENTS.md"), "bootstrap marker");
+
+        var builder = CreatePromptBuilder(
+            subAgentProfilesSection:
+            """
+            ## Available SubAgent Profiles
+
+            - `dotcraft-native`: Native DotCraft subagent profile.
+            """
+        );
+
+        var prompt = builder.BuildSystemPrompt();
+
+        Assert.Contains("## Available SubAgent Profiles", prompt);
+
+        var profilesIndex = prompt.IndexOf("## Available SubAgent Profiles", StringComparison.Ordinal);
+        var bootstrapIndex = prompt.IndexOf("## AGENTS.md", StringComparison.Ordinal);
+        var identityIndex = prompt.IndexOf("# DotCraft", StringComparison.Ordinal);
+
+        Assert.True(identityIndex >= 0);
+        Assert.True(profilesIndex > identityIndex);
+        Assert.True(bootstrapIndex > profilesIndex);
+    }
+
     public void Dispose()
     {
         try
@@ -50,13 +78,16 @@ public sealed class PromptBuilderTests : IDisposable
         }
     }
 
-    private PromptBuilder CreatePromptBuilder(AgentModeManager? modeManager = null)
+    private PromptBuilder CreatePromptBuilder(
+        AgentModeManager? modeManager = null,
+        string? subAgentProfilesSection = null)
     {
         return new PromptBuilder(
             new MemoryStore(_tempRoot),
             new SkillsLoader(_tempRoot),
             _tempRoot,
             _tempRoot,
-            modeManager: modeManager);
+            modeManager: modeManager,
+            subAgentProfilesSection: subAgentProfilesSection);
     }
 }

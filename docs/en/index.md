@@ -4,6 +4,8 @@ Read the DotCraft documentation to get started quickly
 
 [Configuration & Security Guide](./config_guide.md) - Model, tools, blacklists, workspace boundaries, approval, Gateway multi-channel concurrent mode
 
+[External CLI Subagents Guide](./external_cli_subagents_guide.md) - Profile configuration, validation flow, and common issues for external coding-agent CLIs
+
 [AppServer Mode Guide](./appserver_guide.md) - Wire protocol server, WebSocket transport, remote CLI connection
 
 [API Mode Guide](./api_guide.md) - OpenAI-compatible API service, tool filtering, SDK examples
