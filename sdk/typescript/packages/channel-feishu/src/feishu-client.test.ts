@@ -788,7 +788,6 @@ test("Feishu client appends docx blocks at the root with revision and client tok
       /\/open-apis\/docx\/v1\/documents\/doxABCDEFGHIJKLMNOPQRSTUVWX\/blocks\/doxABCDEFGHIJKLMNOPQRSTUVWX\/children\?/,
     );
     assert.match(calls[1]!.url, /document_revision_id=9/);
-    assert.match(calls[1]!.url, /index=-1/);
     assert.match(calls[1]!.url, /client_token=client-token-1/);
     const body = JSON.parse(String(calls[1]!.init?.body ?? "{}")) as Record<string, unknown>;
     assert.deepEqual(body, {
@@ -796,6 +795,7 @@ test("Feishu client appends docx blocks at the root with revision and client tok
         { block_type: 3, heading1: { elements: [{ text_run: { content: "Heading" } }] } },
         { block_type: 2, text: { elements: [{ text_run: { content: "Paragraph" } }] } },
       ],
+      index: -1,
     });
   } finally {
     globalThis.fetch = originalFetch;
