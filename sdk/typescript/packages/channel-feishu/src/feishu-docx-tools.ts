@@ -428,8 +428,10 @@ function toFeishuDocxBlock(block: FeishuSimpleBlock): Record<string, unknown> {
         block_type: 14,
         code: {
           elements: textElements,
-          language: resolveCodeLanguageId(block.language),
-          wrap: false,
+          style: {
+            language: resolveCodeLanguageId(block.language),
+            wrap: false,
+          },
         },
       };
     case "divider":
