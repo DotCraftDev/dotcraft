@@ -57,6 +57,24 @@ public sealed class StreamingToolCallPreviewChatClientTests
     }
 
     [Fact]
+    public async Task GetStreamingResponseAsync_ExposesDeltaToConsumer_ButRemovesAfterYield()
+    {
+        var update = new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("a")])
+        {
+            RawRepresentation = new FakeRawDeltaSource(
+                new ToolCallDeltaChunk(0, "WriteFile", "call-1", "{\"path\":\"a.txt\"}"))
+        };
+        var client = new StreamingToolCallPreviewChatClient(new FakeChatClient(streamUpdates: [update]));
+
+        var observed = new List<ToolCallArgumentsDeltaContent>();
+        await foreach (var item in client.GetStreamingResponseAsync([]))
+            observed.AddRange(item.Contents.OfType<ToolCallArgumentsDeltaContent>());
+
+        Assert.Single(observed);
+        Assert.DoesNotContain(update.Contents, content => content is ToolCallArgumentsDeltaContent);
+    }
+
+    [Fact]
     public async Task GetStreamingResponseAsync_FilteredTool_DoesNotInject()
     {
         var updates = new[]

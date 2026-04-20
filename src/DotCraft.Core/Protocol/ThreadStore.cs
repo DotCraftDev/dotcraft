@@ -78,7 +78,7 @@ public sealed class ThreadStore
         CancellationToken ct = default)
     {
         var path = GetSessionPath(threadId);
-        var serialized = await agent.SerializeSessionAsync(session, JsonSerializerOptions.Web, ct);
+        var serialized = await agent.SerializeSessionAsync(session, SessionPersistenceJsonOptions.Default, ct);
         await File.WriteAllTextAsync(path, serialized.GetRawText(), ct);
     }
 
@@ -95,8 +95,8 @@ public sealed class ThreadStore
         {
             await using var stream = File.OpenRead(path);
             var element = await JsonSerializer.DeserializeAsync<JsonElement>(
-                stream, JsonSerializerOptions.Web, cancellationToken: ct);
-            return await agent.DeserializeSessionAsync(element, cancellationToken: ct);
+                stream, SessionPersistenceJsonOptions.Default, cancellationToken: ct);
+            return await agent.DeserializeSessionAsync(element, SessionPersistenceJsonOptions.Default, ct);
         }
 
         return await agent.CreateSessionAsync(ct);
