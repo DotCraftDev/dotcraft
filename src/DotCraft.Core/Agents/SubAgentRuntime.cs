@@ -130,6 +130,8 @@ public sealed class NativeSubAgentRuntime(SubAgentManager subAgentManager) : ISu
         ISubAgentEventSink sink,
         CancellationToken cancellationToken)
     {
+        _ = sink;
+
         // TokenTracker is shared at the turn scope, so this is best-effort metadata only.
         var tokenTracker = TokenTracker.Current;
         var beforeInput = tokenTracker?.SubAgentInputTokens ?? 0;
@@ -143,11 +145,6 @@ public sealed class NativeSubAgentRuntime(SubAgentManager subAgentManager) : ISu
             Math.Max(0, afterInput - beforeInput),
             Math.Max(0, afterOutput - beforeOutput));
         var isError = text.StartsWith("Error:", StringComparison.OrdinalIgnoreCase);
-
-        if (isError)
-            sink.OnFailed("Native subagent failed.", tokensUsed);
-        else
-            sink.OnCompleted("Native subagent completed.", tokensUsed);
 
         return new SubAgentRunResult
         {
@@ -554,7 +551,7 @@ public sealed class SubAgentCoordinator
             WorkingDirectory: workingDirectory,
             ProfileName: profile.Name);
 
-        var sink = CreateEventSink(request, launchContext);
+        var sink = CreateEventSink(request, runtime.RuntimeType);
         var session = await runtime.CreateSessionAsync(profile, launchContext, cancellationToken);
         try
         {
@@ -603,8 +600,11 @@ public sealed class SubAgentCoordinator
             $"Subagent profile '{profile.Name}' has unsupported workingDirectoryMode '{profile.WorkingDirectoryMode}'.");
     }
 
-    private static ISubAgentEventSink CreateEventSink(SubAgentTaskRequest request, SubAgentLaunchContext context)
+    private static ISubAgentEventSink CreateEventSink(SubAgentTaskRequest request, string runtimeType)
     {
+        if (string.Equals(runtimeType, NativeSubAgentRuntime.RuntimeTypeName, StringComparison.OrdinalIgnoreCase))
+            return NullSubAgentEventSink.Instance;
+
         var bridgeKey = SubAgentManager.NormalizeLabel(request.Label, request.Task);
         var progressEntry = SubAgentProgressBridge.GetOrCreate(bridgeKey);
         return new BridgeSubAgentEventSink(progressEntry, bridgeKey);
@@ -665,6 +665,7 @@ public sealed class SubAgentCoordinator
                 return;
 
             _progressEntry.AddTokens(tokensUsed.InputTokens, tokensUsed.OutputTokens);
+            TokenTracker.Current?.AddSubAgentTokens(tokensUsed.InputTokens, tokensUsed.OutputTokens);
         }
     }
 }

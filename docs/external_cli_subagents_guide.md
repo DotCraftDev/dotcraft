@@ -11,7 +11,7 @@ External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入
 | `cursor-cli` | `cli-oneshot` | `cursor-agent` | `cursor-agent --print --output-format json --mode ask` |
 | `custom-cli-oneshot` | `cli-oneshot` | - | 模板 profile，需同名覆盖并补齐 `bin` 后才可用 |
 
-当某个 `cli-oneshot` profile 的 `bin` 在本机不可解析时，DotCraft 会自动将其从系统提示词隐藏；可通过 `InspectSubagentProfiles` 查看隐藏原因。
+当某个 `cli-oneshot` profile 的 `bin` 在本机不可解析时，DotCraft 会自动将其从系统提示词隐藏，并在启动时于日志中打印隐藏原因（例如 `binary 'cursor-agent' was not found on PATH`）。
 
 ## 快速配置
 
@@ -72,10 +72,7 @@ DotCraft 内置参数：`exec --skip-git-repo-check`。返回结果默认走 `--
 
 ## 在你的机器上检查 Profile
 
-可直接调用 `InspectSubagentProfiles` 查看每个 profile 的 runtime、binary 解析结果、是否被提示词隐藏及具体原因。例如：
-
-- `promptVisibility: visible` 表示可被模型使用
-- `promptVisibility: hidden (binary 'cursor-agent' was not found on PATH)` 表示已自动隐藏
+DotCraft 在启动时会校验所有 profile，并把被自动隐藏的内置 profile 以日志形式输出，便于定位是缺 `bin`、binary 不在 PATH、还是字段配置有误。检查启动日志即可确认当前哪些 profile 可被模型使用。
 
 ## 相关文档
 

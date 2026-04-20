@@ -28,6 +28,8 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         SubAgentProgressBridge.Remove("Inspect");
         SubAgentProgressBridge.Remove("cli run");
         SubAgentProgressBridge.Remove("diag");
+        SubAgentProgressBridge.Remove("native run");
+        SubAgentProgressBridge.Remove("external tokens");
     }
 
     [Fact]
@@ -210,6 +212,26 @@ public sealed class SubAgentCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_NativeRuntime_UsesNullSinkAndDoesNotOverwriteBridgeState()
+    {
+        var runtime = new FakeRuntime(
+            NativeSubAgentRuntime.RuntimeTypeName,
+            "native ok",
+            onRun: sink => sink.OnCompleted("Should not be written.", new SubAgentTokenUsage(99, 42)));
+        var cliRuntime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "cli ok");
+        var coordinator = new SubAgentCoordinator(_workspacePath, [runtime, cliRuntime]);
+
+        var result = await coordinator.RunAsync(new SubAgentTaskRequest
+        {
+            Task = "inspect code",
+            Label = "native run"
+        });
+
+        Assert.Equal("native ok", result);
+        Assert.Null(SubAgentProgressBridge.TryGet("native run"));
+    }
+
+    [Fact]
     public async Task RunAsync_ExternalRuntimeSink_UpdatesBridgeProgressAndTokens()
     {
         var runtime = new FakeRuntime(
@@ -248,6 +270,48 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         Assert.Equal(12, progress.InputTokens);
         Assert.Equal(34, progress.OutputTokens);
         Assert.Equal("Completed cursor-cli.", progress.LastToolDisplay);
+    }
+
+    [Fact]
+    public async Task RunAsync_ExternalRuntimeSink_AlsoAggregatesTokensToTokenTracker()
+    {
+        var runtime = new FakeRuntime(
+            CliOneshotRuntime.RuntimeTypeName,
+            "cli ok",
+            onRun: sink => sink.OnCompleted("Completed cursor-cli.", new SubAgentTokenUsage(7, 11)));
+        var coordinator = new SubAgentCoordinator(
+            _workspacePath,
+            [runtime],
+            [
+                new SubAgentProfile
+                {
+                    Name = "external-tokens",
+                    Runtime = CliOneshotRuntime.RuntimeTypeName,
+                    WorkingDirectoryMode = "workspace",
+                    Bin = "test-cli"
+                }
+            ]);
+
+        var previousTracker = DotCraft.Context.TokenTracker.Current;
+        DotCraft.Context.TokenTracker.Current = new DotCraft.Context.TokenTracker();
+        try
+        {
+            var result = await coordinator.RunAsync(
+                new SubAgentTaskRequest
+                {
+                    Task = "inspect code",
+                    Label = "external tokens"
+                },
+                "external-tokens");
+
+            Assert.Equal("cli ok", result);
+            Assert.Equal(7, DotCraft.Context.TokenTracker.Current?.SubAgentInputTokens);
+            Assert.Equal(11, DotCraft.Context.TokenTracker.Current?.SubAgentOutputTokens);
+        }
+        finally
+        {
+            DotCraft.Context.TokenTracker.Current = previousTracker;
+        }
     }
 
     [Fact]

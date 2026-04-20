@@ -11,7 +11,7 @@ External CLI subagents let you run an existing coding-agent CLI as a DotCraft on
 | `cursor-cli` | `cli-oneshot` | `cursor-agent` | `cursor-agent --print --output-format json --mode ask` |
 | `custom-cli-oneshot` | `cli-oneshot` | - | Template profile; override with same name and set `bin` to make it usable |
 
-If a `cli-oneshot` profile binary cannot be resolved on your machine, DotCraft hides that profile from the system prompt automatically. Use `InspectSubagentProfiles` to see the exact reason.
+If a `cli-oneshot` profile binary cannot be resolved on your machine, DotCraft hides that profile from the system prompt automatically and logs the reason at startup (e.g. `binary 'cursor-agent' was not found on PATH`).
 
 ## Quick Configure
 
@@ -72,10 +72,7 @@ DotCraft ships `codex-cli` with `exec --skip-git-repo-check`. Final text is read
 
 ## Inspect Profiles On Your Machine
 
-Call `InspectSubagentProfiles` to inspect runtime readiness, binary resolution, and prompt visibility.
-
-- `promptVisibility: visible` means the model can use that profile.
-- `promptVisibility: hidden (binary 'cursor-agent' was not found on PATH)` means DotCraft intentionally hides it.
+DotCraft validates every profile at startup and prints the hidden built-in profiles (with the concrete reason) to the log, so you can quickly tell whether a profile is missing `bin`, whether the binary is not on `PATH`, or whether a required field is misconfigured. Check the startup log to know which profiles are visible to the model.
 
 ## Related Documents
 
