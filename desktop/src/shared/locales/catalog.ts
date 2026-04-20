@@ -448,7 +448,7 @@ const MESSAGES_EN = {
   'welcomeComposer.hint.select':
     'Select a thread from the sidebar, type below, or pick a quick start.',
   'welcomeComposer.hint.connecting': 'Connecting to workspace…',
-  'welcomeComposer.placeholder.ask': 'Ask DotCraft — @ to add files, / for commands & skills',
+  'welcomeComposer.placeholder.ask': 'Ask DotCraft — @ to add files, / for commands, $ for skills',
   'welcomeComposer.imageTooLarge': 'Image too large. Maximum {{mb}} MB.',
   'welcomeComposer.maxImages': 'Maximum {{max}} images per message.',
   'welcomeComposer.saveImageFailed': 'Could not save image: {{error}}',
@@ -1398,7 +1398,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'composer.placeholder.connecting': '正在连接…',
   'welcomeComposer.hint.select': '在侧栏选择会话、在下方输入，或选择快速开始。',
   'welcomeComposer.hint.connecting': '正在连接工作区…',
-  'welcomeComposer.placeholder.ask': '向 DotCraft 提问，@ 添加文件，/ 输入命令或技能',
+  'welcomeComposer.placeholder.ask': '向 DotCraft 提问，@ 添加文件，/ 输入命令，$ 输入技能',
   'welcomeComposer.imageTooLarge': '图片过大。最大 {{mb}} MB。',
   'welcomeComposer.maxImages': '每条消息最多 {{max}} 张图片。',
   'welcomeComposer.saveImageFailed': '无法保存图片：{{error}}',

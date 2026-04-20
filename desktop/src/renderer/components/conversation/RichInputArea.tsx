@@ -28,7 +28,6 @@ import type { ComposerDraftSegment } from '../../types/composerDraft'
 const MAX_ROWS = 8
 const MAX_TEXT_LEN = 100_000
 const PLACEHOLDER = 'Ask DotCraft anything…'
-const SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
 
 type RefType = 'file' | 'command' | 'skill'
 type RichInputContent = string | { text?: string; segments?: ComposerDraftSegment[] }
@@ -60,6 +59,7 @@ interface RichInputAreaProps {
   /** Omitted on welcome screen (no @ popover). */
   onAtQuery?: (query: string | null) => void
   onSlashQuery?: (query: string | null) => void
+  onSkillQuery?: (query: string | null) => void
   onContentChange?: () => void
   onSelectionChange?: (range: SelectionRange | null) => void
   onFocusChange?: (focused: boolean) => void
@@ -268,6 +268,12 @@ function parseSlashQuery(beforeCaret: string): { fullMatch: string; query: strin
   return { fullMatch: m[0], query: m[1] }
 }
 
+function parseSkillQuery(beforeCaret: string): { fullMatch: string; query: string } | null {
+  const m = /(?:^|[\s\n])\$([^\s$]*)$/.exec(beforeCaret)
+  if (!m) return null
+  return { fullMatch: m[0], query: m[1] }
+}
+
 function isInlineTagElement(node: Node | null): node is HTMLElement {
   return (
     node instanceof HTMLElement &&
@@ -278,27 +284,7 @@ function isInlineTagElement(node: Node | null): node is HTMLElement {
 }
 
 function parseSkillMarkersFromText(text: string): ComposerDraftSegment[] {
-  const out: ComposerDraftSegment[] = []
-  let cursor = 0
-  SKILL_MARKER_RE.lastIndex = 0
-  let match = SKILL_MARKER_RE.exec(text)
-  while (match) {
-    if (match.index > cursor) {
-      out.push({ type: 'text', value: text.slice(cursor, match.index) })
-    }
-    const name = match[1]?.trim() ?? ''
-    if (name) {
-      out.push({ type: 'skill', skillName: name })
-    } else {
-      out.push({ type: 'text', value: match[0] })
-    }
-    cursor = match.index + match[0].length
-    match = SKILL_MARKER_RE.exec(text)
-  }
-  if (cursor < text.length) {
-    out.push({ type: 'text', value: text.slice(cursor) })
-  }
-  return out.length > 0 ? out : [{ type: 'text', value: text }]
+  return parseLegacyComposerText(text)
 }
 
 export const RichInputArea = forwardRef(function RichInputArea(
@@ -311,6 +297,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
     onSubmit,
     onAtQuery,
     onSlashQuery,
+    onSkillQuery,
     onContentChange,
     onSelectionChange,
     onFocusChange,
@@ -419,19 +406,20 @@ export const RichInputArea = forwardRef(function RichInputArea(
       el.innerHTML = ''
       onAtQuery?.(null)
       onSlashQuery?.(null)
+      onSkillQuery?.(null)
       setShowPh(true)
       adjustHeight()
       lastSelectionRangeRef.current = { start: 0, end: 0 }
       onSelectionChange?.({ start: 0, end: 0 })
       onContentChange?.()
-    }, [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSlashQuery])
+    }, [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSkillQuery, onSlashQuery])
 
     const focusEditor = useCallback((): void => {
       editorRef.current?.focus()
     }, [])
 
     const replaceQueryRangeWithRef = useCallback(
-      (kind: RefType, value: string, parsed: { fullMatch: string; query: string }, trigger: '@' | '/'): void => {
+      (kind: RefType, value: string, parsed: { fullMatch: string; query: string }, trigger: '@' | '/' | '$'): void => {
         const el = editorRef.current
         if (!el) return
         const before = textBeforeCaretForTriggers(el)
@@ -461,11 +449,12 @@ export const RichInputArea = forwardRef(function RichInputArea(
         sel?.addRange(range)
         onAtQuery?.(null)
         onSlashQuery?.(null)
+        onSkillQuery?.(null)
         syncEmpty()
         adjustHeight()
         onContentChange?.()
       },
-      [adjustHeight, onAtQuery, onContentChange, onSlashQuery, syncEmpty]
+      [adjustHeight, onAtQuery, onContentChange, onSkillQuery, onSlashQuery, syncEmpty]
     )
 
     const insertFileTag = useCallback(
@@ -501,9 +490,9 @@ export const RichInputArea = forwardRef(function RichInputArea(
         const name = skillName.trim().replace(/^\/+/, '')
         if (!name) return
         const before = textBeforeCaretForTriggers(el)
-        const parsed = parseSlashQuery(before)
+        const parsed = parseSkillQuery(before) ?? parseSlashQuery(before)
         if (!parsed) return
-        replaceQueryRangeWithRef('skill', name, parsed, '/')
+        replaceQueryRangeWithRef('skill', name, parsed, before.endsWith(`$${parsed.query}`) ? '$' : '/')
       },
       [replaceQueryRangeWithRef]
     )
@@ -515,6 +504,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         el.textContent = text
         onAtQuery?.(null)
         onSlashQuery?.(null)
+        onSkillQuery?.(null)
         syncEmpty()
         adjustHeight()
         lastSelectionRangeRef.current = {
@@ -527,7 +517,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         })
         onContentChange?.()
       },
-      [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSlashQuery, syncEmpty]
+      [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSkillQuery, onSlashQuery, syncEmpty]
     )
 
     const setStructuredContent = useCallback(
@@ -540,6 +530,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         }
         onAtQuery?.(null)
         onSlashQuery?.(null)
+        onSkillQuery?.(null)
         syncEmpty()
         adjustHeight()
         const contentLength = linearLengthOfNode(el)
@@ -553,7 +544,7 @@ export const RichInputArea = forwardRef(function RichInputArea(
         })
         onContentChange?.()
       },
-      [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSlashQuery, syncEmpty]
+      [adjustHeight, onAtQuery, onContentChange, onSelectionChange, onSkillQuery, onSlashQuery, syncEmpty]
     )
 
     const setContent = useCallback(
@@ -611,31 +602,71 @@ export const RichInputArea = forwardRef(function RichInputArea(
       const before = textBeforeCaretForTriggers(el)
       const atParsed = parseAtQuery(before)
       const slashParsed = parseSlashQuery(before)
+      const skillParsed = parseSkillQuery(before)
       if (atParsed && slashParsed) {
         const atStart = before.length - atParsed.fullMatch.length
         const slashStart = before.length - slashParsed.fullMatch.length
         if (atStart > slashStart) {
           onAtQuery?.(atParsed.query)
           onSlashQuery?.(null)
+          onSkillQuery?.(null)
         } else {
           onAtQuery?.(null)
           onSlashQuery?.(slashParsed.query)
+          onSkillQuery?.(null)
+        }
+        return
+      }
+      if (skillParsed && slashParsed) {
+        const skillStart = before.length - skillParsed.fullMatch.length
+        const slashStart = before.length - slashParsed.fullMatch.length
+        if (skillStart > slashStart) {
+          onAtQuery?.(null)
+          onSlashQuery?.(null)
+          onSkillQuery?.(skillParsed.query)
+        } else {
+          onAtQuery?.(null)
+          onSlashQuery?.(slashParsed.query)
+          onSkillQuery?.(null)
+        }
+        return
+      }
+      if (atParsed && skillParsed) {
+        const atStart = before.length - atParsed.fullMatch.length
+        const skillStart = before.length - skillParsed.fullMatch.length
+        if (atStart > skillStart) {
+          onAtQuery?.(atParsed.query)
+          onSlashQuery?.(null)
+          onSkillQuery?.(null)
+        } else {
+          onAtQuery?.(null)
+          onSlashQuery?.(null)
+          onSkillQuery?.(skillParsed.query)
         }
         return
       }
       if (atParsed) {
         onAtQuery?.(atParsed.query)
         onSlashQuery?.(null)
+        onSkillQuery?.(null)
         return
       }
       if (slashParsed) {
         onAtQuery?.(null)
         onSlashQuery?.(slashParsed.query)
+        onSkillQuery?.(null)
+        return
+      }
+      if (skillParsed) {
+        onAtQuery?.(null)
+        onSlashQuery?.(null)
+        onSkillQuery?.(skillParsed.query)
         return
       }
       onAtQuery?.(null)
       onSlashQuery?.(null)
-    }, [onAtQuery, onSlashQuery])
+      onSkillQuery?.(null)
+    }, [onAtQuery, onSkillQuery, onSlashQuery])
 
     const onInput = useCallback((): void => {
       syncEmpty()

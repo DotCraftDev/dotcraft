@@ -147,6 +147,7 @@ function TurnBlock({
         <UserMessageBlock
           key={item.id}
           text={item.text ?? ''}
+          nativeInputParts={item.nativeInputParts}
           imageDataUrls={item.imageDataUrls}
           images={item.images}
         />

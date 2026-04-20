@@ -227,7 +227,8 @@ internal sealed class TestableSessionService : ISessionService
         IList<AIContent> content,
         SenderContext? sender = null,
         ChatMessage[]? messages = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
     {
         LastSubmittedContent = content.ToList();
         LastSubmittedMessages = messages?.ToList();

@@ -136,6 +136,76 @@ public class SerializationTests
     }
 
     [Fact]
+    public void SessionItem_UserMessage_RoundTrip_PreservesNativeAndMaterializedInputParts()
+    {
+        var item = BuildItem(ItemType.UserMessage, ItemStatus.Completed, new UserMessagePayload
+        {
+            Text = "/code-review $browser @src/foo.ts",
+            NativeInputParts =
+            [
+                new SessionWireInputPart { Type = "commandRef", Name = "code-review", RawText = "/code-review" },
+                new SessionWireInputPart { Type = "text", Text = " " },
+                new SessionWireInputPart { Type = "skillRef", Name = "browser" },
+                new SessionWireInputPart { Type = "text", Text = " " },
+                new SessionWireInputPart { Type = "fileRef", Path = "src/foo.ts", DisplayPath = "src/foo.ts" }
+            ],
+            MaterializedInputParts =
+            [
+                new SessionWireInputPart { Type = "text", Text = "Expanded review prompt" },
+                new SessionWireInputPart { Type = "text", Text = "\n\n" },
+                new SessionWireInputPart { Type = "text", Text = "[Requested Skill: browser]" }
+            ]
+        });
+
+        var deserialized = RoundTrip(item);
+        var payload = deserialized.AsUserMessage;
+
+        Assert.NotNull(payload);
+        Assert.NotNull(payload.NativeInputParts);
+        Assert.NotNull(payload.MaterializedInputParts);
+        Assert.Collection(payload.NativeInputParts!,
+            part =>
+            {
+                Assert.Equal("commandRef", part.Type);
+                Assert.Equal("code-review", part.Name);
+                Assert.Equal("/code-review", part.RawText);
+            },
+            part => Assert.Equal(" ", part.Text),
+            part =>
+            {
+                Assert.Equal("skillRef", part.Type);
+                Assert.Equal("browser", part.Name);
+            },
+            part => Assert.Equal(" ", part.Text),
+            part =>
+            {
+                Assert.Equal("fileRef", part.Type);
+                Assert.Equal("src/foo.ts", part.Path);
+                Assert.Equal("src/foo.ts", part.DisplayPath);
+            });
+        Assert.Collection(payload.MaterializedInputParts!,
+            part => Assert.Equal("Expanded review prompt", part.Text),
+            part => Assert.Equal("\n\n", part.Text),
+            part => Assert.Equal("[Requested Skill: browser]", part.Text));
+    }
+
+    [Fact]
+    public void BuildDisplayText_UsesNativeTagSyntaxForStructuredParts()
+    {
+        var text = SessionWireMapper.BuildDisplayText(
+        [
+            new SessionWireInputPart { Type = "text", Text = "Check " },
+            new SessionWireInputPart { Type = "fileRef", Path = "src/foo.ts", DisplayPath = "src/foo.ts" },
+            new SessionWireInputPart { Type = "text", Text = " then " },
+            new SessionWireInputPart { Type = "commandRef", Name = "code-review", ArgsText = "--fast" },
+            new SessionWireInputPart { Type = "text", Text = " and " },
+            new SessionWireInputPart { Type = "skillRef", Name = "$browser" }
+        ]);
+
+        Assert.Equal("Check @src/foo.ts then /code-review --fast and $browser", text);
+    }
+
+    [Fact]
     public void SessionItem_AgentMessage_RoundTrip()
     {
         var item = BuildItem(ItemType.AgentMessage, ItemStatus.Completed,

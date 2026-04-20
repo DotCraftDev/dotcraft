@@ -294,7 +294,13 @@ Each Item type has a specific payload structure:
 
 ```
 {
-  "text": string,          // The user's input text
+  "text": string,          // Compatibility/display text derived from nativeInputParts
+  "nativeInputParts": [    // Optional native input snapshot persisted as the source of truth
+    InputPart
+  ],
+  "materializedInputParts": [ // Optional model-visible input snapshot after server-side materialization
+    InputPart
+  ],
   "senderId": string,      // Individual sender within a group session (nullable, see Section 17.1)
   "senderName": string,    // Display name of the sender (nullable)
   "senderRole": string,    // Sender role when available from channel adapter (nullable)
@@ -310,6 +316,8 @@ Each Item type has a specific payload structure:
   ]
 }
 ```
+
+`nativeInputParts` is authoritative for history rendering and editor rehydration when present. `materializedInputParts` captures the exact prompt/image snapshot that Session Core received after transport-side input materialization. `text` remains for compatibility and preview generation but is no longer the sole source of truth for user-message reconstruction.
 
 #### AgentMessage
 
@@ -766,7 +774,7 @@ IAsyncEnumerable<SessionEvent> SubmitInputAsync(
     ...)
 ```
 
-The `content` parameter accepts multimodal input (text, images, etc.) as a list of `AIContent` parts. Session Core extracts the text portion for display and persistence (`UserMessagePayload.Text`, `Thread.DisplayName`) and passes the full multimodal content to the agent via `ChatMessage`. A convenience extension method `SubmitInputAsync(string threadId, string text, ...)` wraps plain text into `[new TextContent(text)]` for text-only callers.
+The `content` parameter accepts multimodal input (text, images, etc.) as a list of `AIContent` parts. When the transport provides native input metadata (for example native command, skill, or file-reference parts), Session Core persists both the transport-native snapshot and the materialized `AIContent` snapshot on `UserMessagePayload`, derives `UserMessagePayload.Text` from the native snapshot for compatibility/display, and passes the full multimodal materialized content to the agent via `ChatMessage`. A convenience extension method `SubmitInputAsync(string threadId, string text, ...)` wraps plain text into `[new TextContent(text)]` for text-only callers.
 
 The adapter starts a turn and immediately consumes the returned async stream. Callback-style consumption is a helper-layer concern (for example, wrapping the stream in a local event handler), not part of the `ISessionService` contract.
 
@@ -1321,6 +1329,8 @@ Add to `UserMessage` payload:
 ```
 {
   "text": string,
+  "nativeInputParts": [InputPart],
+  "materializedInputParts": [InputPart],
   "senderId": string,          // Individual sender within a group session (nullable)
   "senderName": string,        // Display name of the sender (nullable)
   "images": [                  // Optional local image metadata for UI rehydration

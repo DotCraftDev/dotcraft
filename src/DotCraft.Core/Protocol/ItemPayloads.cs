@@ -31,6 +31,18 @@ public sealed record UserMessagePayload
     public string Text { get; init; } = string.Empty;
 
     /// <summary>
+    /// Native transport-level input parts captured as the source of truth for
+    /// history rendering and draft rehydration.
+    /// </summary>
+    public IReadOnlyList<SessionWireInputPart>? NativeInputParts { get; init; }
+
+    /// <summary>
+    /// Materialized input parts captured after transport-side expansion, matching
+    /// the content snapshot that was sent to the model for this turn.
+    /// </summary>
+    public IReadOnlyList<SessionWireInputPart>? MaterializedInputParts { get; init; }
+
+    /// <summary>
     /// Individual sender within a group session (nullable for single-user channels).
     /// </summary>
     public string? SenderId { get; init; }
@@ -64,6 +76,27 @@ public sealed record UserMessagePayload
     /// Optional local image metadata used by clients to rehydrate user message attachments.
     /// </summary>
     public IReadOnlyList<UserMessageImage>? Images { get; init; }
+}
+
+/// <summary>
+/// Optional transport-supplied input snapshots associated with a turn submission.
+/// </summary>
+public sealed record SessionInputSnapshot
+{
+    /// <summary>
+    /// Native transport parts (commandRef/skillRef/fileRef/text/etc.) as supplied by the client.
+    /// </summary>
+    public IReadOnlyList<SessionWireInputPart>? NativeInputParts { get; init; }
+
+    /// <summary>
+    /// Materialized parts after transport-side expansion, aligned to the content actually sent to the model.
+    /// </summary>
+    public IReadOnlyList<SessionWireInputPart>? MaterializedInputParts { get; init; }
+
+    /// <summary>
+    /// Compatibility/display text derived from the native transport parts.
+    /// </summary>
+    public string? DisplayText { get; init; }
 }
 
 /// <summary>

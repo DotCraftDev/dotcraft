@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Sparkle } from 'lucide-react'
+import { Sparkle, Terminal } from 'lucide-react'
 import { useConversationStore } from '../../stores/conversationStore'
 import { ImageLightbox } from './ImageLightbox'
 import { MessageCopyButton } from './MessageCopyButton'
-import { parseUserMessageSegments } from './parseUserMessageSegments'
-import type { UserMessageImageRef } from '../../types/conversation'
+import { parseUserMessageSegments, segmentsFromNativeInputParts } from './parseUserMessageSegments'
+import type { InputPart, UserMessageImageRef } from '../../types/conversation'
 
 const imageDataUrlCache = new Map<string, string>()
 
 interface UserMessageBlockProps {
   text: string
+  nativeInputParts?: InputPart[]
   imageDataUrls?: string[]
   images?: UserMessageImageRef[]
 }
@@ -19,14 +20,18 @@ interface UserMessageBlockProps {
  * Plain text only — no Markdown. Spec §10.3.2
  * `@relative/path` tokens (from RichInputArea) render as compact file chips.
  */
-export function UserMessageBlock({ text, imageDataUrls, images }: UserMessageBlockProps): JSX.Element {
+export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images }: UserMessageBlockProps): JSX.Element {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
   const [hydratedImageDataUrls, setHydratedImageDataUrls] = useState<string[]>(imageDataUrls ?? [])
   const [failedImageCount, setFailedImageCount] = useState(0)
   const workspacePath = useConversationStore((s) => s.workspacePath)
   const hasImages = hydratedImageDataUrls.length > 0
-  const segments = text.length > 0 ? parseUserMessageSegments(text) : []
+  const segments = nativeInputParts != null && nativeInputParts.length > 0
+    ? segmentsFromNativeInputParts(nativeInputParts)
+    : text.length > 0
+      ? parseUserMessageSegments(text)
+      : []
   const attachedFiles = segments.filter(
     (seg): seg is Extract<(typeof segments)[number], { type: 'attachedFile' }> => seg.type === 'attachedFile'
   )
@@ -175,6 +180,8 @@ export function UserMessageBlock({ text, imageDataUrls, images }: UserMessageBlo
                   relativePath={seg.relativePath}
                   workspacePath={workspacePath}
                 />
+              ) : seg.type === 'commandRef' ? (
+                <CommandRefChip key={`c-${idx}-${seg.commandText}`} commandText={seg.commandText} />
               ) : (
                 <SkillRefChip key={`s-${idx}-${seg.skillName}`} skillName={seg.skillName} />
               )
@@ -196,7 +203,7 @@ export function UserMessageBlock({ text, imageDataUrls, images }: UserMessageBlo
 function SkillRefChip({ skillName }: { skillName: string }): JSX.Element {
   return (
     <span
-      title={`Use Skill: ${skillName}`}
+      title={`$${skillName}`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -216,6 +223,34 @@ function SkillRefChip({ skillName }: { skillName: string }): JSX.Element {
     >
       <Sparkle size={12} strokeWidth={2.25} aria-hidden />
       <span>{skillName}</span>
+    </span>
+  )
+}
+
+function CommandRefChip({ commandText }: { commandText: string }): JSX.Element {
+  const label = commandText.startsWith('/') ? commandText.slice(1) : commandText
+  return (
+    <span
+      title={commandText}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        verticalAlign: 'baseline',
+        margin: '0 1px',
+        padding: '1px 6px',
+        borderRadius: '6px',
+        border: '1px solid color-mix(in srgb, var(--accent) 38%, transparent)',
+        background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+        color: 'var(--accent)',
+        fontSize: '13px',
+        whiteSpace: 'nowrap',
+        userSelect: 'none',
+        fontWeight: 600
+      }}
+    >
+      <Terminal size={12} strokeWidth={2.25} aria-hidden />
+      <span>{label}</span>
     </span>
   )
 }

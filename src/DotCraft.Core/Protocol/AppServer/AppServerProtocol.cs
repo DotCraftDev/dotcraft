@@ -674,6 +674,9 @@ public sealed class CommandListParams
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Language { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IncludeBuiltins { get; set; }
 }
 
 public sealed class CommandListResult

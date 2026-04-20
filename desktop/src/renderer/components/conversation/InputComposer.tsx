@@ -7,9 +7,9 @@ import { useUIStore } from '../../stores/uiStore'
 import { useConnectionStore } from '../../stores/connectionStore'
 import { useCustomCommandCatalog } from '../../hooks/useCustomCommandCatalog'
 import { useSkillsStore } from '../../stores/skillsStore'
-import { resolveCustomCommandExecution } from '../../utils/customCommandExecution'
 import type { ComposerFileAttachment, ImageAttachment } from '../../types/conversation'
 import { startTurnWithOptimisticUI } from '../../utils/startTurn'
+import { buildComposerInputParts } from '../../utils/composeInputParts'
 import {
   classifyDroppedComposerFiles,
   extForFile,
@@ -69,6 +69,8 @@ export function InputComposer({
   const [mentionDismissed, setMentionDismissed] = useState(false)
   const [slashQuery, setSlashQuery] = useState<string | null>(null)
   const [slashDismissed, setSlashDismissed] = useState(false)
+  const [skillQuery, setSkillQuery] = useState<string | null>(null)
+  const [skillDismissed, setSkillDismissed] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [editorFocused, setEditorFocused] = useState(false)
   /** Bumps on rich-input edits so `canSend` re-evaluates from ref (contentEditable has no React state). */
@@ -93,6 +95,7 @@ export function InputComposer({
 
   const showMentionPopover = atQuery !== null && !mentionDismissed
   const showSlashPopover = slashQuery !== null && !slashDismissed && canUseSlashPicker
+  const showSkillPopover = skillQuery !== null && !skillDismissed && canUseSkillPicker
   const { commands: customCommands, status: customCommandStatus } = useCustomCommandCatalog({
     enabled: canUseCommandPicker,
     locale
@@ -125,6 +128,11 @@ export function InputComposer({
   const handleSlashQuery = useCallback((q: string | null): void => {
     setSlashQuery(q)
     if (q !== null) setSlashDismissed(false)
+  }, [])
+
+  const handleSkillQuery = useCallback((q: string | null): void => {
+    setSkillQuery(q)
+    if (q !== null) setSkillDismissed(false)
   }, [])
 
   // Consume any pending prefill text when InputComposer mounts
@@ -249,6 +257,7 @@ export function InputComposer({
 
   const sendMessage = useCallback(async () => {
     const text = richRef.current?.getText() ?? ''
+    const segments = richRef.current?.getSegments() ?? []
     const trimmed = text.trim()
     if (!trimmed && images.length === 0 && files.length === 0) return
     if (isWaitingApproval) return
@@ -259,8 +268,10 @@ export function InputComposer({
         addToast(t('input.imageAttachmentsQueued'), 'warning')
       }
       if (trimmed || files.length > 0) {
+        const { inputParts } = buildComposerInputParts({ text: trimmed, segments, files })
         setPendingMessage({
           text: trimmed,
+          inputParts,
           files: files.length > 0 ? [...files] : undefined
         })
       }
@@ -273,49 +284,16 @@ export function InputComposer({
     if (sendInFlightRef.current) return
     sendInFlightRef.current = true
     try {
-      let effectiveText = trimmed
-      let effectiveThreadId = threadId
-      try {
-        const commandResult = await resolveCustomCommandExecution({
-          text: trimmed,
-          threadId,
-          commands: customCommands,
-          sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
-        })
-        if (commandResult.message) {
-          addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
-        }
-        if (commandResult.sessionResetThreadSummary != null) {
-          useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
-        }
-        if (commandResult.sessionResetThreadId != null) {
-          effectiveThreadId = commandResult.sessionResetThreadId
-          useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
-        }
-        if (commandResult.matchedCustomCommand) {
-          if (!commandResult.shouldSendTurn) {
-            richRef.current?.clear()
-            setImages([])
-            setFiles([])
-            return
-          }
-          effectiveText = commandResult.textForTurn.trim()
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        addToast(msg, 'error')
-        return
-      }
-
       const capturedImages = [...images]
       const capturedFiles = [...files]
       richRef.current?.clear()
       setImages([])
       setFiles([])
       await startTurnWithOptimisticUI({
-        threadId: effectiveThreadId,
+        threadId,
         workspacePath,
-        text: effectiveText,
+        text: trimmed,
+        segments,
         images: capturedImages,
         files: capturedFiles,
         fallbackThreadName: t('toast.imageMessage'),
@@ -325,7 +303,7 @@ export function InputComposer({
     } finally {
       sendInFlightRef.current = false
     }
-  }, [customCommands, files, images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
+  }, [files, images, isRunning, isWaitingApproval, modelLoading, threadId, workspacePath, setPendingMessage, t])
 
   const stopTurn = useCallback(async () => {
     const activeTurnId = useConversationStore.getState().activeTurnId
@@ -425,6 +403,18 @@ export function InputComposer({
                   setSlashDismissed(true)
                 }}
               />
+              <CommandSearchPopover
+                query={skillQuery ?? ''}
+                visible={showSkillPopover}
+                loading={skillsLoading}
+                commands={[]}
+                skills={availableSkills}
+                onSelectCommand={() => {}}
+                onSelectSkill={onSelectSkill}
+                onDismiss={() => {
+                  setSkillDismissed(true)
+                }}
+              />
               <FileSearchPopover
                 query={atQuery ?? ''}
                 visible={showMentionPopover}
@@ -438,7 +428,7 @@ export function InputComposer({
                 ref={richRef}
                 chrome="minimal"
                 disabled={isWaitingApproval}
-                suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
+                suppressSubmit={showMentionPopover || showSlashPopover || showSkillPopover || modelLoading}
                 onToggleModeShortcut={() => {
                   void toggleMode()
                 }}
@@ -450,6 +440,7 @@ export function InputComposer({
                 }}
                 onAtQuery={handleAtQuery}
                 onSlashQuery={handleSlashQuery}
+                onSkillQuery={handleSkillQuery}
                 onContentChange={() => {
                   setContentRevision((n) => n + 1)
                 }}

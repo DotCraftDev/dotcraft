@@ -61,12 +61,6 @@ describe('InputComposer custom command expansion', () => {
           ]
         }
       }
-      if (method === 'command/execute') {
-        return {
-          handled: true,
-          expandedPrompt: 'Expanded review prompt'
-        }
-      }
       if (method === 'turn/start') {
         return { turn: { id: 'turn-1' } }
       }
@@ -122,7 +116,7 @@ describe('InputComposer custom command expansion', () => {
     })
   })
 
-  it('executes custom command and sends expanded prompt', async () => {
+  it('sends custom commands as native commandRef parts', async () => {
     renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
 
     await waitFor(() => {
@@ -135,26 +129,19 @@ describe('InputComposer custom command expansion', () => {
     fireEvent.keyDown(textbox, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(appServerSendRequest).toHaveBeenCalledWith('command/execute', {
-        threadId: 'thread-1',
-        command: '/code-review',
-        arguments: []
-      })
-    })
-    await waitFor(() => {
       const turnStartCall = appServerSendRequest.mock.calls.find((call) => call[0] === 'turn/start')
       expect(turnStartCall).toBeDefined()
       expect(turnStartCall?.[1]).toEqual(
         expect.objectContaining({
           threadId: 'thread-1',
-          input: [{ type: 'text', text: 'Expanded review prompt' }]
+          input: [{ type: 'commandRef', name: 'code-review', rawText: '/code-review' }]
         })
       )
     })
   })
 
-  it('prevents duplicate send while command resolution is in flight', async () => {
-    let resolveCommandExecute: ((value: unknown) => void) | null = null
+  it('prevents duplicate send while turn/start is in flight', async () => {
+    let resolveTurnStart: ((value: unknown) => void) | null = null
     appServerSendRequest.mockImplementation((method: string) => {
       if (method === 'command/list') {
         return Promise.resolve({
@@ -169,13 +156,10 @@ describe('InputComposer custom command expansion', () => {
           ]
         })
       }
-      if (method === 'command/execute') {
-        return new Promise((resolve) => {
-          resolveCommandExecute = resolve
-        })
-      }
       if (method === 'turn/start') {
-        return Promise.resolve({ turn: { id: 'turn-1' } })
+        return new Promise((resolve) => {
+          resolveTurnStart = resolve
+        })
       }
       return Promise.resolve({})
     })
@@ -193,14 +177,11 @@ describe('InputComposer custom command expansion', () => {
     fireEvent.keyDown(textbox, { key: 'Enter' })
 
     await waitFor(() => {
-      const commandCalls = appServerSendRequest.mock.calls.filter((call) => call[0] === 'command/execute')
-      expect(commandCalls).toHaveLength(1)
+      const turnStartCalls = appServerSendRequest.mock.calls.filter((call) => call[0] === 'turn/start')
+      expect(turnStartCalls).toHaveLength(1)
     })
 
-    resolveCommandExecute?.({
-      handled: true,
-      expandedPrompt: 'Expanded review prompt'
-    })
+    resolveTurnStart?.({ turn: { id: 'turn-1' } })
 
     await waitFor(() => {
       const turnStartCalls = appServerSendRequest.mock.calls.filter((call) => call[0] === 'turn/start')
@@ -208,7 +189,7 @@ describe('InputComposer custom command expansion', () => {
     })
   })
 
-  it('inserts skill via slash and serializes marker text', async () => {
+  it('inserts skill via slash and serializes skillRef input', async () => {
     renderWithLocale(<InputComposer threadId="thread-1" workspacePath="E:\\Git\\dotcraft" />)
 
     await waitFor(() => {
@@ -229,7 +210,7 @@ describe('InputComposer custom command expansion', () => {
       expect(turnStartCall?.[1]).toEqual(
         expect.objectContaining({
           threadId: 'thread-1',
-          input: [{ type: 'text', text: '[[Use Skill: browser]]' }]
+          input: [{ type: 'skillRef', name: 'browser' }]
         })
       )
     })
@@ -258,7 +239,10 @@ describe('InputComposer custom command expansion', () => {
       expect(turnStartCall?.[1]).toEqual(
         expect.objectContaining({
           threadId: 'thread-1',
-          input: [{ type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\nReview this file' }]
+          input: [
+            { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
+            { type: 'text', text: 'Review this file' }
+          ]
         })
       )
     })
@@ -338,6 +322,10 @@ describe('InputComposer custom command expansion', () => {
 
     expect(useConversationStore.getState().pendingMessage).toEqual({
       text: '/code-review',
+      inputParts: [
+        { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
+        { type: 'commandRef', name: 'code-review', rawText: '/code-review' }
+      ],
       files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
     })
     expect(screen.getByText(/Queued:/)).toHaveTextContent('/code-review')
@@ -417,6 +405,10 @@ describe('InputComposer custom command expansion', () => {
     await waitFor(() => {
       expect(useConversationStore.getState().pendingMessage).toEqual({
         text: '/code-review',
+        inputParts: [
+          { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
+          { type: 'commandRef', name: 'code-review', rawText: '/code-review' }
+        ],
         files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
       })
     })

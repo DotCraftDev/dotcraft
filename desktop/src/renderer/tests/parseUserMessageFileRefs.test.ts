@@ -41,19 +41,25 @@ describe('parseUserMessageFileRefs', () => {
     ])
   })
 
-  it('parses skill marker into skillRef segment', () => {
-    expect(parseUserMessageFileRefs('[[Use Skill: browser]]')).toEqual([
+  it('parses $skill marker into skillRef segment', () => {
+    expect(parseUserMessageFileRefs('$browser')).toEqual([
       { type: 'skillRef', skillName: 'browser' }
     ])
   })
 
-  it('parses mixed file refs and skill markers', () => {
-    expect(parseUserMessageFileRefs('Check @src/foo.ts then [[Use Skill: code-review]] now')).toEqual([
+  it('parses mixed file refs and $skill markers', () => {
+    expect(parseUserMessageFileRefs('Check @src/foo.ts then $code-review now')).toEqual([
       { type: 'text', value: 'Check ' },
       { type: 'fileRef', relativePath: 'src/foo.ts' },
       { type: 'text', value: ' then ' },
       { type: 'skillRef', skillName: 'code-review' },
       { type: 'text', value: ' now' }
+    ])
+  })
+
+  it('still parses legacy double-bracket skill markers', () => {
+    expect(parseUserMessageFileRefs('[[Use Skill: browser]]')).toEqual([
+      { type: 'skillRef', skillName: 'browser' }
     ])
   })
 

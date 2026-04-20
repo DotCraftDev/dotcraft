@@ -119,7 +119,7 @@ describe('truncateEditorDomToSerializedLength', () => {
     expect(root.querySelector(`.${FILE_REF_CLASS}`)).not.toBeNull()
     expect(root.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
     expect(root.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
-    expect(serializeEditor(root)).toBe('Check @src/foo.ts then /code-review and [[Use Skill: browser]]')
+    expect(serializeEditor(root)).toBe('Check @src/foo.ts then /code-review and $browser')
   })
 
   it('keeps default fragment output unchanged when spacer insertion is not requested', () => {
@@ -162,12 +162,20 @@ describe('truncateEditorDomToSerializedLength', () => {
   })
 
   it('parses legacy draft text into file, command, and skill segments conservatively', () => {
-    expect(parseLegacyComposerText('Check @src/foo.ts /code-review [[Use Skill: browser]] now')).toEqual([
+    expect(parseLegacyComposerText('Check @src/foo.ts /code-review $browser now')).toEqual([
       { type: 'text', value: 'Check ' },
       { type: 'file', relativePath: 'src/foo.ts' },
       { type: 'text', value: ' ' },
       { type: 'command', command: '/code-review' },
       { type: 'text', value: ' ' },
+      { type: 'skill', skillName: 'browser' },
+      { type: 'text', value: ' now' }
+    ])
+  })
+
+  it('still parses legacy double-bracket skill markers for backward compatibility', () => {
+    expect(parseLegacyComposerText('Check [[Use Skill: browser]] now')).toEqual([
+      { type: 'text', value: 'Check ' },
       { type: 'skill', skillName: 'browser' },
       { type: 'text', value: ' now' }
     ])

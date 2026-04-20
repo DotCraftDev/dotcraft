@@ -338,6 +338,116 @@ public sealed class AppServerTurnTests : IDisposable
         AppServerTestHarness.AssertIsSuccessResponse(response);
     }
 
+    [Fact]
+    public async Task TurnStart_BuiltInCommandRef_ReturnsInvalidParamsAndDoesNotSubmitInput()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnStart, new
+        {
+            threadId = thread.Id,
+            input = new[]
+            {
+                new
+                {
+                    type = "commandRef",
+                    name = "new",
+                    rawText = "/new"
+                }
+            }
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(response, AppServerErrors.InvalidParamsCode);
+        Assert.Empty(_h.Service.LastSubmittedContent);
+    }
+
+    [Fact]
+    public async Task TurnStart_MixedTextAndBuiltInCommandRef_ReturnsInvalidParamsAndDoesNotSubmitInput()
+    {
+        var thread = await _h.Service.CreateThreadAsync(_h.Identity);
+
+        var msg = _h.BuildRequest(AppServerMethods.TurnStart, new
+        {
+            threadId = thread.Id,
+            input = new object[]
+            {
+                new { type = "text", text = "Please " },
+                new
+                {
+                    type = "commandRef",
+                    name = "help",
+                    rawText = "/help"
+                }
+            }
+        });
+        await _h.ExecuteRequestAsync(msg);
+
+        var response = await _h.Transport.ReadNextSentAsync();
+        AppServerTestHarness.AssertIsErrorResponse(response, AppServerErrors.InvalidParamsCode);
+        Assert.Empty(_h.Service.LastSubmittedContent);
+    }
+
+    [Fact]
+    public async Task TurnStart_CustomCommandRef_MaterializesExpandedPrompt()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"turn_start_custom_{Guid.NewGuid():N}");
+        var workspaceCraftPath = Path.Combine(tempRoot, ".craft");
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(workspaceCraftPath, "commands"));
+            await File.WriteAllTextAsync(
+                Path.Combine(workspaceCraftPath, "commands", "code-review.md"),
+                """
+                ---
+                description: Review changed files
+                ---
+                Review these files carefully: $ARGUMENTS
+                """);
+
+            using var harness = new AppServerTestHarness(workspaceCraftPath: workspaceCraftPath);
+            await harness.InitializeAsync();
+
+            var thread = await harness.Service.CreateThreadAsync(harness.Identity);
+            harness.Service.EnqueueSubmitEvents(thread.Id, AppServerTestHarness.BuildTurnEventSequence(thread.Id));
+
+            var msg = harness.BuildRequest(AppServerMethods.TurnStart, new
+            {
+                threadId = thread.Id,
+                input = new[]
+                {
+                    new
+                    {
+                        type = "commandRef",
+                        name = "code-review",
+                        rawText = "/code-review src/foo.cs"
+                    }
+                }
+            });
+            await harness.ExecuteRequestAsync(msg);
+
+            var response = await harness.Transport.ReadNextSentAsync();
+            AppServerTestHarness.AssertIsSuccessResponse(response);
+
+            var textContent = Assert.IsType<TextContent>(Assert.Single(harness.Service.LastSubmittedContent));
+            Assert.Equal("Review these files carefully: src/foo.cs", textContent.Text);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(tempRoot))
+                    Directory.Delete(tempRoot, recursive: true);
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // turn/interrupt
     // -------------------------------------------------------------------------

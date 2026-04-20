@@ -775,9 +775,23 @@ The response is returned **immediately** with the initial Turn object (status `"
 
 `InputPart` is a tagged union:
 
-- `{ "type": "text", "text": "..." }` — plain text input.
+- `{ "type": "text", "text": "..." }` — plain text input. `text` parts carry only literal user text; clients should not encode command, skill, or file-reference tags into `text` when a structured tag part exists.
+- `{ "type": "commandRef", "name": "code-review", "argsText": "src/foo.cs", "rawText": "/code-review src/foo.cs" }` — native custom-command reference. The server materializes this reference before agent execution and persists both the native reference and the materialized prompt snapshot.
+- `{ "type": "skillRef", "name": "browser" }` — native skill reference. The server materializes this reference into model-visible skill context while preserving the original `$skill` form for history rendering.
+- `{ "type": "fileRef", "path": "src/foo.cs", "displayPath": "src/foo.cs" }` — native file reference. `path` is the canonical referenced path; `displayPath` is an optional UI-facing relative path when the server and client canonical forms differ.
 - `{ "type": "image", "url": "https://..." }` — remote image URL.
 - `{ "type": "localImage", "path": "/tmp/screenshot.png", "mimeType": "image/png", "fileName": "screenshot.png" }` — local image file path with optional UI metadata.
+
+Before starting the agent, the server MUST normalize the incoming `InputPart[]`, persist a `UserMessage` item whose payload captures both the native input parts and the materialized input parts, and only then convert the materialized parts into the `AIContent[]` passed to Session Core execution.
+
+Tag semantics:
+
+- `/command` denotes a custom command reference and is transmitted as `commandRef`.
+- Built-in slash commands such as `/new`, `/stop`, `/help`, `/debug`, `/heartbeat`, and `/cron` are not valid `commandRef` values. Clients must trigger them via `command/execute` or dedicated UI controls. If a client sends a built-in command as `commandRef` in `turn/start`, the server rejects the request with `InvalidParams`.
+- `$skill` denotes a skill reference and is transmitted as `skillRef`.
+- `@path` denotes a file reference and is transmitted as `fileRef`.
+- If a UI presents skills inside a slash-command picker, selecting a skill still produces a `skillRef`, not a `commandRef`.
+- A composer slash-command picker that inserts `commandRef` parts should request custom commands only.
 
 `localImage` optional metadata fields:
 
@@ -1070,7 +1084,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 
 | `item.type` | Wire-specific notes |
 |-------------|---------------------|
-| `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. |
+| `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. `text` is a compatibility/display field derived from the native input parts, not the sole source of truth. When present, `nativeInputParts` is authoritative for history rendering and `materializedInputParts` captures the exact snapshot sent to the model. |
 | `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
 | `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |
@@ -2952,7 +2966,7 @@ Clients must check `capabilities.skillsManagement` before calling any `skills/*`
 
 These methods expose the server-side command registry to wire clients.
 
-- `command/list` returns discoverable server-registered command metadata (including custom commands).
+- `command/list` returns discoverable server-registered command metadata (including custom commands, and optionally built-ins when requested).
 - `command/execute` executes a slash command and returns a normalized `CommandResult`.
 
 Command resolution and execution semantics are server-authoritative.
@@ -2982,6 +2996,8 @@ Client-local UX commands (for example CLI/TUI `/clear`) are intentionally outsid
 
 List all available commands for the current workspace/runtime.
 
+Clients that build a composer slash-command picker for `commandRef` insertion should pass `includeBuiltins = false` and treat the result as the custom-command catalog only. Built-in commands remain discoverable through `command/list` by default for general command surfaces.
+
 **Direction**: client → server (request)
 
 **Params**:
@@ -2989,6 +3005,7 @@ List all available commands for the current workspace/runtime.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `language` | string | no | Optional language override (`"zh"` or `"en"`). When omitted, server default language is used. |
+| `includeBuiltins` | boolean | no | Optional filter for built-in commands. Defaults to `true`. Pass `false` when the caller wants a `commandRef`-safe custom-command list for a composer picker. |
 
 **Result**:
 
@@ -3016,6 +3033,8 @@ List all available commands for the current workspace/runtime.
 ### 19.4 `command/execute`
 
 Execute one slash command through the server-side command pipeline.
+
+Built-in slash commands must be invoked through this method (or equivalent dedicated UI controls), not encoded as `commandRef` parts in `turn/start`.
 
 **Direction**: client → server (request)
 

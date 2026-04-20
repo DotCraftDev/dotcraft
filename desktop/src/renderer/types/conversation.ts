@@ -51,6 +51,10 @@ export interface ConversationItem {
   status: ItemStatus
   /** Primary text content: userMessage text, agentMessage markdown, error message */
   text?: string
+  /** Native user input parts used as the source of truth for history rendering. */
+  nativeInputParts?: InputPart[]
+  /** Materialized user input parts that were actually sent to the model. */
+  materializedInputParts?: InputPart[]
   /** Optimistic-only: data URLs for user-attached images (not persisted by server) */
   imageDataUrls?: string[]
   /** Persisted local image metadata for user messages (rehydrated via thread/read). */
@@ -118,6 +122,10 @@ export interface ConversationTurn {
 /** Supported input part types for turn/start */
 export type InputPart =
   | { type: 'text'; text: string }
+  | { type: 'commandRef'; name: string; argsText?: string; rawText?: string }
+  | { type: 'skillRef'; name: string }
+  | { type: 'fileRef'; path: string; displayPath?: string }
+  | { type: 'image'; url: string }
   | { type: 'localImage'; path: string; mimeType?: string; fileName?: string }
 
 export interface ComposerFileAttachment {
@@ -127,6 +135,7 @@ export interface ComposerFileAttachment {
 
 export interface PendingComposerMessage {
   text: string
+  inputParts?: InputPart[]
   files?: ComposerFileAttachment[]
 }
 
@@ -147,6 +156,58 @@ export interface ImageAttachment {
 /** Agent operating mode */
 export type ThreadMode = 'agent' | 'plan'
 
+function mapInputPart(raw: unknown): InputPart | null {
+  if (raw == null || typeof raw !== 'object') return null
+  const part = raw as Record<string, unknown>
+  const type = typeof part.type === 'string' ? part.type : ''
+  switch (type) {
+    case 'text': {
+      const text = typeof part.text === 'string' ? part.text : ''
+      return { type: 'text', text }
+    }
+    case 'commandRef': {
+      const name = typeof part.name === 'string' ? part.name.trim() : ''
+      if (!name) return null
+      const argsText = typeof part.argsText === 'string' && part.argsText.trim() !== ''
+        ? part.argsText
+        : undefined
+      const rawText = typeof part.rawText === 'string' && part.rawText.trim() !== ''
+        ? part.rawText
+        : undefined
+      return { type: 'commandRef', name, ...(argsText ? { argsText } : {}), ...(rawText ? { rawText } : {}) }
+    }
+    case 'skillRef': {
+      const name = typeof part.name === 'string' ? part.name.trim() : ''
+      return name ? { type: 'skillRef', name } : null
+    }
+    case 'fileRef': {
+      const path = typeof part.path === 'string' ? part.path.trim() : ''
+      if (!path) return null
+      const displayPath = typeof part.displayPath === 'string' && part.displayPath.trim() !== ''
+        ? part.displayPath
+        : undefined
+      return { type: 'fileRef', path, ...(displayPath ? { displayPath } : {}) }
+    }
+    case 'image': {
+      const url = typeof part.url === 'string' ? part.url.trim() : ''
+      return url ? { type: 'image', url } : null
+    }
+    case 'localImage': {
+      const path = typeof part.path === 'string' ? part.path.trim() : ''
+      if (!path) return null
+      const mimeType = typeof part.mimeType === 'string' && part.mimeType.trim() !== ''
+        ? part.mimeType
+        : undefined
+      const fileName = typeof part.fileName === 'string' && part.fileName.trim() !== ''
+        ? part.fileName
+        : undefined
+      return { type: 'localImage', path, ...(mimeType ? { mimeType } : {}), ...(fileName ? { fileName } : {}) }
+    }
+    default:
+      return null
+  }
+}
+
 /**
  * Converts a raw wire Turn object (from thread/read or turn/started) into
  * ConversationTurn. Wire items use camelCase property names.
@@ -160,6 +221,9 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
   const type = (raw.type as ItemType) ?? 'agentMessage'
   const payload = (raw.payload ?? {}) as Record<string, unknown>
   const payloadImagesRaw = (raw.images ?? payload.images) as unknown
+  const payloadNativeInputPartsRaw = (raw.nativeInputParts ?? payload.nativeInputParts) as unknown
+  const payloadMaterializedInputPartsRaw =
+    (raw.materializedInputParts ?? payload.materializedInputParts) as unknown
   const payloadImages = Array.isArray(payloadImagesRaw)
     ? payloadImagesRaw
       .map((entry) => {
@@ -177,6 +241,12 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       })
       .filter((img): img is UserMessageImageRef => img != null)
     : undefined
+  const payloadNativeInputParts = Array.isArray(payloadNativeInputPartsRaw)
+    ? payloadNativeInputPartsRaw.map(mapInputPart).filter((part): part is InputPart => part != null)
+    : undefined
+  const payloadMaterializedInputParts = Array.isArray(payloadMaterializedInputPartsRaw)
+    ? payloadMaterializedInputPartsRaw.map(mapInputPart).filter((part): part is InputPart => part != null)
+    : undefined
   return {
     id: (raw.id as string) ?? '',
     type,
@@ -185,6 +255,8 @@ export function wireItemToConversationItem(raw: Record<string, unknown>): Conver
       ?? (payload.text as string | undefined)
       ?? (raw.content as string | undefined)
       ?? (payload.message as string | undefined),
+    nativeInputParts: payloadNativeInputParts,
+    materializedInputParts: payloadMaterializedInputParts,
     reasoning: (raw.reasoning as string | undefined)
       ?? (type === 'reasoningContent' ? (payload.text as string | undefined) : undefined)
       ?? (raw.content as string | undefined),

@@ -6,7 +6,7 @@ type RefType = Exclude<ComposerDraftSegment, { type: 'text' }>['type']
 type Match = { type: 'file' | 'command' | 'skill'; start: number; end: number; value: string }
 
 export function serializeSkillMarker(skillName: string): string {
-  return `[[Use Skill: ${skillName}]]`
+  return `$${skillName}`
 }
 
 function pushTextSegment(out: ComposerDraftSegment[], value: string): void {
@@ -72,7 +72,7 @@ export function createRefSpan(kind: RefType, value: string): HTMLSpanElement {
     span.setAttribute('data-skill', value)
     label.textContent = value
     icon.innerHTML = SPARKLE_ICON_SVG
-    span.title = `Use Skill: ${value}`
+    span.title = `$${value}`
   }
   span.append(icon, removeIcon, label)
   return span
@@ -164,7 +164,7 @@ export function replaceEditorContentFromSegments(root: HTMLElement, segments: Co
   root.appendChild(buildEditorFragmentFromSegments(segments))
 }
 
-const SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
+const LEGACY_SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
 
 function findNextFileRef(text: string, from: number): Match | null {
   let i = from
@@ -185,17 +185,40 @@ function findNextFileRef(text: string, from: number): Match | null {
 }
 
 function findNextSkillRef(text: string, from: number): Match | null {
-  SKILL_MARKER_RE.lastIndex = from
-  const match = SKILL_MARKER_RE.exec(text)
-  if (!match) return null
-  const skillName = match[1]?.trim() ?? ''
-  if (!skillName) return null
-  return {
-    type: 'skill',
-    start: match.index,
-    end: match.index + match[0].length,
-    value: skillName
+  LEGACY_SKILL_MARKER_RE.lastIndex = from
+  const legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
+  if (legacyMatch) {
+    const skillName = legacyMatch[1]?.trim() ?? ''
+    if (skillName) {
+      return {
+        type: 'skill',
+        start: legacyMatch.index,
+        end: legacyMatch.index + legacyMatch[0].length,
+        value: skillName
+      }
+    }
   }
+
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '$' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      let j = i + 1
+      while (j < text.length && /[a-z0-9-]/i.test(text[j]!)) {
+        j++
+      }
+      const skillName = text.slice(i + 1, j)
+      if (skillName.length > 0) {
+        return {
+          type: 'skill',
+          start: i,
+          end: j,
+          value: skillName
+        }
+      }
+    }
+    i++
+  }
+  return null
 }
 
 function isLegacyCommandToken(token: string): boolean {

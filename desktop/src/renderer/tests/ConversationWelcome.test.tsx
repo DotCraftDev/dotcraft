@@ -325,7 +325,7 @@ describe('ConversationWelcome composer', () => {
 
   it('hydrates structured welcome drafts back into inline tags', async () => {
     useUIStore.getState().setWelcomeDraft({
-      text: 'Check @src/foo.ts then /code-review and [[Use Skill: browser]]',
+      text: 'Check @src/foo.ts then /code-review and $browser',
       segments: [
         { type: 'text', value: 'Check ' },
         { type: 'file', relativePath: 'src/foo.ts' },
@@ -347,12 +347,12 @@ describe('ConversationWelcome composer', () => {
       expect(textbox.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
       expect(textbox.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
     })
-    expect(textbox.textContent).not.toContain('[[Use Skill: browser]]')
+    expect(textbox.textContent).not.toContain('$browser')
 
     mounted.unmount()
 
     expect(useUIStore.getState().welcomeDraft).toMatchObject({
-      text: 'Check @src/foo.ts then /code-review and [[Use Skill: browser]]'
+      text: 'Check @src/foo.ts then /code-review and $browser'
     })
     expect(useUIStore.getState().welcomeDraft?.segments).toEqual([
       { type: 'text', value: 'Check ' },
@@ -386,7 +386,15 @@ describe('ConversationWelcome composer', () => {
     await waitFor(() => {
       expect(useUIStore.getState().pendingWelcomeTurn).toMatchObject({
         threadId: 'thread-welcome',
-        text: 'Check @src/foo.ts /code-review [[Use Skill: browser]]'
+        text: 'Check @src/foo.ts /code-review $browser',
+        inputParts: [
+          { type: 'text', text: 'Check ' },
+          { type: 'fileRef', path: 'src/foo.ts', displayPath: 'src/foo.ts' },
+          { type: 'text', text: ' ' },
+          { type: 'commandRef', name: 'code-review', rawText: '/code-review' },
+          { type: 'text', text: ' ' },
+          { type: 'skillRef', name: 'browser' }
+        ]
       })
     })
   })
