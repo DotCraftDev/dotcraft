@@ -9,8 +9,12 @@ namespace DotCraft.Utilities;
 /// </summary>
 public static class GitProcessRunner
 {
+    /// <summary>Result of a git process execution containing exit code and captured output streams.</summary>
     public readonly record struct GitResult(int ExitCode, string StdOut, string StdErr);
 
+    /// <summary>
+    /// Runs a git command asynchronously with timeout, non-interactive defaults, and process-tree cleanup on failure.
+    /// </summary>
     public static async Task<GitResult> RunAsync(
         string workingDirectory,
         IReadOnlyList<string> args,
