@@ -1,6 +1,13 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createElement, useRef } from 'react'
 import { useConversationStore } from '../stores/conversationStore'
 import { useUIStore } from '../stores/uiStore'
+import { useThreadStore } from '../stores/threadStore'
+import { useViewerTabStore } from '../stores/viewerTabStore'
+import { LocaleProvider } from '../contexts/LocaleContext'
+import { AddTabPopup } from '../components/detail/AddTabPopup'
 import type { FileDiff } from '../types/toolCall'
 
 const cs = () => useConversationStore.getState()
@@ -34,6 +41,46 @@ beforeEach(() => {
     lastActiveSystemTab: 'changes',
     detailPanelVisible: true,
     responsiveLayout: 'full'
+  })
+  useThreadStore.setState({
+    threadList: [],
+    activeThreadId: null,
+    activeThread: null,
+    searchQuery: '',
+    loading: false,
+    runningTurnThreadIds: new Set(),
+    parkedApprovals: new Map(),
+    runtimeSnapshots: new Map(),
+    pendingApprovalThreadIds: new Set(),
+    pendingPlanConfirmationThreadIds: new Set(),
+    unreadCompletedThreadIds: new Set()
+  })
+  useViewerTabStore.setState({
+    byThread: new Map(),
+    currentThreadId: null,
+    currentWorkspacePath: null
+  })
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: {
+      settings: {
+        get: async () => ({ locale: 'en' })
+      },
+      workspace: {
+        viewer: {
+          browser: {
+            create: async () => ({
+              tabId: 'browser-created',
+              currentUrl: 'about:blank',
+              title: 'New Tab',
+              canGoBack: false,
+              canGoForward: false,
+              loading: false
+            })
+          }
+        }
+      }
+    }
   })
 })
 
@@ -261,5 +308,38 @@ describe('viewer tab in uiStore', () => {
     expect(ui().quickOpenVisible).toBe(true)
     ui().setQuickOpenVisible(false)
     expect(ui().quickOpenVisible).toBe(false)
+  })
+})
+
+describe('AddTabPopup browser tab action', () => {
+  function Harness({ onClose }: { onClose: () => void }): JSX.Element {
+    const anchorRef = useRef<HTMLButtonElement>(null)
+    return createElement(
+      LocaleProvider,
+      null,
+      createElement('button', { ref: anchorRef, type: 'button' }, '+'),
+      createElement(AddTabPopup, { anchorRef, onClose })
+    )
+  }
+
+  it('enables New Browser Tab and opens a browser viewer tab', async () => {
+    cs().setWorkspacePath('/workspace/path')
+    useThreadStore.getState().setActiveThreadId('thread-1')
+    useViewerTabStore.getState().onThreadSwitched('thread-1')
+
+    const onClose = () => {}
+    render(createElement(Harness, { onClose }))
+
+    const button = screen.getByRole('menuitem', { name: 'New Browser Tab' })
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(useUIStore.getState().activeDetailTab.kind).toBe('viewer')
+    })
+    const active = useUIStore.getState().activeDetailTab
+    expect(active.kind).toBe('viewer')
+    const tabs = useViewerTabStore.getState().getThreadState('thread-1').tabs
+    expect(tabs.some((tab) => tab.kind === 'browser')).toBe(true)
   })
 })

@@ -15,31 +15,49 @@
  *   relative path, appending parent directory segments, until all labels are unique.
  */
 import { create } from 'zustand'
-import type { ViewerTab, ViewerContentClass, ViewerKind, PerThreadViewerState } from '../../shared/viewer/types'
+import type {
+  ViewerTab,
+  FileViewerTab,
+  BrowserViewerTab,
+  ViewerContentClass,
+  ViewerKind,
+  PerThreadViewerState
+} from '../../shared/viewer/types'
 
 // ─── Label deduplication helpers ────────────────────────────────────────────
 
 function computeLabels(tabs: ViewerTab[]): ViewerTab[] {
   if (tabs.length === 0) return tabs
 
+  const fileTabs = tabs
+    .map((tab, index) => ({ tab, index }))
+    .filter((entry): entry is { tab: FileViewerTab; index: number } => entry.tab.kind === 'file')
+
+  if (fileTabs.length === 0) {
+    return tabs.map((tab) => {
+      if (tab.kind !== 'browser') return tab
+      return { ...tab, label: browserDefaultLabel(tab) }
+    })
+  }
+
   // Build a map: basename → [tab indices with that basename]
   const basenameMap = new Map<string, number[]>()
-  for (let i = 0; i < tabs.length; i++) {
-    const tab = tabs[i]!
+  for (const { tab, index } of fileTabs) {
     // Normalize separators for consistent splitting
     const parts = tab.relativePath.replace(/\\/g, '/').split('/')
     const base = parts[parts.length - 1] ?? tab.relativePath
     const existing = basenameMap.get(base)
     if (existing) {
-      existing.push(i)
+      existing.push(index)
     } else {
-      basenameMap.set(base, [i])
+      basenameMap.set(base, [index])
     }
   }
 
   // For non-colliding tabs, the label is simply the basename.
   // For colliding tabs, we extend with parent path segments.
   const labels = tabs.map((tab) => {
+    if (tab.kind === 'browser') return browserDefaultLabel(tab)
     const parts = tab.relativePath.replace(/\\/g, '/').split('/')
     return parts[parts.length - 1] ?? tab.relativePath
   })
@@ -78,7 +96,20 @@ function computeLabels(tabs: ViewerTab[]): ViewerTab[] {
     }
   }
 
-  return tabs.map((tab, i) => ({ ...tab, label: labels[i] ?? tab.relativePath }))
+  return tabs.map((tab, i) => ({ ...tab, label: labels[i] ?? browserDefaultLabel(tab) }))
+}
+
+function browserDefaultLabel(tab: ViewerTab): string {
+  if (tab.kind !== 'browser') return tab.relativePath
+  if (tab.title?.trim()) return tab.title.trim()
+  const url = tab.currentUrl.trim()
+  if (!url) return 'New Tab'
+  try {
+    const parsed = new URL(url)
+    return parsed.host || 'New Tab'
+  } catch {
+    return 'New Tab'
+  }
 }
 
 // ─── Store interface ────────────────────────────────────────────────────────
@@ -108,6 +139,17 @@ interface ViewerTabStoreActions {
     kind?: ViewerKind
   }): string
 
+  /** Opens a browser tab in the given thread. */
+  openBrowser(params: {
+    threadId: string
+    target?: string
+    initialUrl?: string
+    initialLabel?: string
+  }): string
+
+  /** Applies browser state updates to an existing browser tab. */
+  updateBrowserTab(threadId: string, tabId: string, patch: Partial<BrowserViewerTab>): void
+
   /** Closes the tab with `tabId` in `threadId` and selects the nearest neighbor. */
   closeTab(threadId: string, tabId: string): void
 
@@ -118,7 +160,12 @@ interface ViewerTabStoreActions {
   onThreadSwitched(newThreadId: string | null): void
 
   /** Removes all viewer tabs for the given thread (e.g., thread deleted). */
-  onThreadDeleted(threadId: string): void
+  onThreadDeleted(
+    threadId: string,
+    options?: {
+      onBrowserTabRemoved?: (tab: BrowserViewerTab) => void
+    }
+  ): void
 
   /** Clears all per-thread state when the workspace changes. */
   onWorkspaceSwitched(newWorkspacePath: string): void
@@ -176,7 +223,7 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     // Create new tab
     const newTab: ViewerTab = {
       id: nextTabId(),
-      kind,
+      kind: kind === 'browser' ? 'file' : kind,
       absolutePath,
       relativePath,
       label: relativePath, // will be recomputed by computeLabels
@@ -192,6 +239,55 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     })
 
     return newTab.id
+  },
+
+  openBrowser({ threadId, target, initialUrl = 'about:blank', initialLabel = 'New Tab' }) {
+    const state = get()
+    const threadState = state.getThreadState(threadId)
+
+    const newTab: BrowserViewerTab = {
+      id: nextTabId(),
+      kind: 'browser',
+      target: target ?? `browser-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`,
+      label: initialLabel,
+      currentUrl: initialUrl,
+      loading: false,
+      canGoBack: false,
+      canGoForward: false
+    }
+
+    const newTabs = computeLabels([...threadState.tabs, newTab])
+    set((s) => {
+      const next = new Map(s.byThread)
+      next.set(threadId, { tabs: newTabs, activeTabId: newTab.id })
+      return { byThread: next }
+    })
+
+    return newTab.id
+  },
+
+  updateBrowserTab(threadId, tabId, patch) {
+    const state = get()
+    const threadState = state.getThreadState(threadId)
+    const idx = threadState.tabs.findIndex((t) => t.id === tabId && t.kind === 'browser')
+    if (idx === -1) return
+
+    const current = threadState.tabs[idx] as BrowserViewerTab
+    const nextTab: BrowserViewerTab = {
+      ...current,
+      ...patch,
+      id: current.id,
+      kind: 'browser'
+    }
+
+    const nextTabs = [...threadState.tabs]
+    nextTabs[idx] = nextTab
+    const relabeled = computeLabels(nextTabs)
+    set((s) => {
+      const next = new Map(s.byThread)
+      next.set(threadId, { ...threadState, tabs: relabeled })
+      return { byThread: next }
+    })
   },
 
   closeTab(threadId, tabId) {
@@ -240,7 +336,15 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     set({ currentThreadId: newThreadId })
   },
 
-  onThreadDeleted(threadId) {
+  onThreadDeleted(threadId, options) {
+    const existing = get().byThread.get(threadId)
+    if (existing?.tabs.length && options?.onBrowserTabRemoved) {
+      for (const tab of existing.tabs) {
+        if (tab.kind === 'browser') {
+          options.onBrowserTabRemoved(tab)
+        }
+      }
+    }
     set((s) => {
       const next = new Map(s.byThread)
       next.delete(threadId)

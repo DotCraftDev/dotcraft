@@ -107,7 +107,11 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
   },
 
   removeThread(threadId) {
-    useViewerTabStore.getState().onThreadDeleted(threadId)
+    useViewerTabStore.getState().onThreadDeleted(threadId, {
+      onBrowserTabRemoved: (tab) => {
+        void window.api.workspace.viewer.browser.destroy({ tabId: tab.id })
+      }
+    })
     set((state) => {
       const parkedApprovals = new Map(state.parkedApprovals)
       parkedApprovals.delete(threadId)

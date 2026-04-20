@@ -31,6 +31,7 @@ import {
   readTextFile,
   listViewerFiles
 } from './viewerIpc'
+import { viewerBrowserManager } from './viewerBrowser'
 import {
   scanModules,
   groupModulesByChannel,
@@ -1010,6 +1011,85 @@ export function registerIpcHandlers(
     }
   )
 
+  // Renderer -> Main: browser tab lifecycle / navigation
+  handleSafe(
+    'viewer:browser:create',
+    async (event, params: { tabId: string; workspacePath: string; initialUrl?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) {
+        throw new Error('Browser window not available')
+      }
+      const ws = path.resolve(workspacePath)
+      const req = path.resolve(params.workspacePath)
+      if (ws !== req) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
+      }
+      return viewerBrowserManager.createTab(win, {
+        tabId: params.tabId,
+        workspacePath: params.workspacePath,
+        ...(params.initialUrl ? { initialUrl: params.initialUrl } : {})
+      })
+    }
+  )
+  handleSafe('viewer:browser:destroy', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.destroyTab(win, params.tabId)
+  })
+  handleSafe('viewer:browser:navigate', async (event, params: { tabId: string; url: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    void viewerBrowserManager.navigate(win, params)
+  })
+  handleSafe('viewer:browser:back', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.goBack(win, params.tabId)
+  })
+  handleSafe('viewer:browser:forward', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.goForward(win, params.tabId)
+  })
+  handleSafe('viewer:browser:reload', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.reload(win, params.tabId)
+  })
+  handleSafe('viewer:browser:stop', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.stop(win, params.tabId)
+  })
+  handleSafe(
+    'viewer:browser:set-bounds',
+    async (event, params: { tabId: string; x: number; y: number; width: number; height: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) return
+      viewerBrowserManager.setBounds(win, params)
+    }
+  )
+  handleSafe('viewer:browser:set-visible', async (event, params: { tabId: string; visible: boolean }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.setVisible(win, params)
+  })
+  handleSafe('viewer:browser:set-active', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.setActiveTab(win, params.tabId)
+  })
+  handleSafe('viewer:browser:open-external', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    await viewerBrowserManager.openInOsBrowser(win, params.tabId)
+  })
+  handleSafe('viewer:browser:snapshot', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+    return viewerBrowserManager.snapshotState(win, params.tabId)
+  })
+
   // ─── Settings ──────────────────────────────────────────────────────────────
 
   // Renderer -> Main: get current settings
@@ -1411,6 +1491,18 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:viewer:list-files')
   ipcMain.removeHandler('workspace:viewer:classify')
   ipcMain.removeHandler('workspace:viewer:read-text')
+  ipcMain.removeHandler('viewer:browser:create')
+  ipcMain.removeHandler('viewer:browser:destroy')
+  ipcMain.removeHandler('viewer:browser:navigate')
+  ipcMain.removeHandler('viewer:browser:back')
+  ipcMain.removeHandler('viewer:browser:forward')
+  ipcMain.removeHandler('viewer:browser:reload')
+  ipcMain.removeHandler('viewer:browser:stop')
+  ipcMain.removeHandler('viewer:browser:set-bounds')
+  ipcMain.removeHandler('viewer:browser:set-visible')
+  ipcMain.removeHandler('viewer:browser:set-active')
+  ipcMain.removeHandler('viewer:browser:open-external')
+  ipcMain.removeHandler('viewer:browser:snapshot')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
   ipcMain.removeHandler('modules:list')

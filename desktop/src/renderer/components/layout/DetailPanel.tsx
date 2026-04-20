@@ -3,7 +3,7 @@ import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
 import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { useConversationStore } from '../../stores/conversationStore'
-import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X } from 'lucide-react'
+import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X, Globe } from 'lucide-react'
 import { ChangesTab } from '../detail/ChangesTab'
 import { PlanTab } from '../detail/PlanTab'
 import { TerminalTab } from '../detail/TerminalTab'
@@ -23,6 +23,21 @@ function contentClassIcon(contentClass: ViewerContentClass): JSX.Element {
     default:
       return <FileText size={14} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
   }
+}
+
+function browserTabIcon(faviconDataUrl?: string): JSX.Element {
+  if (faviconDataUrl) {
+    return (
+      <img
+        src={faviconDataUrl}
+        alt=""
+        width={14}
+        height={14}
+        style={{ display: 'block', borderRadius: '2px', flexShrink: 0 }}
+      />
+    )
+  }
+  return <Globe size={14} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
 }
 
 /**
@@ -64,6 +79,10 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
 
   const handleCloseViewerTab = (tabId: string): void => {
     if (!currentThreadId) return
+    const closing = viewerTabs.find((t) => t.id === tabId)
+    if (closing?.kind === 'browser') {
+      void window.api.workspace.viewer.browser.destroy({ tabId: closing.id })
+    }
     closeViewerTabInStore(currentThreadId, tabId)
 
     // If we just closed the active tab, we need to figure out new active tab
@@ -206,7 +225,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
               key={tab.id}
               role="tab"
               aria-selected={isActive}
-              title={tab.absolutePath}
+              title={tab.kind === 'browser' ? tab.currentUrl : tab.absolutePath}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -234,7 +253,9 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
                 }
               }}
             >
-              {contentClassIcon(tab.contentClass)}
+              {tab.kind === 'browser'
+                ? browserTabIcon(tab.faviconDataUrl)
+                : contentClassIcon(tab.contentClass)}
               <span
                 style={{
                   overflow: 'hidden',

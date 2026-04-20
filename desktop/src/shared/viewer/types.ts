@@ -3,34 +3,66 @@
  * Used by main process (IPC handlers) and renderer (store, components).
  */
 
-/** Currently only 'file'; 'browser' will be added in M2. */
-export type ViewerKind = 'file'
+/** M1 + M2 viewer kinds. */
+export type ViewerKind = 'file' | 'browser'
 
 /** Content class resolved for an opened file. */
 export type ViewerContentClass = 'text' | 'image' | 'pdf' | 'unsupported'
 
-/** A single viewer tab descriptor, owned by a specific thread. */
-export interface ViewerTab {
-  /** Stable uuid created at openFile time. */
+interface ViewerTabBase {
+  /** Stable id created at tab-open time. */
   id: string
-  /** Kind of viewer tab — always 'file' in M1. */
+  /** Kind of viewer tab. */
   kind: ViewerKind
+  /** Display label shown in the tab strip. */
+  label: string
+  /**
+   * If set, the tab renders an in-tab error state instead of the viewer body.
+   */
+  errorMessage?: string
+}
+
+/** File-viewer tab descriptor (M1). */
+export interface FileViewerTab extends ViewerTabBase {
+  kind: 'file'
   /** Normalized absolute path (realpath-resolved by main). */
   absolutePath: string
   /** Workspace-relative path used for label derivation. */
   relativePath: string
-  /** Display label shown in the tab strip, possibly disambiguated (§5.4). */
-  label: string
   /** Resolved content class used to pick the viewer component. */
   contentClass: ViewerContentClass
   /** File size in bytes at classification time; used by image viewer for info display. */
   sizeBytes?: number
-  /**
-   * If set, the tab renders an in-tab error state instead of the viewer.
-   * Used when the file disappears after a tab is saved (§9.5).
-   */
-  errorMessage?: string
 }
+
+/** Browser-viewer tab descriptor (M2). */
+export interface BrowserViewerTab extends ViewerTabBase {
+  kind: 'browser'
+  /**
+   * Stable browser target id. Kept separate from currentUrl so deep-linking
+   * can reference this tab regardless of navigation changes.
+   */
+  target: string
+  /** Last-known URL for this browser tab. */
+  currentUrl: string
+  /** Last-known page title. */
+  title?: string
+  /** Last-known favicon (data URL). */
+  faviconDataUrl?: string
+  /** Navigation status flags for chrome controls. */
+  loading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  /** True when the webContents renderer crashed and requires reload. */
+  crashed?: boolean
+  /** User-facing notice for blocked navigation attempts. */
+  blockedMessage?: string
+  /** User-facing notice when a download is blocked/cancelled. */
+  downloadMessage?: string
+}
+
+/** A single viewer tab descriptor, owned by a specific thread. */
+export type ViewerTab = FileViewerTab | BrowserViewerTab
 
 /** Per-thread viewer tab state stored in viewerTabStore. */
 export interface PerThreadViewerState {
@@ -75,4 +107,48 @@ export interface ClassifyParams {
 export interface ReadTextParams {
   absolutePath: string
   limitBytes?: number
+}
+
+export interface BrowserCreateParams {
+  tabId: string
+  workspacePath: string
+  initialUrl?: string
+}
+
+export interface BrowserNavigateParams {
+  tabId: string
+  url: string
+}
+
+export interface BrowserBoundsParams {
+  tabId: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type BrowserEventType =
+  | 'did-start-loading'
+  | 'did-stop-loading'
+  | 'did-navigate'
+  | 'did-fail-load'
+  | 'page-title-updated'
+  | 'page-favicon-updated'
+  | 'blocked-navigation'
+  | 'download-blocked'
+  | 'request-new-tab'
+  | 'crashed'
+  | 'update-history-flags'
+  | 'external-handoff'
+
+export interface BrowserEventPayload {
+  tabId: string
+  type: BrowserEventType
+  url?: string
+  title?: string
+  faviconDataUrl?: string
+  canGoBack?: boolean
+  canGoForward?: boolean
+  message?: string
 }

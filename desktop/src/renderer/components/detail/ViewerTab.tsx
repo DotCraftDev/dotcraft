@@ -17,6 +17,9 @@ const LazyTextViewer = lazy(() =>
 const LazyMarkdownViewer = lazy(() =>
   import('./viewers/MarkdownViewer').then((m) => ({ default: m.MarkdownViewer }))
 )
+const LazyBrowserViewerTab = lazy(() =>
+  import('./viewers/BrowserViewerTab').then((m) => ({ default: m.BrowserViewerTab }))
+)
 const LazyImageViewer = lazy(() =>
   import('./viewers/ImageViewer').then((m) => ({ default: m.ImageViewer }))
 )
@@ -93,18 +96,21 @@ export function ViewerTab({ tabId }: ViewerTabProps): JSX.Element {
   return (
     <div style={{ height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <Suspense fallback={suspenseFallback}>
-        {tab.contentClass === 'text' && (
+        {tab.kind === 'browser' && (
+          <LazyBrowserViewerTab tabId={tab.id} />
+        )}
+        {tab.kind === 'file' && tab.contentClass === 'text' && (
           isMarkdownPath(tab.absolutePath)
             ? <LazyMarkdownViewer absolutePath={tab.absolutePath} />
             : <LazyTextViewer absolutePath={tab.absolutePath} />
         )}
-        {tab.contentClass === 'image' && (
+        {tab.kind === 'file' && tab.contentClass === 'image' && (
           <LazyImageViewer absolutePath={tab.absolutePath} sizeBytes={tab.sizeBytes} />
         )}
-        {tab.contentClass === 'pdf' && (
+        {tab.kind === 'file' && tab.contentClass === 'pdf' && (
           <LazyPdfViewer absolutePath={tab.absolutePath} />
         )}
-        {tab.contentClass === 'unsupported' && (
+        {tab.kind === 'file' && tab.contentClass === 'unsupported' && (
           <LazyUnsupportedViewer filePath={tab.absolutePath} />
         )}
       </Suspense>

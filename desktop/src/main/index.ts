@@ -4,6 +4,7 @@ import {
   installViewerProtocolHandler,
   setViewerWorkspaceRoot
 } from './viewerFileProtocol'
+import { viewerBrowserManager } from './viewerBrowser'
 
 // Register the custom viewer scheme as privileged BEFORE app.whenReady().
 registerViewerScheme()
@@ -571,6 +572,7 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   })
 
   win.on('close', () => {
+    viewerBrowserManager.destroyAllTabs(win)
     void teardownRuntime('window close', { releaseWorkspaceLock: true })
   })
 
@@ -676,6 +678,9 @@ async function connectViaWebSocket(
 function buildCallbacks(): IpcHandlerCallbacks {
   return {
     onSwitchWorkspace: async (newPath: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        viewerBrowserManager.destroyAllTabs(mainWindow)
+      }
       setViewerWorkspaceRoot(newPath)
       addRecentWorkspace(sharedSettings, newPath)
       saveSettings(sharedSettings)
@@ -854,6 +859,9 @@ async function clearWorkspaceSelection(): Promise<void> {
     await teardownRuntime('clear workspace selection', { releaseWorkspaceLock: true })
   }
 
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    viewerBrowserManager.destroyAllTabs(mainWindow)
+  }
   setViewerWorkspaceRoot('')
   currentWorkspacePath = ''
   delete sharedSettings.lastWorkspacePath
@@ -1330,6 +1338,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   isAppQuitting = true
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    viewerBrowserManager.destroyAllTabs(mainWindow)
+  }
   if (finalQuitCleanupDone) {
     return
   }

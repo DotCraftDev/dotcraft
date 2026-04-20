@@ -61,6 +61,48 @@ describe('openFile', () => {
   })
 })
 
+describe('openBrowser / updateBrowserTab', () => {
+  it('opens a browser tab with default state and makes it active', () => {
+    store().onThreadSwitched(THREAD_A)
+    const id = store().openBrowser({
+      threadId: THREAD_A,
+      initialUrl: 'https://example.com'
+    })
+
+    const threadState = store().getThreadState(THREAD_A)
+    const tab = threadState.tabs.find((item) => item.id === id)
+    expect(tab).toBeTruthy()
+    expect(tab?.kind).toBe('browser')
+    if (tab?.kind === 'browser') {
+      expect(tab.currentUrl).toBe('https://example.com')
+      expect(tab.label).toBe('example.com')
+      expect(tab.canGoBack).toBe(false)
+      expect(tab.canGoForward).toBe(false)
+    }
+    expect(threadState.activeTabId).toBe(id)
+  })
+
+  it('updates browser tabs via patch and keeps browser kind stable', () => {
+    store().onThreadSwitched(THREAD_A)
+    const id = store().openBrowser({ threadId: THREAD_A, initialUrl: 'https://example.com' })
+
+    store().updateBrowserTab(THREAD_A, id, {
+      title: 'Example Domain',
+      canGoBack: true,
+      faviconDataUrl: 'data:image/png;base64,test'
+    })
+
+    const tab = store().getThreadState(THREAD_A).tabs.find((item) => item.id === id)
+    expect(tab?.kind).toBe('browser')
+    if (tab?.kind === 'browser') {
+      expect(tab.title).toBe('Example Domain')
+      expect(tab.label).toBe('Example Domain')
+      expect(tab.canGoBack).toBe(true)
+      expect(tab.faviconDataUrl).toContain('data:image/png;base64')
+    }
+  })
+})
+
 // ---------------------------------------------------------------------------
 // closeTab — nearest-neighbor fallback
 // ---------------------------------------------------------------------------
@@ -184,6 +226,21 @@ describe('onThreadDeleted', () => {
 
     expect(store().getThreadState(THREAD_A).tabs).toHaveLength(0)
     expect(store().getThreadState(THREAD_B).tabs).toHaveLength(1)
+  })
+
+  it('enumerates browser tabs for cleanup callback', () => {
+    openFile(THREAD_A, 'a.ts')
+    store().openBrowser({ threadId: THREAD_A, initialUrl: 'https://example.com' })
+    store().openBrowser({ threadId: THREAD_A, initialUrl: 'https://dotcraft.ai' })
+    const removed: string[] = []
+
+    store().onThreadDeleted(THREAD_A, {
+      onBrowserTabRemoved: (tab) => {
+        removed.push(tab.id)
+      }
+    })
+
+    expect(removed).toHaveLength(2)
   })
 })
 

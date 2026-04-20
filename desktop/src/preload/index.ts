@@ -4,6 +4,7 @@ import {
   TITLE_BAR_OVERLAY_RIGHT_RESERVE
 } from '../shared/titleBarOverlay'
 import type { TopLevelMenuId } from '../shared/locales/types'
+import type { BrowserEventPayload } from '../shared/viewer/types'
 
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
@@ -655,6 +656,76 @@ const api = {
         limitBytes?: number
       }): Promise<{ text: string; truncated: boolean; encoding: string }> {
         return ipcRenderer.invoke('workspace:viewer:read-text', params)
+      },
+
+      browser: {
+        create(params: {
+          tabId: string
+          workspacePath: string
+          initialUrl?: string
+        }): Promise<{
+          tabId: string
+          currentUrl: string
+          title: string
+          faviconDataUrl?: string
+          canGoBack: boolean
+          canGoForward: boolean
+          loading: boolean
+        }> {
+          return ipcRenderer.invoke('viewer:browser:create', params)
+        },
+        destroy(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:destroy', params)
+        },
+        navigate(params: { tabId: string; url: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:navigate', params)
+        },
+        back(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:back', params)
+        },
+        forward(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:forward', params)
+        },
+        reload(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:reload', params)
+        },
+        stop(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:stop', params)
+        },
+        setBounds(params: {
+          tabId: string
+          x: number
+          y: number
+          width: number
+          height: number
+        }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:set-bounds', params)
+        },
+        setVisible(params: { tabId: string; visible: boolean }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:set-visible', params)
+        },
+        setActive(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:set-active', params)
+        },
+        openExternal(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:open-external', params)
+        },
+        snapshot(params: { tabId: string }): Promise<{
+          tabId: string
+          currentUrl: string
+          title: string
+          faviconDataUrl?: string
+          canGoBack: boolean
+          canGoForward: boolean
+          loading: boolean
+        } | null> {
+          return ipcRenderer.invoke('viewer:browser:snapshot', params)
+        },
+        onEvent(listener: (event: BrowserEventPayload) => void): UnsubscribeFn {
+          const wrapped = (_evt: Electron.IpcRendererEvent, payload: BrowserEventPayload) => listener(payload)
+          ipcRenderer.on('viewer:browser:event', wrapped)
+          return () => ipcRenderer.removeListener('viewer:browser:event', wrapped)
+        }
       }
     }
   },

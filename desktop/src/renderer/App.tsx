@@ -107,6 +107,7 @@ export function App(): JSX.Element {
   const capabilities = useConnectionStore((s) => s.capabilities)
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
   const activeMainView = useUIStore((s) => s.activeMainView)
+  const activeDetailTab = useUIStore((s) => s.activeDetailTab)
   const quickOpenVisible = useUIStore((s) => s.quickOpenVisible)
   const setQuickOpenVisible = useUIStore((s) => s.setQuickOpenVisible)
   const {
@@ -904,6 +905,8 @@ export function App(): JSX.Element {
   // Thread selection: when activeThreadId changes, load full thread + subscribe
   // -------------------------------------------------------------------------
   const prevThreadIdRef = useRef<string | null>(null)
+  const browserVisibilitySentRef = useRef<Map<string, boolean>>(new Map())
+  const activeBrowserTabSentRef = useRef<string | null>(null)
   /**
    * Tracks the thread we currently hold a server-side subscription for.
    * Used as a guard against React StrictMode's mount->cleanup->remount cycle:
@@ -917,12 +920,27 @@ export function App(): JSX.Element {
   // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).
   useEffect(() => {
     const viewerStore = useViewerTabStore.getState()
+    const outgoingThreadId = viewerStore.currentThreadId
+    if (outgoingThreadId) {
+      const outgoingState = viewerStore.getThreadState(outgoingThreadId)
+      for (const tab of outgoingState.tabs) {
+        if (tab.kind === 'browser') {
+          void window.api.workspace.viewer.browser.setVisible({ tabId: tab.id, visible: false })
+        }
+      }
+    }
+
     viewerStore.onThreadSwitched(activeThreadId)
 
     if (activeThreadId) {
       const threadState = viewerStore.getThreadState(activeThreadId)
       if (threadState.activeTabId) {
         useUIStore.getState().setActiveViewerTab(threadState.activeTabId)
+        const activeTab = threadState.tabs.find((tab) => tab.id === threadState.activeTabId)
+        if (activeTab?.kind === 'browser') {
+          void window.api.workspace.viewer.browser.setVisible({ tabId: activeTab.id, visible: true })
+          void window.api.workspace.viewer.browser.setActive({ tabId: activeTab.id })
+        }
       } else {
         const { activeDetailTab } = useUIStore.getState()
         if (activeDetailTab.kind === 'viewer') {
@@ -931,6 +949,52 @@ export function App(): JSX.Element {
       }
     }
   }, [activeThreadId])
+
+  // Hide native browser views when non-conversation surfaces or overlays are shown.
+  useEffect(() => {
+    const viewerStore = useViewerTabStore.getState()
+    const threadId = viewerStore.currentThreadId
+    if (!threadId) return
+    const threadState = viewerStore.getThreadState(threadId)
+    const desiredVisibility = new Map<string, boolean>()
+    for (const tab of threadState.tabs) {
+      if (tab.kind === 'browser') {
+        desiredVisibility.set(tab.id, false)
+      }
+    }
+    const shouldHideBrowser =
+      quickOpenVisible
+      || activeMainView !== 'conversation'
+      || activeDetailTab.kind !== 'viewer'
+
+    let activeBrowserTabId: string | null = null
+    if (!shouldHideBrowser) {
+      const activeTab = threadState.tabs.find((tab) => tab.id === activeDetailTab.id)
+      if (activeTab?.kind === 'browser') {
+        desiredVisibility.set(activeTab.id, true)
+        activeBrowserTabId = activeTab.id
+      }
+    }
+
+    const lastVisibility = browserVisibilitySentRef.current
+    for (const [tabId, visible] of desiredVisibility.entries()) {
+      if (lastVisibility.get(tabId) === visible) continue
+      lastVisibility.set(tabId, visible)
+      void window.api.workspace.viewer.browser.setVisible({ tabId, visible })
+    }
+
+    for (const tabId of [...lastVisibility.keys()]) {
+      if (desiredVisibility.has(tabId)) continue
+      lastVisibility.delete(tabId)
+    }
+
+    if (activeBrowserTabId && activeBrowserTabSentRef.current !== activeBrowserTabId) {
+      activeBrowserTabSentRef.current = activeBrowserTabId
+      void window.api.workspace.viewer.browser.setActive({ tabId: activeBrowserTabId })
+    } else if (!activeBrowserTabId) {
+      activeBrowserTabSentRef.current = null
+    }
+  }, [activeDetailTab, activeMainView, quickOpenVisible])
 
   useEffect(() => {
     const prev = prevThreadIdRef.current

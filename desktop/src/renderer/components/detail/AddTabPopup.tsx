@@ -6,6 +6,9 @@
 import { useRef, useEffect, type KeyboardEvent } from 'react'
 import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
+import { useViewerTabStore } from '../../stores/viewerTabStore'
+import { useThreadStore } from '../../stores/threadStore'
+import { useConversationStore } from '../../stores/conversationStore'
 import { FolderOpen, Globe } from 'lucide-react'
 
 interface AddTabPopupProps {
@@ -16,6 +19,10 @@ interface AddTabPopupProps {
 export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Element {
   const t = useT()
   const setQuickOpenVisible = useUIStore((s) => s.setQuickOpenVisible)
+  const setActiveViewerTab = useUIStore((s) => s.setActiveViewerTab)
+  const openBrowser = useViewerTabStore((s) => s.openBrowser)
+  const activeThreadId = useThreadStore((s) => s.activeThreadId)
+  const workspacePath = useConversationStore((s) => s.workspacePath)
   const popupRef = useRef<HTMLDivElement>(null)
 
   // Close on outside click
@@ -45,6 +52,20 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
 
   const handleOpenFile = (): void => {
     setQuickOpenVisible(true)
+    onClose()
+  }
+
+  const handleOpenBrowser = (): void => {
+    if (!activeThreadId || !workspacePath) return
+    const tabId = openBrowser({
+      threadId: activeThreadId,
+      initialLabel: t('viewer.newBrowserTab')
+    })
+    setActiveViewerTab(tabId)
+    void window.api.workspace.viewer.browser.create({
+      tabId,
+      workspacePath
+    })
     onClose()
   }
 
@@ -102,11 +123,12 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
         {t('detailPanel.addTabOpenFile')}
       </button>
 
-      {/* New Browser Tab — M2 placeholder, disabled */}
+      {/* New Browser Tab */}
       <button
         role="menuitem"
-        disabled
-        title={t('detailPanel.addTabNewBrowserLater')}
+        disabled={!activeThreadId || !workspacePath}
+        onClick={handleOpenBrowser}
+        title={t('detailPanel.addTabNewBrowser')}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -115,10 +137,17 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
           padding: '6px 12px',
           border: 'none',
           background: 'transparent',
-          color: 'var(--text-disabled, rgba(255,255,255,0.3))',
+          color: 'var(--text-primary)',
           fontSize: '13px',
-          cursor: 'not-allowed',
+          cursor: activeThreadId && workspacePath ? 'pointer' : 'not-allowed',
           textAlign: 'left'
+        }}
+        onMouseEnter={(e) => {
+          if (!activeThreadId || !workspacePath) return
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.06))'
+        }}
+        onMouseLeave={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
         }}
       >
         <Globe size={14} aria-hidden style={{ display: 'block', flexShrink: 0 }} />
