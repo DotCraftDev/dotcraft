@@ -22,6 +22,8 @@ namespace DotCraft.Agents;
 /// </remarks>
 public sealed class SubAgentManager
 {
+    private const int SubAgentFileMaxSize = 100000;
+
     private readonly ChatClient _chatClient;
 
     private readonly string _workspaceRoot;
@@ -29,10 +31,6 @@ public sealed class SubAgentManager
     private readonly int _maxToolCallRounds;
 
     private readonly SemaphoreSlim _concurrencyGate;
-
-    private readonly FileTools? _fileTools;
-
-    private readonly ShellTools? _shellTools;
 
     private readonly SandboxShellTools? _sandboxShellTools;
 
@@ -46,6 +44,12 @@ public sealed class SubAgentManager
 
     private readonly TraceCollector? _traceCollector;
 
+    private readonly IApprovalService? _approvalService;
+
+    private readonly PathBlacklist? _blacklist;
+
+    private readonly int _shellTimeout;
+
     public SubAgentManager(
         ChatClient chatClient, 
         string workspaceRoot, 
@@ -55,6 +59,7 @@ public sealed class SubAgentManager
         AppConfig.ReasoningConfig? reasoningConfig = null,
         PathBlacklist? blacklist = null,
         SandboxSessionManager? sandboxManager = null,
+        IApprovalService? approvalService = null,
         TraceCollector? traceCollector = null)
     {
         _chatClient = chatClient;
@@ -64,32 +69,15 @@ public sealed class SubAgentManager
         _useSandbox = sandboxManager != null;
         _reasoningConfig = reasoningConfig ?? new AppConfig.ReasoningConfig();
         _traceCollector = traceCollector;
+        _approvalService = approvalService;
+        _blacklist = blacklist;
+        _shellTimeout = shellTimeout;
 
         if (sandboxManager != null)
         {
             // Sandbox mode: subagents execute inside containers
             _sandboxShellTools = new SandboxShellTools(sandboxManager, shellTimeout);
             _sandboxFileTools = new SandboxFileTools(sandboxManager);
-        }
-        else
-        {
-            // Local mode: existing behavior
-            _fileTools = new FileTools(
-                workspaceRoot: _workspaceRoot,
-                requireApprovalOutsideWorkspace: false,
-                maxFileSize: 100000,
-                approvalService: null,
-                blacklist: blacklist
-            );
-            
-            _shellTools = new ShellTools(
-                workingDirectory: _workspaceRoot,
-                timeoutSeconds: shellTimeout,
-                requireApprovalOutsideWorkspace: false,
-                maxOutputLength: 10000,
-                approvalService: null,
-                blacklist: blacklist
-            );
         }
         
         _webTools = new WebTools(
@@ -130,11 +118,19 @@ public sealed class SubAgentManager
     /// Automatically registers in <see cref="SubAgentProgressBridge"/> for Live Table display
     /// and sets up a child tracing session when <see cref="TraceCollector"/> is available.
     /// </summary>
-    public async Task<string> SpawnAsync(string task, string? label = null, CancellationToken cancellationToken = default)
+    public async Task<string> SpawnAsync(
+        string task,
+        string? label = null,
+        CancellationToken cancellationToken = default,
+        IApprovalService? approvalService = null,
+        ApprovalContext? approvalContext = null)
     {
         var taskId = Guid.NewGuid().ToString("N")[..8];
         var bridgeKey = NormalizeLabel(label, task);
         var progressEntry = SubAgentProgressBridge.GetOrCreate(bridgeKey);
+        var effectiveApprovalService = BuildSubAgentApprovalService(
+            bridgeKey,
+            approvalService ?? _approvalService);
 
         // Resolve parent session and create child session key for tracing
         var parentSessionKey = TracingChatClient.GetActiveSessionKey();
@@ -152,7 +148,10 @@ public sealed class SubAgentManager
                 if (childSessionKey != null)
                     TracingChatClient.CurrentSessionKey = childSessionKey;
 
-                var subagent = CreateSubAgent(task, progressEntry);
+                using var approvalContextScope = approvalContext != null
+                    ? ApprovalContextScope.Set(approvalContext)
+                    : null;
+                var subagent = CreateSubAgent(task, progressEntry, effectiveApprovalService);
                 var result = await subagent.RunAsync(task, session: null, options: null, cancellationToken);
                 return result.Text;
             }
@@ -188,7 +187,10 @@ public sealed class SubAgentManager
     /// <summary>
     /// Create a subagent with restricted tools for a specific task.
     /// </summary>
-    private ChatClientAgent CreateSubAgent(string task, SubAgentProgressBridge.ProgressEntry? progressEntry = null)
+    private ChatClientAgent CreateSubAgent(
+        string task,
+        SubAgentProgressBridge.ProgressEntry? progressEntry = null,
+        IApprovalService? approvalService = null)
     {
         var systemPrompt = BuildSubAgentPrompt(task);
 
@@ -202,13 +204,30 @@ public sealed class SubAgentManager
             tools.Add(AIFunctionFactory.Create(_sandboxFileTools.FindFiles));
             tools.Add(AIFunctionFactory.Create(_sandboxShellTools.Exec));
         }
-        else if (_fileTools != null && _shellTools != null)
+        else
         {
-            tools.Add(AIFunctionFactory.Create(_fileTools.ReadFile));
-            tools.Add(AIFunctionFactory.Create(_fileTools.WriteFile));
-            tools.Add(AIFunctionFactory.Create(_fileTools.GrepFiles));
-            tools.Add(AIFunctionFactory.Create(_fileTools.FindFiles));
-            tools.Add(AIFunctionFactory.Create(_shellTools.Exec));
+            var fileTools = new FileTools(
+                workspaceRoot: _workspaceRoot,
+                requireApprovalOutsideWorkspace: false,
+                maxFileSize: SubAgentFileMaxSize,
+                approvalService: approvalService,
+                blacklist: _blacklist
+            );
+
+            var shellTools = new ShellTools(
+                workingDirectory: _workspaceRoot,
+                timeoutSeconds: _shellTimeout,
+                requireApprovalOutsideWorkspace: false,
+                maxOutputLength: 10000,
+                approvalService: approvalService,
+                blacklist: _blacklist
+            );
+
+            tools.Add(AIFunctionFactory.Create(fileTools.ReadFile));
+            tools.Add(AIFunctionFactory.Create(fileTools.WriteFile));
+            tools.Add(AIFunctionFactory.Create(fileTools.GrepFiles));
+            tools.Add(AIFunctionFactory.Create(fileTools.FindFiles));
+            tools.Add(AIFunctionFactory.Create(shellTools.Exec));
         }
 
         tools.Add(AIFunctionFactory.Create(_webTools.WebSearch));
@@ -277,6 +296,14 @@ public sealed class SubAgentManager
         };
 
         return configuredChatClient.AsAIAgent(options);
+    }
+
+    private static IApprovalService? BuildSubAgentApprovalService(string label, IApprovalService? approvalService)
+    {
+        if (approvalService == null)
+            return null;
+
+        return new PrefixedApprovalService(approvalService, $"[subagent:{label}] ");
     }
 
     private string BuildSubAgentPrompt(string task)

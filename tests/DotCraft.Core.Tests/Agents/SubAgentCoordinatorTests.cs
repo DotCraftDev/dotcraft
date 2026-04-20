@@ -1,5 +1,6 @@
 using DotCraft.Agents;
 using DotCraft.Configuration;
+using DotCraft.Security;
 using System.Text;
 
 namespace DotCraft.Tests.Agents;
@@ -30,6 +31,61 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         SubAgentProgressBridge.Remove("diag");
         SubAgentProgressBridge.Remove("native run");
         SubAgentProgressBridge.Remove("external tokens");
+    }
+
+    [Fact]
+    public async Task RunAsync_AppendsPermissionModeArgs_FromApprovalMode()
+    {
+        var runtime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "mapped ok");
+        var coordinator = new SubAgentCoordinator(
+            _workspacePath,
+            [runtime],
+            [
+                new SubAgentProfile
+                {
+                    Name = "mapped-cli",
+                    Runtime = CliOneshotRuntime.RuntimeTypeName,
+                    Bin = "codex",
+                    WorkingDirectoryMode = "workspace",
+                    InputMode = "arg",
+                    OutputFormat = "text",
+                    PermissionModeMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [SubAgentApprovalModeResolver.InteractiveMode] = "--mode ask",
+                        [SubAgentApprovalModeResolver.AutoApproveMode] = "--mode auto --trust"
+                    }
+                }
+            ],
+            approvalService: new AutoApproveApprovalService());
+
+        var result = await coordinator.RunAsync(
+            new SubAgentTaskRequest { Task = "inspect code" },
+            "mapped-cli");
+
+        Assert.Equal("mapped ok", result);
+        Assert.Equal(["--mode", "auto", "--trust"], runtime.LastLaunchContext?.ExtraLaunchArgs);
+    }
+
+    [Fact]
+    public async Task RunAsync_PropagatesApprovalContext_FromScope()
+    {
+        var runtime = new FakeRuntime(NativeSubAgentRuntime.RuntimeTypeName, "native ok");
+        var cliRuntime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "cli ok");
+        var coordinator = new SubAgentCoordinator(
+            _workspacePath,
+            [runtime, cliRuntime],
+            approvalService: new ConsoleApprovalService());
+        using var _ = ApprovalContextScope.Set(new ApprovalContext
+        {
+            Source = "qq",
+            UserId = "alice"
+        });
+
+        var result = await coordinator.RunAsync(new SubAgentTaskRequest { Task = "inspect code" });
+
+        Assert.Equal("native ok", result);
+        Assert.Equal("qq", runtime.LastLaunchContext?.ApprovalContext?.Source);
+        Assert.Equal("alice", runtime.LastRequest?.ApprovalContext?.UserId);
     }
 
     [Fact]

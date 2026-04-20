@@ -32,11 +32,13 @@ public sealed class CoreToolProvider : IAgentToolProvider
             shellTimeout: context.Config.Tools.Shell.Timeout,
             reasoningConfig: context.Config.Reasoning,
             blacklist: context.PathBlacklist,
+            approvalService: context.ApprovalService,
             traceCollector: context.TraceCollector);
         var subAgentCoordinator = new SubAgentCoordinator(
             context.WorkspacePath,
             [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
-            context.Config.SubAgentProfiles);
+            context.Config.SubAgentProfiles,
+            context.ApprovalService);
         var agentTools = new AgentTools(subAgentCoordinator);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 

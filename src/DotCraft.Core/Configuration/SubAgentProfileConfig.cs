@@ -19,7 +19,7 @@ public sealed class SubAgentProfile
     /// <summary>
     /// Runtime type identifier, e.g. <c>native</c> or a future CLI runtime.
     /// </summary>
-    [ConfigField(Hint = "Runtime type identifier, e.g. native, cli-oneshot, cli-persistent.")]
+    [ConfigField(Hint = "Runtime type identifier, e.g. native, cli-oneshot, acp.")]
     public string Runtime { get; set; } = "native";
 
     /// <summary>
@@ -164,7 +164,7 @@ public sealed class SubAgentProfile
             Timeout = Timeout,
             TrustLevel = TrustLevel,
             PermissionModeMapping = PermissionModeMapping != null
-                ? new Dictionary<string, string>(PermissionModeMapping, StringComparer.Ordinal)
+                ? new Dictionary<string, string>(PermissionModeMapping, StringComparer.OrdinalIgnoreCase)
                 : null,
             SanitizationRules = SanitizationRules?.DeepClone() as JsonObject
         };

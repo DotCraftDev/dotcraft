@@ -15,6 +15,9 @@ public sealed class ChannelRoutingApprovalService(
     public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null)
         => Resolve(context).RequestShellApprovalAsync(command, workingDir, context);
 
-    private IApprovalService Resolve(ApprovalContext? context)
+    internal IApprovalService ResolveForContext(ApprovalContext? context)
         => context != null && channelServices.TryGetValue(context.Source, out var svc) ? svc : fallback;
+
+    private IApprovalService Resolve(ApprovalContext? context)
+        => ResolveForContext(context);
 }

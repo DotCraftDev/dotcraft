@@ -1,5 +1,6 @@
 using DotCraft.Configuration;
 using DotCraft.Context;
+using DotCraft.Security;
 
 namespace DotCraft.Agents;
 
@@ -26,7 +27,11 @@ public interface ISubAgentRuntime
 public sealed record SubAgentLaunchContext(
     string WorkspaceRoot,
     string WorkingDirectory,
-    string? ProfileName = null);
+    string? ProfileName = null,
+    IReadOnlyList<string>? ExtraLaunchArgs = null,
+    string? ApprovalMode = null,
+    IApprovalService? ApprovalService = null,
+    ApprovalContext? ApprovalContext = null);
 
 public sealed record SubAgentSessionHandle(
     string RuntimeType,
@@ -40,6 +45,8 @@ public sealed record SubAgentTaskRequest
     public string? Label { get; init; }
 
     public string? WorkingDirectory { get; init; }
+
+    public ApprovalContext? ApprovalContext { get; init; }
 }
 
 public sealed record SubAgentRunResult
@@ -122,7 +129,11 @@ public sealed class NativeSubAgentRuntime(SubAgentManager subAgentManager) : ISu
         SubAgentProfile profile,
         SubAgentLaunchContext context,
         CancellationToken cancellationToken)
-        => Task.FromResult(new SubAgentSessionHandle(RuntimeType, profile.Name));
+        => Task.FromResult(
+            new SubAgentSessionHandle(
+                RuntimeType,
+                profile.Name,
+                new NativeSessionState(context)));
 
     public async Task<SubAgentRunResult> RunAsync(
         SubAgentSessionHandle session,
@@ -131,13 +142,21 @@ public sealed class NativeSubAgentRuntime(SubAgentManager subAgentManager) : ISu
         CancellationToken cancellationToken)
     {
         _ = sink;
+        var launchContext = (session.State as NativeSessionState)?.LaunchContext;
+        var approvalService = launchContext?.ApprovalService;
+        var approvalContext = request.ApprovalContext ?? launchContext?.ApprovalContext;
 
         // TokenTracker is shared at the turn scope, so this is best-effort metadata only.
         var tokenTracker = TokenTracker.Current;
         var beforeInput = tokenTracker?.SubAgentInputTokens ?? 0;
         var beforeOutput = tokenTracker?.SubAgentOutputTokens ?? 0;
 
-        var text = await subAgentManager.SpawnAsync(request.Task, request.Label, cancellationToken);
+        var text = await subAgentManager.SpawnAsync(
+            request.Task,
+            request.Label,
+            cancellationToken,
+            approvalService,
+            approvalContext);
 
         var afterInput = tokenTracker?.SubAgentInputTokens ?? beforeInput;
         var afterOutput = tokenTracker?.SubAgentOutputTokens ?? beforeOutput;
@@ -159,6 +178,8 @@ public sealed class NativeSubAgentRuntime(SubAgentManager subAgentManager) : ISu
 
     public Task DisposeSessionAsync(SubAgentSessionHandle session, CancellationToken cancellationToken)
         => Task.CompletedTask;
+
+    private sealed record NativeSessionState(SubAgentLaunchContext LaunchContext);
 }
 
 public sealed class SubAgentProfileRegistry
@@ -234,7 +255,8 @@ public sealed class SubAgentProfileRegistry
             {
                 Name = SubAgentCoordinator.DefaultProfileName,
                 Runtime = NativeSubAgentRuntime.RuntimeTypeName,
-                WorkingDirectoryMode = "workspace"
+                WorkingDirectoryMode = "workspace",
+                TrustLevel = "trusted"
             },
             new SubAgentProfile
             {
@@ -255,7 +277,14 @@ public sealed class SubAgentProfileRegistry
                 SupportsStreaming = false,
                 SupportsResume = false,
                 Timeout = DefaultTimeoutSeconds,
-                MaxOutputBytes = DefaultMaxOutputBytes
+                MaxOutputBytes = DefaultMaxOutputBytes,
+                TrustLevel = "prompt",
+                PermissionModeMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [SubAgentApprovalModeResolver.InteractiveMode] = "--sandbox read-only --ask-for-approval on-request",
+                    [SubAgentApprovalModeResolver.AutoApproveMode] = "--dangerously-bypass-approvals-and-sandbox",
+                    [SubAgentApprovalModeResolver.RestrictedMode] = "--sandbox read-only"
+                }
             },
             new SubAgentProfile
             {
@@ -266,11 +295,7 @@ public sealed class SubAgentProfileRegistry
                 [
                     "--print",
                     "--output-format",
-                    "json",
-                    "--mode",
-                    "ask",
-                    "--trust",
-                    "--approve-mcps"
+                    "json"
                 ],
                 WorkingDirectoryMode = "workspace",
                 InputMode = "arg",
@@ -279,7 +304,14 @@ public sealed class SubAgentProfileRegistry
                 SupportsStreaming = false,
                 SupportsResume = false,
                 Timeout = DefaultTimeoutSeconds,
-                MaxOutputBytes = DefaultMaxOutputBytes
+                MaxOutputBytes = DefaultMaxOutputBytes,
+                TrustLevel = "prompt",
+                PermissionModeMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [SubAgentApprovalModeResolver.InteractiveMode] = "--mode ask --trust --approve-mcps",
+                    [SubAgentApprovalModeResolver.AutoApproveMode] = "--mode auto --trust --approve-mcps",
+                    [SubAgentApprovalModeResolver.RestrictedMode] = "--mode ask"
+                }
             },
             new SubAgentProfile
             {
@@ -291,7 +323,8 @@ public sealed class SubAgentProfileRegistry
                 SupportsStreaming = false,
                 SupportsResume = false,
                 Timeout = 120,
-                MaxOutputBytes = DefaultMaxOutputBytes
+                MaxOutputBytes = DefaultMaxOutputBytes,
+                TrustLevel = "restricted"
             }
         ];
 
@@ -434,13 +467,16 @@ public sealed class SubAgentCoordinator
     private readonly string _workspaceRoot;
     private readonly SubAgentProfileRegistry _profileRegistry;
     private readonly IReadOnlyDictionary<string, ISubAgentRuntime> _runtimes;
+    private readonly IApprovalService? _approvalService;
 
     public SubAgentCoordinator(
         string workspaceRoot,
         IEnumerable<ISubAgentRuntime> runtimes,
-        IEnumerable<SubAgentProfile>? configuredProfiles = null)
+        IEnumerable<SubAgentProfile>? configuredProfiles = null,
+        IApprovalService? approvalService = null)
     {
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
+        _approvalService = approvalService;
         var runtimeMap = new Dictionary<string, ISubAgentRuntime>(StringComparer.OrdinalIgnoreCase);
         foreach (var runtime in runtimes)
             runtimeMap[runtime.RuntimeType] = runtime;
@@ -549,13 +585,21 @@ public sealed class SubAgentCoordinator
         var launchContext = new SubAgentLaunchContext(
             WorkspaceRoot: _workspaceRoot,
             WorkingDirectory: workingDirectory,
-            ProfileName: profile.Name);
+            ProfileName: profile.Name,
+            ExtraLaunchArgs: ResolvePermissionModeArgs(profile, request.ApprovalContext ?? ApprovalContextScope.Current),
+            ApprovalMode: SubAgentApprovalModeResolver.Resolve(_approvalService, request.ApprovalContext ?? ApprovalContextScope.Current),
+            ApprovalService: _approvalService,
+            ApprovalContext: request.ApprovalContext ?? ApprovalContextScope.Current);
 
         var sink = CreateEventSink(request, runtime.RuntimeType);
         var session = await runtime.CreateSessionAsync(profile, launchContext, cancellationToken);
         try
         {
-            var effectiveRequest = request with { WorkingDirectory = workingDirectory };
+            var effectiveRequest = request with
+            {
+                WorkingDirectory = workingDirectory,
+                ApprovalContext = request.ApprovalContext ?? launchContext.ApprovalContext
+            };
             var result = await runtime.RunAsync(session, effectiveRequest, sink, cancellationToken);
             return result.Text;
         }
@@ -610,12 +654,28 @@ public sealed class SubAgentCoordinator
         return new BridgeSubAgentEventSink(progressEntry, bridgeKey);
     }
 
+    private IReadOnlyList<string> ResolvePermissionModeArgs(SubAgentProfile profile, ApprovalContext? approvalContext)
+    {
+        if (!string.Equals(profile.Runtime, CliOneshotRuntime.RuntimeTypeName, StringComparison.OrdinalIgnoreCase))
+            return [];
+
+        if (profile.PermissionModeMapping == null || profile.PermissionModeMapping.Count == 0)
+            return [];
+
+        var mode = SubAgentApprovalModeResolver.Resolve(_approvalService, approvalContext);
+        var mappedValue = profile.PermissionModeMapping
+            .FirstOrDefault(kvp => string.Equals(kvp.Key, mode, StringComparison.OrdinalIgnoreCase))
+            .Value;
+        if (string.IsNullOrWhiteSpace(mappedValue))
+            return [];
+
+        return CliOneshotRuntime.SplitArguments(mappedValue);
+    }
+
     private sealed class BridgeSubAgentEventSink(
         SubAgentProgressBridge.ProgressEntry progressEntry,
         string label) : ISubAgentEventSink
     {
-        private readonly SubAgentProgressBridge.ProgressEntry _progressEntry = progressEntry;
-
         public void OnInfo(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -626,37 +686,37 @@ public sealed class SubAgentCoordinator
 
         public void OnProgress(string? currentTool, string? currentToolDisplay = null)
         {
-            _progressEntry.CurrentTool = string.IsNullOrWhiteSpace(currentTool) ? "external-cli" : currentTool;
-            _progressEntry.LastTool = _progressEntry.CurrentTool;
+            progressEntry.CurrentTool = string.IsNullOrWhiteSpace(currentTool) ? "external-cli" : currentTool;
+            progressEntry.LastTool = progressEntry.CurrentTool;
             if (!string.IsNullOrWhiteSpace(currentToolDisplay))
             {
-                _progressEntry.CurrentToolDisplay = currentToolDisplay.Trim();
-                _progressEntry.LastToolDisplay = _progressEntry.CurrentToolDisplay;
+                progressEntry.CurrentToolDisplay = currentToolDisplay.Trim();
+                progressEntry.LastToolDisplay = progressEntry.CurrentToolDisplay;
             }
         }
 
         public void OnCompleted(string? summary = null, SubAgentTokenUsage? tokensUsed = null)
         {
             ApplyTokens(tokensUsed);
-            _progressEntry.CurrentTool = null;
-            _progressEntry.CurrentToolDisplay = null;
-            _progressEntry.LastTool = "completed";
-            _progressEntry.LastToolDisplay = string.IsNullOrWhiteSpace(summary)
+            progressEntry.CurrentTool = null;
+            progressEntry.CurrentToolDisplay = null;
+            progressEntry.LastTool = "completed";
+            progressEntry.LastToolDisplay = string.IsNullOrWhiteSpace(summary)
                 ? $"Completed {label}"
                 : summary.Trim();
-            _progressEntry.IsCompleted = true;
+            progressEntry.IsCompleted = true;
         }
 
         public void OnFailed(string? summary = null, SubAgentTokenUsage? tokensUsed = null)
         {
             ApplyTokens(tokensUsed);
-            _progressEntry.CurrentTool = null;
-            _progressEntry.CurrentToolDisplay = null;
-            _progressEntry.LastTool = "failed";
-            _progressEntry.LastToolDisplay = string.IsNullOrWhiteSpace(summary)
+            progressEntry.CurrentTool = null;
+            progressEntry.CurrentToolDisplay = null;
+            progressEntry.LastTool = "failed";
+            progressEntry.LastToolDisplay = string.IsNullOrWhiteSpace(summary)
                 ? $"Failed {label}"
                 : summary.Trim();
-            _progressEntry.IsCompleted = true;
+            progressEntry.IsCompleted = true;
         }
 
         private void ApplyTokens(SubAgentTokenUsage? tokensUsed)
@@ -664,7 +724,7 @@ public sealed class SubAgentCoordinator
             if (tokensUsed == null)
                 return;
 
-            _progressEntry.AddTokens(tokensUsed.InputTokens, tokensUsed.OutputTokens);
+            progressEntry.AddTokens(tokensUsed.InputTokens, tokensUsed.OutputTokens);
             TokenTracker.Current?.AddSubAgentTokens(tokensUsed.InputTokens, tokensUsed.OutputTokens);
         }
     }

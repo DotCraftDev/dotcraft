@@ -90,7 +90,17 @@ internal static class SubAgentProfilePromptSectionBuilder
             return "Native DotCraft subagent profile with fine-grained tool execution details.";
 
         if (string.Equals(profile.Runtime, CliOneshotRuntime.RuntimeTypeName, StringComparison.OrdinalIgnoreCase))
+        {
+            if (profile.PermissionModeMapping is { Count: > 0 })
+            {
+                var modes = string.Join(
+                    ", ",
+                    profile.PermissionModeMapping.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase));
+                return $"External CLI one-shot profile. Permission modes: {modes}.";
+            }
+
             return "External CLI one-shot profile.";
+        }
 
         return $"Subagent profile using runtime `{profile.Runtime}`.";
     }

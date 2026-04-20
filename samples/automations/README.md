@@ -43,6 +43,16 @@ config.json
 - A project directory as the DotCraft workspace (current working directory when you run `dotcraft`)
 - For GitHub samples: a [Fine-grained Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) scoped to the target repository
 
+## Approval Behavior in Automation Channels
+
+Automations typically run with `AutoApprove` policy. This affects subagents as follows:
+
+- Native subagent internal file/shell approvals are auto-passed (same as main agent behavior in automation mode).
+- External CLI subagents are launched with the profile's `permissionModeMapping["auto-approve"]` flags when defined.
+- For built-in `codex-cli`, this means DotCraft injects the bypass flag set in automation mode.
+
+If you want stricter behavior for an automation scenario, override the target profile's `permissionModeMapping` in workspace config.
+
 ---
 
 ## Local Task Sample

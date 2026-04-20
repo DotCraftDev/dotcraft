@@ -210,21 +210,33 @@ public class SubAgentProfileConfigTests
         Assert.Equal("cli-oneshot", codex.Runtime);
         Assert.Equal("codex", codex.Bin);
         Assert.Equal("arg", codex.InputMode);
+        Assert.Equal("prompt", codex.TrustLevel);
         Assert.True(codex.ReadOutputFile);
         Assert.Equal("--output-last-message {path}", codex.OutputFileArgTemplate);
+        Assert.Equal(
+            "--sandbox read-only --ask-for-approval on-request",
+            codex.PermissionModeMapping![SubAgentApprovalModeResolver.InteractiveMode]);
+        Assert.Equal(
+            "--dangerously-bypass-approvals-and-sandbox",
+            codex.PermissionModeMapping[SubAgentApprovalModeResolver.AutoApproveMode]);
 
         var cursor = profiles["cursor-cli"];
         Assert.Equal("cli-oneshot", cursor.Runtime);
         Assert.Equal("cursor-agent", cursor.Bin);
         Assert.Equal("json", cursor.OutputFormat);
         Assert.Equal("result", cursor.OutputJsonPath);
-        Assert.Contains("--approve-mcps", cursor.Args!);
+        Assert.Equal("prompt", cursor.TrustLevel);
+        Assert.Equal("--mode ask --trust --approve-mcps", cursor.PermissionModeMapping![SubAgentApprovalModeResolver.InteractiveMode]);
 
         var custom = profiles["custom-cli-oneshot"];
         Assert.Equal("cli-oneshot", custom.Runtime);
         Assert.Equal("arg", custom.InputMode);
         Assert.Equal("text", custom.OutputFormat);
         Assert.Equal(120, custom.Timeout);
+        Assert.Equal("restricted", custom.TrustLevel);
+
+        var native = profiles["dotcraft-native"];
+        Assert.Equal("trusted", native.TrustLevel);
     }
 
     [Fact]

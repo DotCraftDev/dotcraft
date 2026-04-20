@@ -226,6 +226,21 @@ public sealed class CliOneshotRuntimeTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_ExtraLaunchArgs_ArePrependedToInvocationArguments()
+    {
+        var profile = CreateProfile(CreateArgsDumpScript());
+        profile.InputMode = "arg";
+
+        var result = await RunProfileAsync(
+            profile,
+            "hello-cli",
+            extraLaunchArgs: ["--sandbox", "read-only"]);
+
+        Assert.False(result.IsError);
+        Assert.Contains("args=--sandbox|read-only|hello-cli", result.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SplitArguments_PreservesQuotedSegments()
     {
         var args = CliOneshotRuntime.SplitArguments("--output-file \"C:\\temp path\\out.txt\" --flag");
@@ -280,11 +295,16 @@ public sealed class CliOneshotRuntimeTests : IDisposable
         SubAgentProfile profile,
         string task,
         string? workingDirectory = null,
+        IReadOnlyList<string>? extraLaunchArgs = null,
         ISubAgentEventSink? sink = null)
     {
         var runtime = new CliOneshotRuntime();
         var effectiveWorkingDirectory = workingDirectory ?? _workspacePath;
-        var launchContext = new SubAgentLaunchContext(_workspacePath, effectiveWorkingDirectory, profile.Name);
+        var launchContext = new SubAgentLaunchContext(
+            _workspacePath,
+            effectiveWorkingDirectory,
+            profile.Name,
+            extraLaunchArgs);
         var session = await runtime.CreateSessionAsync(profile, launchContext, CancellationToken.None);
         try
         {
@@ -345,6 +365,27 @@ public sealed class CliOneshotRuntimeTests : IDisposable
             unix: """
             echo "cwd=$(pwd)"
             echo "arg=$1"
+            """);
+
+    private string CreateArgsDumpScript()
+        => CreateScript(
+            windows: """
+            if ($args.Count -eq 0) {
+                Write-Output 'args='
+            } else {
+                Write-Output ("args=" + ($args -join '|'))
+            }
+            """,
+            unix: """
+            joined=""
+            for arg in "$@"; do
+              if [ -z "$joined" ]; then
+                joined="$arg"
+              else
+                joined="$joined|$arg"
+              fi
+            done
+            printf 'args=%s\n' "$joined"
             """);
 
     private string CreateStdinEchoScript()

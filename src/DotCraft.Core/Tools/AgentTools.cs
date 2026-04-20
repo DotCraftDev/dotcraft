@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using DotCraft.Agents;
+using DotCraft.Security;
 
 namespace DotCraft.Tools;
 
@@ -57,7 +58,8 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
             {
                 Task = task,
                 Label = label,
-                WorkingDirectory = workingDirectory
+                WorkingDirectory = workingDirectory,
+                ApprovalContext = ApprovalContextScope.Current
             },
             profile,
             cancellationToken);
