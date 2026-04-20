@@ -200,8 +200,9 @@ This section defines how protocol messages affect user-visible behavior. It inte
 - The client may render local fallback suggestions immediately so the empty state remains useful before any server-backed result is available.
 - If the server advertises `capabilities.extensions.welcomeSuggestions`, the client may call `welcome/suggestions` for the active workspace identity after connection is ready.
 - Dynamic welcome-suggestion requests are gated by the current workspace personalization setting. If the workspace has personalized welcome suggestions disabled, the client must not request them and must continue showing only its local default suggestions.
-- The client should replace the visible fallback suggestions only when it receives a valid workspace-specific result (`source = dynamic`).
+- The client should replace visible fallback suggestions only when it receives a valid workspace-specific result (`source = dynamic`) from the server cache; fresh personalization updates are picked up asynchronously after later evidence changes (for example, completed turns), not synchronously during connection startup.
 - If the capability is absent, the request fails, the request times out, or the server responds with `source = none`, the local fallback suggestions remain visible without forcing an error state.
+- Dynamic welcome suggestions must never block welcome-screen load. If no cached dynamic result exists yet for the workspace, the static fallback suggestions stay visible without a loading placeholder.
 - Dynamic suggestions should use a dedicated source icon so users can distinguish personalized recommendations from the static default shortcut set.
 - Suggestions should remain short, diverse, and obviously actionable when shown in a compact list.
 - Choosing a suggestion prefills the input composer with the suggestion's prompt text. It must not auto-send the message or implicitly create a thread before the user confirms submission.

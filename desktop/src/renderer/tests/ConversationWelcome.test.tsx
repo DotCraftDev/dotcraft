@@ -541,7 +541,46 @@ describe('ConversationWelcome composer', () => {
     })
   })
 
-  it('shows loading skeletons while dynamic suggestions are pending', async () => {
+  it('strips markdown markers from dynamic suggestion titles only', async () => {
+    const rawPrompt = 'Inspect `feat/welcome_suggestion` path and keep _this marker_ in prompt output.'
+
+    appServerSendRequest.mockImplementation(async (method: string) => {
+      if (method === 'welcome/suggestions') {
+        return {
+          source: 'dynamic',
+          fingerprint: 'dynamic-markdown-title',
+          items: [
+            {
+              title: '审查 `feat/welcome_suggestion` 后端',
+              prompt: rawPrompt
+            },
+            {
+              title: '**Trace** *welcome/suggestions*',
+              prompt: 'Trace welcome/suggestions lifecycle hooks.'
+            },
+            {
+              title: 'Review __welcome__ flow',
+              prompt: 'Review __welcome__ flow details.'
+            }
+          ]
+        }
+      }
+      return {}
+    })
+
+    renderWelcome()
+
+    const firstButton = await screen.findByRole('button', { name: '审查 feat/welcome_suggestion 后端' })
+    expect(screen.getByRole('button', { name: 'Trace welcome/suggestions' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Review welcome flow' })).toBeInTheDocument()
+
+    fireEvent.click(firstButton)
+
+    const textbox = await screen.findByRole('textbox')
+    expect(textbox.textContent).toContain(rawPrompt)
+  })
+
+  it('keeps fallback suggestions visible while dynamic suggestions are pending', async () => {
     const deferred = createDeferred<{
       source: string
       fingerprint: string
@@ -557,8 +596,8 @@ describe('ConversationWelcome composer', () => {
 
     renderWelcome()
 
-    expect(await screen.findAllByTestId('welcome-suggestion-skeleton')).toHaveLength(4)
-    expect(screen.queryByRole('button', { name: 'Explore this workspace' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Explore this workspace' })).toBeInTheDocument()
+    expect(screen.queryAllByTestId('welcome-suggestion-skeleton')).toHaveLength(0)
 
     deferred.resolve({
       source: 'dynamic',
@@ -572,9 +611,7 @@ describe('ConversationWelcome composer', () => {
     })
 
     expect(await screen.findByRole('button', { name: 'Inspect suggestion loading' })).toBeInTheDocument()
-    await waitFor(() => {
-      expect(screen.queryAllByTestId('welcome-suggestion-skeleton')).toHaveLength(0)
-    })
+    expect(screen.queryAllByTestId('welcome-suggestion-skeleton')).toHaveLength(0)
   })
 
   it('renders suggestion buttons as full-width rows', async () => {

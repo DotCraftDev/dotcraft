@@ -65,6 +65,23 @@ const MAX_IMAGES = 5
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const WELCOME_DRAFT_DEBOUNCE_MS = 250
 
+function sanitizeSuggestionTitle(raw: string): string {
+  const original = raw.trim()
+  if (!original) return ''
+
+  let sanitized = original
+    .replace(/`+/g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/(^|\s)__([^_]+)__(?=\s|$)/g, '$1$2')
+    .replace(/(^|\s)_([^_]+)_(?=\s|$)/g, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!sanitized) sanitized = original
+  return sanitized
+}
+
 /**
  * Welcome state when the workspace is connected but no thread is selected.
  * Keeps the composer centered in the page so users can start a conversation
@@ -331,7 +348,7 @@ export function ConversationWelcome({
 
       const mapped = result.items
         .map((item) => {
-          const title = typeof item.title === 'string' ? item.title.trim() : ''
+          const title = typeof item.title === 'string' ? sanitizeSuggestionTitle(item.title) : ''
           const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
           if (!title || !prompt) return null
           return {
@@ -364,7 +381,6 @@ export function ConversationWelcome({
   ])
 
   const displayedSuggestions = dynamicSuggestions ?? suggestions
-  const showSuggestionSkeleton = suggestionsStatus === 'loading'
 
   const handleAtQuery = useCallback((q: string | null): void => {
     setAtQuery(q)
@@ -937,97 +953,59 @@ export function ConversationWelcome({
               gap: '4px'
             }}
           >
-            {showSuggestionSkeleton
-              ? Array.from({ length: 4 }, (_, idx) => (
-                <div
-                  key={`skeleton-${idx}`}
-                  aria-hidden="true"
-                  data-testid="welcome-suggestion-skeleton"
+            {displayedSuggestions.map((s, idx) => {
+              const Icon = s.icon
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => { fillSuggestion(s.prompt) }}
+                  disabled={busy}
+                  onMouseEnter={() => setHoveredIdx(idx)}
+                  onMouseLeave={() => setHoveredIdx(null)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '10px',
+                    gap: '8px',
                     width: '100%',
                     minHeight: '34px',
                     boxSizing: 'border-box',
                     padding: '6px 10px',
+                    margin: 0,
+                    background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'transparent',
+                    border: 'none',
                     borderRadius: '8px',
-                    opacity: 0.9
+                    color: 'var(--text-secondary)',
+                    cursor: busy ? 'default' : 'pointer',
+                    textAlign: 'left',
+                    fontSize: '13px',
+                    fontWeight: 400,
+                    lineHeight: 1.4,
+                    transition: 'background-color 120ms ease, color 120ms ease',
+                    opacity: busy ? 0.7 : 1
                   }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.color = 'var(--text-primary)'
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.color = 'var(--text-secondary)'
+                  }}
+                  aria-label={s.title}
                 >
+                  <Icon size={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
                   <span
                     style={{
-                      width: '16px',
-                      height: '16px',
-                      borderRadius: '999px',
-                      background: 'var(--bg-tertiary)',
-                      flexShrink: 0
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
                     }}
-                  />
-                  <span
-                    style={{
-                      height: '12px',
-                      borderRadius: '999px',
-                      background: 'var(--bg-tertiary)',
-                      width: `${78 - idx * 8}%`,
-                      maxWidth: idx === 3 ? '220px' : '320px'
-                    }}
-                  />
-                </div>
-              ))
-              : displayedSuggestions.map((s, idx) => {
-                const Icon = s.icon
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => { fillSuggestion(s.prompt) }}
-                    disabled={busy}
-                    onMouseEnter={() => setHoveredIdx(idx)}
-                    onMouseLeave={() => setHoveredIdx(null)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      width: '100%',
-                      minHeight: '34px',
-                      boxSizing: 'border-box',
-                      padding: '6px 10px',
-                      margin: 0,
-                      background: hoveredIdx === idx ? 'var(--bg-tertiary)' : 'transparent',
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: 'var(--text-secondary)',
-                      cursor: busy ? 'default' : 'pointer',
-                      textAlign: 'left',
-                      fontSize: '13px',
-                      fontWeight: 400,
-                      lineHeight: 1.4,
-                      transition: 'background-color 120ms ease, color 120ms ease',
-                      opacity: busy ? 0.7 : 1
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.color = 'var(--text-primary)'
-                    }}
-                    onBlur={(e) => {
-                      e.currentTarget.style.color = 'var(--text-secondary)'
-                    }}
-                    aria-label={s.title}
                   >
-                    <Icon size={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-                    <span
-                      style={{
-                        minWidth: 0,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {s.title}
-                    </span>
-                  </button>
-                )
-              })}
+                    {s.title}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>

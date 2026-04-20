@@ -127,8 +127,8 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
                                 {
                                     new JsonObject
                                     {
-                                        ["title"] = "Review welcome flow",
-                                        ["prompt"] = "Review the Desktop welcome flow and point out where dynamic quick suggestions should be injected.",
+                                        ["title"] = "Review ConversationWelcome.tsx flow",
+                                        ["prompt"] = "Review desktop/src/renderer/components/conversation/ConversationWelcome.tsx and point out where dynamic quick suggestions should be injected.",
                                         ["reason"] = "The recent history repeatedly mentions Desktop welcome flow work."
                                     },
                                     new JsonObject
@@ -145,8 +145,8 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
                                     },
                                     new JsonObject
                                     {
-                                        ["title"] = "Tune suggestion wording",
-                                        ["prompt"] = "Design four welcome suggestions that feel like likely next tasks for this workspace instead of generic feature categories.",
+                                        ["title"] = "Tune welcome/suggestions wording",
+                                        ["prompt"] = "Design four prompts for welcome/suggestions that reference specific artifacts such as WelcomeSuggestionService.cs instead of generic feature categories.",
                                         ["reason"] = "Recent user intent explicitly asks for next-task style suggestions."
                                     }
                                 }
@@ -158,6 +158,9 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         };
 
         var service = CreateService();
+        service.ScheduleRefresh(_workspacePath);
+        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0, timeoutMs: 7000);
+
         var result = await service.SuggestAsync(new WelcomeSuggestionsParams
         {
             Identity = CreateIdentity(),
@@ -239,10 +242,10 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
     {
         _memoryStore.WriteLongTerm("""
             The current focus is improving Desktop welcome suggestions.
-            Make the generated prompts specific to thread history and memory.
+            Make the generated prompts specific to thread history and memory from ConversationWelcome.tsx.
             """);
         _memoryStore.AppendHistory("""
-            Welcome suggestion output should mention concrete modules, prompts, or settings instead of generic onboarding.
+            Welcome suggestion output should mention concrete modules like WelcomeSuggestionService.cs or settings keys in .craft/config.json instead of generic onboarding.
             """);
 
         var methods = new WelcomeSuggestionToolMethods(_threadStore, _memoryStore, _workspacePath);
@@ -250,7 +253,25 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         var result = await methods.ReadWelcomeWorkspaceMemory();
 
         Assert.NotEmpty(result.MemoryHighlights);
-        Assert.Contains(result.MemoryHighlights, item => item.Contains("welcome suggestions", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SuggestAsync_WithNoPersistedCache_ReturnsNoneWithoutCallingModel()
+    {
+        await CreateThreadWithMessagesAsync(
+            "Review how welcome suggestions are generated from workspace history and memory.",
+            "Tighten the prompt so suggestions mention specific modules and tasks.");
+
+        var service = CreateService();
+        var result = await service.SuggestAsync(new WelcomeSuggestionsParams
+        {
+            Identity = CreateIdentity(),
+            MaxItems = 4
+        });
+
+        Assert.Equal("none", result.Source);
+        Assert.Empty(result.Items);
+        Assert.Empty(_sessionService.LastSubmittedContent);
     }
 
     [Fact]
@@ -291,24 +312,24 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
                                     new JsonObject
                                     {
                                         ["title"] = "Explore features",
-                                        ["prompt"] = "What features does DotCraft Desktop offer?",
+                                        ["prompt"] = "What features does this app offer?",
                                         ["reason"] = "Generic onboarding."
                                     },
                                     new JsonObject
                                     {
                                         ["title"] = "Learn the basics",
-                                        ["prompt"] = "Teach me the basics of using DotCraft.",
+                                        ["prompt"] = "Teach me the basics.",
                                         ["reason"] = "Generic onboarding."
                                     },
                                     new JsonObject
                                     {
-                                        ["title"] = "Workspace setup",
+                                        ["title"] = "Setup",
                                         ["prompt"] = "Help me set up my workspace.",
                                         ["reason"] = "Generic onboarding."
                                     },
                                     new JsonObject
                                     {
-                                        ["title"] = "New project",
+                                        ["title"] = "Project",
                                         ["prompt"] = "Help me start a new project.",
                                         ["reason"] = "Generic onboarding."
                                     }
@@ -321,6 +342,9 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         };
 
         var service = CreateService();
+        service.ScheduleRefresh(_workspacePath);
+        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0, timeoutMs: 7000);
+
         var result = await service.SuggestAsync(new WelcomeSuggestionsParams
         {
             Identity = CreateIdentity(),
@@ -332,101 +356,28 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SuggestAsync_WhenSharedInflightIsCanceledByAnotherCaller_ReturnsNoneForCurrentCaller()
+    public async Task ScheduleRefresh_OnTurnCompleted_WritesPersistedCache_AndSubsequentSuggestServesIt()
     {
         await CreateThreadWithMessagesAsync(
             "Review how welcome suggestions reuse workspace history and memory in Desktop.",
-            "Trace the welcome suggestion service and tighten its cancellation behavior.");
+            "Trace the welcome suggestion service and tighten its cache refresh behavior.");
 
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _sessionService.SubmitInputHandler = (_, _, _) =>
-        {
-            gate.Task.GetAwaiter().GetResult();
-            throw new OperationCanceledException();
-        };
-
-        var service = CreateService();
-        using var firstCallerCts = new CancellationTokenSource();
-
-        var firstTask = service.SuggestAsync(new WelcomeSuggestionsParams
-        {
-            Identity = CreateIdentity(),
-            MaxItems = 4
-        }, firstCallerCts.Token);
-
-        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0);
-
-        var secondTask = service.SuggestAsync(new WelcomeSuggestionsParams
-        {
-            Identity = CreateIdentity(),
-            MaxItems = 4
-        }, CancellationToken.None);
-
-        firstCallerCts.Cancel();
-        gate.TrySetResult();
-
-        var secondResult = await secondTask;
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await firstTask);
-        Assert.Equal("none", secondResult.Source);
-        Assert.Empty(secondResult.Items);
-    }
-
-    [Fact]
-    public async Task SuggestAsync_WhenCurrentCallerIsCanceled_ThrowsOperationCanceledException()
-    {
-        await CreateThreadWithMessagesAsync(
-            "Review the inflight welcome suggestion deduplication behavior.",
-            "Ensure the current caller cancellation still propagates.");
-
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _sessionService.SubmitInputHandler = (_, _, _) =>
-        {
-            gate.Task.GetAwaiter().GetResult();
-            throw new OperationCanceledException();
-        };
-
-        var service = CreateService();
-        using var cts = new CancellationTokenSource();
-
-        var task = service.SuggestAsync(new WelcomeSuggestionsParams
-        {
-            Identity = CreateIdentity(),
-            MaxItems = 4
-        }, cts.Token);
-
-        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0);
-        cts.Cancel();
-        gate.TrySetResult();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
-    }
-
-    [Fact]
-    public async Task SuggestAsync_WhenSecondSharedCallerIsCanceled_ThrowsPromptlyWithoutCancelingFirstCaller()
-    {
-        await CreateThreadWithMessagesAsync(
-            "Review welcome suggestion inflight sharing behavior.",
-            "Ensure each caller can cancel independently.");
-
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _sessionService.SubmitInputHandler = (threadId, _, _) =>
         {
-            gate.Task.GetAwaiter().GetResult();
             return
             [
                 new SessionEvent
                 {
-                    EventId = "evt_second_caller_cancel",
+                    EventId = "evt_refresh_cache",
                     EventType = SessionEventType.ItemCompleted,
                     ThreadId = threadId,
-                    TurnId = "turn_001",
-                    ItemId = "item_001",
+                    TurnId = "turn_refresh_cache",
+                    ItemId = "item_refresh_cache",
                     Timestamp = DateTimeOffset.UtcNow,
                     Payload = new SessionItem
                     {
-                        Id = "item_001",
-                        TurnId = "turn_001",
+                        Id = "item_refresh_cache",
+                        TurnId = "turn_refresh_cache",
                         Type = ItemType.ToolCall,
                         Status = ItemStatus.Completed,
                         CreatedAt = DateTimeOffset.UtcNow,
@@ -434,34 +385,30 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
                         Payload = new ToolCallPayload
                         {
                             ToolName = WelcomeSuggestionMethods.ToolName,
-                            CallId = "call_second_caller_cancel",
+                            CallId = "call_refresh_cache",
                             Arguments = new JsonObject
                             {
                                 ["items"] = new JsonArray
                                 {
                                     new JsonObject
                                     {
-                                        ["title"] = "Review welcome flow",
-                                        ["prompt"] = "Review the Desktop welcome flow and point out where dynamic quick suggestions should be injected.",
-                                        ["reason"] = "The recent history repeatedly mentions Desktop welcome flow work."
+                                        ["title"] = "Review ConversationWelcome.tsx flow",
+                                        ["prompt"] = "Review desktop/src/renderer/components/conversation/ConversationWelcome.tsx and point out where dynamic quick suggestions should be injected."
                                     },
                                     new JsonObject
                                     {
-                                        ["title"] = "Trace thread history",
-                                        ["prompt"] = "Trace how current-workspace thread history is loaded so we can reuse it to generate welcome suggestions.",
-                                        ["reason"] = "Recent threads focus on thread history loading."
+                                        ["title"] = "Trace WelcomeSuggestionService.cs",
+                                        ["prompt"] = "Trace src/DotCraft.Core/Protocol/WelcomeSuggestionService.cs to document how cache-only welcome/suggestions responses are served."
                                     },
                                     new JsonObject
                                     {
-                                        ["title"] = "Reuse workspace memory",
-                                        ["prompt"] = "Audit how MEMORY.md and HISTORY.md are loaded today and propose the cleanest way to feed them into welcome suggestions.",
-                                        ["reason"] = "Workspace memory appears in both recent messages and HISTORY.md."
+                                        ["title"] = "Inspect welcome/suggestions contract",
+                                        ["prompt"] = "Inspect specs/appserver-protocol.md and verify the welcome/suggestions semantics for source and fingerprint."
                                     },
                                     new JsonObject
                                     {
-                                        ["title"] = "Tune suggestion wording",
-                                        ["prompt"] = "Design four welcome suggestions that feel like likely next tasks for this workspace instead of generic feature categories.",
-                                        ["reason"] = "Recent user intent explicitly asks for next-task style suggestions."
+                                        ["title"] = "Audit workspace/config/update flow",
+                                        ["prompt"] = "Audit workspace/config/update handling for WelcomeSuggestions.Enabled and list the notification flow."
                                     }
                                 }
                             }
@@ -472,36 +419,154 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         };
 
         var service = CreateService();
-        var firstTask = service.SuggestAsync(new WelcomeSuggestionsParams
+        service.ScheduleRefresh(_workspacePath);
+        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0, timeoutMs: 7000);
+
+        var cachePath = Path.Combine(_workspacePath, ".craft", "cache", "welcome-suggestions.json");
+        await WaitForAsync(() => File.Exists(cachePath), timeoutMs: 7000);
+
+        var result = await service.SuggestAsync(new WelcomeSuggestionsParams
         {
             Identity = CreateIdentity(),
             MaxItems = 4
-        }, CancellationToken.None);
+        });
 
-        await WaitForAsync(() => _sessionService.LastSubmittedContent.Count > 0);
-
-        using var secondCallerCts = new CancellationTokenSource();
-        var secondTask = service.SuggestAsync(new WelcomeSuggestionsParams
-        {
-            Identity = CreateIdentity(),
-            MaxItems = 4
-        }, secondCallerCts.Token);
-
-        try
-        {
-            secondCallerCts.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await secondTask)
-                .WaitAsync(TimeSpan.FromSeconds(1));
-        }
-        finally
-        {
-            gate.TrySetResult();
-        }
-
-        var firstResult = await firstTask;
-        Assert.Equal("dynamic", firstResult.Source);
-        Assert.Equal(4, firstResult.Items.Count);
+        Assert.Equal("dynamic", result.Source);
+        Assert.Equal(4, result.Items.Count);
     }
+
+    [Fact]
+    public async Task ScheduleRefresh_Debounces_MultipleTriggersProduceOneRun()
+    {
+        await CreateThreadWithMessagesAsync(
+            "Review welcome suggestion debounce behavior.",
+            "Ensure repeated turn-complete signals coalesce into one refresh.");
+
+        var submitCount = 0;
+        _sessionService.SubmitInputHandler = (_, _, _) =>
+        {
+            Interlocked.Increment(ref submitCount);
+            return
+            [
+                new SessionEvent
+                {
+                    EventId = "evt_debounce",
+                    EventType = SessionEventType.ItemCompleted,
+                    ThreadId = "thread_debounce",
+                    TurnId = "turn_debounce",
+                    ItemId = "item_debounce",
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Payload = new SessionItem
+                    {
+                        Id = "item_debounce",
+                        TurnId = "turn_debounce",
+                        Type = ItemType.ToolCall,
+                        Status = ItemStatus.Completed,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        CompletedAt = DateTimeOffset.UtcNow,
+                        Payload = new ToolCallPayload
+                        {
+                            ToolName = WelcomeSuggestionMethods.ToolName,
+                            CallId = "call_debounce",
+                            Arguments = new JsonObject
+                            {
+                                ["items"] = BuildConcreteItems()
+                            }
+                        }
+                    }
+                }
+            ];
+        };
+
+        var service = CreateService();
+        service.ScheduleRefresh(_workspacePath);
+        service.ScheduleRefresh(_workspacePath);
+        service.ScheduleRefresh(_workspacePath);
+        await WaitForAsync(() => submitCount > 0, timeoutMs: 7000);
+        await Task.Delay(1200);
+
+        Assert.Equal(1, submitCount);
+    }
+
+    [Fact]
+    public async Task ScheduleRefresh_IgnoresInternalWelcomeThreads()
+    {
+        var submitCount = 0;
+        _sessionService.SubmitInputHandler = (_, _, _) =>
+        {
+            Interlocked.Increment(ref submitCount);
+            return [];
+        };
+
+        var internalThread = await _sessionService.CreateThreadAsync(new SessionIdentity
+        {
+            ChannelName = WelcomeSuggestionConstants.ChannelName,
+            UserId = WelcomeSuggestionConstants.InternalUserId,
+            WorkspacePath = _workspacePath,
+            ChannelContext = "internal:welcome"
+        });
+        await _threadStore.SaveThreadAsync(internalThread);
+
+        var service = CreateService();
+        service.ScheduleRefresh(_workspacePath, internalThread.Id);
+        await Task.Delay(1500);
+
+        Assert.Equal(0, submitCount);
+    }
+
+    [Fact]
+    public async Task ScheduleRefresh_WhenWorkspaceConfigDisablesSuggestions_SkipsRefresh()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(_craftPath, "config.json"),
+            """
+            {
+              "WelcomeSuggestions": {
+                "Enabled": false
+              }
+            }
+            """);
+        await CreateThreadWithMessagesAsync(
+            "Review welcome suggestion refresh policy.",
+            "Ensure config disable state stops background generation.");
+
+        var submitCount = 0;
+        _sessionService.SubmitInputHandler = (_, _, _) =>
+        {
+            Interlocked.Increment(ref submitCount);
+            return [];
+        };
+
+        var service = CreateService();
+        service.ScheduleRefresh(_workspacePath);
+        await Task.Delay(1500);
+
+        Assert.Equal(0, submitCount);
+    }
+
+    private static JsonArray BuildConcreteItems() =>
+    [
+        new JsonObject
+        {
+            ["title"] = "Review ConversationWelcome.tsx flow",
+            ["prompt"] = "Review desktop/src/renderer/components/conversation/ConversationWelcome.tsx and point out where dynamic quick suggestions should be injected."
+        },
+        new JsonObject
+        {
+            ["title"] = "Trace WelcomeSuggestionService.cs",
+            ["prompt"] = "Trace src/DotCraft.Core/Protocol/WelcomeSuggestionService.cs to document how cache-only welcome/suggestions responses are served."
+        },
+        new JsonObject
+        {
+            ["title"] = "Inspect welcome/suggestions contract",
+            ["prompt"] = "Inspect specs/appserver-protocol.md and verify the welcome/suggestions semantics for source and fingerprint."
+        },
+        new JsonObject
+        {
+            ["title"] = "Audit workspace/config/update flow",
+            ["prompt"] = "Audit workspace/config/update handling for WelcomeSuggestions.Enabled and list the notification flow."
+        }
+    ];
 
     private WelcomeSuggestionService CreateService() =>
         new(_sessionService, _threadStore, _memoryStore, _workspacePath, NullLogger<WelcomeSuggestionService>.Instance);

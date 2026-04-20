@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using DotCraft.Configuration;
 using DotCraft.Memory;
 using DotCraft.Protocol.AppServer;
@@ -23,7 +25,7 @@ public sealed class WelcomeSuggestionService(
     ThreadStore threadStore,
     MemoryStore memoryStore,
     string workspaceRoot,
-    ILogger<WelcomeSuggestionService>? logger = null) : IWelcomeSuggestionService
+    ILogger<WelcomeSuggestionService>? logger = null) : IWelcomeSuggestionService, IAsyncDisposable
 {
     private const int DefaultMaxItems = 4;
     private const int MaxItemsLimit = 4;
@@ -40,94 +42,23 @@ public sealed class WelcomeSuggestionService(
     private const int MinimumSnippetsForDynamicSuggestions = 2;
     private static readonly TimeSpan SuggestTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
-    private static readonly string[] SpecificitySignals =
-    [
-        ".cs",
-        ".tsx",
-        ".ts",
-        ".md",
-        ".json",
-        "api",
-        "agent",
-        "bug",
-        "component",
-        "config",
-        "endpoint",
-        "file",
-        "history",
-        "icon",
-        "memory",
-        "model",
-        "module",
-        "page",
-        "prompt",
-        "protocol",
-        "service",
-        "setting",
-        "settings",
-        "suggest",
-        "suggestion",
-        "test",
-        "tests",
-        "thread",
-        "tool",
-        "trace",
-        "ui",
-        "ux",
-        "welcome",
-        "workspace",
-        "配置",
-        "协议",
-        "线程",
-        "历史",
-        "记忆",
-        "模型",
-        "提示词",
-        "组件",
-        "页面",
-        "服务",
-        "测试",
-        "图标",
-        "输入框",
-        "建议",
-        "欢迎页",
-        "工作区",
-        "修复",
-        "排查"
-    ];
-    private static readonly string[] ActionSignals =
-    [
-        "add",
-        "adjust",
-        "analyze",
-        "audit",
-        "debug",
-        "design",
-        "fix",
-        "implement",
-        "investigate",
-        "map",
-        "refine",
-        "review",
-        "trace",
-        "tune",
-        "update",
-        "wire",
-        "优化",
-        "分析",
-        "修复",
-        "排查",
-        "实现",
-        "调整",
-        "梳理",
-        "审查",
-        "追踪",
-        "更新"
-    ];
+    private static readonly TimeSpan RefreshDebounce = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MinRefreshInterval = TimeSpan.FromMinutes(2);
+    private const int PersistedCacheSchemaVersion = 1;
+    private static readonly Regex FileExtensionPattern = new(@"\.[A-Za-z0-9]{1,6}\b", RegexOptions.Compiled);
+    private static readonly Regex PathPattern = new(@"[A-Za-z0-9_.\-]+[\\/][A-Za-z0-9_.\-]+", RegexOptions.Compiled);
+    private static readonly Regex BacktickPattern = new(@"\x60[^\x60]+\x60", RegexOptions.Compiled);
+    private static readonly Regex IdentifierShapePattern = new(
+        @"\b[a-z][a-z0-9]+[A-Z][A-Za-z0-9]*\b|\b[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*\b|\b[A-Za-z0-9]+_[A-Za-z0-9_]+\b|\b[a-z][a-z0-9]+(?:-[a-z0-9]+)+\b",
+        RegexOptions.Compiled);
+    private static readonly Regex AtOrHashRefPattern = new(@"(?<=^|\s)[@#][A-Za-z0-9_./\\-]+", RegexOptions.Compiled);
 
-    private readonly ConcurrentDictionary<string, WelcomeSuggestionCacheEntry> _cache = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, Lazy<Task<WelcomeSuggestionsResult>>> _inflight =
-        new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, WelcomeSuggestionCacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _refreshLock = new();
+    private readonly CancellationTokenSource _lifetimeCts = new();
+    private CancellationTokenSource? _pendingRefreshCts;
+    private Task _latestRefreshTask = Task.CompletedTask;
+    private DateTimeOffset _lastRefreshCompletedAt = DateTimeOffset.MinValue;
 
     public async Task<WelcomeSuggestionsResult> SuggestAsync(
         WelcomeSuggestionsParams parameters,
@@ -147,51 +78,214 @@ public sealed class WelcomeSuggestionService(
         if (!IsWelcomeSuggestionsEnabled(workspacePath))
             return BuildNoSuggestionsResult(string.Empty);
 
-        var evidence = await BuildEvidenceAsync(workspacePath, maxItems, cancellationToken).ConfigureAwait(false);
-        if (!evidence.HasSufficientContext)
-            return BuildNoSuggestionsResult(evidence.Fingerprint);
+        if (_cache.TryGetValue(workspacePath, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
+            return LimitResult(cached.Result, maxItems);
 
-        if (_cache.TryGetValue(evidence.CacheKey, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
-            return cached.Result;
-
-        var lazy = _inflight.GetOrAdd(
-            evidence.CacheKey,
-            _ => new Lazy<Task<WelcomeSuggestionsResult>>(
-                () => GenerateAndCacheAsync(parameters.Identity, evidence, maxItems, cancellationToken),
-                LazyThreadSafetyMode.ExecutionAndPublication));
-
-        try
+        var persisted = await LoadPersistedAsync(workspacePath, cancellationToken).ConfigureAwait(false);
+        if (persisted != null)
         {
-            try
-            {
-                return await lazy.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                logger?.LogDebug(
-                    "Welcome suggestion inflight operation was canceled by a different caller; returning no suggestions for current caller.");
-                return BuildNoSuggestionsResult(evidence.Fingerprint);
-            }
+            _cache[workspacePath] = new WelcomeSuggestionCacheEntry(
+                persisted,
+                DateTimeOffset.UtcNow.Add(CacheTtl));
+            return LimitResult(persisted, maxItems);
         }
-        finally
+
+        return BuildNoSuggestionsResult(string.Empty);
+    }
+
+    public void ScheduleRefresh(string workspacePath, string? triggerThreadId = null)
+    {
+        var normalizedWorkspace = NormalizeWorkspacePath(workspacePath);
+        if (!string.Equals(normalizedWorkspace, NormalizeWorkspacePath(workspaceRoot), StringComparison.OrdinalIgnoreCase))
+            return;
+
+        lock (_refreshLock)
         {
-            _inflight.TryRemove(new KeyValuePair<string, Lazy<Task<WelcomeSuggestionsResult>>>(evidence.CacheKey, lazy));
+            _pendingRefreshCts?.Cancel();
+            _pendingRefreshCts?.Dispose();
+            _pendingRefreshCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+            var refreshCt = _pendingRefreshCts.Token;
+            _latestRefreshTask = Task.Run(
+                () => RunScheduledRefreshAsync(normalizedWorkspace, triggerThreadId, refreshCt),
+                CancellationToken.None);
         }
     }
 
-    private async Task<WelcomeSuggestionsResult> GenerateAndCacheAsync(
-        SessionIdentity identity,
-        WelcomeSuggestionEvidence evidence,
-        int maxItems,
+    public async ValueTask DisposeAsync()
+    {
+        _lifetimeCts.Cancel();
+        Task latestTask;
+        lock (_refreshLock)
+        {
+            _pendingRefreshCts?.Cancel();
+            _pendingRefreshCts?.Dispose();
+            _pendingRefreshCts = null;
+            latestTask = _latestRefreshTask;
+        }
+
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await latestTask.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            logger?.LogDebug("Timed out while waiting for background welcome suggestion refresh to stop.");
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug(ex, "Background welcome suggestion refresh ended with an error during disposal.");
+        }
+        finally
+        {
+            _lifetimeCts.Dispose();
+        }
+    }
+
+    private async Task RunScheduledRefreshAsync(
+        string workspacePath,
+        string? triggerThreadId,
         CancellationToken cancellationToken)
     {
-        var result = await GenerateDynamicSuggestionsAsync(identity, evidence, maxItems, cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            if (!IsWelcomeSuggestionsEnabled(workspacePath))
+                return;
+            if (!string.IsNullOrWhiteSpace(triggerThreadId)
+                && await IsInternalThreadAsync(triggerThreadId, cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
 
-        _cache[evidence.CacheKey] = new WelcomeSuggestionCacheEntry(
+            await Task.Delay(RefreshDebounce, cancellationToken).ConfigureAwait(false);
+            var minNextRefreshAt = _lastRefreshCompletedAt + MinRefreshInterval;
+            if (minNextRefreshAt > DateTimeOffset.UtcNow)
+            {
+                var cooldown = minNextRefreshAt - DateTimeOffset.UtcNow;
+                await Task.Delay(cooldown, cancellationToken).ConfigureAwait(false);
+            }
+
+            await RefreshSuggestionsAsync(workspacePath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Canceled by a newer trigger or service shutdown.
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Background welcome suggestion refresh failed.");
+        }
+    }
+
+    private async Task RefreshSuggestionsAsync(string workspacePath, CancellationToken cancellationToken)
+    {
+        const int RefreshMaxItems = DefaultMaxItems;
+        var evidence = await BuildEvidenceAsync(workspacePath, RefreshMaxItems, cancellationToken).ConfigureAwait(false);
+        if (!evidence.HasSufficientContext)
+            return;
+
+        var identity = new SessionIdentity
+        {
+            ChannelName = WelcomeSuggestionConstants.ChannelName,
+            UserId = WelcomeSuggestionConstants.InternalUserId,
+            ChannelContext = $"welcome-refresh:{evidence.Fingerprint}",
+            WorkspacePath = workspacePath
+        };
+
+        var result = await GenerateDynamicSuggestionsAsync(identity, evidence, RefreshMaxItems, cancellationToken)
+            .ConfigureAwait(false);
+        if (!string.Equals(result.Source, "dynamic", StringComparison.OrdinalIgnoreCase)
+            || result.Items.Count == 0)
+        {
+            return;
+        }
+
+        _cache[workspacePath] = new WelcomeSuggestionCacheEntry(
             result,
             DateTimeOffset.UtcNow.Add(CacheTtl));
-        return result;
+        await SavePersistedAsync(workspacePath, result, cancellationToken).ConfigureAwait(false);
+        _lastRefreshCompletedAt = DateTimeOffset.UtcNow;
+    }
+
+    private async Task<bool> IsInternalThreadAsync(string threadId, CancellationToken cancellationToken)
+    {
+        var normalizedThreadId = threadId.Trim();
+        if (normalizedThreadId.Length == 0)
+            return false;
+        var summaries = await threadStore.LoadIndexAsync(cancellationToken).ConfigureAwait(false);
+        var summary = summaries.FirstOrDefault(item => string.Equals(item.Id, normalizedThreadId, StringComparison.Ordinal));
+        return summary != null && IsInternalThread(summary);
+    }
+
+    private static WelcomeSuggestionsResult LimitResult(WelcomeSuggestionsResult source, int maxItems)
+    {
+        var items = source.Items.Take(maxItems).ToList();
+        return new WelcomeSuggestionsResult
+        {
+            Source = source.Source,
+            Fingerprint = source.Fingerprint,
+            GeneratedAt = source.GeneratedAt,
+            Items = items
+        };
+    }
+
+    private static string BuildPersistedCachePath(string workspacePath) =>
+        Path.Combine(workspacePath, ".craft", "cache", "welcome-suggestions.json");
+
+    private static string BuildPersistedTempPath(string persistedPath) => $"{persistedPath}.tmp";
+
+    private async Task SavePersistedAsync(
+        string workspacePath,
+        WelcomeSuggestionsResult result,
+        CancellationToken cancellationToken)
+    {
+        var persistedPath = BuildPersistedCachePath(workspacePath);
+        var parentDir = Path.GetDirectoryName(persistedPath);
+        if (!string.IsNullOrWhiteSpace(parentDir))
+            Directory.CreateDirectory(parentDir);
+
+        var payload = new PersistedWelcomeSuggestionsPayload
+        {
+            SchemaVersion = PersistedCacheSchemaVersion,
+            Result = result
+        };
+        var json = JsonSerializer.Serialize(payload);
+        var tempPath = BuildPersistedTempPath(persistedPath);
+        await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        File.Move(tempPath, persistedPath, overwrite: true);
+    }
+
+    private async Task<WelcomeSuggestionsResult?> LoadPersistedAsync(
+        string workspacePath,
+        CancellationToken cancellationToken)
+    {
+        var persistedPath = BuildPersistedCachePath(workspacePath);
+        if (!File.Exists(persistedPath))
+            return null;
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(persistedPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+            var payload = JsonSerializer.Deserialize<PersistedWelcomeSuggestionsPayload>(json);
+            if (payload is not { SchemaVersion: PersistedCacheSchemaVersion })
+                return null;
+            if (payload.Result == null || !string.Equals(payload.Result.Source, "dynamic", StringComparison.OrdinalIgnoreCase))
+                return null;
+            if (payload.Result.Items.Count == 0)
+                return null;
+            return payload.Result;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug(ex, "Failed to read persisted welcome suggestions cache; ignoring file.");
+            return null;
+        }
     }
 
     private async Task<WelcomeSuggestionsResult> GenerateDynamicSuggestionsAsync(
@@ -575,49 +669,35 @@ public sealed class WelcomeSuggestionService(
 
     private static bool IsSpecificSuggestion(string title, string prompt)
     {
-        return HasSpecificitySignal(title) || (HasSpecificitySignal(prompt) && HasActionSignal(prompt));
+        return HasSpecificitySignal(title) || HasSpecificitySignal(prompt);
     }
 
     private static bool HasSpecificitySignal(string text)
     {
-        foreach (var signal in SpecificitySignals)
-        {
-            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
 
-        return text.Contains('/') || text.Contains('\\') || text.Contains('`') || text.Contains('_');
-    }
-
-    private static bool HasActionSignal(string text)
-    {
-        foreach (var signal in ActionSignals)
-        {
-            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
+        return FileExtensionPattern.IsMatch(text)
+            || PathPattern.IsMatch(text)
+            || BacktickPattern.IsMatch(text)
+            || IdentifierShapePattern.IsMatch(text)
+            || AtOrHashRefPattern.IsMatch(text)
+            || text.Contains('`');
     }
 
     internal static int ScoreSnippetSpecificity(string text)
     {
+        if (string.IsNullOrWhiteSpace(text))
+            return 0;
+
         var score = 0;
-        foreach (var signal in SpecificitySignals)
-        {
-            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
-                score += 3;
-        }
-
-        foreach (var signal in ActionSignals)
-        {
-            if (text.Contains(signal, StringComparison.OrdinalIgnoreCase))
-                score += 2;
-        }
-
-        if (text.Contains('/') || text.Contains('\\') || text.Contains('.') || text.Contains('`'))
-            score += 2;
-
+        score += FileExtensionPattern.Matches(text).Count * 3;
+        score += PathPattern.Matches(text).Count * 2;
+        score += BacktickPattern.Matches(text).Count * 2;
+        score += IdentifierShapePattern.Matches(text).Count * 2;
+        score += AtOrHashRefPattern.Matches(text).Count;
+        if (text.Contains('`'))
+            score += 1;
         return score;
     }
 
@@ -722,4 +802,10 @@ public sealed class WelcomeSuggestionService(
     private sealed record WelcomeSuggestionCacheEntry(
         WelcomeSuggestionsResult Result,
         DateTimeOffset ExpiresAt);
+
+    private sealed class PersistedWelcomeSuggestionsPayload
+    {
+        public int SchemaVersion { get; set; }
+        public WelcomeSuggestionsResult? Result { get; set; }
+    }
 }
