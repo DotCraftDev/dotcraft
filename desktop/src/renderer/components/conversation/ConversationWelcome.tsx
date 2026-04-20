@@ -592,7 +592,8 @@ export function ConversationWelcome({
       const { inputParts } = buildComposerInputParts({
         text: trimmed,
         segments,
-        files: capturedFiles
+        files: capturedFiles,
+        images: capturedImages
       })
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
