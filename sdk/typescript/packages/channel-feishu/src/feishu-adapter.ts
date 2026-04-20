@@ -293,14 +293,22 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
     const context = (request.context as Record<string, unknown>) ?? {};
     const target = String(context.channelContext ?? context.groupId ?? "");
     if (tool !== "FeishuSendFileToCurrentChat") {
-      const docxResult = await maybeExecuteFeishuDocxToolCall({
-        toolName: tool,
-        args,
-        channelTarget: target,
-        client: this.getFeishuClient(),
-      });
-      if (docxResult) {
-        return docxResult;
+      try {
+        const docxResult = await maybeExecuteFeishuDocxToolCall({
+          toolName: tool,
+          args,
+          channelTarget: target,
+          client: this.getFeishuClient(),
+        });
+        if (docxResult) {
+          return docxResult;
+        }
+      } catch (error) {
+        return {
+          success: false,
+          errorCode: "AdapterToolCallFailed",
+          errorMessage: errorMessage(error),
+        };
       }
       return {
         success: false,
