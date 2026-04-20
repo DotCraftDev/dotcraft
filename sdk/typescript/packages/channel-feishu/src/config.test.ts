@@ -63,6 +63,16 @@ test("accepts brand=lark", () => {
   assert.doesNotThrow(() => validateFeishuConfig(config));
 });
 
+test("accepts optional docs tool toggle", () => {
+  const config = validConfig();
+  config.feishu.tools = {
+    docs: {
+      enabled: true,
+    },
+  };
+  assert.doesNotThrow(() => validateFeishuConfig(config));
+});
+
 test("throws ConfigValidationError when feishu.brand is invalid", () => {
   const config = validConfig() as unknown as {
     dotcraft: Record<string, unknown>;

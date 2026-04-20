@@ -31,6 +31,11 @@ import {
 } from "./card-builder.js";
 import { createOrUpdateCard, sendReplyCards, sendSingleCard, updateCard } from "./card-sender.js";
 import { createFeishuEventHandlers } from "./event-handler.js";
+import {
+  areFeishuDocxToolsEnabled,
+  getFeishuDocxChannelTools,
+  maybeExecuteFeishuDocxToolCall,
+} from "./feishu-docx-tools.js";
 import type { FeishuCardActionEvent, FeishuConfig, ParsedInboundMessage } from "./feishu-types.js";
 import { FeishuClient } from "./feishu-client.js";
 import { errorMessage, logError, logInfo, logWarn, shortId } from "./logging.js";
@@ -251,6 +256,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
           required: ["filePath"],
         },
       },
+      ...getFeishuDocxChannelTools(areFeishuDocxToolsEnabled(this.loadedConfig)),
     ];
   }
 
@@ -287,6 +293,15 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
     const context = (request.context as Record<string, unknown>) ?? {};
     const target = String(context.channelContext ?? context.groupId ?? "");
     if (tool !== "FeishuSendFileToCurrentChat") {
+      const docxResult = await maybeExecuteFeishuDocxToolCall({
+        toolName: tool,
+        args,
+        channelTarget: target,
+        client: this.getFeishuClient(),
+      });
+      if (docxResult) {
+        return docxResult;
+      }
       return {
         success: false,
         errorCode: "UnsupportedTool",

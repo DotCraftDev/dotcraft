@@ -626,3 +626,178 @@ test("Feishu client classifies history lookup failures with FeishuApiError", asy
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Feishu client creates docx documents and derives share URLs", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          document: {
+            document_id: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+            revision_id: 11,
+            title: "Team Notes",
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await client.createDocxDocument({
+      title: "Team Notes",
+      folderToken: "fldcn123",
+    });
+
+    assert.deepEqual(result, {
+      documentId: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      revisionId: 11,
+      title: "Team Notes",
+      url: "https://feishu.cn/docx/doxABCDEFGHIJKLMNOPQRSTUVWX",
+    });
+    assert.equal(calls.length, 2);
+    assert.match(calls[1]!.url, /\/open-apis\/docx\/v1\/documents$/);
+    const body = JSON.parse(String(calls[1]!.init?.body ?? "{}")) as Record<string, string>;
+    assert.equal(body.title, "Team Notes");
+    assert.equal(body.folder_token, "fldcn123");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client reads docx raw content", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          content: "hello docx",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await client.getDocxRawContent("doxABCDEFGHIJKLMNOPQRSTUVWX");
+    assert.deepEqual(result, {
+      documentId: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      content: "hello docx",
+    });
+    assert.equal(calls.length, 2);
+    assert.match(calls[1]!.url, /\/raw_content$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client appends docx blocks at the root with revision and client token query params", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          document_revision_id: 12,
+          children: [
+            {
+              block_id: "blk_1",
+              block_type: 3,
+            },
+            {
+              block_id: "blk_2",
+              block_type: 2,
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await client.createDocxBlocks("doxABCDEFGHIJKLMNOPQRSTUVWX", "doxABCDEFGHIJKLMNOPQRSTUVWX", {
+      children: [
+        { block_type: 3, heading1: { elements: [{ text_run: { content: "Heading" } }] } },
+        { block_type: 2, text: { elements: [{ text_run: { content: "Paragraph" } }] } },
+      ],
+      documentRevisionId: 9,
+      index: -1,
+      clientToken: "client-token-1",
+    });
+
+    assert.deepEqual(result, {
+      documentId: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      revisionId: 12,
+      blocks: [
+        { blockId: "blk_1", blockType: 3 },
+        { blockId: "blk_2", blockType: 2 },
+      ],
+    });
+    assert.equal(calls.length, 2);
+    assert.match(
+      calls[1]!.url,
+      /\/open-apis\/docx\/v1\/documents\/doxABCDEFGHIJKLMNOPQRSTUVWX\/blocks\/doxABCDEFGHIJKLMNOPQRSTUVWX\/children\?/,
+    );
+    assert.match(calls[1]!.url, /document_revision_id=9/);
+    assert.match(calls[1]!.url, /index=-1/);
+    assert.match(calls[1]!.url, /client_token=client-token-1/);
+    const body = JSON.parse(String(calls[1]!.init?.body ?? "{}")) as Record<string, unknown>;
+    assert.deepEqual(body, {
+      children: [
+        { block_type: 3, heading1: { elements: [{ text_run: { content: "Heading" } }] } },
+        { block_type: 2, text: { elements: [{ text_run: { content: "Paragraph" } }] } },
+      ],
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
