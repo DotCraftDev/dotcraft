@@ -19,10 +19,9 @@ import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
 import { useSkillsStore } from '../stores/skillsStore'
 import type { ThreadSummary } from '../types/thread'
-import type { CustomCommandInfo } from '../hooks/useCustomCommandCatalog'
+import type { InputPart } from '../types/conversation'
 import { resolveWorkspaceConfigChangedPayload } from '../utils/workspaceConfigChanged'
-import { serializeAttachedFileMarkers } from '../utils/attachedFileMarkers'
-import { resolveCustomCommandExecution } from '../utils/customCommandExecution'
+import { buildComposerInputParts } from '../utils/composeInputParts'
 
 // ---------------------------------------------------------------------------
 // Replay a notification payload through the same dispatch logic as App.tsx.
@@ -174,7 +173,7 @@ async function dispatchTurnCompletedWithAutoSend(
   payload: { method: string; params: unknown },
   options: {
     sendRequest: (method: string, params?: unknown) => Promise<unknown>
-    commands?: CustomCommandInfo[]
+    inputParts?: InputPart[]
     workspacePath?: string
   }
 ): Promise<void> {
@@ -192,38 +191,17 @@ async function dispatchTurnCompletedWithAutoSend(
   }
 
   let effectiveThreadId = activeId
-  let effectiveText = pendingBefore.text.trim()
-  const pendingFiles = pendingBefore.files ?? []
+  const pendingInputParts = options.inputParts
+    ?? pendingBefore.inputParts
+    ?? buildComposerInputParts({
+      text: pendingBefore.text.trim(),
+      files: pendingBefore.files ?? []
+    }).inputParts
 
-  if (effectiveText.length > 0) {
-    const commandResult = await resolveCustomCommandExecution({
-      text: effectiveText,
-      threadId: activeId,
-      commands: options.commands ?? [],
-      sendRequest: options.sendRequest
-    })
-
-    if (commandResult.sessionResetThreadSummary) {
-      useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
-    }
-    if (commandResult.sessionResetThreadId) {
-      effectiveThreadId = commandResult.sessionResetThreadId
-      useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
-    }
-    if (commandResult.matchedCustomCommand) {
-      if (!commandResult.shouldSendTurn) {
-        useConversationStore.getState().setPendingMessage(null)
-        return
-      }
-      effectiveText = commandResult.textForTurn.trim()
-    }
-  }
-
-  const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectiveText)
-  if (serializedPendingText.length > 0) {
+  if (pendingInputParts.length > 0) {
     await options.sendRequest('turn/start', {
       threadId: effectiveThreadId,
-      input: [{ type: 'text', text: serializedPendingText }],
+      input: pendingInputParts,
       identity: {
         channelName: 'dotcraft-desktop',
         userId: 'local',
@@ -788,34 +766,16 @@ describe('full turn lifecycle via notification dispatch', () => {
 })
 
 describe('pending message auto-send', () => {
-  const customCommands: CustomCommandInfo[] = [
-    {
-      name: '/code-review',
-      aliases: ['/cr'],
-      description: 'Review files',
-      category: 'custom',
-      requiresAdmin: false
-    }
-  ]
-
-  it('auto-sends queued custom commands with file references after turn completion', async () => {
+  it('auto-sends queued command refs with file references after turn completion', async () => {
     const sendRequest = async (method: string, params?: unknown): Promise<unknown> => {
-      if (method === 'command/execute') {
-        expect(params).toEqual({
-          threadId: 'thread-1',
-          command: '/code-review',
-          arguments: []
-        })
-        return {
-          handled: true,
-          expandedPrompt: 'Expanded review prompt'
-        }
-      }
       if (method === 'turn/start') {
         expect(params).toEqual(
           expect.objectContaining({
             threadId: 'thread-1',
-            input: [{ type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\nExpanded review prompt' }]
+            input: [
+              { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
+              { type: 'commandRef', name: 'code-review', rawText: '/code-review' }
+            ]
           })
         )
       }
@@ -825,6 +785,10 @@ describe('pending message auto-send', () => {
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_pending') } })
     useConversationStore.getState().setPendingMessage({
       text: '/code-review',
+      inputParts: [
+        { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
+        { type: 'commandRef', name: 'code-review', rawText: '/code-review' }
+      ],
       files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
     })
 
@@ -833,13 +797,13 @@ describe('pending message auto-send', () => {
         method: 'turn/completed',
         params: { turn: { ...makeTurnPayload('turn_pending', 'completed'), completedAt: NOW } }
       },
-      { sendRequest, commands: customCommands }
+      { sendRequest }
     )
 
     expect(s().pendingMessage).toBeNull()
   })
 
-  it('auto-sends file-only queued messages without invoking command execution', async () => {
+  it('auto-sends file-only queued messages using structured input parts', async () => {
     const sendRequest = async (method: string, params?: unknown): Promise<unknown> => {
       expect(method).toBe('turn/start')
       expect(params).toEqual(
@@ -862,21 +826,15 @@ describe('pending message auto-send', () => {
         method: 'turn/completed',
         params: { turn: { ...makeTurnPayload('turn_pending_files', 'completed'), completedAt: NOW } }
       },
-      { sendRequest, commands: customCommands }
+      { sendRequest }
     )
 
     expect(s().pendingMessage).toBeNull()
   })
 
-  it('does not send a turn when queued custom command resolves to shouldSendTurn=false', async () => {
+  it('does not send a turn when queued message has no structured input parts', async () => {
     let turnStartCalled = false
     const sendRequest = async (method: string): Promise<unknown> => {
-      if (method === 'command/execute') {
-        return {
-          handled: true,
-          expandedPrompt: null
-        }
-      }
       if (method === 'turn/start') {
         turnStartCalled = true
       }
@@ -885,8 +843,8 @@ describe('pending message auto-send', () => {
 
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_pending_skip') } })
     useConversationStore.getState().setPendingMessage({
-      text: '/code-review',
-      files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
+      text: '',
+      inputParts: []
     })
 
     await dispatchTurnCompletedWithAutoSend(
@@ -894,7 +852,7 @@ describe('pending message auto-send', () => {
         method: 'turn/completed',
         params: { turn: { ...makeTurnPayload('turn_pending_skip', 'completed'), completedAt: NOW } }
       },
-      { sendRequest, commands: customCommands }
+      { sendRequest }
     )
 
     expect(turnStartCalled).toBe(false)

@@ -140,6 +140,13 @@ public sealed class CommandRegistry
     }
 
     /// <summary>
+    /// Tries to resolve a slash-command invocation into a prompt expansion using
+    /// custom command definitions only.
+    /// </summary>
+    public string? TryResolvePromptExpansion(string rawText) =>
+        _customCommandLoader?.TryResolve(rawText)?.ExpandedPrompt;
+
+    /// <summary>
     /// Resolves a command registration by name or alias.
     /// </summary>
     public CommandRegistration? GetRegistration(string command)

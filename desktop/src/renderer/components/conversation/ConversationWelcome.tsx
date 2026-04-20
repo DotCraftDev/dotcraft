@@ -17,6 +17,7 @@ import {
   isImageFile,
   mergeComposerFileAttachments
 } from '../../utils/composerAttachments'
+import { buildComposerInputParts } from '../../utils/composeInputParts'
 import { CommandSearchPopover } from './CommandSearchPopover'
 import { FileSearchPopover } from './FileSearchPopover'
 import { AttachmentStrip } from './AttachmentStrip'
@@ -88,6 +89,8 @@ export function ConversationWelcome({
   const [mentionDismissed, setMentionDismissed] = useState(false)
   const [slashQuery, setSlashQuery] = useState<string | null>(null)
   const [slashDismissed, setSlashDismissed] = useState(false)
+  const [skillQuery, setSkillQuery] = useState<string | null>(null)
+  const [skillDismissed, setSkillDismissed] = useState(false)
   /** Agent/plan before a thread exists; applied when the first thread is created. */
   const [welcomeMode, setWelcomeMode] = useState<ThreadMode>('agent')
   const [modelName, setModelName] = useState<string>('Default')
@@ -121,6 +124,7 @@ export function ConversationWelcome({
   const canUseSkillPicker = capabilities?.skillsManagement === true
   const canUseSlashPicker = canUseCommandPicker || canUseSkillPicker
   const showSlashPopover = slashQuery !== null && !slashDismissed && canUseSlashPicker
+  const showSkillPopover = skillQuery !== null && !skillDismissed && canUseSkillPicker
   const { commands: customCommands, status: customCommandStatus } = useCustomCommandCatalog({
     enabled: canUseCommandPicker,
     locale
@@ -372,6 +376,11 @@ export function ConversationWelcome({
     if (q !== null) setSlashDismissed(false)
   }, [])
 
+  const handleSkillQuery = useCallback((q: string | null): void => {
+    setSkillQuery(q)
+    if (q !== null) setSkillDismissed(false)
+  }, [])
+
   const onSelectFile = useCallback((relativePath: string): void => {
     richRef.current?.insertFileTag(relativePath)
   }, [])
@@ -546,7 +555,9 @@ export function ConversationWelcome({
   )
 
   const sendFromWelcome = useCallback(async (): Promise<void> => {
-    const trimmed = (richRef.current?.getText() ?? '').trim()
+    const text = richRef.current?.getText() ?? ''
+    const segments = richRef.current?.getSegments() ?? []
+    const trimmed = text.trim()
     if (
       (!trimmed && images.length === 0 && files.length === 0) ||
       sendInFlightRef.current ||
@@ -578,9 +589,15 @@ export function ConversationWelcome({
       latestDraftSegmentsRef.current = []
       latestDraftSelectionRef.current = null
       clearWelcomeDraft()
+      const { inputParts } = buildComposerInputParts({
+        text: trimmed,
+        segments,
+        files: capturedFiles
+      })
       useUIStore.getState().setPendingWelcomeTurn({
         threadId: res.thread.id,
         text: trimmed,
+        inputParts,
         images: capturedImages.length > 0 ? capturedImages : undefined,
         files: capturedFiles.length > 0 ? capturedFiles : undefined,
         mode: capturedMode,
@@ -793,6 +810,18 @@ export function ConversationWelcome({
                         setSlashDismissed(true)
                       }}
                     />
+                    <CommandSearchPopover
+                      query={skillQuery ?? ''}
+                      visible={showSkillPopover}
+                      loading={skillsLoading}
+                      commands={[]}
+                      skills={availableSkills}
+                      onSelectCommand={() => {}}
+                      onSelectSkill={onSelectSkill}
+                      onDismiss={() => {
+                        setSkillDismissed(true)
+                      }}
+                    />
                     <FileSearchPopover
                       query={atQuery ?? ''}
                       visible={showMentionPopover}
@@ -806,7 +835,7 @@ export function ConversationWelcome({
                       ref={richRef}
                       chrome="minimal"
                       disabled={busy}
-                      suppressSubmit={showMentionPopover || showSlashPopover || modelLoading}
+                      suppressSubmit={showMentionPopover || showSlashPopover || showSkillPopover || modelLoading}
                       onToggleModeShortcut={toggleWelcomeMode}
                       placeholder={
                         isConnected
@@ -818,6 +847,7 @@ export function ConversationWelcome({
                       }}
                       onAtQuery={handleAtQuery}
                       onSlashQuery={handleSlashQuery}
+                      onSkillQuery={handleSkillQuery}
                       onContentChange={() => {
                         latestDraftTextRef.current = richRef.current?.getText() ?? latestDraftTextRef.current
                         latestDraftSegmentsRef.current =

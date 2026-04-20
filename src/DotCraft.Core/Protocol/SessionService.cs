@@ -344,11 +344,12 @@ public sealed class SessionService(
         IList<AIContent> content,
         SenderContext? sender = null,
         ChatMessage[]? messages = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null)
     {
         // This method returns immediately; execution happens in a background Task.
         // We use a SessionEventChannel to bridge the background task to the caller.
-        var channel = StartTurnAsync(threadId, content, sender, messages, ct);
+        var channel = StartTurnAsync(threadId, content, sender, messages, inputSnapshot, ct);
         return channel.ReadAllAsync(ct);
     }
 
@@ -357,6 +358,7 @@ public sealed class SessionService(
         IList<AIContent> content,
         SenderContext? sender,
         ChatMessage[]? messages,
+        SessionInputSnapshot? inputSnapshot,
         CancellationToken callerCt)
     {
         // Step 1: Validate synchronously before starting the background Task
@@ -402,7 +404,8 @@ public sealed class SessionService(
         var itemSeq = 0;
 
         // Extract plain text from content parts for display and persistence
-        var text = string.Concat(content.OfType<TextContent>().Select(t => t.Text));
+        var text = inputSnapshot?.DisplayText
+            ?? string.Concat(content.OfType<TextContent>().Select(t => t.Text));
         var images = ExtractUserMessageImages(content);
 
         var userItem = new SessionItem
@@ -416,6 +419,8 @@ public sealed class SessionService(
             Payload = new UserMessagePayload
             {
                 Text = text,
+                NativeInputParts = inputSnapshot?.NativeInputParts,
+                MaterializedInputParts = inputSnapshot?.MaterializedInputParts,
                 SenderId = sender?.SenderId,
                 SenderName = sender?.SenderName,
                 SenderRole = sender?.SenderRole,

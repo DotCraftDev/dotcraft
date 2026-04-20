@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ComposerFileAttachment, ImageAttachment, ThreadMode } from '../types/conversation'
+import type { ComposerFileAttachment, ImageAttachment, InputPart, ThreadMode } from '../types/conversation'
 import type { ComposerDraftSegment } from '../types/composerDraft'
 import { useThreadStore } from './threadStore'
 
@@ -70,6 +70,7 @@ export interface UIState {
   pendingWelcomeTurn: {
     threadId: string
     text: string
+    inputParts?: InputPart[]
     images?: ImageAttachment[]
     files?: ComposerFileAttachment[]
     /** Agent/plan chosen on Welcome before thread exists; applied after thread/read. */
@@ -113,6 +114,7 @@ interface UIStore extends UIState {
     payload: {
       threadId: string
       text: string
+      inputParts?: InputPart[]
       images?: ImageAttachment[]
       files?: ComposerFileAttachment[]
       mode?: ThreadMode
@@ -124,6 +126,7 @@ interface UIStore extends UIState {
     threadId: string
   ): {
     text: string
+    inputParts?: InputPart[]
     images?: ImageAttachment[]
     files?: ComposerFileAttachment[]
     mode?: ThreadMode
@@ -355,9 +358,10 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         clearTimeout(timer)
       }
       set({ pendingWelcomeTurn: null, _pendingWelcomeTimer: null })
-      const { text, images, files, mode, model } = p
+      const { text, inputParts, images, files, mode, model } = p
       return {
         text,
+        ...(inputParts !== undefined ? { inputParts } : {}),
         ...(images !== undefined ? { images } : {}),
         ...(files !== undefined ? { files } : {}),
         ...(mode !== undefined ? { mode } : {}),

@@ -1,3 +1,4 @@
+import type { InputPart } from '../../types/conversation'
 import { serializeSkillMarker } from './richInputSerialization'
 import { parseLeadingAttachedFileMarkers } from '../../utils/attachedFileMarkers'
 
@@ -5,12 +6,13 @@ export type UserMessageSegment =
   | { type: 'text'; value: string }
   | { type: 'attachedFile'; path: string; fileName: string }
   | { type: 'fileRef'; relativePath: string }
+  | { type: 'commandRef'; commandText: string }
   | { type: 'skillRef'; skillName: string }
 
-const SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
+const LEGACY_SKILL_MARKER_RE = /\[\[Use Skill:\s*([^\]]+?)\]\]/g
 
 interface Match {
-  type: 'file' | 'skill'
+  type: 'file' | 'command' | 'skill'
   start: number
   end: number
   value: string
@@ -22,34 +24,72 @@ function findNextFileRef(text: string, from: number): Match | null {
     if (text[i] === '@' && (i === 0 || /\s/.test(text[i - 1]!))) {
       let j = i + 1
       while (j < text.length && !/\s/.test(text[j]!)) {
-        j++
+        j += 1
       }
       const relativePath = text.slice(i + 1, j)
       if (relativePath.length > 0) {
         return { type: 'file', start: i, end: j, value: relativePath }
       }
     }
-    i++
+    i += 1
+  }
+  return null
+}
+
+function findNextCommandRef(text: string, from: number): Match | null {
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '/' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      let j = i + 1
+      while (j < text.length && !/\s/.test(text[j]!)) {
+        j += 1
+      }
+      const token = text.slice(i, j)
+      if (/^\/[a-z0-9][a-z0-9-]*$/i.test(token)) {
+        return { type: 'command', start: i, end: j, value: token }
+      }
+    }
+    i += 1
   }
   return null
 }
 
 function findNextSkillRef(text: string, from: number): Match | null {
-  SKILL_MARKER_RE.lastIndex = from
-  const match = SKILL_MARKER_RE.exec(text)
-  if (!match) return null
-  const skillName = match[1]?.trim() ?? ''
-  if (!skillName) return null
-  return {
-    type: 'skill',
-    start: match.index,
-    end: match.index + match[0].length,
-    value: skillName
+  LEGACY_SKILL_MARKER_RE.lastIndex = from
+  const legacyMatch = LEGACY_SKILL_MARKER_RE.exec(text)
+  if (legacyMatch) {
+    const skillName = legacyMatch[1]?.trim() ?? ''
+    if (skillName.length > 0) {
+      return {
+        type: 'skill',
+        start: legacyMatch.index,
+        end: legacyMatch.index + legacyMatch[0].length,
+        value: skillName
+      }
+    }
   }
+
+  let i = from
+  while (i < text.length) {
+    if (text[i] === '$' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      let j = i + 1
+      while (j < text.length && /[a-z0-9-]/i.test(text[j]!)) {
+        j += 1
+      }
+      const skillName = text.slice(i + 1, j)
+      if (skillName.length > 0) {
+        return { type: 'skill', start: i, end: j, value: skillName }
+      }
+    }
+    i += 1
+  }
+
+  return null
 }
 
 /**
- * Splits user message text into plain text, @fileRef segments and skill marker segments.
+ * Splits user message text into plain text, @fileRef segments, slash-command
+ * fallback segments, and skill marker segments.
  */
 export function parseUserMessageSegments(text: string): UserMessageSegment[] {
   const out: UserMessageSegment[] = []
@@ -66,17 +106,9 @@ export function parseUserMessageSegments(text: string): UserMessageSegment[] {
   let cursor = 0
 
   while (cursor < source.length) {
-    const nextFile = findNextFileRef(source, cursor)
-    const nextSkill = findNextSkillRef(source, cursor)
-
-    const next =
-      nextFile == null
-        ? nextSkill
-        : nextSkill == null
-          ? nextFile
-          : nextFile.start <= nextSkill.start
-            ? nextFile
-            : nextSkill
+    const next = [findNextFileRef(source, cursor), findNextCommandRef(source, cursor), findNextSkillRef(source, cursor)]
+      .filter((candidate): candidate is Match => candidate != null)
+      .sort((a, b) => a.start - b.start)[0]
 
     if (!next) {
       if (source.length > cursor) {
@@ -91,6 +123,8 @@ export function parseUserMessageSegments(text: string): UserMessageSegment[] {
 
     if (next.type === 'file') {
       out.push({ type: 'fileRef', relativePath: next.value })
+    } else if (next.type === 'command') {
+      out.push({ type: 'commandRef', commandText: next.value })
     } else {
       out.push({ type: 'skillRef', skillName: next.value })
     }
@@ -98,6 +132,42 @@ export function parseUserMessageSegments(text: string): UserMessageSegment[] {
     cursor = next.end
   }
 
+  return out
+}
+
+export function segmentsFromNativeInputParts(parts: InputPart[]): UserMessageSegment[] {
+  const out: UserMessageSegment[] = []
+  for (const part of parts) {
+    switch (part.type) {
+      case 'text': {
+        const { files, bodyText } = parseLeadingAttachedFileMarkers(part.text)
+        for (const file of files) {
+          out.push({ type: 'attachedFile', path: file.path, fileName: file.fileName })
+        }
+        if (bodyText.length > 0) {
+          out.push(...parseUserMessageSegments(bodyText))
+        }
+        break
+      }
+      case 'fileRef':
+        out.push({ type: 'fileRef', relativePath: part.displayPath ?? part.path })
+        break
+      case 'commandRef':
+        out.push({
+          type: 'commandRef',
+          commandText: part.rawText
+            ?? (part.argsText != null && part.argsText.trim() !== ''
+              ? `/${part.name} ${part.argsText}`
+              : `/${part.name}`)
+        })
+        break
+      case 'skillRef':
+        out.push({ type: 'skillRef', skillName: part.name })
+        break
+      default:
+        break
+    }
+  }
   return out
 }
 

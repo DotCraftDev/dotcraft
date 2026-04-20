@@ -831,7 +831,9 @@ public sealed class AppServerRequestHandler(
         if (p.Input.Count == 0)
             throw AppServerErrors.InvalidParams("'input' must contain at least one part.");
 
-        var content = await ResolveInputPartsAsync(p.Input, ct);
+        var materializedInput = new InputMaterializationService(_commandRegistry, skillsLoader)
+            .Materialize(p.Input);
+        var content = await ResolveInputPartsAsync(materializedInput.MaterializedInputParts.ToList(), ct);
 
         // Set ChannelSessionScope so that SessionService.ResolveApprovalSource returns the correct
         // channel name for approval routing, and CronTools captures the right delivery target.
@@ -890,7 +892,18 @@ public sealed class AppServerRequestHandler(
         // and per-thread Configuration agent/MCP is hydrated (GetThreadAsync alone does not rebuild agents).
         await sessionService.EnsureThreadLoadedAsync(p.ThreadId, ct);
 
-        var events = sessionService.SubmitInputAsync(p.ThreadId, content, p.Sender, messages, ct);
+        var events = sessionService.SubmitInputAsync(
+            p.ThreadId,
+            content,
+            p.Sender,
+            messages,
+            ct,
+            new SessionInputSnapshot
+            {
+                NativeInputParts = materializedInput.NativeInputParts,
+                MaterializedInputParts = materializedInput.MaterializedInputParts,
+                DisplayText = materializedInput.DisplayText
+            });
 
         // Spec §6.10 (at-most-once delivery guarantee): when the connection already holds an active
         // thread/subscribe subscription for this thread, the subscription dispatcher is the sole

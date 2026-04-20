@@ -645,7 +645,8 @@ internal sealed class FakeSessionService : ISessionService
 
     public IAsyncEnumerable<SessionEvent> SubmitInputAsync(
         string threadId, IList<AIContent> content, SenderContext? sender = null,
-        ChatMessage[]? messages = null, CancellationToken ct = default) =>
+        ChatMessage[]? messages = null, CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null) =>
         throw new NotSupportedException("Use FakeSessionService for lifecycle tests only.");
 
     public IAsyncEnumerable<SessionEvent> SubscribeThreadAsync(

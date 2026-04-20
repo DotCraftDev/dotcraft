@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol;
@@ -202,7 +203,7 @@ public sealed record SessionWireEvent
 public sealed record SessionWireInputPart
 {
     /// <summary>
-    /// Discriminator. One of: "text", "image", "localImage".
+    /// Discriminator. One of: "text", "commandRef", "skillRef", "fileRef", "image", "localImage".
     /// </summary>
     public string Type { get; init; } = "text";
 
@@ -212,14 +213,36 @@ public sealed record SessionWireInputPart
     public string? Text { get; init; }
 
     /// <summary>
+    /// Native command or skill name. Present when <see cref="Type"/> is "commandRef" or "skillRef".
+    /// </summary>
+    public string? Name { get; init; }
+
+    /// <summary>
+    /// Optional command arguments text. Present when <see cref="Type"/> is "commandRef".
+    /// </summary>
+    public string? ArgsText { get; init; }
+
+    /// <summary>
+    /// Optional raw command invocation text (for example "/review src/foo.cs").
+    /// Present when <see cref="Type"/> is "commandRef".
+    /// </summary>
+    public string? RawText { get; init; }
+
+    /// <summary>
+    /// Canonical file-reference path. Present when <see cref="Type"/> is "fileRef".
+    /// Also used for <see cref="Type"/> "localImage".
+    /// </summary>
+    public string? Path { get; init; }
+
+    /// <summary>
+    /// Optional UI-facing file-reference path. Present when <see cref="Type"/> is "fileRef".
+    /// </summary>
+    public string? DisplayPath { get; init; }
+
+    /// <summary>
     /// Remote image URL. Present when <see cref="Type"/> is "image".
     /// </summary>
     public string? Url { get; init; }
-
-    /// <summary>
-    /// Local image file path. Present when <see cref="Type"/> is "localImage".
-    /// </summary>
-    public string? Path { get; init; }
 
     /// <summary>
     /// Optional local image MIME type hint. Present when <see cref="Type"/> is "localImage".
@@ -405,11 +428,39 @@ public static class SessionWireMapper
         part.Type switch
         {
             "text" => new TextContent(ExpandAttachedFileMarkersForModel(part.Text ?? string.Empty)),
+            "commandRef" => new TextContent(BuildCommandRefText(part)),
+            "skillRef" => new TextContent(BuildSkillRefText(part)),
+            "fileRef" => new TextContent(BuildFileRefText(part)),
             // image/localImage: AppServer must resolve to DataContent(bytes, mediaType) before dispatch
             "image" when part.Url is { } url => new TextContent($"[image:{url}]"),
             "localImage" when part.Path is { } path => new TextContent($"[localImage:{path}]"),
             _ => new TextContent(part.Text ?? string.Empty)
         };
+
+    /// <summary>
+    /// Builds the compatibility/display text used for user-message previews and
+    /// fallback rendering from a sequence of native input parts.
+    /// </summary>
+    public static string BuildDisplayText(IEnumerable<SessionWireInputPart>? parts)
+    {
+        if (parts == null)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        foreach (var part in parts)
+        {
+            sb.Append(part.Type switch
+            {
+                "text" => part.Text ?? string.Empty,
+                "commandRef" => BuildCommandRefText(part),
+                "skillRef" => $"${part.Name?.TrimStart('/', '$') ?? string.Empty}",
+                "fileRef" => $"@{(part.DisplayPath ?? part.Path ?? string.Empty)}",
+                _ => string.Empty
+            });
+        }
+
+        return sb.ToString();
+    }
 
     private static string ExpandAttachedFileMarkersForModel(string text)
     {
@@ -499,4 +550,31 @@ public static class SessionWireMapper
         SystemEventPayload => "systemEvent",
         _ => null
         };
+
+    private static string BuildCommandRefText(SessionWireInputPart part)
+    {
+        if (!string.IsNullOrWhiteSpace(part.RawText))
+            return part.RawText.Trim();
+
+        var name = part.Name?.Trim().TrimStart('/', '$') ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+            return string.Empty;
+
+        var args = part.ArgsText?.Trim();
+        return string.IsNullOrWhiteSpace(args)
+            ? $"/{name}"
+            : $"/{name} {args}";
+    }
+
+    private static string BuildSkillRefText(SessionWireInputPart part)
+    {
+        var name = part.Name?.Trim().TrimStart('/') ?? string.Empty;
+        return string.IsNullOrWhiteSpace(name) ? string.Empty : $"${name}";
+    }
+
+    private static string BuildFileRefText(SessionWireInputPart part)
+    {
+        var path = (part.DisplayPath ?? part.Path ?? string.Empty).Trim();
+        return string.IsNullOrWhiteSpace(path) ? string.Empty : $"@{path}";
+    }
 }

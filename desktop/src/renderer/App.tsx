@@ -7,7 +7,6 @@ import { initConnectionStore, useConnectionStore } from './stores/connectionStor
 import { useThreadStore } from './stores/threadStore'
 import { selectStreamingPlanItemId, useConversationStore } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
-import { useCustomCommandCatalog } from './hooks/useCustomCommandCatalog'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
 import { AutomationsView } from './components/automations/AutomationsView'
@@ -33,13 +32,11 @@ import { ChannelsView } from './components/channels/ChannelsView'
 import { addJobResultToast, addToast } from './stores/toastStore'
 import type { SessionIdentity, Thread, ThreadSummary } from './types/thread'
 import { wireTurnToConversationTurn } from './types/conversation'
-import { serializeAttachedFileMarkers } from './utils/attachedFileMarkers'
 import type { ConversationItem, ConversationTurn } from './types/conversation'
-import type { InputPart } from './types/conversation'
 import type { SubAgentEntry } from './types/toolCall'
 import { applyTheme, resolveTheme } from './utils/theme'
 import { ensureVisibleChannelsSeeded } from './utils/visibleChannelsDefaults'
-import { resolveCustomCommandExecution } from './utils/customCommandExecution'
+import { buildComposerInputParts } from './utils/composeInputParts'
 import { getFallbackThreadName } from './utils/threadFallbackName'
 import {
   resolveWorkspaceConfigChangedPayload,
@@ -102,13 +99,6 @@ export function App(): JSX.Element {
   const { status, errorType, errorMessage } = useConnectionStore()
   const isExpectedRestart = useConnectionStore((s) => s.isExpectedRestart)
   const capabilities = useConnectionStore((s) => s.capabilities)
-  const canUseCommandExecution = capabilities?.commandManagement === true
-  const { commands: customCommands } = useCustomCommandCatalog({
-    enabled: canUseCommandExecution,
-    locale
-  })
-  const customCommandsRef = useRef(customCommands)
-  customCommandsRef.current = customCommands
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
   const activeMainView = useUIStore((s) => s.activeMainView)
   const {
@@ -435,36 +425,15 @@ export function App(): JSX.Element {
               if (activeId) {
                 const path = workspacePathRef.current
                 void (async () => {
-                  let effectiveThreadId = activeId
-                  let effectiveText = pending.text.trim()
-                  const pendingFiles = pending.files ?? []
-                  if (effectiveText.length > 0) {
-                    const commandResult = await resolveCustomCommandExecution({
-                      text: effectiveText,
-                      threadId: activeId,
-                      commands: customCommandsRef.current,
-                      sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
-                    })
-                    if (commandResult.message) {
-                      addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
-                    }
-                    if (commandResult.sessionResetThreadSummary) {
-                      useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
-                    }
-                    if (commandResult.sessionResetThreadId) {
-                      effectiveThreadId = commandResult.sessionResetThreadId
-                      useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
-                    }
-                    if (commandResult.matchedCustomCommand) {
-                      if (!commandResult.shouldSendTurn) return
-                      effectiveText = commandResult.textForTurn.trim()
-                    }
-                  }
-                  const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectiveText)
-                  if (serializedPendingText.length === 0) return
+                  const pendingInputParts = pending.inputParts
+                    ?? buildComposerInputParts({
+                      text: pending.text.trim(),
+                      files: pending.files ?? []
+                    }).inputParts
+                  if (pendingInputParts.length === 0) return
                   await window.api.appServer.sendRequest('turn/start', {
-                    threadId: effectiveThreadId,
-                    input: [{ type: 'text', text: serializedPendingText }],
+                    threadId: activeId,
+                    input: pendingInputParts,
                     identity: {
                       channelName: 'dotcraft-desktop',
                       userId: 'local',
@@ -965,10 +934,14 @@ export function App(): JSX.Element {
             const threadId = requestedId
             const path = workspacePathRef.current
             const pendingText = pendingWelcome.text.trim()
+            const pendingInputParts = pendingWelcome.inputParts
+              ?? buildComposerInputParts({
+                text: pendingText,
+                files: pendingWelcome.files ?? [],
+                images: pendingWelcome.images ?? []
+              }).inputParts
             const pendingImages = pendingWelcome.images
             const pendingFiles = pendingWelcome.files ?? []
-            let effectiveThreadId = threadId
-            let effectivePendingText = pendingText
             const welcomeMode = pendingWelcome.mode ?? 'agent'
             const rawWelcomeModel =
               typeof pendingWelcome.model === 'string' ? pendingWelcome.model.trim() : ''
@@ -1004,48 +977,18 @@ export function App(): JSX.Element {
                 console.error('thread/mode/set (welcome) failed:', modeErr)
               }
             }
-            if (pendingText.length > 0) {
-              try {
-                const commandResult = await resolveCustomCommandExecution({
-                  text: pendingText,
-                  threadId,
-                  commands: customCommandsRef.current,
-                  sendRequest: (method, params) => window.api.appServer.sendRequest(method, params)
-                })
-                if (commandResult.message) {
-                  addToast(commandResult.message, 'info', undefined, commandResult.isMarkdown)
-                }
-                if (commandResult.sessionResetThreadSummary) {
-                  useThreadStore.getState().addThread(commandResult.sessionResetThreadSummary)
-                }
-                if (commandResult.sessionResetThreadId) {
-                  effectiveThreadId = commandResult.sessionResetThreadId
-                  useThreadStore.getState().setActiveThreadId(commandResult.sessionResetThreadId)
-                }
-                if (commandResult.matchedCustomCommand) {
-                  if (!commandResult.shouldSendTurn) {
-                    return
-                  }
-                  effectivePendingText = commandResult.textForTurn.trim()
-                }
-              } catch (commandErr: unknown) {
-                console.error('Welcome custom command execution failed:', commandErr)
-                return
-              }
-            }
-            const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === effectiveThreadId)
+            const threadEntry = useThreadStore.getState().threadList.find((t) => t.id === threadId)
             if (!threadEntry?.displayName) {
               const autoName = getFallbackThreadName({
-                visibleText: effectivePendingText,
+                visibleText: pendingText,
                 imagesCount: pendingImages?.length ?? 0,
                 filesCount: pendingFiles.length,
                 fallbackThreadName: translate(localeRef.current, 'toast.imageMessage'),
                 fileFallbackThreadName: translate(localeRef.current, 'toast.fileReferenceMessage'),
                 attachmentFallbackThreadName: translate(localeRef.current, 'toast.attachmentMessage')
               })
-              useThreadStore.getState().renameThread(effectiveThreadId, autoName)
+              useThreadStore.getState().renameThread(threadId, autoName)
             }
-            const serializedPendingText = serializeAttachedFileMarkers(pendingFiles, effectivePendingText)
             const optimisticItemId = `local-${Date.now()}`
             const optimisticTurnId = `local-turn-${Date.now()}`
             const optimisticNow = new Date().toISOString()
@@ -1053,7 +996,8 @@ export function App(): JSX.Element {
               id: optimisticItemId,
               type: 'userMessage',
               status: 'completed',
-              text: serializedPendingText,
+              text: pendingText,
+              nativeInputParts: pendingInputParts.filter((part) => part.type !== 'localImage' && part.type !== 'image'),
               imageDataUrls: pendingImages?.map((i) => i.dataUrl),
               images: pendingImages?.map((i) => ({
                 path: i.tempPath,
@@ -1065,32 +1009,20 @@ export function App(): JSX.Element {
             }
             const optimisticTurn: ConversationTurn = {
               id: optimisticTurnId,
-              threadId: effectiveThreadId,
+              threadId,
               status: 'running',
               items: [userItem],
               startedAt: optimisticNow
             }
             useConversationStore.getState().addOptimisticTurn(optimisticTurn)
 
-            const inputParts: InputPart[] = []
-            if (serializedPendingText.length > 0) {
-              inputParts.push({ type: 'text', text: serializedPendingText })
-            }
-            for (const img of pendingImages ?? []) {
-              inputParts.push({
-                type: 'localImage',
-                path: img.tempPath,
-                mimeType: img.mimeType,
-                fileName: img.fileName
-              })
-            }
-            if (inputParts.length === 0) {
+            if (pendingInputParts.length === 0) {
               useConversationStore.getState().removeOptimisticTurn(optimisticTurnId)
             } else {
               void window.api.appServer
                 .sendRequest('turn/start', {
-                  threadId: effectiveThreadId,
-                  input: inputParts,
+                  threadId,
+                  input: pendingInputParts,
                   identity: {
                     channelName: 'dotcraft-desktop',
                     userId: 'local',

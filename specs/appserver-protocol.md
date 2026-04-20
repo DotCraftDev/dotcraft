@@ -775,9 +775,21 @@ The response is returned **immediately** with the initial Turn object (status `"
 
 `InputPart` is a tagged union:
 
-- `{ "type": "text", "text": "..." }` — plain text input.
+- `{ "type": "text", "text": "..." }` — plain text input. `text` parts carry only literal user text; clients should not encode command, skill, or file-reference tags into `text` when a structured tag part exists.
+- `{ "type": "commandRef", "name": "code-review", "argsText": "src/foo.cs", "rawText": "/code-review src/foo.cs" }` — native custom-command reference. The server materializes this reference before agent execution and persists both the native reference and the materialized prompt snapshot.
+- `{ "type": "skillRef", "name": "browser" }` — native skill reference. The server materializes this reference into model-visible skill context while preserving the original `$skill` form for history rendering.
+- `{ "type": "fileRef", "path": "src/foo.cs", "displayPath": "src/foo.cs" }` — native file reference. `path` is the canonical referenced path; `displayPath` is an optional UI-facing relative path when the server and client canonical forms differ.
 - `{ "type": "image", "url": "https://..." }` — remote image URL.
 - `{ "type": "localImage", "path": "/tmp/screenshot.png", "mimeType": "image/png", "fileName": "screenshot.png" }` — local image file path with optional UI metadata.
+
+Before starting the agent, the server MUST normalize the incoming `InputPart[]`, persist a `UserMessage` item whose payload captures both the native input parts and the materialized input parts, and only then convert the materialized parts into the `AIContent[]` passed to Session Core execution.
+
+Tag semantics:
+
+- `/command` denotes a custom command reference and is transmitted as `commandRef`.
+- `$skill` denotes a skill reference and is transmitted as `skillRef`.
+- `@path` denotes a file reference and is transmitted as `fileRef`.
+- If a UI presents skills inside a slash-command picker, selecting a skill still produces a `skillRef`, not a `commandRef`.
 
 `localImage` optional metadata fields:
 
@@ -1070,7 +1082,7 @@ The canonical item payload schemas are defined in [Session Core, Section 4.2](se
 
 | `item.type` | Wire-specific notes |
 |-------------|---------------------|
-| `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. |
+| `userMessage` | Payload shape matches Session Core; property names are camelCase and nullable fields are omitted when absent. `text` is a compatibility/display field derived from the native input parts, not the sole source of truth. When present, `nativeInputParts` is authoritative for history rendering and `materializedInputParts` captures the exact snapshot sent to the model. |
 | `agentMessage` | Text deltas stream through `item/agentMessage/delta`; snapshots still use the canonical payload schema. |
 | `reasoningContent` | Reasoning deltas stream through `item/reasoning/delta`; snapshots still use the canonical payload schema. |
 | `toolCall` | Tool invocation payload uses camelCase fields such as `toolName`, `arguments`, and `callId`. When argument construction is streamed, clients receive `item/toolCall/argumentsDelta` between `item/started` and `item/completed`. |

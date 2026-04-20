@@ -1,15 +1,16 @@
 import type { ComposerFileAttachment, ImageAttachment } from '../types/conversation'
 import type { ConversationItem, ConversationTurn } from '../types/conversation'
-import type { InputPart } from '../types/conversation'
+import type { ComposerDraftSegment } from '../types/composerDraft'
 import { useConversationStore } from '../stores/conversationStore'
 import { useThreadStore } from '../stores/threadStore'
-import { serializeAttachedFileMarkers } from './attachedFileMarkers'
+import { buildComposerInputParts } from './composeInputParts'
 import { getFallbackThreadName } from './threadFallbackName'
 
 interface StartTurnParams {
   threadId: string
   workspacePath: string
   text: string
+  segments?: ComposerDraftSegment[]
   images?: ImageAttachment[]
   files?: ComposerFileAttachment[]
   fallbackThreadName: string
@@ -27,6 +28,7 @@ export async function startTurnWithOptimisticUI({
   threadId,
   workspacePath,
   text,
+  segments,
   images = [],
   files = [],
   fallbackThreadName,
@@ -35,20 +37,7 @@ export async function startTurnWithOptimisticUI({
   includeUserPreview = true,
   renameThreadFromText = true
 }: StartTurnParams): Promise<boolean> {
-  const visibleText = text.trim()
-  const serializedText = serializeAttachedFileMarkers(files, visibleText)
-  const inputParts: InputPart[] = []
-  if (serializedText.length > 0) {
-    inputParts.push({ type: 'text', text: serializedText })
-  }
-  for (const img of images) {
-    inputParts.push({
-      type: 'localImage',
-      path: img.tempPath,
-      mimeType: img.mimeType,
-      fileName: img.fileName
-    })
-  }
+  const { inputParts, visibleText } = buildComposerInputParts({ text, segments, files, images })
   if (inputParts.length === 0) {
     return false
   }
@@ -75,7 +64,8 @@ export async function startTurnWithOptimisticUI({
       id: `local-${Date.now()}`,
       type: 'userMessage',
       status: 'completed',
-      text: serializedText,
+      text: visibleText,
+      nativeInputParts: inputParts.filter((part) => part.type !== 'localImage' && part.type !== 'image'),
       imageDataUrls: images.map((i) => i.dataUrl),
       images: images.map((i) => ({
         path: i.tempPath,

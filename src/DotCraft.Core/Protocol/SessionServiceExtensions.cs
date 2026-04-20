@@ -22,5 +22,5 @@ public static class SessionServiceExtensions
         => service.SubmitInputAsync(
             threadId,
             [new TextContent(text)],
-            sender, messages, ct);
+            sender, messages, ct: ct);
 }

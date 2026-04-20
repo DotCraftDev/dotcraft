@@ -112,7 +112,8 @@ public interface ISessionService
         IList<AIContent> content,
         SenderContext? sender = null,
         ChatMessage[]? messages = null,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        SessionInputSnapshot? inputSnapshot = null);
 
     /// <summary>
     /// Resolves a pending approval request within a WaitingApproval Turn.
