@@ -137,13 +137,14 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
       }}
     >
       {/* ── Tab bar ── */}
+      {/* No borderBottom here — the unified header line is painted at the
+          ThreePanel level so it stays continuous across the DragHandle. */}
       <div
         style={{
           display: 'flex',
           alignItems: 'stretch',
           height: 'var(--chrome-header-height)',
           boxSizing: 'border-box',
-          borderBottom: '1px solid var(--border-default)',
           flexShrink: 0,
           paddingLeft: '4px',
           overflowX: 'auto',
@@ -362,8 +363,19 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         </button>
       </div>
 
-      {/* ── Panel body ── */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* ── Panel body ──
+          The 1px inset shadow on the left draws the vertical arm of the
+          Codex-style T divider, starting exactly below the overlay header
+          line. Using inset shadow (not borderLeft) avoids a 1px layout shift. */}
+      <div
+        style={{
+          flex: 1,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: 'inset 1px 0 0 0 var(--border-default)'
+        }}
+      >
         {activeDetailTab.kind === 'system' && activeDetailTab.id === 'changes' && (
           <ChangesTab workspacePath={workspacePath} />
         )}

@@ -84,9 +84,6 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
           alignItems: 'center',
           gap: '8px',
           padding: '10px 16px',
-          borderBottom: detailPanelPreferredVisible
-            ? '1px solid var(--border-default)'
-            : 'none',
           flexShrink: 0,
           height: 'var(--chrome-header-height)',
           boxSizing: 'border-box'

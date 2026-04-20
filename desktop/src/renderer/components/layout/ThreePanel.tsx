@@ -56,6 +56,7 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
   return (
     <div
       style={{
+        position: 'relative',
         display: 'flex',
         flexDirection: 'row',
         height: '100%',
@@ -101,9 +102,10 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
       {effectiveDetailPanelVisible && <DragHandle onDrag={handleDetailDrag} />}
 
       {/* Detail panel — same background as conversation so it reads as an
-          embedded extension. A 1px left border in the same token as the
-          header bottom line visually forms a continuous "L" divider and
-          marks the boundary with the conversation column. */}
+          embedded extension. The T-shape divider is composed of:
+          (a) a single overlay horizontal line painted at the parent level, and
+          (b) an inset vertical line on the panel body (below the tab bar).
+          The outer container itself carries no border/shadow. */}
       <div
         style={{
           width: effectiveDetailPanelVisible ? `${detailPanelWidth}px` : '0px',
@@ -112,15 +114,32 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
           overflow: 'hidden',
           transition: 'width 200ms ease-out, min-width 200ms ease-out',
           backgroundColor: 'var(--bg-primary)',
-          boxShadow: effectiveDetailPanelVisible
-            ? '-1px 0 0 0 var(--border-default)'
-            : 'none',
           display: 'flex',
           flexDirection: 'column'
         }}
       >
         {effectiveDetailPanelVisible && detail}
       </div>
+
+      {/* Unified header bottom line — overlays the full window width exactly
+          at the bottom of the header row so the line is continuous across
+          the conversation column, the 4px DragHandle, and the detail panel
+          tab bar. This is the horizontal arm of the Codex-style T divider. */}
+      {effectiveDetailPanelVisible && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 'calc(var(--chrome-header-height) - 1px)',
+            left: 0,
+            right: 0,
+            height: '1px',
+            background: 'var(--border-default)',
+            pointerEvents: 'none',
+            zIndex: 3
+          }}
+        />
+      )}
     </div>
   )
 }
