@@ -209,7 +209,7 @@ public class SubAgentProfileConfigTests
         var codex = profiles["codex-cli"];
         Assert.Equal("cli-oneshot", codex.Runtime);
         Assert.Equal("codex", codex.Bin);
-        Assert.Equal("stdin", codex.InputMode);
+        Assert.Equal("arg", codex.InputMode);
         Assert.True(codex.ReadOutputFile);
         Assert.Equal("--output-last-message {path}", codex.OutputFileArgTemplate);
 

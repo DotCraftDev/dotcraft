@@ -247,7 +247,7 @@ public sealed class SubAgentProfileRegistry
                     "--skip-git-repo-check"
                 ],
                 WorkingDirectoryMode = "workspace",
-                InputMode = "stdin",
+                InputMode = "arg",
                 OutputFormat = "text",
                 OutputFileArgTemplate = "--output-last-message {path}",
                 ReadOutputFile = true,

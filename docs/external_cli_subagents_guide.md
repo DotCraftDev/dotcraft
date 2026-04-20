@@ -68,7 +68,9 @@ DotCraft 内置参数：`--print --output-format json --mode ask --trust --appro
 
 厂商文档：[Codex CLI](https://github.com/openai/codex)、[`codex exec` reference](https://github.com/openai/codex/blob/main/docs/cli.md#codex-exec)。
 
-DotCraft 内置参数：`exec --skip-git-repo-check`。返回结果默认走 `--output-last-message {path}` 输出文件契约，再由 DotCraft 读取最终文本。
+DotCraft 内置调用为：`codex exec --skip-git-repo-check --output-last-message {path} "<task>"`（task 作为 positional prompt）。返回结果默认走 `--output-last-message {path}` 输出文件契约，再由 DotCraft 读取最终文本。
+
+鉴权方面，DotCraft 会自动向子进程透传 `CODEX_API_KEY` 与 `OPENAI_API_KEY`。如果你使用 `codex login`，其登录态也可通过 `HOME`/`USERPROFILE` 下的 `~/.codex` 目录被复用。
 
 ## 在你的机器上检查 Profile
 

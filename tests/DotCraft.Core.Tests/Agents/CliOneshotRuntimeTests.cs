@@ -106,6 +106,28 @@ public sealed class CliOneshotRuntimeTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_DefaultEnvironment_CopiesCodexApiKey()
+    {
+        const string key = "CODEX_API_KEY";
+        var previous = Environment.GetEnvironmentVariable(key);
+        Environment.SetEnvironmentVariable(key, "codex-test-key");
+        try
+        {
+            var profile = CreateProfile(CreateCodexApiKeyEchoScript());
+            profile.InputMode = "arg";
+
+            var result = await RunProfileAsync(profile, "ignored");
+
+            Assert.False(result.IsError);
+            Assert.Contains("codex_api_key=codex-test-key", result.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(key, previous);
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_JsonOutput_ExtractsConfiguredField()
     {
         var profile = CreateProfile(CreateJsonOutputScript());
@@ -343,6 +365,15 @@ public sealed class CliOneshotRuntimeTests : IDisposable
             """,
             unix: """
             printf 'env=%s\n' "$DOTCRAFT_TEST_TASK"
+            """);
+
+    private string CreateCodexApiKeyEchoScript()
+        => CreateScript(
+            windows: """
+            Write-Output ("codex_api_key=" + $env:CODEX_API_KEY)
+            """,
+            unix: """
+            printf 'codex_api_key=%s\n' "$CODEX_API_KEY"
             """);
 
     private string CreateStdinEofScript()

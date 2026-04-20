@@ -68,7 +68,9 @@ DotCraft ships `cursor-cli` with `--print --output-format json --mode ask --trus
 
 Vendor docs: [Codex CLI](https://github.com/openai/codex), [`codex exec` reference](https://github.com/openai/codex/blob/main/docs/cli.md#codex-exec).
 
-DotCraft ships `codex-cli` with `exec --skip-git-repo-check`. Final text is read from the `--output-last-message {path}` output-file contract.
+DotCraft invokes `codex-cli` as `codex exec --skip-git-repo-check --output-last-message {path} "<task>"` (task passed as a positional prompt). Final text is read from the `--output-last-message {path}` output-file contract.
+
+For authentication, DotCraft automatically passes through `CODEX_API_KEY` and `OPENAI_API_KEY` to the subprocess. If you use `codex login`, its auth state is also reused via `~/.codex` under `HOME`/`USERPROFILE`.
 
 ## Inspect Profiles On Your Machine
 
