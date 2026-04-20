@@ -411,10 +411,6 @@ export class FeishuClient {
         ),
       "Failed to append Feishu docx blocks.",
     );
-          },
-        ),
-      "Failed to append Feishu docx blocks.",
-    );
 
     const data = (payload.data as Record<string, unknown> | undefined) ?? {};
     const blocksRaw =
