@@ -39,6 +39,7 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
         8. Pass workingDirectory only when the selected profile requires it
         """)]
     [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnSubagent))]
+    [StreamArguments(false)]
     public async Task<string> SpawnSubagent(
         [Description("A detailed, self-contained description of the task for the subagent to execute autonomously. Include what to investigate, what tools to use, and exactly what to report back.")] string task,
         [Description("Optional short human-readable label shown in the UI (e.g. 'Explore auth module').")] string? label = null,

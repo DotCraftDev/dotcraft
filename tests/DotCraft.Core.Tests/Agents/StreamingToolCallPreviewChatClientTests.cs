@@ -1,4 +1,5 @@
 using DotCraft.Agents;
+using DotCraft.Tools;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Agents;
@@ -264,6 +265,17 @@ public sealed class StreamingToolCallPreviewChatClientTests
         var optOut = AgentFactory.BuildStreamOptOutToolNames([mcpShapedTool]);
 
         Assert.Empty(optOut);
+    }
+
+    [Fact]
+    public void BuildStreamOptOutToolNames_IncludesSpawnSubagent()
+    {
+        var agentTools = new AgentTools();
+        var spawnSubagentTool = AIFunctionFactory.Create(agentTools.SpawnSubagent);
+
+        var optOut = AgentFactory.BuildStreamOptOutToolNames([spawnSubagentTool]);
+
+        Assert.Contains(spawnSubagentTool.Name, optOut);
     }
 
     private static class FakeToolMethods
