@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ThreadSummary, Thread, ThreadStatus } from '../types/thread'
+import { useViewerTabStore } from './viewerTabStore'
 
 export interface ParkedApproval {
   bridgeId: string
@@ -106,6 +107,7 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
   },
 
   removeThread(threadId) {
+    useViewerTabStore.getState().onThreadDeleted(threadId)
     set((state) => {
       const parkedApprovals = new Map(state.parkedApprovals)
       parkedApprovals.delete(threadId)

@@ -11,6 +11,8 @@ import {
   useConversationStore
 } from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
+import { useViewerTabStore } from './stores/viewerTabStore'
+import { QuickOpenDialog } from './components/detail/QuickOpenDialog'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
 import { AutomationsView } from './components/automations/AutomationsView'
@@ -105,6 +107,8 @@ export function App(): JSX.Element {
   const capabilities = useConnectionStore((s) => s.capabilities)
   const [showSlowConnectingHint, setShowSlowConnectingHint] = useState(false)
   const activeMainView = useUIStore((s) => s.activeMainView)
+  const quickOpenVisible = useUIStore((s) => s.quickOpenVisible)
+  const setQuickOpenVisible = useUIStore((s) => s.setQuickOpenVisible)
   const {
     setThreadList,
     setLoading
@@ -207,6 +211,11 @@ export function App(): JSX.Element {
     if (workspacePath) {
       useConversationStore.getState().setWorkspacePath(workspacePath)
     }
+  }, [workspacePath])
+
+  // Notify viewerTabStore when workspace changes so all viewer tabs are cleared.
+  useEffect(() => {
+    useViewerTabStore.getState().onWorkspaceSwitched(workspacePath)
   }, [workspacePath])
 
   useEffect(() => {
@@ -904,6 +913,25 @@ export function App(): JSX.Element {
   const subscribedThreadIdRef = useRef<string | null>(null)
   const { activeThreadId } = useThreadStore()
 
+  // Keep viewerTabStore in sync with active thread, and restore/fallback
+  // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).
+  useEffect(() => {
+    const viewerStore = useViewerTabStore.getState()
+    viewerStore.onThreadSwitched(activeThreadId)
+
+    if (activeThreadId) {
+      const threadState = viewerStore.getThreadState(activeThreadId)
+      if (threadState.activeTabId) {
+        useUIStore.getState().setActiveViewerTab(threadState.activeTabId)
+      } else {
+        const { activeDetailTab } = useUIStore.getState()
+        if (activeDetailTab.kind === 'viewer') {
+          useUIStore.getState().closeViewerTab()
+        }
+      }
+    }
+  }, [activeThreadId])
+
   useEffect(() => {
     const prev = prevThreadIdRef.current
     const curr = activeThreadId
@@ -1254,6 +1282,11 @@ export function App(): JSX.Element {
       <>
         <ConfirmDialogHost />
         <ToastContainer />
+        {quickOpenVisible && (
+          <QuickOpenDialog
+            onClose={() => setQuickOpenVisible(false)}
+          />
+        )}
         {status === 'disconnected' && isExpectedRestart && (
           <div
             role="status"

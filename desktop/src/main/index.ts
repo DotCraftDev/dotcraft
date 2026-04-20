@@ -1,4 +1,12 @@
 import { app, BrowserWindow, session, Menu, ipcMain, shell, nativeImage } from 'electron'
+import {
+  registerViewerScheme,
+  installViewerProtocolHandler,
+  setViewerWorkspaceRoot
+} from './viewerFileProtocol'
+
+// Register the custom viewer scheme as privileged BEFORE app.whenReady().
+registerViewerScheme()
 import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
@@ -668,6 +676,7 @@ async function connectViaWebSocket(
 function buildCallbacks(): IpcHandlerCallbacks {
   return {
     onSwitchWorkspace: async (newPath: string) => {
+      setViewerWorkspaceRoot(newPath)
       addRecentWorkspace(sharedSettings, newPath)
       saveSettings(sharedSettings)
       const workspaceStatus = getWorkspaceStatus(newPath)
@@ -845,6 +854,7 @@ async function clearWorkspaceSelection(): Promise<void> {
     await teardownRuntime('clear workspace selection', { releaseWorkspaceLock: true })
   }
 
+  setViewerWorkspaceRoot('')
   currentWorkspacePath = ''
   delete sharedSettings.lastWorkspacePath
   saveSettings(sharedSettings)
@@ -1198,6 +1208,7 @@ function registerMenuPopupIpc(): void {
 
 app.whenReady().then(() => {
   isAppQuitting = false
+  installViewerProtocolHandler()
   registerMenuPopupIpc()
   sharedSettings = loadSettings()
   refreshAppMenu()
@@ -1234,6 +1245,7 @@ app.whenReady().then(() => {
   const win = createWindow(workspacePath)
   mainWindow = win
   currentWorkspacePath = workspacePath ?? ''
+  setViewerWorkspaceRoot(workspacePath ?? '')
 
   registerDesktopIpcHandlers(workspacePath ?? '', () => wireClient)
 

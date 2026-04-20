@@ -625,6 +625,37 @@ const api = {
       limit?: number
     }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }> {
       return ipcRenderer.invoke('workspace:search-files', params)
+    },
+
+    /** Viewer panel IPC — exposed as `window.api.workspace.viewer.*` */
+    viewer: {
+      /** Lists workspace files for the Quick-Open dialog. */
+      listFiles(params: {
+        workspacePath: string
+        query: string
+        limit: number
+      }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }> {
+        return ipcRenderer.invoke('workspace:viewer:list-files', params)
+      },
+
+      /** Classifies a file into text / image / pdf / unsupported. */
+      classify(params: {
+        absolutePath: string
+      }): Promise<{
+        contentClass: 'text' | 'image' | 'pdf' | 'unsupported'
+        mime: string
+        sizeBytes: number
+      }> {
+        return ipcRenderer.invoke('workspace:viewer:classify', params)
+      },
+
+      /** Reads a text file with an optional size limit (default 5 MB). */
+      readText(params: {
+        absolutePath: string
+        limitBytes?: number
+      }): Promise<{ text: string; truncated: boolean; encoding: string }> {
+        return ipcRenderer.invoke('workspace:viewer:read-text', params)
+      }
     }
   },
 

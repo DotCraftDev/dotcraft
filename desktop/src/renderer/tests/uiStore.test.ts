@@ -34,7 +34,8 @@ describe('uiStore responsive panel preferences', () => {
       detailPanelPreferredVisible: true,
       detailPanelVisible: true,
       responsiveLayout: 'full',
-      activeDetailTab: 'changes',
+      activeDetailTab: { kind: 'system', id: 'changes' },
+      lastActiveSystemTab: 'changes',
       selectedChangedFile: null
     })
   })

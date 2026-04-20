@@ -47,7 +47,7 @@ export interface FileMatchWire {
   dir: string
 }
 
-interface FileIndexEntry {
+export interface FileIndexEntry {
   relativePath: string
   name: string
   dir: string
@@ -124,7 +124,7 @@ function ensureFsWatchForWorkspace(resolvedRoot: string): void {
   }
 }
 
-async function ensureFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> {
+export async function ensureFileIndex(workspaceRoot: string): Promise<FileIndexEntry[]> {
   const resolved = path.resolve(workspaceRoot)
   if (fileIndex && fileIndexWorkspace === resolved) {
     return fileIndex

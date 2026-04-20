@@ -27,6 +27,11 @@ import {
   warmFileSearchIndex
 } from './workspaceComposerIpc'
 import {
+  classifyFile,
+  readTextFile,
+  listViewerFiles
+} from './viewerIpc'
+import {
   scanModules,
   groupModulesByChannel,
   type DiscoveredModule
@@ -962,6 +967,49 @@ export function registerIpcHandlers(
     }
   )
 
+  // ─── Viewer panel IPC ──────────────────────────────────────────────────────
+
+  // Renderer -> Main: list workspace files for Quick-Open dialog
+  handleSafe(
+    'workspace:viewer:list-files',
+    async (
+      _event,
+      params: { workspacePath: string; query: string; limit: number }
+    ) => {
+      const ws = path.resolve(workspacePath)
+      const req = path.resolve(params.workspacePath)
+      if (ws !== req) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
+      }
+      if (!ws) return { files: [] }
+      const limit = Math.min(500, Math.max(1, params.limit ?? 100))
+      const files = await listViewerFiles(ws, params.query, limit)
+      return { files }
+    }
+  )
+
+  // Renderer -> Main: classify a file (text / image / pdf / unsupported)
+  handleSafe(
+    'workspace:viewer:classify',
+    async (_event, params: { absolutePath: string }) => {
+      if (!workspacePath) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
+      }
+      return classifyFile(params.absolutePath, workspacePath)
+    }
+  )
+
+  // Renderer -> Main: read a text file with optional size cap
+  handleSafe(
+    'workspace:viewer:read-text',
+    async (_event, params: { absolutePath: string; limitBytes?: number }) => {
+      if (!workspacePath) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
+      }
+      return readTextFile(params.absolutePath, workspacePath, params.limitBytes)
+    }
+  )
+
   // ─── Settings ──────────────────────────────────────────────────────────────
 
   // Renderer -> Main: get current settings
@@ -1360,6 +1408,9 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:save-image-to-temp')
   ipcMain.removeHandler('workspace:read-image-as-data-url')
   ipcMain.removeHandler('workspace:search-files')
+  ipcMain.removeHandler('workspace:viewer:list-files')
+  ipcMain.removeHandler('workspace:viewer:classify')
+  ipcMain.removeHandler('workspace:viewer:read-text')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
   ipcMain.removeHandler('modules:list')

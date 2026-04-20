@@ -13,7 +13,15 @@ const DETAIL_MIN_WIDTH = 300
 /** Timeout for pending welcome turn to prevent permanent residue */
 const PENDING_WELCOME_TIMEOUT_MS = 30_000
 
-export type DetailPanelTab = 'changes' | 'plan' | 'terminal'
+export type SystemDetailTab = 'changes' | 'plan' | 'terminal'
+
+/** @deprecated Use `ActiveDetailTab` instead. Kept for backwards compatibility. */
+export type DetailPanelTab = SystemDetailTab
+
+/** Discriminated union identifying the active detail panel tab. */
+export type ActiveDetailTab =
+  | { kind: 'system'; id: SystemDetailTab }
+  | { kind: 'viewer'; id: string }
 
 /** Main content area: conversation vs auxiliary surfaces (Skills, Automations, Settings). */
 export type ActiveMainView = 'conversation' | 'skills' | 'automations' | 'settings' | 'channels'
@@ -48,7 +56,15 @@ export interface UIState {
   detailPanelWidth: number
   /** Current responsive layout classification used to constrain panel visibility. */
   responsiveLayout: 'full' | 'no-detail' | 'collapsed'
-  activeDetailTab: DetailPanelTab
+  /** Active detail panel tab — either a system tab or a viewer tab. */
+  activeDetailTab: ActiveDetailTab
+  /**
+   * Last active system tab, saved when the user switches to a viewer tab.
+   * Used for fallback when the last viewer tab is closed.
+   */
+  lastActiveSystemTab: SystemDetailTab
+  /** Whether the Quick-Open file finder dialog is visible. */
+  quickOpenVisible: boolean
   /** Currently selected file path in the Changes tab */
   selectedChangedFile: string | null
   /**
@@ -97,7 +113,17 @@ interface UIStore extends UIState {
   setDetailPanelVisible(visible: boolean): void
   setResponsiveLayout(layout: 'full' | 'no-detail' | 'collapsed'): void
   setDetailPanelWidth(width: number): void
-  setActiveDetailTab(tab: DetailPanelTab): void
+  /**
+   * Sets the active detail tab to a system tab.
+   * Backwards-compatible: `'changes' | 'plan' | 'terminal'` still work.
+   */
+  setActiveDetailTab(tab: SystemDetailTab): void
+  /** Activates a viewer tab by its ID and makes the detail panel visible. */
+  setActiveViewerTab(tabId: string): void
+  /** Closes the viewer panel and falls back to the last active system tab. */
+  closeViewerTab(): void
+  /** Show or hide the Quick-Open dialog. */
+  setQuickOpenVisible(visible: boolean): void
   selectChangedFile(filePath: string | null): void
   /** Open detail panel, switch to Changes tab, select the given file */
   showChangesForFile(filePath: string): void
@@ -180,7 +206,9 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   detailPanelVisible: true,
   detailPanelWidth: DETAIL_DEFAULT_WIDTH,
   responsiveLayout: 'full',
-  activeDetailTab: 'changes',
+  activeDetailTab: { kind: 'system', id: 'changes' },
+  lastActiveSystemTab: 'changes',
+  quickOpenVisible: false,
   selectedChangedFile: null,
   autoShowTriggeredForTurn: null,
   autoShowPlanForItem: null,
@@ -273,11 +301,12 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
     set({ detailPanelWidth: clamped })
   },
 
-  setActiveDetailTab(tab: DetailPanelTab) {
+  setActiveDetailTab(tab: SystemDetailTab) {
     const state = get()
     const detailPanelPreferredVisible = true
     set({
-      activeDetailTab: tab,
+      activeDetailTab: { kind: 'system', id: tab },
+      lastActiveSystemTab: tab,
       detailPanelPreferredVisible,
       ...resolveResponsivePanels(
         state.responsiveLayout,
@@ -285,6 +314,39 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
         detailPanelPreferredVisible
       )
     })
+  },
+
+  setActiveViewerTab(tabId: string) {
+    const state = get()
+    const detailPanelPreferredVisible = true
+    set({
+      activeDetailTab: { kind: 'viewer', id: tabId },
+      detailPanelPreferredVisible,
+      ...resolveResponsivePanels(
+        state.responsiveLayout,
+        state.sidebarPreferredCollapsed,
+        detailPanelPreferredVisible
+      )
+    })
+  },
+
+  closeViewerTab() {
+    const state = get()
+    const fallback = state.lastActiveSystemTab
+    const detailPanelPreferredVisible = true
+    set({
+      activeDetailTab: { kind: 'system', id: fallback },
+      detailPanelPreferredVisible,
+      ...resolveResponsivePanels(
+        state.responsiveLayout,
+        state.sidebarPreferredCollapsed,
+        detailPanelPreferredVisible
+      )
+    })
+  },
+
+  setQuickOpenVisible(visible: boolean) {
+    set({ quickOpenVisible: visible })
   },
 
   selectChangedFile(filePath) {
@@ -295,7 +357,8 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
     const state = get()
     const detailPanelPreferredVisible = true
     set({
-      activeDetailTab: 'changes',
+      activeDetailTab: { kind: 'system', id: 'changes' },
+      lastActiveSystemTab: 'changes',
       selectedChangedFile: filePath,
       detailPanelPreferredVisible,
       ...resolveResponsivePanels(
