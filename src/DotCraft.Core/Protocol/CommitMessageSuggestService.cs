@@ -1,8 +1,8 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Nodes;
 using DotCraft.Protocol.AppServer;
 using DotCraft.Tools;
+using DotCraft.Utilities;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -47,8 +47,12 @@ public sealed class CommitMessageSuggestService(
         if (!string.Equals(sourceWs, ws, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Source thread belongs to a different workspace.");
 
+        using var timeoutCts = new CancellationTokenSource(SuggestTimeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
         var maxDiff = parameters.MaxDiffChars is > 0 and int m ? m : DefaultMaxDiffChars;
-        var diffText = RunGitDiff(ws, parameters.Paths, maxDiff, logger);
+        var diffText = await RunGitDiffAsync(ws, parameters.Paths, maxDiff, logger, linked.Token)
+            .ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(diffText))
             throw new InvalidOperationException("No diff for the given paths (nothing to commit or not a git repository).");
 
@@ -60,9 +64,6 @@ public sealed class CommitMessageSuggestService(
         string? tempThreadId = null;
         try
         {
-            using var timeoutCts = new CancellationTokenSource(SuggestTimeout);
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
             var identity = new SessionIdentity
             {
                 ChannelName = CommitMessageSuggestConstants.ChannelName,
@@ -293,12 +294,23 @@ public sealed class CommitMessageSuggestService(
         return Path.GetFullPath(path);
     }
 
-    private static string RunGitDiff(string workspaceRoot, string[] paths, int maxChars, ILogger? logger)
+    private static async Task<string> RunGitDiffAsync(
+        string workspaceRoot,
+        string[] paths,
+        int maxChars,
+        ILogger? logger,
+        CancellationToken ct)
     {
         string stdout;
         try
         {
-            stdout = RunGitDiffAgainstHead(workspaceRoot, paths, logger);
+            stdout = await RunGitDiffAgainstHeadAsync(workspaceRoot, paths, logger, ct)
+                .ConfigureAwait(false);
+        }
+        catch (GitProcessTimeoutException ex)
+        {
+            logger?.LogWarning(ex, "git diff timed out while preparing commit message suggestion context");
+            throw new InvalidOperationException("git diff timed out while preparing commit-message context.");
         }
         catch (InvalidOperationException)
         {
@@ -311,7 +323,8 @@ public sealed class CommitMessageSuggestService(
         }
 
         if (string.IsNullOrWhiteSpace(stdout))
-            stdout = RunGitDiffNoIndexUntracked(workspaceRoot, paths, logger);
+            stdout = await RunGitDiffNoIndexUntrackedAsync(workspaceRoot, paths, logger, ct)
+                .ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(stdout))
             return string.Empty;
@@ -322,64 +335,47 @@ public sealed class CommitMessageSuggestService(
     }
 
     /// <summary>Working tree vs <c>HEAD</c> for the given paths (tracked / indexed content).</summary>
-    private static string RunGitDiffAgainstHead(string workspaceRoot, string[] paths, ILogger? logger)
+    private static async Task<string> RunGitDiffAgainstHeadAsync(
+        string workspaceRoot,
+        string[] paths,
+        ILogger? logger,
+        CancellationToken ct)
     {
-        var psi = new ProcessStartInfo
+        var args = new List<string>
         {
-            FileName = "git",
-            WorkingDirectory = workspaceRoot,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
+            "diff",
+            "--no-color",
+            "HEAD",
+            "--"
         };
-        // Avoid invoking a pager (less/more) when stdout is redirected — it can block until user input and hit WaitForExit timeout.
-        psi.Environment["GIT_PAGER"] = "cat";
-        psi.Environment["PAGER"] = "cat";
-        psi.ArgumentList.Add("--no-pager");
-        psi.ArgumentList.Add("diff");
-        psi.ArgumentList.Add("--no-color");
-        psi.ArgumentList.Add("HEAD");
-        psi.ArgumentList.Add("--");
         foreach (var p in paths)
-            psi.ArgumentList.Add(p.Replace('/', Path.DirectorySeparatorChar));
+            args.Add(p.Replace('/', Path.DirectorySeparatorChar));
 
-        using var proc = Process.Start(psi);
-        if (proc == null)
-            throw new InvalidOperationException("Could not start git.");
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-        var stderrTask = proc.StandardError.ReadToEndAsync();
+        var result = await GitProcessRunner.RunAsync(
+                workspaceRoot,
+                args,
+                timeout: TimeSpan.FromSeconds(30),
+                ct: ct,
+                logger: logger)
+            .ConfigureAwait(false);
 
-        if (!proc.WaitForExit(60_000))
+        if (result.ExitCode != 0 && string.IsNullOrWhiteSpace(result.StdOut))
         {
-            logger?.LogWarning("git diff timed out, killing process");
-            try
-            {
-                proc.Kill(entireProcessTree: true);
-            }
-            catch (Exception killEx)
-            {
-                logger?.LogWarning(killEx, "Failed to kill timed-out git process");
-            }
-            throw new InvalidOperationException("git diff timed out after 60 seconds.");
-        }
-
-        var stdout = stdoutTask.GetAwaiter().GetResult();
-        var stderr = stderrTask.GetAwaiter().GetResult();
-
-        if (proc.ExitCode != 0 && string.IsNullOrWhiteSpace(stdout))
-        {
-            logger?.LogWarning("git diff failed: {Stderr}", stderr);
+            logger?.LogWarning("git diff failed: {Stderr}", result.StdErr);
             return string.Empty;
         }
 
-        return stdout;
+        return result.StdOut;
     }
 
     /// <summary>
     /// For <b>untracked</b> files, <c>git diff HEAD -- path</c> is empty; use <c>git diff --no-index</c> from the null device.
     /// </summary>
-    private static string RunGitDiffNoIndexUntracked(string workspaceRoot, string[] paths, ILogger? logger)
+    private static async Task<string> RunGitDiffNoIndexUntrackedAsync(
+        string workspaceRoot,
+        string[] paths,
+        ILogger? logger,
+        CancellationToken ct)
     {
         var sb = new StringBuilder();
         var nullDevice = OperatingSystem.IsWindows() ? "NUL" : "/dev/null";
@@ -390,10 +386,11 @@ public sealed class CommitMessageSuggestService(
             var full = Path.GetFullPath(Path.Combine(workspaceRoot, rel));
             if (!File.Exists(full))
                 continue;
-            if (IsGitPathTracked(workspaceRoot, rel, logger))
+            if (await IsGitPathTrackedAsync(workspaceRoot, rel, logger, ct).ConfigureAwait(false))
                 continue;
 
-            var chunk = RunGitDiffNoIndexSingle(workspaceRoot, nullDevice, rel, logger);
+            var chunk = await RunGitDiffNoIndexSingleAsync(workspaceRoot, nullDevice, rel, logger, ct)
+                .ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(chunk))
                 continue;
             if (sb.Length > 0)
@@ -405,47 +402,27 @@ public sealed class CommitMessageSuggestService(
         return sb.ToString();
     }
 
-    private static bool IsGitPathTracked(string workspaceRoot, string relativePath, ILogger? logger)
+    private static async Task<bool> IsGitPathTrackedAsync(
+        string workspaceRoot,
+        string relativePath,
+        ILogger? logger,
+        CancellationToken ct)
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "git",
-                WorkingDirectory = workspaceRoot,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.Environment["GIT_PAGER"] = "cat";
-            psi.Environment["PAGER"] = "cat";
-            psi.ArgumentList.Add("--no-pager");
-            psi.ArgumentList.Add("ls-files");
-            psi.ArgumentList.Add("--error-unmatch");
-            psi.ArgumentList.Add("--");
-            psi.ArgumentList.Add(relativePath);
-
-            using var proc = Process.Start(psi);
-            if (proc == null)
-                return true;
-            var outTask = proc.StandardOutput.ReadToEndAsync();
-            var errTask = proc.StandardError.ReadToEndAsync();
-            if (!proc.WaitForExit(10_000))
-            {
-                try
-                {
-                    proc.Kill(entireProcessTree: true);
-                }
-                catch (Exception ex)
-                {
-                    logger?.LogWarning(ex, "git ls-files timed out");
-                }
-                return true;
-            }
-            _ = outTask.GetAwaiter().GetResult();
-            _ = errTask.GetAwaiter().GetResult();
-            return proc.ExitCode == 0;
+            var result = await GitProcessRunner.RunAsync(
+                    workspaceRoot,
+                    ["ls-files", "--error-unmatch", "--", relativePath],
+                    timeout: TimeSpan.FromSeconds(10),
+                    ct: ct,
+                    logger: logger)
+                .ConfigureAwait(false);
+            return result.ExitCode == 0;
+        }
+        catch (GitProcessTimeoutException ex)
+        {
+            logger?.LogWarning(ex, "git ls-files timed out for {Path}", relativePath);
+            return true;
         }
         catch (Exception ex)
         {
@@ -454,55 +431,31 @@ public sealed class CommitMessageSuggestService(
         }
     }
 
-    private static string RunGitDiffNoIndexSingle(
+    private static async Task<string> RunGitDiffNoIndexSingleAsync(
         string workspaceRoot,
         string nullDevice,
         string relativePath,
-        ILogger? logger)
+        ILogger? logger,
+        CancellationToken ct)
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "git",
-                WorkingDirectory = workspaceRoot,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.Environment["GIT_PAGER"] = "cat";
-            psi.Environment["PAGER"] = "cat";
-            psi.ArgumentList.Add("--no-pager");
-            psi.ArgumentList.Add("diff");
-            psi.ArgumentList.Add("--no-color");
-            psi.ArgumentList.Add("--no-index");
-            psi.ArgumentList.Add(nullDevice);
-            psi.ArgumentList.Add(relativePath);
+            var result = await GitProcessRunner.RunAsync(
+                    workspaceRoot,
+                    ["diff", "--no-color", "--no-index", nullDevice, relativePath],
+                    timeout: TimeSpan.FromSeconds(30),
+                    ct: ct,
+                    logger: logger)
+                .ConfigureAwait(false);
 
-            using var proc = Process.Start(psi);
-            if (proc == null)
+            if (string.IsNullOrWhiteSpace(result.StdOut))
                 return string.Empty;
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-            var stderrTask = proc.StandardError.ReadToEndAsync();
-            if (!proc.WaitForExit(60_000))
-            {
-                try
-                {
-                    proc.Kill(entireProcessTree: true);
-                }
-                catch (Exception ex)
-                {
-                    logger?.LogWarning(ex, "git diff --no-index timed out");
-                }
-                return string.Empty;
-            }
-
-            var stdout = stdoutTask.GetAwaiter().GetResult();
-            _ = stderrTask.GetAwaiter().GetResult();
-            if (string.IsNullOrWhiteSpace(stdout))
-                return string.Empty;
-            return stdout;
+            return result.StdOut;
+        }
+        catch (GitProcessTimeoutException ex)
+        {
+            logger?.LogWarning(ex, "git diff --no-index timed out for {Path}", relativePath);
+            return string.Empty;
         }
         catch (Exception ex)
         {
