@@ -651,7 +651,6 @@ export const RichInputArea = forwardRef(function RichInputArea(
         onSkillQuery?.(null)
         return
       }
-      }
       if (slashParsed) {
         onAtQuery?.(null)
         onSlashQuery?.(slashParsed.query)
