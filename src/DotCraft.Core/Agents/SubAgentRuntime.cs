@@ -636,10 +636,6 @@ public sealed class SubAgentCoordinator
             return specifiedDirectory;
         }
 
-        if (string.Equals(mode, "worktree", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(
-                $"Subagent profile '{profile.Name}' requires worktree mode, which is not implemented.");
-
         throw new InvalidOperationException(
             $"Subagent profile '{profile.Name}' has unsupported workingDirectoryMode '{profile.WorkingDirectoryMode}'.");
     }

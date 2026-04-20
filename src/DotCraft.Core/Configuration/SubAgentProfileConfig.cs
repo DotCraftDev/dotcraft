@@ -53,7 +53,7 @@ public sealed class SubAgentProfile
     /// <summary>
     /// Working directory resolution mode.
     /// </summary>
-    [ConfigField(FieldType = "select", Options = new[] { "workspace", "worktree", "specified" })]
+    [ConfigField(FieldType = "select", Options = new[] { "workspace", "specified" })]
     public string WorkingDirectoryMode { get; set; } = "workspace";
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -61,9 +61,6 @@ public sealed class SubAgentProfile
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? SupportsResume { get; set; }
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? SupportsWorktree { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? SupportsModelSelection { get; set; }
@@ -146,7 +143,6 @@ public sealed class SubAgentProfile
             WorkingDirectoryMode = WorkingDirectoryMode,
             SupportsStreaming = SupportsStreaming,
             SupportsResume = SupportsResume,
-            SupportsWorktree = SupportsWorktree,
             SupportsModelSelection = SupportsModelSelection,
             InputFormat = InputFormat,
             OutputFormat = OutputFormat,

@@ -43,7 +43,7 @@ External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入
 | `runtime` | 运行时类型。外部 one-shot CLI 使用 `cli-oneshot` |
 | `bin` | CLI 可执行文件名或绝对路径 |
 | `args` | 固定参数列表 |
-| `workingDirectoryMode` | `workspace` / `specified` / `worktree` |
+| `workingDirectoryMode` | `workspace` / `specified` |
 | `inputMode` | `stdin` / `arg` / `arg-template` / `env` |
 | `inputArgTemplate` | `arg-template` 模式的模板 |
 | `inputEnvKey` | `env` 模式写入任务文本的环境变量名 |

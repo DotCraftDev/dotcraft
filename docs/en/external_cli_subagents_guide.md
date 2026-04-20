@@ -43,7 +43,7 @@ Workspace config overrides global profiles with the same name.
 | `runtime` | Runtime type. External one-shot profiles use `cli-oneshot` |
 | `bin` | Executable name or absolute path |
 | `args` | Fixed argument list |
-| `workingDirectoryMode` | `workspace` / `specified` / `worktree` |
+| `workingDirectoryMode` | `workspace` / `specified` |
 | `inputMode` | `stdin` / `arg` / `arg-template` / `env` |
 | `inputArgTemplate` | Argument template used by `arg-template` mode |
 | `inputEnvKey` | Environment variable key used by `env` mode |
