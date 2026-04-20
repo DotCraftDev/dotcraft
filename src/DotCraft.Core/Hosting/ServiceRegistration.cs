@@ -170,7 +170,7 @@ public static class ServiceRegistration
         foreach (var note in hiddenBuiltInNotes)
             AnsiConsole.MarkupLine($"[grey][[Config]] Note: {Markup.Escape(note)}[/]");
 
-        return isValid && subAgentWarnings.Count == 0;
+        return isValid;
     }
 }
 
