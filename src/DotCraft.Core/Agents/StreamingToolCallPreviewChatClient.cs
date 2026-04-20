@@ -33,6 +33,7 @@ public sealed class StreamingToolCallPreviewChatClient(IChatClient innerClient)
 
         await foreach (var update in base.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
+            List<ToolCallArgumentsDeltaContent>? addedContents = null;
             foreach (var delta in ExtractDeltas(update.RawRepresentation))
             {
                 trackers ??= [];
@@ -65,16 +66,24 @@ public sealed class StreamingToolCallPreviewChatClient(IChatClient innerClient)
 
                 var isFirst = !tracker.FirstChunkEmitted;
                 tracker.FirstChunkEmitted = true;
-                update.Contents.Add(new ToolCallArgumentsDeltaContent
+                var content = new ToolCallArgumentsDeltaContent
                 {
                     ToolCallIndex = delta.Index,
                     ToolName = isFirst ? tracker.ToolName : null,
                     CallId = isFirst ? tracker.CallId : null,
                     ArgumentsDelta = delta.ArgumentsDelta
-                });
+                };
+                update.Contents.Add(content);
+                (addedContents ??= []).Add(content);
             }
 
             yield return update;
+
+            if (addedContents is not null)
+            {
+                foreach (var content in addedContents)
+                    update.Contents.Remove(content);
+            }
         }
     }
 
