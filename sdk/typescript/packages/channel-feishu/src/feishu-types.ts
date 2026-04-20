@@ -13,6 +13,11 @@ export interface FeishuConfig {
     groupMentionRequired?: boolean;
     ackReactionEmoji?: string;
     downloadDir?: string;
+    tools?: {
+      docs?: {
+        enabled?: boolean;
+      };
+    };
     /** Debug logging to stderr; only keys set to `true` enable tracing. */
     debug?: {
       /** Verbose `consumeTurnEventStream` traces (adapter stream). */
@@ -95,6 +100,29 @@ export interface FeishuBotInfo {
 export interface FeishuSendResult {
   messageId: string;
   chatId: string;
+}
+
+export interface FeishuDocxDocumentInfo {
+  documentId: string;
+  revisionId: number;
+  title: string;
+  url: string;
+}
+
+export interface FeishuDocxRawContent {
+  documentId: string;
+  content: string;
+}
+
+export interface FeishuDocxBlockInfo {
+  blockId: string;
+  blockType: number;
+}
+
+export interface FeishuDocxBlockCreateResult {
+  documentId: string;
+  revisionId?: number;
+  blocks: FeishuDocxBlockInfo[];
 }
 
 export type FeishuBotDiagnosticTag =

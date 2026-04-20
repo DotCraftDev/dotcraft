@@ -12,6 +12,9 @@ import type {
   FeishuConfig,
   FeishuBotInfo,
   FeishuCardActionEvent,
+  FeishuDocxBlockCreateResult,
+  FeishuDocxDocumentInfo,
+  FeishuDocxRawContent,
   FeishuListChatMessagesOptions,
   FeishuMessageEvent,
   FeishuReplyOptions,
@@ -284,6 +287,143 @@ export class FeishuClient {
       items,
       nextPageToken: data.page_token ? String(data.page_token) : undefined,
       hasMore: data.has_more == null ? undefined : Boolean(data.has_more),
+    };
+  }
+
+  async createDocxDocument(options: {
+    title?: string;
+    folderToken?: string;
+  }): Promise<FeishuDocxDocumentInfo> {
+    const token = await this.getTenantAccessToken();
+    const body: Record<string, unknown> = {};
+    if (options.title?.trim()) body.title = options.title.trim();
+    if (options.folderToken?.trim()) body.folder_token = options.folderToken.trim();
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/docx/v1/documents`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+      "Failed to create Feishu docx document.",
+    );
+
+    return this.parseDocxDocumentInfo(payload);
+  }
+
+  async getDocxDocument(documentId: string): Promise<FeishuDocxDocumentInfo> {
+    const normalizedDocumentId = documentId.trim();
+    if (!normalizedDocumentId) {
+      throw new TypeError("Feishu docx lookup requires a documentId.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/docx/v1/documents/${encodeURIComponent(normalizedDocumentId)}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+      "Failed to get Feishu docx document info.",
+    );
+
+    return this.parseDocxDocumentInfo(payload);
+  }
+
+  async getDocxRawContent(documentId: string): Promise<FeishuDocxRawContent> {
+    const normalizedDocumentId = documentId.trim();
+    if (!normalizedDocumentId) {
+      throw new TypeError("Feishu docx raw content lookup requires a documentId.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/docx/v1/documents/${encodeURIComponent(normalizedDocumentId)}/raw_content`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to get Feishu docx raw content.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    return {
+      documentId: normalizedDocumentId,
+      content: String(data.content ?? ""),
+    };
+  }
+
+  async createDocxBlocks(
+    documentId: string,
+    blockId: string,
+    options: {
+      children: Record<string, unknown>[];
+      documentRevisionId?: number;
+      index?: number;
+      clientToken?: string;
+    },
+  ): Promise<FeishuDocxBlockCreateResult> {
+    const normalizedDocumentId = documentId.trim();
+    const normalizedBlockId = blockId.trim();
+    if (!normalizedDocumentId) {
+      throw new TypeError("Feishu docx block creation requires a documentId.");
+    }
+    if (!normalizedBlockId) {
+      throw new TypeError("Feishu docx block creation requires a blockId.");
+    }
+    if (!Array.isArray(options.children) || options.children.length === 0) {
+      throw new TypeError("Feishu docx block creation requires at least one child block.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    params.set("document_revision_id", String(options.documentRevisionId ?? -1));
+    if (options.clientToken?.trim()) {
+      params.set("client_token", options.clientToken.trim());
+    }
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/docx/v1/documents/${encodeURIComponent(normalizedDocumentId)}/blocks/${encodeURIComponent(normalizedBlockId)}/children?${params.toString()}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              children: options.children,
+              index: options.index ?? -1,
+            }),
+          },
+        ),
+      "Failed to append Feishu docx blocks.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const blocksRaw =
+      (Array.isArray(data.children) ? data.children : undefined) ??
+      (Array.isArray(data.items) ? data.items : undefined) ??
+      [];
+
+    return {
+      documentId: normalizedDocumentId,
+      revisionId: parseOptionalNumber(data.document_revision_id ?? data.revision_id),
+      blocks: blocksRaw
+        .map((item) => mapDocxBlockInfo(item))
+        .filter((item): item is FeishuDocxBlockCreateResult["blocks"][number] => item !== null),
     };
   }
 
@@ -658,6 +798,27 @@ export class FeishuClient {
 
     return apiPayload.raw as Record<string, unknown>;
   }
+
+  private parseDocxDocumentInfo(payload: Record<string, unknown>): FeishuDocxDocumentInfo {
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const document = (data.document as Record<string, unknown> | undefined) ?? data;
+    const documentId = String(document.document_id ?? data.document_id ?? "");
+    if (!documentId) {
+      throw new Error("Feishu docx response did not include document_id.");
+    }
+
+    return {
+      documentId,
+      revisionId: parseOptionalNumber(document.revision_id ?? data.revision_id) ?? 0,
+      title: String(document.title ?? data.title ?? ""),
+      url: String(document.url ?? data.url ?? "") || this.buildDocxUrl(documentId),
+    };
+  }
+
+  private buildDocxUrl(documentId: string): string {
+    const host = this.config.brand === "lark" ? "https://larksuite.com" : "https://feishu.cn";
+    return `${host}/docx/${documentId}`;
+  }
 }
 
 function normalizeFeishuError(error: unknown, defaultMessage: string): Error {
@@ -825,6 +986,18 @@ function mapChatMessageItem(input: unknown): FeishuChatMessageItem {
     },
     mentions,
     rawContent: bodyRecord.content == null ? "" : String(bodyRecord.content),
+  };
+}
+
+function mapDocxBlockInfo(input: unknown): FeishuDocxBlockCreateResult["blocks"][number] | null {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : null;
+  if (!record) return null;
+  const blockId = String(record.block_id ?? "");
+  const blockType = parseOptionalNumber(record.block_type);
+  if (!blockId || blockType === undefined) return null;
+  return {
+    blockId,
+    blockType,
   };
 }
 

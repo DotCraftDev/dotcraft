@@ -20,6 +20,7 @@ It is built on:
 - Interactive approval cards with buttons
 - Static reply cards after `turn/completed`
 - Image input forwarding to DotCraft as `localImage`
+- Optional docx channel tools for create, raw-content read, and root append
 - Public `FeishuClient.sendTextMessage(...)` and `replyToMessage(...)`
 
 ## What This Adapter Does Not Cover
@@ -100,6 +101,11 @@ Create `.craft/feishu.json` inside your target workspace:
     "groupMentionRequired": true,
     "ackReactionEmoji": "GLANCE",
     "downloadDir": "./tmp",
+    "tools": {
+      "docs": {
+        "enabled": false
+      }
+    },
     "debug": {
       "adapterStream": false,
       "textMerge": false
@@ -114,6 +120,7 @@ Notes:
 - `feishu.debug.textMerge`: traces merge decisions, only when `true`
 - `ackReactionEmoji` must be a Feishu official `emoji_type` such as `GLANCE`, `SMILE`, `OnIt`
 - `downloadDir` is used for temporary image files before forwarding to DotCraft
+- `feishu.tools.docs.enabled`: registers the Feishu docx channel tools as one group; changing it requires restarting the module because channel tools are declared during initialize
 
 ## 4. Install and Build
 
@@ -158,12 +165,17 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 | File upload / send | `im/v1/files`, `im/v1/messages` | File/media upload plus message send permissions | Yes |
 | Image download | `im/v1/messages/{message_id}/resources` | Message resource read scope such as `im:resource` | Usually yes |
 | Reaction | `im/v1/messages/{message_id}/reactions` | Reaction-specific permission granted to the app | Yes |
+| Create docx `createDocxDocument` | `POST /open-apis/docx/v1/documents` | `docx:document` or `docx:document:create` | No |
+| Read docx raw content `getDocxRawContent` | `GET /open-apis/docx/v1/documents/{document_id}/raw_content` | `docx:document` or `docx:document:readonly` | No |
+| Append docx blocks `createDocxBlocks` | `POST /open-apis/docx/v1/documents/{document_id}/blocks/{block_id}/children` | `docx:document` or `docx:document:write_only` | No |
+| Future template copy | `POST /open-apis/drive/v1/files/{file_token}/copy` | `docs:document:copy` or `drive:drive` | No |
 
 Notes:
 
 - The matrix above documents public adapter dependencies, not a guarantee that any tenant has already enabled them.
 - Feishu tenant policy and app publication state can still block a capability even when the API wrapper exists.
 - History read support depends on the tenant granting the required read scope; this package only wraps the API.
+- Feishu doc APIs also require the target document or folder resource to be shared with the app. Missing resource-level authorization commonly returns `403` even when the scope itself is present.
 
 ## Non-Goals For History APIs
 

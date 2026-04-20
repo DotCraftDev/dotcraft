@@ -20,6 +20,7 @@
 - 按钮式审批卡片
 - `turn/completed` 后发送静态回复卡片
 - 图片消息下载后以 `localImage` 形式转发给 DotCraft
+- 可选注册的 docx 文档工具：创建文档、读取纯文本、向根节点追加内容
 - 公共 `FeishuClient.sendTextMessage(...)` 与 `replyToMessage(...)`
 
 ## 当前不覆盖
@@ -100,6 +101,11 @@
     "groupMentionRequired": true,
     "ackReactionEmoji": "GLANCE",
     "downloadDir": "./tmp",
+    "tools": {
+      "docs": {
+        "enabled": false
+      }
+    },
     "debug": {
       "adapterStream": false,
       "textMerge": false
@@ -114,6 +120,7 @@
 - `feishu.debug.textMerge`：打印文本合并分支日志，仅 `true` 启用
 - `ackReactionEmoji` 必须为飞书官方 `emoji_type`，如 `GLANCE`、`SMILE`、`OnIt`
 - `downloadDir` 用于暂存图片文件，再转发给 DotCraft
+- `feishu.tools.docs.enabled`：作为整组开关注册飞书 docx channel tools；由于工具列表在 initialize 时声明，修改后需要重启模块才会生效
 
 ## 4. 安装并构建
 
@@ -158,12 +165,17 @@ npx dotcraft-channel-feishu --workspace /path/to/workspace --config /custom/feis
 | 文件上传 / 发送 | `im/v1/files`、`im/v1/messages` | 文件/媒体上传权限与消息发送权限 | 是 |
 | 图片下载 | `im/v1/messages/{message_id}/resources` | 消息资源读取权限，如 `im:resource` | 通常需要 |
 | 表情 reaction | `im/v1/messages/{message_id}/reactions` | reaction 相关权限 | 是 |
+| 创建 docx 文档 `createDocxDocument` | `POST /open-apis/docx/v1/documents` | `docx:document` 或 `docx:document:create` | 否 |
+| 读取 docx 纯文本 `getDocxRawContent` | `GET /open-apis/docx/v1/documents/{document_id}/raw_content` | `docx:document` 或 `docx:document:readonly` | 否 |
+| 追加 docx block `createDocxBlocks` | `POST /open-apis/docx/v1/documents/{document_id}/blocks/{block_id}/children` | `docx:document` 或 `docx:document:write_only` | 否 |
+| 后续模板复制 | `POST /open-apis/drive/v1/files/{file_token}/copy` | `docs:document:copy` 或 `drive:drive` | 否 |
 
 说明：
 
 - 上表描述的是公共适配层依赖，不代表租户一定已经开通了这些权限。
 - 即使公共 API 已封装，租户策略、应用发布状态或 Bot 能力状态仍可能阻塞能力调用。
 - 历史消息读取是否可用，最终取决于租户是否授予对应读取权限；本包只负责 API 封装。
+- 飞书文档类 API 除了 scope，还要求目标文档或文件夹资源已经授权给应用；如果资源本身没有共享给应用，即使 scope 正确也常会返回 `403`。
 
 ## 历史消息 API 的非目标
 

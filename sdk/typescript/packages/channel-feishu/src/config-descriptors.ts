@@ -171,6 +171,24 @@ export const configDescriptors: LocalizedConfigDescriptor[] = [
     advanced: true,
   },
   {
+    key: "feishu.tools.docs.enabled",
+    displayLabel: "Enable Feishu Docx Tools",
+    description: "Register Feishu docx create/read/append tools for this channel.",
+    localizedDisplayLabel: {
+      en: "Enable Feishu Docx Tools",
+      "zh-Hans": "启用飞书文档工具",
+    },
+    localizedDescription: {
+      en: "Register Feishu docx create/read/append tools for this channel.",
+      "zh-Hans": "为当前飞书渠道注册新版文档（docx）的创建、读取和追加工具。",
+    },
+    required: false,
+    dataKind: "boolean",
+    masked: false,
+    interactiveSetupOnly: false,
+    defaultValue: false,
+  },
+  {
     key: "feishu.debug.adapterStream",
     displayLabel: "Debug Adapter Stream",
     description: "Enable detailed adapter stream diagnostics.",

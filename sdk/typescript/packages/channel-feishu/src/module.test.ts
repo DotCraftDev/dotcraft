@@ -49,3 +49,11 @@ test("config descriptors are non-empty and have required fields", () => {
     assert.equal(typeof descriptor.masked, "boolean");
   }
 });
+
+test("config descriptors expose the Feishu docx tool toggle", () => {
+  const descriptor = configDescriptors.find((item) => item.key === "feishu.tools.docs.enabled");
+  assert.ok(descriptor);
+  assert.equal(descriptor?.dataKind, "boolean");
+  assert.equal(descriptor?.required, false);
+  assert.equal(descriptor?.advanced ?? false, false);
+});
