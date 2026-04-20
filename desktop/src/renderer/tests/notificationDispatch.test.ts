@@ -45,29 +45,34 @@ function dispatch(payload: { method: string; params: unknown }): void {
       break
     }
 
+    case 'thread/runtimeChanged': {
+      const threadId = (p.threadId as string | undefined) ?? ''
+      if (!threadId) break
+      threads.applyRuntimeSnapshot(threadId, {
+        running: p.runtime != null && typeof p.runtime === 'object' && (p.runtime as Record<string, unknown>).running === true,
+        waitingOnApproval: p.runtime != null && typeof p.runtime === 'object' && (p.runtime as Record<string, unknown>).waitingOnApproval === true,
+        waitingOnPlanConfirmation: p.runtime != null && typeof p.runtime === 'object' && (p.runtime as Record<string, unknown>).waitingOnPlanConfirmation === true
+      }, {
+        isActive: threads.activeThreadId === threadId,
+        isDesktopOrigin: true
+      })
+      break
+    }
+
     case 'turn/started': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
       conv.onTurnStarted(rawTurn)
-      const startedThreadId =
-        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-      if (startedThreadId) threads.markTurnStarted(startedThreadId)
       break
     }
 
     case 'turn/completed': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
-      const completedThreadId =
-        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-      if (completedThreadId) threads.markTurnEnded(completedThreadId)
       conv.onTurnCompleted(rawTurn)
       break
     }
 
     case 'turn/failed': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
-      const failedThreadId =
-        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-      if (failedThreadId) threads.markTurnEnded(failedThreadId)
       const error = (p.error as string) ?? 'Unknown error'
       conv.onTurnFailed(rawTurn, error)
       break
@@ -75,9 +80,6 @@ function dispatch(payload: { method: string; params: unknown }): void {
 
     case 'turn/cancelled': {
       const rawTurn = (p.turn ?? p) as Record<string, unknown>
-      const cancelledThreadId =
-        (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-      if (cancelledThreadId) threads.markTurnEnded(cancelledThreadId)
       const reason = (p.reason as string) ?? ''
       conv.onTurnCancelled(rawTurn, reason)
       break
@@ -279,6 +281,13 @@ describe('notification dispatch payload format', () => {
 
   it('dispatches turn/started correctly from { method, params } payload', () => {
     dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'thread-1',
+        runtime: { running: true, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
+    dispatch({
       method: 'turn/started',
       params: { turn: makeTurnPayload('turn_server_1') }
     })
@@ -291,7 +300,21 @@ describe('notification dispatch payload format', () => {
   })
 
   it('dispatches turn/completed and sets status to idle', () => {
+    dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'thread-1',
+        runtime: { running: true, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'thread-1',
+        runtime: { running: false, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
     dispatch({
       method: 'turn/completed',
       params: { turn: makeTurnPayload('turn_1', 'completed') }
@@ -304,7 +327,21 @@ describe('notification dispatch payload format', () => {
   })
 
   it('dispatches turn/failed', () => {
+    dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'thread-1',
+        runtime: { running: true, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'thread-1',
+        runtime: { running: false, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
     dispatch({
       method: 'turn/failed',
       params: { turn: makeTurnPayload('turn_1', 'failed'), error: 'API rate limit' }
@@ -317,7 +354,21 @@ describe('notification dispatch payload format', () => {
   })
 
   it('dispatches turn/cancelled', () => {
+    dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'thread-1',
+        runtime: { running: true, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
     dispatch({ method: 'turn/started', params: { turn: makeTurnPayload('turn_1') } })
+    dispatch({
+      method: 'thread/runtimeChanged',
+      params: {
+        threadId: 'thread-1',
+        runtime: { running: false, waitingOnApproval: false, waitingOnPlanConfirmation: false }
+      }
+    })
     dispatch({
       method: 'turn/cancelled',
       params: { turn: makeTurnPayload('turn_1', 'cancelled'), reason: 'user requested' }

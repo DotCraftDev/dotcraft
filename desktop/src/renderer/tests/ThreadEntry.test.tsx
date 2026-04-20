@@ -44,7 +44,12 @@ describe('ThreadEntry', () => {
       activeThread: null,
       searchQuery: '',
       loading: false,
-      runningTurnThreadIds: new Set<string>()
+      runningTurnThreadIds: new Set<string>(),
+      parkedApprovals: new Map(),
+      runtimeSnapshots: new Map(),
+      pendingApprovalThreadIds: new Set<string>(),
+      pendingPlanConfirmationThreadIds: new Set<string>(),
+      unreadCompletedThreadIds: new Set<string>()
     })
 
     Object.defineProperty(window, 'api', {
@@ -260,5 +265,61 @@ describe('ThreadEntry', () => {
 
     expect(screen.getByLabelText('Origin channel: qq')).toBeInTheDocument()
     expect(screen.queryByText('qq')).not.toBeInTheDocument()
+  })
+
+  it('shows pending approval badge over pending confirmation badge for inactive thread', () => {
+    useThreadStore.setState({
+      pendingApprovalThreadIds: new Set<string>(['thread-1']),
+      pendingPlanConfirmationThreadIds: new Set<string>(['thread-1'])
+    })
+
+    renderThreadEntry(makeThread())
+
+    expect(screen.getByText('Awaiting approval')).toBeInTheDocument()
+    expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument()
+  })
+
+  it('shows pending confirmation badge when approval is not pending', () => {
+    useThreadStore.setState({
+      pendingPlanConfirmationThreadIds: new Set<string>(['thread-1'])
+    })
+
+    renderThreadEntry(makeThread())
+
+    expect(screen.getByText('Awaiting confirmation')).toBeInTheDocument()
+  })
+
+  it('hides pending badges for active thread', () => {
+    useThreadStore.setState({
+      activeThreadId: 'thread-1',
+      pendingApprovalThreadIds: new Set<string>(['thread-1']),
+      pendingPlanConfirmationThreadIds: new Set<string>(['thread-1'])
+    })
+
+    renderThreadEntry(makeThread())
+
+    expect(screen.queryByText('Awaiting approval')).not.toBeInTheDocument()
+    expect(screen.queryByText('Awaiting confirmation')).not.toBeInTheDocument()
+  })
+
+  it('shows unread completed dot when thread finished in background', () => {
+    useThreadStore.setState({
+      unreadCompletedThreadIds: new Set<string>(['thread-1'])
+    })
+
+    renderThreadEntry(makeThread())
+
+    expect(screen.getByLabelText('New result')).toBeInTheDocument()
+  })
+
+  it('keeps origin channel icon visible during archive confirm state', async () => {
+    renderThreadEntry(makeThread({ originChannel: 'qq' }))
+
+    const row = await screen.findByTestId('thread-entry-thread-1')
+    fireEvent.mouseEnter(row)
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }))
+
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeVisible()
+    expect(screen.getByLabelText('Origin channel: qq')).toBeVisible()
   })
 })

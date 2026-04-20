@@ -23,6 +23,8 @@ public sealed class SandboxToolProvider : IAgentToolProvider
             return [];
 
         var tools = new List<AITool>();
+        var requireOutside =
+            context.RequireApprovalOutsideWorkspace ?? context.Config.Tools.File.RequireApprovalOutsideWorkspace;
 
         // Create sandbox session manager and register for disposal
         var sandboxManager = new SandboxSessionManager(sandboxConfig, context.WorkspacePath);
@@ -56,11 +58,18 @@ public sealed class SandboxToolProvider : IAgentToolProvider
             context.Config.SubagentMaxToolCallRounds,
             maxConcurrency: context.Config.SubagentMaxConcurrency,
             shellTimeout: context.Config.Tools.Shell.Timeout,
+            requireApprovalOutsideWorkspace: requireOutside,
             reasoningConfig: context.Config.Reasoning,
             blacklist: context.PathBlacklist,
             sandboxManager: sandboxManager,
+            approvalService: context.ApprovalService,
             traceCollector: context.TraceCollector);
-        var agentTools = new AgentTools(subAgentManager);
+        var subAgentCoordinator = new SubAgentCoordinator(
+            context.WorkspacePath,
+            [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
+            context.Config.SubAgentProfiles,
+            context.ApprovalService);
+        var agentTools = new AgentTools(subAgentCoordinator);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 
         // Web tools — no isolation needed, reuse as-is

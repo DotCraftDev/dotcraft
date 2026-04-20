@@ -69,6 +69,9 @@ public sealed class SessionService(
     /// <inheritdoc />
     public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
+
     // =========================================================================
     // Thread lifecycle
     // =========================================================================
@@ -476,6 +479,7 @@ public sealed class SessionService(
 
         // Step 4: Emit initial events synchronously so the caller sees them before awaiting
         eventChannel.EmitTurnStarted(turn);
+        ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnStarted);
         eventChannel.EmitItemStarted(userItem);
         eventChannel.EmitItemCompleted(userItem);
 
@@ -573,7 +577,8 @@ public sealed class SessionService(
                             NextItemSeq,
                             _approvalTimeout,
                             cts.Cancel,
-                            approvalStore);
+                            approvalStore,
+                            ThreadRuntimeSignalForBroadcast);
                         _pendingApprovals[turnKey] = sessionApproval;
                         turnApprovalService = sessionApproval;
                         break;
@@ -1010,6 +1015,11 @@ public sealed class SessionService(
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 thread.LastActiveAt = DateTimeOffset.UtcNow;
                 eventChannel.EmitTurnCompleted(turn);
+                ThreadRuntimeSignalForBroadcast?.Invoke(
+                    threadId,
+                    EndsWithSuccessfulCreatePlanInPlanMode(thread, turn)
+                        ? SessionThreadRuntimeSignal.TurnCompletedAwaitingPlanConfirmation
+                        : SessionThreadRuntimeSignal.TurnCompleted);
 
                 try
                 {
@@ -1026,6 +1036,7 @@ public sealed class SessionService(
                 turn.Status = TurnStatus.Cancelled;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 eventChannel.EmitTurnCancelled(turn, "Cancelled by request");
+                ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnCancelled);
                 await TrySaveThreadAsync(thread);
             }
             catch (OperationCanceledException)
@@ -1034,11 +1045,13 @@ public sealed class SessionService(
                 turn.Status = TurnStatus.Cancelled;
                 turn.CompletedAt = DateTimeOffset.UtcNow;
                 eventChannel.EmitTurnCancelled(turn, "Caller cancelled");
+                ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnCancelled);
             }
             catch (Exception ex)
             {
                 logger?.LogError(ex, "Turn execution failed for thread {ThreadId}", threadId);
                 FailTurn(turn, eventChannel, ex.Message);
+                ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
                 await TrySaveThreadAsync(thread);
             }
             finally
@@ -1287,6 +1300,31 @@ public sealed class SessionService(
         turn.Error = errorMsg;
         turn.CompletedAt = DateTimeOffset.UtcNow;
         channel.EmitTurnFailed(turn, errorMsg);
+    }
+
+    private static bool EndsWithSuccessfulCreatePlanInPlanMode(SessionThread thread, SessionTurn turn)
+    {
+        if (!string.Equals(thread.Configuration?.Mode, "plan", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        for (var idx = turn.Items.Count - 1; idx >= 0; idx--)
+        {
+            if (turn.Items[idx].Payload is not ToolCallPayload toolCall)
+                continue;
+
+            if (!string.Equals(toolCall.ToolName, "CreatePlan", StringComparison.Ordinal))
+                return false;
+
+            return turn.Items
+                .Where(item => item.Payload is ToolResultPayload)
+                .Select(item => item.Payload as ToolResultPayload)
+                .Any(result =>
+                    result != null
+                    && string.Equals(result.CallId, toolCall.CallId, StringComparison.Ordinal)
+                    && result.Success);
+        }
+
+        return false;
     }
 
     private async Task TrySaveThreadAsync(SessionThread thread)

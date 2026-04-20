@@ -1,0 +1,119 @@
+# External CLI 子代理指南
+
+External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入 DotCraft。相比 `native`，外部 CLI 通常只提供阶段级进度，不提供逐工具调用细节。
+
+## 内置 Profile
+
+| 名称 | runtime | 默认 `bin` | headless 入口 |
+|------|---------|------------|---------------|
+| `native` | `native` | - | DotCraft 原生运行时 |
+| `codex-cli` | `cli-oneshot` | `codex` | `codex exec` |
+| `cursor-cli` | `cli-oneshot` | `cursor-agent` | `cursor-agent --print --output-format json --mode ask` |
+| `custom-cli-oneshot` | `cli-oneshot` | - | 模板 profile，需同名覆盖并补齐 `bin` 后才可用 |
+
+当某个 `cli-oneshot` profile 的 `bin` 在本机不可解析时，DotCraft 会自动将其从系统提示词隐藏，并在启动时于日志中打印隐藏原因（例如 `binary 'cursor-agent' was not found on PATH`）。
+
+## 快速配置
+
+子代理配置位于 `config.json` 的 `SubAgentProfiles`。
+
+- 全局：`~/.craft/config.json`
+- 工作区：`<workspace>/.craft/config.json`
+
+工作区配置会覆盖同名全局 profile。
+
+```json
+{
+  "SubAgentProfiles": {
+    "my-cli": {
+      "runtime": "cli-oneshot",
+      "bin": "my-cli",
+      "workingDirectoryMode": "workspace",
+      "inputMode": "arg",
+      "outputFormat": "text"
+    }
+  }
+}
+```
+
+## 字段参考
+
+| 字段 | 说明 |
+|------|------|
+| `runtime` | 运行时类型。外部 one-shot CLI 使用 `cli-oneshot` |
+| `bin` | CLI 可执行文件名或绝对路径 |
+| `args` | 固定参数列表 |
+| `workingDirectoryMode` | `workspace` / `specified` |
+| `inputMode` | `stdin` / `arg` / `arg-template` / `env` |
+| `inputArgTemplate` | `arg-template` 模式的模板 |
+| `inputEnvKey` | `env` 模式写入任务文本的环境变量名 |
+| `env` | 固定注入到子进程的环境变量 |
+| `envPassthrough` | 从父进程复制的环境变量名列表 |
+| `outputFormat` | `text` 或 `json` |
+| `outputJsonPath` | `json` 模式下提取最终结果的路径 |
+| `readOutputFile` | 是否优先读取输出文件作为最终结果 |
+| `outputFileArgTemplate` | 输出文件参数模板，支持 `{path}` |
+| `timeout` | 单次运行超时秒数 |
+| `maxOutputBytes` | 最大捕获输出字节数 |
+| `trustLevel` | 信任等级：`trusted` / `prompt` / `restricted`（用于描述 profile 默认策略） |
+| `permissionModeMapping` | DotCraft 审批模式到 CLI 参数的映射（键：`interactive` / `auto-approve` / `restricted`） |
+
+## 审批与权限穿透
+
+M6 后，DotCraft 关注的是“审批策略是否穿透到子代理执行”，而不是“启动外部 CLI 前是否弹一次确认”。
+
+### Native 子代理
+
+- Native 子代理内部的 `ReadFile/WriteFile/Exec` 会复用当前会话的 `IApprovalService`。
+- 审批请求会在 command/path 前自动加上前缀：`[subagent:<label>] ...`，便于区分来源。
+- 交互式会话会看到真实审批；自动审批频道会自动放行；`InterruptOnApproval` 频道会直接中断当前 turn。
+
+### External CLI 子代理
+
+- DotCraft 不拦截外部 CLI 内部工具调用，而是把当前审批模式翻译为启动参数。
+- 映射入口是 profile 的 `permissionModeMapping`，典型模式：
+  - `interactive`：保守参数（例如 codex 的 `--sandbox read-only`）。
+  - `auto-approve`：自动化参数（例如 codex 的 bypass 组合）。
+  - `restricted`：最保守参数，避免隐式写入。
+
+内置 `codex-cli` 默认映射：
+
+```json
+{
+  "permissionModeMapping": {
+    "interactive": "--sandbox read-only --ask-for-approval on-request",
+    "auto-approve": "--dangerously-bypass-approvals-and-sandbox",
+    "restricted": "--sandbox read-only"
+  }
+}
+```
+
+### 取消行为
+
+- 用户取消当前 turn（如 Ctrl+C）时，DotCraft 会向运行中的 external CLI 传播取消。
+- Windows 下通过 JobObject 终止子进程树，避免 CLI 及其孙进程残留。
+
+## 厂商 Headless 参考
+
+### `cursor-cli`
+
+厂商文档：[CLI Parameters](https://cursor.com/docs/cli/reference/parameters)、[Headless CLI](https://cursor.com/docs/cli/headless)。
+
+DotCraft 内置基础参数：`--print --output-format json`，再由 `permissionModeMapping` 按当前审批模式补充 `--mode`/`--trust` 相关参数。无交互认证建议设置 `CURSOR_API_KEY`；当该变量存在时，DotCraft 会自动复制到子进程。
+
+### `codex-cli`
+
+厂商文档：[Codex CLI](https://github.com/openai/codex)、[`codex exec` reference](https://github.com/openai/codex/blob/main/docs/cli.md#codex-exec)。
+
+DotCraft 内置调用为：`codex exec --skip-git-repo-check --output-last-message {path} "<task>"`（task 作为 positional prompt），并根据审批模式追加 permission mapping 参数。返回结果默认走 `--output-last-message {path}` 输出文件契约，再由 DotCraft 读取最终文本。
+
+鉴权方面，DotCraft 会自动向子进程透传 `CODEX_API_KEY` 与 `OPENAI_API_KEY`。如果你使用 `codex login`，其登录态也可通过 `HOME`/`USERPROFILE` 下的 `~/.codex` 目录被复用。
+
+## 在你的机器上检查 Profile
+
+DotCraft 在启动时会校验所有 profile，并把被自动隐藏的内置 profile 以日志形式输出，便于定位是缺 `bin`、binary 不在 PATH、还是字段配置有误。检查启动日志即可确认当前哪些 profile 可被模型使用。
+
+## 相关文档
+
+- [配置指南](./config_guide.md)
+- [Dashboard 使用指南](./dash_board_guide.md)

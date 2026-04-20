@@ -22,6 +22,8 @@ public sealed class CoreToolProvider : IAgentToolProvider
             return [];
 
         var tools = new List<AITool>();
+        var requireOutside =
+            context.RequireApprovalOutsideWorkspace ?? context.Config.Tools.File.RequireApprovalOutsideWorkspace;
 
         // Agent tools (subagent spawning)
         var subAgentManager = new SubAgentManager(
@@ -30,17 +32,22 @@ public sealed class CoreToolProvider : IAgentToolProvider
             context.Config.SubagentMaxToolCallRounds,
             maxConcurrency: context.Config.SubagentMaxConcurrency,
             shellTimeout: context.Config.Tools.Shell.Timeout,
+            requireApprovalOutsideWorkspace: requireOutside,
             reasoningConfig: context.Config.Reasoning,
             blacklist: context.PathBlacklist,
+            approvalService: context.ApprovalService,
             traceCollector: context.TraceCollector);
-        var agentTools = new AgentTools(subAgentManager);
+        var subAgentCoordinator = new SubAgentCoordinator(
+            context.WorkspacePath,
+            [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
+            context.Config.SubAgentProfiles,
+            context.ApprovalService);
+        var agentTools = new AgentTools(subAgentCoordinator);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 
         // File tools
         var userDotCraftPath = Path.GetFullPath(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".craft"));
-        var requireOutside =
-            context.RequireApprovalOutsideWorkspace ?? context.Config.Tools.File.RequireApprovalOutsideWorkspace;
         var fileTools = new FileTools(
             context.WorkspacePath,
             requireOutside,

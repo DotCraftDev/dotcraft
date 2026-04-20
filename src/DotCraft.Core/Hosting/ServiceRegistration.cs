@@ -17,6 +17,7 @@ using DotCraft.Skills;
 using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace DotCraft.Hosting;
 
@@ -154,7 +155,22 @@ public static class ServiceRegistration
     public static bool ValidateConfigurations(AppConfig config, ModuleRegistry moduleRegistry)
     {
         var validator = new ConfigValidator(moduleRegistry);
-        return validator.ValidateAndLogErrors(config);
+        var isValid = validator.ValidateAndLogErrors(config);
+        var subAgentWarnings = SubAgentProfileRegistry.ValidateProfiles(
+            config.SubAgentProfiles,
+            SubAgentProfileRegistry.KnownRuntimeTypes);
+        foreach (var warning in subAgentWarnings)
+            AnsiConsole.MarkupLine($"[yellow][[Config]] Warning: SubAgentProfiles - {Markup.Escape(warning)}[/]");
+
+        var subAgentRegistry = new SubAgentProfileRegistry(
+            config.SubAgentProfiles,
+            SubAgentProfileRegistry.CreateBuiltInProfiles(),
+            SubAgentProfileRegistry.KnownRuntimeTypes);
+        var hiddenBuiltInNotes = subAgentRegistry.GetHiddenBuiltInReasons();
+        foreach (var note in hiddenBuiltInNotes)
+            AnsiConsole.MarkupLine($"[grey][[Config]] Note: {Markup.Escape(note)}[/]");
+
+        return isValid;
     }
 }
 

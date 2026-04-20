@@ -4,6 +4,8 @@
 
 [配置与安全指南](./config_guide.md) - 模型、工具、黑名单、工作区边界、审批、Gateway 多 Channel 并发模式
 
+[External CLI 子代理指南](./external_cli_subagents_guide.md) - 外部 coding agent CLI 的 profile 配置、验证流程与常见问题
+
 [AppServer 模式指南](./appserver_guide.md) - Wire Protocol 服务器、WebSocket 传输、远程 CLI 连接
 
 [API 模式指南](./api_guide.md) - OpenAI 兼容 API 服务、工具过滤、SDK 调用示例

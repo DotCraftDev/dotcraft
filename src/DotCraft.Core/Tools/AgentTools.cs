@@ -1,12 +1,13 @@
 using System.ComponentModel;
 using DotCraft.Agents;
+using DotCraft.Security;
 
 namespace DotCraft.Tools;
 
 /// <summary>
 /// Core tools for DotCraft agent.
 /// </summary>
-public sealed class AgentTools(SubAgentManager? subAgentManager = null)
+public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
 {
     [Description("""
         Launch a subagent to autonomously handle a research or exploration task and report back.
@@ -33,11 +34,18 @@ public sealed class AgentTools(SubAgentManager? subAgentManager = null)
         2. Each subagent is stateless — provide a self-contained, highly detailed task prompt so it can work autonomously
         3. Specify exactly what information the subagent should return in its result
         4. The subagent's output is trusted; use it directly to inform your next actions
+        5. Available subagent profiles are listed in the system prompt
+        6. Do not guess profile names that are not listed there
+        7. External CLI profiles may expose stage-level progress, but not native tool-by-tool execution details
+        8. Pass workingDirectory only when the selected profile requires it
         """)]
     [Tool(Icon = "🐧", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.SpawnSubagent))]
+    [StreamArguments(false)]
     public async Task<string> SpawnSubagent(
         [Description("A detailed, self-contained description of the task for the subagent to execute autonomously. Include what to investigate, what tools to use, and exactly what to report back.")] string task,
         [Description("Optional short human-readable label shown in the UI (e.g. 'Explore auth module').")] string? label = null,
+        [Description("Optional named subagent profile. Defaults to native when omitted.")] string? profile = null,
+        [Description("Optional working directory used when the selected profile requires a specified working directory.")] string? workingDirectory = null,
         CancellationToken cancellationToken = default)
     {
         if (subAgentManager == null)
@@ -45,6 +53,15 @@ public sealed class AgentTools(SubAgentManager? subAgentManager = null)
             return "Subagent functionality is not available.";
         }
 
-        return await subAgentManager.SpawnAsync(task, label, cancellationToken);
+        return await subAgentManager.RunAsync(
+            new SubAgentTaskRequest
+            {
+                Task = task,
+                Label = label,
+                WorkingDirectory = workingDirectory,
+                ApprovalContext = ApprovalContextScope.Current
+            },
+            profile,
+            cancellationToken);
     }
 }

@@ -640,6 +640,40 @@ public sealed class ThreadConfigUpdateParams
     public ThreadConfiguration Config { get; set; } = new();
 }
 
+// ───── thread/runtimeChanged (Server → Client notification) ─────
+
+/// <summary>
+/// Lightweight runtime snapshot for a thread, broadcast to all initialized connections.
+/// </summary>
+public sealed class ThreadRuntimeState
+{
+    /// <summary>
+    /// True when the thread currently has a running turn.
+    /// </summary>
+    public bool Running { get; set; }
+
+    /// <summary>
+    /// True when the thread currently has one or more unresolved approval requests.
+    /// </summary>
+    public bool WaitingOnApproval { get; set; }
+
+    /// <summary>
+    /// True after a plan-mode turn ends with a successful terminal CreatePlan tool call,
+    /// until the next turn starts on the same thread.
+    /// </summary>
+    public bool WaitingOnPlanConfirmation { get; set; }
+}
+
+/// <summary>
+/// Notification payload for <c>thread/runtimeChanged</c>.
+/// </summary>
+public sealed class ThreadRuntimeChangedParams
+{
+    public string ThreadId { get; set; } = string.Empty;
+
+    public ThreadRuntimeState Runtime { get; set; } = new();
+}
+
 // ───── turn/start ─────
 
 public sealed class TurnStartParams
@@ -1593,6 +1627,8 @@ public static class AppServerMethods
     public const string ThreadDeleted = "thread/deleted";
     public const string ThreadResumed = "thread/resumed";
     public const string ThreadStatusChanged = "thread/statusChanged";
+    /// <summary>Workspace-level runtime snapshot broadcast for sidebar activity indicators.</summary>
+    public const string ThreadRuntimeChanged = "thread/runtimeChanged";
     /// <summary>Server broadcast when a thread's display name changes (rename RPC or first-message title).</summary>
     public const string ThreadRenamed = "thread/renamed";
     public const string TurnStarted = "turn/started";

@@ -188,4 +188,12 @@ public interface ISessionService
     /// <c>thread/renamed</c> on AppServer so UIs keep thread lists in sync.
     /// </summary>
     Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
+
+    /// <summary>
+    /// Optional hook invoked when a thread's aggregated runtime state changes in a way that may
+    /// affect workspace-level activity indicators (running, waiting approval, waiting plan confirmation).
+    /// Hosts may aggregate these signals and broadcast lightweight snapshots such as
+    /// <c>thread/runtimeChanged</c> to connected clients.
+    /// </summary>
+    Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
 }

@@ -43,6 +43,16 @@ config.json
 - 已选定一个项目目录作为 DotCraft workspace（运行 `dotcraft` 时的当前工作目录）
 - GitHub 场景需要：一个作用域限定到目标仓库的 [Fine-grained Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)
 
+## 自动化频道中的审批行为
+
+Automations 通常运行在 `AutoApprove` 策略下，这会影响子代理行为：
+
+- Native 子代理内部的文件/命令审批会自动通过（与主 Agent 在自动化模式下的行为一致）。
+- External CLI 子代理会优先使用 profile 中 `permissionModeMapping["auto-approve"]` 对应的启动参数。
+- 对内置 `codex-cli`，这意味着在自动化模式下会注入 bypass 相关参数组合。
+
+如果你希望某个自动化任务更保守，可以在工作区配置里覆盖该 profile 的 `permissionModeMapping`。
+
 ---
 
 ## 本地任务示例

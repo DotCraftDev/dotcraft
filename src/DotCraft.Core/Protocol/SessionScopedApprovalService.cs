@@ -12,6 +12,7 @@ namespace DotCraft.Protocol;
 public sealed class SessionScopedApprovalService(IApprovalService inner) : IApprovalService
 {
     private static readonly AsyncLocal<IApprovalService?> Override = new();
+    private readonly IApprovalService _inner = inner;
 
     /// <summary>
     /// Sets the Turn-scoped approval service for the current async context.
@@ -27,13 +28,16 @@ public sealed class SessionScopedApprovalService(IApprovalService inner) : IAppr
         string operation,
         string path,
         ApprovalContext? context = null) =>
-        (Override.Value ?? inner).RequestFileApprovalAsync(operation, path, context);
+        GetEffectiveService().RequestFileApprovalAsync(operation, path, context);
 
     public Task<bool> RequestShellApprovalAsync(
         string command,
         string? workingDir,
         ApprovalContext? context = null) =>
-        (Override.Value ?? inner).RequestShellApprovalAsync(command, workingDir, context);
+        GetEffectiveService().RequestShellApprovalAsync(command, workingDir, context);
+
+    internal IApprovalService GetEffectiveService()
+        => Override.Value ?? _inner;
 
     private sealed class OverrideScope : IDisposable
     {

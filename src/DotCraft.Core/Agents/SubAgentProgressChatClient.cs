@@ -53,8 +53,7 @@ internal sealed class SubAgentProgressChatClient(
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        await foreach (var update in base.GetStreamingResponseAsync(chatMessages, options, cancellationToken)
-                           .WithCancellation(cancellationToken))
+        await foreach (var update in base.GetStreamingResponseAsync(chatMessages, options, cancellationToken))
         {
             foreach (var content in update.Contents)
             {
