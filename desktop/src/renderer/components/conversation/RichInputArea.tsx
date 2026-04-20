@@ -631,11 +631,26 @@ export const RichInputArea = forwardRef(function RichInputArea(
         }
         return
       }
+      if (atParsed && skillParsed) {
+        const atStart = before.length - atParsed.fullMatch.length
+        const skillStart = before.length - skillParsed.fullMatch.length
+        if (atStart > skillStart) {
+          onAtQuery?.(atParsed.query)
+          onSlashQuery?.(null)
+          onSkillQuery?.(null)
+        } else {
+          onAtQuery?.(null)
+          onSlashQuery?.(null)
+          onSkillQuery?.(skillParsed.query)
+        }
+        return
+      }
       if (atParsed) {
         onAtQuery?.(atParsed.query)
         onSlashQuery?.(null)
         onSkillQuery?.(null)
         return
+      }
       }
       if (slashParsed) {
         onAtQuery?.(null)
