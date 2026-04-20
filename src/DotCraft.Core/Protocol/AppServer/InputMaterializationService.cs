@@ -13,7 +13,13 @@ internal sealed class InputMaterializationService(
 {
     public SessionInputMaterializationResult Materialize(IReadOnlyList<SessionWireInputPart> input)
     {
-        var nativeParts = Normalize(input);
+        var nativeParts = NormalizeInputParts(input);
+        return MaterializeNormalized(nativeParts);
+    }
+
+    public SessionInputMaterializationResult MaterializeNormalized(IReadOnlyList<SessionWireInputPart> input)
+    {
+        var nativeParts = input.ToList();
         var materializedParts = new List<SessionWireInputPart>();
 
         foreach (var part in nativeParts)
@@ -29,7 +35,7 @@ internal sealed class InputMaterializationService(
         };
     }
 
-    private List<SessionWireInputPart> Normalize(IReadOnlyList<SessionWireInputPart> input)
+    internal static List<SessionWireInputPart> NormalizeInputParts(IReadOnlyList<SessionWireInputPart> input)
     {
         var normalized = new List<SessionWireInputPart>(input.Count);
         foreach (var part in input)

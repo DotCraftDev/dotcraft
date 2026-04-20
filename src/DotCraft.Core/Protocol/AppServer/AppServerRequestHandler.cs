@@ -831,8 +831,11 @@ public sealed class AppServerRequestHandler(
         if (p.Input.Count == 0)
             throw AppServerErrors.InvalidParams("'input' must contain at least one part.");
 
-        var materializedInput = new InputMaterializationService(_commandRegistry, skillsLoader)
-            .Materialize(p.Input);
+        var inputMaterialization = new InputMaterializationService(_commandRegistry, skillsLoader);
+        var normalizedInput = InputMaterializationService.NormalizeInputParts(p.Input);
+        ValidateTurnStartInput(normalizedInput);
+
+        var materializedInput = inputMaterialization.MaterializeNormalized(normalizedInput);
         var content = await ResolveInputPartsAsync(materializedInput.MaterializedInputParts.ToList(), ct);
 
         // Set ChannelSessionScope so that SessionService.ResolveApprovalSource returns the correct
@@ -1475,6 +1478,8 @@ public sealed class AppServerRequestHandler(
         };
 
         var commands = _commandRegistry.ListCommands(language: overrideLanguage)
+            .Where(c => p.IncludeBuiltins != false ||
+                !string.Equals(c.Category, "builtin", StringComparison.OrdinalIgnoreCase))
             .Where(c =>
             {
                 var reg = _commandRegistry.GetRegistration(c.Name);
@@ -1595,6 +1600,31 @@ public sealed class AppServerRequestHandler(
         if (!registration.RequiresAdmin)
             return true;
         return string.Equals(sender?.SenderRole, "admin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ValidateTurnStartInput(IReadOnlyList<SessionWireInputPart> input)
+    {
+        foreach (var part in input)
+        {
+            if (!string.Equals(part.Type, "commandRef", StringComparison.Ordinal))
+                continue;
+
+            var commandName = !string.IsNullOrWhiteSpace(part.Name)
+                ? part.Name
+                : ExtractCommandName(part.RawText ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(commandName))
+                continue;
+
+            var registration = _commandRegistry.GetRegistration(commandName);
+            if (registration == null ||
+                string.Equals(registration.Category, "custom", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            throw AppServerErrors.InvalidParams(
+                $"Built-in slash command '{registration.Name}' cannot be sent as 'commandRef' in 'turn/start'. Use 'command/execute' or dedicated UI instead.");
+        }
     }
 
     private static string ExtractCommandName(string rawCommand)
