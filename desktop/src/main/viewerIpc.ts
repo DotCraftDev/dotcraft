@@ -6,7 +6,8 @@
  *  - `workspace:viewer:classify`     — classify a file into text / image / pdf / unsupported
  *  - `workspace:viewer:read-text`    — read a text file with optional size cap
  *
- * All handlers apply the workspace boundary check before serving any data.
+ * `list-files` is workspace-scoped (discovery surface), while classify/read-text
+ * can operate on any readable local file (deep-link surface, M3).
  */
 import { promises as fs } from 'fs'
 import * as path from 'path'
@@ -114,7 +115,7 @@ function extToMime(ext: string): string {
   return map[ext] ?? 'application/octet-stream'
 }
 
-// ─── Workspace boundary ────────────────────────────────────────────────────────
+// ─── Workspace boundary (kept for list/discovery helpers and tests) ──────────
 
 /**
  * Returns true if `targetPath` is inside `workspaceRoot` after resolving both
@@ -145,9 +146,8 @@ export async function classifyFile(
   absolutePath: string,
   workspaceRoot: string
 ): Promise<ClassifyResult> {
-  if (!(await isPathInsideWorkspace(absolutePath, workspaceRoot))) {
-    throw new Error(`Access denied: path is outside workspace: ${absolutePath}`)
-  }
+  // M3 deep-links are allowed to target readable local files outside workspace.
+  void workspaceRoot
 
   const stat = await fs.stat(absolutePath)
   if (!stat.isFile()) {
@@ -212,9 +212,8 @@ export async function readTextFile(
   workspaceRoot: string,
   limitBytes: number = DEFAULT_READ_LIMIT_BYTES
 ): Promise<ReadTextResult> {
-  if (!(await isPathInsideWorkspace(absolutePath, workspaceRoot))) {
-    throw new Error(`Access denied: path is outside workspace: ${absolutePath}`)
-  }
+  // M3 deep-links are allowed to target readable local files outside workspace.
+  void workspaceRoot
 
   const stat = await fs.stat(absolutePath)
   if (!stat.isFile()) {

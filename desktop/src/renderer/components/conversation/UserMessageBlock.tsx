@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Sparkle, Terminal } from 'lucide-react'
+import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
+import { useThreadStore } from '../../stores/threadStore'
 import { ImageLightbox } from './ImageLightbox'
 import { MessageCopyButton } from './MessageCopyButton'
 import { parseUserMessageSegments, segmentsFromNativeInputParts } from './parseUserMessageSegments'
 import type { InputPart, UserMessageImageRef } from '../../types/conversation'
+import { openImagePathInViewer } from '../../utils/conversationDeepLink'
 
 const imageDataUrlCache = new Map<string, string>()
 
@@ -21,12 +24,16 @@ interface UserMessageBlockProps {
  * `@relative/path` tokens (from RichInputArea) render as compact file chips.
  */
 export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images }: UserMessageBlockProps): JSX.Element {
+  const t = useT()
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
-  const [hydratedImageDataUrls, setHydratedImageDataUrls] = useState<string[]>(imageDataUrls ?? [])
+  const [hydratedImages, setHydratedImages] = useState<Array<{ url: string; absolutePath?: string }>>(
+    (imageDataUrls ?? []).map((url) => ({ url }))
+  )
   const [failedImageCount, setFailedImageCount] = useState(0)
   const workspacePath = useConversationStore((s) => s.workspacePath)
-  const hasImages = hydratedImageDataUrls.length > 0
+  const activeThreadId = useThreadStore((s) => s.activeThreadId)
+  const hasImages = hydratedImages.length > 0
   const segments = nativeInputParts != null && nativeInputParts.length > 0
     ? segmentsFromNativeInputParts(nativeInputParts)
     : text.length > 0
@@ -43,23 +50,23 @@ export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images
     const hydrateImages = async (): Promise<void> => {
       if (Array.isArray(imageDataUrls) && imageDataUrls.length > 0) {
         if (cancelled) return
-        setHydratedImageDataUrls(imageDataUrls)
+        setHydratedImages(imageDataUrls.map((url) => ({ url })))
         setFailedImageCount(0)
         return
       }
       if (!Array.isArray(images) || images.length === 0) {
         if (cancelled) return
-        setHydratedImageDataUrls([])
+        setHydratedImages([])
         setFailedImageCount(0)
         return
       }
 
-      const loaded: string[] = []
+      const loaded: Array<{ url: string; absolutePath?: string }> = []
       let failed = 0
       for (const image of images) {
         const cached = imageDataUrlCache.get(image.path)
         if (cached) {
-          loaded.push(cached)
+          loaded.push({ url: cached, absolutePath: image.path })
           continue
         }
         try {
@@ -67,7 +74,7 @@ export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images
           const dataUrl = result.dataUrl
           if (dataUrl) {
             imageDataUrlCache.set(image.path, dataUrl)
-            loaded.push(dataUrl)
+            loaded.push({ url: dataUrl, absolutePath: image.path })
           } else {
             failed++
           }
@@ -76,7 +83,7 @@ export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images
         }
       }
       if (cancelled) return
-      setHydratedImageDataUrls(loaded)
+      setHydratedImages(loaded)
       setFailedImageCount(failed)
     }
 
@@ -118,12 +125,26 @@ export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images
               gap: '8px'
             }}
           >
-            {hydratedImageDataUrls.map((url, idx) => (
+            {hydratedImages.map((imageItem, idx) => (
               <button
-                key={`${idx}-${url.slice(0, 32)}`}
+                key={`${idx}-${imageItem.url.slice(0, 32)}`}
                 type="button"
                 onClick={() => {
-                  setLightboxSrc(url)
+                  const fallbackToLightbox = (): void => {
+                    setLightboxSrc(imageItem.url)
+                  }
+                  if (!imageItem.absolutePath || !workspacePath || !activeThreadId) {
+                    fallbackToLightbox()
+                    return
+                  }
+                  void openImagePathInViewer({
+                    absolutePath: imageItem.absolutePath,
+                    workspacePath,
+                    threadId: activeThreadId,
+                    t
+                  }).then((opened) => {
+                    if (!opened) fallbackToLightbox()
+                  })
                 }}
                 style={{
                   padding: 0,
@@ -137,7 +158,7 @@ export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images
                 aria-label={`View attached image ${idx + 1}`}
               >
                 <img
-                  src={url}
+                  src={imageItem.url}
                   alt=""
                   style={{
                     maxHeight: '80px',

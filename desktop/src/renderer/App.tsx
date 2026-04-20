@@ -217,6 +217,7 @@ export function App(): JSX.Element {
   // Notify viewerTabStore when workspace changes so all viewer tabs are cleared.
   useEffect(() => {
     useViewerTabStore.getState().onWorkspaceSwitched(workspacePath)
+    useUIStore.getState().resetAutoShowReasons()
   }, [workspacePath])
 
   useEffect(() => {
@@ -845,6 +846,23 @@ export function App(): JSX.Element {
         return
       }
 
+      // Ctrl+P / Cmd+P: open Quick-Open file finder
+      if (ctrl && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
+        const target = e.target as HTMLElement | null
+        if (target?.closest('[role="dialog"], [aria-modal="true"]')) {
+          return
+        }
+        const ui = useUIStore.getState()
+        if (ui.quickOpenVisible) {
+          e.preventDefault()
+          return
+        }
+        e.preventDefault()
+        ui.setQuickOpenVisible(true)
+        ui.setDetailPanelVisible(true)
+        return
+      }
+
       // Ctrl+Shift+B: toggle detail panel
       if (ctrl && e.shiftKey && e.key === 'B') {
         e.preventDefault()
@@ -920,6 +938,7 @@ export function App(): JSX.Element {
   // uiStore.activeDetailTab according to the incoming thread's viewer state (M1 §9.5).
   useEffect(() => {
     const viewerStore = useViewerTabStore.getState()
+    useUIStore.getState().resetAutoShowReasons()
     const outgoingThreadId = viewerStore.currentThreadId
     if (outgoingThreadId) {
       const outgoingState = viewerStore.getThreadState(outgoingThreadId)

@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Version** | 0.1.0 |
-| **Status** | Draft |
+| **Status** | Implemented |
 | **Date** | 2026-04-20 |
 | **Parent Spec** | [Desktop Client](desktop-client.md), [Desktop Viewer Panel M1](desktop-viewer-panel-m1.md), [Desktop Viewer Panel M2](desktop-viewer-panel-m2.md) |
 

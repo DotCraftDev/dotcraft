@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
+import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
 import { CommitDialog } from '../detail/CommitDialog'
 import { CommitIcon } from '../ui/AppIcons'
 import { OpenWorkspaceButton } from './OpenWorkspaceButton'
@@ -24,6 +26,8 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
   const [renameValue, setRenameValue] = useState(threadName)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const changedFiles = useConversationStore((s) => s.changedFiles)
+  const detailPanelPreferredVisible = useUIStore((s) => s.detailPanelPreferredVisible)
+  const toggleDetailPanel = useUIStore((s) => s.toggleDetailPanel)
 
   const writtenFiles = Array.from(changedFiles.values()).filter((f) => f.status === 'written')
   const hasWrittenFiles = writtenFiles.length > 0
@@ -131,6 +135,17 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
 
         {/* Open button */}
         <OpenWorkspaceButton workspacePath={workspacePath} />
+
+        <button
+          onClick={toggleDetailPanel}
+          title={detailPanelPreferredVisible ? t('threadHeader.panelToggleHide') : t('threadHeader.panelToggleShow')}
+          aria-label={detailPanelPreferredVisible ? t('threadHeader.panelToggleHide') : t('threadHeader.panelToggleShow')}
+          style={headerButtonStyle}
+        >
+          {detailPanelPreferredVisible
+            ? <PanelRightClose size={13} aria-hidden />
+            : <PanelRightOpen size={13} aria-hidden />}
+        </button>
 
         {/* Commit button */}
         <button

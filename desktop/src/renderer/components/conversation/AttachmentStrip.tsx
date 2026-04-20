@@ -1,4 +1,8 @@
 import type { ComposerFileAttachment, ImageAttachment } from '../../types/conversation'
+import { useConversationStore } from '../../stores/conversationStore'
+import { useThreadStore } from '../../stores/threadStore'
+import { useT } from '../../contexts/LocaleContext'
+import { openImagePathInViewer } from '../../utils/conversationDeepLink'
 
 interface AttachmentStripProps {
   images: ImageAttachment[]
@@ -44,7 +48,18 @@ export function AttachmentStrip({
   removeImageLabel = 'Remove image',
   removeFileLabel = 'Remove file'
 }: AttachmentStripProps): JSX.Element | null {
+  const t = useT()
+  const workspacePath = useConversationStore((s) => s.workspacePath)
+  const activeThreadId = useThreadStore((s) => s.activeThreadId)
   if (images.length === 0 && files.length === 0) return null
+
+  const normalizePath = (value: string): string => value.replace(/\\/g, '/').replace(/\/+$/, '')
+  const isWorkspaceBacked = (candidatePath: string): boolean => {
+    if (!workspacePath) return false
+    const workspaceNorm = normalizePath(workspacePath).toLowerCase()
+    const candidateNorm = normalizePath(candidatePath).toLowerCase()
+    return candidateNorm === workspaceNorm || candidateNorm.startsWith(`${workspaceNorm}/`)
+  }
 
   return (
     <div
@@ -65,17 +80,41 @@ export function AttachmentStrip({
             background: 'var(--bg-tertiary)'
           }}
         >
-          <img
-            src={img.dataUrl}
-            alt=""
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: '3px',
-              objectFit: 'cover',
-              flexShrink: 0
+          <button
+            type="button"
+            onClick={() => {
+              if (!activeThreadId || !isWorkspaceBacked(img.tempPath)) return
+              void openImagePathInViewer({
+                absolutePath: img.tempPath,
+                workspacePath,
+                threadId: activeThreadId,
+                t
+              })
             }}
-          />
+            disabled={!activeThreadId || !isWorkspaceBacked(img.tempPath)}
+            title={isWorkspaceBacked(img.tempPath) ? img.fileName : undefined}
+            style={{
+              padding: 0,
+              border: 'none',
+              background: 'transparent',
+              lineHeight: 0,
+              borderRadius: '3px',
+              cursor: activeThreadId && isWorkspaceBacked(img.tempPath) ? 'pointer' : 'default',
+              opacity: activeThreadId && isWorkspaceBacked(img.tempPath) ? 1 : 0.9
+            }}
+          >
+            <img
+              src={img.dataUrl}
+              alt=""
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: '3px',
+                objectFit: 'cover',
+                flexShrink: 0
+              }}
+            />
+          </button>
           <span
             style={{
               overflow: 'hidden',

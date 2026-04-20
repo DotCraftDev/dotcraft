@@ -59,6 +59,26 @@ describe('openFile', () => {
 
     expect(store().getThreadState(THREAD_A).tabs).toHaveLength(2)
   })
+
+  it('creates a new tab when forceNew=true even if absolutePath matches', () => {
+    store().onThreadSwitched(THREAD_A)
+    const id1 = store().openFile({
+      threadId: THREAD_A,
+      absolutePath: `${WS_PATH}/src/foo.ts`,
+      relativePath: 'src/foo.ts',
+      contentClass: 'text'
+    })
+    const id2 = store().openFile({
+      threadId: THREAD_A,
+      absolutePath: `${WS_PATH}/src/foo.ts`,
+      relativePath: 'src/foo.ts',
+      contentClass: 'text',
+      forceNew: true
+    })
+    expect(id2).not.toBe(id1)
+    expect(store().getThreadState(THREAD_A).tabs).toHaveLength(2)
+    expect(store().getThreadState(THREAD_A).activeTabId).toBe(id2)
+  })
 })
 
 describe('openBrowser / updateBrowserTab', () => {
@@ -100,6 +120,34 @@ describe('openBrowser / updateBrowserTab', () => {
       expect(tab.canGoBack).toBe(true)
       expect(tab.faviconDataUrl).toContain('data:image/png;base64')
     }
+  })
+
+  it('focuses matching browser tab by normalized URL', () => {
+    store().onThreadSwitched(THREAD_A)
+    const browserA = store().openBrowser({
+      threadId: THREAD_A,
+      initialUrl: 'https://example.com/'
+    })
+    store().openBrowser({
+      threadId: THREAD_A,
+      initialUrl: 'https://example.com/path/?q=1'
+    })
+    const focused = store().focusBrowserTabByUrl({
+      threadId: THREAD_A,
+      url: 'HTTPS://Example.com#section'
+    })
+    expect(focused).toBe(browserA)
+    expect(store().getThreadState(THREAD_A).activeTabId).toBe(browserA)
+  })
+
+  it('does not leak browser URL focus across threads', () => {
+    store().openBrowser({ threadId: THREAD_A, initialUrl: 'https://example.com/' })
+    const browserB = store().openBrowser({ threadId: THREAD_B, initialUrl: 'https://example.com/' })
+    const focused = store().focusBrowserTabByUrl({
+      threadId: THREAD_A,
+      url: 'https://example.com'
+    })
+    expect(focused).not.toBe(browserB)
   })
 })
 

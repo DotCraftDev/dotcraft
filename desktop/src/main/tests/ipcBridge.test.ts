@@ -80,6 +80,8 @@ import {
   registerIpcHandlers,
   unregisterIpcHandlers,
   sanitizeHttpOrHttpsUrl,
+  sanitizeExternalUrl,
+  openExternalUrl,
   openExternalHttpUrl
 } from '../ipcBridge'
 
@@ -158,6 +160,33 @@ describe('openExternalHttpUrl', () => {
     await openExternalHttpUrl('https://example.com')
     expect(shell.openExternal).toHaveBeenCalledTimes(1)
     expect(shell.openExternal).toHaveBeenCalledWith('https://example.com/')
+  })
+})
+
+describe('sanitizeExternalUrl', () => {
+  it('accepts http(s), mailto, and tel URLs', () => {
+    expect(sanitizeExternalUrl('https://example.com')).toBe('https://example.com/')
+    expect(sanitizeExternalUrl('mailto:test@example.com')).toBe('mailto:test@example.com')
+    expect(sanitizeExternalUrl('tel:+123456789')).toBe('tel:+123456789')
+  })
+
+  it('rejects unsupported schemes and overlong values', () => {
+    expect(sanitizeExternalUrl('file:///tmp/x')).toBeNull()
+    expect(sanitizeExternalUrl(`https://example.com/${'a'.repeat(5000)}`)).toBeNull()
+  })
+})
+
+describe('openExternalUrl', () => {
+  it('allows mailto URLs', async () => {
+    vi.mocked(shell.openExternal).mockClear()
+    await openExternalUrl('mailto:test@example.com')
+    expect(shell.openExternal).toHaveBeenCalledWith('mailto:test@example.com')
+  })
+
+  it('rejects unsupported schemes', async () => {
+    await expect(openExternalUrl('file:///tmp/x')).rejects.toThrow(
+      'Only http(s), mailto, and tel URLs are allowed'
+    )
   })
 })
 

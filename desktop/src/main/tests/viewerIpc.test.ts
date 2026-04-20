@@ -1,6 +1,6 @@
 /**
  * Tests for viewerIpc: classify (extension + magic byte sniffing), read-text
- * (content + truncation), and the workspace boundary check.
+ * (content + truncation), and list-surface workspace boundary helper behavior.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
@@ -125,11 +125,11 @@ describe('classifyFile — extension', () => {
     expect(result.sizeBytes).toBe(Buffer.byteLength(content))
   })
 
-  it('throws when path is outside workspace', async () => {
+  it('allows classifying files outside workspace (deep-link surface)', async () => {
     const other = createTempDir()
     const f = join(other, 'outside.ts')
     writeFileSync(f, '')
-    await expect(classifyFile(f, root)).rejects.toThrow(/outside workspace/)
+    await expect(classifyFile(f, root)).resolves.toMatchObject({ contentClass: 'text' })
   })
 })
 
@@ -232,11 +232,11 @@ describe('readTextFile', () => {
     expect(result.truncated).toBe(false)
   })
 
-  it('throws when file is outside workspace', async () => {
+  it('allows reading text files outside workspace (deep-link surface)', async () => {
     const other = createTempDir()
     const f = join(other, 'secret.ts')
     writeFileSync(f, 'secret')
-    await expect(readTextFile(f, root)).rejects.toThrow(/outside workspace/)
+    await expect(readTextFile(f, root)).resolves.toMatchObject({ text: 'secret', truncated: false })
   })
 
   it('does NOT truncate when file size equals limitBytes exactly', async () => {

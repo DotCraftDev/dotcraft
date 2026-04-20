@@ -21,8 +21,10 @@ import type {
   BrowserViewerTab,
   ViewerContentClass,
   ViewerKind,
-  PerThreadViewerState
+  PerThreadViewerState,
+  FileNavigationHint
 } from '../../shared/viewer/types'
+import { normalizeBrowserUrl } from '../../shared/viewer/linkResolver'
 
 // ─── Label deduplication helpers ────────────────────────────────────────────
 
@@ -137,6 +139,8 @@ interface ViewerTabStoreActions {
     contentClass: ViewerContentClass
     sizeBytes?: number
     kind?: ViewerKind
+    forceNew?: boolean
+    navigationHint?: FileNavigationHint
   }): string
 
   /** Opens a browser tab in the given thread. */
@@ -145,7 +149,11 @@ interface ViewerTabStoreActions {
     target?: string
     initialUrl?: string
     initialLabel?: string
+    forceNew?: boolean
   }): string
+
+  /** Focuses an existing browser tab in the thread by normalized current URL. */
+  focusBrowserTabByUrl(params: { threadId: string; url: string }): string | null
 
   /** Applies browser state updates to an existing browser tab. */
   updateBrowserTab(threadId: string, tabId: string, patch: Partial<BrowserViewerTab>): void
@@ -203,15 +211,24 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
   currentThreadId: null,
   currentWorkspacePath: null,
 
-  openFile({ threadId, absolutePath, relativePath, contentClass, sizeBytes, kind = 'file' }) {
+  openFile({
+    threadId,
+    absolutePath,
+    relativePath,
+    contentClass,
+    sizeBytes,
+    kind = 'file',
+    forceNew = false,
+    navigationHint
+  }) {
     const state = get()
     const threadState = state.getThreadState(threadId)
 
     // Deduplication: if a tab with the same absolutePath already exists, focus it
-    const existing = threadState.tabs.find(
-      (t) => t.kind === kind && t.absolutePath === absolutePath
-    )
-    if (existing) {
+    const existing = forceNew
+      ? undefined
+      : threadState.tabs.find((t) => t.kind === kind && t.absolutePath === absolutePath)
+    if (existing && !forceNew) {
       set((s) => {
         const next = new Map(s.byThread)
         next.set(threadId, { ...threadState, activeTabId: existing.id })
@@ -228,7 +245,8 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
       relativePath,
       label: relativePath, // will be recomputed by computeLabels
       contentClass,
-      ...(sizeBytes !== undefined ? { sizeBytes } : {})
+      ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      ...(navigationHint ? { navigationHint } : {})
     }
 
     const newTabs = computeLabels([...threadState.tabs, newTab])
@@ -264,6 +282,24 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     })
 
     return newTab.id
+  },
+
+  focusBrowserTabByUrl({ threadId, url }) {
+    const state = get()
+    const threadState = state.getThreadState(threadId)
+    const target = normalizeBrowserUrl(url)
+    if (!target) return null
+    const existing = threadState.tabs.find((tab) => {
+      if (tab.kind !== 'browser') return false
+      return normalizeBrowserUrl(tab.currentUrl) === target
+    })
+    if (!existing) return null
+    set((s) => {
+      const next = new Map(s.byThread)
+      next.set(threadId, { ...threadState, activeTabId: existing.id })
+      return { byThread: next }
+    })
+    return existing.id
   },
 
   updateBrowserTab(threadId, tabId, patch) {

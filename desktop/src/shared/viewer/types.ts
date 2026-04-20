@@ -9,6 +9,13 @@ export type ViewerKind = 'file' | 'browser'
 /** Content class resolved for an opened file. */
 export type ViewerContentClass = 'text' | 'image' | 'pdf' | 'unsupported'
 
+export interface FileNavigationHint {
+  line?: number
+  column?: number
+  fragment?: string
+  query?: string
+}
+
 interface ViewerTabBase {
   /** Stable id created at tab-open time. */
   id: string
@@ -33,6 +40,8 @@ export interface FileViewerTab extends ViewerTabBase {
   contentClass: ViewerContentClass
   /** File size in bytes at classification time; used by image viewer for info display. */
   sizeBytes?: number
+  /** Optional deep-link navigation hint (line/column/query/fragment). */
+  navigationHint?: FileNavigationHint
 }
 
 /** Browser-viewer tab descriptor (M2). */

@@ -19,11 +19,16 @@ interface AddTabPopupProps {
 export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Element {
   const t = useT()
   const setQuickOpenVisible = useUIStore((s) => s.setQuickOpenVisible)
+  const setDetailPanelVisible = useUIStore((s) => s.setDetailPanelVisible)
   const setActiveViewerTab = useUIStore((s) => s.setActiveViewerTab)
   const openBrowser = useViewerTabStore((s) => s.openBrowser)
   const activeThreadId = useThreadStore((s) => s.activeThreadId)
   const workspacePath = useConversationStore((s) => s.workspacePath)
   const popupRef = useRef<HTMLDivElement>(null)
+  const shortcutText =
+    window.api.platform === 'darwin'
+      ? t('detailPanel.addTabOpenFileShortcut').replace('Ctrl', 'Cmd')
+      : t('detailPanel.addTabOpenFileShortcut')
 
   // Close on outside click
   useEffect(() => {
@@ -52,6 +57,7 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
 
   const handleOpenFile = (): void => {
     setQuickOpenVisible(true)
+    setDetailPanelVisible(true)
     onClose()
   }
 
@@ -120,7 +126,10 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
         }}
       >
         <FolderOpen size={14} aria-hidden style={{ display: 'block', flexShrink: 0 }} />
-        {t('detailPanel.addTabOpenFile')}
+        <span style={{ flex: 1 }}>{t('detailPanel.addTabOpenFile')}</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+          {shortcutText}
+        </span>
       </button>
 
       {/* New Browser Tab */}

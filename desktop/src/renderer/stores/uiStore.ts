@@ -77,6 +77,8 @@ export interface UIState {
    * has already been triggered.
    */
   autoShowPlanForItem: string | null
+  /** Generic one-shot auto-show reasons to avoid repeated auto-open fights. */
+  autoShowReasons: Set<string>
   /** Text to pre-fill into the InputComposer when its next mounts. */
   composerPrefill: string | null
   /**
@@ -131,6 +133,10 @@ interface UIStore extends UIState {
   markAutoShowForTurn(turnId: string): void
   /** Mark plan auto-switch as triggered for a given CreatePlan item. */
   markAutoShowPlanForItem(itemId: string): void
+  /** Auto-show detail panel once for a reason. Returns true when newly triggered. */
+  maybeAutoShowForReason(reasonId: string): boolean
+  /** Clears one-shot auto-show reason memory (e.g. on thread/workspace change). */
+  resetAutoShowReasons(): void
   /** Set text to be picked up by InputComposer on its next mount. */
   setComposerPrefill(text: string): void
   /** Read and clear the prefill text atomically. */
@@ -212,6 +218,7 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
   selectedChangedFile: null,
   autoShowTriggeredForTurn: null,
   autoShowPlanForItem: null,
+  autoShowReasons: new Set<string>(),
   composerPrefill: null,
   pendingWelcomeTurn: null,
   welcomeDraft: null,
@@ -375,6 +382,30 @@ export const useUIStore = create<UIStore & InternalState>((set, get) => ({
 
   markAutoShowPlanForItem(itemId) {
     set({ autoShowPlanForItem: itemId })
+  },
+
+  maybeAutoShowForReason(reasonId) {
+    const normalized = reasonId.trim()
+    if (!normalized) return false
+    const state = get()
+    if (state.autoShowReasons.has(normalized)) return false
+    const autoShowReasons = new Set(state.autoShowReasons)
+    autoShowReasons.add(normalized)
+    const detailPanelPreferredVisible = true
+    set({
+      autoShowReasons,
+      detailPanelPreferredVisible,
+      ...resolveResponsivePanels(
+        state.responsiveLayout,
+        state.sidebarPreferredCollapsed,
+        detailPanelPreferredVisible
+      )
+    })
+    return true
+  },
+
+  resetAutoShowReasons() {
+    set({ autoShowReasons: new Set<string>() })
   },
 
   setComposerPrefill(text) {

@@ -469,7 +469,7 @@ const api = {
     },
 
     /**
-     * Opens an http(s) URL in the system browser (validated in the main process).
+     * Opens an allowed URL in the OS default handler (validated in the main process).
      */
     openExternal(url: string): Promise<void> {
       return ipcRenderer.invoke('shell:open-external', url)

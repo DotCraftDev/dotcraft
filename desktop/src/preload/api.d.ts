@@ -285,7 +285,7 @@ declare global {
       }
       shell: {
         openPath(path: string): Promise<string>
-        /** Opens http(s) URLs in the system browser (validated in the main process). */
+        /** Opens allowed URLs in the OS default handler (validated in main process). */
         openExternal(url: string): Promise<void>
         listEditors(): Promise<EditorInfo[]>
         launchEditor(id: EditorId, cwd: string): Promise<void>

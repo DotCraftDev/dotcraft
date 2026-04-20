@@ -287,7 +287,7 @@ export function BrowserViewerTab({ tabId }: BrowserViewerTabProps): JSX.Element 
             }
           }}
         >
-          {tab.loading
+          {loading
             ? <Square size={12} aria-hidden style={{ display: 'block' }} />
             : <RotateCw size={14} aria-hidden style={{ display: 'block' }} />}
         </ToolbarButton>

@@ -1,8 +1,12 @@
-import { memo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import type { Components } from 'react-markdown'
+import { useT } from '../../contexts/LocaleContext'
+import { useConversationStore } from '../../stores/conversationStore'
+import { useThreadStore } from '../../stores/threadStore'
+import { openConversationLink } from '../../utils/conversationDeepLink'
 
 interface MarkdownRendererProps {
   content: string
@@ -16,6 +20,37 @@ interface MarkdownRendererProps {
 export const MarkdownRenderer = memo(function MarkdownRenderer({
   content
 }: MarkdownRendererProps): JSX.Element {
+  const t = useT()
+  const workspacePath = useConversationStore((s) => s.workspacePath)
+  const activeThreadId = useThreadStore((s) => s.activeThreadId)
+
+  const customComponents = useMemo<Components>(() => ({
+    ...baseComponents,
+    a({ href, children, ...props }) {
+      async function handleClick(e: React.MouseEvent<HTMLAnchorElement>): Promise<void> {
+        e.preventDefault()
+        if (!href || !workspacePath || !activeThreadId) return
+        await openConversationLink({
+          target: href,
+          workspacePath,
+          threadId: activeThreadId,
+          forceNew: e.ctrlKey || e.metaKey,
+          t
+        })
+      }
+      return (
+        <a
+          href={href}
+          onClick={(event) => { void handleClick(event) }}
+          style={{ color: 'var(--info)', textDecoration: 'underline', cursor: 'pointer' }}
+          {...props}
+        >
+          {children}
+        </a>
+      )
+    }
+  }), [activeThreadId, t, workspacePath])
+
   return (
     <div className="markdown-body" style={markdownContainerStyle}>
       <ReactMarkdown
@@ -33,25 +68,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
 // Custom components
 // ---------------------------------------------------------------------------
 
-const customComponents: Components = {
-  // Open links in external browser (Electron)
-  a({ href, children, ...props }) {
-    function handleClick(e: React.MouseEvent<HTMLAnchorElement>): void {
-      e.preventDefault()
-      if (href) window.open(href, '_blank', 'noopener,noreferrer')
-    }
-    return (
-      <a
-        href={href}
-        onClick={handleClick}
-        style={{ color: 'var(--info)', textDecoration: 'underline', cursor: 'pointer' }}
-        {...props}
-      >
-        {children}
-      </a>
-    )
-  },
-
+const baseComponents: Components = {
   // Inline code
   code({ children, className, ...props }) {
     // react-markdown passes className="language-xxx" for fenced code blocks

@@ -430,6 +430,9 @@ const MESSAGES_EN = {
   'toast.attachmentMessage': 'Attachment message',
   'conversation.copyMessage': 'Copy message',
   'conversation.copySelection': 'Copy selection',
+  'conversation.deepLink.rejectUnsupported': 'Unsupported link target',
+  'conversation.deepLink.rejectUnreadable': 'Unable to open this file',
+  'conversation.deepLink.rejectMalformed': 'Malformed link target',
 
   // Main process (connection)
   'main.error.workspaceLocked':
@@ -479,6 +482,8 @@ const MESSAGES_EN = {
   'threadHeader.commit': 'Commit',
   'threadHeader.openTitle': 'Open workspace: {{path}}',
   'threadHeader.openMenuAria': 'Choose how to open workspace',
+  'threadHeader.panelToggleShow': 'Show viewer panel (Ctrl+Shift+B)',
+  'threadHeader.panelToggleHide': 'Hide viewer panel (Ctrl+Shift+B)',
   'editors.explorer': 'File Explorer',
   'editors.vs': 'Visual Studio',
   'editors.cursor': 'Cursor',
@@ -712,6 +717,7 @@ const MESSAGES_EN = {
   'detailPanel.tabTerminal': 'Terminal',
   'detailPanel.addTab': 'Add tab',
   'detailPanel.addTabOpenFile': 'Open File',
+  'detailPanel.addTabOpenFileShortcut': 'Ctrl+P',
   'detailPanel.addTabNewBrowser': 'New Browser Tab',
   'detailPanel.addTabNewBrowserLater': 'Available in the next update',
 
@@ -1424,6 +1430,9 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'toast.attachmentMessage': '附件消息',
   'conversation.copyMessage': '复制消息',
   'conversation.copySelection': '复制所选内容',
+  'conversation.deepLink.rejectUnsupported': '不支持的链接目标',
+  'conversation.deepLink.rejectUnreadable': '无法打开该文件',
+  'conversation.deepLink.rejectMalformed': '链接目标格式无效',
 
   'main.error.workspaceLocked': '此工作区已在另一 DotCraft Desktop 窗口中打开（进程 {{pid}}）。',
   'main.error.streamsUnavailable': 'AppServer 进程流不可用',
@@ -1468,6 +1477,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'threadHeader.commit': '提交',
   'threadHeader.openTitle': '打开工作区：{{path}}',
   'threadHeader.openMenuAria': '选择打开方式',
+  'threadHeader.panelToggleShow': '显示查看器面板 (Ctrl+Shift+B)',
+  'threadHeader.panelToggleHide': '隐藏查看器面板 (Ctrl+Shift+B)',
   'editors.explorer': '文件资源管理器',
   'editors.vs': 'Visual Studio',
   'editors.cursor': 'Cursor',
@@ -1691,6 +1702,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'detailPanel.tabTerminal': '终端',
   'detailPanel.addTab': '添加标签',
   'detailPanel.addTabOpenFile': '打开文件',
+  'detailPanel.addTabOpenFileShortcut': 'Ctrl+P',
   'detailPanel.addTabNewBrowser': '新建浏览器标签',
   'detailPanel.addTabNewBrowserLater': '下个版本可用',
 
