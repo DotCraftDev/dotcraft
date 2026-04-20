@@ -389,7 +389,6 @@ export class FeishuClient {
     const token = await this.getTenantAccessToken();
     const params = new URLSearchParams();
     params.set("document_revision_id", String(options.documentRevisionId ?? -1));
-    params.set("index", String(options.index ?? -1));
     if (options.clientToken?.trim()) {
       params.set("client_token", options.clientToken.trim());
     }
@@ -406,7 +405,12 @@ export class FeishuClient {
             },
             body: JSON.stringify({
               children: options.children,
+              index: options.index ?? -1,
             }),
+          },
+        ),
+      "Failed to append Feishu docx blocks.",
+    );
           },
         ),
       "Failed to append Feishu docx blocks.",
