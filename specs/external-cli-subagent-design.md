@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.3.1 |
+| **Version** | 0.3.2 |
 | **Status** | Active |
 | **Date** | 2026-04-20 |
 
@@ -138,7 +138,7 @@ This mapping is **advisory**: DotCraft declares intent and selects the safest av
 
 | Profile | `trustLevel` | Notable mapping defaults |
 |---------|--------------|--------------------------|
-| `dotcraft-native` | `trusted` | N/A (native runtime applies native approval) |
+| `native` | `trusted` | N/A (native runtime applies native approval) |
 | `codex-cli` | `prompt` | `interactive` → `--sandbox read-only --ask-for-approval on-request`; `auto-approve` → `--dangerously-bypass-approvals-and-sandbox`; `restricted` → `--sandbox read-only` |
 | `cursor-cli` | `prompt` | Base args kept minimal; per-mode flags supply `--mode`/`--trust` combinations matching the resolved mode |
 | `custom-cli-oneshot` | `restricted` | Empty mapping by default, fully owned by the user |

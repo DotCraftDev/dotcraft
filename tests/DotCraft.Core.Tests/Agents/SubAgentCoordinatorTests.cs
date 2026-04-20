@@ -185,7 +185,7 @@ public sealed class SubAgentCoordinatorTests : IDisposable
             [
                 new SubAgentProfile
                 {
-                    Name = "DOTCRAFT-NATIVE",
+                    Name = "NATIVE",
                     Runtime = NativeSubAgentRuntime.RuntimeTypeName,
                     WorkingDirectoryMode = "specified"
                 }
@@ -197,7 +197,7 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         });
 
         Assert.Equal(
-            "Error: Subagent profile 'DOTCRAFT-NATIVE' requires a specified working directory.",
+            "Error: Subagent profile 'NATIVE' requires a specified working directory.",
             result);
         Assert.Equal(0, runtime.RunCalls);
     }

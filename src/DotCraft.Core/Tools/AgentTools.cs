@@ -44,7 +44,7 @@ public sealed class AgentTools(SubAgentCoordinator? subAgentManager = null)
     public async Task<string> SpawnSubagent(
         [Description("A detailed, self-contained description of the task for the subagent to execute autonomously. Include what to investigate, what tools to use, and exactly what to report back.")] string task,
         [Description("Optional short human-readable label shown in the UI (e.g. 'Explore auth module').")] string? label = null,
-        [Description("Optional named subagent profile. Defaults to dotcraft-native when omitted.")] string? profile = null,
+        [Description("Optional named subagent profile. Defaults to native when omitted.")] string? profile = null,
         [Description("Optional working directory used when the selected profile requires a specified working directory.")] string? workingDirectory = null,
         CancellationToken cancellationToken = default)
     {

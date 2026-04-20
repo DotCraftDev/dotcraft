@@ -462,7 +462,7 @@ public sealed class SubAgentProfileRegistry
 
 public sealed class SubAgentCoordinator
 {
-    public const string DefaultProfileName = "dotcraft-native";
+    public const string DefaultProfileName = "native";
 
     private readonly string _workspaceRoot;
     private readonly SubAgentProfileRegistry _profileRegistry;

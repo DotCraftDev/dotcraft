@@ -1,12 +1,12 @@
 # External CLI SubAgents Guide
 
-External CLI subagents let you run an existing coding-agent CLI as a DotCraft one-shot subagent. Compared with `dotcraft-native`, external CLIs typically expose stage-level progress rather than tool-by-tool execution details.
+External CLI subagents let you run an existing coding-agent CLI as a DotCraft one-shot subagent. Compared with `native`, external CLIs typically expose stage-level progress rather than tool-by-tool execution details.
 
 ## Built-in Profiles
 
 | Name | Runtime | Default `bin` | Headless entry point |
 |------|---------|---------------|----------------------|
-| `dotcraft-native` | `native` | - | DotCraft native runtime |
+| `native` | `native` | - | DotCraft native runtime |
 | `codex-cli` | `cli-oneshot` | `codex` | `codex exec` |
 | `cursor-cli` | `cli-oneshot` | `cursor-agent` | `cursor-agent --print --output-format json --mode ask` |
 | `custom-cli-oneshot` | `cli-oneshot` | - | Template profile; override with same name and set `bin` to make it usable |

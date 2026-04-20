@@ -53,7 +53,7 @@ public class SubAgentProfileConfigTests
         const string json = """
         {
           "SubAgentProfiles": {
-            "dotcraft-native": {
+            "native": {
               "runtime": "native",
               "workingDirectoryMode": "workspace"
             },
@@ -87,7 +87,7 @@ public class SubAgentProfileConfigTests
         Assert.NotNull(config);
         Assert.Equal(2, config!.SubAgentProfiles.Count);
 
-        var native = Assert.Single(config.SubAgentProfiles, p => p.Name == "dotcraft-native");
+        var native = Assert.Single(config.SubAgentProfiles, p => p.Name == "native");
         Assert.Equal("native", native.Runtime);
         Assert.Equal("workspace", native.WorkingDirectoryMode);
 
@@ -139,7 +139,7 @@ public class SubAgentProfileConfigTests
                 },
                 new SubAgentProfile
                 {
-                    Name = "dotcraft-native",
+                    Name = "native",
                     Runtime = "native",
                     WorkingDirectoryMode = "workspace"
                 }
@@ -151,7 +151,7 @@ public class SubAgentProfileConfigTests
 
         var profiles = Assert.IsType<JsonObject>(node!["SubAgentProfiles"]);
         Assert.NotNull(profiles["codex-cli"]);
-        Assert.NotNull(profiles["dotcraft-native"]);
+        Assert.NotNull(profiles["native"]);
 
         var codex = Assert.IsType<JsonObject>(profiles["codex-cli"]);
         Assert.False(codex.ContainsKey("Name"));
@@ -235,7 +235,7 @@ public class SubAgentProfileConfigTests
         Assert.Equal(120, custom.Timeout);
         Assert.Equal("restricted", custom.TrustLevel);
 
-        var native = profiles["dotcraft-native"];
+        var native = profiles["native"];
         Assert.Equal("trusted", native.TrustLevel);
     }
 

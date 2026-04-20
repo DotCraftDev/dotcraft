@@ -50,12 +50,15 @@ public sealed class SubAgentManager
 
     private readonly int _shellTimeout;
 
+    private readonly bool _requireApprovalOutsideWorkspace;
+
     public SubAgentManager(
         ChatClient chatClient, 
         string workspaceRoot, 
         int maxToolCallRounds = 15,
         int maxConcurrency = 3,
         int shellTimeout = 60,
+        bool requireApprovalOutsideWorkspace = true,
         AppConfig.ReasoningConfig? reasoningConfig = null,
         PathBlacklist? blacklist = null,
         SandboxSessionManager? sandboxManager = null,
@@ -72,6 +75,7 @@ public sealed class SubAgentManager
         _approvalService = approvalService;
         _blacklist = blacklist;
         _shellTimeout = shellTimeout;
+        _requireApprovalOutsideWorkspace = requireApprovalOutsideWorkspace;
 
         if (sandboxManager != null)
         {
@@ -208,7 +212,7 @@ public sealed class SubAgentManager
         {
             var fileTools = new FileTools(
                 workspaceRoot: _workspaceRoot,
-                requireApprovalOutsideWorkspace: false,
+                requireApprovalOutsideWorkspace: _requireApprovalOutsideWorkspace,
                 maxFileSize: SubAgentFileMaxSize,
                 approvalService: approvalService,
                 blacklist: _blacklist
@@ -217,7 +221,7 @@ public sealed class SubAgentManager
             var shellTools = new ShellTools(
                 workingDirectory: _workspaceRoot,
                 timeoutSeconds: _shellTimeout,
-                requireApprovalOutsideWorkspace: false,
+                requireApprovalOutsideWorkspace: _requireApprovalOutsideWorkspace,
                 maxOutputLength: 10000,
                 approvalService: approvalService,
                 blacklist: _blacklist
@@ -329,14 +333,13 @@ You are a subagent spawned by the main agent to complete a specific task.
 - Search file contents with regex (GrepFiles)
 - Find files by name pattern (FindFiles)
 - Execute shell commands
+- Access files or run commands outside workspace when channel policy allows it through approval
 - Search the web
 - Fetch web content
 - Use these tools to complete your task thoroughly
 
 ## What You Cannot Do
 - Delete files or directories (security restriction)
-- Run commands outside the workspace (security restriction)
-- Access system files or directories (security restriction)
 
 ## Workspace
 Your workspace is at: {_workspaceRoot}

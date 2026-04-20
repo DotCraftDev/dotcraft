@@ -48,7 +48,7 @@ public sealed class PromptBuilderTests : IDisposable
             """
             ## Available SubAgent Profiles
 
-            - `dotcraft-native`: Native DotCraft subagent profile.
+            - `native`: Native DotCraft subagent profile.
             """
         );
 

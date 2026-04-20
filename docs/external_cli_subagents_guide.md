@@ -1,12 +1,12 @@
 # External CLI 子代理指南
 
-External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入 DotCraft。相比 `dotcraft-native`，外部 CLI 通常只提供阶段级进度，不提供逐工具调用细节。
+External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入 DotCraft。相比 `native`，外部 CLI 通常只提供阶段级进度，不提供逐工具调用细节。
 
 ## 内置 Profile
 
 | 名称 | runtime | 默认 `bin` | headless 入口 |
 |------|---------|------------|---------------|
-| `dotcraft-native` | `native` | - | DotCraft 原生运行时 |
+| `native` | `native` | - | DotCraft 原生运行时 |
 | `codex-cli` | `cli-oneshot` | `codex` | `codex exec` |
 | `cursor-cli` | `cli-oneshot` | `cursor-agent` | `cursor-agent --print --output-format json --mode ask` |
 | `custom-cli-oneshot` | `cli-oneshot` | - | 模板 profile，需同名覆盖并补齐 `bin` 后才可用 |

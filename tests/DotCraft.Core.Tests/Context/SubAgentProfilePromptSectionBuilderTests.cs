@@ -14,8 +14,8 @@ public sealed class SubAgentProfilePromptSectionBuilderTests
 
         Assert.NotNull(section);
         Assert.Contains("## Available SubAgent Profiles", section);
-        Assert.Contains("Default profile: `dotcraft-native`", section);
-        Assert.Contains("`dotcraft-native`", section);
+        Assert.Contains("Default profile: `native`", section);
+        Assert.Contains("`native`", section);
         Assert.Contains("`codex-cli`", section);
         Assert.Contains("`cursor-cli`", section);
         Assert.DoesNotContain("`custom-cli-oneshot`", section, StringComparison.Ordinal);
