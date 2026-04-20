@@ -96,7 +96,7 @@ describe('RichInputArea selection helpers', () => {
           { type: 'text', value: 'B' },
           { type: 'command', command: '/review' },
           { type: 'text', value: 'C' },
-          { type: 'skill', skillName: 'browser' }
+          { type: 'skill', skillName: 'memory' }
         ]
       })
       ref.current?.setSelectionRange({ start: 4, end: 4 })

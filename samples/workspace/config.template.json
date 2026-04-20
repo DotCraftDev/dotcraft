@@ -10,19 +10,5 @@
       "Domain": "127.0.0.1:5880",
       "Image": "ubuntu:latest"
     }
-  },
-  "McpServers": [
-    {
-      "Name": "playwright",
-      "Enabled": false,
-      "Transport": "stdio",
-      "Command": "npx",
-      "Arguments": [
-        "-y",
-        "@playwright/mcp@latest",
-        "--user-data-dir",
-        ".craft/playwright-profile"
-      ]
-    }
-  ]
+  }
 }

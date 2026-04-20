@@ -51,12 +51,12 @@ describe('InputComposer custom command expansion', () => {
         return {
           skills: [
             {
-              name: 'browser',
-              description: 'Browse web pages',
+              name: 'memory',
+              description: 'Recall project context',
               source: 'builtin',
               available: true,
               enabled: true,
-              path: '/skills/browser/SKILL.md'
+              path: '/skills/memory/SKILL.md'
             }
           ]
         }
@@ -134,7 +134,7 @@ describe('InputComposer custom command expansion', () => {
       expect(turnStartCall?.[1]).toEqual(
         expect.objectContaining({
           threadId: 'thread-1',
-          input: [{ type: 'commandRef', name: 'code-review', rawText: '/code-review' }]
+          input: [{ type: 'text', text: '/code-review' }]
         })
       )
     })
@@ -198,7 +198,7 @@ describe('InputComposer custom command expansion', () => {
 
     const textbox = screen.getByRole('textbox')
     fireEvent.focus(textbox)
-    textbox.textContent = '/browser'
+    textbox.textContent = '/memory'
     setCaretToEnd(textbox)
     fireEvent.input(textbox)
     fireEvent.keyDown(textbox, { key: 'Enter' })
@@ -210,7 +210,10 @@ describe('InputComposer custom command expansion', () => {
       expect(turnStartCall?.[1]).toEqual(
         expect.objectContaining({
           threadId: 'thread-1',
-          input: [{ type: 'skillRef', name: 'browser' }]
+          input: [
+            { type: 'skillRef', name: 'memory' },
+            { type: 'text', text: '\u00a0' }
+          ]
         })
       )
     })
@@ -324,7 +327,7 @@ describe('InputComposer custom command expansion', () => {
       text: '/code-review',
       inputParts: [
         { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
-        { type: 'commandRef', name: 'code-review', rawText: '/code-review' }
+        { type: 'text', text: '/code-review' }
       ],
       files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
     })
@@ -351,6 +354,9 @@ describe('InputComposer custom command expansion', () => {
 
     expect(useConversationStore.getState().pendingMessage).toEqual({
       text: '',
+      inputParts: [
+        { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]' }
+      ],
       files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
     })
     expect(screen.getByText(/Queued:/)).toHaveTextContent(/Queued follow-up with 1 file reference/)
@@ -407,7 +413,7 @@ describe('InputComposer custom command expansion', () => {
         text: '/code-review',
         inputParts: [
           { type: 'text', text: '[[Attached File: C:\\temp\\notes.txt]]\n\n' },
-          { type: 'commandRef', name: 'code-review', rawText: '/code-review' }
+          { type: 'text', text: '/code-review' }
         ],
         files: [{ path: 'C:\\temp\\notes.txt', fileName: 'notes.txt' }]
       })
