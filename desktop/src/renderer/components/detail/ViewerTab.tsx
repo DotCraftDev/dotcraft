@@ -14,6 +14,9 @@ import { AlertTriangle } from 'lucide-react'
 const LazyTextViewer = lazy(() =>
   import('./viewers/TextViewer').then((m) => ({ default: m.TextViewer }))
 )
+const LazyMarkdownViewer = lazy(() =>
+  import('./viewers/MarkdownViewer').then((m) => ({ default: m.MarkdownViewer }))
+)
 const LazyImageViewer = lazy(() =>
   import('./viewers/ImageViewer').then((m) => ({ default: m.ImageViewer }))
 )
@@ -26,6 +29,11 @@ const LazyUnsupportedViewer = lazy(() =>
 
 interface ViewerTabProps {
   tabId: string
+}
+
+function isMarkdownPath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/').toLowerCase()
+  return normalized.endsWith('.md') || normalized.endsWith('.mdx')
 }
 
 export function ViewerTab({ tabId }: ViewerTabProps): JSX.Element {
@@ -86,7 +94,9 @@ export function ViewerTab({ tabId }: ViewerTabProps): JSX.Element {
     <div style={{ height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <Suspense fallback={suspenseFallback}>
         {tab.contentClass === 'text' && (
-          <LazyTextViewer absolutePath={tab.absolutePath} />
+          isMarkdownPath(tab.absolutePath)
+            ? <LazyMarkdownViewer absolutePath={tab.absolutePath} />
+            : <LazyTextViewer absolutePath={tab.absolutePath} />
         )}
         {tab.contentClass === 'image' && (
           <LazyImageViewer absolutePath={tab.absolutePath} sizeBytes={tab.sizeBytes} />

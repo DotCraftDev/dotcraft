@@ -110,7 +110,7 @@ export function TextViewer({ absolutePath }: TextViewerProps): JSX.Element {
             readOnly: true,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
-            wordWrap: 'off',
+            wordWrap: 'on',
             fontSize: 13,
             lineNumbers: 'on',
             renderWhitespace: 'none',

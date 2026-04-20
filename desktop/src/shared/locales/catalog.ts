@@ -734,6 +734,8 @@ const MESSAGES_EN = {
   'viewer.zoomOut': 'Zoom out',
   'viewer.zoomFit': 'Fit to window',
   'viewer.imageInfo': 'Image dimensions and size',
+  'viewer.preview': 'Preview',
+  'viewer.source': 'Source',
 
   // Automations / cron (Phase 3)
   'auto.viewTitle': 'Automations',
@@ -1695,6 +1697,8 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'viewer.zoomOut': '缩小',
   'viewer.zoomFit': '适应窗口',
   'viewer.imageInfo': '图片尺寸与大小',
+  'viewer.preview': '预览',
+  'viewer.source': '源码',
 
   'auto.viewTitle': '自动化',
   'auto.tabTasks': '任务',

@@ -43,10 +43,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
   } = useUIStore()
 
   const currentThreadId = useViewerTabStore((s) => s.currentThreadId)
-  const viewerTabs = useViewerTabStore((s) => {
-    if (!s.currentThreadId) return []
-    return s.getThreadState(s.currentThreadId).tabs
-  })
+  const viewerTabs = useViewerTabStore((s) => s.getThreadState(s.currentThreadId ?? '').tabs)
   const closeViewerTabInStore = useViewerTabStore((s) => s.closeTab)
 
   const changedFiles = useConversationStore((s) => s.changedFiles)

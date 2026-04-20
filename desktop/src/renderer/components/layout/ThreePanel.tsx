@@ -1,7 +1,8 @@
-import { type ReactNode } from 'react'
+import { type ReactNode, useCallback } from 'react'
 import { useUIStore, SIDEBAR_COLLAPSED_WIDTH, DETAIL_MIN_WIDTH } from '../../stores/uiStore'
 import { useResponsiveLayout } from '../../hooks/useResponsiveLayout'
 import { useThreadStore } from '../../stores/threadStore'
+import { DragHandle } from './DragHandle'
 
 interface ThreePanelProps {
   sidebar: ReactNode
@@ -44,6 +45,13 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
       : detailPanelVisible
 
   const effectiveSidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
+  const handleDetailDrag = useCallback((delta: number) => {
+    const state = useUIStore.getState()
+    const sidebar = state.sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : state.sidebarWidth
+    const maxDetailWidth = Math.max(DETAIL_MIN_WIDTH, window.innerWidth - 400 - sidebar)
+    const nextWidth = Math.min(maxDetailWidth, state.detailPanelWidth - delta)
+    state.setDetailPanelWidth(nextWidth)
+  }, [])
 
   return (
     <div
@@ -89,6 +97,8 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
       >
         {conversation}
       </div>
+
+      {effectiveDetailPanelVisible && <DragHandle onDrag={handleDetailDrag} />}
 
       {/* Detail panel */}
       <div

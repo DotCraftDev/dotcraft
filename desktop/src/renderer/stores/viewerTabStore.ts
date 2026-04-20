@@ -135,6 +135,13 @@ interface ViewerTabStoreActions {
 
 type ViewerTabStore = ViewerTabStoreState & ViewerTabStoreActions
 
+// Stable empty references for selectors (avoid new object/array per read).
+const EMPTY_TABS: ViewerTab[] = Object.freeze([]) as unknown as ViewerTab[]
+const EMPTY_THREAD_STATE: PerThreadViewerState = Object.freeze({
+  tabs: EMPTY_TABS,
+  activeTabId: null
+}) as PerThreadViewerState
+
 // ─── Counter for unique IDs ───────────────────────────────────────────────────
 
 let _tabIdCounter = 0
@@ -251,12 +258,12 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
   getThreadState(threadId) {
     const existing = get().byThread.get(threadId)
     if (existing) return existing
-    return { tabs: [], activeTabId: null }
+    return EMPTY_THREAD_STATE
   },
 
   getCurrentTabs() {
     const { currentThreadId } = get()
-    if (!currentThreadId) return []
+    if (!currentThreadId) return EMPTY_TABS
     return get().getThreadState(currentThreadId).tabs
   },
 

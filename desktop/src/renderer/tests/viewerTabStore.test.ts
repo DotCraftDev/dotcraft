@@ -214,6 +214,17 @@ describe('getCurrentTabs / getCurrentActiveTabId', () => {
     expect(store().getCurrentActiveTabId()).toBeNull()
   })
 
+  it('returns stable references for missing thread and no active thread', () => {
+    const threadStateA = store().getThreadState('unknown-thread')
+    const threadStateB = store().getThreadState('unknown-thread')
+    expect(threadStateA).toBe(threadStateB)
+    expect(threadStateA.tabs).toBe(threadStateB.tabs)
+
+    const currentTabsA = store().getCurrentTabs()
+    const currentTabsB = store().getCurrentTabs()
+    expect(currentTabsA).toBe(currentTabsB)
+  })
+
   it('returns the current thread tabs', () => {
     store().onThreadSwitched(THREAD_A)
     openFile(THREAD_A, 'src/a.ts')
