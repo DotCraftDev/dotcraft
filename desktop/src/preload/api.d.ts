@@ -275,6 +275,7 @@ declare global {
       }
       git: {
         commit(workspacePath: string, files: string[], message: string): Promise<string>
+        getBranch(workspacePath: string): Promise<string | null>
       }
       workspace: {
         pickFolder(): Promise<string | null>

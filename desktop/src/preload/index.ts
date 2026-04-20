@@ -521,6 +521,12 @@ const api = {
      */
     commit(workspacePath: string, files: string[], message: string): Promise<string> {
       return ipcRenderer.invoke('git:commit', workspacePath, files, message)
+    },
+    /**
+     * Returns current branch name, detached short SHA, or null when unavailable.
+     */
+    getBranch(workspacePath: string): Promise<string | null> {
+      return ipcRenderer.invoke('git:branch', workspacePath)
     }
   },
 
