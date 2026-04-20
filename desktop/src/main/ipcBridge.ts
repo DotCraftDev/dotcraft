@@ -820,6 +820,16 @@ export function registerIpcHandlers(
       })
     }
   )
+  handleSafe('git:branch', async (_event, wsPath: string): Promise<string | null> => {
+    const headPath = path.join(wsPath, '.git', 'HEAD')
+    try {
+      const raw = (await fs.readFile(headPath, 'utf8')).trim()
+      if (raw.startsWith('ref: ')) return raw.slice(5).replace(/^refs\/heads\//, '')
+      return raw.slice(0, 7)
+    } catch {
+      return null
+    }
+  })
 
   // ─── Workspace management ──────────────────────────────────────────────────
 
@@ -1335,6 +1345,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('file:delete')
   ipcMain.removeHandler('file:exists')
   ipcMain.removeHandler('git:commit')
+  ipcMain.removeHandler('git:branch')
   ipcMain.removeHandler('workspace:pick-folder')
   ipcMain.removeHandler('workspace:pick-files')
   ipcMain.removeHandler('workspace:switch')

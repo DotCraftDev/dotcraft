@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using DotCraft.GitHubTracker.Tracker;
+using DotCraft.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace DotCraft.GitHubTracker.Workspace;
@@ -258,49 +259,21 @@ public sealed partial class WorkItemWorkspaceManager(GitHubTrackerConfig config,
 
     private static async Task RunGitAsync(string workingDir, string[] args, string? token, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo
+        var result = await GitProcessRunner.RunAsync(
+                workingDir,
+                args,
+                timeout: TimeSpan.FromMinutes(5),
+                ct: ct,
+                logger: null)
+            .ConfigureAwait(false);
+
+        if (result.ExitCode != 0)
         {
-            FileName = "git",
-            WorkingDirectory = workingDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        foreach (var arg in args)
-            psi.ArgumentList.Add(arg);
-
-        // Prevent any interactive credential prompt (terminal or GUI).
-        // GIT_TERMINAL_PROMPT disables stdin prompts; GCM_INTERACTIVE=never
-        // prevents Git Credential Manager from opening its GUI dialog on Windows.
-        psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
-        psi.Environment["GCM_INTERACTIVE"] = "never";
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start git {args[0]}");
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromMinutes(5));
-
-        try
-        {
-            await process.WaitForExitAsync(timeoutCts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            process.Kill(entireProcessTree: true);
-            throw new TimeoutException($"git {args[0]} timed out after 5 minutes");
-        }
-
-        if (process.ExitCode != 0)
-        {
-            var stderr = await process.StandardError.ReadToEndAsync(CancellationToken.None);
             // Redact token from error message before surfacing
-            var safeError = string.IsNullOrEmpty(token) ? stderr
-                : stderr.Replace(token, "***", StringComparison.Ordinal);
+            var safeError = string.IsNullOrEmpty(token) ? result.StdErr
+                : result.StdErr.Replace(token, "***", StringComparison.Ordinal);
             throw new InvalidOperationException(
-                $"git {args[0]} exited with code {process.ExitCode}: {safeError[..Math.Min(safeError.Length, 500)]}");
+                $"git {args[0]} exited with code {result.ExitCode}: {safeError[..Math.Min(safeError.Length, 500)]}");
         }
     }
 
