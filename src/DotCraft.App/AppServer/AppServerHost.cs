@@ -88,6 +88,20 @@ public sealed class AppServerHost(
     /// out-of-band notifications (e.g. <c>plan/updated</c>) to all clients.
     /// </summary>
     private readonly ConcurrentDictionary<IAppServerTransport, AppServerConnection> _activeTransports = new();
+    private readonly ConcurrentDictionary<string, RuntimeFacts> _threadRuntime = new(StringComparer.Ordinal);
+
+    private readonly record struct RuntimeFacts(
+        int PendingApprovals,
+        bool Running,
+        bool WaitingOnPlanConfirmation)
+    {
+        public ThreadRuntimeState ToWire() => new()
+        {
+            Running = Running,
+            WaitingOnApproval = PendingApprovals > 0,
+            WaitingOnPlanConfirmation = WaitingOnPlanConfirmation
+        };
+    }
 
     private IReadOnlyList<IAppServerProtocolExtension> ProtocolExtensions =>
         sp.GetServices<IAppServerProtocolExtension>().ToArray();
@@ -156,6 +170,7 @@ public sealed class AppServerHost(
         sessionService.ThreadCreatedForBroadcast = BroadcastThreadStarted;
         sessionService.ThreadDeletedForBroadcast = BroadcastThreadDeleted;
         sessionService.ThreadRenamedForBroadcast = BroadcastThreadRenamed;
+        sessionService.ThreadRuntimeSignalForBroadcast = OnThreadRuntimeSignal;
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
         var welcomeSuggestionService = new WelcomeSuggestionService(
             sessionService,
@@ -1076,12 +1091,100 @@ public sealed class AppServerHost(
         }
     }
 
+    private void OnThreadRuntimeSignal(string threadId, SessionThreadRuntimeSignal signal)
+    {
+        while (true)
+        {
+            _threadRuntime.TryGetValue(threadId, out var previous);
+            var next = signal switch
+            {
+                SessionThreadRuntimeSignal.TurnStarted => previous with
+                {
+                    Running = true,
+                    WaitingOnPlanConfirmation = false
+                },
+                SessionThreadRuntimeSignal.TurnCompleted => previous with
+                {
+                    Running = false,
+                    WaitingOnPlanConfirmation = false
+                },
+                SessionThreadRuntimeSignal.TurnCompletedAwaitingPlanConfirmation => previous with
+                {
+                    Running = false,
+                    WaitingOnPlanConfirmation = true
+                },
+                SessionThreadRuntimeSignal.TurnFailed => previous with
+                {
+                    Running = false,
+                    WaitingOnPlanConfirmation = false
+                },
+                SessionThreadRuntimeSignal.TurnCancelled => previous with
+                {
+                    Running = false,
+                    WaitingOnPlanConfirmation = false
+                },
+                SessionThreadRuntimeSignal.ApprovalRequested => previous with
+                {
+                    PendingApprovals = previous.PendingApprovals + 1
+                },
+                SessionThreadRuntimeSignal.ApprovalResolved => previous with
+                {
+                    PendingApprovals = Math.Max(0, previous.PendingApprovals - 1)
+                },
+                _ => previous
+            };
+
+            if (next.Equals(previous))
+                return;
+
+            if (_threadRuntime.TryAdd(threadId, next) || _threadRuntime.TryUpdate(threadId, next, previous))
+            {
+                BroadcastThreadRuntime(threadId, next.ToWire());
+                return;
+            }
+        }
+    }
+
+    private void BroadcastThreadRuntime(string threadId, ThreadRuntimeState runtime)
+    {
+        var notification = new
+        {
+            jsonrpc = "2.0",
+            method = AppServerMethods.ThreadRuntimeChanged,
+            @params = new ThreadRuntimeChangedParams
+            {
+                ThreadId = threadId,
+                Runtime = runtime
+            }
+        };
+
+        foreach (var (transport, connection) in _activeTransports)
+        {
+            if (!connection.ShouldSendNotification(AppServerMethods.ThreadRuntimeChanged))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await transport.WriteMessageAsync(notification, CancellationToken.None);
+                }
+                catch
+                {
+                    _activeTransports.TryRemove(transport, out _);
+                }
+            });
+        }
+    }
+
     /// <summary>
     /// Broadcasts <c>thread/deleted</c> to all connected transports after permanent thread removal
     /// (Wire <c>thread/delete</c>, DashBoard, etc.).
     /// </summary>
     private void BroadcastThreadDeleted(string threadId)
     {
+        _threadRuntime.TryRemove(threadId, out _);
+
         var notification = new
         {
             jsonrpc = "2.0",

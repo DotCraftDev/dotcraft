@@ -174,6 +174,49 @@ public sealed class CliOneshotRuntimeTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_ReadOutputFile_TemplatePathWithSpaces_PassesSingleArgument()
+    {
+        var tempPath = Path.Combine(_rootPath, "temp path");
+        Directory.CreateDirectory(tempPath);
+
+        var envKeys = OperatingSystem.IsWindows() ? new[] { "TMP", "TEMP" } : ["TMPDIR"];
+        var previousValues = envKeys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+        try
+        {
+            foreach (var key in envKeys)
+                Environment.SetEnvironmentVariable(key, tempPath);
+
+            var profile = CreateProfile(CreateOutputFileScript());
+            profile.InputMode = "arg";
+            profile.ReadOutputFile = true;
+            profile.OutputFileArgTemplate = "--output-file {path}";
+
+            var result = await RunProfileAsync(profile, "ignored");
+
+            Assert.False(result.IsError);
+            Assert.Equal("from-file", result.Text);
+        }
+        finally
+        {
+            foreach (var (key, value) in previousValues)
+                Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_ArgTemplate_TaskWithSpaces_PassesSingleArgument()
+    {
+        var profile = CreateProfile(CreateArgsDumpScript());
+        profile.InputMode = "arg-template";
+        profile.InputArgTemplate = "--task {task}";
+
+        var result = await RunProfileAsync(profile, "hello spaced task");
+
+        Assert.False(result.IsError);
+        Assert.Contains("args=--task|hello spaced task", result.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunAsync_NonZeroExit_ReturnsErrorWithStdoutAndStderr()
     {
         var profile = CreateProfile(CreateFailureScript());

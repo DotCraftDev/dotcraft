@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.6 |
+| **Version** | 0.2.7 |
 | **Status** | Living |
-| **Date** | 2026-04-19 |
+| **Date** | 2026-04-20 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 
 Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) and related AppServer capabilities to out-of-process clients, enabling them to create and resume threads, submit turns, stream events, participate in approval flows, and call server-level management methods through one transport-stable contract.
@@ -74,7 +74,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
-**Multi-client thread lists**: In deployments with multiple concurrent connections, server-broadcast notifications in [Section 6.1](#61-thread-notifications) include `thread/started`, `thread/deleted`, and `thread/renamed` so clients can keep thread lists synchronized without polling.
+**Multi-client thread lists**: In deployments with multiple concurrent connections, server-broadcast notifications in [Section 6.1](#61-thread-notifications) include `thread/started`, `thread/deleted`, `thread/renamed`, and `thread/runtimeChanged` so clients can keep both thread lists and per-thread activity indicators (running, waiting-on-approval, waiting-on-plan-confirmation) synchronized without polling or subscribing to every thread's event stream.
 
 ---
 
@@ -1003,6 +1003,45 @@ Emitted when a thread's status changes (Active → Paused, Active → Archived, 
 
 **Params**: `{ "threadId": "<id>", "previousStatus": "<status>", "newStatus": "<status>" }`
 
+#### `thread/runtimeChanged`
+
+Emitted when the server's aggregated **runtime snapshot** for a thread changes. This is a **workspace-level broadcast notification**: it is delivered to all initialized connections that have not opted out, regardless of whether they currently hold a `thread/subscribe` subscription for that thread.
+
+This notification is a **summary channel** for sidebar or thread-list style UIs. It does **not** replace turn-scoped notifications such as `turn/started`, `turn/completed`, or `item/*`; those notifications continue to follow thread-subscription delivery rules. Clients that need full turn details must still subscribe to the target thread.
+
+The server emits `thread/runtimeChanged` when any of the following state transitions changes the aggregated snapshot for a thread:
+
+- a turn starts;
+- a turn ends (`completed`, `failed`, or `cancelled`);
+- an approval request is created;
+- an approval request is resolved;
+- a turn finishes in plan mode with a successful terminal `CreatePlan` tool call, setting `waitingOnPlanConfirmation = true`;
+- the next `turn/start` for that thread clears the pending plan confirmation state.
+
+The server SHOULD broadcast this notification only when the effective snapshot actually changes. Duplicate deliveries are allowed; clients should treat the latest payload as authoritative and replace any prior cached snapshot for that `threadId`.
+
+**Params**:
+
+```json
+{
+  "threadId": "thread_20260420_x7k2m4",
+  "runtime": {
+    "running": true,
+    "waitingOnApproval": false,
+    "waitingOnPlanConfirmation": false
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | string | Target thread id. |
+| `runtime.running` | boolean | Whether a turn is currently executing for the thread. |
+| `runtime.waitingOnApproval` | boolean | Whether the thread currently has one or more unresolved approval requests. |
+| `runtime.waitingOnPlanConfirmation` | boolean | Whether the previous turn ended in plan mode with a successful terminal `CreatePlan` call and has not yet been cleared by the next `turn/start`. |
+
+Forward-compatibility rule: future server versions may add additional boolean flags under `runtime` (for example `waitingOnUserInput`). Clients MUST ignore unknown fields.
+
 ### 6.2 Turn Notifications
 
 #### `turn/started`
@@ -1806,6 +1845,8 @@ This rule applies to all turn-scoped notifications:
 | `subagent/progress` | yes |
 | `system/event` | yes |
 
+Broadcast summary notifications such as `thread/started`, `thread/renamed`, `thread/deleted`, `thread/statusChanged`, and `thread/runtimeChanged` are **not** part of this thread-subscription delivery rule. They remain workspace-level broadcasts and may be delivered even when the connection is not subscribed to the target thread.
+
 **Rationale**: Without this rule, a connection that both subscribes to a thread and starts a turn on that thread could receive duplicate notifications through multiple delivery paths.
 
 **Ordering guarantee**: The at-most-once rule does not relax the ordering guarantee. The `turn/start` response still arrives before the first `turn/started` notification.
@@ -1832,6 +1873,7 @@ Clients can suppress specific notification methods per connection by listing exa
 | `thread/renamed` | Client does not need server-pushed display name updates (e.g. refreshes `thread/list` on a timer only). |
 | `thread/deleted` | Client does not need thread list sync when threads are removed elsewhere (e.g. polls `thread/list` only). |
 | `thread/statusChanged` | Client manages thread status locally. |
+| `thread/runtimeChanged` | Client does not display per-thread live activity indicators (e.g. batch runner, headless integration). |
 | `subagent/progress` | Client does not display SubAgent real-time progress. |
 | `item/usage/delta` | Client does not need real-time token consumption display; will use `turn/completed.tokenUsage` for final totals. |
 | `system/event` | Client does not need system maintenance status (compaction, consolidation). |

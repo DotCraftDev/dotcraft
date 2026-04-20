@@ -37,6 +37,31 @@ public sealed class SessionApprovalServiceTests
         return (svc, channel, turn);
     }
 
+    private static (SessionApprovalService svc, SessionEventChannel channel, SessionTurn turn, List<SessionThreadRuntimeSignal> signals)
+        MakeApprovalServiceWithSignals(TimeSpan? timeout = null, ApprovalStore? store = null)
+    {
+        var signals = new List<SessionThreadRuntimeSignal>();
+        var threadId = "thread_aprv_001";
+        var channel = new SessionEventChannel(threadId, TurnId);
+        var turn = new SessionTurn
+        {
+            Id = TurnId,
+            ThreadId = threadId,
+            Status = TurnStatus.Running,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+        var seq = 1;
+        var svc = new SessionApprovalService(
+            channel,
+            turn,
+            () => seq++,
+            timeout ?? TimeSpan.FromMinutes(1),
+            () => { },
+            store,
+            (_, signal) => signals.Add(signal));
+        return (svc, channel, turn, signals);
+    }
+
     // -------------------------------------------------------------------------
     // SessionApprovalDecision extension methods
     // -------------------------------------------------------------------------
@@ -218,6 +243,56 @@ public sealed class SessionApprovalServiceTests
     {
         var (svc, _, _) = MakeApprovalService();
         Assert.False(svc.HasPendingApproval);
+    }
+
+    [Fact]
+    public async Task RequestApproval_EmitsApprovalRequestedRuntimeSignal()
+    {
+        var (svc, channel, _, signals) = MakeApprovalServiceWithSignals();
+
+        var requestTask = svc.RequestFileApprovalAsync("write", "/path");
+        await Task.Delay(10);
+
+        string? requestId = null;
+        await foreach (var evt in DrainWithTimeout(channel))
+        {
+            if (evt.EventType == SessionEventType.ApprovalRequested)
+            {
+                requestId = (evt.ItemPayload?.Payload as ApprovalRequestPayload)?.RequestId;
+                break;
+            }
+        }
+
+        Assert.Equal([SessionThreadRuntimeSignal.ApprovalRequested], signals);
+
+        svc.TryResolve(requestId!, SessionApprovalDecision.AcceptOnce);
+        await requestTask;
+    }
+
+    [Fact]
+    public async Task TryResolve_EmitsApprovalResolvedRuntimeSignal()
+    {
+        var (svc, channel, _, signals) = MakeApprovalServiceWithSignals();
+
+        var requestTask = svc.RequestFileApprovalAsync("write", "/path");
+        await Task.Delay(10);
+
+        string? requestId = null;
+        await foreach (var evt in DrainWithTimeout(channel))
+        {
+            if (evt.EventType == SessionEventType.ApprovalRequested)
+            {
+                requestId = (evt.ItemPayload?.Payload as ApprovalRequestPayload)?.RequestId;
+                break;
+            }
+        }
+
+        svc.TryResolve(requestId!, SessionApprovalDecision.AcceptOnce);
+        await requestTask;
+
+        Assert.Equal(
+            [SessionThreadRuntimeSignal.ApprovalRequested, SessionThreadRuntimeSignal.ApprovalResolved],
+            signals);
     }
 
     // -------------------------------------------------------------------------

@@ -670,11 +670,21 @@ public sealed class CliOneshotRuntime : ISubAgentRuntime
         string template,
         IReadOnlyDictionary<string, string> replacements)
     {
-        var expanded = template;
-        foreach (var (key, value) in replacements)
-            expanded = expanded.Replace("{" + key + "}", value, StringComparison.Ordinal);
+        var templateArguments = SplitArguments(template);
+        if (templateArguments.Count == 0 || replacements.Count == 0)
+            return templateArguments;
 
-        return SplitArguments(expanded);
+        var expandedArguments = new List<string>(templateArguments.Count);
+        foreach (var argument in templateArguments)
+        {
+            var expandedArgument = argument;
+            foreach (var (key, value) in replacements)
+                expandedArgument = expandedArgument.Replace("{" + key + "}", value, StringComparison.Ordinal);
+
+            expandedArguments.Add(expandedArgument);
+        }
+
+        return expandedArguments;
     }
 
     internal static IReadOnlyList<string> SplitArguments(string commandLine)

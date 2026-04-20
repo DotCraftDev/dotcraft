@@ -4,8 +4,12 @@ import { translate } from '../shared/locales'
 import { useLocale } from './contexts/LocaleContext'
 import { basename } from './utils/path'
 import { initConnectionStore, useConnectionStore } from './stores/connectionStore'
-import { useThreadStore } from './stores/threadStore'
-import { selectStreamingPlanItemId, useConversationStore } from './stores/conversationStore'
+import { useThreadStore, type ThreadRuntimeSnapshot } from './stores/threadStore'
+import {
+  selectLatestCreatePlanTurnId,
+  selectStreamingPlanItemId,
+  useConversationStore
+} from './stores/conversationStore'
 import { useUIStore } from './stores/uiStore'
 import { ThreePanel } from './components/layout/ThreePanel'
 import { SkillsView } from './components/skills/SkillsView'
@@ -376,6 +380,27 @@ export function App(): JSX.Element {
             break
           }
 
+          case 'thread/runtimeChanged': {
+            const pp = p as {
+              threadId?: string
+              runtime?: Partial<ThreadRuntimeSnapshot>
+            }
+            const threadId = typeof pp.threadId === 'string' ? pp.threadId : ''
+            if (!threadId) break
+
+            const threadStore = useThreadStore.getState()
+            const threadSummary = threadStore.threadList.find((thread) => thread.id === threadId)
+            threadStore.applyRuntimeSnapshot(threadId, {
+              running: pp.runtime?.running === true,
+              waitingOnApproval: pp.runtime?.waitingOnApproval === true,
+              waitingOnPlanConfirmation: pp.runtime?.waitingOnPlanConfirmation === true
+            }, {
+              isActive: threadStore.activeThreadId === threadId,
+              isDesktopOrigin: threadSummary?.originChannel?.toLowerCase() === 'dotcraft-desktop'
+            })
+            break
+          }
+
           case 'thread/error': {
             const tid = (p.threadId as string | undefined) ?? ''
             const reason = (p.reason as string | undefined) ?? (p.message as string | undefined) ?? 'unknown'
@@ -400,9 +425,7 @@ export function App(): JSX.Element {
           case 'turn/started': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             conv.onTurnStarted(rawTurn)
-            // Track running turn for background activity indicator
             const startedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            if (startedThreadId) useThreadStore.getState().markTurnStarted(startedThreadId)
             {
               const rs = useReviewPanelStore.getState()
               if (startedThreadId && rs.reviewThreadId === startedThreadId) {
@@ -415,7 +438,6 @@ export function App(): JSX.Element {
           case 'turn/completed': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const completedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            if (completedThreadId) useThreadStore.getState().markTurnEnded(completedThreadId)
             const pendingBefore = conv.pendingMessage
             conv.onTurnCompleted(rawTurn)
             // Auto-send pending message if any
@@ -476,7 +498,6 @@ export function App(): JSX.Element {
           case 'turn/failed': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const failedThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            if (failedThreadId) useThreadStore.getState().markTurnEnded(failedThreadId)
             const error = (p.error as string) ?? (p.message as string) ?? 'Unknown error'
             const errorCode = (p.code as number | undefined)
               ?? ((p.error as Record<string, unknown> | undefined)?.code as number | undefined)
@@ -497,7 +518,6 @@ export function App(): JSX.Element {
           case 'turn/cancelled': {
             const rawTurn = (p.turn ?? p) as Record<string, unknown>
             const cancelledThreadId = (rawTurn.threadId as string | undefined) ?? (p.threadId as string | undefined)
-            if (cancelledThreadId) useThreadStore.getState().markTurnEnded(cancelledThreadId)
             const reason = (p.reason as string) ?? ''
             conv.onTurnCancelled(rawTurn, reason)
             {
@@ -719,10 +739,20 @@ export function App(): JSX.Element {
     const unsubscribe = window.api.appServer.onServerRequest((payload) => {
       const { bridgeId, method, params } = payload
       const p = (params ?? {}) as Record<string, unknown>
-      const conv = useConversationStore.getState()
 
       if (method === 'item/approval/request') {
-        conv.onApprovalRequest(bridgeId, p)
+        const threadId = typeof p.threadId === 'string' ? p.threadId : null
+        const turnId = typeof p.turnId === 'string' ? p.turnId : null
+        const activeThreadId = useThreadStore.getState().activeThreadId
+        if (threadId && threadId !== activeThreadId) {
+          useThreadStore.getState().parkApproval(threadId, {
+            bridgeId,
+            turnId,
+            rawParams: p
+          })
+          return
+        }
+        useConversationStore.getState().onApprovalRequest(bridgeId, p)
       }
       // Unknown server requests: respond with null to unblock AppServer
       // (will be handled by specific cases above in future)
@@ -877,6 +907,51 @@ export function App(): JSX.Element {
   useEffect(() => {
     const prev = prevThreadIdRef.current
     const curr = activeThreadId
+    const convBeforeReset = useConversationStore.getState()
+    const latestCreatePlanTurnId = selectLatestCreatePlanTurnId(convBeforeReset)
+    const planApprovalDismissed = useUIStore.getState().planApprovalDismissed
+    const prevHasPendingPlanConfirmation =
+      prev != null
+      && convBeforeReset.threadMode === 'plan'
+      && convBeforeReset.turnStatus === 'idle'
+      && convBeforeReset.pendingApproval == null
+      && latestCreatePlanTurnId != null
+      && planApprovalDismissed[latestCreatePlanTurnId] !== true
+
+    if (prev && prev !== curr && convBeforeReset.pendingApproval != null) {
+      const pending = convBeforeReset.pendingApproval
+      useThreadStore.getState().parkApproval(prev, {
+        bridgeId: pending.bridgeId,
+        turnId: convBeforeReset.activeTurnId,
+        rawParams: {
+          threadId: prev,
+          turnId: convBeforeReset.activeTurnId,
+          approvalType: pending.approvalType,
+          operation: pending.operation,
+          target: pending.target,
+          reason: pending.reason
+        }
+      })
+      useThreadStore.getState().applyRuntimeSnapshot(prev, {
+        running: convBeforeReset.turnStatus === 'running' || convBeforeReset.turnStatus === 'waitingApproval',
+        waitingOnApproval: true,
+        waitingOnPlanConfirmation: false
+      }, {
+        isActive: false,
+        isDesktopOrigin: true
+      })
+    }
+
+    if (prev && prev !== curr && prevHasPendingPlanConfirmation) {
+      useThreadStore.getState().applyRuntimeSnapshot(prev, {
+        running: false,
+        waitingOnApproval: false,
+        waitingOnPlanConfirmation: true
+      }, {
+        isActive: false,
+        isDesktopOrigin: true
+      })
+    }
 
     // Always reset conversation state on thread switch
     useConversationStore.getState().reset()
@@ -906,12 +981,18 @@ export function App(): JSX.Element {
           }
           const res = result as { thread: Thread }
           useThreadStore.getState().setActiveThread(res.thread)
-          const hasRunningTurn = (res.thread.turns ?? []).some((turn) => turn.status === 'running')
-          if (hasRunningTurn) {
-            useThreadStore.getState().markTurnStarted(requestedId)
-          } else {
-            useThreadStore.getState().markTurnEnded(requestedId)
-          }
+          useThreadStore.getState().applyRuntimeSnapshot(requestedId, {
+            running: (res.thread.turns ?? []).some((turn) =>
+              turn.status === 'running' || turn.status === 'waitingApproval'
+            ),
+            waitingOnApproval: (res.thread.turns ?? []).some((turn) =>
+              turn.status === 'waitingApproval'
+            ),
+            waitingOnPlanConfirmation: false
+          }, {
+            isActive: true,
+            isDesktopOrigin: res.thread.originChannel?.toLowerCase() === 'dotcraft-desktop'
+          })
           {
             const name = res.thread.displayName?.trim()
             if (name) {
@@ -927,6 +1008,10 @@ export function App(): JSX.Element {
           performance.mark(`app:thread-switch-rendered:${requestedId}`)
           performance.measure('app:thread-switch', `app:thread-switch-start:${requestedId}`, `app:thread-switch-rendered:${requestedId}`)
           useConversationStore.getState().setTurns(convTurns)
+          const parked = useThreadStore.getState().consumeParkedApproval(requestedId)
+          if (parked) {
+            useConversationStore.getState().onApprovalRequest(parked.bridgeId, parked.rawParams)
+          }
 
           // Welcome composer: send first turn after historical turns are loaded so reset/setTurns do not drop optimistic UI.
           const pendingWelcome = useUIStore.getState().consumePendingWelcomeTurnIfMatch(requestedId)

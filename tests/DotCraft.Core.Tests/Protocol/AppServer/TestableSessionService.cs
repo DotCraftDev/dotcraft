@@ -33,6 +33,9 @@ internal sealed class TestableSessionService : ISessionService
     /// <inheritdoc />
     public Action<SessionThread>? ThreadRenamedForBroadcast { get; set; }
 
+    /// <inheritdoc />
+    public Action<string, SessionThreadRuntimeSignal>? ThreadRuntimeSignalForBroadcast { get; set; }
+
     public TestableSessionService(ThreadStore store) => _store = store;
 
     // -------------------------------------------------------------------------

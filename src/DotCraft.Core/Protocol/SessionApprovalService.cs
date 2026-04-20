@@ -16,6 +16,7 @@ internal sealed class SessionApprovalService : IApprovalService
     private readonly TimeSpan _timeout;
     private readonly Action _cancelTurn;
     private readonly ApprovalStore? _store;
+    private readonly Action<string, SessionThreadRuntimeSignal>? _runtimeSignalForBroadcast;
 
     private readonly ConcurrentDictionary<string, PendingApproval> _pending = new();
     private readonly ConcurrentDictionary<string, byte> _sessionApprovedScopes = new();
@@ -36,7 +37,8 @@ internal sealed class SessionApprovalService : IApprovalService
         Func<int> nextItemSeq,
         TimeSpan timeout,
         Action cancelTurn,
-        ApprovalStore? store = null)
+        ApprovalStore? store = null,
+        Action<string, SessionThreadRuntimeSignal>? runtimeSignalForBroadcast = null)
     {
         _channel = channel;
         _turn = turn;
@@ -44,6 +46,7 @@ internal sealed class SessionApprovalService : IApprovalService
         _timeout = timeout;
         _cancelTurn = cancelTurn;
         _store = store;
+        _runtimeSignalForBroadcast = runtimeSignalForBroadcast;
     }
 
     /// <summary>
@@ -128,6 +131,7 @@ internal sealed class SessionApprovalService : IApprovalService
         _channel.EmitItemStarted(responseItem);
         _channel.EmitApprovalResolved(responseItem);
         _channel.EmitItemCompleted(responseItem);
+        _runtimeSignalForBroadcast?.Invoke(_turn.ThreadId, SessionThreadRuntimeSignal.ApprovalResolved);
 
         if (decision == SessionApprovalDecision.CancelTurn)
             _cancelTurn();
@@ -163,6 +167,7 @@ internal sealed class SessionApprovalService : IApprovalService
         _channel.EmitItemStarted(requestItem);
         _channel.EmitItemCompleted(requestItem);
         _channel.EmitApprovalRequested(requestItem);
+        _runtimeSignalForBroadcast?.Invoke(_turn.ThreadId, SessionThreadRuntimeSignal.ApprovalRequested);
 
         // Apply timeout
         using var cts = new CancellationTokenSource(_timeout);

@@ -239,3 +239,73 @@ describe('threadStore full CRUD lifecycle', () => {
     expect(s().activeThread).toBeNull()
   })
 })
+
+describe('threadStore indicator state', () => {
+  it('parks and consumes approvals by thread id', () => {
+    const s = useThreadStore.getState()
+    s.parkApproval('t1', {
+      bridgeId: 'bridge-1',
+      turnId: 'turn-1',
+      rawParams: { threadId: 't1', turnId: 'turn-1' }
+    })
+    expect(useThreadStore.getState().parkedApprovals.has('t1')).toBe(true)
+
+    const parked = useThreadStore.getState().consumeParkedApproval('t1')
+    expect(parked?.bridgeId).toBe('bridge-1')
+    expect(useThreadStore.getState().parkedApprovals.has('t1')).toBe(false)
+  })
+
+  it('tracks and clears pending plan/unread-completed on thread activation', () => {
+    const s = useThreadStore.getState()
+    s.applyRuntimeSnapshot('thread-a', {
+      running: false,
+      waitingOnApproval: true,
+      waitingOnPlanConfirmation: false
+    }, {
+      isActive: false,
+      isDesktopOrigin: true
+    })
+    s.markPlanConfirmationPending('thread-a')
+    s.markUnreadCompleted('thread-a')
+    expect(useThreadStore.getState().pendingPlanConfirmationThreadIds.has('thread-a')).toBe(true)
+    expect(useThreadStore.getState().pendingApprovalThreadIds.has('thread-a')).toBe(true)
+    expect(useThreadStore.getState().unreadCompletedThreadIds.has('thread-a')).toBe(true)
+
+    s.setActiveThreadId('thread-a')
+    expect(useThreadStore.getState().pendingApprovalThreadIds.has('thread-a')).toBe(false)
+    expect(useThreadStore.getState().pendingPlanConfirmationThreadIds.has('thread-a')).toBe(false)
+    expect(useThreadStore.getState().unreadCompletedThreadIds.has('thread-a')).toBe(false)
+  })
+
+  it('applies runtime snapshots for running, approval, plan, and unread state', () => {
+    const s = useThreadStore.getState()
+    s.setThreadList([makeThreadSummary('thread-a', { originChannel: 'dotcraft-desktop' })])
+
+    s.applyRuntimeSnapshot('thread-a', {
+      running: true,
+      waitingOnApproval: true,
+      waitingOnPlanConfirmation: false
+    }, {
+      isActive: false,
+      isDesktopOrigin: true
+    })
+
+    expect(useThreadStore.getState().runningTurnThreadIds.has('thread-a')).toBe(true)
+    expect(useThreadStore.getState().pendingApprovalThreadIds.has('thread-a')).toBe(true)
+    expect(useThreadStore.getState().unreadCompletedThreadIds.has('thread-a')).toBe(false)
+
+    s.applyRuntimeSnapshot('thread-a', {
+      running: false,
+      waitingOnApproval: false,
+      waitingOnPlanConfirmation: true
+    }, {
+      isActive: false,
+      isDesktopOrigin: true
+    })
+
+    expect(useThreadStore.getState().runningTurnThreadIds.has('thread-a')).toBe(false)
+    expect(useThreadStore.getState().pendingApprovalThreadIds.has('thread-a')).toBe(false)
+    expect(useThreadStore.getState().pendingPlanConfirmationThreadIds.has('thread-a')).toBe(true)
+    expect(useThreadStore.getState().unreadCompletedThreadIds.has('thread-a')).toBe(true)
+  })
+})

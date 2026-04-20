@@ -24,10 +24,21 @@ interface ThreadEntryProps {
 export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const locale = useLocale()
   const t = useT()
-  const { activeThreadId, setActiveThreadId, renameThread, runningTurnThreadIds } = useThreadStore()
+  const {
+    activeThreadId,
+    setActiveThreadId,
+    renameThread,
+    runningTurnThreadIds,
+    pendingApprovalThreadIds,
+    pendingPlanConfirmationThreadIds,
+    unreadCompletedThreadIds
+  } = useThreadStore()
   const setActiveMainView = useUIStore((s) => s.setActiveMainView)
   const isActive = activeThreadId === thread.id
   const hasRunningTurn = runningTurnThreadIds.has(thread.id)
+  const hasPendingApproval = pendingApprovalThreadIds.has(thread.id)
+  const hasPendingPlanConfirmation = pendingPlanConfirmationThreadIds.has(thread.id)
+  const hasUnreadCompleted = unreadCompletedThreadIds.has(thread.id)
 
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null)
   const [renaming, setRenaming] = useState(false)
@@ -46,6 +57,13 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
   const showArchiveAction = !renaming && (hovered || archiveButtonFocused)
   const showArchiveConfirm = showArchiveAction && archiveConfirming
   const confirm = useConfirmDialog()
+  const showPendingApprovalBadge = !isActive && hasPendingApproval
+  const showPendingPlanBadge = !isActive && !showPendingApprovalBadge && hasPendingPlanConfirmation
+  const showUnreadCompletedDot =
+    !isActive
+    && !hasRunningTurn
+    && thread.status === 'active'
+    && hasUnreadCompleted
 
   const performArchiveThread = useCallback(async (): Promise<void> => {
     try {
@@ -154,8 +172,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
       >
         <span
           style={{
-            width: '12px',
-            minWidth: '12px',
+            width: '16px',
+            minWidth: '16px',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -167,6 +185,19 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               title={t('threadEntry.turnRunning')}
               testId={`thread-running-indicator-${thread.id}`}
             />
+          ) : showUnreadCompletedDot ? (
+            <span
+              aria-label={t('threadEntry.unreadCompleted')}
+              title={t('threadEntry.unreadCompleted')}
+              data-testid={`thread-unread-completed-${thread.id}`}
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '999px',
+                backgroundColor: 'var(--success)',
+                display: 'inline-block'
+              }}
+            />
           ) : showStatusIcon ? (
             <span
               title={thread.status}
@@ -177,6 +208,23 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             </span>
           ) : null}
         </span>
+        {showOriginBadge && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              marginRight: '2px',
+              flexShrink: 0
+            }}
+          >
+            <ChannelIconBadge
+              channelName={thread.originChannel}
+              tooltip={t('threadEntry.originChannel', { channel: thread.originChannel })}
+              muted={!isActive}
+              size={18}
+            />
+          </span>
+        )}
 
         {renaming ? (
           <input
@@ -214,6 +262,38 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
             >
               {displayName}
             </span>
+            {(showPendingApprovalBadge || showPendingPlanBadge) && (
+              <span
+                data-testid={
+                  showPendingApprovalBadge
+                    ? `thread-pending-approval-${thread.id}`
+                    : `thread-pending-confirmation-${thread.id}`
+                }
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '18px',
+                  padding: '2px 8px',
+                  borderRadius: '999px',
+                  border: showPendingApprovalBadge
+                    ? '1px solid color-mix(in srgb, #d4a33b 45%, transparent)'
+                    : '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+                  backgroundColor: showPendingApprovalBadge
+                    ? 'color-mix(in srgb, #d4a33b 18%, transparent)'
+                    : 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                  color: showPendingApprovalBadge ? '#d4a33b' : 'var(--accent)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0
+                }}
+              >
+                {showPendingApprovalBadge
+                  ? t('threadEntry.pendingApproval')
+                  : t('threadEntry.pendingPlanConfirmation')}
+              </span>
+            )}
           </>
         )}
 
@@ -221,8 +301,8 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
           <div
             ref={actionSlotRef}
             style={{
-              width: '96px',
-              minWidth: '96px',
+              width: '56px',
+              minWidth: '56px',
               marginLeft: '4px',
               flexShrink: 0,
               position: 'relative',
@@ -236,26 +316,6 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               resetArchiveActionState()
             }}
           >
-            {showOriginBadge && (
-              <span
-                aria-hidden={showArchiveConfirm}
-                style={{
-                  marginRight: '6px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  opacity: showArchiveConfirm ? 0 : 1,
-                  pointerEvents: showArchiveConfirm ? 'none' : 'auto',
-                  transition: 'opacity 120ms ease'
-                }}
-              >
-                <ChannelIconBadge
-                  channelName={thread.originChannel}
-                  tooltip={t('threadEntry.originChannel', { channel: thread.originChannel })}
-                  muted={!isActive}
-                  size={20}
-                />
-              </span>
-            )}
             <span
               aria-hidden={showArchiveAction}
               style={{
@@ -265,6 +325,10 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
                 whiteSpace: 'nowrap',
                 display: 'inline-flex',
                 alignItems: 'center',
+                justifyContent: 'flex-end',
+                width: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
                 opacity: showArchiveAction ? 0 : 1,
                 transition: 'opacity 120ms ease'
               }}
@@ -323,12 +387,12 @@ export function ThreadEntry({ thread }: ThreadEntryProps): JSX.Element {
               onFocus={() => setArchiveButtonFocused(true)}
               style={{
                 height: '24px',
-                padding: '0 8px',
+                padding: '0 6px',
                 border: '1px solid rgba(248,81,73,0.35)',
                 borderRadius: '999px',
                 backgroundColor: 'rgba(248,81,73,0.10)',
                 color: 'var(--error)',
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
