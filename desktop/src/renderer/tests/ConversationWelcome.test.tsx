@@ -325,14 +325,14 @@ describe('ConversationWelcome composer', () => {
 
   it('hydrates structured welcome drafts back into inline tags', async () => {
     useUIStore.getState().setWelcomeDraft({
-      text: 'Check @src/foo.ts then /code-review and $browser',
+      text: 'Check @src/foo.ts then /code-review and $memory',
       segments: [
         { type: 'text', value: 'Check ' },
         { type: 'file', relativePath: 'src/foo.ts' },
         { type: 'text', value: ' then ' },
         { type: 'command', command: '/code-review' },
         { type: 'text', value: ' and ' },
-        { type: 'skill', skillName: 'browser' }
+        { type: 'skill', skillName: 'memory' }
       ],
       images: [],
       mode: 'agent',
@@ -347,12 +347,12 @@ describe('ConversationWelcome composer', () => {
       expect(textbox.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
       expect(textbox.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
     })
-    expect(textbox.textContent).not.toContain('$browser')
+    expect(textbox.textContent).not.toContain('$memory')
 
     mounted.unmount()
 
     expect(useUIStore.getState().welcomeDraft).toMatchObject({
-      text: 'Check @src/foo.ts then /code-review and $browser'
+      text: 'Check @src/foo.ts then /code-review and $memory'
     })
     expect(useUIStore.getState().welcomeDraft?.segments).toEqual([
       { type: 'text', value: 'Check ' },
@@ -360,13 +360,13 @@ describe('ConversationWelcome composer', () => {
       { type: 'text', value: ' then ' },
       { type: 'command', command: '/code-review' },
       { type: 'text', value: ' and ' },
-      { type: 'skill', skillName: 'browser' }
+      { type: 'skill', skillName: 'memory' }
     ])
   })
 
   it('restores legacy text drafts into tags and keeps serialized text when sending', async () => {
     useUIStore.getState().setWelcomeDraft({
-      text: 'Check @src/foo.ts /code-review [[Use Skill: browser]]',
+      text: 'Check @src/foo.ts /code-review [[Use Skill: memory]]',
       images: [],
       mode: 'agent',
       model: 'Default'
@@ -386,14 +386,14 @@ describe('ConversationWelcome composer', () => {
     await waitFor(() => {
       expect(useUIStore.getState().pendingWelcomeTurn).toMatchObject({
         threadId: 'thread-welcome',
-        text: 'Check @src/foo.ts /code-review $browser',
+        text: 'Check @src/foo.ts /code-review $memory',
         inputParts: [
           { type: 'text', text: 'Check ' },
           { type: 'fileRef', path: 'src/foo.ts', displayPath: 'src/foo.ts' },
           { type: 'text', text: ' ' },
           { type: 'commandRef', name: 'code-review', rawText: '/code-review' },
           { type: 'text', text: ' ' },
-          { type: 'skillRef', name: 'browser' }
+          { type: 'skillRef', name: 'memory' }
         ]
       })
     })

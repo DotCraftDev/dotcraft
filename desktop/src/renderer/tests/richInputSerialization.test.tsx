@@ -91,7 +91,7 @@ describe('truncateEditorDomToSerializedLength', () => {
     root.appendChild(document.createTextNode(' then '))
     root.appendChild(makeCommandRef('/code-review'))
     root.appendChild(document.createTextNode(' with '))
-    root.appendChild(makeSkillRef('browser'))
+    root.appendChild(makeSkillRef('memory'))
 
     expect(collectComposerDraftSegments(root)).toEqual([
       { type: 'text', value: 'Check ' },
@@ -99,7 +99,7 @@ describe('truncateEditorDomToSerializedLength', () => {
       { type: 'text', value: ' then ' },
       { type: 'command', command: '/code-review' },
       { type: 'text', value: ' with ' },
-      { type: 'skill', skillName: 'browser' }
+      { type: 'skill', skillName: 'memory' }
     ])
   })
 
@@ -111,7 +111,7 @@ describe('truncateEditorDomToSerializedLength', () => {
       { type: 'text', value: ' then ' },
       { type: 'command', command: '/code-review' },
       { type: 'text', value: ' and ' },
-      { type: 'skill', skillName: 'browser' }
+      { type: 'skill', skillName: 'memory' }
     ]
 
     root.appendChild(buildEditorFragmentFromSegments(segments))
@@ -119,7 +119,7 @@ describe('truncateEditorDomToSerializedLength', () => {
     expect(root.querySelector(`.${FILE_REF_CLASS}`)).not.toBeNull()
     expect(root.querySelector(`.${COMMAND_REF_CLASS}`)).not.toBeNull()
     expect(root.querySelector(`.${SKILL_REF_CLASS}`)).not.toBeNull()
-    expect(serializeEditor(root)).toBe('Check @src/foo.ts then /code-review and $browser')
+    expect(serializeEditor(root)).toBe('Check @src/foo.ts then /code-review and $memory')
   })
 
   it('keeps default fragment output unchanged when spacer insertion is not requested', () => {
@@ -127,7 +127,7 @@ describe('truncateEditorDomToSerializedLength', () => {
     const segments: ComposerDraftSegment[] = [
       { type: 'file', relativePath: 'src/foo.ts' },
       { type: 'command', command: '/code-review' },
-      { type: 'skill', skillName: 'browser' }
+      { type: 'skill', skillName: 'memory' }
     ]
 
     root.appendChild(buildEditorFragmentFromSegments(segments))
@@ -143,7 +143,7 @@ describe('truncateEditorDomToSerializedLength', () => {
     const segments: ComposerDraftSegment[] = [
       { type: 'file', relativePath: 'src/foo.ts' },
       { type: 'command', command: '/code-review' },
-      { type: 'skill', skillName: 'browser' }
+      { type: 'skill', skillName: 'memory' }
     ]
 
     root.appendChild(buildEditorFragmentFromSegments(segments, { addSpacers: true }))
@@ -162,21 +162,21 @@ describe('truncateEditorDomToSerializedLength', () => {
   })
 
   it('parses legacy draft text into file, command, and skill segments conservatively', () => {
-    expect(parseLegacyComposerText('Check @src/foo.ts /code-review $browser now')).toEqual([
+    expect(parseLegacyComposerText('Check @src/foo.ts /code-review $memory now')).toEqual([
       { type: 'text', value: 'Check ' },
       { type: 'file', relativePath: 'src/foo.ts' },
       { type: 'text', value: ' ' },
       { type: 'command', command: '/code-review' },
       { type: 'text', value: ' ' },
-      { type: 'skill', skillName: 'browser' },
+      { type: 'skill', skillName: 'memory' },
       { type: 'text', value: ' now' }
     ])
   })
 
   it('still parses legacy double-bracket skill markers for backward compatibility', () => {
-    expect(parseLegacyComposerText('Check [[Use Skill: browser]] now')).toEqual([
+    expect(parseLegacyComposerText('Check [[Use Skill: memory]] now')).toEqual([
       { type: 'text', value: 'Check ' },
-      { type: 'skill', skillName: 'browser' },
+      { type: 'skill', skillName: 'memory' },
       { type: 'text', value: ' now' }
     ])
   })

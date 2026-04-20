@@ -140,12 +140,12 @@ public class SerializationTests
     {
         var item = BuildItem(ItemType.UserMessage, ItemStatus.Completed, new UserMessagePayload
         {
-            Text = "/code-review $browser @src/foo.ts",
+            Text = "/code-review $memory @src/foo.ts",
             NativeInputParts =
             [
                 new SessionWireInputPart { Type = "commandRef", Name = "code-review", RawText = "/code-review" },
                 new SessionWireInputPart { Type = "text", Text = " " },
-                new SessionWireInputPart { Type = "skillRef", Name = "browser" },
+                new SessionWireInputPart { Type = "skillRef", Name = "memory" },
                 new SessionWireInputPart { Type = "text", Text = " " },
                 new SessionWireInputPart { Type = "fileRef", Path = "src/foo.ts", DisplayPath = "src/foo.ts" }
             ],
@@ -153,7 +153,7 @@ public class SerializationTests
             [
                 new SessionWireInputPart { Type = "text", Text = "Expanded review prompt" },
                 new SessionWireInputPart { Type = "text", Text = "\n\n" },
-                new SessionWireInputPart { Type = "text", Text = "[Requested Skill: browser]" }
+                new SessionWireInputPart { Type = "text", Text = "[Requested Skill: memory]" }
             ]
         });
 
@@ -174,7 +174,7 @@ public class SerializationTests
             part =>
             {
                 Assert.Equal("skillRef", part.Type);
-                Assert.Equal("browser", part.Name);
+                Assert.Equal("memory", part.Name);
             },
             part => Assert.Equal(" ", part.Text),
             part =>
@@ -186,7 +186,7 @@ public class SerializationTests
         Assert.Collection(payload.MaterializedInputParts!,
             part => Assert.Equal("Expanded review prompt", part.Text),
             part => Assert.Equal("\n\n", part.Text),
-            part => Assert.Equal("[Requested Skill: browser]", part.Text));
+            part => Assert.Equal("[Requested Skill: memory]", part.Text));
     }
 
     [Fact]
@@ -199,10 +199,10 @@ public class SerializationTests
             new SessionWireInputPart { Type = "text", Text = " then " },
             new SessionWireInputPart { Type = "commandRef", Name = "code-review", ArgsText = "--fast" },
             new SessionWireInputPart { Type = "text", Text = " and " },
-            new SessionWireInputPart { Type = "skillRef", Name = "$browser" }
+            new SessionWireInputPart { Type = "skillRef", Name = "$memory" }
         ]);
 
-        Assert.Equal("Check @src/foo.ts then /code-review --fast and $browser", text);
+        Assert.Equal("Check @src/foo.ts then /code-review --fast and $memory", text);
     }
 
     [Fact]

@@ -10,8 +10,8 @@ public sealed class McpClientManagerTests
             Name = name,
             Enabled = false,
             Transport = "stdio",
-            Command = "npx",
-            Arguments = ["-y", "@playwright/mcp@latest"]
+            Command = "mock-mcp-cli",
+            Arguments = ["serve", "--stdio"]
         };
 
     [Fact]
@@ -19,7 +19,7 @@ public sealed class McpClientManagerTests
     {
         await using var manager = new McpClientManager();
 
-        await manager.ConnectAsync([DisabledStdio("playwright")]);
+        await manager.ConnectAsync([DisabledStdio("demo-server")]);
 
         Assert.Empty(manager.Tools);
         Assert.Empty(manager.ToolServerMap);
@@ -36,13 +36,13 @@ public sealed class McpClientManagerTests
         await using var manager = new McpClientManager();
         await manager.ConnectAsync([]);
 
-        var upserted = await manager.UpsertAsync(DisabledStdio("browser"));
+        var upserted = await manager.UpsertAsync(DisabledStdio("demo-server"));
         Assert.Equal("disabled", upserted.StartupState);
         Assert.Equal(0, upserted.ToolCount);
         Assert.Empty(manager.Tools);
         Assert.Empty(manager.ToolServerMap);
 
-        var removed = await manager.RemoveAsync("browser");
+        var removed = await manager.RemoveAsync("demo-server");
         Assert.True(removed);
         Assert.Empty(manager.Tools);
         Assert.Empty(manager.ToolServerMap);

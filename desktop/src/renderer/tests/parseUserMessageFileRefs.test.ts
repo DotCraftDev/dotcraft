@@ -42,8 +42,8 @@ describe('parseUserMessageFileRefs', () => {
   })
 
   it('parses $skill marker into skillRef segment', () => {
-    expect(parseUserMessageFileRefs('$browser')).toEqual([
-      { type: 'skillRef', skillName: 'browser' }
+    expect(parseUserMessageFileRefs('$memory')).toEqual([
+      { type: 'skillRef', skillName: 'memory' }
     ])
   })
 
@@ -58,14 +58,14 @@ describe('parseUserMessageFileRefs', () => {
   })
 
   it('still parses legacy double-bracket skill markers', () => {
-    expect(parseUserMessageFileRefs('[[Use Skill: browser]]')).toEqual([
-      { type: 'skillRef', skillName: 'browser' }
+    expect(parseUserMessageFileRefs('[[Use Skill: memory]]')).toEqual([
+      { type: 'skillRef', skillName: 'memory' }
     ])
   })
 
   it('treats plain "Use Skill:" text as normal text', () => {
-    expect(parseUserMessageFileRefs('Please Use Skill: browser today')).toEqual([
-      { type: 'text', value: 'Please Use Skill: browser today' }
+    expect(parseUserMessageFileRefs('Please Use Skill: memory today')).toEqual([
+      { type: 'text', value: 'Please Use Skill: memory today' }
     ])
   })
 
