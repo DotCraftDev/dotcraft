@@ -100,7 +100,10 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
 
       {effectiveDetailPanelVisible && <DragHandle onDrag={handleDetailDrag} />}
 
-      {/* Detail panel */}
+      {/* Detail panel — same background as conversation so it reads as an
+          embedded extension. A 1px left border in the same token as the
+          header bottom line visually forms a continuous "L" divider and
+          marks the boundary with the conversation column. */}
       <div
         style={{
           width: effectiveDetailPanelVisible ? `${detailPanelWidth}px` : '0px',
@@ -108,9 +111,10 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
           flexShrink: 0,
           overflow: 'hidden',
           transition: 'width 200ms ease-out, min-width 200ms ease-out',
-          backgroundColor: 'var(--bg-secondary)',
-          // Soft edge without a hard vertical border
-          boxShadow: effectiveDetailPanelVisible ? '-1px 0 0 0 rgba(0, 0, 0, 0.12)' : 'none',
+          backgroundColor: 'var(--bg-primary)',
+          boxShadow: effectiveDetailPanelVisible
+            ? '-1px 0 0 0 var(--border-default)'
+            : 'none',
           display: 'flex',
           flexDirection: 'column'
         }}

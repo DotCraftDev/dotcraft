@@ -3,7 +3,7 @@ import { useT } from '../../contexts/LocaleContext'
 import { useUIStore } from '../../stores/uiStore'
 import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { useConversationStore } from '../../stores/conversationStore'
-import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X, Globe } from 'lucide-react'
+import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X, Globe, PanelRightClose } from 'lucide-react'
 import { ChangesTab } from '../detail/ChangesTab'
 import { PlanTab } from '../detail/PlanTab'
 import { TerminalTab } from '../detail/TerminalTab'
@@ -133,7 +133,7 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        backgroundColor: 'var(--bg-secondary)'
+        backgroundColor: 'var(--bg-primary)'
       }}
     >
       {/* ── Tab bar ── */}
@@ -327,29 +327,38 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
 
         <div style={{ flex: 1 }} />
 
-        {/* Close panel button */}
+        {/* Close panel button — ghost icon, mirrors ThreadHeader's open-panel button */}
         <button
           onClick={toggleDetailPanel}
           title={t('detailPanel.closeTitle')}
+          aria-label={t('detailPanel.closeAria')}
           style={{
             alignSelf: 'center',
             width: '28px',
             height: '28px',
-            borderRadius: '4px',
-            backgroundColor: 'transparent',
-            border: 'none',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '16px',
+            padding: 0,
+            border: 'none',
+            borderRadius: '6px',
+            backgroundColor: 'transparent',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            flexShrink: 0,
             marginRight: '4px',
-            flexShrink: 0
+            transition: 'background-color 100ms ease, color 100ms ease'
           }}
-          aria-label={t('detailPanel.closeAria')}
+          onMouseEnter={(e) => {
+            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+          }}
+          onMouseLeave={(e) => {
+            ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+            ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+          }}
         >
-          ×
+          <PanelRightClose size={16} aria-hidden />
         </button>
       </div>
 
