@@ -18,11 +18,6 @@ public static class StatusPanel
     {
         AnsiConsole.Clear();
 
-        AnsiConsole.Write(
-            new FigletText("DotCraft")
-                .LeftJustified()
-                .Color(Color.Blue));
-
         AnsiConsole.Write(new Text($"Version {AppVersion.Short}", new Style(Color.Grey)).LeftJustified());
         AnsiConsole.WriteLine();
 
@@ -41,47 +36,6 @@ public static class StatusPanel
         {
             AnsiConsole.MarkupLine($"[blue]●[/] [bold]{Strings.WelcomeModel}[/]  [grey]{modelName.Escape()}[/]");
         }
-        AnsiConsole.WriteLine();
-
-        // Quick command tips
-        var grid = new Grid();
-        grid.AddColumn();
-        grid.AddColumn();
-        grid.AddColumn();
-        grid.AddColumn();
-        grid.AddColumn();
-        grid.AddColumn();
-
-        grid.AddRow(
-            new Markup("[blue]/new[/]"),
-            new Markup($"[grey]{Strings.CmdNew}[/]"),
-            new Markup("[blue]/load[/]"),
-            new Markup($"[grey]{Strings.CmdLoad}[/]"),
-            new Markup("[blue]/model[/]"),
-            new Markup($"[grey]{Strings.CmdModel}[/]"));
-        grid.AddRow(
-            new Markup("[blue]/agent[/]"),
-            new Markup($"[grey]{Strings.CmdAgent}[/]"),
-            new Markup("[blue]/plan[/]"),
-            new Markup($"[grey]{Strings.CmdPlan}[/]"),
-            new Markup("[blue]/help[/]"),
-            new Markup($"[grey]{Strings.CmdHelp}[/]"));
-        grid.AddRow(
-            new Markup("[blue]/clear[/]"),
-            new Markup($"[grey]{Strings.CmdClear}[/]"),
-            new Markup("[blue]/commands[/]"),
-            new Markup($"[grey]{Strings.CmdCommands}[/]"),
-            new Markup("[blue]/exit[/]"),
-            new Markup($"[grey]{Strings.CmdExit}[/]"));
-
-        var panel = new Panel(grid)
-        {
-            Header = new PanelHeader($"[yellow]💡 {Strings.QuickCommands}[/]"),
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey)
-        };
-
-        AnsiConsole.Write(panel);
         AnsiConsole.WriteLine();
     }
     
