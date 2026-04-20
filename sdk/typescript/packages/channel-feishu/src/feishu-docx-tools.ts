@@ -420,7 +420,7 @@ function toFeishuDocxBlock(block: FeishuSimpleBlock): Record<string, unknown> {
     case "ordered":
       return { block_type: 13, ordered: { elements: textElements } };
     case "todo":
-      return { block_type: 17, todo: { elements: textElements, done: block.checked === true } };
+      return { block_type: 17, todo: { elements: textElements, style: { done: block.checked === true } } };
     case "quote":
       return { block_type: 15, quote: { elements: textElements } };
     case "code":
