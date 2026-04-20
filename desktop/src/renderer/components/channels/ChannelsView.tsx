@@ -41,7 +41,6 @@ interface ExternalChannelViewModel {
   name: string
   draft: ExternalChannelConfigWire
   configured: boolean
-  isLegacyTelegram: boolean
 }
 
 interface ModuleQrState {
@@ -71,10 +70,6 @@ function isModuleWsAvailable(mode: ConnectionMode): boolean {
 
 function normalizeChannelName(value: string): string {
   return value.trim().toLowerCase()
-}
-
-function isLegacyTelegramExternal(channelName: string, moduleChannelNames: Set<string>): boolean {
-  return normalizeChannelName(channelName) === 'telegram' && moduleChannelNames.has('telegram')
 }
 
 function groupModulesByChannel(
@@ -498,13 +493,11 @@ export function ChannelsView(): JSX.Element {
     const merged: ExternalChannelViewModel[] = []
     for (const channel of externalChannels) {
       const normalizedName = channel.name.toLowerCase()
-      const isLegacyTelegram = isLegacyTelegramExternal(channel.name, moduleChannelNames)
-      if (moduleChannelNames.has(normalizedName) && !isLegacyTelegram) continue
+      if (moduleChannelNames.has(normalizedName)) continue
       merged.push({
         name: channel.name,
         draft: cloneExternalChannel(channel),
-        configured: true,
-        isLegacyTelegram
+        configured: true
       })
     }
 
@@ -898,10 +891,6 @@ export function ChannelsView(): JSX.Element {
     selectedModule && selectedModule.channelName
       ? moduleLogoPath(selectedModule.channelName)
       : undefined
-  const selectedExternalCard = selectedExternalName
-    ? externalChannelCards.find((item) => item.name.toLowerCase() === selectedExternalName.toLowerCase())
-    : null
-
   useEffect(() => {
     if (selectedModuleId && !selectedModule) {
       setSelectedChannelKey('native:qq')
@@ -1147,9 +1136,7 @@ export function ChannelsView(): JSX.Element {
                 return (
                   <ChannelCard
                     key={channel.name}
-                    logoPath={channel.isLegacyTelegram ? moduleLogoPath(channel.name) : undefined}
                     label={channel.name}
-                    badgeText={channel.isLegacyTelegram ? t('channels.external.legacyTelegramBadge') : undefined}
                     status={status}
                     statusLabel={t(statusLabelKey(status))}
                     active={selectedChannelKey === `external:${channel.name}`}
@@ -1251,31 +1238,11 @@ export function ChannelsView(): JSX.Element {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {selectedExternalCard?.isLegacyTelegram && (
-                    <div
-                      style={{
-                        border: '1px solid color-mix(in srgb, var(--warning) 40%, var(--border-default))',
-                        background: 'color-mix(in srgb, var(--warning) 10%, var(--bg-secondary))',
-                        color: 'var(--text-primary)',
-                        borderRadius: 10,
-                        padding: '12px 14px',
-                        fontSize: 13,
-                        lineHeight: 1.5
-                      }}
-                    >
-                      {t('channels.external.legacyTelegramWarning')}
-                    </div>
-                  )}
                   <ExternalChannelConfigForm
                     value={externalDraft}
                     saving={savingExternal}
                     deleting={deletingExternal}
                     isNew={selectedExternalName === '__new__'}
-                    logoPath={
-                      selectedExternalCard?.isLegacyTelegram
-                        ? moduleLogoPath(selectedExternalCard.name)
-                        : undefined
-                    }
                     status={
                       selectedExternalName === '__new__'
                         ? deriveExternalStatus(
