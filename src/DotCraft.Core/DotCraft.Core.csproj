@@ -24,6 +24,7 @@
   
   <ItemGroup>
     <PackageReference Include="Alibaba.OpenSandbox" Version="0.1.0-alpha.3" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260212.1" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.260212.1" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting.AGUI.AspNetCore" Version="1.0.0-preview.260212.1" />

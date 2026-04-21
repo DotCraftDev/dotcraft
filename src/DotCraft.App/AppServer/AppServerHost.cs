@@ -175,7 +175,7 @@ public sealed class AppServerHost(
         var commitMessageSuggest = new CommitMessageSuggestService(sessionService, paths.WorkspacePath);
         var welcomeSuggestionService = new WelcomeSuggestionService(
             sessionService,
-            sp.GetRequiredService<ThreadStore>(),
+            sp.GetRequiredService<SessionPersistenceService>(),
             memoryStore,
             paths.WorkspacePath,
             sp.GetService<ILoggerFactory>()?.CreateLogger<WelcomeSuggestionService>());

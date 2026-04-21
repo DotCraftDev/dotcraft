@@ -22,7 +22,7 @@ public interface IWelcomeSuggestionService
 
 public sealed class WelcomeSuggestionService(
     ISessionService sessionService,
-    ThreadStore threadStore,
+    SessionPersistenceService persistence,
     MemoryStore memoryStore,
     string workspaceRoot,
     ILogger<WelcomeSuggestionService>? logger = null) : IWelcomeSuggestionService, IAsyncDisposable
@@ -212,7 +212,7 @@ public sealed class WelcomeSuggestionService(
         var normalizedThreadId = threadId.Trim();
         if (normalizedThreadId.Length == 0)
             return false;
-        var summaries = await threadStore.LoadIndexAsync(cancellationToken).ConfigureAwait(false);
+        var summaries = await persistence.LoadIndexAsync(cancellationToken).ConfigureAwait(false);
         var summary = summaries.FirstOrDefault(item => string.Equals(item.Id, normalizedThreadId, StringComparison.Ordinal));
         return summary != null && IsInternalThread(summary);
     }
@@ -324,7 +324,7 @@ public sealed class WelcomeSuggestionService(
             tempThreadId = tempThread.Id;
             tempThread.Metadata[WelcomeSuggestionConstants.InternalMetadataKey] =
                 WelcomeSuggestionConstants.InternalMetadataValue;
-            await threadStore.SaveThreadAsync(tempThread, linked.Token).ConfigureAwait(false);
+            await persistence.SaveThreadAsync(tempThread, linked.Token).ConfigureAwait(false);
 
             List<WelcomeSuggestionItem>? items = null;
             await foreach (var evt in sessionService.SubmitInputAsync(
@@ -393,7 +393,7 @@ public sealed class WelcomeSuggestionService(
         int maxItems,
         CancellationToken cancellationToken)
     {
-        var summaries = (await threadStore.LoadIndexAsync(cancellationToken).ConfigureAwait(false))
+        var summaries = (await persistence.LoadIndexAsync(cancellationToken).ConfigureAwait(false))
             .Where(summary =>
                 string.Equals(NormalizeWorkspacePath(summary.WorkspacePath), workspacePath, StringComparison.OrdinalIgnoreCase)
                 && summary.Status != ThreadStatus.Archived
@@ -406,7 +406,7 @@ public sealed class WelcomeSuggestionService(
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var summary in summaries)
         {
-            var thread = await threadStore.LoadThreadAsync(summary.Id, cancellationToken).ConfigureAwait(false);
+            var thread = await persistence.LoadThreadAsync(summary.Id, cancellationToken).ConfigureAwait(false);
             if (thread == null)
                 continue;
 

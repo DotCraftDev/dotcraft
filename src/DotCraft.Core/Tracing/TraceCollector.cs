@@ -175,6 +175,19 @@ public sealed class TraceCollector(TraceStore store)
         });
     }
 
+    public void BindThreadMainSession(string threadId, DateTimeOffset? createdAt = null)
+        => store.BindThreadMainSession(threadId, createdAt);
+
+    public void BindChildSession(
+        string sessionKey,
+        string rootThreadId,
+        string parentSessionKey,
+        DateTimeOffset? createdAt = null)
+        => store.BindChildSession(sessionKey, rootThreadId, parentSessionKey, createdAt);
+
+    public string? ResolveRootThreadId(string sessionKey)
+        => store.DescribeSessionDeletion(sessionKey).RootThreadId;
+
     public ToolCallTimer StartToolTimer()
     {
         return new ToolCallTimer();

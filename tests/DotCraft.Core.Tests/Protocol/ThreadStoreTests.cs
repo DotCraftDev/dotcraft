@@ -1,4 +1,5 @@
 using DotCraft.Protocol;
+using Microsoft.Data.Sqlite;
 
 namespace DotCraft.Tests.Sessions.Protocol;
 
@@ -79,8 +80,158 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.Equal("test-value", v);
     }
 
+    [Fact]
+    public async Task SaveThread_WritesCanonicalJsonlUnderThreadsActive()
+    {
+        var thread = CreateThread();
+
+        await _store.SaveThreadAsync(thread);
+
+        Assert.True(File.Exists(GetCanonicalPath(thread.Id, archived: false)));
+    }
+
+    [Fact]
+    public async Task SaveThread_ArchiveAndUnarchive_MovesCanonicalJsonlBetweenDirectories()
+    {
+        var thread = CreateThread();
+        await _store.SaveThreadAsync(thread);
+
+        var activePath = GetCanonicalPath(thread.Id, archived: false);
+        var archivedPath = GetCanonicalPath(thread.Id, archived: true);
+        Assert.True(File.Exists(activePath));
+
+        thread.Status = ThreadStatus.Archived;
+        thread.LastActiveAt = thread.LastActiveAt.AddMinutes(1);
+        await _store.SaveThreadAsync(thread);
+
+        Assert.False(File.Exists(activePath));
+        Assert.True(File.Exists(archivedPath));
+
+        thread.Status = ThreadStatus.Active;
+        thread.LastActiveAt = thread.LastActiveAt.AddMinutes(1);
+        await _store.SaveThreadAsync(thread);
+
+        Assert.True(File.Exists(activePath));
+        Assert.False(File.Exists(archivedPath));
+    }
+
+    [Fact]
+    public async Task SaveThread_UsesCachedSnapshot_ForIncrementalAppendOnRepeatedSaves()
+    {
+        var thread = CreateThread();
+        thread.DisplayName = "First title";
+        await _store.SaveThreadAsync(thread);
+        var path = GetCanonicalPath(thread.Id, archived: false);
+        var initialLineCount = File.ReadAllLines(path).Length;
+
+        thread.DisplayName = "Updated title";
+        await _store.SaveThreadAsync(thread);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal("Updated title", loaded.DisplayName);
+        Assert.Equal(initialLineCount + 1, File.ReadAllLines(path).Length);
+    }
+
+    [Fact]
+    public async Task LoadThenSave_ReusesLoadedSnapshot_ForSubsequentDiff()
+    {
+        var original = CreateThread();
+        original.DisplayName = "Initial";
+        await _store.SaveThreadAsync(original);
+        var path = GetCanonicalPath(original.Id, archived: false);
+        var initialLineCount = File.ReadAllLines(path).Length;
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(original.Id);
+        Assert.NotNull(loaded);
+
+        loaded.DisplayName = "Renamed after load";
+        await secondStore.SaveThreadAsync(loaded);
+
+        var roundTrip = await secondStore.LoadThreadAsync(original.Id);
+        Assert.NotNull(roundTrip);
+        Assert.Equal("Renamed after load", roundTrip.DisplayName);
+        Assert.Equal(initialLineCount + 1, File.ReadAllLines(path).Length);
+    }
+
+    [Fact]
+    public async Task DeleteThread_ClearsCachedSnapshot_BeforeRecreatingSameId()
+    {
+        var thread = CreateThread();
+        thread.DisplayName = "Before delete";
+        await _store.SaveThreadAsync(thread);
+
+        _store.DeleteThread(thread.Id);
+
+        var recreated = CreateThread(thread.Id);
+        recreated.DisplayName = "After recreate";
+        recreated.LastActiveAt = recreated.LastActiveAt.AddMinutes(1);
+        await _store.SaveThreadAsync(recreated);
+        var path = GetCanonicalPath(thread.Id, archived: false);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal("After recreate", loaded.DisplayName);
+        Assert.Equal(3, File.ReadAllLines(path).Length);
+    }
+
+    [Fact]
+    public async Task SaveThread_MultipleSavesWithMutableObject_RoundTripsFinalState()
+    {
+        var thread = CreateThread();
+        await _store.SaveThreadAsync(thread);
+
+        var turn = new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = thread.Id,
+            Status = TurnStatus.Running,
+            StartedAt = thread.CreatedAt.AddSeconds(1)
+        };
+        var userItem = new SessionItem
+        {
+            Id = "item_001",
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = turn.StartedAt,
+            CompletedAt = turn.StartedAt,
+            Payload = new UserMessagePayload { Text = "hello" }
+        };
+        turn.Input = userItem;
+        turn.Items.Add(userItem);
+        thread.Turns.Add(turn);
+        thread.LastActiveAt = turn.StartedAt;
+        await _store.SaveThreadAsync(thread);
+
+        var agentItem = new SessionItem
+        {
+            Id = "item_002",
+            TurnId = turn.Id,
+            Type = ItemType.AgentMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = turn.StartedAt.AddSeconds(1),
+            CompletedAt = turn.StartedAt.AddSeconds(1),
+            Payload = new AgentMessagePayload { Text = "world" }
+        };
+        turn.Items.Add(agentItem);
+        turn.Status = TurnStatus.Completed;
+        turn.CompletedAt = turn.StartedAt.AddSeconds(1);
+        thread.LastActiveAt = turn.CompletedAt.Value;
+        await _store.SaveThreadAsync(thread);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        var loadedTurn = Assert.Single(loaded.Turns);
+        Assert.Equal(TurnStatus.Completed, loadedTurn.Status);
+        Assert.Equal(2, loadedTurn.Items.Count);
+        Assert.Equal("hello", loadedTurn.Input?.AsUserMessage?.Text);
+        Assert.Equal("world", loadedTurn.Items[1].AsAgentMessage?.Text);
+    }
+
     // -------------------------------------------------------------------------
-    // Thread discovery (LoadIndexAsync scans thread files)
+    // Thread discovery (LoadIndexAsync reads persisted SQLite metadata)
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -120,14 +271,11 @@ public sealed class ThreadStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadIndex_IgnoresSessionFiles()
+    public async Task LoadIndex_IgnoresThreadSessionsStoredInDb()
     {
         var thread = CreateThread();
         await _store.SaveThreadAsync(thread);
-
-        // Create a fake session file that should be ignored
-        var sessionFile = Path.Combine(_root, "threads", $"{thread.Id}.session.json");
-        await File.WriteAllTextAsync(sessionFile, "{}");
+        InsertThreadSession(thread.Id, """{"chatHistory":[],"type":"chatHistory"}""");
 
         var index = await _store.LoadIndexAsync();
         Assert.Single(index);
@@ -138,9 +286,9 @@ public sealed class ThreadStoreTests : IDisposable
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static SessionThread CreateThread() => new()
+    private static SessionThread CreateThread(string? id = null) => new()
     {
-        Id = SessionIdGenerator.NewThreadId(),
+        Id = id ?? SessionIdGenerator.NewThreadId(),
         WorkspacePath = "/workspace",
         UserId = "user1",
         OriginChannel = "console",
@@ -149,4 +297,33 @@ public sealed class ThreadStoreTests : IDisposable
         LastActiveAt = DateTimeOffset.UtcNow,
         HistoryMode = HistoryMode.Server
     };
+
+    private string GetCanonicalPath(string threadId, bool archived)
+        => Path.Combine(_root, "threads", archived ? "archived" : "active", $"{threadId}.jsonl");
+
+    private void InsertThreadSession(string threadId, string sessionJson)
+    {
+        using var connection = OpenStateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_sessions(thread_id, session_json, updated_at)
+            VALUES ($thread_id, $session_json, $updated_at)
+            """;
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.Parameters.AddWithValue("$session_json", sessionJson);
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    private SqliteConnection OpenStateConnection()
+    {
+        var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(_root, "state.db"),
+                Mode = SqliteOpenMode.ReadWrite
+            }.ToString());
+        connection.Open();
+        return connection;
+    }
 }

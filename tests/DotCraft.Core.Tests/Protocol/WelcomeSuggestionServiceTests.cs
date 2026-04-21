@@ -14,6 +14,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
     private readonly string _workspacePath;
     private readonly string _craftPath;
     private readonly ThreadStore _threadStore;
+    private readonly SessionPersistenceService _persistence;
     private readonly MemoryStore _memoryStore;
     private readonly TestableSessionService _sessionService;
 
@@ -24,6 +25,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         Directory.CreateDirectory(_craftPath);
 
         _threadStore = new ThreadStore(_craftPath);
+        _persistence = new SessionPersistenceService(_threadStore);
         _memoryStore = new MemoryStore(_craftPath);
         _sessionService = new TestableSessionService(_threadStore);
     }
@@ -226,7 +228,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
         });
 
         await _threadStore.SaveThreadAsync(thread);
-        var methods = new WelcomeSuggestionToolMethods(_threadStore, _memoryStore, _workspacePath);
+        var methods = new WelcomeSuggestionToolMethods(_persistence, _memoryStore, _workspacePath);
 
         var result = await methods.ReadWelcomeThreadHistory(thread.Id);
 
@@ -248,7 +250,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
             Welcome suggestion output should mention concrete modules like WelcomeSuggestionService.cs or settings keys in .craft/config.json instead of generic onboarding.
             """);
 
-        var methods = new WelcomeSuggestionToolMethods(_threadStore, _memoryStore, _workspacePath);
+        var methods = new WelcomeSuggestionToolMethods(_persistence, _memoryStore, _workspacePath);
 
         var result = await methods.ReadWelcomeWorkspaceMemory();
 
@@ -569,7 +571,7 @@ public sealed class WelcomeSuggestionServiceTests : IDisposable
     ];
 
     private WelcomeSuggestionService CreateService() =>
-        new(_sessionService, _threadStore, _memoryStore, _workspacePath, NullLogger<WelcomeSuggestionService>.Instance);
+        new(_sessionService, _persistence, _memoryStore, _workspacePath, NullLogger<WelcomeSuggestionService>.Instance);
 
     private SessionIdentity CreateIdentity() => new()
     {

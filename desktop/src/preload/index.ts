@@ -4,7 +4,11 @@ import {
   TITLE_BAR_OVERLAY_RIGHT_RESERVE
 } from '../shared/titleBarOverlay'
 import type { TopLevelMenuId } from '../shared/locales/types'
-import type { BrowserEventPayload } from '../shared/viewer/types'
+import type {
+  BrowserEventPayload,
+  TerminalDataEventPayload,
+  TerminalExitEventPayload
+} from '../shared/viewer/types'
 
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
@@ -725,6 +729,52 @@ const api = {
           const wrapped = (_evt: Electron.IpcRendererEvent, payload: BrowserEventPayload) => listener(payload)
           ipcRenderer.on('viewer:browser:event', wrapped)
           return () => ipcRenderer.removeListener('viewer:browser:event', wrapped)
+        }
+      },
+      terminal: {
+        create(params: {
+          tabId: string
+          threadId: string
+          workspacePath: string
+          cols: number
+          rows: number
+        }): Promise<{ tabId: string; pid: number; shell: string; cwd: string }> {
+          return ipcRenderer.invoke('viewer:terminal:create', params)
+        },
+        attach(params: { tabId: string }): Promise<{
+          tabId: string
+          pid: number
+          shell: string
+          cwd: string
+          buffer: string
+          exited?: { code: number | null; signal: number | null }
+        }> {
+          return ipcRenderer.invoke('viewer:terminal:attach', params)
+        },
+        write(params: { tabId: string; data: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:terminal:write', params)
+        },
+        resize(params: { tabId: string; cols: number; rows: number }): Promise<void> {
+          return ipcRenderer.invoke('viewer:terminal:resize', params)
+        },
+        dispose(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:terminal:dispose', params)
+        },
+        onData(listener: (event: TerminalDataEventPayload) => void): UnsubscribeFn {
+          const wrapped = (
+            _evt: Electron.IpcRendererEvent,
+            payload: { tabId: string; data: string }
+          ) => listener({ ...payload, type: 'data' })
+          ipcRenderer.on('viewer:terminal:data', wrapped)
+          return () => ipcRenderer.removeListener('viewer:terminal:data', wrapped)
+        },
+        onExit(listener: (event: TerminalExitEventPayload) => void): UnsubscribeFn {
+          const wrapped = (
+            _evt: Electron.IpcRendererEvent,
+            payload: { tabId: string; code: number | null; signal: number | null }
+          ) => listener({ ...payload, type: 'exit' })
+          ipcRenderer.on('viewer:terminal:exit', wrapped)
+          return () => ipcRenderer.removeListener('viewer:terminal:exit', wrapped)
         }
       }
     }

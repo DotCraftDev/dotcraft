@@ -99,7 +99,11 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
     private SessionService CreateService(AgentFactory agentFactory, IChatClient chatClient)
     {
         var defaultAgent = chatClient.AsAIAgent(new ChatClientAgentOptions());
-        return new SessionService(agentFactory, defaultAgent, new ThreadStore(_tempDir), new SessionGate());
+        return new SessionService(
+            agentFactory,
+            defaultAgent,
+            new SessionPersistenceService(new ThreadStore(_tempDir)),
+            new SessionGate());
     }
 
     private AgentFactory CreateAgentFactory(IChatClient chatClientFactory)

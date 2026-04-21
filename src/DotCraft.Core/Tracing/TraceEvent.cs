@@ -105,6 +105,18 @@ public sealed class TraceSession
         } while (Interlocked.CompareExchange(ref _maxToolDurationMs, value, current) != current);
     }
 
+    internal void LoadAggregateSnapshot(
+        long totalInputTokens,
+        long totalOutputTokens,
+        long totalToolDurationMs,
+        long maxToolDurationMs)
+    {
+        Interlocked.Exchange(ref _totalInputTokens, totalInputTokens);
+        Interlocked.Exchange(ref _totalOutputTokens, totalOutputTokens);
+        Interlocked.Exchange(ref _totalToolDurationMs, totalToolDurationMs);
+        Interlocked.Exchange(ref _maxToolDurationMs, maxToolDurationMs);
+    }
+
     public int RequestCount { get; set; }
 
     public int ToolCallCount { get; set; }

@@ -9,7 +9,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { useViewerTabStore } from '../../stores/viewerTabStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { useConversationStore } from '../../stores/conversationStore'
-import { FolderOpen, Globe } from 'lucide-react'
+import { FolderOpen, Globe, SquareTerminal } from 'lucide-react'
 
 interface AddTabPopupProps {
   anchorRef: React.RefObject<HTMLElement | null>
@@ -22,6 +22,7 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
   const setDetailPanelVisible = useUIStore((s) => s.setDetailPanelVisible)
   const setActiveViewerTab = useUIStore((s) => s.setActiveViewerTab)
   const openBrowser = useViewerTabStore((s) => s.openBrowser)
+  const openTerminal = useViewerTabStore((s) => s.openTerminal)
   const activeThreadId = useThreadStore((s) => s.activeThreadId)
   const workspacePath = useConversationStore((s) => s.workspacePath)
   const popupRef = useRef<HTMLDivElement>(null)
@@ -72,6 +73,17 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
       tabId,
       workspacePath
     })
+    onClose()
+  }
+
+  const handleOpenTerminal = (): void => {
+    if (!activeThreadId || !workspacePath) return
+    const tabId = openTerminal({
+      threadId: activeThreadId,
+      cwd: workspacePath,
+      initialLabel: t('viewer.newTerminalTab')
+    })
+    setActiveViewerTab(tabId)
     onClose()
   }
 
@@ -161,6 +173,36 @@ export function AddTabPopup({ anchorRef, onClose }: AddTabPopupProps): JSX.Eleme
       >
         <Globe size={14} aria-hidden style={{ display: 'block', flexShrink: 0 }} />
         {t('detailPanel.addTabNewBrowser')}
+      </button>
+
+      <button
+        role="menuitem"
+        disabled={!activeThreadId || !workspacePath}
+        onClick={handleOpenTerminal}
+        title={t('detailPanel.addTabNewTerminal')}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          width: '100%',
+          padding: '6px 12px',
+          border: 'none',
+          background: 'transparent',
+          color: 'var(--text-primary)',
+          fontSize: '13px',
+          cursor: activeThreadId && workspacePath ? 'pointer' : 'not-allowed',
+          textAlign: 'left'
+        }}
+        onMouseEnter={(e) => {
+          if (!activeThreadId || !workspacePath) return
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.06))'
+        }}
+        onMouseLeave={(e) => {
+          ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+        }}
+      >
+        <SquareTerminal size={14} aria-hidden style={{ display: 'block', flexShrink: 0 }} />
+        {t('detailPanel.addTabNewTerminal')}
       </button>
     </div>
   )

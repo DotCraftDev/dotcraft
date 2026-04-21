@@ -1,4 +1,5 @@
 using DotCraft.Protocol;
+using Microsoft.Data.Sqlite;
 
 namespace DotCraft.Tests.Sessions.Protocol;
 
@@ -49,11 +50,11 @@ public sealed class ReplSessionBehaviorTests : IDisposable
     public async Task LazyInit_NoInput_NoThreadFilesCreated()
     {
         // Simulates: REPL starts with sessionService present, user types nothing.
-        // Expectation: zero thread files on disk, zero index entries.
+        // Expectation: zero rollout files on disk, zero index entries.
 
         var threadsDir = Path.Combine(_tempDir, "threads");
         var threadFiles = Directory.Exists(threadsDir)
-            ? Directory.GetFiles(threadsDir, "thread_*.json")
+            ? Directory.GetFiles(threadsDir, "*.jsonl", SearchOption.AllDirectories)
             : [];
 
         Assert.Empty(threadFiles);
@@ -95,8 +96,8 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         Assert.Empty(allIndex);
 
         var threadsDir = Path.Combine(_tempDir, "threads");
-        Assert.False(Directory.Exists(threadsDir) && Directory.GetFiles(threadsDir, "thread_*.json").Length > 0,
-            "No thread files should exist when no input was ever sent.");
+        Assert.False(Directory.Exists(threadsDir) && Directory.GetFiles(threadsDir, "*.jsonl", SearchOption.AllDirectories).Length > 0,
+            "No rollout files should exist when no input was ever sent.");
     }
 
     [Fact]
@@ -335,9 +336,9 @@ public sealed class ReplSessionBehaviorTests : IDisposable
     }
 
     [Fact]
-    public async Task ThreadIndex_AlwaysInSyncWithThreadFiles()
+    public async Task ThreadIndex_AlwaysInSyncWithPersistedMetadata()
     {
-        // LoadIndexAsync scans thread files, so it is always current without any rebuild step.
+        // LoadIndexAsync reads persisted SQLite metadata written alongside canonical rollout files.
         var t1 = await _svc.CreateThreadAsync(_cliIdentity);
         var t2 = await _svc.CreateThreadAsync(_cliIdentity);
         AddTurnWithUserMessage(t1, "hello");
@@ -356,34 +357,29 @@ public sealed class ReplSessionBehaviorTests : IDisposable
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task SessionFile_NotCreated_UntilTurnCompletes()
+    public async Task SessionState_NotCreated_UntilTurnCompletes()
     {
-        // ThreadStore only writes a .session.json during SaveSessionAsync
+        // ThreadStore only writes thread_sessions rows during SaveSessionAsync
         // (called by SessionService after the agent finishes).
-        // Simply creating a thread should NOT produce a .session.json.
+        // Simply creating a thread should NOT produce persisted session state.
 
         var thread = await _svc.CreateThreadAsync(_cliIdentity);
 
         Assert.False(_store.SessionFileExists(thread.Id),
-            ".session.json should not exist before any turn completes.");
+            "thread_sessions state should not exist before any turn completes.");
     }
 
     [Fact]
-    public async Task SessionFile_ExistsAfterSaveSession()
+    public async Task SessionState_ExistsAfterPersistingSessionRow()
     {
-        // Simulates what SessionService does after a turn: saves the agent session.
-        // Use a minimal AIAgent substitute that creates an empty session.
-        // Since FakeSessionService doesn't run the agent, we call SaveSessionAsync directly.
+        // Simulates what SessionService does after a turn: persists serialized AgentSession
+        // into the thread_sessions table.
 
         var thread = await _svc.CreateThreadAsync(_cliIdentity);
 
         Assert.False(_store.SessionFileExists(thread.Id));
 
-        // Write a minimal session JSON that the store can save
-        var sessionFilePath = Path.Combine(_tempDir, "threads", $"{thread.Id}.session.json");
-        Directory.CreateDirectory(Path.GetDirectoryName(sessionFilePath)!);
-        await File.WriteAllTextAsync(sessionFilePath,
-            """{"chatHistory":[],"type":"chatHistory"}""");
+        InsertThreadSession(thread.Id, """{"chatHistory":[],"type":"chatHistory"}""");
 
         Assert.True(_store.SessionFileExists(thread.Id));
     }
@@ -447,5 +443,31 @@ public sealed class ReplSessionBehaviorTests : IDisposable
         }
 
         return turn;
+    }
+
+    private void InsertThreadSession(string threadId, string sessionJson)
+    {
+        using var connection = OpenStateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_sessions(thread_id, session_json, updated_at)
+            VALUES ($thread_id, $session_json, $updated_at)
+            """;
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.Parameters.AddWithValue("$session_json", sessionJson);
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    private SqliteConnection OpenStateConnection()
+    {
+        var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(_tempDir, "state.db"),
+                Mode = SqliteOpenMode.ReadWrite
+            }.ToString());
+        connection.Open();
+        return connection;
     }
 }

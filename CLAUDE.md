@@ -64,7 +64,7 @@ Host priority order: CLI=0, API=10, WeCom=20, QQ=30. Gateway runs when no higher
 ### Session Protocol (Thread → Turn → Item)
 
 Server-managed channels (CLI, ACP, QQ, WeCom, GitHubTracker) share a unified session model defined in `specs/session-core.md`:
-- **Thread** — persistent conversation tied to workspace (stored in `.craft/threads/`)
+- **Thread** — persistent conversation tied to workspace (canonical JSONL history under `.craft/threads/active|archived/`, metadata in `.craft/state.db`)
 - **Turn** — one unit of agent work from user input
 - **Item** — atomic I/O unit (UserMessage, AgentMessage, ToolCall, ToolResult, ApprovalRequest, etc.)
 

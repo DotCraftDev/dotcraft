@@ -20,6 +20,9 @@ const LazyMarkdownViewer = lazy(() =>
 const LazyBrowserViewerTab = lazy(() =>
   import('./viewers/BrowserViewerTab').then((m) => ({ default: m.BrowserViewerTab }))
 )
+const LazyTerminalViewerTab = lazy(() =>
+  import('./viewers/TerminalViewerTab').then((m) => ({ default: m.TerminalViewerTab }))
+)
 const LazyImageViewer = lazy(() =>
   import('./viewers/ImageViewer').then((m) => ({ default: m.ImageViewer }))
 )
@@ -98,6 +101,9 @@ export function ViewerTab({ tabId }: ViewerTabProps): JSX.Element {
       <Suspense fallback={suspenseFallback}>
         {tab.kind === 'browser' && (
           <LazyBrowserViewerTab tabId={tab.id} />
+        )}
+        {tab.kind === 'terminal' && (
+          <LazyTerminalViewerTab tabId={tab.id} />
         )}
         {tab.kind === 'file' && tab.contentClass === 'text' && (
           isMarkdownPath(tab.absolutePath)

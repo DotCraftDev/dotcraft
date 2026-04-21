@@ -151,6 +151,39 @@ describe('openBrowser / updateBrowserTab', () => {
   })
 })
 
+describe('openTerminal / updateTerminalTab', () => {
+  it('opens terminal tabs with incremental default labels', () => {
+    store().onThreadSwitched(THREAD_A)
+    const terminal1 = store().openTerminal({ threadId: THREAD_A, cwd: WS_PATH })
+    const terminal2 = store().openTerminal({ threadId: THREAD_A, cwd: WS_PATH })
+
+    const tabs = store().getThreadState(THREAD_A).tabs
+    expect(tabs.find((item) => item.id === terminal1)?.label).toBe('Terminal 1')
+    expect(tabs.find((item) => item.id === terminal2)?.label).toBe('Terminal 2')
+    expect(store().getThreadState(THREAD_A).activeTabId).toBe(terminal2)
+  })
+
+  it('updates terminal runtime state via patch', () => {
+    store().onThreadSwitched(THREAD_A)
+    const terminal = store().openTerminal({ threadId: THREAD_A, cwd: WS_PATH })
+    store().updateTerminalTab(THREAD_A, terminal, {
+      hasStarted: true,
+      pid: 1234,
+      shell: 'powershell.exe',
+      exited: { code: 0, signal: null }
+    })
+
+    const tab = store().getThreadState(THREAD_A).tabs.find((item) => item.id === terminal)
+    expect(tab?.kind).toBe('terminal')
+    if (tab?.kind === 'terminal') {
+      expect(tab.hasStarted).toBe(true)
+      expect(tab.pid).toBe(1234)
+      expect(tab.shell).toBe('powershell.exe')
+      expect(tab.exited?.code).toBe(0)
+    }
+  })
+})
+
 // ---------------------------------------------------------------------------
 // closeTab — nearest-neighbor fallback
 // ---------------------------------------------------------------------------
@@ -290,6 +323,20 @@ describe('onThreadDeleted', () => {
 
     expect(removed).toHaveLength(2)
   })
+
+  it('enumerates terminal tabs for cleanup callback', () => {
+    store().openTerminal({ threadId: THREAD_A, cwd: WS_PATH })
+    store().openTerminal({ threadId: THREAD_A, cwd: WS_PATH })
+    const removed: string[] = []
+
+    store().onThreadDeleted(THREAD_A, {
+      onTerminalTabRemoved: (tab) => {
+        removed.push(tab.id)
+      }
+    })
+
+    expect(removed).toHaveLength(2)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -306,6 +353,21 @@ describe('onWorkspaceSwitched', () => {
     expect(store().getThreadState(THREAD_A).tabs).toHaveLength(0)
     expect(store().getThreadState(THREAD_B).tabs).toHaveLength(0)
     expect(store().currentWorkspacePath).toBe('/new/workspace')
+  })
+
+  it('invokes cleanup callbacks for browser and terminal tabs', () => {
+    store().openBrowser({ threadId: THREAD_A, initialUrl: 'https://example.com' })
+    store().openTerminal({ threadId: THREAD_A, cwd: WS_PATH })
+    let browserRemoved = 0
+    let terminalRemoved = 0
+
+    store().onWorkspaceSwitched('/new/workspace', {
+      onBrowserTabRemoved: () => { browserRemoved++ },
+      onTerminalTabRemoved: () => { terminalRemoved++ }
+    })
+
+    expect(browserRemoved).toBe(1)
+    expect(terminalRemoved).toBe(1)
   })
 })
 

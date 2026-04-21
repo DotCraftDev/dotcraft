@@ -19,7 +19,7 @@ namespace DotCraft.Protocol;
 public static class SessionServiceFactory
 {
     /// <summary>
-    /// Creates a <see cref="SessionService"/> by resolving <see cref="ThreadStore"/>,
+    /// Creates a <see cref="SessionService"/> by resolving <see cref="SessionPersistenceService"/>,
     /// <see cref="SessionGate"/>, <see cref="HookRunner"/>, and <see cref="TraceCollector"/>
     /// from the provided service provider.
     /// </summary>
@@ -33,7 +33,7 @@ public static class SessionServiceFactory
         return new SessionService(
             agentFactory,
             agent,
-            sp.GetRequiredService<ThreadStore>(),
+            sp.GetRequiredService<SessionPersistenceService>(),
             sp.GetRequiredService<SessionGate>(),
             sp.GetService<IChannelRuntimeToolProvider>(),
             sp.GetService<HookRunner>(),

@@ -32,6 +32,7 @@ import {
   listViewerFiles
 } from './viewerIpc'
 import { viewerBrowserManager } from './viewerBrowser'
+import { viewerTerminalManager } from './viewerTerminal'
 import {
   scanModules,
   groupModulesByChannel,
@@ -464,6 +465,7 @@ function mainLocale(callbacks?: IpcHandlerCallbacks): AppLocale {
 let moduleProcessManager: ModuleProcessManager | null = null
 let ensureModulesScanned: (() => Promise<DiscoveredModule[]>) | null = null
 let getSettingsSnapshotForModules: (() => AppSettings) | null = null
+const terminalCleanupHookedWindows = new Set<number>()
 
 function normalizeChannelName(channelName: string): string {
   return channelName.trim().toLowerCase()
@@ -1018,6 +1020,17 @@ export function registerIpcHandlers(
   )
 
   // ─── Viewer panel IPC ──────────────────────────────────────────────────────
+  const ensureTerminalWindowCleanup = (win: BrowserWindow): void => {
+    if (terminalCleanupHookedWindows.has(win.id)) return
+    terminalCleanupHookedWindows.add(win.id)
+    win.once('closed', () => {
+      terminalCleanupHookedWindows.delete(win.id)
+      viewerTerminalManager.destroyAllTabs(win)
+    })
+    win.webContents.on('did-finish-load', () => {
+      viewerTerminalManager.destroyAllTabs(win)
+    })
+  }
 
   // Renderer -> Main: list workspace files for Quick-Open dialog
   handleSafe(
@@ -1137,6 +1150,50 @@ export function registerIpcHandlers(
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return null
     return viewerBrowserManager.snapshotState(win, params.tabId)
+  })
+
+  // Renderer -> Main: terminal tab lifecycle / PTY I/O
+  handleSafe(
+    'viewer:terminal:create',
+    async (
+      event,
+      params: { tabId: string; threadId: string; workspacePath: string; cols: number; rows: number }
+    ) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) {
+        throw new Error('Browser window not available')
+      }
+      const ws = path.resolve(workspacePath)
+      const req = path.resolve(params.workspacePath)
+      if (ws !== req) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
+      }
+      ensureTerminalWindowCleanup(win)
+      return viewerTerminalManager.createTab(win, params)
+    }
+  )
+  handleSafe('viewer:terminal:attach', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) {
+      throw new Error('Browser window not available')
+    }
+    ensureTerminalWindowCleanup(win)
+    return viewerTerminalManager.attachTab(win, params.tabId)
+  })
+  handleSafe('viewer:terminal:write', async (event, params: { tabId: string; data: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerTerminalManager.write(win, params)
+  })
+  handleSafe('viewer:terminal:resize', async (event, params: { tabId: string; cols: number; rows: number }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerTerminalManager.resize(win, params)
+  })
+  handleSafe('viewer:terminal:dispose', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerTerminalManager.destroyTab(win, params.tabId)
   })
 
   // ─── Settings ──────────────────────────────────────────────────────────────
@@ -1552,6 +1609,11 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('viewer:browser:set-active')
   ipcMain.removeHandler('viewer:browser:open-external')
   ipcMain.removeHandler('viewer:browser:snapshot')
+  ipcMain.removeHandler('viewer:terminal:create')
+  ipcMain.removeHandler('viewer:terminal:attach')
+  ipcMain.removeHandler('viewer:terminal:write')
+  ipcMain.removeHandler('viewer:terminal:resize')
+  ipcMain.removeHandler('viewer:terminal:dispose')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
   ipcMain.removeHandler('modules:list')
@@ -1573,6 +1635,10 @@ export function unregisterIpcHandlers(): void {
       console.warn('[ipcBridge] failed to stop module processes during unregister', err)
     })
   }
+  for (const win of BrowserWindow.getAllWindows()) {
+    viewerTerminalManager.destroyAllTabs(win)
+  }
+  terminalCleanupHookedWindows.clear()
   moduleProcessManager = null
   ensureModulesScanned = null
   getSettingsSnapshotForModules = null

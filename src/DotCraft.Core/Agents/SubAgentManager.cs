@@ -142,6 +142,9 @@ public sealed class SubAgentManager
         if (_traceCollector != null && !string.IsNullOrEmpty(parentSessionKey))
         {
             childSessionKey = $"{parentSessionKey}:sub:{taskId}";
+            var rootThreadId = _traceCollector.ResolveRootThreadId(parentSessionKey);
+            if (!string.IsNullOrWhiteSpace(rootThreadId))
+                _traceCollector.BindChildSession(childSessionKey, rootThreadId!, parentSessionKey);
         }
 
         try

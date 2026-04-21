@@ -28,12 +28,12 @@ internal readonly record struct TurnKey(string ThreadId, string TurnId);
 
 /// <summary>
 /// Session Core implementation. Manages Thread/Turn/Item lifecycle, orchestrates agent
-/// execution, emits the structured event stream, and delegates persistence to ThreadStore.
+/// execution, emits the structured event stream, and delegates persistence to SessionPersistenceService.
 /// </summary>
 public sealed class SessionService(
     AgentFactory agentFactory,
     AIAgent defaultAgent,
-    ThreadStore threadStore,
+    SessionPersistenceService persistence,
     SessionGate sessionGate,
     IChannelRuntimeToolProvider? channelRuntimeToolProvider = null,
     HookRunner? hookRunner = null,
@@ -171,7 +171,7 @@ public sealed class SessionService(
             return cached;
         }
 
-        var thread = await threadStore.LoadThreadAsync(threadId, ct)
+        var thread = await persistence.LoadThreadAsync(threadId, ct)
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
 
         if (thread.Status == ThreadStatus.Archived)
@@ -246,7 +246,9 @@ public sealed class SessionService(
             }
         }
 
-        // Remove all in-memory state
+        await persistence.DeleteThreadCascadeAsync(threadId, ct);
+
+        // Remove all in-memory state only after persistence succeeds.
         _threads.TryRemove(threadId, out _);
         _threadAgents.TryRemove(threadId, out _);
         _threadModeManagers.TryRemove(threadId, out _);
@@ -255,10 +257,6 @@ public sealed class SessionService(
         _threadExternalChannelToolNames.TryRemove(threadId, out _);
         if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
             await mcpManager.DisposeAsync();
-
-        // Delete persisted files
-        threadStore.DeleteThread(threadId);
-        threadStore.DeleteSessionFile(threadId);
 
         ThreadDeletedForBroadcast?.Invoke(threadId);
     }
@@ -270,7 +268,7 @@ public sealed class SessionService(
         IReadOnlyList<string>? crossChannelOrigins = null,
         CancellationToken ct = default)
     {
-        var all = await threadStore.LoadIndexAsync(ct);
+        var all = await persistence.LoadIndexAsync(ct);
         var hasCross = crossChannelOrigins is { Count: > 0 };
         var mergedById = new Dictionary<string, ThreadSummary>(StringComparer.OrdinalIgnoreCase);
         foreach (var summary in all)
@@ -521,6 +519,7 @@ public sealed class SessionService(
                 // Bind tracing and token tracking before session creation so session metadata
                 // captured during CreateSessionAsync / LoadOrCreateSessionAsync is attributed
                 // to the correct ephemeral or persisted thread.
+                traceCollector?.BindThreadMainSession(threadId);
                 TracingChatClient.CurrentSessionKey = threadId;
                 TracingChatClient.ResetCallState(threadId);
                 var tokenTracker = agentFactory.GetOrCreateTokenTracker(threadId);
@@ -540,7 +539,7 @@ public sealed class SessionService(
                 }
                 else
                 {
-                    session = await threadStore.LoadOrCreateSessionAsync(agent, threadId, executionCt);
+                    session = await persistence.LoadOrCreateSessionAsync(agent, threadId, executionCt);
                 }
 
                 // Step 5c: Append runtime context to the multimodal content list
@@ -1005,7 +1004,7 @@ public sealed class SessionService(
                 {
                     try
                     {
-                        await threadStore.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
+                        await persistence.SaveSessionAsync(agent, session, threadId, ct: CancellationToken.None);
                     }
                     catch (Exception ex)
                     {
@@ -1183,7 +1182,7 @@ public sealed class SessionService(
         if (_threads.TryGetValue(threadId, out var cached))
             return cached;
 
-        var thread = await threadStore.LoadThreadAsync(threadId, ct)
+            var thread = await persistence.LoadThreadAsync(threadId, ct)
             ?? throw new KeyNotFoundException($"Thread '{threadId}' not found.");
 
         _threads[thread.Id] = thread;
@@ -1385,7 +1384,7 @@ public sealed class SessionService(
 
     private async Task PersistThreadWithMaterializationAsync(SessionThread thread, CancellationToken ct)
     {
-        await threadStore.SaveThreadAsync(thread, ct);
+            await persistence.SaveThreadAsync(thread, ct);
         _materializedThreads[thread.Id] = 0;
     }
 

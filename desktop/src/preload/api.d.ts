@@ -45,6 +45,19 @@ export interface BrowserEventPayload {
   message?: string
 }
 
+export interface TerminalDataEventPayload {
+  tabId: string
+  type: 'data'
+  data: string
+}
+
+export interface TerminalExitEventPayload {
+  tabId: string
+  type: 'exit'
+  code: number | null
+  signal: number | null
+}
+
 export interface ConnectionStatusPayload {
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
   serverInfo?: {
@@ -381,6 +394,28 @@ declare global {
               loading: boolean
             } | null>
             onEvent(callback: (event: BrowserEventPayload) => void): UnsubscribeFn
+          }
+          terminal: {
+            create(params: {
+              tabId: string
+              threadId: string
+              workspacePath: string
+              cols: number
+              rows: number
+            }): Promise<{ tabId: string; pid: number; shell: string; cwd: string }>
+            attach(params: { tabId: string }): Promise<{
+              tabId: string
+              pid: number
+              shell: string
+              cwd: string
+              buffer: string
+              exited?: { code: number | null; signal: number | null }
+            }>
+            write(params: { tabId: string; data: string }): Promise<void>
+            resize(params: { tabId: string; cols: number; rows: number }): Promise<void>
+            dispose(params: { tabId: string }): Promise<void>
+            onData(callback: (event: TerminalDataEventPayload) => void): UnsubscribeFn
+            onExit(callback: (event: TerminalExitEventPayload) => void): UnsubscribeFn
           }
         }
       }
