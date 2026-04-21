@@ -530,8 +530,4 @@ This section defines the user-visible workflow for Desktop-managed TypeScript ch
 ### 10.1 Viewer Panel (Reserved)
 
 - Desktop reserves an auxiliary right-side **viewer panel** surface that coexists with the existing changes / plan / terminal tabs and lets users open native file viewers and embedded browser tabs without leaving the workspace.
-- The user-visible contract, tab model, open-file workflow, browser isolation rules, and conversation deep-linking behavior are defined in the dedicated milestone specs:
-  - [Desktop Viewer Panel — M1](desktop-viewer-panel-m1.md): panel foundation and native file viewer (text, image, PDF).
-  - [Desktop Viewer Panel — M2](desktop-viewer-panel-m2.md): native in-app browser tab.
-  - [Desktop Viewer Panel — M3](desktop-viewer-panel-m3.md): conversation deep-linking, toggle state, and Quick-Open shortcut.
 - The viewer panel must preserve the same principles this document applies to the rest of desktop behavior: protocol-driven where applicable, explicit status and recovery, and clear separation between workflow rules and visual implementation.
