@@ -41,6 +41,47 @@ test("wiki channel tool registry only returns tools when enabled", () => {
   );
 });
 
+test("wiki mutating tools declare remoteResource approval and read-only tools do not", () => {
+  const tools = getFeishuWikiChannelTools(true);
+  const byName = new Map(tools.map((tool) => [String(tool.name ?? ""), tool]));
+
+  const moveDocxTool = byName.get(MOVE_DOCX_TO_WIKI_TOOL_NAME) as Record<string, unknown> | undefined;
+  assert.ok(moveDocxTool);
+  assert.deepEqual(moveDocxTool!.approval, {
+    kind: "remoteResource",
+    targetArgument: "documentIdOrUrl",
+    operation: "move",
+  });
+
+  const moveNodeTool = byName.get(MOVE_WIKI_NODE_TOOL_NAME) as Record<string, unknown> | undefined;
+  assert.ok(moveNodeTool);
+  assert.deepEqual(moveNodeTool!.approval, {
+    kind: "remoteResource",
+    targetArgument: "nodeTokenOrUrl",
+    operation: "move",
+  });
+
+  const createNodeTool = byName.get(CREATE_WIKI_NODE_TOOL_NAME) as Record<string, unknown> | undefined;
+  assert.ok(createNodeTool);
+  assert.deepEqual(createNodeTool!.approval, {
+    kind: "remoteResource",
+    targetArgument: "spaceIdOrUrl",
+    operation: "create",
+  });
+
+  const readOnlyToolNames = [
+    LIST_WIKI_NODES_TOOL_NAME,
+    GET_WIKI_NODE_INFO_TOOL_NAME,
+    LIST_WIKI_SPACES_TOOL_NAME,
+    GET_WIKI_SPACE_TOOL_NAME,
+  ];
+  for (const name of readOnlyToolNames) {
+    const tool = byName.get(name) as Record<string, unknown> | undefined;
+    assert.ok(tool, `${name} is registered`);
+    assert.equal(tool!.approval, undefined, `${name} should not declare approval`);
+  }
+});
+
 test("extractWikiNodeToken and extractWikiSpaceId support token and URL forms", () => {
   assert.equal(extractWikiNodeToken(WIKI_NODE_TOKEN), WIKI_NODE_TOKEN);
   assert.equal(extractWikiNodeToken(`https://feishu.cn/wiki/${WIKI_NODE_TOKEN}`), WIKI_NODE_TOKEN);

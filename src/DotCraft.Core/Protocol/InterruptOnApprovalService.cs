@@ -21,6 +21,13 @@ internal sealed class InterruptOnApprovalService(Action cancelTurn) : IApprovalS
         ApprovalContext? context = null) =>
         DenyAndCancel();
 
+    public Task<bool> RequestResourceApprovalAsync(
+        string kind,
+        string operation,
+        string target,
+        ApprovalContext? context = null) =>
+        DenyAndCancel();
+
     private Task<bool> DenyAndCancel()
     {
         cancelTurn();

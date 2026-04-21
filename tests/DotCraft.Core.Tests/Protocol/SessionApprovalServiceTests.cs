@@ -181,6 +181,64 @@ public sealed class SessionApprovalServiceTests
     }
 
     // -------------------------------------------------------------------------
+    // Remote resource approval
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task RequestResourceApproval_WhenApproved_ReturnsTrue()
+    {
+        var (svc, channel, _) = MakeApprovalService();
+
+        var requestTask = svc.RequestResourceApprovalAsync("remoteResource", "create", "doc-123");
+        await Task.Delay(10);
+
+        ApprovalRequestPayload? payload = null;
+        await foreach (var evt in DrainWithTimeout(channel))
+        {
+            if (evt.EventType == SessionEventType.ApprovalRequested)
+            {
+                payload = evt.ItemPayload?.Payload as ApprovalRequestPayload;
+                break;
+            }
+        }
+
+        Assert.NotNull(payload);
+        Assert.Equal("remoteResource", payload!.ApprovalType);
+        Assert.Equal("create", payload.Operation);
+        Assert.Equal("doc-123", payload.Target);
+
+        svc.TryResolve(payload.RequestId, SessionApprovalDecision.AcceptOnce);
+
+        var result = await requestTask;
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task RequestResourceApproval_WhenRejected_ReturnsFalse()
+    {
+        var (svc, channel, _) = MakeApprovalService();
+
+        var requestTask = svc.RequestResourceApprovalAsync("remoteResource", "move", "node-456");
+        await Task.Delay(10);
+
+        string? requestId = null;
+        await foreach (var evt in DrainWithTimeout(channel))
+        {
+            if (evt.EventType == SessionEventType.ApprovalRequested)
+            {
+                requestId = (evt.ItemPayload?.Payload as ApprovalRequestPayload)?.RequestId;
+                break;
+            }
+        }
+
+        Assert.NotNull(requestId);
+        svc.TryResolve(requestId!, SessionApprovalDecision.Reject);
+
+        var result = await requestTask;
+        Assert.False(result);
+    }
+
+    // -------------------------------------------------------------------------
     // Turn status transitions
     // -------------------------------------------------------------------------
 
@@ -680,4 +738,7 @@ internal sealed class CallbackApprovalService(
 
     public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null) =>
         callback("shell", command, workingDir ?? string.Empty);
+
+    public Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null) =>
+        callback(kind, operation, target);
 }

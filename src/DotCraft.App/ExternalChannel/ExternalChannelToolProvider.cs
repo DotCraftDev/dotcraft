@@ -182,7 +182,8 @@ internal sealed class ExternalChannelToolProvider(IChannelRuntimeRegistry regist
         }
 
         if (!approval.Kind.Equals("file", StringComparison.OrdinalIgnoreCase)
-            && !approval.Kind.Equals("shell", StringComparison.OrdinalIgnoreCase))
+            && !approval.Kind.Equals("shell", StringComparison.OrdinalIgnoreCase)
+            && !approval.Kind.Equals("remoteResource", StringComparison.OrdinalIgnoreCase))
         {
             message = $"approval.kind '{approval.Kind}' is not supported.";
             return false;
@@ -488,6 +489,7 @@ internal sealed class ExternalChannelRuntimeFunction : AIFunction
         {
             "file" => await GuardFileAccessAsync(scope, approvalTarget, approvalOperation, cancellationToken),
             "shell" => await GuardShellAccessAsync(scope, approvalTarget, approvalOperation),
+            "remoteresource" => await GuardRemoteResourceAccessAsync(scope, approvalTarget, approvalOperation),
             _ => (
                 "InvalidChannelToolDescriptor",
                 $"Tool '{_descriptor.Name}' uses unsupported approval kind '{approval.Kind}'.")
@@ -583,6 +585,37 @@ internal sealed class ExternalChannelRuntimeFunction : AIFunction
         return approved
             ? null
             : ("AccessDenied", "Error: Command execution was rejected by user.");
+    }
+
+    private static async Task<(string ErrorCode, string ErrorMessage)?> GuardRemoteResourceAccessAsync(
+        ExternalChannelToolExecutionContext scope,
+        string target,
+        string operation)
+    {
+        var normalizedTarget = target.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedTarget))
+        {
+            return (
+                "InvalidArguments",
+                "Remote resource approval routing requires a non-empty target string.");
+        }
+
+        var normalizedOperation = operation.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedOperation))
+        {
+            return (
+                "InvalidArguments",
+                "Remote resource approval routing requires a non-empty operation string.");
+        }
+
+        var approved = await scope.ApprovalService.RequestResourceApprovalAsync(
+            "remoteResource",
+            normalizedOperation,
+            normalizedTarget,
+            ApprovalContextScope.Current);
+        return approved
+            ? null
+            : ("AccessDenied", "Error: Remote resource operation was rejected by user.");
     }
 
     private static bool TryReadStringArgument(JsonObject argsObject, string argumentName, out string value)

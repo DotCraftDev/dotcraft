@@ -593,7 +593,7 @@ The adapter must support the five `SessionApprovalDecision` values (appserver-pr
 
 Adapter-declared `channelTools` may carry an `approval` object so the server can intercept sensitive tool calls before dispatch:
 
-- `approval.kind` identifies the server approval category. Initial standard values are `file` and `shell`.
+- `approval.kind` identifies the server approval category. Initial standard values are `file`, `shell`, and `remoteResource`. `remoteResource` is for non-local operations (e.g. SaaS documents, wiki nodes); the server asks the user once and does not run local path/command parsing for it.
 - `approval.targetArgument` names the argument that contains the primary approval target.
 - `approval.operation` is an optional static operation label.
 - `approval.operationArgument` is an optional argument name whose runtime value supplies the operation label.

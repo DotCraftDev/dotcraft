@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ConversationItem, ApprovalDecision, ApprovalState } from '../../types/conversation'
 import { useConversationStore } from '../../stores/conversationStore'
-import { File, SquareTerminal } from 'lucide-react'
+import { Cloud, File, SquareTerminal } from 'lucide-react'
 
 interface ApprovalCardProps {
   item: ConversationItem
@@ -44,7 +44,18 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
   const pendingApproval = useConversationStore((s) => s.pendingApproval)
 
   const approvalType = item.approvalType ?? 'shell'
-  const typeLabel = approvalType === 'shell' ? 'Shell Command' : 'File Operation'
+  const typeLabel =
+    approvalType === 'shell'
+      ? 'Shell Command'
+      : approvalType === 'remoteResource'
+        ? 'Remote Resource Operation'
+        : 'File Operation'
+  const TypeIcon =
+    approvalType === 'shell'
+      ? SquareTerminal
+      : approvalType === 'remoteResource'
+        ? Cloud
+        : File
   const operation = item.approvalOperation ?? ''
   const target = item.approvalTarget ?? ''
   const reason = item.approvalReason ?? ''
@@ -116,9 +127,7 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
         }}
       >
         <span style={{ color: 'var(--text-dimmed)', flexShrink: 0 }}>
-          {approvalType === 'shell'
-            ? <SquareTerminal size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />
-            : <File size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />}
+          <TypeIcon size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />
         </span>
         <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{typeLabel}</span>
         {operation && (
@@ -186,9 +195,7 @@ export function ApprovalCard({ item, isActive, onResolveFocusRef }: ApprovalCard
         {/* Type + operation */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
           <span style={{ color: 'var(--text-secondary)', marginTop: '1px' }}>
-            {approvalType === 'shell'
-              ? <SquareTerminal size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />
-              : <File size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />}
+            <TypeIcon size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0 }} />
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '13px', marginBottom: '3px' }}>

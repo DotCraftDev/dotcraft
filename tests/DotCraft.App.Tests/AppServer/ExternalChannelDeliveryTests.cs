@@ -1921,6 +1921,13 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
 
         public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null)
             => throw new NotSupportedException();
+
+        public Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+        {
+            LastOperation = operation;
+            LastPath = target;
+            return Task.FromResult(approve);
+        }
     }
 
     private sealed class ThrowingRegisterArtifactStore : IChannelMediaArtifactStore

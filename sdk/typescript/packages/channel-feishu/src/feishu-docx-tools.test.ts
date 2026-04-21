@@ -56,6 +56,33 @@ test("docx channel tool registry only returns tools when enabled", () => {
   );
 });
 
+test("docx mutating tools declare remoteResource approval and read tool does not", () => {
+  const tools = getFeishuDocxChannelTools(true);
+  const byName = new Map(tools.map((tool) => [String(tool.name ?? ""), tool]));
+
+  const createTool = byName.get(CREATE_DOCX_TOOL_NAME) as Record<string, unknown> | undefined;
+  assert.ok(createTool, "create tool is registered");
+  assert.deepEqual(createTool!.approval, {
+    kind: "remoteResource",
+    targetArgument: "title",
+    operation: "create",
+  });
+  const createSchema = createTool!.inputSchema as { required?: string[] };
+  assert.deepEqual(createSchema.required, ["title"]);
+
+  const appendTool = byName.get(APPEND_DOCX_TOOL_NAME) as Record<string, unknown> | undefined;
+  assert.ok(appendTool, "append tool is registered");
+  assert.deepEqual(appendTool!.approval, {
+    kind: "remoteResource",
+    targetArgument: "documentIdOrUrl",
+    operation: "append",
+  });
+
+  const readTool = byName.get(READ_DOCX_TOOL_NAME) as Record<string, unknown> | undefined;
+  assert.ok(readTool, "read tool is registered");
+  assert.equal(readTool!.approval, undefined);
+});
+
 test("FeishuAdapter only registers docx tools when docs config is enabled", () => {
   const adapter = new FeishuAdapter();
   const getChannelTools = (adapter as unknown as { getChannelTools: () => Record<string, unknown>[] | null }).getChannelTools;

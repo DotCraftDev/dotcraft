@@ -162,6 +162,12 @@ export function getFeishuDocxChannelTools(enabled: boolean): Record<string, unkn
             items: simpleBlockSchema,
           },
         },
+        required: ["title"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "title",
+        operation: "create",
       },
     },
     {
@@ -196,6 +202,11 @@ export function getFeishuDocxChannelTools(enabled: boolean): Record<string, unkn
           },
         },
         required: ["documentIdOrUrl", "blocks"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "append",
       },
     },
   ];

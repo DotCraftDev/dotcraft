@@ -96,7 +96,7 @@ export interface ConversationItem {
   /** Elapsed seconds from createdAt to completedAt (reasoning indicator) */
   elapsedSeconds?: number
   /** Approval card fields for approvalCard items */
-  approvalType?: 'shell' | 'file'
+  approvalType?: 'shell' | 'file' | 'remoteResource'
   approvalOperation?: string
   approvalTarget?: string
   approvalReason?: string

@@ -11,4 +11,7 @@ public sealed class AutoApproveApprovalService : IApprovalService
 
     public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null)
         => Task.FromResult(true);
+
+    public Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+        => Task.FromResult(true);
 }

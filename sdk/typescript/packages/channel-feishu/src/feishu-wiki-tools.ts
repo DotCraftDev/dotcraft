@@ -119,6 +119,11 @@ export function getFeishuWikiChannelTools(enabled: boolean): Record<string, unkn
         },
         required: ["spaceIdOrUrl", "documentIdOrUrl"],
       },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "documentIdOrUrl",
+        operation: "move",
+      },
     },
     {
       name: MOVE_WIKI_NODE_TOOL_NAME,
@@ -137,6 +142,11 @@ export function getFeishuWikiChannelTools(enabled: boolean): Record<string, unkn
           targetSpaceIdOrUrl: { type: "string" },
         },
         required: ["nodeTokenOrUrl"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "nodeTokenOrUrl",
+        operation: "move",
       },
     },
     {
@@ -195,6 +205,11 @@ export function getFeishuWikiChannelTools(enabled: boolean): Record<string, unkn
           title: { type: "string" },
         },
         required: ["spaceIdOrUrl"],
+      },
+      approval: {
+        kind: "remoteResource",
+        targetArgument: "spaceIdOrUrl",
+        operation: "create",
       },
     },
   ];
