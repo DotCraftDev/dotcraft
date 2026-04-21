@@ -45,6 +45,7 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
             parts.Add(subAgentProfilesSection);
 
         parts.Add(GetWorkingStylePrompt());
+        parts.Add(GetFileReferenceFormatPrompt());
 
         // Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md)
         var bootstrapContent = LoadBootstrapFiles();
@@ -218,6 +219,19 @@ This contains:
 - Keep these explanations concrete and forward-looking: focus on your current read of the task and the immediate next step.
 - During longer exploration, searching, testing, or editing stretches, send brief progress updates when they help the user follow your work.
 - Before making file edits, briefly explain what you are going to change and why.
+""";
+    }
+
+    private static string GetFileReferenceFormatPrompt()
+    {
+        return
+"""
+## File References
+When referencing a file in your final response, wrap it as a markdown link `[label](target)` so the user can open it on click.
+- `target` may be workspace-relative, absolute, or a `file://` URL; append `:line[:col]` for a line hint.
+- Each reference must be a standalone link; do not wrap `target` in backticks.
+- Inline code (`` ` ``) stays reserved for code identifiers, commands, and non-clickable text.
+- Examples: [app.ts](src/app.ts), [app.ts:42](src/app.ts:42), [main.rs:12:5](C:/repo/project/main.rs:12:5).
 """;
     }
 
