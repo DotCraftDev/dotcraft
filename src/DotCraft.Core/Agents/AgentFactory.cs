@@ -420,7 +420,8 @@ public sealed class AgentFactory : IAsyncDisposable
             {
                 subAgentProfilesSection = SubAgentProfilePromptSectionBuilder.Build(
                     ctx.Config.SubAgentProfiles,
-                    SubAgentProfileRegistry.KnownRuntimeTypes);
+                    SubAgentProfileRegistry.KnownRuntimeTypes,
+                    ctx.Config.SubAgent.DisabledProfiles);
             }
 
             // When deferred loading is active, derive connected server names from the

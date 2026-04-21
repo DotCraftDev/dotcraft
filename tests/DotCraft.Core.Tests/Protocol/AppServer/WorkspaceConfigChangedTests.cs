@@ -301,6 +301,96 @@ public sealed class WorkspaceConfigChangedTests : IDisposable
     }
 
     [Fact]
+    public async Task SubAgentProfileSetEnabled_EmitsWorkspaceConfigChanged()
+    {
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        var req = harness.BuildRequest(AppServerMethods.SubAgentProfileSetEnabled, new
+        {
+            name = "cursor-cli",
+            enabled = false
+        });
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        AssertSingleConfigChanged(sent, AppServerMethods.SubAgentProfileSetEnabled, ConfigChangeRegions.SubAgent);
+    }
+
+    [Fact]
+    public async Task SubAgentProfileUpsert_EmitsWorkspaceConfigChanged()
+    {
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        var req = harness.BuildRequest(AppServerMethods.SubAgentProfileUpsert, new
+        {
+            name = "codex-cli",
+            definition = new
+            {
+                runtime = "cli-oneshot",
+                bin = "codex",
+                args = new[] { "exec", "--skip-git-repo-check" },
+                workingDirectoryMode = "workspace",
+                inputMode = "arg",
+                outputFormat = "text",
+                outputFileArgTemplate = "--output-last-message {path}",
+                readOutputFile = true,
+                deleteOutputFileAfterRead = true,
+                supportsStreaming = false,
+                supportsResume = false,
+                timeout = 600,
+                maxOutputBytes = 1048576,
+                trustLevel = "prompt"
+            }
+        });
+        await harness.ExecuteRequestAsync(req);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        AssertSingleConfigChanged(sent, AppServerMethods.SubAgentProfileUpsert, ConfigChangeRegions.SubAgent);
+    }
+
+    [Fact]
+    public async Task SubAgentProfileRemove_EmitsWorkspaceConfigChanged()
+    {
+        using var harness = new AppServerTestHarness(workspaceCraftPath: _workspaceCraftPath);
+        using var bridge = AttachConfigChangedBridge(harness);
+        await harness.InitializeAsync(configChange: true);
+
+        var upsert = harness.BuildRequest(AppServerMethods.SubAgentProfileUpsert, new
+        {
+            name = "codex-cli",
+            definition = new
+            {
+                runtime = "cli-oneshot",
+                bin = "codex",
+                args = new[] { "exec", "--skip-git-repo-check" },
+                workingDirectoryMode = "workspace",
+                inputMode = "arg",
+                outputFormat = "text",
+                outputFileArgTemplate = "--output-last-message {path}",
+                readOutputFile = true,
+                deleteOutputFileAfterRead = true,
+                supportsStreaming = false,
+                supportsResume = false,
+                timeout = 600,
+                maxOutputBytes = 1048576,
+                trustLevel = "prompt"
+            }
+        });
+        await harness.ExecuteRequestAsync(upsert);
+        await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+
+        var remove = harness.BuildRequest(AppServerMethods.SubAgentProfileRemove, new { name = "codex-cli" });
+        await harness.ExecuteRequestAsync(remove);
+
+        var sent = await harness.Transport.WaitAndDrainAsync(2, TimeSpan.FromSeconds(5));
+        AssertSingleConfigChanged(sent, AppServerMethods.SubAgentProfileRemove, ConfigChangeRegions.SubAgent);
+    }
+
+    [Fact]
     public async Task FailedWrite_DoesNotEmitWorkspaceConfigChanged()
     {
         var loader = new SkillsLoader(_workspaceCraftPath);

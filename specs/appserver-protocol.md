@@ -2,9 +2,9 @@
 
 | Field | Value |
 |-------|-------|
-| **Version** | 0.2.7 |
+| **Version** | 0.2.8 |
 | **Status** | Living |
-| **Date** | 2026-04-20 |
+| **Date** | 2026-04-21 |
 | **Parent Spec** | [Session Core](session-core.md) (Section 19) |
 
 Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session Core (`ISessionService`) and related AppServer capabilities to out-of-process clients, enabling them to create and resume threads, submit turns, stream events, participate in approval flows, and call server-level management methods through one transport-stable contract.
@@ -41,9 +41,11 @@ Purpose: Define a language-neutral JSON-RPC wire protocol that exposes Session C
 - [20. Channel Status Methods](#20-channel-status-methods)
 - [21. Model Catalog Methods](#21-model-catalog-methods)
 - [22. MCP Management Methods](#22-mcp-management-methods)
-- [24. Workspace Config Methods](#24-workspace-config-methods)
-- [25. GitHub Tracker Config Methods](#25-github-tracker-config-methods)
-- [26. Design Inspiration](#26-design-inspiration)
+- [23. External Channel Management Methods](#23-external-channel-management-methods)
+- [24. SubAgent Profile Management Methods](#24-subagent-profile-management-methods)
+- [25. Workspace Config Methods](#25-workspace-config-methods)
+- [26. GitHub Tracker Config Methods](#26-github-tracker-config-methods)
+- [27. Design Inspiration](#27-design-inspiration)
 
 ---
 
@@ -70,7 +72,7 @@ The current v1 contract is based on the refactored Session Core, not on the earl
 
 | Bucket | V1 Items |
 |-------|----------|
-| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
+| **Guaranteed in v1** | Rich approval decisions (`accept`, `acceptForSession`, `acceptAlways`, `decline`, `cancel`), thread-scoped event subscription, accurate per-turn origin/initiator metadata, strict `historyMode` rules, separate wire DTO serialization with camelCase enums and lossless delta typing. Cron management methods (`cron/list`, `cron/remove`, `cron/enable`) with the `cronManagement` server capability flag. Heartbeat trigger method (`heartbeat/trigger`) with the `heartbeatManagement` capability flag. Skills management methods (`skills/list`, `skills/read`, `skills/setEnabled`) with the `skillsManagement` capability flag. Command management methods (`command/list`, `command/execute`) with the `commandManagement` capability flag. Channel status method (`channel/status`) with the `channelStatus` capability flag. Model catalog method (`model/list`) with the `modelCatalogManagement` capability flag. MCP management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`, `mcp/status/list`, `mcp/test`) with the `mcpManagement` / `mcpStatus` capability flags. External channel management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`) with the `externalChannelManagement` capability flag. SubAgent profile management methods (`subagent/profiles/list`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`) with the `subAgentManagement` capability flag. Workspace config update method (`workspace/config/update`) with the `workspaceConfigManagement` capability flag. |
 | **Guaranteed with narrowed semantics** | `thread/list` is deterministic but **not cursor-paginated** in v1; archived threads are excluded by default and included only via an explicit filter. |
 | **Deferred from v1** | Structured extension capability registry beyond a flat namespace advertisement. Clients must treat extension namespaces as optional and discoverable, not required for core Session behavior. |
 
@@ -346,6 +348,7 @@ Built-in channels do not negotiate these capabilities over `initialize`; they pr
 | `capabilities.workspaceConfigManagement` | boolean | Server supports workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). |
 | `capabilities.mcpManagement` | boolean | Server supports MCP configuration management methods (`mcp/list`, `mcp/get`, `mcp/upsert`, `mcp/remove`). |
 | `capabilities.externalChannelManagement` | boolean | Server supports external channel configuration management methods (`externalChannel/list`, `externalChannel/get`, `externalChannel/upsert`, `externalChannel/remove`). |
+| `capabilities.subAgentManagement` | boolean | Server supports SubAgent profile management methods (`subagent/profiles/list`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `capabilities.gitHubTrackerConfig` | boolean | Compatibility field for GitHub tracker configuration methods. New clients should prefer `capabilities.extensions.githubTrackerConfig`. |
 | `capabilities.mcpStatus` | boolean | Server supports MCP runtime status methods and notifications (`mcp/status/list`, `mcp/status/updated`, `mcp/test`). |
 | `capabilities.extensions` | object | Optional module capability registry keyed by extension name. Each value is extension-defined metadata; boolean `true` means the extension methods are available. Example: `capabilities.extensions.welcomeSuggestions = true` advertises support for `welcome/suggestions`. |
@@ -3565,9 +3568,188 @@ On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-
 | `-32081` | `ExternalChannelValidationFailed` | External channel config payload is invalid for the selected transport. |
 | `-32082` | `ExternalChannelNameConflict` | Name conflicts with an existing logical key or a native channel name after case-insensitive comparison. |
 
-## 24. Workspace Config Methods
+## 24. SubAgent Profile Management Methods
 
 ### 24.1 Scope
+
+These methods provide a server-authoritative read/write path for workspace SubAgent profile configuration.
+
+Clients must check `capabilities.subAgentManagement` before calling `subagent/profiles/list`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, or `subagent/profiles/remove`. If absent or `false`, the server returns `-32601` (Method not found).
+
+### 24.2 `SubAgentProfileWrite` Wire DTO
+
+`definition` payloads use the full persisted SubAgent profile definition. The write payload mirrors the config shape of `SubAgentProfiles.<name>` and excludes `name`, which is carried by the RPC envelope.
+
+Supported fields mirror the effective `SubAgentProfile` contract, including:
+
+- `runtime`
+- `bin`
+- `args`
+- `env`
+- `envPassthrough`
+- `workingDirectoryMode`
+- `supportsStreaming`
+- `supportsResume`
+- `supportsModelSelection`
+- `inputFormat`
+- `outputFormat`
+- `inputMode`
+- `inputArgTemplate`
+- `inputEnvKey`
+- `outputJsonPath`
+- `outputInputTokensJsonPath`
+- `outputOutputTokensJsonPath`
+- `outputTotalTokensJsonPath`
+- `outputFileArgTemplate`
+- `readOutputFile`
+- `deleteOutputFileAfterRead`
+- `maxOutputBytes`
+- `timeout`
+- `trustLevel`
+- `permissionModeMapping`
+- `sanitizationRules`
+
+### 24.3 `SubAgentProfileEntry` Wire DTO
+
+```json
+{
+  "name": "codex-cli",
+  "isBuiltIn": true,
+  "isTemplate": false,
+  "hasWorkspaceOverride": true,
+  "isDefault": false,
+  "enabled": true,
+  "definition": {
+    "runtime": "cli-oneshot",
+    "bin": "codex",
+    "workingDirectoryMode": "workspace"
+  },
+  "builtInDefaults": {
+    "runtime": "cli-oneshot",
+    "bin": "codex",
+    "workingDirectoryMode": "workspace"
+  },
+  "diagnostic": {
+    "enabled": true,
+    "binaryResolved": true,
+    "hiddenFromPrompt": false,
+    "warnings": []
+  }
+}
+```
+
+Supported fields:
+
+- `name: string`
+- `isBuiltIn: boolean`
+- `isTemplate: boolean`
+- `hasWorkspaceOverride: boolean`
+- `isDefault: boolean`
+- `enabled: boolean`
+- `definition: SubAgentProfileWrite`
+- `builtInDefaults?: SubAgentProfileWrite`
+- `diagnostic: { enabled, binaryResolved, hiddenFromPrompt, hiddenReason?, warnings[] }`
+
+Semantics:
+
+- `definition` is the effective current definition after builtin + workspace override resolution.
+- `builtInDefaults` is only present for builtin profiles.
+- `hasWorkspaceOverride=true` means the workspace currently persists `SubAgentProfiles.<name>`.
+- `diagnostic.hiddenFromPrompt` reflects effective prompt visibility after enablement, template handling, runtime registration, binary resolution, and validation are all applied.
+
+### 24.4 `subagent/profiles/list`
+
+Returns all builtin profiles plus workspace-defined custom profiles for the current workspace.
+
+**Result**:
+
+```json
+{
+  "defaultName": "native",
+  "profiles": []
+}
+```
+
+### 24.5 `subagent/profiles/setEnabled`
+
+Enable or disable one profile for the current workspace.
+
+**Params**:
+
+```json
+{
+  "name": "cursor-cli",
+  "enabled": false
+}
+```
+
+**Semantics**:
+
+- updates `SubAgent.DisabledProfiles`
+- returns the updated `SubAgentProfileEntry`
+- `native` is protected and cannot be disabled
+- on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/profiles/setEnabled"` and `regions: ["subagent"]`
+
+### 24.6 `subagent/profiles/upsert`
+
+Create or replace one workspace profile definition.
+
+**Params**:
+
+```json
+{
+  "name": "my-local-agent",
+  "definition": {
+    "runtime": "cli-oneshot",
+    "bin": "my-agent",
+    "workingDirectoryMode": "workspace",
+    "inputMode": "arg",
+    "outputFormat": "text"
+  }
+}
+```
+
+**Semantics**:
+
+- builtin name creates or replaces a workspace override
+- non-builtin name creates or replaces a custom workspace profile
+- the workspace persists the full expanded definition
+- on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/profiles/upsert"` and `regions: ["subagent"]`
+
+### 24.7 `subagent/profiles/remove`
+
+Remove one workspace-managed SubAgent definition.
+
+**Params**:
+
+```json
+{ "name": "codex-cli" }
+```
+
+**Semantics**:
+
+- builtin name removes only the workspace override and restores builtin defaults
+- custom name removes the workspace profile entirely
+- removing a builtin profile that has no workspace override fails
+- on success, the server emits `workspace/configChanged` (see [Section 25.5](#255-workspaceconfigchanged)) with `source: "subagent/profiles/remove"` and `regions: ["subagent"]`
+
+**Result**:
+
+```json
+{ "removed": true }
+```
+
+### 24.8 Error Codes
+
+| Code | Constant | When |
+|------|----------|------|
+| `-32083` | `SubAgentProfileNotFound` | Requested profile or workspace override does not exist. |
+| `-32084` | `SubAgentProfileValidationFailed` | The profile payload is invalid or incompatible with runtime rules. |
+| `-32085` | `SubAgentProfileProtected` | The requested operation targets a protected profile such as `native`. |
+
+## 25. Workspace Config Methods
+
+### 25.1 Scope
 
 These methods provide a server-authoritative write path for workspace-level configuration values.
 
@@ -3575,7 +3757,7 @@ In v1, the wire surface standardizes workspace model persistence while keeping p
 
 Clients must check `capabilities.workspaceConfigManagement` in `initialize` before calling workspace configuration methods (`workspace/config/schema`, `workspace/config/update`). If absent or `false`, the server returns `-32601` (Method not found).
 
-### 24.2 `workspace/config/schema`
+### 25.2 `workspace/config/schema`
 
 Return the server-derived workspace config schema, including per-field reload metadata.
 
@@ -3611,7 +3793,7 @@ Return the server-derived workspace config schema, including per-field reload me
 - `reload` uses the `ReloadBehavior` enum names serialized as camelCase strings.
 - `subsystemKey` is present only when `reload` is `subsystemRestart`.
 
-### 24.3 `workspace/config/update`
+### 25.3 `workspace/config/update`
 
 Update workspace-level config values.
 
@@ -3654,13 +3836,13 @@ If `model` is removed, the result returns:
 - Key matching is case-insensitive and normalized in-place (`Model`, `ApiKey`, `EndPoint`).
 - On success, the server emits `workspace/configChanged` (see [Section 24.5](#245-workspaceconfigchanged)) with `source: "workspace/config/update"` and one or more regions from `workspace.model`, `workspace.apiKey`, `workspace.endpoint`, `welcomeSuggestions`.
 
-### 24.4 Capability Advertisement
+### 25.4 Capability Advertisement
 
 Clients must check `capabilities.workspaceConfigManagement` before calling workspace configuration methods (`workspace/config/schema`, `workspace/config/update`).
 
 Clients may set `capabilities.configChange = false` during `initialize` to suppress server-initiated `workspace/configChanged` notifications for that connection. When omitted, the server treats it as `true`.
 
-### 24.5 `workspace/configChanged`
+### 25.5 `workspace/configChanged`
 
 Server notification emitted after a successful workspace configuration write.
 
@@ -3678,7 +3860,7 @@ Server notification emitted after a successful workspace configuration write.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`). |
+| `source` | string | RPC method that triggered the mutation (`workspace/config/update`, `skills/setEnabled`, `mcp/upsert`, `mcp/remove`, `externalChannel/upsert`, `externalChannel/remove`, `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove`). |
 | `regions` | string[] | Coarse region tags describing what changed. |
 | `changedAt` | string (ISO-8601) | Server-side UTC timestamp when the change event was emitted. |
 
@@ -3693,6 +3875,7 @@ Server notification emitted after a successful workspace configuration write.
 | `skills` | `skills/setEnabled` |
 | `mcp` | `mcp/upsert`, `mcp/remove` |
 | `externalChannel` | `externalChannel/upsert`, `externalChannel/remove` |
+| `subagent` | `subagent/profiles/setEnabled`, `subagent/profiles/upsert`, `subagent/profiles/remove` |
 
 Semantics:
 
@@ -3700,14 +3883,14 @@ Semantics:
 - Payload is intentionally coarse; clients should re-read relevant state (`skills/list`, `mcp/list`, etc.) when needed.
 - Unknown region tags are forward-compatible and must be ignored by clients that do not recognize them.
 
-### 24.6 Backward Compatibility
+### 25.6 Backward Compatibility
 
 - Clients that set `capabilities.configChange = false` are supported indefinitely and simply do not receive `workspace/configChanged` on that connection.
 - Servers that predate M2 may not emit `workspace/configChanged`; clients must tolerate its absence and rely on existing refresh paths.
 
-## 25. GitHub Tracker Config Methods
+## 26. GitHub Tracker Config Methods
 
-### 25.1 Scope
+### 26.1 Scope
 
 These methods provide a server-authoritative read/write path for `GitHubTracker` configuration.
 
@@ -3717,7 +3900,7 @@ Clients should check `capabilities.extensions.githubTrackerConfig` before callin
 
 Capability availability is based on whether the server supports persisted GitHub tracker configuration.
 
-### 25.2 `GitHubTrackerConfig` Wire DTO
+### 26.2 `GitHubTrackerConfig` Wire DTO
 
 ```json
 {
@@ -3797,7 +3980,7 @@ Validation rules:
 - Numeric fields follow the same lower bounds enforced by the runtime config metadata (`intervalMs >= 1`, concurrency values `>= 0` or `>= 1` depending on the field).
 - `tracker.apiKey` is masked as `"***"` by `githubTracker/get` when a non-empty value exists. Sending `"***"` back to `githubTracker/update` preserves the existing stored value instead of overwriting it.
 
-### 25.3 `githubTracker/get`
+### 26.3 `githubTracker/get`
 
 Returns the current workspace `GitHubTracker` configuration.
 
@@ -3842,7 +4025,7 @@ Returns the current workspace `GitHubTracker` configuration.
 }
 ```
 
-### 25.4 `githubTracker/update`
+### 26.4 `githubTracker/update`
 
 Creates or replaces the workspace `GitHubTracker` section.
 
@@ -3893,11 +4076,11 @@ Creates or replaces the workspace `GitHubTracker` section.
 }
 ```
 
-### 25.5 Capability Advertisement
+### 26.5 Capability Advertisement
 
 Clients should check `capabilities.extensions.githubTrackerConfig` before calling `githubTracker/get` or `githubTracker/update`. The legacy `capabilities.gitHubTrackerConfig` field may still be present for compatibility.
 
-### 25.6 Error Codes
+### 26.6 Error Codes
 
 | Code | Constant | When |
 |------|----------|------|
@@ -3905,7 +4088,7 @@ Clients should check `capabilities.extensions.githubTrackerConfig` before callin
 
 ---
 
-## 26. Design Inspiration
+## 27. Design Inspiration
 
 The DotCraft AppServer Protocol's architecture references the Codex App Server
 design. The overall structural approach - a JSON-RPC 2.0 surface layered around

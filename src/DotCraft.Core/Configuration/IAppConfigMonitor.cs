@@ -47,6 +47,7 @@ public static class ConfigChangeRegions
     public const string Skills = "skills";
     public const string Mcp = "mcp";
     public const string ExternalChannel = "externalChannel";
+    public const string SubAgent = "subagent";
 }
 
 /// <summary>

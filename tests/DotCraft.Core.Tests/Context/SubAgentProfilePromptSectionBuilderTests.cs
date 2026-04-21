@@ -126,6 +126,32 @@ public sealed class SubAgentProfilePromptSectionBuilderTests
     }
 
     [Fact]
+    public void Build_HidesDisabledProfiles()
+    {
+        var section = SubAgentProfilePromptSectionBuilder.Build(
+            configuredProfiles: null,
+            disabledProfiles: ["cursor-cli"],
+            binaryAvailabilityProbe: _ => true);
+
+        Assert.NotNull(section);
+        Assert.DoesNotContain("`cursor-cli`", section, StringComparison.Ordinal);
+        Assert.Contains("`codex-cli`", section, StringComparison.Ordinal);
+        Assert.Contains("`native`", section, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_DoesNotDisableProtectedDefaultProfile()
+    {
+        var section = SubAgentProfilePromptSectionBuilder.Build(
+            configuredProfiles: null,
+            disabledProfiles: ["native"],
+            binaryAvailabilityProbe: _ => true);
+
+        Assert.NotNull(section);
+        Assert.Contains("`native`", section, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_ShowsCliProfileWhenBinaryProbeSucceeds()
     {
         var section = SubAgentProfilePromptSectionBuilder.Build(

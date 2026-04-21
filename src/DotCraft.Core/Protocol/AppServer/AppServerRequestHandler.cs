@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DotCraft.Agents;
 using DotCraft.Abstractions;
 using DotCraft.Commands.Core;
 using DotCraft.Commands.Custom;
@@ -138,7 +139,11 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.ExternalChannelList,
         AppServerMethods.ExternalChannelGet,
         AppServerMethods.ExternalChannelUpsert,
-        AppServerMethods.ExternalChannelRemove
+        AppServerMethods.ExternalChannelRemove,
+        AppServerMethods.SubAgentProfileList,
+        AppServerMethods.SubAgentProfileSetEnabled,
+        AppServerMethods.SubAgentProfileUpsert,
+        AppServerMethods.SubAgentProfileRemove
     ];
 
     // -------------------------------------------------------------------------
@@ -183,6 +188,10 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ExternalChannelGet => HandleExternalChannelGetAsync(msg, ct),
                 AppServerMethods.ExternalChannelUpsert => HandleExternalChannelUpsertAsync(msg, ct),
                 AppServerMethods.ExternalChannelRemove => HandleExternalChannelRemoveAsync(msg, ct),
+                AppServerMethods.SubAgentProfileList => HandleSubAgentProfileListAsync(msg, ct),
+                AppServerMethods.SubAgentProfileSetEnabled => HandleSubAgentProfileSetEnabledAsync(msg, ct),
+                AppServerMethods.SubAgentProfileUpsert => HandleSubAgentProfileUpsertAsync(msg, ct),
+                AppServerMethods.SubAgentProfileRemove => HandleSubAgentProfileRemoveAsync(msg, ct),
                 AppServerMethods.McpStatusList => HandleMcpStatusListAsync(msg, ct),
                 AppServerMethods.McpTest => HandleMcpTestAsync(msg, ct),
                 AppServerMethods.ThreadStart => HandleThreadStartAsync(msg, ct),
@@ -268,6 +277,7 @@ public sealed class AppServerRequestHandler(
             WorkspaceConfigManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             McpManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath) && _mcpClientManager != null,
             ExternalChannelManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
+            SubAgentManagement = !string.IsNullOrWhiteSpace(workspaceCraftPath),
             McpStatus = _mcpClientManager != null
         };
 
@@ -629,6 +639,114 @@ public sealed class AppServerRequestHandler(
             [ConfigChangeRegions.ExternalChannel]);
 
         return new ExternalChannelRemoveResult { Removed = true };
+    }
+
+    private Task<object?> HandleSubAgentProfileListAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = msg;
+        _ = ct;
+        EnsureSubAgentManagementAvailable();
+
+        var listResult = BuildSubAgentProfileListResult();
+        return Task.FromResult<object?>(listResult);
+    }
+
+    private Task<object?> HandleSubAgentProfileSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        EnsureSubAgentManagementAvailable();
+        var p = GetParams<SubAgentProfileSetEnabledParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        if (string.Equals(p.Name, SubAgentCoordinator.DefaultProfileName, StringComparison.OrdinalIgnoreCase) && !p.Enabled)
+            throw AppServerErrors.SubAgentProfileProtected($"'{SubAgentCoordinator.DefaultProfileName}' cannot be disabled.");
+
+        var state = SubAgentProfilesPersistence.LoadWorkspaceState(workspaceCraftPath!);
+        var builtIns = SubAgentProfileRegistry.CreateBuiltInProfiles();
+        var registry = new SubAgentProfileRegistry(
+            state.Profiles,
+            builtIns,
+            SubAgentProfileRegistry.KnownRuntimeTypes,
+            state.DisabledProfiles);
+        if (!registry.TryGet(p.Name, out _))
+            throw AppServerErrors.SubAgentProfileNotFound(p.Name);
+
+        var disabled = state.DisabledProfiles.ToList();
+        if (p.Enabled)
+            disabled.RemoveAll(name => string.Equals(name, p.Name, StringComparison.OrdinalIgnoreCase));
+        else if (!disabled.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+            disabled.Add(p.Name);
+
+        SubAgentProfilesPersistence.SaveWorkspaceState(workspaceCraftPath!, disabled, state.Profiles);
+        RefreshCurrentSubAgentConfig();
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.SubAgentProfileSetEnabled,
+            [ConfigChangeRegions.SubAgent]);
+
+        var updated = BuildSubAgentProfileListResult().Profiles
+            .First(profile => string.Equals(profile.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult<object?>(new SubAgentProfileSetEnabledResult { Profile = updated });
+    }
+
+    private Task<object?> HandleSubAgentProfileUpsertAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        EnsureSubAgentManagementAvailable();
+        var p = GetParams<SubAgentProfileUpsertParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var profile = MapWireToSubAgentProfile(p.Name, p.Definition);
+        ValidateSubAgentProfileWire(profile);
+
+        var state = SubAgentProfilesPersistence.LoadWorkspaceState(workspaceCraftPath!);
+        var profiles = state.Profiles.Select(existing => existing.Clone()).ToList();
+        var existingIndex = profiles.FindIndex(existing => string.Equals(existing.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+            profiles[existingIndex] = profile;
+        else
+            profiles.Add(profile);
+
+        SubAgentProfilesPersistence.SaveWorkspaceState(workspaceCraftPath!, state.DisabledProfiles, profiles);
+        RefreshCurrentSubAgentConfig();
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.SubAgentProfileUpsert,
+            [ConfigChangeRegions.SubAgent]);
+
+        var updated = BuildSubAgentProfileListResult().Profiles
+            .First(entry => string.Equals(entry.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult<object?>(new SubAgentProfileUpsertResult { Profile = updated });
+    }
+
+    private Task<object?> HandleSubAgentProfileRemoveAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        EnsureSubAgentManagementAvailable();
+        var p = GetParams<SubAgentProfileRemoveParams>(msg);
+        if (string.IsNullOrWhiteSpace(p.Name))
+            throw AppServerErrors.InvalidParams("'name' is required.");
+
+        var state = SubAgentProfilesPersistence.LoadWorkspaceState(workspaceCraftPath!);
+        var workspaceProfiles = state.Profiles.Select(profile => profile.Clone()).ToList();
+        var existingIndex = workspaceProfiles.FindIndex(profile => string.Equals(profile.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex < 0)
+            throw AppServerErrors.SubAgentProfileNotFound(p.Name);
+
+        workspaceProfiles.RemoveAt(existingIndex);
+        var disabled = state.DisabledProfiles.ToList();
+        var isBuiltIn = SubAgentProfileRegistry.CreateBuiltInProfiles()
+            .Any(profile => string.Equals(profile.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+        if (!isBuiltIn)
+            disabled.RemoveAll(name => string.Equals(name, p.Name, StringComparison.OrdinalIgnoreCase));
+
+        SubAgentProfilesPersistence.SaveWorkspaceState(workspaceCraftPath!, disabled, workspaceProfiles);
+        RefreshCurrentSubAgentConfig();
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.SubAgentProfileRemove,
+            [ConfigChangeRegions.SubAgent]);
+
+        return Task.FromResult<object?>(new SubAgentProfileRemoveResult { Removed = true });
     }
 
     private async Task<object?> HandleMcpStatusListAsync(AppServerIncomingMessage msg, CancellationToken ct)
@@ -1038,6 +1156,12 @@ public sealed class AppServerRequestHandler(
             throw AppServerErrors.MethodNotFound("externalChannel/*");
     }
 
+    private void EnsureSubAgentManagementAvailable()
+    {
+        if (string.IsNullOrWhiteSpace(workspaceCraftPath))
+            throw AppServerErrors.MethodNotFound("subagent/profiles/*");
+    }
+
     private static McpServerConfigWire MapMcpConfigToWire(McpServerConfig config) => new()
     {
         Name = config.Name,
@@ -1115,6 +1239,73 @@ public sealed class AppServerRequestHandler(
         Env = wire.Env is { Count: > 0 } ? new Dictionary<string, string>(wire.Env, StringComparer.Ordinal) : null
     };
 
+    private static SubAgentProfileWriteWire MapSubAgentProfileToWire(SubAgentProfile profile) => new()
+    {
+        Runtime = profile.Runtime,
+        Bin = profile.Bin,
+        Args = profile.Args is { Count: > 0 } ? [.. profile.Args] : null,
+        Env = profile.Env is { Count: > 0 } ? new Dictionary<string, string>(profile.Env, StringComparer.Ordinal) : null,
+        EnvPassthrough = profile.EnvPassthrough is { Count: > 0 } ? [.. profile.EnvPassthrough] : null,
+        WorkingDirectoryMode = profile.WorkingDirectoryMode,
+        SupportsStreaming = profile.SupportsStreaming,
+        SupportsResume = profile.SupportsResume,
+        SupportsModelSelection = profile.SupportsModelSelection,
+        InputFormat = profile.InputFormat,
+        OutputFormat = profile.OutputFormat,
+        InputMode = profile.InputMode,
+        InputArgTemplate = profile.InputArgTemplate,
+        InputEnvKey = profile.InputEnvKey,
+        OutputJsonPath = profile.OutputJsonPath,
+        OutputInputTokensJsonPath = profile.OutputInputTokensJsonPath,
+        OutputOutputTokensJsonPath = profile.OutputOutputTokensJsonPath,
+        OutputTotalTokensJsonPath = profile.OutputTotalTokensJsonPath,
+        OutputFileArgTemplate = profile.OutputFileArgTemplate,
+        ReadOutputFile = profile.ReadOutputFile,
+        DeleteOutputFileAfterRead = profile.DeleteOutputFileAfterRead,
+        MaxOutputBytes = profile.MaxOutputBytes,
+        Timeout = profile.Timeout,
+        TrustLevel = profile.TrustLevel,
+        PermissionModeMapping = profile.PermissionModeMapping is { Count: > 0 }
+            ? new Dictionary<string, string>(profile.PermissionModeMapping, StringComparer.OrdinalIgnoreCase)
+            : null,
+        SanitizationRules = profile.SanitizationRules?.DeepClone() as JsonObject
+    };
+
+    private static SubAgentProfile MapWireToSubAgentProfile(string name, SubAgentProfileWriteWire wire) => new()
+    {
+        Name = name.Trim(),
+        Runtime = wire.Runtime?.Trim() ?? string.Empty,
+        Bin = string.IsNullOrWhiteSpace(wire.Bin) ? null : wire.Bin.Trim(),
+        Args = wire.Args is { Count: > 0 } ? [.. wire.Args.Where(arg => !string.IsNullOrWhiteSpace(arg)).Select(arg => arg.Trim())] : null,
+        Env = wire.Env is { Count: > 0 } ? new Dictionary<string, string>(wire.Env, StringComparer.Ordinal) : null,
+        EnvPassthrough = wire.EnvPassthrough is { Count: > 0 }
+            ? [.. wire.EnvPassthrough.Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item.Trim())]
+            : null,
+        WorkingDirectoryMode = string.IsNullOrWhiteSpace(wire.WorkingDirectoryMode) ? "workspace" : wire.WorkingDirectoryMode.Trim(),
+        SupportsStreaming = wire.SupportsStreaming,
+        SupportsResume = wire.SupportsResume,
+        SupportsModelSelection = wire.SupportsModelSelection,
+        InputFormat = string.IsNullOrWhiteSpace(wire.InputFormat) ? null : wire.InputFormat.Trim(),
+        OutputFormat = string.IsNullOrWhiteSpace(wire.OutputFormat) ? null : wire.OutputFormat.Trim(),
+        InputMode = string.IsNullOrWhiteSpace(wire.InputMode) ? null : wire.InputMode.Trim(),
+        InputArgTemplate = string.IsNullOrWhiteSpace(wire.InputArgTemplate) ? null : wire.InputArgTemplate,
+        InputEnvKey = string.IsNullOrWhiteSpace(wire.InputEnvKey) ? null : wire.InputEnvKey.Trim(),
+        OutputJsonPath = string.IsNullOrWhiteSpace(wire.OutputJsonPath) ? null : wire.OutputJsonPath.Trim(),
+        OutputInputTokensJsonPath = string.IsNullOrWhiteSpace(wire.OutputInputTokensJsonPath) ? null : wire.OutputInputTokensJsonPath.Trim(),
+        OutputOutputTokensJsonPath = string.IsNullOrWhiteSpace(wire.OutputOutputTokensJsonPath) ? null : wire.OutputOutputTokensJsonPath.Trim(),
+        OutputTotalTokensJsonPath = string.IsNullOrWhiteSpace(wire.OutputTotalTokensJsonPath) ? null : wire.OutputTotalTokensJsonPath.Trim(),
+        OutputFileArgTemplate = string.IsNullOrWhiteSpace(wire.OutputFileArgTemplate) ? null : wire.OutputFileArgTemplate,
+        ReadOutputFile = wire.ReadOutputFile,
+        DeleteOutputFileAfterRead = wire.DeleteOutputFileAfterRead,
+        MaxOutputBytes = wire.MaxOutputBytes,
+        Timeout = wire.Timeout,
+        TrustLevel = string.IsNullOrWhiteSpace(wire.TrustLevel) ? null : wire.TrustLevel.Trim(),
+        PermissionModeMapping = wire.PermissionModeMapping is { Count: > 0 }
+            ? new Dictionary<string, string>(wire.PermissionModeMapping, StringComparer.OrdinalIgnoreCase)
+            : null,
+        SanitizationRules = wire.SanitizationRules?.DeepClone() as JsonObject
+    };
+
     private static ExternalChannelTransport NormalizeExternalChannelTransport(string? transport) =>
         transport?.Equals("websocket", StringComparison.OrdinalIgnoreCase) == true
             ? ExternalChannelTransport.Websocket
@@ -1179,6 +1370,19 @@ public sealed class AppServerRequestHandler(
         }
     }
 
+    private static void ValidateSubAgentProfileWire(SubAgentProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.Name))
+            throw AppServerErrors.SubAgentProfileValidationFailed("'name' is required.");
+
+        var warnings = SubAgentProfileRegistry.ValidateProfiles(
+            [profile],
+            SubAgentProfileRegistry.KnownRuntimeTypes,
+            []);
+        if (warnings.Count > 0)
+            throw AppServerErrors.SubAgentProfileValidationFailed(string.Join(" ", warnings));
+    }
+
     private static async Task SaveWorkspaceMcpServersAsync(
         string workspaceCraftPath,
         McpClientManager manager,
@@ -1211,6 +1415,136 @@ public sealed class AppServerRequestHandler(
     {
         var configPath = Path.Combine(workspaceCraftPath, "config.json");
         return AppConfig.Load(configPath).ExternalChannels.Select(c => c.Clone()).ToList();
+    }
+
+    private SubAgentProfileListResult BuildSubAgentProfileListResult()
+    {
+        var state = SubAgentProfilesPersistence.LoadWorkspaceState(workspaceCraftPath!);
+        var workspaceOverrideNames = state.Profiles
+            .Select(profile => profile.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var builtInProfiles = SubAgentProfileRegistry.CreateBuiltInProfiles();
+        var builtInMap = builtInProfiles.ToDictionary(profile => profile.Name, profile => profile.Clone(), StringComparer.OrdinalIgnoreCase);
+        var registry = new SubAgentProfileRegistry(
+            state.Profiles,
+            builtInProfiles,
+            SubAgentProfileRegistry.KnownRuntimeTypes,
+            state.DisabledProfiles);
+        var diagnostics = BuildSubAgentDiagnostics(registry)
+            .ToDictionary(diagnostic => diagnostic.Name, diagnostic => diagnostic, StringComparer.OrdinalIgnoreCase);
+
+        var profiles = registry.Profiles
+            .OrderBy(profile => string.Equals(profile.Name, SubAgentCoordinator.DefaultProfileName, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(profile =>
+            {
+                var diagnostic = diagnostics[profile.Name];
+                return new SubAgentProfileEntryWire
+                {
+                    Name = profile.Name,
+                    IsBuiltIn = registry.IsBuiltInProfile(profile.Name),
+                    IsTemplate = registry.IsTemplateProfile(profile.Name),
+                    HasWorkspaceOverride = workspaceOverrideNames.Contains(profile.Name),
+                    IsDefault = string.Equals(profile.Name, SubAgentCoordinator.DefaultProfileName, StringComparison.OrdinalIgnoreCase),
+                    Enabled = registry.IsEnabled(profile.Name),
+                    Definition = MapSubAgentProfileToWire(profile),
+                    BuiltInDefaults = builtInMap.TryGetValue(profile.Name, out var builtInDefault)
+                        ? MapSubAgentProfileToWire(builtInDefault)
+                        : null,
+                    Diagnostic = new SubAgentProfileDiagnosticWire
+                    {
+                        Enabled = diagnostic.Enabled,
+                        BinaryResolved = diagnostic.BinaryResolved,
+                        HiddenFromPrompt = diagnostic.HiddenFromPrompt,
+                        HiddenReason = diagnostic.HiddenReason,
+                        Warnings = [.. diagnostic.Warnings]
+                    }
+                };
+            })
+            .ToList();
+
+        return new SubAgentProfileListResult
+        {
+            DefaultName = SubAgentCoordinator.DefaultProfileName,
+            Profiles = profiles
+        };
+    }
+
+    private static IReadOnlyList<SubAgentProfileDiagnostic> BuildSubAgentDiagnostics(SubAgentProfileRegistry registry)
+    {
+        var diagnostics = new List<SubAgentProfileDiagnostic>();
+        foreach (var profile in registry.Profiles.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var warnings = registry.GetValidationWarningsForProfile(profile.Name);
+            var enabled = registry.IsEnabled(profile.Name);
+            var runtimeRegistered = SubAgentProfileRegistry.KnownRuntimeTypes.Contains(profile.Runtime, StringComparer.OrdinalIgnoreCase);
+
+            string? resolvedBinary = null;
+            var hiddenReasons = new List<string>();
+            if (!enabled)
+                hiddenReasons.Add("disabled by workspace configuration");
+
+            if (!runtimeRegistered)
+                hiddenReasons.Add("runtime not registered");
+
+            if (registry.IsTemplateProfile(profile.Name))
+                hiddenReasons.Add("template profile");
+
+            if (warnings.Count > 0)
+                hiddenReasons.Add("configuration warnings present");
+
+            if (string.Equals(profile.Runtime, CliOneshotRuntime.RuntimeTypeName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(profile.Bin))
+                {
+                    hiddenReasons.Add("missing required field 'bin'");
+                }
+                else if (runtimeRegistered)
+                {
+                    if (CliOneshotRuntime.TryResolveExecutablePath(profile.Bin, out var resolved))
+                        resolvedBinary = resolved;
+                    else
+                        hiddenReasons.Add($"binary '{profile.Bin}' was not found on PATH");
+                }
+            }
+
+            diagnostics.Add(new SubAgentProfileDiagnostic
+            {
+                Name = profile.Name,
+                Runtime = profile.Runtime,
+                WorkingDirectoryMode = profile.WorkingDirectoryMode,
+                IsBuiltIn = registry.IsBuiltInProfile(profile.Name),
+                Enabled = enabled,
+                Bin = profile.Bin,
+                ResolvedBinary = resolvedBinary,
+                BinaryResolved = resolvedBinary != null,
+                RuntimeRegistered = runtimeRegistered,
+                HiddenFromPrompt = hiddenReasons.Count > 0,
+                HiddenReason = hiddenReasons.Count > 0
+                    ? string.Join("; ", hiddenReasons.Distinct(StringComparer.Ordinal))
+                    : null,
+                Warnings = warnings
+            });
+        }
+
+        return diagnostics;
+    }
+
+    private void RefreshCurrentSubAgentConfig()
+    {
+        if (_appConfigMonitor == null || string.IsNullOrWhiteSpace(workspaceCraftPath))
+            return;
+
+        var configPath = Path.Combine(workspaceCraftPath, "config.json");
+        var mergedConfig = AppConfig.LoadWithGlobalFallback(configPath);
+        _appConfigMonitor.Current.SubAgent = new AppConfig.SubAgentConfig
+        {
+            DisabledProfiles = [.. mergedConfig.SubAgent.DisabledProfiles]
+        };
+        _appConfigMonitor.Current.SubAgentProfiles = mergedConfig.SubAgentProfiles
+            .Where(profile => !string.IsNullOrWhiteSpace(profile.Name))
+            .Select(profile => profile.Clone())
+            .ToList();
     }
 
     private static void SaveWorkspaceExternalChannels(string workspaceCraftPath, IReadOnlyCollection<ExternalChannelEntry> channels)

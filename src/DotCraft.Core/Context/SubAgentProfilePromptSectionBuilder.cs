@@ -8,6 +8,7 @@ internal static class SubAgentProfilePromptSectionBuilder
     public static string? Build(
         IEnumerable<SubAgentProfile>? configuredProfiles,
         IEnumerable<string>? knownRuntimeTypes = null,
+        IEnumerable<string>? disabledProfiles = null,
         Func<string, bool>? binaryAvailabilityProbe = null)
     {
         var runtimeTypes = (knownRuntimeTypes ?? SubAgentProfileRegistry.KnownRuntimeTypes).ToArray();
@@ -16,7 +17,8 @@ internal static class SubAgentProfilePromptSectionBuilder
         var registry = new SubAgentProfileRegistry(
             configuredProfiles,
             SubAgentProfileRegistry.CreateBuiltInProfiles(),
-            runtimeTypes);
+            runtimeTypes,
+            disabledProfiles);
 
         var visibleProfiles = registry.Profiles
             .Where(profile => IsPromptVisible(profile, registry, runtimeSet, probe))
@@ -67,6 +69,9 @@ internal static class SubAgentProfilePromptSectionBuilder
             return false;
 
         if (registry.IsTemplateProfile(profile.Name))
+            return false;
+
+        if (!registry.IsEnabled(profile.Name))
             return false;
 
         if (string.Equals(profile.Runtime, CliOneshotRuntime.RuntimeTypeName, StringComparison.OrdinalIgnoreCase))
