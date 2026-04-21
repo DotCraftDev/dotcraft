@@ -75,6 +75,7 @@ public sealed class AppServerHost(
     private IAutomationsRequestHandler? _automationsHandler;
 
     private ChannelRunner? _channelRunner;
+    private WelcomeSuggestionService? _welcomeSuggestionService;
 
     /// <summary>
     /// DashBoard URL when <see cref="ChannelRunner"/> hosts it; exposed via wire <c>initialize</c>.
@@ -178,6 +179,7 @@ public sealed class AppServerHost(
             memoryStore,
             paths.WorkspacePath,
             sp.GetService<ILoggerFactory>()?.CreateLogger<WelcomeSuggestionService>());
+        _welcomeSuggestionService = welcomeSuggestionService;
         mcpClientManager.StatusChanged += OnMcpStatusChanged;
 
         // Cron and Heartbeat — owned and executed entirely within the AppServer process.
@@ -367,6 +369,21 @@ public sealed class AppServerHost(
 
             if (automationOrchestratorStarted != null)
                 await automationOrchestratorStarted.StopAsync();
+
+            if (_welcomeSuggestionService != null)
+            {
+                try
+                {
+                    await _welcomeSuggestionService.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[grey][[AppServer]][/] [yellow]Welcome suggestion service shutdown: {Markup.Escape(ex.Message)}[/]");
+                }
+
+                _welcomeSuggestionService = null;
+            }
         }
 
         cronService.Stop();
@@ -845,6 +862,11 @@ public sealed class AppServerHost(
     {
         mcpClientManager.StatusChanged -= OnMcpStatusChanged;
         _appConfigMonitor.Changed -= OnAppConfigChanged;
+        if (_welcomeSuggestionService != null)
+        {
+            await _welcomeSuggestionService.DisposeAsync();
+            _welcomeSuggestionService = null;
+        }
         if (_agentFactory != null)
             await _agentFactory.DisposeAsync();
     }
@@ -1139,6 +1161,8 @@ public sealed class AppServerHost(
 
             if (_threadRuntime.TryAdd(threadId, next) || _threadRuntime.TryUpdate(threadId, next, previous))
             {
+                if (signal == SessionThreadRuntimeSignal.TurnCompleted)
+                    _welcomeSuggestionService?.ScheduleRefresh(paths.WorkspacePath, threadId);
                 BroadcastThreadRuntime(threadId, next.ToWire());
                 return;
             }

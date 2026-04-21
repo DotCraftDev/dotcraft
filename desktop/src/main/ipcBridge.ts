@@ -27,6 +27,12 @@ import {
   warmFileSearchIndex
 } from './workspaceComposerIpc'
 import {
+  classifyFile,
+  readTextFile,
+  listViewerFiles
+} from './viewerIpc'
+import { viewerBrowserManager } from './viewerBrowser'
+import {
   scanModules,
   groupModulesByChannel,
   type DiscoveredModule
@@ -117,9 +123,11 @@ function assertPathWithinWorkspace(
   return resolved
 }
 
+const MAX_EXTERNAL_URL_LENGTH = 4096
+
 /**
  * Returns normalized http(s) URL string, or null if empty / malformed / wrong protocol.
- * Used for DashBoard URLs from initialize and for `shell:open-external` validation.
+ * Used for DashBoard URLs from initialize.
  */
 export function sanitizeHttpOrHttpsUrl(url: string | undefined): string | null {
   if (url === undefined || typeof url !== 'string') return null
@@ -136,8 +144,55 @@ export function sanitizeHttpOrHttpsUrl(url: string | undefined): string | null {
 }
 
 /**
- * Opens an http(s) URL in the system browser. Throws the same errors as the legacy
- * `shell:open-external` IPC handler for invalid input.
+ * Returns normalized external URL string, or null if empty / malformed / disallowed protocol.
+ * Allows http(s), mailto, and tel.
+ */
+export function sanitizeExternalUrl(url: string | undefined): string | null {
+  if (url === undefined || typeof url !== 'string') return null
+  const trimmed = url.trim()
+  if (trimmed === '' || trimmed.length > MAX_EXTERNAL_URL_LENGTH) return null
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return null
+  }
+  if (
+    parsed.protocol !== 'http:' &&
+    parsed.protocol !== 'https:' &&
+    parsed.protocol !== 'mailto:' &&
+    parsed.protocol !== 'tel:'
+  ) {
+    return null
+  }
+  return parsed.href
+}
+
+/**
+ * Opens an external URL in the system browser/handler.
+ * Throws on invalid input.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  if (typeof url !== 'string' || url.trim() === '') {
+    throw new Error('Invalid URL')
+  }
+  if (url.trim().length > MAX_EXTERNAL_URL_LENGTH) {
+    throw new Error('URL too long')
+  }
+  const safe = sanitizeExternalUrl(url)
+  if (safe === null) {
+    try {
+      new URL(url.trim())
+    } catch {
+      throw new Error('Invalid URL')
+    }
+    throw new Error('Only http(s), mailto, and tel URLs are allowed')
+  }
+  await shell.openExternal(safe)
+}
+
+/**
+ * Opens an http(s) URL in the system browser. Throws on invalid input.
  */
 export async function openExternalHttpUrl(url: string): Promise<void> {
   if (typeof url !== 'string' || url.trim() === '') {
@@ -398,7 +453,7 @@ export interface IpcHandlerCallbacks {
  * - `file:delete`                 (renderer -> main, invoke) -> deletes file within workspace
  * - `file:exists`                 (renderer -> main, invoke) -> checks whether file exists within workspace
  * - `git:commit`                  (renderer -> main, invoke) -> git add + commit
- * - `shell:open-external`         (renderer -> main, invoke) -> opens http(s) URL in system browser
+ * - `shell:open-external`         (renderer -> main, invoke) -> opens allowed URL in OS handler
  * - `editors:list`                (renderer -> main, invoke) -> returns detected editor targets
  * - `editors:launch`              (renderer -> main, invoke) -> opens workspace path with editor target
  */
@@ -739,9 +794,9 @@ export function registerIpcHandlers(
   // Renderer -> Main: get workspace path
   handleSafe('window:get-workspace-path', () => workspacePath)
 
-  // Renderer -> Main: open http(s) URL in the system browser (DashBoard, etc.)
+  // Renderer -> Main: open allowed URL in OS default handler
   handleSafe('shell:open-external', async (_event, url: string) => {
-    await openExternalHttpUrl(url)
+    await openExternalUrl(url)
   })
 
   handleSafe('editors:list', async () => {
@@ -961,6 +1016,128 @@ export function registerIpcHandlers(
       return { files }
     }
   )
+
+  // ─── Viewer panel IPC ──────────────────────────────────────────────────────
+
+  // Renderer -> Main: list workspace files for Quick-Open dialog
+  handleSafe(
+    'workspace:viewer:list-files',
+    async (
+      _event,
+      params: { workspacePath: string; query: string; limit: number }
+    ) => {
+      const ws = path.resolve(workspacePath)
+      const req = path.resolve(params.workspacePath)
+      if (ws !== req) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
+      }
+      if (!ws) return { files: [] }
+      const limit = Math.min(500, Math.max(1, params.limit ?? 100))
+      const files = await listViewerFiles(ws, params.query, limit)
+      return { files }
+    }
+  )
+
+  // Renderer -> Main: classify a file (text / image / pdf / unsupported)
+  handleSafe(
+    'workspace:viewer:classify',
+    async (_event, params: { absolutePath: string }) => {
+      if (!workspacePath) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
+      }
+      return classifyFile(params.absolutePath, workspacePath)
+    }
+  )
+
+  // Renderer -> Main: read a text file with optional size cap
+  handleSafe(
+    'workspace:viewer:read-text',
+    async (_event, params: { absolutePath: string; limitBytes?: number }) => {
+      if (!workspacePath) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.noWorkspaceOpen'))
+      }
+      return readTextFile(params.absolutePath, workspacePath, params.limitBytes)
+    }
+  )
+
+  // Renderer -> Main: browser tab lifecycle / navigation
+  handleSafe(
+    'viewer:browser:create',
+    async (event, params: { tabId: string; workspacePath: string; initialUrl?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) {
+        throw new Error('Browser window not available')
+      }
+      const ws = path.resolve(workspacePath)
+      const req = path.resolve(params.workspacePath)
+      if (ws !== req) {
+        throw new Error(translate(mainLocale(callbacks), 'ipc.workspacePathMismatch'))
+      }
+      return viewerBrowserManager.createTab(win, {
+        tabId: params.tabId,
+        workspacePath: params.workspacePath,
+        ...(params.initialUrl ? { initialUrl: params.initialUrl } : {})
+      })
+    }
+  )
+  handleSafe('viewer:browser:destroy', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.destroyTab(win, params.tabId)
+  })
+  handleSafe('viewer:browser:navigate', async (event, params: { tabId: string; url: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    void viewerBrowserManager.navigate(win, params)
+  })
+  handleSafe('viewer:browser:back', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.goBack(win, params.tabId)
+  })
+  handleSafe('viewer:browser:forward', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.goForward(win, params.tabId)
+  })
+  handleSafe('viewer:browser:reload', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.reload(win, params.tabId)
+  })
+  handleSafe('viewer:browser:stop', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.stop(win, params.tabId)
+  })
+  handleSafe(
+    'viewer:browser:set-bounds',
+    async (event, params: { tabId: string; x: number; y: number; width: number; height: number }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) return
+      viewerBrowserManager.setBounds(win, params)
+    }
+  )
+  handleSafe('viewer:browser:set-visible', async (event, params: { tabId: string; visible: boolean }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.setVisible(win, params)
+  })
+  handleSafe('viewer:browser:set-active', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    viewerBrowserManager.setActiveTab(win, params.tabId)
+  })
+  handleSafe('viewer:browser:open-external', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    await viewerBrowserManager.openInOsBrowser(win, params.tabId)
+  })
+  handleSafe('viewer:browser:snapshot', async (event, params: { tabId: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return null
+    return viewerBrowserManager.snapshotState(win, params.tabId)
+  })
 
   // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -1360,6 +1537,21 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler('workspace:save-image-to-temp')
   ipcMain.removeHandler('workspace:read-image-as-data-url')
   ipcMain.removeHandler('workspace:search-files')
+  ipcMain.removeHandler('workspace:viewer:list-files')
+  ipcMain.removeHandler('workspace:viewer:classify')
+  ipcMain.removeHandler('workspace:viewer:read-text')
+  ipcMain.removeHandler('viewer:browser:create')
+  ipcMain.removeHandler('viewer:browser:destroy')
+  ipcMain.removeHandler('viewer:browser:navigate')
+  ipcMain.removeHandler('viewer:browser:back')
+  ipcMain.removeHandler('viewer:browser:forward')
+  ipcMain.removeHandler('viewer:browser:reload')
+  ipcMain.removeHandler('viewer:browser:stop')
+  ipcMain.removeHandler('viewer:browser:set-bounds')
+  ipcMain.removeHandler('viewer:browser:set-visible')
+  ipcMain.removeHandler('viewer:browser:set-active')
+  ipcMain.removeHandler('viewer:browser:open-external')
+  ipcMain.removeHandler('viewer:browser:snapshot')
   ipcMain.removeHandler('settings:get')
   ipcMain.removeHandler('settings:set')
   ipcMain.removeHandler('modules:list')

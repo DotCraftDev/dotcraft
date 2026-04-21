@@ -34,8 +34,10 @@ describe('uiStore responsive panel preferences', () => {
       detailPanelPreferredVisible: true,
       detailPanelVisible: true,
       responsiveLayout: 'full',
-      activeDetailTab: 'changes',
-      selectedChangedFile: null
+      activeDetailTab: { kind: 'system', id: 'changes' },
+      lastActiveSystemTab: 'changes',
+      selectedChangedFile: null,
+      autoShowReasons: new Set<string>()
     })
   })
 
@@ -87,5 +89,21 @@ describe('uiStore responsive panel preferences', () => {
 
     expect(useUIStore.getState().detailPanelVisible).toBe(true)
     expect(useUIStore.getState().selectedChangedFile).toBe('src/foo.ts')
+  })
+
+  it('records one-shot auto-show reasons', () => {
+    useUIStore.getState().setDetailPanelVisible(false)
+    const first = useUIStore.getState().maybeAutoShowForReason('link:thread-1:item-2')
+    const second = useUIStore.getState().maybeAutoShowForReason('link:thread-1:item-2')
+    expect(first).toBe(true)
+    expect(second).toBe(false)
+    expect(useUIStore.getState().detailPanelPreferredVisible).toBe(true)
+  })
+
+  it('clears one-shot auto-show reasons', () => {
+    useUIStore.getState().maybeAutoShowForReason('plan:auto')
+    expect(useUIStore.getState().autoShowReasons.size).toBe(1)
+    useUIStore.getState().resetAutoShowReasons()
+    expect(useUIStore.getState().autoShowReasons.size).toBe(0)
   })
 })

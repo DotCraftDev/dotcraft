@@ -22,6 +22,29 @@ export interface NotificationPayload {
   params: unknown
 }
 
+export interface BrowserEventPayload {
+  tabId: string
+  type:
+    | 'did-start-loading'
+    | 'did-stop-loading'
+    | 'did-navigate'
+    | 'did-fail-load'
+    | 'page-title-updated'
+    | 'page-favicon-updated'
+    | 'blocked-navigation'
+    | 'download-blocked'
+    | 'request-new-tab'
+    | 'crashed'
+    | 'update-history-flags'
+    | 'external-handoff'
+  url?: string
+  title?: string
+  faviconDataUrl?: string
+  canGoBack?: boolean
+  canGoForward?: boolean
+  message?: string
+}
+
 export interface ConnectionStatusPayload {
   status: 'connecting' | 'connected' | 'disconnected' | 'error'
   serverInfo?: {
@@ -262,7 +285,7 @@ declare global {
       }
       shell: {
         openPath(path: string): Promise<string>
-        /** Opens http(s) URLs in the system browser (validated in the main process). */
+        /** Opens allowed URLs in the OS default handler (validated in main process). */
         openExternal(url: string): Promise<void>
         listEditors(): Promise<EditorInfo[]>
         launchEditor(id: EditorId, cwd: string): Promise<void>
@@ -301,6 +324,65 @@ declare global {
           workspacePath: string
           limit?: number
         }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }>
+        viewer: {
+          listFiles(params: {
+            workspacePath: string
+            query: string
+            limit: number
+          }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }>
+          classify(params: {
+            absolutePath: string
+          }): Promise<{
+            contentClass: 'text' | 'image' | 'pdf' | 'unsupported'
+            mime: string
+            sizeBytes: number
+          }>
+          readText(params: {
+            absolutePath: string
+            limitBytes?: number
+          }): Promise<{ text: string; truncated: boolean; encoding: string }>
+          browser: {
+            create(params: {
+              tabId: string
+              workspacePath: string
+              initialUrl?: string
+            }): Promise<{
+              tabId: string
+              currentUrl: string
+              title: string
+              faviconDataUrl?: string
+              canGoBack: boolean
+              canGoForward: boolean
+              loading: boolean
+            }>
+            destroy(params: { tabId: string }): Promise<void>
+            navigate(params: { tabId: string; url: string }): Promise<void>
+            back(params: { tabId: string }): Promise<void>
+            forward(params: { tabId: string }): Promise<void>
+            reload(params: { tabId: string }): Promise<void>
+            stop(params: { tabId: string }): Promise<void>
+            setBounds(params: {
+              tabId: string
+              x: number
+              y: number
+              width: number
+              height: number
+            }): Promise<void>
+            setVisible(params: { tabId: string; visible: boolean }): Promise<void>
+            setActive(params: { tabId: string }): Promise<void>
+            openExternal(params: { tabId: string }): Promise<void>
+            snapshot(params: { tabId: string }): Promise<{
+              tabId: string
+              currentUrl: string
+              title: string
+              faviconDataUrl?: string
+              canGoBack: boolean
+              canGoForward: boolean
+              loading: boolean
+            } | null>
+            onEvent(callback: (event: BrowserEventPayload) => void): UnsubscribeFn
+          }
+        }
       }
       modules: {
         list(): Promise<DiscoveredModule[]>

@@ -1,4 +1,13 @@
 import { app, BrowserWindow, session, Menu, ipcMain, shell, nativeImage } from 'electron'
+import {
+  registerViewerScheme,
+  installViewerProtocolHandler,
+  setViewerWorkspaceRoot
+} from './viewerFileProtocol'
+import { viewerBrowserManager } from './viewerBrowser'
+
+// Register the custom viewer scheme as privileged BEFORE app.whenReady().
+registerViewerScheme()
 import type { MenuItemConstructorOptions } from 'electron'
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
@@ -563,6 +572,7 @@ function createWindow(workspacePath: string | null): BrowserWindow {
   })
 
   win.on('close', () => {
+    viewerBrowserManager.destroyAllTabs(win)
     void teardownRuntime('window close', { releaseWorkspaceLock: true })
   })
 
@@ -668,6 +678,10 @@ async function connectViaWebSocket(
 function buildCallbacks(): IpcHandlerCallbacks {
   return {
     onSwitchWorkspace: async (newPath: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        viewerBrowserManager.destroyAllTabs(mainWindow)
+      }
+      setViewerWorkspaceRoot(newPath)
       addRecentWorkspace(sharedSettings, newPath)
       saveSettings(sharedSettings)
       const workspaceStatus = getWorkspaceStatus(newPath)
@@ -845,6 +859,10 @@ async function clearWorkspaceSelection(): Promise<void> {
     await teardownRuntime('clear workspace selection', { releaseWorkspaceLock: true })
   }
 
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    viewerBrowserManager.destroyAllTabs(mainWindow)
+  }
+  setViewerWorkspaceRoot('')
   currentWorkspacePath = ''
   delete sharedSettings.lastWorkspacePath
   saveSettings(sharedSettings)
@@ -1198,6 +1216,7 @@ function registerMenuPopupIpc(): void {
 
 app.whenReady().then(() => {
   isAppQuitting = false
+  installViewerProtocolHandler()
   registerMenuPopupIpc()
   sharedSettings = loadSettings()
   refreshAppMenu()
@@ -1208,7 +1227,7 @@ app.whenReady().then(() => {
         responseHeaders: {
           ...details.responseHeaders,
           'Content-Security-Policy': [
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'"
+            "default-src 'self' dotcraft-viewer:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: dotcraft-viewer:; font-src 'self' data:; connect-src 'self' dotcraft-viewer:"
           ]
         }
       })
@@ -1234,6 +1253,7 @@ app.whenReady().then(() => {
   const win = createWindow(workspacePath)
   mainWindow = win
   currentWorkspacePath = workspacePath ?? ''
+  setViewerWorkspaceRoot(workspacePath ?? '')
 
   registerDesktopIpcHandlers(workspacePath ?? '', () => wireClient)
 
@@ -1318,6 +1338,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   isAppQuitting = true
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    viewerBrowserManager.destroyAllTabs(mainWindow)
+  }
   if (finalQuitCleanupDone) {
     return
   }

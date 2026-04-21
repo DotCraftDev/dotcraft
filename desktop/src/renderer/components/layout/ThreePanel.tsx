@@ -1,7 +1,8 @@
-import { type ReactNode } from 'react'
+import { type ReactNode, useCallback } from 'react'
 import { useUIStore, SIDEBAR_COLLAPSED_WIDTH, DETAIL_MIN_WIDTH } from '../../stores/uiStore'
 import { useResponsiveLayout } from '../../hooks/useResponsiveLayout'
 import { useThreadStore } from '../../stores/threadStore'
+import { DragHandle } from './DragHandle'
 
 interface ThreePanelProps {
   sidebar: ReactNode
@@ -44,10 +45,18 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
       : detailPanelVisible
 
   const effectiveSidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth
+  const handleDetailDrag = useCallback((delta: number) => {
+    const state = useUIStore.getState()
+    const sidebar = state.sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : state.sidebarWidth
+    const maxDetailWidth = Math.max(DETAIL_MIN_WIDTH, window.innerWidth - 400 - sidebar)
+    const nextWidth = Math.min(maxDetailWidth, state.detailPanelWidth - delta)
+    state.setDetailPanelWidth(nextWidth)
+  }, [])
 
   return (
     <div
       style={{
+        position: 'relative',
         display: 'flex',
         flexDirection: 'row',
         height: '100%',
@@ -90,7 +99,13 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
         {conversation}
       </div>
 
-      {/* Detail panel */}
+      {effectiveDetailPanelVisible && <DragHandle onDrag={handleDetailDrag} />}
+
+      {/* Detail panel — same background as conversation so it reads as an
+          embedded extension. The T-shape divider is composed of:
+          (a) a single overlay horizontal line painted at the parent level, and
+          (b) an inset vertical line on the panel body (below the tab bar).
+          The outer container itself carries no border/shadow. */}
       <div
         style={{
           width: effectiveDetailPanelVisible ? `${detailPanelWidth}px` : '0px',
@@ -98,15 +113,33 @@ export function ThreePanel({ sidebar, conversation, detail }: ThreePanelProps): 
           flexShrink: 0,
           overflow: 'hidden',
           transition: 'width 200ms ease-out, min-width 200ms ease-out',
-          backgroundColor: 'var(--bg-secondary)',
-          // Soft edge without a hard vertical border
-          boxShadow: effectiveDetailPanelVisible ? '-1px 0 0 0 rgba(0, 0, 0, 0.12)' : 'none',
+          backgroundColor: 'var(--bg-primary)',
           display: 'flex',
           flexDirection: 'column'
         }}
       >
         {effectiveDetailPanelVisible && detail}
       </div>
+
+      {/* Unified header bottom line — overlays the full window width exactly
+          at the bottom of the header row so the line is continuous across
+          the conversation column, the 4px DragHandle, and the detail panel
+          tab bar. This is the horizontal arm of the Codex-style T divider. */}
+      {effectiveDetailPanelVisible && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 'calc(var(--chrome-header-height) - 1px)',
+            left: 0,
+            right: 0,
+            height: '1px',
+            background: 'var(--border-default)',
+            pointerEvents: 'none',
+            zIndex: 3
+          }}
+        />
+      )}
     </div>
   )
 }

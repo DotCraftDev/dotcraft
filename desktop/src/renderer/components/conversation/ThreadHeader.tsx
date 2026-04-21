@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
+import { PanelRightOpen } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
+import { useUIStore } from '../../stores/uiStore'
 import { CommitDialog } from '../detail/CommitDialog'
 import { CommitIcon } from '../ui/AppIcons'
 import { OpenWorkspaceButton } from './OpenWorkspaceButton'
@@ -24,6 +26,8 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
   const [renameValue, setRenameValue] = useState(threadName)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const changedFiles = useConversationStore((s) => s.changedFiles)
+  const detailPanelPreferredVisible = useUIStore((s) => s.detailPanelPreferredVisible)
+  const toggleDetailPanel = useUIStore((s) => s.toggleDetailPanel)
 
   const writtenFiles = Array.from(changedFiles.values()).filter((f) => f.status === 'written')
   const hasWrittenFiles = writtenFiles.length > 0
@@ -80,7 +84,6 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
           alignItems: 'center',
           gap: '8px',
           padding: '10px 16px',
-          borderBottom: '1px solid var(--border-default)',
           flexShrink: 0,
           height: 'var(--chrome-header-height)',
           boxSizing: 'border-box'
@@ -147,6 +150,27 @@ export function ThreadHeader({ threadName, threadId, workspacePath }: ThreadHead
           <CommitIcon size={13} />
           {t('threadHeader.commit')}
         </button>
+
+        {/* Panel toggle — only visible when panel is hidden (open-panel action).
+            Closing is handled by the panel's own rightmost button. */}
+        {!detailPanelPreferredVisible && (
+          <button
+            onClick={toggleDetailPanel}
+            title={t('threadHeader.panelToggleShow')}
+            aria-label={t('threadHeader.panelToggleShow')}
+            style={iconButtonStyle}
+            onMouseEnter={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+            }}
+            onMouseLeave={(e) => {
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+              ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+            }}
+          >
+            <PanelRightOpen size={16} aria-hidden />
+          </button>
+        )}
       </div>
 
       {commitOpen && (
@@ -171,6 +195,25 @@ const headerButtonStyle: React.CSSProperties = {
   backgroundColor: 'transparent',
   border: '1px solid var(--border-default)',
   borderRadius: '6px',
+  cursor: 'pointer',
+  flexShrink: 0,
+  transition: 'background-color 100ms ease, color 100ms ease'
+}
+
+// Shared ghost icon-button style used for the panel toggle on both sides
+// (conversation header and detail panel tab bar). Matches Codex's minimal
+// rightmost iconography: no border, transparent bg, hover-only highlight.
+const iconButtonStyle: React.CSSProperties = {
+  width: '28px',
+  height: '28px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 0,
+  border: 'none',
+  borderRadius: '6px',
+  backgroundColor: 'transparent',
+  color: 'var(--text-secondary)',
   cursor: 'pointer',
   flexShrink: 0,
   transition: 'background-color 100ms ease, color 100ms ease'

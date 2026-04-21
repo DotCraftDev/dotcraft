@@ -7,12 +7,17 @@ interface DragHandleProps {
 
 /**
  * A 4px-wide drag handle for resizing panels.
- * Transparent by default, highlights on hover.
- * Fires onDrag with the pixel delta during dragging.
+ *
+ * The outer element spans full column height to keep the hit area generous
+ * (users can grab anywhere along the vertical edge). The hover highlight,
+ * however, is painted by an inner absolutely-positioned child that starts at
+ * y = var(--chrome-header-height), so it never shows inside the header row.
+ * This avoids clashing with the unified header line / T-shape divider.
  */
 export function DragHandle({ onDrag, className = '' }: DragHandleProps): JSX.Element {
   const isDragging = useRef(false)
   const lastX = useRef(0)
+  const highlightRef = useRef<HTMLDivElement | null>(null)
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -47,22 +52,41 @@ export function DragHandle({ onDrag, className = '' }: DragHandleProps): JSX.Ele
     <div
       className={`drag-handle ${className}`}
       onMouseDown={handleMouseDown}
+      onMouseEnter={() => {
+        if (highlightRef.current) {
+          highlightRef.current.style.backgroundColor = 'var(--border-active)'
+        }
+      }}
+      onMouseLeave={() => {
+        if (highlightRef.current) {
+          highlightRef.current.style.backgroundColor = 'transparent'
+        }
+      }}
       style={{
+        position: 'relative',
         width: '4px',
         flexShrink: 0,
         cursor: 'col-resize',
         backgroundColor: 'transparent',
-        transition: 'background-color 150ms ease',
         zIndex: 10
-      }}
-      onMouseEnter={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--border-active)'
-      }}
-      onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'
       }}
       role="separator"
       aria-orientation="vertical"
-    />
+    >
+      <div
+        ref={highlightRef}
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 'var(--chrome-header-height)',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: 'transparent',
+          transition: 'background-color 150ms ease',
+          pointerEvents: 'none'
+        }}
+      />
+    </div>
   )
 }

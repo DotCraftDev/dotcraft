@@ -200,8 +200,9 @@ This section defines how protocol messages affect user-visible behavior. It inte
 - The client may render local fallback suggestions immediately so the empty state remains useful before any server-backed result is available.
 - If the server advertises `capabilities.extensions.welcomeSuggestions`, the client may call `welcome/suggestions` for the active workspace identity after connection is ready.
 - Dynamic welcome-suggestion requests are gated by the current workspace personalization setting. If the workspace has personalized welcome suggestions disabled, the client must not request them and must continue showing only its local default suggestions.
-- The client should replace the visible fallback suggestions only when it receives a valid workspace-specific result (`source = dynamic`).
+- The client should replace visible fallback suggestions only when it receives a valid workspace-specific result (`source = dynamic`) from the server cache; fresh personalization updates are picked up asynchronously after later evidence changes (for example, completed turns), not synchronously during connection startup.
 - If the capability is absent, the request fails, the request times out, or the server responds with `source = none`, the local fallback suggestions remain visible without forcing an error state.
+- Dynamic welcome suggestions must never block welcome-screen load. If no cached dynamic result exists yet for the workspace, the static fallback suggestions stay visible without a loading placeholder.
 - Dynamic suggestions should use a dedicated source icon so users can distinguish personalized recommendations from the static default shortcut set.
 - Suggestions should remain short, diverse, and obviously actionable when shown in a compact list.
 - Choosing a suggestion prefills the input composer with the suggestion's prompt text. It must not auto-send the message or implicitly create a thread before the user confirms submission.
@@ -525,3 +526,12 @@ This section defines the user-visible workflow for Desktop-managed TypeScript ch
   - protocol-driven behavior
   - explicit status and recovery
   - clear separation between workflow rules and visual implementation
+
+### 10.1 Viewer Panel (Reserved)
+
+- Desktop reserves an auxiliary right-side **viewer panel** surface that coexists with the existing changes / plan / terminal tabs and lets users open native file viewers and embedded browser tabs without leaving the workspace.
+- The user-visible contract, tab model, open-file workflow, browser isolation rules, and conversation deep-linking behavior are defined in the dedicated milestone specs:
+  - [Desktop Viewer Panel — M1](desktop-viewer-panel-m1.md): panel foundation and native file viewer (text, image, PDF).
+  - [Desktop Viewer Panel — M2](desktop-viewer-panel-m2.md): native in-app browser tab.
+  - [Desktop Viewer Panel — M3](desktop-viewer-panel-m3.md): conversation deep-linking, toggle state, and Quick-Open shortcut.
+- The viewer panel must preserve the same principles this document applies to the rest of desktop behavior: protocol-driven where applicable, explicit status and recovery, and clear separation between workflow rules and visual implementation.

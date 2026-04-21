@@ -4,6 +4,7 @@ import {
   TITLE_BAR_OVERLAY_RIGHT_RESERVE
 } from '../shared/titleBarOverlay'
 import type { TopLevelMenuId } from '../shared/locales/types'
+import type { BrowserEventPayload } from '../shared/viewer/types'
 
 export type UnsubscribeFn = () => void
 export type ConnectionMode = 'stdio' | 'websocket' | 'stdioAndWebSocket' | 'remote'
@@ -468,7 +469,7 @@ const api = {
     },
 
     /**
-     * Opens an http(s) URL in the system browser (validated in the main process).
+     * Opens an allowed URL in the OS default handler (validated in the main process).
      */
     openExternal(url: string): Promise<void> {
       return ipcRenderer.invoke('shell:open-external', url)
@@ -625,6 +626,107 @@ const api = {
       limit?: number
     }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }> {
       return ipcRenderer.invoke('workspace:search-files', params)
+    },
+
+    /** Viewer panel IPC — exposed as `window.api.workspace.viewer.*` */
+    viewer: {
+      /** Lists workspace files for the Quick-Open dialog. */
+      listFiles(params: {
+        workspacePath: string
+        query: string
+        limit: number
+      }): Promise<{ files: Array<{ name: string; relativePath: string; dir: string }> }> {
+        return ipcRenderer.invoke('workspace:viewer:list-files', params)
+      },
+
+      /** Classifies a file into text / image / pdf / unsupported. */
+      classify(params: {
+        absolutePath: string
+      }): Promise<{
+        contentClass: 'text' | 'image' | 'pdf' | 'unsupported'
+        mime: string
+        sizeBytes: number
+      }> {
+        return ipcRenderer.invoke('workspace:viewer:classify', params)
+      },
+
+      /** Reads a text file with an optional size limit (default 5 MB). */
+      readText(params: {
+        absolutePath: string
+        limitBytes?: number
+      }): Promise<{ text: string; truncated: boolean; encoding: string }> {
+        return ipcRenderer.invoke('workspace:viewer:read-text', params)
+      },
+
+      browser: {
+        create(params: {
+          tabId: string
+          workspacePath: string
+          initialUrl?: string
+        }): Promise<{
+          tabId: string
+          currentUrl: string
+          title: string
+          faviconDataUrl?: string
+          canGoBack: boolean
+          canGoForward: boolean
+          loading: boolean
+        }> {
+          return ipcRenderer.invoke('viewer:browser:create', params)
+        },
+        destroy(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:destroy', params)
+        },
+        navigate(params: { tabId: string; url: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:navigate', params)
+        },
+        back(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:back', params)
+        },
+        forward(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:forward', params)
+        },
+        reload(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:reload', params)
+        },
+        stop(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:stop', params)
+        },
+        setBounds(params: {
+          tabId: string
+          x: number
+          y: number
+          width: number
+          height: number
+        }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:set-bounds', params)
+        },
+        setVisible(params: { tabId: string; visible: boolean }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:set-visible', params)
+        },
+        setActive(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:set-active', params)
+        },
+        openExternal(params: { tabId: string }): Promise<void> {
+          return ipcRenderer.invoke('viewer:browser:open-external', params)
+        },
+        snapshot(params: { tabId: string }): Promise<{
+          tabId: string
+          currentUrl: string
+          title: string
+          faviconDataUrl?: string
+          canGoBack: boolean
+          canGoForward: boolean
+          loading: boolean
+        } | null> {
+          return ipcRenderer.invoke('viewer:browser:snapshot', params)
+        },
+        onEvent(listener: (event: BrowserEventPayload) => void): UnsubscribeFn {
+          const wrapped = (_evt: Electron.IpcRendererEvent, payload: BrowserEventPayload) => listener(payload)
+          ipcRenderer.on('viewer:browser:event', wrapped)
+          return () => ipcRenderer.removeListener('viewer:browser:event', wrapped)
+        }
+      }
     }
   },
 
