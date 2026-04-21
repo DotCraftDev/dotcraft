@@ -2,17 +2,24 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Collections.Concurrent;
+using DotCraft.Abstractions;
+using DotCraft.Agents;
 using DotCraft.AppServer;
 using DotCraft.Configuration;
 using DotCraft.ExternalChannel;
+using DotCraft.Memory;
 using DotCraft.Processes;
 using DotCraft.Protocol;
 using DotCraft.Modules;
 using DotCraft.Protocol.AppServer;
 using DotCraft.QQ;
 using DotCraft.Security;
+using DotCraft.Sessions;
+using DotCraft.Skills;
 using DotCraft.Tools;
 using DotCraft.WeCom;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.AppServer;
@@ -654,6 +661,206 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         Assert.Equal(ItemType.ExternalChannelToolCall, turn.Items[0].Type);
         Assert.Equal(["started", "completed"], lifecycle);
         Assert.NotNull(result);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SessionService_ExternalChannelToolCall_DoesNotEmitToolCallOrToolResultItems(bool nullToolNameInFirstDelta)
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        var transport = new StubTransport(new ExtChannelToolCallResult
+        {
+            Success = true,
+            ContentItems = [new ExtChannelToolContentItem { Type = "text", Text = "Document sent." }]
+        });
+        const string toolName = "TelegramSendDocumentToCurrentChat";
+        AttachFakeAdapter(host, transport, CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = toolName,
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = false,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
+        var runtimeTools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_tool_script",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+        var externalTool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(runtimeTools));
+
+        using var scriptedClient = new ExternalToolScriptedChatClient(externalTool, toolName, nullToolNameInFirstDelta);
+        var scriptedAgent = scriptedClient.AsAIAgent(new ChatClientAgentOptions
+        {
+            Name = "SessionServiceExternalToolTest",
+            UseProvidedChatClientAsIs = true,
+            ChatOptions = new ChatOptions()
+        });
+
+        await using var agentFactory = CreateAgentFactoryForSessionTests();
+        var service = new SessionService(
+            agentFactory,
+            scriptedAgent,
+            new ThreadStore(_tempDir),
+            new SessionGate());
+        var thread = await service.CreateThreadAsync(new SessionIdentity
+        {
+            ChannelName = "telegram",
+            UserId = "user_1",
+            WorkspacePath = _tempDir
+        });
+        SeedExternalChannelToolNames(service, thread.Id, new HashSet<string>([toolName], StringComparer.Ordinal));
+
+        var events = new List<SessionEvent>();
+        await foreach (var evt in service.SubmitInputAsync(thread.Id, [new TextContent("send report.pdf")]))
+            events.Add(evt);
+
+        Assert.Equal(AppServerMethods.ExtChannelToolCall, transport.LastMethod);
+        var completed = events.Single(e => e.EventType == SessionEventType.TurnCompleted);
+        Assert.NotNull(completed.TurnPayload);
+        var turn = completed.TurnPayload!;
+
+        Assert.Single(turn.Items, i => i.Type == ItemType.ExternalChannelToolCall);
+        Assert.DoesNotContain(turn.Items, i => i.Type == ItemType.ToolCall);
+        Assert.DoesNotContain(turn.Items, i => i.Type == ItemType.ToolResult);
+        Assert.DoesNotContain(turn.Items, i =>
+            i.Payload is ToolCallPayload payload
+            && string.Equals(payload.ToolName, "unknown", StringComparison.OrdinalIgnoreCase));
+
+        Assert.DoesNotContain(events, e =>
+            e.EventType == SessionEventType.ItemStarted
+            && e.ItemPayload?.Type == ItemType.ToolCall);
+        Assert.DoesNotContain(events, e =>
+            e.EventType == SessionEventType.ItemCompleted
+            && e.ItemPayload?.Type == ItemType.ToolCall);
+        Assert.DoesNotContain(events, e =>
+            e.EventType == SessionEventType.ItemStarted
+            && e.ItemPayload?.Type == ItemType.ToolResult);
+        Assert.DoesNotContain(events, e =>
+            e.EventType == SessionEventType.ItemCompleted
+            && e.ItemPayload?.Type == ItemType.ToolResult);
+        Assert.DoesNotContain(events, e =>
+            e.EventType == SessionEventType.ItemDelta
+            && e.ToolCallArgumentsDeltaPayload != null);
+        Assert.DoesNotContain(events, e =>
+            (e.EventType == SessionEventType.ItemStarted || e.EventType == SessionEventType.ItemCompleted)
+            && e.ItemPayload?.Payload is ToolCallPayload payload
+            && (string.IsNullOrWhiteSpace(payload.ToolName)
+                || string.Equals(payload.ToolName, "unknown", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public async Task SessionService_ExternalChannelToolCall_InterleavesWithAgentMessages()
+    {
+        var registry = new ExternalChannelRegistry();
+        var host = CreateHost("telegram");
+        var transport = new StubTransport(new ExtChannelToolCallResult
+        {
+            Success = true,
+            ContentItems = [new ExtChannelToolContentItem { Type = "text", Text = "Document sent." }]
+        });
+        const string toolName = "TelegramSendDocumentToCurrentChat";
+        AttachFakeAdapter(host, transport, CreateToolAdapterConnection(
+            "telegram",
+            [
+                new ChannelToolDescriptor
+                {
+                    Name = toolName,
+                    Description = "Send a document to the current Telegram chat.",
+                    RequiresChatContext = false,
+                    InputSchema = new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["properties"] = new JsonObject
+                        {
+                            ["fileName"] = new JsonObject { ["type"] = "string" }
+                        },
+                        ["required"] = new JsonArray("fileName")
+                    }
+                }
+            ]));
+        registry.Register("telegram", host);
+
+        var provider = new ExternalChannelToolProvider(registry);
+        provider.ConfigureReservedToolNames([]);
+        var runtimeTools = provider.CreateToolsForThread(
+            new SessionThread
+            {
+                Id = "thread_tool_interleave",
+                WorkspacePath = _tempDir,
+                OriginChannel = "telegram",
+                Status = ThreadStatus.Active
+            },
+            new HashSet<string>(StringComparer.Ordinal));
+        var externalTool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(runtimeTools));
+
+        using var scriptedClient = new InterleavingExternalToolScriptedChatClient(externalTool, toolName);
+        var scriptedAgent = scriptedClient.AsAIAgent(new ChatClientAgentOptions
+        {
+            Name = "SessionServiceExternalToolInterleaveTest",
+            UseProvidedChatClientAsIs = true,
+            ChatOptions = new ChatOptions()
+        });
+
+        await using var agentFactory = CreateAgentFactoryForSessionTests();
+        var service = new SessionService(
+            agentFactory,
+            scriptedAgent,
+            new ThreadStore(_tempDir),
+            new SessionGate());
+        var thread = await service.CreateThreadAsync(new SessionIdentity
+        {
+            ChannelName = "telegram",
+            UserId = "user_1",
+            WorkspacePath = _tempDir
+        });
+        SeedExternalChannelToolNames(service, thread.Id, new HashSet<string>([toolName], StringComparer.Ordinal));
+
+        var events = new List<SessionEvent>();
+        await foreach (var evt in service.SubmitInputAsync(thread.Id, [new TextContent("interleave tools and messages")]))
+            events.Add(evt);
+
+        var completed = events.Single(e => e.EventType == SessionEventType.TurnCompleted);
+        Assert.NotNull(completed.TurnPayload);
+        var turn = completed.TurnPayload!;
+
+        var ordered = turn.Items
+            .Where(i => i.Type is ItemType.ExternalChannelToolCall or ItemType.AgentMessage)
+            .ToList();
+        Assert.Equal(4, ordered.Count);
+        Assert.Equal(ItemType.ExternalChannelToolCall, ordered[0].Type);
+        Assert.Equal(ItemType.AgentMessage, ordered[1].Type);
+        Assert.Equal(ItemType.ExternalChannelToolCall, ordered[2].Type);
+        Assert.Equal(ItemType.AgentMessage, ordered[3].Type);
+
+        var firstMessage = Assert.IsType<AgentMessagePayload>(ordered[1].Payload);
+        var secondMessage = Assert.IsType<AgentMessagePayload>(ordered[3].Payload);
+        Assert.Equal("b", firstMessage.Text);
+        Assert.Equal("d", secondMessage.Text);
+
+        Assert.Equal(2, turn.Items.Count(i => i.Type == ItemType.ExternalChannelToolCall));
+        Assert.Equal(2, turn.Items.Count(i => i.Type == ItemType.AgentMessage));
     }
 
     [Fact]
@@ -1529,6 +1736,38 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         return Assert.IsAssignableFrom<IReadOnlyList<ChannelToolDescriptor>>(field!.GetValue(null));
     }
 
+    private AgentFactory CreateAgentFactoryForSessionTests()
+    {
+        var config = new AppConfig
+        {
+            ApiKey = "sk-test-not-used-for-network",
+            EndPoint = "https://127.0.0.1:9/v1"
+        };
+        var memory = new MemoryStore(_tempDir);
+        var skills = new SkillsLoader(_tempDir);
+        return new AgentFactory(
+            dotcraftPath: _tempDir,
+            workspacePath: _tempDir,
+            config: config,
+            memoryStore: memory,
+            skillsLoader: skills,
+            approvalService: new AutoApproveApprovalService(),
+            blacklist: null,
+            toolProviders: Array.Empty<IAgentToolProvider>());
+    }
+
+    private static void SeedExternalChannelToolNames(
+        SessionService service,
+        string threadId,
+        IReadOnlySet<string> toolNames)
+    {
+        var field = typeof(SessionService)
+            .GetField("_threadExternalChannelToolNames", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var cache = Assert.IsType<ConcurrentDictionary<string, IReadOnlySet<string>>>(field!.GetValue(service));
+        cache[threadId] = new HashSet<string>(toolNames, StringComparer.Ordinal);
+    }
+
     private sealed class StubTransport(object? result = null, Exception? exception = null) : IAppServerTransport
     {
         public string? LastMethod { get; private set; }
@@ -1557,6 +1796,114 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ExternalToolScriptedChatClient(
+        AIFunction externalTool,
+        string toolName,
+        bool nullToolNameInFirstDelta) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent("ok")])]));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken = default)
+        {
+            const string callId = "call_external_001";
+            var args = new Dictionary<string, object?> { ["fileName"] = "report.pdf" };
+
+            if (nullToolNameInFirstDelta)
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [new ToolCallArgumentsDeltaContent
+                {
+                    ToolCallIndex = 0,
+                    ToolName = null,
+                    CallId = null,
+                    ArgumentsDelta = "{"
+                }]);
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [new ToolCallArgumentsDeltaContent
+                {
+                    ToolCallIndex = 0,
+                    ToolName = toolName,
+                    CallId = callId,
+                    ArgumentsDelta = "\"fileName\":\"report.pdf\"}"
+                }]);
+            }
+            else
+            {
+                yield return new ChatResponseUpdate(ChatRole.Assistant, [new ToolCallArgumentsDeltaContent
+                {
+                    ToolCallIndex = 0,
+                    ToolName = toolName,
+                    CallId = callId,
+                    ArgumentsDelta = "{\"fileName\":\"report.pdf\"}"
+                }]);
+            }
+
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new FunctionCallContent(
+                callId: callId,
+                name: toolName,
+                arguments: args)]);
+
+            await externalTool.InvokeAsync(new AIFunctionArguments(args), cancellationToken);
+
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new FunctionResultContent(callId, "Document sent.")]);
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class InterleavingExternalToolScriptedChatClient(AIFunction externalTool, string toolName) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent("ok")])]));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken = default)
+        {
+            const string callA = "call_external_a";
+            const string callC = "call_external_c";
+            var argsA = new Dictionary<string, object?> { ["fileName"] = "a.pdf" };
+            var argsC = new Dictionary<string, object?> { ["fileName"] = "c.pdf" };
+
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new FunctionCallContent(
+                callId: callA,
+                name: toolName,
+                arguments: argsA)]);
+            await externalTool.InvokeAsync(new AIFunctionArguments(argsA), cancellationToken);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new FunctionResultContent(callA, "done a")]);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("b")]);
+
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new FunctionCallContent(
+                callId: callC,
+                name: toolName,
+                arguments: argsC)]);
+            await externalTool.InvokeAsync(new AIFunctionArguments(argsC), cancellationToken);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new FunctionResultContent(callC, "done c")]);
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("d")]);
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
     }
 
     private sealed class RecordingApprovalService(bool approve) : IApprovalService

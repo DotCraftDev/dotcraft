@@ -36,6 +36,7 @@ import {
   getFeishuDocxChannelTools,
   maybeExecuteFeishuDocxToolCall,
 } from "./feishu-docx-tools.js";
+import { getFeishuWikiChannelTools, maybeExecuteFeishuWikiToolCall } from "./feishu-wiki-tools.js";
 import type { FeishuCardActionEvent, FeishuConfig, ParsedInboundMessage } from "./feishu-types.js";
 import { FeishuClient } from "./feishu-client.js";
 import { errorMessage, logError, logInfo, logWarn, shortId } from "./logging.js";
@@ -257,6 +258,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
         },
       },
       ...getFeishuDocxChannelTools(areFeishuDocxToolsEnabled(this.loadedConfig)),
+      ...getFeishuWikiChannelTools(areFeishuDocxToolsEnabled(this.loadedConfig)),
     ];
   }
 
@@ -302,6 +304,14 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
         });
         if (docxResult) {
           return docxResult;
+        }
+        const wikiResult = await maybeExecuteFeishuWikiToolCall({
+          toolName: tool,
+          args,
+          client: this.getFeishuClient(),
+        });
+        if (wikiResult) {
+          return wikiResult;
         }
       } catch (error) {
         return {

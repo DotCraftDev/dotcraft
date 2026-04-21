@@ -16,9 +16,16 @@ import type {
   FeishuDocxDocumentInfo,
   FeishuDocxRawContent,
   FeishuListChatMessagesOptions,
+  FeishuMoveDocxToWikiResult,
   FeishuMessageEvent,
   FeishuReplyOptions,
   FeishuSendResult,
+  FeishuWikiMoveTaskStatus,
+  FeishuWikiNodeInfo,
+  FeishuWikiNodeListPage,
+  FeishuWikiObjType,
+  FeishuWikiSpaceInfo,
+  FeishuWikiSpaceListPage,
 } from "./feishu-types.js";
 import { FeishuApiError } from "./feishu-types.js";
 import { errorMessage, logError, logInfo, logWarn } from "./logging.js";
@@ -313,6 +320,355 @@ export class FeishuClient {
     );
 
     return this.parseDocxDocumentInfo(payload);
+  }
+
+  async createWikiNode(options: {
+    spaceId: string;
+    parentNodeToken?: string;
+    objType?: FeishuWikiObjType;
+    nodeType?: "origin" | "shortcut";
+    originNodeToken?: string;
+    title?: string;
+  }): Promise<FeishuWikiNodeInfo> {
+    const normalizedSpaceId = options.spaceId.trim();
+    if (!normalizedSpaceId) {
+      throw new TypeError("Feishu wiki node creation requires a spaceId.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const body: Record<string, unknown> = {
+      obj_type: options.objType ?? "docx",
+      node_type: options.nodeType ?? "origin",
+    };
+    if (options.parentNodeToken?.trim()) {
+      body.parent_node_token = options.parentNodeToken.trim();
+    }
+    if (options.originNodeToken?.trim()) {
+      body.origin_node_token = options.originNodeToken.trim();
+    }
+    if (options.title?.trim()) {
+      body.title = options.title.trim();
+    }
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/wiki/v2/spaces/${encodeURIComponent(normalizedSpaceId)}/nodes`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        }),
+      "Failed to create Feishu wiki node.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const node = (data.node as Record<string, unknown> | undefined) ?? data;
+    return mapWikiNodeInfo(node);
+  }
+
+  async updateWikiNodeTitle(spaceId: string, nodeToken: string, title: string): Promise<void> {
+    const normalizedSpaceId = spaceId.trim();
+    const normalizedNodeToken = nodeToken.trim();
+    const normalizedTitle = title.trim();
+    if (!normalizedSpaceId) {
+      throw new TypeError("Feishu wiki title update requires a spaceId.");
+    }
+    if (!normalizedNodeToken) {
+      throw new TypeError("Feishu wiki title update requires a nodeToken.");
+    }
+    if (!normalizedTitle) {
+      throw new TypeError("Feishu wiki title update requires a non-empty title.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/wiki/v2/spaces/${encodeURIComponent(normalizedSpaceId)}/nodes/${encodeURIComponent(normalizedNodeToken)}/update_title`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              title: normalizedTitle,
+            }),
+          },
+        ),
+      "Failed to update Feishu wiki node title.",
+    );
+  }
+
+  async getWikiNode(
+    nodeToken: string,
+    objType: FeishuWikiObjType = "wiki",
+  ): Promise<FeishuWikiNodeInfo> {
+    const normalizedNodeToken = nodeToken.trim();
+    if (!normalizedNodeToken) {
+      throw new TypeError("Feishu wiki node lookup requires a nodeToken.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    params.set("token", normalizedNodeToken);
+    params.set("obj_type", objType);
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(`${this.apiBaseUrl}/open-apis/wiki/v2/spaces/get_node?${params.toString()}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+      "Failed to get Feishu wiki node info.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const node = (data.node as Record<string, unknown> | undefined) ?? data;
+    return mapWikiNodeInfo(node);
+  }
+
+  async listWikiSpaces(options: {
+    pageSize?: number;
+    pageToken?: string;
+  } = {}): Promise<FeishuWikiSpaceListPage> {
+    if (options.pageSize !== undefined && (!Number.isInteger(options.pageSize) || options.pageSize <= 0)) {
+      throw new TypeError("Feishu wiki space listing requires pageSize to be a positive integer.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    if (options.pageSize !== undefined) {
+      params.set("page_size", String(options.pageSize));
+    }
+    if (options.pageToken?.trim()) {
+      params.set("page_token", options.pageToken.trim());
+    }
+    const query = params.toString();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/wiki/v2/spaces${query ? `?${query}` : ""}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to list Feishu wiki spaces.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const rawItems = Array.isArray(data.items) ? (data.items as unknown[]) : [];
+    return {
+      items: rawItems.map((item) => mapWikiSpaceInfo(item)),
+      nextPageToken: data.page_token ? String(data.page_token) : undefined,
+      hasMore: data.has_more == null ? undefined : Boolean(data.has_more),
+    };
+  }
+
+  async getWikiSpace(spaceId: string): Promise<FeishuWikiSpaceInfo> {
+    const normalizedSpaceId = spaceId.trim();
+    if (!normalizedSpaceId) {
+      throw new TypeError("Feishu wiki space lookup requires a spaceId.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/wiki/v2/spaces/${encodeURIComponent(normalizedSpaceId)}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to get Feishu wiki space info.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const space = (data.space as Record<string, unknown> | undefined) ?? data;
+    return mapWikiSpaceInfo(space);
+  }
+
+  async listWikiNodes(options: {
+    spaceId: string;
+    parentNodeToken?: string;
+    pageSize?: number;
+    pageToken?: string;
+  }): Promise<FeishuWikiNodeListPage> {
+    const normalizedSpaceId = options.spaceId.trim();
+    if (!normalizedSpaceId) {
+      throw new TypeError("Feishu wiki node listing requires a spaceId.");
+    }
+    if (options.pageSize !== undefined && (!Number.isInteger(options.pageSize) || options.pageSize <= 0)) {
+      throw new TypeError("Feishu wiki node listing requires pageSize to be a positive integer.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    if (options.parentNodeToken?.trim()) {
+      params.set("parent_node_token", options.parentNodeToken.trim());
+    }
+    if (options.pageSize !== undefined) {
+      params.set("page_size", String(options.pageSize));
+    }
+    if (options.pageToken?.trim()) {
+      params.set("page_token", options.pageToken.trim());
+    }
+    const query = params.toString();
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/wiki/v2/spaces/${encodeURIComponent(normalizedSpaceId)}/nodes${query ? `?${query}` : ""}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to list Feishu wiki nodes.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const items = Array.isArray(data.items) ? data.items.map(mapWikiNodeInfo) : [];
+    return {
+      items,
+      nextPageToken: data.page_token ? String(data.page_token) : undefined,
+      hasMore: data.has_more == null ? undefined : Boolean(data.has_more),
+    };
+  }
+
+  async moveDocxToWiki(options: {
+    spaceId: string;
+    objToken: string;
+    objType?: "docx";
+    parentWikiToken?: string;
+    apply?: boolean;
+  }): Promise<FeishuMoveDocxToWikiResult> {
+    const normalizedSpaceId = options.spaceId.trim();
+    if (!normalizedSpaceId) {
+      throw new TypeError("Feishu move-to-wiki requires a spaceId.");
+    }
+    const normalizedObjToken = options.objToken.trim();
+    if (!normalizedObjToken) {
+      throw new TypeError("Feishu move-to-wiki requires an objToken.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const body: Record<string, unknown> = {
+      obj_type: options.objType ?? "docx",
+      obj_token: normalizedObjToken,
+    };
+    if (options.parentWikiToken?.trim()) {
+      body.parent_wiki_token = options.parentWikiToken.trim();
+    }
+    if (typeof options.apply === "boolean") {
+      body.apply = options.apply;
+    }
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/wiki/v2/spaces/${encodeURIComponent(normalizedSpaceId)}/nodes/move_docs_to_wiki`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          },
+        ),
+      "Failed to move Feishu docx into wiki.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    return {
+      wikiToken: data.wiki_token ? String(data.wiki_token) : undefined,
+      taskId: data.task_id ? String(data.task_id) : undefined,
+      applied: data.applied == null ? undefined : Boolean(data.applied),
+    };
+  }
+
+  async getWikiMoveTask(taskId: string): Promise<FeishuWikiMoveTaskStatus> {
+    const normalizedTaskId = taskId.trim();
+    if (!normalizedTaskId) {
+      throw new TypeError("Feishu wiki move task lookup requires a taskId.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const params = new URLSearchParams();
+    params.set("task_type", "move");
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/wiki/v2/tasks/${encodeURIComponent(normalizedTaskId)}?${params.toString()}`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        ),
+      "Failed to query Feishu wiki move task status.",
+    );
+
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const task = (data.task as Record<string, unknown> | undefined) ?? {};
+    const moveResult = (task.move_result as Record<string, unknown> | undefined) ?? {};
+    return {
+      taskId: task.task_id ? String(task.task_id) : normalizedTaskId,
+      status: Number(moveResult.status ?? task.status ?? 0),
+      statusMessage: moveResult.status_msg ? String(moveResult.status_msg) : undefined,
+      wikiToken: moveResult.wiki_token ? String(moveResult.wiki_token) : undefined,
+      objToken: moveResult.obj_token ? String(moveResult.obj_token) : undefined,
+      objType: moveResult.obj_type ? String(moveResult.obj_type) : undefined,
+    };
+  }
+
+  async moveWikiNode(options: {
+    spaceId: string;
+    nodeToken: string;
+    targetParentToken?: string;
+    targetSpaceId?: string;
+  }): Promise<FeishuWikiNodeInfo> {
+    const normalizedSpaceId = options.spaceId.trim();
+    if (!normalizedSpaceId) {
+      throw new TypeError("Feishu wiki node move requires a spaceId.");
+    }
+    const normalizedNodeToken = options.nodeToken.trim();
+    if (!normalizedNodeToken) {
+      throw new TypeError("Feishu wiki node move requires a nodeToken.");
+    }
+
+    const token = await this.getTenantAccessToken();
+    const body: Record<string, unknown> = {};
+    if (options.targetParentToken?.trim()) {
+      body.target_parent_token = options.targetParentToken.trim();
+    }
+    if (options.targetSpaceId?.trim()) {
+      body.target_space_id = options.targetSpaceId.trim();
+    }
+
+    const payload = await this.callJsonApi(
+      () =>
+        fetch(
+          `${this.apiBaseUrl}/open-apis/wiki/v2/spaces/${encodeURIComponent(normalizedSpaceId)}/nodes/${encodeURIComponent(normalizedNodeToken)}/move`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          },
+        ),
+      "Failed to move Feishu wiki node.",
+    );
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    return mapWikiNodeInfo(data.node);
   }
 
   async getDocxDocument(documentId: string): Promise<FeishuDocxDocumentInfo> {
@@ -998,6 +1354,37 @@ function mapDocxBlockInfo(input: unknown): FeishuDocxBlockCreateResult["blocks"]
   return {
     blockId,
     blockType,
+  };
+}
+
+function mapWikiNodeInfo(input: unknown): FeishuWikiNodeInfo {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  return {
+    spaceId: String(record.space_id ?? ""),
+    nodeToken: String(record.node_token ?? ""),
+    objToken: String(record.obj_token ?? ""),
+    objType: String(record.obj_type ?? ""),
+    nodeType: String(record.node_type ?? ""),
+    parentNodeToken: record.parent_node_token ? String(record.parent_node_token) : undefined,
+    originNodeToken: record.origin_node_token ? String(record.origin_node_token) : undefined,
+    originSpaceId: record.origin_space_id ? String(record.origin_space_id) : undefined,
+    hasChild: record.has_child == null ? undefined : Boolean(record.has_child),
+    title: record.title ? String(record.title) : undefined,
+    objCreateTime: record.obj_create_time ? String(record.obj_create_time) : undefined,
+    objEditTime: record.obj_edit_time ? String(record.obj_edit_time) : undefined,
+    nodeCreateTime: record.node_create_time ? String(record.node_create_time) : undefined,
+  };
+}
+
+function mapWikiSpaceInfo(input: unknown): FeishuWikiSpaceInfo {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  return {
+    spaceId: String(record.space_id ?? ""),
+    name: record.name ? String(record.name) : undefined,
+    description: record.description ? String(record.description) : undefined,
+    visibility: record.visibility ? String(record.visibility) : undefined,
+    spaceType: record.space_type ? String(record.space_type) : undefined,
+    openSharing: record.open_sharing ? String(record.open_sharing) : undefined,
   };
 }
 

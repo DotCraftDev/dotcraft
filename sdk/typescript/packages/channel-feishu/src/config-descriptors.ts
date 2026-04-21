@@ -173,14 +173,15 @@ export const configDescriptors: LocalizedConfigDescriptor[] = [
   {
     key: "feishu.tools.docs.enabled",
     displayLabel: "Enable Feishu Docx Tools",
-    description: "Register Feishu docx create/read/append tools for this channel.",
+    description:
+      "Register Feishu docx and wiki tools (create/read/append/list-node/get-node/move-to-wiki) for this channel.",
     localizedDisplayLabel: {
       en: "Enable Feishu Docx Tools",
       "zh-Hans": "启用飞书文档工具",
     },
     localizedDescription: {
-      en: "Register Feishu docx create/read/append tools for this channel.",
-      "zh-Hans": "为当前飞书渠道注册新版文档（docx）的创建、读取和追加工具。",
+      en: "Register Feishu docx and wiki tools (create/read/append/list-node/get-node/move-to-wiki) for this channel.",
+      "zh-Hans": "为当前飞书渠道注册文档与知识库工具（创建、读取、追加、列节点、查节点、迁入知识库）。",
     },
     required: false,
     dataKind: "boolean",

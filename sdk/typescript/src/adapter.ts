@@ -32,6 +32,37 @@ function shortWireId(id: string, max = 12): string {
   return `${id.slice(0, max)}…`;
 }
 
+function commandRefPart(rawText: string): Record<string, unknown> {
+  const normalized = rawText.trim();
+  const firstSpace = normalized.search(/\s/);
+  const token = firstSpace >= 0 ? normalized.slice(0, firstSpace) : normalized;
+  const name = token.replace(/^\//, "");
+  const argsText = firstSpace >= 0 ? normalized.slice(firstSpace + 1).trim() : "";
+  return {
+    type: "commandRef",
+    name,
+    rawText: normalized,
+    ...(argsText ? { argsText } : {}),
+  };
+}
+
+function replaceLeadingSlashTextWithCommandRef(
+  inputParts: Record<string, unknown>[] | undefined,
+  rawSlashText: string,
+): Record<string, unknown>[] {
+  const next = inputParts ? [...inputParts] : [];
+  const textIndex = next.findIndex(
+    (part) => String((part as { type?: unknown }).type ?? "") === "text",
+  );
+  const refPart = commandRefPart(rawSlashText);
+  if (textIndex >= 0) {
+    next[textIndex] = refPart;
+  } else {
+    next.unshift(refPart);
+  }
+  return next;
+}
+
 /** Queued inbound message; skipCommand skips slash handling for expanded prompts. */
 export type ChannelAdapterMessageOpts = {
   userId: string;
@@ -328,7 +359,11 @@ export abstract class ChannelAdapter {
           });
           const expanded = commandResult.expandedPrompt as string | undefined;
           if (expanded) {
-            this.enqueueMessage({ ...opts, text: expanded, skipCommand: true });
+            this.enqueueMessage({
+              ...opts,
+              inputParts: replaceLeadingSlashTextWithCommandRef(opts.inputParts, trimmedText),
+              skipCommand: true,
+            });
             return;
           } else if (Boolean(commandResult.handled)) {
             await this.applyCommandResetResult(
@@ -566,7 +601,7 @@ export abstract class ChannelAdapter {
         });
         const expandedPrompt = commandResult.expandedPrompt as string | undefined;
         if (expandedPrompt) {
-          opts.text = expandedPrompt;
+          opts.inputParts = replaceLeadingSlashTextWithCommandRef(opts.inputParts, trimmedText);
         } else if (Boolean(commandResult.handled)) {
           await this.applyCommandResetResult(
             identityKey,

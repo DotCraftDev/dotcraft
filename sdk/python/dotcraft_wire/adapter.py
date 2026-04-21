@@ -28,6 +28,19 @@ from .turn_reply import (
 logger = logging.getLogger(__name__)
 
 
+def _command_ref_part(raw_text: str) -> dict:
+    normalized = raw_text.strip()
+    token, _, rest = normalized.partition(" ")
+    if not token:
+        return {"type": "text", "text": normalized}
+    name = token.lstrip("/")
+    part = {"type": "commandRef", "name": name, "rawText": normalized}
+    args_text = rest.strip()
+    if args_text:
+        part["argsText"] = args_text
+    return part
+
+
 class ChannelAdapter(ABC):
     """
     Base class for DotCraft external channel adapters.
@@ -248,6 +261,7 @@ class ChannelAdapter(ABC):
         """
         identity_key = self._identity_key(user_id, channel_context)
         effective_skip_command = skip_command
+        input_parts: list[dict] | None = None
 
         # Command fast-path: bypass queue when we already know the thread id
         # (mirrors built-in adapters that resolve commands before session queue).
@@ -275,8 +289,8 @@ class ChannelAdapter(ABC):
                         )
                         expanded_prompt = command_result.get("expandedPrompt")
                         if expanded_prompt:
-                            text = expanded_prompt
                             effective_skip_command = True
+                            input_parts = [_command_ref_part(trimmed)]
                         elif command_result.get("handled"):
                             await self._apply_command_reset_result(
                                 identity_key,
@@ -313,6 +327,7 @@ class ChannelAdapter(ABC):
             "workspace_path": workspace_path or self.DEFAULT_WORKSPACE_PATH,
             "sender_extra": sender_extra or {},
             "skip_command": effective_skip_command,
+            "input_parts": input_parts,
         })
 
     def _identity_key(self, user_id: str, channel_context: str) -> str:
@@ -451,6 +466,7 @@ class ChannelAdapter(ABC):
         workspace_path = msg["workspace_path"]
         sender_extra = msg["sender_extra"]
         skip_command = msg.get("skip_command", False)
+        input_parts = msg.get("input_parts")
 
         thread = await self._get_or_create_thread(
             identity_key, user_id, channel_context, workspace_path
@@ -482,7 +498,7 @@ class ChannelAdapter(ABC):
 
             expanded_prompt = command_result.get("expandedPrompt")
             if expanded_prompt:
-                text = expanded_prompt
+                input_parts = [_command_ref_part(trimmed_text)]
             elif command_result.get("handled"):
                 await self._apply_command_reset_result(
                     identity_key,
@@ -500,7 +516,7 @@ class ChannelAdapter(ABC):
         try:
             turn = await self._client.turn_start(
                 thread.id,
-                input=[{"type": "text", "text": text}],
+                input=input_parts if input_parts else [{"type": "text", "text": text}],
                 sender=sender,
             )
         except DotCraftError as e:
@@ -530,7 +546,7 @@ class ChannelAdapter(ABC):
                 )
                 turn = await self._client.turn_start(
                     thread.id,
-                    input=[{"type": "text", "text": text}],
+                    input=input_parts if input_parts else [{"type": "text", "text": text}],
                     sender=sender,
                 )
             else:

@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 
 import type { FeishuClient } from "./feishu-client.js";
 import type { FeishuConfig } from "./feishu-types.js";
+import { extractWikiNodeToken, resolveWikiSpaceTarget } from "./feishu-wiki-tools.js";
 
 export const CREATE_DOCX_TOOL_NAME = "FeishuCreateDocxAndShareToCurrentChat";
 export const READ_DOCX_TOOL_NAME = "FeishuReadDocxContent";
 export const APPEND_DOCX_TOOL_NAME = "FeishuAppendDocxContent";
 
-const DOCX_ID_PATTERN = /^dox[A-Za-z0-9]{24}$/;
+const DOCX_ID_PATTERN = /^[A-Za-z0-9]{16,40}$/;
 const SIMPLE_BLOCK_KINDS = [
   "paragraph",
   "heading1",
@@ -137,7 +138,7 @@ export function getFeishuDocxChannelTools(enabled: boolean): Record<string, unkn
   return [
     {
       name: CREATE_DOCX_TOOL_NAME,
-      description: "Create a Feishu docx document and share the link to the current Feishu chat.",
+      description: "Create a Feishu docx document and share the link to the current Feishu chat. Provide either folderToken or wiki, not both.",
       requiresChatContext: true,
       display: {
         icon: "\u{1F4C4}",
@@ -148,6 +149,14 @@ export function getFeishuDocxChannelTools(enabled: boolean): Record<string, unkn
         properties: {
           title: { type: "string" },
           folderToken: { type: "string" },
+          wiki: {
+            type: "object",
+            properties: {
+              spaceIdOrUrl: { type: "string" },
+              parentNodeTokenOrUrl: { type: "string" },
+            },
+            required: ["spaceIdOrUrl"],
+          },
           initialBlocks: {
             type: "array",
             items: simpleBlockSchema,
@@ -246,6 +255,14 @@ export function extractDocxDocumentId(documentIdOrUrl: string): string {
     );
   }
 
+  const lowerPath = parsedUrl.pathname.toLowerCase();
+  if (/\/doc\//.test(lowerPath) && !lowerPath.includes("/docx/")) {
+    throw new DocxToolError(
+      "UnsupportedLegacyDoc",
+      "Legacy /doc/ URLs point to old-style documents not supported by the docx v1 API; open the file in Feishu and copy the /docx/ URL instead.",
+    );
+  }
+
   const segments = parsedUrl.pathname.split("/").filter(Boolean);
   const docxIndex = segments.findIndex((segment) => segment.toLowerCase() === "docx");
   const maybeId = docxIndex >= 0 ? segments[docxIndex + 1] : undefined;
@@ -257,6 +274,49 @@ export function extractDocxDocumentId(documentIdOrUrl: string): string {
     "InvalidDocumentId",
     "Provide a Feishu docx document_id or a docx URL such as https://feishu.cn/docx/<document_id>.",
   );
+}
+
+export async function resolveDocxDocumentId(params: {
+  client: FeishuClient;
+  documentIdOrUrl: string;
+}): Promise<string> {
+  const normalized = params.documentIdOrUrl.trim();
+  if (!normalized) {
+    throw new DocxToolError("MissingDocumentId", "Feishu docx tools require a documentIdOrUrl.");
+  }
+
+  try {
+    return extractDocxDocumentId(normalized);
+  } catch (error) {
+    if (
+      !(error instanceof DocxToolError) ||
+      (error.code !== "InvalidDocumentId" && error.code !== "UnsupportedWikiUrl")
+    ) {
+      throw error;
+    }
+  }
+
+  let wikiNodeToken: string;
+  try {
+    wikiNodeToken = extractWikiNodeToken(normalized);
+  } catch {
+    throw new DocxToolError(
+      "InvalidDocumentId",
+      "Provide a Feishu docx document_id or a docx URL such as https://feishu.cn/docx/<document_id>.",
+    );
+  }
+  const wikiNode = await params.client.getWikiNode(wikiNodeToken);
+  if (wikiNode.objType !== "docx") {
+    throw new DocxToolError(
+      "UnsupportedDocxBacking",
+      `Resolved wiki node '${wikiNode.nodeToken}' to obj_type '${wikiNode.objType}', not docx.`,
+    );
+  }
+  const documentId = wikiNode.objToken.trim();
+  if (!documentId) {
+    throw new DocxToolError("InvalidDocumentId", "Resolved wiki node does not include a backing docx document_id.");
+  }
+  return documentId;
 }
 
 export function parseFeishuSimpleBlocks(value: unknown, argName: string): FeishuSimpleBlock[] {
@@ -296,15 +356,67 @@ async function executeCreateDocxTool(params: {
 
   const title = optionalText(params.args.title);
   const folderToken = optionalText(params.args.folderToken);
+  const wiki = await resolveWikiCreateTarget({
+    client: params.client,
+    value: params.args.wiki,
+  });
+  if (folderToken && wiki) {
+    throw new DocxToolError("ConflictingTarget", "Provide either folderToken or wiki, not both.");
+  }
   const initialBlocksValue = params.args.initialBlocks;
   const initialBlocks = Array.isArray(initialBlocksValue) && initialBlocksValue.length > 0
     ? parseFeishuSimpleBlocks(initialBlocksValue, "initialBlocks")
     : [];
 
-  const document = await params.client.createDocxDocument({
-    title,
-    folderToken,
-  });
+  let document:
+    | {
+        documentId: string;
+        revisionId: number;
+        title: string;
+        url: string;
+      }
+    | undefined;
+  let createdWikiNode:
+    | {
+        spaceId: string;
+        nodeToken: string;
+        parentNodeToken?: string;
+      }
+    | undefined;
+  if (wiki) {
+    const node = await params.client.createWikiNode({
+      spaceId: wiki.spaceId,
+      parentNodeToken: wiki.parentNodeToken,
+      objType: "docx",
+      nodeType: "origin",
+    });
+    if (!node.objToken) {
+      throw new DocxToolError("MissingDocumentId", "Feishu wiki node creation did not include a backing docx token.");
+    }
+    if (title) {
+      await params.client.updateWikiNodeTitle(node.spaceId, node.nodeToken, title);
+    }
+    const wikiDocUrl = buildWikiUrl(node.nodeToken);
+    document = {
+      documentId: node.objToken,
+      revisionId: 0,
+      title: title ?? node.title ?? "",
+      url: wikiDocUrl,
+    };
+    createdWikiNode = {
+      spaceId: node.spaceId,
+      nodeToken: node.nodeToken,
+      parentNodeToken: node.parentNodeToken,
+    };
+  } else {
+    document = await params.client.createDocxDocument({
+      title,
+      folderToken,
+    });
+  }
+  if (!document) {
+    throw new DocxToolError("CreateFailed", "Failed to create Feishu docx document.");
+  }
 
   let appendResult:
     | {
@@ -339,6 +451,7 @@ async function executeCreateDocxTool(params: {
       url: document.url,
       sharedToCurrentChat: true,
       appendedBlocks: appendResult?.blocks ?? [],
+      ...(createdWikiNode ? { wiki: createdWikiNode } : {}),
     },
   };
 }
@@ -347,7 +460,10 @@ async function executeReadDocxTool(params: {
   args: Record<string, unknown>;
   client: FeishuClient;
 }): Promise<Record<string, unknown>> {
-  const documentId = extractDocxDocumentId(requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"));
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
   const result = await params.client.getDocxRawContent(documentId);
   const readableText = result.content || "(empty document)";
   return {
@@ -365,7 +481,10 @@ async function executeAppendDocxTool(params: {
   args: Record<string, unknown>;
   client: FeishuClient;
 }): Promise<Record<string, unknown>> {
-  const documentId = extractDocxDocumentId(requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"));
+  const documentId = await resolveDocxDocumentId({
+    client: params.client,
+    documentIdOrUrl: requiredText(params.args.documentIdOrUrl, "documentIdOrUrl"),
+  });
   const blocks = parseFeishuSimpleBlocks(params.args.blocks, "blocks");
   const result = await params.client.createDocxBlocks(documentId, documentId, {
     children: toFeishuDocxChildren(blocks),
@@ -470,6 +589,10 @@ function buildCreateShareText(title: string, url: string): string {
   return `Created Feishu docx: ${title}\n${url}`;
 }
 
+function buildWikiUrl(nodeToken: string): string {
+  return `https://feishu.cn/wiki/${nodeToken}`;
+}
+
 function requiredText(value: unknown, fieldName: string): string {
   const text = String(value ?? "").trim();
   if (!text) {
@@ -482,4 +605,26 @@ function optionalText(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
   return normalized ? normalized : undefined;
+}
+
+async function resolveWikiCreateTarget(params: {
+  client: FeishuClient;
+  value: unknown;
+}): Promise<{ spaceId: string; parentNodeToken?: string } | undefined> {
+  if (params.value == null) return undefined;
+  if (!params.value || typeof params.value !== "object" || Array.isArray(params.value)) {
+    throw new DocxToolError("InvalidArguments", "Feishu docx tool 'wiki' must be an object.");
+  }
+  const record = params.value as Record<string, unknown>;
+  const spaceIdOrUrl = requiredText(record.spaceIdOrUrl, "wiki.spaceIdOrUrl");
+  const parentNodeTokenOrUrl = optionalText(record.parentNodeTokenOrUrl);
+  const target = await resolveWikiSpaceTarget({
+    client: params.client,
+    spaceIdOrUrl,
+    parentNodeTokenOrUrl,
+  });
+  return {
+    spaceId: target.spaceId,
+    parentNodeToken: target.parentNodeToken,
+  };
 }
