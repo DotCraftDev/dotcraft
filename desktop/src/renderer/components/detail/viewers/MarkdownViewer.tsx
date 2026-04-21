@@ -1,7 +1,6 @@
-import { type CSSProperties, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useT } from '../../../contexts/LocaleContext'
 import { MarkdownRenderer } from '../../conversation/MarkdownRenderer'
-import { TextViewer } from './TextViewer'
 
 const MAX_READ_BYTES = 5 * 1024 * 1024 // 5 MB
 
@@ -18,7 +17,6 @@ interface MarkdownState {
 
 export function MarkdownViewer({ absolutePath }: MarkdownViewerProps): JSX.Element {
   const t = useT()
-  const [mode, setMode] = useState<'preview' | 'source'>('preview')
   const [state, setState] = useState<MarkdownState>({ status: 'idle', text: '', truncated: false })
 
   useEffect(() => {
@@ -41,21 +39,9 @@ export function MarkdownViewer({ absolutePath }: MarkdownViewerProps): JSX.Eleme
     }
   }, [absolutePath])
 
-  if (mode === 'source') {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <ModeToolbar mode={mode} onModeChange={setMode} />
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          <TextViewer absolutePath={absolutePath} />
-        </div>
-      </div>
-    )
-  }
-
   if (state.status === 'loading') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <ModeToolbar mode={mode} onModeChange={setMode} />
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -73,7 +59,6 @@ export function MarkdownViewer({ absolutePath }: MarkdownViewerProps): JSX.Eleme
   if (state.status === 'error') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <ModeToolbar mode={mode} onModeChange={setMode} />
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -92,7 +77,6 @@ export function MarkdownViewer({ absolutePath }: MarkdownViewerProps): JSX.Eleme
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <ModeToolbar mode={mode} onModeChange={setMode} />
       {state.truncated && (
         <div
           role="status"
@@ -108,63 +92,11 @@ export function MarkdownViewer({ absolutePath }: MarkdownViewerProps): JSX.Eleme
           {t('viewer.truncatedNotice')}
         </div>
       )}
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px' }}>
-        <MarkdownRenderer content={state.text} />
+      <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px' }}>
+        <div style={{ width: '100%' }}>
+          <MarkdownRenderer content={state.text} />
+        </div>
       </div>
-    </div>
-  )
-}
-
-function ModeToolbar({
-  mode,
-  onModeChange
-}: {
-  mode: 'preview' | 'source'
-  onModeChange: (next: 'preview' | 'source') => void
-}): JSX.Element {
-  const t = useT()
-  const common: CSSProperties = {
-    border: '1px solid var(--border-default)',
-    background: 'transparent',
-    color: 'var(--text-secondary)',
-    fontSize: '12px',
-    lineHeight: 1.2,
-    borderRadius: '4px',
-    padding: '4px 8px',
-    cursor: 'pointer'
-  }
-
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '6px',
-      padding: '6px 10px',
-      borderBottom: '1px solid var(--border-default)',
-      flexShrink: 0
-    }}>
-      <button
-        type="button"
-        onClick={() => onModeChange('preview')}
-        style={{
-          ...common,
-          backgroundColor: mode === 'preview' ? 'var(--bg-tertiary)' : 'transparent',
-          color: mode === 'preview' ? 'var(--text-primary)' : 'var(--text-secondary)'
-        }}
-      >
-        {t('viewer.preview')}
-      </button>
-      <button
-        type="button"
-        onClick={() => onModeChange('source')}
-        style={{
-          ...common,
-          backgroundColor: mode === 'source' ? 'var(--bg-tertiary)' : 'transparent',
-          color: mode === 'source' ? 'var(--text-primary)' : 'var(--text-secondary)'
-        }}
-      >
-        {t('viewer.source')}
-      </button>
     </div>
   )
 }

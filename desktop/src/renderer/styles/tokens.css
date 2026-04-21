@@ -44,6 +44,12 @@
   --spacing-2xl: 32px;
 
   /* ─── Typography (spec §15.2) ─── */
+  --font-ui: "Segoe UI Variable", "Inter", "SF Pro Display", "Segoe UI",
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Noto Sans CJK SC",
+    "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Segoe UI Variable", "SF Pro Display", "PingFang SC",
+    "HarmonyOS Sans SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Segoe UI",
+    "Helvetica Neue", Arial, sans-serif;
   --font-sans: "Segoe UI Variable", "Inter", "SF Pro Display", "Segoe UI",
     "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Noto Sans CJK SC",
     "Helvetica Neue", Arial, sans-serif;
@@ -71,6 +77,7 @@
   --text-primary: #e5e5e5;
   --text-secondary: #a0a0a0;
   --text-dimmed: #666666;
+  --text-tertiary: #666666;
 
   /* Borders */
   --border-default: #333333;
@@ -106,6 +113,22 @@
   --space-lg: 16px;
   --space-xl: 24px;
   --space-2xl: 32px;
+
+  /* Typography */
+  --font-ui: "Segoe UI Variable", "Inter", "SF Pro Display", "Segoe UI",
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Noto Sans CJK SC",
+    "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Segoe UI Variable", "SF Pro Display", "PingFang SC",
+    "HarmonyOS Sans SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Segoe UI",
+    "Helvetica Neue", Arial, sans-serif;
+  --text-body-size: 13px;
+  --text-body-line-height: 1.62;
+  --text-body-secondary-size: 12px;
+  --text-body-secondary-line-height: 1.54;
+  --text-code-size: 11.5px;
+  --text-code-line-height: 1.46;
+  --conversation-reading-width: 820px;
+  --inline-reference-max-width: 28rem;
 
   /* ─── Elevation / Shadows (spec §15.4) ─── */
   --shadow-level-0: none;
@@ -169,6 +192,7 @@ html[data-theme="light"] {
   --text-primary: #1e3347;
   --text-secondary: #5c6b7a;
   --text-dimmed: #94a3b8;
+  --text-tertiary: #94a3b8;
 
   --border-default: #d8e0ea;
   --border-active: #b8c9db;
@@ -221,7 +245,7 @@ body,
 }
 
 body {
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-primary);

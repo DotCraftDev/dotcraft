@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from 'react'
+import { FileText, Globe, Link2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -7,6 +8,8 @@ import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
 import { openConversationLink } from '../../utils/conversationDeepLink'
+import { basename } from '../../utils/path'
+import { resolveConversationLink } from '../../../shared/viewer/linkResolver'
 
 interface MarkdownRendererProps {
   content: string
@@ -27,26 +30,16 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   const customComponents = useMemo<Components>(() => ({
     ...baseComponents,
     a({ href, children, ...props }) {
-      async function handleClick(e: React.MouseEvent<HTMLAnchorElement>): Promise<void> {
-        e.preventDefault()
-        if (!href || !workspacePath || !activeThreadId) return
-        await openConversationLink({
-          target: href,
-          workspacePath,
-          threadId: activeThreadId,
-          forceNew: e.ctrlKey || e.metaKey,
-          t
-        })
-      }
       return (
-        <a
+        <InlineReferenceLink
           href={href}
-          onClick={(event) => { void handleClick(event) }}
-          style={{ color: 'var(--info)', textDecoration: 'underline', cursor: 'pointer' }}
+          workspacePath={workspacePath}
+          activeThreadId={activeThreadId}
+          t={t}
           {...props}
         >
           {children}
-        </a>
+        </InlineReferenceLink>
       )
     }
   }), [activeThreadId, t, workspacePath])
@@ -64,25 +57,127 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   )
 })
 
-// ---------------------------------------------------------------------------
-// Custom components
-// ---------------------------------------------------------------------------
-
 const baseComponents: Components = {
-  // Inline code
+  p({ children, ...props }) {
+    return (
+      <p
+        style={{
+          margin: '0 0 12px',
+          color: 'var(--text-primary)'
+        }}
+        {...props}
+      >
+        {children}
+      </p>
+    )
+  },
+
+  h1({ children, ...props }) {
+    return (
+      <h1
+        style={{
+          margin: '4px 0 14px',
+          fontSize: '1.45rem',
+          lineHeight: 1.24,
+          fontWeight: 650,
+          letterSpacing: '-0.02em',
+          color: 'var(--text-primary)'
+        }}
+        {...props}
+      >
+        {children}
+      </h1>
+    )
+  },
+
+  h2({ children, ...props }) {
+    return (
+      <h2
+        style={{
+          margin: '18px 0 12px',
+          fontSize: '1.18rem',
+          lineHeight: 1.3,
+          fontWeight: 640,
+          letterSpacing: '-0.015em',
+          color: 'var(--text-primary)'
+        }}
+        {...props}
+      >
+        {children}
+      </h2>
+    )
+  },
+
+  h3({ children, ...props }) {
+    return (
+      <h3
+        style={{
+          margin: '16px 0 10px',
+          fontSize: '1.02rem',
+          lineHeight: 1.34,
+          fontWeight: 630,
+          color: 'var(--text-primary)'
+        }}
+        {...props}
+      >
+        {children}
+      </h3>
+    )
+  },
+
+  ul({ children, ...props }) {
+    return (
+      <ul
+        style={{
+          margin: '0 0 12px',
+          paddingLeft: '22px'
+        }}
+        {...props}
+      >
+        {children}
+      </ul>
+    )
+  },
+
+  ol({ children, ...props }) {
+    return (
+      <ol
+        style={{
+          margin: '0 0 12px',
+          paddingLeft: '22px'
+        }}
+        {...props}
+      >
+        {children}
+      </ol>
+    )
+  },
+
+  li({ children, ...props }) {
+    return (
+      <li
+        style={{
+          margin: '0 0 6px',
+          color: 'var(--text-primary)'
+        }}
+        {...props}
+      >
+        {children}
+      </li>
+    )
+  },
+
   code({ children, className, ...props }) {
-    // react-markdown passes className="language-xxx" for fenced code blocks
-    // Fenced blocks are handled by the pre/code combo; inline code has no className
     const isBlock = Boolean(className)
     if (!isBlock) {
       return (
         <code
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: '0.875em',
+            fontSize: '0.87em',
             backgroundColor: 'var(--bg-tertiary)',
-            padding: '1px 5px',
-            borderRadius: '3px',
+            padding: '2px 6px',
+            borderRadius: '6px',
             color: 'var(--text-primary)'
           }}
           {...props}
@@ -98,19 +193,17 @@ const baseComponents: Components = {
     )
   },
 
-  // Code blocks wrapper — with copy button
   pre({ children, ...props }) {
     return <CodeBlock {...props}>{children}</CodeBlock>
   },
 
-  // Blockquote
   blockquote({ children, ...props }) {
     return (
       <blockquote
         style={{
           borderLeft: '3px solid var(--border-active)',
-          paddingLeft: '12px',
-          margin: '8px 0',
+          paddingLeft: '14px',
+          margin: '10px 0 14px',
           color: 'var(--text-secondary)',
           fontStyle: 'italic'
         }}
@@ -121,15 +214,15 @@ const baseComponents: Components = {
     )
   },
 
-  // Table
   table({ children, ...props }) {
     return (
-      <div style={{ overflowX: 'auto', margin: '8px 0' }}>
+      <div style={{ overflowX: 'auto', margin: '10px 0 14px' }}>
         <table
           style={{
             borderCollapse: 'collapse',
             width: '100%',
-            fontSize: '13px'
+            fontSize: 'var(--text-body-secondary-size)',
+            lineHeight: 'var(--text-body-secondary-line-height)'
           }}
           {...props}
         >
@@ -143,7 +236,7 @@ const baseComponents: Components = {
     return (
       <th
         style={{
-          padding: '6px 12px',
+          padding: '8px 12px',
           borderBottom: '1px solid var(--border-active)',
           textAlign: 'left',
           fontWeight: 600,
@@ -160,7 +253,7 @@ const baseComponents: Components = {
     return (
       <td
         style={{
-          padding: '6px 12px',
+          padding: '8px 12px',
           borderBottom: '1px solid var(--border-default)',
           color: 'var(--text-secondary)'
         }}
@@ -172,15 +265,10 @@ const baseComponents: Components = {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Code block with copy button
-// ---------------------------------------------------------------------------
-
 function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>): JSX.Element {
   const [copied, setCopied] = useState(false)
 
   function handleCopy(): void {
-    // Extract text content recursively from children
     const text = extractText(children)
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
@@ -189,17 +277,17 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
   }
 
   return (
-    <div style={{ position: 'relative', margin: '8px 0' }}>
+    <div style={{ position: 'relative', margin: '10px 0 14px' }}>
       <pre
         style={{
           backgroundColor: 'var(--code-block-bg)',
-          borderRadius: '6px',
-          padding: '12px 16px',
-          paddingTop: '36px',
+          borderRadius: '10px',
+          padding: '14px 18px',
+          paddingTop: '40px',
           overflowX: 'auto',
           fontFamily: 'var(--font-mono)',
-          fontSize: '13px',
-          lineHeight: 1.5,
+          fontSize: 'var(--text-code-size)',
+          lineHeight: 'var(--text-code-line-height)',
           margin: 0
         }}
         {...props}
@@ -222,12 +310,108 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
           color: copied ? 'var(--on-accent)' : 'var(--code-copy-text)',
           cursor: 'pointer',
           transition: 'background-color 150ms ease, color 150ms ease',
-          fontFamily: 'var(--font-sans)'
+          fontFamily: 'var(--font-ui)'
         }}
       >
         {copied ? 'Copied!' : 'Copy'}
       </button>
     </div>
+  )
+}
+
+type InlineReferenceKind = 'file' | 'browser' | 'external'
+
+function InlineReferenceLink({
+  href,
+  children,
+  workspacePath,
+  activeThreadId,
+  t,
+  ...props
+}: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+  workspacePath: string
+  activeThreadId: string | null
+  t: (key: string) => string
+}): JSX.Element {
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const presentation = useMemo(
+    () => getInlineReferencePresentation(href, workspacePath, extractText(children)),
+    [children, href, workspacePath]
+  )
+
+  async function handleClick(event: React.MouseEvent<HTMLAnchorElement>): Promise<void> {
+    event.preventDefault()
+    if (!href || !workspacePath || !activeThreadId) return
+    await openConversationLink({
+      target: href,
+      workspacePath,
+      threadId: activeThreadId,
+      forceNew: event.ctrlKey || event.metaKey,
+      t
+    })
+  }
+
+  const Icon = presentation.kind === 'file'
+    ? FileText
+    : presentation.kind === 'browser'
+      ? Globe
+      : Link2
+  const borderColor = presentation.kind === 'file'
+    ? 'color-mix(in srgb, var(--border-active) 44%, transparent)'
+    : 'color-mix(in srgb, var(--accent) 46%, transparent)'
+  const background = presentation.kind === 'file'
+    ? (hovered
+        ? 'color-mix(in srgb, var(--bg-active) 76%, var(--bg-tertiary))'
+        : 'color-mix(in srgb, var(--bg-tertiary) 88%, transparent)')
+    : (hovered
+        ? 'color-mix(in srgb, var(--accent) 18%, var(--bg-secondary))'
+        : 'color-mix(in srgb, var(--accent) 12%, transparent)')
+
+  return (
+    <a
+      href={href}
+      onClick={(event) => { void handleClick(event) }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      title={presentation.title}
+      data-inline-reference-kind={presentation.kind}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '5px',
+        verticalAlign: 'baseline',
+        margin: '0 2px',
+        padding: '2px 8px',
+        maxWidth: 'min(100%, var(--inline-reference-max-width))',
+        borderRadius: '999px',
+        border: `1px solid ${borderColor}`,
+        background,
+        color: presentation.kind === 'file' ? 'var(--text-primary)' : 'var(--accent)',
+        textDecoration: 'none',
+        cursor: href ? 'pointer' : 'default',
+        boxShadow: focused ? '0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent)' : 'none',
+        transition: 'background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
+        lineHeight: 1.25
+      }}
+      {...props}
+    >
+      <Icon size={12} strokeWidth={2.1} aria-hidden style={{ flexShrink: 0 }} />
+      <span
+        style={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: '12px',
+          fontWeight: 600
+        }}
+      >
+        {presentation.label}
+      </span>
+    </a>
   )
 }
 
@@ -242,13 +426,69 @@ function extractText(node: React.ReactNode): string {
   return ''
 }
 
-// ---------------------------------------------------------------------------
-// Container styles
-// ---------------------------------------------------------------------------
+function getInlineReferencePresentation(
+  href: string | undefined,
+  workspacePath: string,
+  childrenText: string
+): { kind: InlineReferenceKind; label: string; title: string } {
+  const rawHref = href?.trim() ?? ''
+  const childLabel = childrenText.trim()
+  const hasCustomLabel = childLabel.length > 0 && childLabel !== rawHref
+  const resolution = rawHref
+    ? resolveConversationLink({ target: rawHref, workspacePath: workspacePath || '' })
+    : { kind: 'reject' as const }
+
+  if (resolution.kind === 'file') {
+    return {
+      kind: 'file',
+      label: hasCustomLabel ? childLabel : basename(resolution.absolutePath),
+      title: rawHref || resolution.absolutePath
+    }
+  }
+
+  if (resolution.kind === 'browser') {
+    return {
+      kind: 'browser',
+      label: hasCustomLabel ? childLabel : shortenUrlForDisplay(resolution.url),
+      title: rawHref || resolution.url
+    }
+  }
+
+  if (resolution.kind === 'external') {
+    return {
+      kind: 'external',
+      label: hasCustomLabel ? childLabel : shortenUrlForDisplay(resolution.url),
+      title: rawHref || resolution.url
+    }
+  }
+
+  return {
+    kind: 'external',
+    label: childLabel || rawHref,
+    title: rawHref || childLabel
+  }
+}
+
+function shortenUrlForDisplay(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    const path = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '')
+    if (!path) return parsed.hostname
+    const compactPath = path.length <= 18
+      ? path
+      : `/${path.split('/').filter(Boolean)[0] ?? ''}`
+    return compactPath ? `${parsed.hostname}${compactPath}` : parsed.hostname
+  } catch {
+    return rawUrl
+  }
+}
 
 const markdownContainerStyle: React.CSSProperties = {
   color: 'var(--text-primary)',
-  fontSize: '14px',
-  lineHeight: 1.6,
-  wordBreak: 'break-word'
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--text-body-size)',
+  lineHeight: 'var(--text-body-line-height)',
+  wordBreak: 'break-word',
+  width: '100%',
+  maxWidth: 'var(--conversation-reading-width)'
 }

@@ -189,6 +189,18 @@ function createProxyProviderMap<T>(value: T): Record<ProxyOAuthProvider, T> {
   }
 }
 
+function isProxyProviderMapAllEqual<T>(
+  map: Record<ProxyOAuthProvider, T>,
+  value: T
+): boolean {
+  for (const provider of PROXY_OAUTH_PROVIDERS) {
+    if (map[provider] !== value) {
+      return false
+    }
+  }
+  return true
+}
+
 function isAuthenticatedProxyAuthFile(file: ProxyAuthFileSummary, provider?: ProxyOAuthProvider): boolean {
   return AUTHENTICATED_PROXY_AUTH_STATUSES.has(file.status) &&
     !file.disabled &&
@@ -944,11 +956,17 @@ export function SettingsView({
   useEffect(() => {
     let cancelled = false
     if (!proxyEnabled) {
-      setProxyAuthRecoveryAttempt(0)
-      setProxyAuthRecoverySettled(false)
-      setProxyProviderStatus(createProxyProviderMap<ProxyProviderStatus>('idle'))
-      setProxyProviderError(createProxyProviderMap(''))
-      setProxyProviderLoading(createProxyProviderMap(false))
+      setProxyAuthRecoveryAttempt((prev) => (prev === 0 ? prev : 0))
+      setProxyAuthRecoverySettled((prev) => (prev ? false : prev))
+      setProxyProviderStatus((prev) =>
+        isProxyProviderMapAllEqual(prev, 'idle') ? prev : createProxyProviderMap<ProxyProviderStatus>('idle')
+      )
+      setProxyProviderError((prev) =>
+        isProxyProviderMapAllEqual(prev, '') ? prev : createProxyProviderMap('')
+      )
+      setProxyProviderLoading((prev) =>
+        isProxyProviderMapAllEqual(prev, false) ? prev : createProxyProviderMap(false)
+      )
       return
     }
     if (activeSettingsTab !== 'proxy') {

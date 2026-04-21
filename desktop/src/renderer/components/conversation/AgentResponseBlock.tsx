@@ -175,7 +175,7 @@ export const AgentResponseBlock = memo(function AgentResponseBlock({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
       {renderNodes}
 
       {/* Turn-level failure */}

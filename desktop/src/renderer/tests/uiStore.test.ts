@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { useThreadStore } from '../stores/threadStore'
 import { useUIStore } from '../stores/uiStore'
 
+describe('uiStore defaults', () => {
+  it('starts with the detail panel hidden', () => {
+    expect(useUIStore.getState().detailPanelPreferredVisible).toBe(false)
+    expect(useUIStore.getState().detailPanelVisible).toBe(false)
+  })
+})
+
 describe('uiStore goToNewChat', () => {
   beforeEach(() => {
     useThreadStore.getState().reset()
