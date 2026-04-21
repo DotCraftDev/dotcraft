@@ -39,6 +39,7 @@ const MESSAGES_EN = {
   'settings.tab.proxy': 'API Proxy',
   'settings.tab.usage': 'Usage',
   'settings.tab.channels': 'Channels',
+  'settings.tab.subAgents': 'Sub Agents',
   'settings.tab.archivedThreads': 'Archived Threads',
   'settings.close': 'Close settings',
   'settings.closeAria': 'Close settings',
@@ -1042,7 +1043,239 @@ const MESSAGES_EN = {
   'settings.mcp.status.connected': 'Connected',
   'settings.mcp.status.connecting': 'Connecting',
   'settings.mcp.status.error': 'Error',
-  'settings.mcp.status.idle': 'Idle'
+  'settings.mcp.status.idle': 'Idle',
+
+  // Sub Agents
+  'settings.subAgents.title': 'Sub-Agents',
+  'settings.subAgents.description':
+    'Pick which assistants DotCraft can delegate tasks to, or bring your own CLI.',
+  'settings.subAgents.unsupported': 'The current AppServer does not support sub-agent management.',
+  'settings.subAgents.loading': 'Loading sub-agents…',
+  'settings.subAgents.empty': 'No sub-agents available yet.',
+  'settings.subAgents.loadFailed': 'Failed to load sub-agents: {{error}}',
+  'settings.subAgents.actionFailed': 'Sub-agent action failed: {{error}}',
+  'settings.subAgents.savedToast': 'Saved sub-agent {{name}}',
+  'settings.subAgents.deletedToast': 'Deleted sub-agent {{name}}',
+  'settings.subAgents.restoredToast': 'Restored defaults for {{name}}',
+  'settings.subAgents.save': 'Save',
+  'settings.subAgents.saving': 'Saving…',
+  'settings.subAgents.delete': 'Delete',
+  'settings.subAgents.deleting': 'Deleting…',
+  'settings.subAgents.cancel': 'Cancel',
+  'settings.subAgents.back': 'Back',
+  'settings.subAgents.toggleAria': 'Toggle sub-agent {{name}}',
+
+  // List surface
+  'settings.subAgents.list.presetSection': 'Built-in agents',
+  'settings.subAgents.list.customSection': 'Custom agents',
+  'settings.subAgents.list.customEmpty':
+    'No custom agents yet. Add one if you rely on a different CLI.',
+  'settings.subAgents.list.addCustomAgent': 'Add custom agent',
+  'settings.subAgents.list.addCustomAgentHint':
+    'Describe how DotCraft should invoke your own CLI.',
+  'settings.subAgents.card.customizedBadge': 'Customized',
+  'settings.subAgents.card.defaultBadge': 'Default',
+  'settings.subAgents.card.customBadge': 'Custom',
+  'settings.subAgents.card.nativeSubtitle': 'Runs inside DotCraft.',
+  'settings.subAgents.card.codexSubtitle': 'Delegates tasks to the official codex CLI.',
+  'settings.subAgents.card.cursorSubtitle': 'Delegates tasks to the cursor-agent CLI.',
+  'settings.subAgents.card.customSubtitle': 'Launches {{binary}}',
+  'settings.subAgents.card.customSubtitleFallback': 'Custom CLI agent',
+  'settings.subAgents.card.binaryMissing': 'Binary not found on PATH',
+  'settings.subAgents.card.disabled': 'Disabled',
+
+  // Preset detail surface
+  'settings.subAgents.preset.codex.title': 'Codex CLI',
+  'settings.subAgents.preset.codex.description':
+    'DotCraft launches codex exec for each delegated task and applies per-mode sandbox flags automatically.',
+  'settings.subAgents.preset.cursor.title': 'Cursor CLI',
+  'settings.subAgents.preset.cursor.description':
+    'DotCraft launches cursor-agent in print mode and reads the JSON reply.',
+  'settings.subAgents.preset.native.title': 'Native',
+  'settings.subAgents.preset.native.description':
+    'The native runtime runs the sub-agent inside DotCraft using the same approval flow as the main agent. It cannot be disabled.',
+  'settings.subAgents.preset.enableTitle': 'Enable this agent',
+  'settings.subAgents.preset.enableDescription':
+    'When on, the main agent may delegate tasks to this CLI.',
+  'settings.subAgents.preset.nativeLockedHint':
+    'Native is the default sub-agent runtime and is always available.',
+  'settings.subAgents.preset.statusTitle': 'Status',
+  'settings.subAgents.preset.binaryResolved': 'Binary found',
+  'settings.subAgents.preset.binaryNotResolved': 'Binary not found on PATH',
+  'settings.subAgents.preset.hiddenNotice': 'Hidden from the agent prompt: {{reason}}',
+  'settings.subAgents.preset.warnings': 'Warnings',
+  'settings.subAgents.preset.runtimeInfoTitle': 'How DotCraft uses it',
+  'settings.subAgents.preset.binaryLabel': 'Binary',
+  'settings.subAgents.preset.argsLabel': 'Preset arguments',
+  'settings.subAgents.preset.argsEmpty': '(none)',
+  'settings.subAgents.preset.permissionMappingTitle': 'Approval mode flags',
+  'settings.subAgents.preset.permissionMappingHint':
+    'DotCraft appends these flags based on the current approval mode.',
+  'settings.subAgents.preset.customizeTitle': 'Overrides',
+  'settings.subAgents.preset.customizeHint':
+    'Only tweak these if the preset defaults do not fit your setup.',
+  'settings.subAgents.preset.customize': 'Customize',
+  'settings.subAgents.preset.restoreDefaults': 'Restore defaults',
+  'settings.subAgents.preset.saveOverride': 'Save overrides',
+  'settings.subAgents.preset.overrideBin': 'Binary path override',
+  'settings.subAgents.preset.overrideBinHint':
+    'Leave empty to use the default ({{default}}). Set an absolute path when the CLI is not on PATH.',
+  'settings.subAgents.preset.overrideExtraArgs': 'Extra arguments',
+  'settings.subAgents.preset.overrideExtraArgsHint':
+    'Appended after the preset arguments. One per line.',
+  'settings.subAgents.preset.overrideExtraArgsPlaceholder': '--profile my-profile',
+  'settings.subAgents.preset.overrideTimeout': 'Timeout (seconds)',
+  'settings.subAgents.preset.overrideTimeoutHint':
+    'Maximum wait before the delegated task is cancelled.',
+
+  // Custom editor surface
+  'settings.subAgents.custom.newTitle': 'New custom agent',
+  'settings.subAgents.custom.editTitle': 'Custom agent',
+  'settings.subAgents.custom.description':
+    'Describe how DotCraft should invoke your CLI and how to read its reply back.',
+  'settings.subAgents.custom.identityTitle': 'Identity',
+  'settings.subAgents.custom.identityDescription':
+    'A short, unique name that appears to the main agent.',
+  'settings.subAgents.custom.nameLabel': 'Name',
+  'settings.subAgents.custom.nameHint':
+    'Unique within this workspace. Use a short, filesystem-safe identifier (e.g. my-coder).',
+  'settings.subAgents.custom.nameLocked': 'The name cannot be changed after the agent is created.',
+  'settings.subAgents.custom.namePlaceholder': 'my-coder',
+
+  'settings.subAgents.custom.launcherTitle': 'Launcher',
+  'settings.subAgents.custom.launcherDescription':
+    'What DotCraft runs, where it runs, and which arguments come first.',
+  'settings.subAgents.custom.runtimeLabel': 'Runtime',
+  'settings.subAgents.custom.runtimeValue': 'One-shot CLI',
+  'settings.subAgents.custom.runtimeHint':
+    'The binary is launched once per delegated task and returns a single reply.',
+  'settings.subAgents.custom.binLabel': 'Binary',
+  'settings.subAgents.custom.binHint':
+    'An absolute path or a command resolvable via PATH.',
+  'settings.subAgents.custom.binPlaceholder': 'my-coder',
+  'settings.subAgents.custom.argsLabel': 'Base arguments',
+  'settings.subAgents.custom.argsHint':
+    'These arguments come before the task payload. One per line.',
+  'settings.subAgents.custom.argsPlaceholder': 'exec',
+  'settings.subAgents.custom.workingDirLabel': 'Working directory',
+  'settings.subAgents.custom.workingDirHint':
+    'Where the CLI runs. "Workspace root" uses the currently opened workspace.',
+  'settings.subAgents.custom.workingDirWorkspace': 'Workspace root',
+  'settings.subAgents.custom.workingDirSpecified': 'Specified path',
+
+  'settings.subAgents.custom.inputTitle': 'How DotCraft sends the task',
+  'settings.subAgents.custom.inputDescription':
+    'Choose how the delegated task text reaches the CLI.',
+  'settings.subAgents.custom.inputMode.arg': 'As a positional argument',
+  'settings.subAgents.custom.inputMode.argHint':
+    'The task text is appended as the final argument.',
+  'settings.subAgents.custom.inputMode.argTemplate': 'As a templated argument',
+  'settings.subAgents.custom.inputMode.argTemplateHint':
+    'Substitute {task} into a custom argument string.',
+  'settings.subAgents.custom.inputMode.stdin': 'Over standard input',
+  'settings.subAgents.custom.inputMode.stdinHint':
+    'The task text is piped to the CLI on stdin.',
+  'settings.subAgents.custom.inputMode.env': 'Via an environment variable',
+  'settings.subAgents.custom.inputMode.envHint':
+    'The named env var is set to the task text before launch.',
+  'settings.subAgents.custom.inputArgTemplateLabel': 'Argument template',
+  'settings.subAgents.custom.inputArgTemplateHint':
+    '{task} is replaced with the task text at launch.',
+  'settings.subAgents.custom.inputArgTemplatePlaceholder': '--task {task}',
+  'settings.subAgents.custom.inputEnvKeyLabel': 'Env variable name',
+  'settings.subAgents.custom.inputEnvKeyHint':
+    'This env var will hold the task text.',
+  'settings.subAgents.custom.inputEnvKeyPlaceholder': 'SUBAGENT_TASK',
+
+  'settings.subAgents.custom.outputTitle': 'How DotCraft reads the reply',
+  'settings.subAgents.custom.outputDescription':
+    'Tell DotCraft how to find the assistant\u2019s reply in the CLI output.',
+  'settings.subAgents.custom.outputFormatLabel': 'Output format',
+  'settings.subAgents.custom.outputFormat.text': 'Plain text on stdout',
+  'settings.subAgents.custom.outputFormat.json': 'JSON on stdout',
+  'settings.subAgents.custom.outputJsonPathLabel': 'JSON path for the reply',
+  'settings.subAgents.custom.outputJsonPathHint':
+    'Dotted path from the top-level JSON object (e.g. message.content).',
+  'settings.subAgents.custom.outputJsonPathPlaceholder': 'result',
+  'settings.subAgents.custom.outputFileArgTemplateLabel': 'Reply-file flag (optional)',
+  'settings.subAgents.custom.outputFileArgTemplateHint':
+    'If the CLI can write the reply to a file, pass this flag with {path} substituted in.',
+  'settings.subAgents.custom.outputFileArgTemplatePlaceholder': '--output-last-message {path}',
+  'settings.subAgents.custom.readOutputFileLabel': 'Read the reply from the generated file',
+  'settings.subAgents.custom.readOutputFileHint':
+    'Recommended when the CLI writes the final message to the file above.',
+  'settings.subAgents.custom.deleteOutputFileLabel': 'Delete the reply file after reading',
+  'settings.subAgents.custom.deleteOutputFileHint': 'Keep the temporary workspace clean.',
+  'settings.subAgents.custom.tokenPathsTitle': 'Token usage (optional)',
+  'settings.subAgents.custom.tokenPathsHint':
+    'If the CLI emits token counts in its JSON response, enter their paths so usage can be recorded.',
+  'settings.subAgents.custom.outputInputTokensLabel': 'Input tokens path',
+  'settings.subAgents.custom.outputInputTokensPlaceholder': 'usage.prompt_tokens',
+  'settings.subAgents.custom.outputOutputTokensLabel': 'Output tokens path',
+  'settings.subAgents.custom.outputOutputTokensPlaceholder': 'usage.completion_tokens',
+  'settings.subAgents.custom.outputTotalTokensLabel': 'Total tokens path',
+  'settings.subAgents.custom.outputTotalTokensPlaceholder': 'usage.total_tokens',
+
+  'settings.subAgents.custom.envTitle': 'Environment',
+  'settings.subAgents.custom.envDescription':
+    'Fixed env vars set at launch, or names inherited from DotCraft\u2019s own environment.',
+  'settings.subAgents.custom.envLabel': 'Fixed env vars',
+  'settings.subAgents.custom.envHint': 'Key/value pairs merged into the launch environment.',
+  'settings.subAgents.custom.envKeyPlaceholder': 'KEY',
+  'settings.subAgents.custom.envValuePlaceholder': 'value',
+  'settings.subAgents.custom.envPassthroughLabel': 'Passthrough env vars',
+  'settings.subAgents.custom.envPassthroughHint':
+    'Names of env vars to inherit from the DotCraft process.',
+  'settings.subAgents.custom.envPassthroughPlaceholder': 'OPENAI_API_KEY',
+
+  'settings.subAgents.custom.limitsTitle': 'Limits',
+  'settings.subAgents.custom.limitsDescription':
+    'Keep delegated runs from hanging or producing oversized output.',
+  'settings.subAgents.custom.timeoutLabel': 'Timeout (seconds)',
+  'settings.subAgents.custom.timeoutHint':
+    'Cancel the CLI if it runs longer than this.',
+  'settings.subAgents.custom.maxOutputBytesLabel': 'Max output bytes',
+  'settings.subAgents.custom.maxOutputBytesHint':
+    'Cap on how much stdout DotCraft will capture (default 1 MiB).',
+
+  'settings.subAgents.custom.advancedTitle': 'Advanced',
+  'settings.subAgents.custom.advancedDescription':
+    'Leave the defaults unless you know you need these.',
+  'settings.subAgents.custom.advancedToggleShow': 'Show advanced options',
+  'settings.subAgents.custom.advancedToggleHide': 'Hide advanced options',
+  'settings.subAgents.custom.trustLevelLabel': 'Trust level',
+  'settings.subAgents.custom.trustLevelHint':
+    'Tells DotCraft how much to trust the CLI before prompting for approval.',
+  'settings.subAgents.custom.trustLevel.inherit': 'Inherit default',
+  'settings.subAgents.custom.trustLevel.trusted': 'Trusted (skip most prompts)',
+  'settings.subAgents.custom.trustLevel.prompt': 'Prompt (default)',
+  'settings.subAgents.custom.trustLevel.restricted': 'Restricted (no writes without prompt)',
+  'settings.subAgents.custom.permissionMappingTitle': 'Approval mode arguments',
+  'settings.subAgents.custom.permissionMappingHint':
+    'Extra arguments appended for each DotCraft approval mode.',
+  'settings.subAgents.custom.permissionMappingInteractive': 'Interactive',
+  'settings.subAgents.custom.permissionMappingAutoApprove': 'Auto approve',
+  'settings.subAgents.custom.permissionMappingRestricted': 'Restricted',
+  'settings.subAgents.custom.permissionMappingPlaceholder': '--mode ask --trust',
+  'settings.subAgents.custom.sanitizationRulesLabel': 'Sanitization rules (JSON)',
+  'settings.subAgents.custom.sanitizationRulesHint':
+    'Optional JSON object passed to the runtime for output sanitization.',
+  'settings.subAgents.custom.sanitizationRulesPlaceholder': '{ "redactEmails": true }',
+
+  // Validation
+  'settings.subAgents.validation.nameRequired': 'A name is required.',
+  'settings.subAgents.validation.binRequired': 'The binary path is required.',
+  'settings.subAgents.validation.inputArgTemplateRequired':
+    'An argument template is required when the input mode is templated.',
+  'settings.subAgents.validation.inputEnvKeyRequired':
+    'An env variable name is required when the input mode is env.',
+  'settings.subAgents.validation.outputJsonPathRequired':
+    'A JSON path is required when the output format is JSON.',
+  'settings.subAgents.validation.integerRequired': 'Numeric fields must be whole numbers.',
+  'settings.subAgents.validation.sanitizationRulesObject':
+    'Sanitization rules must be a JSON object.',
+  'settings.subAgents.validation.sanitizationRulesJson':
+    'Sanitization rules must be valid JSON.'
 } as const
 
 const MESSAGES_ZH: Record<MessageId, string> = {
@@ -1075,6 +1308,7 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.tab.proxy': 'API 代理',
   'settings.tab.usage': '用量',
   'settings.tab.channels': '渠道',
+  'settings.tab.subAgents': '子 Agent',
   'settings.tab.archivedThreads': '归档会话',
   'settings.close': '关闭设置',
   'settings.closeAria': '关闭设置',
@@ -2036,7 +2270,209 @@ const MESSAGES_ZH: Record<MessageId, string> = {
   'settings.mcp.status.connected': '已连接',
   'settings.mcp.status.connecting': '连接中',
   'settings.mcp.status.error': '错误',
-  'settings.mcp.status.idle': '空闲'
+  'settings.mcp.status.idle': '空闲',
+
+  // Sub Agents
+  'settings.subAgents.title': '子 Agent',
+  'settings.subAgents.description': '选择可供 DotCraft 委派任务的助手，或接入你自己的 CLI。',
+  'settings.subAgents.unsupported': '当前 AppServer 不支持子 Agent 管理。',
+  'settings.subAgents.loading': '正在加载子 Agent…',
+  'settings.subAgents.empty': '当前还没有可用的子 Agent。',
+  'settings.subAgents.loadFailed': '加载子 Agent 失败：{{error}}',
+  'settings.subAgents.actionFailed': '子 Agent 操作失败：{{error}}',
+  'settings.subAgents.savedToast': '已保存子 Agent {{name}}',
+  'settings.subAgents.deletedToast': '已删除子 Agent {{name}}',
+  'settings.subAgents.restoredToast': '已恢复 {{name}} 的默认设置',
+  'settings.subAgents.save': '保存',
+  'settings.subAgents.saving': '保存中…',
+  'settings.subAgents.delete': '删除',
+  'settings.subAgents.deleting': '删除中…',
+  'settings.subAgents.cancel': '取消',
+  'settings.subAgents.back': '返回',
+  'settings.subAgents.toggleAria': '切换子 Agent {{name}}',
+
+  // List surface
+  'settings.subAgents.list.presetSection': '内置助手',
+  'settings.subAgents.list.customSection': '自定义助手',
+  'settings.subAgents.list.customEmpty': '还没有自定义助手。如果你想接入其它 CLI，点击下方按钮添加。',
+  'settings.subAgents.list.addCustomAgent': '添加自定义助手',
+  'settings.subAgents.list.addCustomAgentHint': '描述 DotCraft 应如何调用你的 CLI。',
+  'settings.subAgents.card.customizedBadge': '已自定义',
+  'settings.subAgents.card.defaultBadge': '默认',
+  'settings.subAgents.card.customBadge': '自定义',
+  'settings.subAgents.card.nativeSubtitle': '在 DotCraft 内部运行。',
+  'settings.subAgents.card.codexSubtitle': '通过 codex 命令行把任务交给 Codex。',
+  'settings.subAgents.card.cursorSubtitle': '通过 cursor-agent 命令行把任务交给 Cursor。',
+  'settings.subAgents.card.customSubtitle': '调用 {{binary}}',
+  'settings.subAgents.card.customSubtitleFallback': '自定义 CLI 助手',
+  'settings.subAgents.card.binaryMissing': '未在 PATH 中找到可执行文件',
+  'settings.subAgents.card.disabled': '已禁用',
+
+  // Preset detail surface
+  'settings.subAgents.preset.codex.title': 'Codex CLI',
+  'settings.subAgents.preset.codex.description':
+    'DotCraft 会在每次委派任务时启动 codex exec，并按当前审批模式自动附加沙箱参数。',
+  'settings.subAgents.preset.cursor.title': 'Cursor CLI',
+  'settings.subAgents.preset.cursor.description':
+    'DotCraft 会以 print 模式启动 cursor-agent，并从它返回的 JSON 中读取回复。',
+  'settings.subAgents.preset.native.title': '原生 (Native)',
+  'settings.subAgents.preset.native.description':
+    '原生子 Agent 运行在 DotCraft 内部，共享主 Agent 的审批流程，因此无法禁用。',
+  'settings.subAgents.preset.enableTitle': '启用该助手',
+  'settings.subAgents.preset.enableDescription': '开启后，主 Agent 可把任务委派给此 CLI。',
+  'settings.subAgents.preset.nativeLockedHint': 'Native 是默认的子 Agent 运行时，始终可用。',
+  'settings.subAgents.preset.statusTitle': '状态',
+  'settings.subAgents.preset.binaryResolved': '已找到可执行文件',
+  'settings.subAgents.preset.binaryNotResolved': 'PATH 中未找到可执行文件',
+  'settings.subAgents.preset.hiddenNotice': '不会进入 Agent Prompt：{{reason}}',
+  'settings.subAgents.preset.warnings': '警告',
+  'settings.subAgents.preset.runtimeInfoTitle': 'DotCraft 如何调用',
+  'settings.subAgents.preset.binaryLabel': '可执行文件',
+  'settings.subAgents.preset.argsLabel': '预设参数',
+  'settings.subAgents.preset.argsEmpty': '（无）',
+  'settings.subAgents.preset.permissionMappingTitle': '审批模式对应参数',
+  'settings.subAgents.preset.permissionMappingHint':
+    'DotCraft 会根据当前审批模式附加这些参数。',
+  'settings.subAgents.preset.customizeTitle': '覆盖设置',
+  'settings.subAgents.preset.customizeHint': '只在默认值无法满足你的环境时才需要调整。',
+  'settings.subAgents.preset.customize': '自定义',
+  'settings.subAgents.preset.restoreDefaults': '恢复默认',
+  'settings.subAgents.preset.saveOverride': '保存覆盖',
+  'settings.subAgents.preset.overrideBin': '可执行文件覆盖',
+  'settings.subAgents.preset.overrideBinHint':
+    '留空则使用默认值（{{default}}）。当 CLI 不在 PATH 中时，填写绝对路径。',
+  'settings.subAgents.preset.overrideExtraArgs': '附加参数',
+  'settings.subAgents.preset.overrideExtraArgsHint': '追加在预设参数之后，每行一个。',
+  'settings.subAgents.preset.overrideExtraArgsPlaceholder': '--profile my-profile',
+  'settings.subAgents.preset.overrideTimeout': '超时（秒）',
+  'settings.subAgents.preset.overrideTimeoutHint': '达到该时间仍未完成则取消任务。',
+
+  // Custom editor surface
+  'settings.subAgents.custom.newTitle': '新建自定义助手',
+  'settings.subAgents.custom.editTitle': '自定义助手',
+  'settings.subAgents.custom.description':
+    '告诉 DotCraft 如何调用你的 CLI，以及如何从它的输出中读取回复。',
+  'settings.subAgents.custom.identityTitle': '身份信息',
+  'settings.subAgents.custom.identityDescription': '一个简短、唯一的名称，会出现在主 Agent 的 Prompt 中。',
+  'settings.subAgents.custom.nameLabel': '名称',
+  'settings.subAgents.custom.nameHint':
+    '在当前工作区内唯一。建议使用简短、可作为文件名的标识符（如 my-coder）。',
+  'settings.subAgents.custom.nameLocked': '创建后名称不可修改。',
+  'settings.subAgents.custom.namePlaceholder': 'my-coder',
+
+  'settings.subAgents.custom.launcherTitle': '启动方式',
+  'settings.subAgents.custom.launcherDescription': '指定 DotCraft 要运行的命令、运行目录以及默认参数。',
+  'settings.subAgents.custom.runtimeLabel': '运行时',
+  'settings.subAgents.custom.runtimeValue': '单次 CLI',
+  'settings.subAgents.custom.runtimeHint': '每次委派任务时启动一次该命令，得到一次性回复。',
+  'settings.subAgents.custom.binLabel': '可执行文件',
+  'settings.subAgents.custom.binHint': '可以是绝对路径，也可以是 PATH 中可解析的命令名。',
+  'settings.subAgents.custom.binPlaceholder': 'my-coder',
+  'settings.subAgents.custom.argsLabel': '基础参数',
+  'settings.subAgents.custom.argsHint': '这些参数会排在任务文本之前，每行一个。',
+  'settings.subAgents.custom.argsPlaceholder': 'exec',
+  'settings.subAgents.custom.workingDirLabel': '工作目录',
+  'settings.subAgents.custom.workingDirHint':
+    'CLI 的运行目录。选择"工作区根目录"时使用当前打开的工作区。',
+  'settings.subAgents.custom.workingDirWorkspace': '工作区根目录',
+  'settings.subAgents.custom.workingDirSpecified': '指定路径',
+
+  'settings.subAgents.custom.inputTitle': 'DotCraft 如何发送任务',
+  'settings.subAgents.custom.inputDescription': '选择委派任务文本传入 CLI 的方式。',
+  'settings.subAgents.custom.inputMode.arg': '作为位置参数',
+  'settings.subAgents.custom.inputMode.argHint': '任务文本会作为最后一个参数追加在命令行末尾。',
+  'settings.subAgents.custom.inputMode.argTemplate': '使用参数模板',
+  'settings.subAgents.custom.inputMode.argTemplateHint': '把 {task} 替换进一个自定义参数字符串。',
+  'settings.subAgents.custom.inputMode.stdin': '通过标准输入',
+  'settings.subAgents.custom.inputMode.stdinHint': '将任务文本通过 stdin 管道传给 CLI。',
+  'settings.subAgents.custom.inputMode.env': '通过环境变量',
+  'settings.subAgents.custom.inputMode.envHint': '启动前会把指定的环境变量设置为任务文本。',
+  'settings.subAgents.custom.inputArgTemplateLabel': '参数模板',
+  'settings.subAgents.custom.inputArgTemplateHint': '启动时 {task} 将被替换为任务文本。',
+  'settings.subAgents.custom.inputArgTemplatePlaceholder': '--task {task}',
+  'settings.subAgents.custom.inputEnvKeyLabel': '环境变量名',
+  'settings.subAgents.custom.inputEnvKeyHint': '该环境变量将被设为任务文本。',
+  'settings.subAgents.custom.inputEnvKeyPlaceholder': 'SUBAGENT_TASK',
+
+  'settings.subAgents.custom.outputTitle': 'DotCraft 如何读取回复',
+  'settings.subAgents.custom.outputDescription': '告诉 DotCraft 如何在 CLI 的输出中定位助手的回复。',
+  'settings.subAgents.custom.outputFormatLabel': '输出格式',
+  'settings.subAgents.custom.outputFormat.text': '普通文本（stdout）',
+  'settings.subAgents.custom.outputFormat.json': 'JSON（stdout）',
+  'settings.subAgents.custom.outputJsonPathLabel': '回复的 JSON 路径',
+  'settings.subAgents.custom.outputJsonPathHint':
+    '从顶层 JSON 对象开始的点号路径（如 message.content）。',
+  'settings.subAgents.custom.outputJsonPathPlaceholder': 'result',
+  'settings.subAgents.custom.outputFileArgTemplateLabel': '回复文件参数（可选）',
+  'settings.subAgents.custom.outputFileArgTemplateHint':
+    '若 CLI 可以把回复写入文件，可提供一个包含 {path} 的参数模板。',
+  'settings.subAgents.custom.outputFileArgTemplatePlaceholder': '--output-last-message {path}',
+  'settings.subAgents.custom.readOutputFileLabel': '从生成的文件中读取回复',
+  'settings.subAgents.custom.readOutputFileHint': '当 CLI 会把最终消息写入上述文件时建议启用。',
+  'settings.subAgents.custom.deleteOutputFileLabel': '读取后删除回复文件',
+  'settings.subAgents.custom.deleteOutputFileHint': '保持临时目录整洁。',
+  'settings.subAgents.custom.tokenPathsTitle': 'Token 统计（可选）',
+  'settings.subAgents.custom.tokenPathsHint':
+    '如果 CLI 的 JSON 回复里带 token 数，可在此填写对应路径，以便记录用量。',
+  'settings.subAgents.custom.outputInputTokensLabel': '输入 Token 路径',
+  'settings.subAgents.custom.outputInputTokensPlaceholder': 'usage.prompt_tokens',
+  'settings.subAgents.custom.outputOutputTokensLabel': '输出 Token 路径',
+  'settings.subAgents.custom.outputOutputTokensPlaceholder': 'usage.completion_tokens',
+  'settings.subAgents.custom.outputTotalTokensLabel': '总 Token 路径',
+  'settings.subAgents.custom.outputTotalTokensPlaceholder': 'usage.total_tokens',
+
+  'settings.subAgents.custom.envTitle': '环境变量',
+  'settings.subAgents.custom.envDescription':
+    '启动时写入的固定变量，或从 DotCraft 进程继承的变量名。',
+  'settings.subAgents.custom.envLabel': '固定环境变量',
+  'settings.subAgents.custom.envHint': '键值对会合并到 CLI 的启动环境中。',
+  'settings.subAgents.custom.envKeyPlaceholder': 'KEY',
+  'settings.subAgents.custom.envValuePlaceholder': 'value',
+  'settings.subAgents.custom.envPassthroughLabel': '继承的环境变量',
+  'settings.subAgents.custom.envPassthroughHint': '从 DotCraft 进程继承的环境变量名。',
+  'settings.subAgents.custom.envPassthroughPlaceholder': 'OPENAI_API_KEY',
+
+  'settings.subAgents.custom.limitsTitle': '限制',
+  'settings.subAgents.custom.limitsDescription': '避免委派任务卡住或输出过大。',
+  'settings.subAgents.custom.timeoutLabel': '超时（秒）',
+  'settings.subAgents.custom.timeoutHint': '超过该时间仍未完成则取消 CLI。',
+  'settings.subAgents.custom.maxOutputBytesLabel': '最大输出字节',
+  'settings.subAgents.custom.maxOutputBytesHint':
+    'DotCraft 最多捕获多少 stdout（默认 1 MiB）。',
+
+  'settings.subAgents.custom.advancedTitle': '高级',
+  'settings.subAgents.custom.advancedDescription': '除非你明确需要，否则保持默认即可。',
+  'settings.subAgents.custom.advancedToggleShow': '显示高级选项',
+  'settings.subAgents.custom.advancedToggleHide': '隐藏高级选项',
+  'settings.subAgents.custom.trustLevelLabel': '信任级别',
+  'settings.subAgents.custom.trustLevelHint': '告诉 DotCraft 在调用该 CLI 前的审批偏好。',
+  'settings.subAgents.custom.trustLevel.inherit': '使用默认',
+  'settings.subAgents.custom.trustLevel.trusted': '受信任（跳过大多数提示）',
+  'settings.subAgents.custom.trustLevel.prompt': '提示审批（默认）',
+  'settings.subAgents.custom.trustLevel.restricted': '受限（写入操作必须确认）',
+  'settings.subAgents.custom.permissionMappingTitle': '审批模式参数',
+  'settings.subAgents.custom.permissionMappingHint': '针对每种审批模式附加的参数。',
+  'settings.subAgents.custom.permissionMappingInteractive': 'Interactive',
+  'settings.subAgents.custom.permissionMappingAutoApprove': 'Auto approve',
+  'settings.subAgents.custom.permissionMappingRestricted': 'Restricted',
+  'settings.subAgents.custom.permissionMappingPlaceholder': '--mode ask --trust',
+  'settings.subAgents.custom.sanitizationRulesLabel': '脱敏规则（JSON）',
+  'settings.subAgents.custom.sanitizationRulesHint':
+    '可选。传给运行时的 JSON 对象，用于对输出做脱敏。',
+  'settings.subAgents.custom.sanitizationRulesPlaceholder': '{ "redactEmails": true }',
+
+  // Validation
+  'settings.subAgents.validation.nameRequired': '名称不能为空。',
+  'settings.subAgents.validation.binRequired': '必须填写可执行文件路径。',
+  'settings.subAgents.validation.inputArgTemplateRequired':
+    '当输入模式为参数模板时，必须填写参数模板。',
+  'settings.subAgents.validation.inputEnvKeyRequired':
+    '当输入模式为环境变量时，必须填写环境变量名。',
+  'settings.subAgents.validation.outputJsonPathRequired':
+    '当输出格式为 JSON 时，必须填写 JSON 路径。',
+  'settings.subAgents.validation.integerRequired': '数字字段必须是整数。',
+  'settings.subAgents.validation.sanitizationRulesObject': '脱敏规则必须是 JSON 对象。',
+  'settings.subAgents.validation.sanitizationRulesJson': '脱敏规则必须是合法的 JSON。'
 }
 
 const CATALOGS: Record<AppLocale, Record<string, string>> = {

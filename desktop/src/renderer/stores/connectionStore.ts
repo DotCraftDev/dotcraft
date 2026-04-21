@@ -23,6 +23,7 @@ export interface ServerCapabilities {
   modelCatalogManagement?: boolean
   workspaceConfigManagement?: boolean
   mcpManagement?: boolean
+  subAgentManagement?: boolean
   externalChannelManagement?: boolean
   gitHubTrackerConfig?: boolean
   mcpStatus?: boolean

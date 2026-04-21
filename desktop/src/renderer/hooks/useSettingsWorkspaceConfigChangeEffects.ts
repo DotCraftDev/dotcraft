@@ -6,9 +6,11 @@ interface UseSettingsWorkspaceConfigChangeEffectsArgs {
   changeSeq: number
   llmDirty: boolean
   mcpEnabled: boolean
+  subAgentEnabled?: boolean
   onExternalLlmChangeNotice: () => void
   reloadWorkspaceCore: () => Promise<void> | void
   reloadMcpData: () => Promise<void> | void
+  reloadSubAgentData?: () => Promise<void> | void
   clearServerChannels: () => void
 }
 
@@ -17,9 +19,11 @@ export function useSettingsWorkspaceConfigChangeEffects({
   changeSeq,
   llmDirty,
   mcpEnabled,
+  subAgentEnabled = false,
   onExternalLlmChangeNotice,
   reloadWorkspaceCore,
   reloadMcpData,
+  reloadSubAgentData,
   clearServerChannels
 }: UseSettingsWorkspaceConfigChangeEffectsArgs): void {
   const lastHandledSeqRef = useRef(changeSeq)
@@ -51,6 +55,10 @@ export function useSettingsWorkspaceConfigChangeEffects({
       void reloadMcpData()
     }
 
+    if (changedRegions.has('subagent') && subAgentEnabled) {
+      void reloadSubAgentData?.()
+    }
+
     if (changedRegions.has('externalChannel')) {
       clearServerChannels()
     }
@@ -62,6 +70,8 @@ export function useSettingsWorkspaceConfigChangeEffects({
     mcpEnabled,
     onExternalLlmChangeNotice,
     reloadMcpData,
-    reloadWorkspaceCore
+    reloadSubAgentData,
+    reloadWorkspaceCore,
+    subAgentEnabled
   ])
 }

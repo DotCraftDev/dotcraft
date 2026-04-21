@@ -8,9 +8,11 @@ function HookHost(props: {
   changeSeq: number
   llmDirty?: boolean
   mcpEnabled?: boolean
+  subAgentEnabled?: boolean
   onExternalLlmChangeNotice?: () => void
   reloadWorkspaceCore?: () => Promise<void> | void
   reloadMcpData?: () => Promise<void> | void
+  reloadSubAgentData?: () => Promise<void> | void
   clearServerChannels?: () => void
 }): JSX.Element {
   useSettingsWorkspaceConfigChangeEffects({
@@ -18,9 +20,11 @@ function HookHost(props: {
     changeSeq: props.changeSeq,
     llmDirty: props.llmDirty ?? false,
     mcpEnabled: props.mcpEnabled ?? false,
+    subAgentEnabled: props.subAgentEnabled ?? false,
     onExternalLlmChangeNotice: props.onExternalLlmChangeNotice ?? vi.fn(),
     reloadWorkspaceCore: props.reloadWorkspaceCore ?? vi.fn(),
     reloadMcpData: props.reloadMcpData ?? vi.fn(),
+    reloadSubAgentData: props.reloadSubAgentData ?? vi.fn(),
     clearServerChannels: props.clearServerChannels ?? vi.fn()
   })
 
@@ -109,6 +113,35 @@ describe('useSettingsWorkspaceConfigChangeEffects', () => {
     await waitFor(() => {
       expect(reloadMcpData).toHaveBeenCalledTimes(1)
       expect(clearServerChannels).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('refreshes subagent data from incoming config events', async () => {
+    const reloadSubAgentData = vi.fn()
+    const { rerender } = render(
+      <HookHost
+        change={null}
+        changeSeq={0}
+        subAgentEnabled={true}
+        reloadSubAgentData={reloadSubAgentData}
+      />
+    )
+
+    rerender(
+      <HookHost
+        change={{
+          source: 'subagent/profiles/upsert',
+          regions: ['subagent'],
+          changedAt: '2026-04-21T10:15:03Z'
+        }}
+        changeSeq={1}
+        subAgentEnabled={true}
+        reloadSubAgentData={reloadSubAgentData}
+      />
+    )
+
+    await waitFor(() => {
+      expect(reloadSubAgentData).toHaveBeenCalledTimes(1)
     })
   })
 
