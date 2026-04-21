@@ -134,7 +134,7 @@ export function ImageViewer({ absolutePath, sizeBytes }: ImageViewerProps): JSX.
             maxHeight: fitMode ? '100%' : 'none',
             width: fitMode ? 'auto' : `${scale * 100}%`,
             height: fitMode ? 'auto' : 'auto',
-            transform: fitMode ? 'none' : `scale(${scale})`,
+            transform: 'none',
             transformOrigin: 'top left',
             imageRendering: scale > 2 ? 'pixelated' : 'auto'
           }}
