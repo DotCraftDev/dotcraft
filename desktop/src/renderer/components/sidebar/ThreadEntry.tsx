@@ -460,11 +460,11 @@ function ThreadEntryContextMenu({
     if (!ok) return
     try {
       await window.api.appServer.sendRequest('thread/delete', { threadId })
+      if (activeThreadId === threadId) setActiveThreadId(null)
+      removeThread(threadId)
     } catch {
-      // Best-effort
+      // Keep local state unchanged when the backend delete fails.
     }
-    if (activeThreadId === threadId) setActiveThreadId(null)
-    removeThread(threadId)
   }
 
   return (

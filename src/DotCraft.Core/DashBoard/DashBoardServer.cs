@@ -48,7 +48,15 @@ public sealed class DashBoardServer : IAsyncDisposable
 
         app.MapDashBoardAuth(config);
         app.UseDashBoardAuth(config);
-        app.MapDashBoard(traceStore, paths, tokenUsageStore, setupMode, orchestratorProviders, configTypes, sessionHandler, refreshTraceFromDiskBeforeRead);
+        app.MapDashBoard(
+            traceStore,
+            paths,
+            tokenUsageStore,
+            setupMode,
+            orchestratorProviders,
+            configTypes,
+            sessionHandler: sessionHandler,
+            refreshTraceFromDiskBeforeRead: refreshTraceFromDiskBeforeRead);
 
         var url = $"http://{dashBoardConfig.Host}:{dashBoardConfig.Port}";
         _app = app;

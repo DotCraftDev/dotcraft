@@ -14,6 +14,7 @@ using DotCraft.Modules;
 using DotCraft.Protocol;
 using DotCraft.Security;
 using DotCraft.Skills;
+using DotCraft.State;
 using DotCraft.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -71,6 +72,7 @@ public static class ServiceRegistration
             WorkspacePath = workspacePath,
             CraftPath = botPath
         });
+        services.AddSingleton(new StateRuntime(botPath));
         services.AddSingleton(new PathBlacklist(config.Security.BlacklistedPaths));
         services.AddSingleton(new MemoryStore(botPath));
         services.AddSingleton(new ApprovalStore(botPath));
@@ -108,7 +110,7 @@ public static class ServiceRegistration
         services.AddSingleton<LspServerManager>();
         services.AddSingleton(new SessionGate(config.MaxSessionQueueSize));
         services.AddSingleton<ActiveRunRegistry>();
-        services.AddSingleton(new ThreadStore(botPath));
+        services.AddSingleton(sp => new ThreadStore(botPath, sp.GetRequiredService<StateRuntime>()));
         services.AddSingleton<IToolProfileRegistry>(sp =>
         {
             var reg = new ToolProfileRegistry();
@@ -120,7 +122,7 @@ public static class ServiceRegistration
                 new[]
                 {
                     new WelcomeSuggestionToolProvider(
-                        sp.GetRequiredService<ThreadStore>(),
+                        sp.GetRequiredService<SessionPersistenceService>(),
                         sp.GetRequiredService<MemoryStore>(),
                         workspacePath)
                 });
@@ -133,15 +135,31 @@ public static class ServiceRegistration
         if (config.Tracing.Enabled)
         {
             var tracingStoragePath = Path.Combine(botPath, "tracing");
-            var traceStore = new TraceStore(tracingStoragePath);
-            traceStore.LoadFromDisk();
-            services.AddSingleton(traceStore);
+            services.AddSingleton(sp =>
+            {
+                var traceStore = new TraceStore(
+                    tracingStoragePath,
+                    maxEventsPerSession: 5000,
+                    synchronousPersist: false,
+                    stateRuntime: sp.GetRequiredService<StateRuntime>());
+                traceStore.LoadFromDisk();
+                return traceStore;
+            });
             services.AddSingleton<TraceCollector>();
 
-            var tokenUsageStore = new TokenUsageStore(tracingStoragePath);
-            tokenUsageStore.LoadFromDisk();
-            services.AddSingleton(tokenUsageStore);
+            services.AddSingleton(sp =>
+            {
+                var tokenUsageStore = new TokenUsageStore(
+                    tracingStoragePath,
+                    stateRuntime: sp.GetRequiredService<StateRuntime>());
+                tokenUsageStore.LoadFromDisk();
+                return tokenUsageStore;
+            });
         }
+
+        services.AddSingleton(sp => new SessionPersistenceService(
+            sp.GetRequiredService<ThreadStore>(),
+            sp.GetService<TraceStore>()));
 
         return services;
     }

@@ -19,6 +19,7 @@ import type {
   ViewerTab,
   FileViewerTab,
   BrowserViewerTab,
+  TerminalViewerTab,
   ViewerContentClass,
   ViewerKind,
   PerThreadViewerState,
@@ -36,9 +37,10 @@ function computeLabels(tabs: ViewerTab[]): ViewerTab[] {
     .filter((entry): entry is { tab: FileViewerTab; index: number } => entry.tab.kind === 'file')
 
   if (fileTabs.length === 0) {
-    return tabs.map((tab) => {
-      if (tab.kind !== 'browser') return tab
-      return { ...tab, label: browserDefaultLabel(tab) }
+    return tabs.map((tab, index) => {
+      if (tab.kind === 'browser') return { ...tab, label: browserDefaultLabel(tab) }
+      if (tab.kind === 'terminal') return { ...tab, label: terminalDefaultLabel(tabs, index) }
+      return tab
     })
   }
 
@@ -60,6 +62,7 @@ function computeLabels(tabs: ViewerTab[]): ViewerTab[] {
   // For colliding tabs, we extend with parent path segments.
   const labels = tabs.map((tab) => {
     if (tab.kind === 'browser') return browserDefaultLabel(tab)
+    if (tab.kind === 'terminal') return tab.label
     const parts = tab.relativePath.replace(/\\/g, '/').split('/')
     return parts[parts.length - 1] ?? tab.relativePath
   })
@@ -98,11 +101,19 @@ function computeLabels(tabs: ViewerTab[]): ViewerTab[] {
     }
   }
 
-  return tabs.map((tab, i) => ({ ...tab, label: labels[i] ?? browserDefaultLabel(tab) }))
+  return tabs.map((tab, i) => {
+    if (tab.kind === 'browser') {
+      return { ...tab, label: labels[i] ?? browserDefaultLabel(tab) }
+    }
+    if (tab.kind === 'terminal') {
+      return { ...tab, label: terminalDefaultLabel(tabs, i) }
+    }
+    return { ...tab, label: labels[i] ?? tab.label }
+  })
 }
 
 function browserDefaultLabel(tab: ViewerTab): string {
-  if (tab.kind !== 'browser') return tab.relativePath
+  if (tab.kind !== 'browser') return tab.label
   if (tab.title?.trim()) return tab.title.trim()
   const url = tab.currentUrl.trim()
   if (!url) return 'New Tab'
@@ -112,6 +123,14 @@ function browserDefaultLabel(tab: ViewerTab): string {
   } catch {
     return 'New Tab'
   }
+}
+
+function terminalDefaultLabel(tabs: ViewerTab[], tabIndex: number): string {
+  const tab = tabs[tabIndex]
+  if (!tab || tab.kind !== 'terminal') return 'Terminal'
+  const terminalTabs = tabs.filter((item): item is TerminalViewerTab => item.kind === 'terminal')
+  const position = terminalTabs.findIndex((item) => item.id === tab.id)
+  return position >= 0 ? `Terminal ${position + 1}` : 'Terminal'
 }
 
 // ─── Store interface ────────────────────────────────────────────────────────
@@ -152,11 +171,21 @@ interface ViewerTabStoreActions {
     forceNew?: boolean
   }): string
 
+  /** Opens a terminal tab in the given thread. */
+  openTerminal(params: {
+    threadId: string
+    cwd: string
+    initialLabel?: string
+  }): string
+
   /** Focuses an existing browser tab in the thread by normalized current URL. */
   focusBrowserTabByUrl(params: { threadId: string; url: string }): string | null
 
   /** Applies browser state updates to an existing browser tab. */
   updateBrowserTab(threadId: string, tabId: string, patch: Partial<BrowserViewerTab>): void
+
+  /** Applies terminal state updates to an existing terminal tab. */
+  updateTerminalTab(threadId: string, tabId: string, patch: Partial<TerminalViewerTab>): void
 
   /** Closes the tab with `tabId` in `threadId` and selects the nearest neighbor. */
   closeTab(threadId: string, tabId: string): void
@@ -172,11 +201,18 @@ interface ViewerTabStoreActions {
     threadId: string,
     options?: {
       onBrowserTabRemoved?: (tab: BrowserViewerTab) => void
+      onTerminalTabRemoved?: (tab: TerminalViewerTab) => void
     }
   ): void
 
   /** Clears all per-thread state when the workspace changes. */
-  onWorkspaceSwitched(newWorkspacePath: string): void
+  onWorkspaceSwitched(
+    newWorkspacePath: string,
+    options?: {
+      onBrowserTabRemoved?: (tab: BrowserViewerTab) => void
+      onTerminalTabRemoved?: (tab: TerminalViewerTab) => void
+    }
+  ): void
 
   /** Returns the per-thread viewer state for the given thread (lazy-initialised). */
   getThreadState(threadId: string): PerThreadViewerState
@@ -284,6 +320,27 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     return newTab.id
   },
 
+  openTerminal({ threadId, cwd, initialLabel = 'Terminal' }) {
+    const state = get()
+    const threadState = state.getThreadState(threadId)
+
+    const newTab: TerminalViewerTab = {
+      id: nextTabId(),
+      kind: 'terminal',
+      label: initialLabel,
+      cwd,
+      hasStarted: false
+    }
+
+    const newTabs = computeLabels([...threadState.tabs, newTab])
+    set((s) => {
+      const next = new Map(s.byThread)
+      next.set(threadId, { tabs: newTabs, activeTabId: newTab.id })
+      return { byThread: next }
+    })
+    return newTab.id
+  },
+
   focusBrowserTabByUrl({ threadId, url }) {
     const state = get()
     const threadState = state.getThreadState(threadId)
@@ -314,6 +371,35 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
       ...patch,
       id: current.id,
       kind: 'browser'
+    }
+
+    const nextTabs = [...threadState.tabs]
+    nextTabs[idx] = nextTab
+    const relabeled = computeLabels(nextTabs)
+    set((s) => {
+      const next = new Map(s.byThread)
+      next.set(threadId, { ...threadState, tabs: relabeled })
+      return { byThread: next }
+    })
+  },
+
+  updateTerminalTab(threadId, tabId, patch) {
+    const state = get()
+    const threadState = state.getThreadState(threadId)
+    const idx = threadState.tabs.findIndex((t) => t.id === tabId && t.kind === 'terminal')
+    if (idx === -1) return
+
+    const current = threadState.tabs[idx] as TerminalViewerTab
+    const patchEntries = Object.entries(patch) as Array<[keyof TerminalViewerTab, unknown]>
+    if (patchEntries.length && patchEntries.every(([key, value]) => Object.is(current[key], value))) {
+      return
+    }
+
+    const nextTab: TerminalViewerTab = {
+      ...current,
+      ...patch,
+      id: current.id,
+      kind: 'terminal'
     }
 
     const nextTabs = [...threadState.tabs]
@@ -374,10 +460,12 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
 
   onThreadDeleted(threadId, options) {
     const existing = get().byThread.get(threadId)
-    if (existing?.tabs.length && options?.onBrowserTabRemoved) {
+    if (existing?.tabs.length && (options?.onBrowserTabRemoved || options?.onTerminalTabRemoved)) {
       for (const tab of existing.tabs) {
         if (tab.kind === 'browser') {
-          options.onBrowserTabRemoved(tab)
+          options.onBrowserTabRemoved?.(tab)
+        } else if (tab.kind === 'terminal') {
+          options.onTerminalTabRemoved?.(tab)
         }
       }
     }
@@ -388,7 +476,18 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
     })
   },
 
-  onWorkspaceSwitched(newWorkspacePath) {
+  onWorkspaceSwitched(newWorkspacePath, options) {
+    if (options?.onBrowserTabRemoved || options?.onTerminalTabRemoved) {
+      for (const threadState of get().byThread.values()) {
+        for (const tab of threadState.tabs) {
+          if (tab.kind === 'browser') {
+            options.onBrowserTabRemoved?.(tab)
+          } else if (tab.kind === 'terminal') {
+            options.onTerminalTabRemoved?.(tab)
+          }
+        }
+      }
+    }
     set({
       byThread: new Map(),
       currentWorkspacePath: newWorkspacePath

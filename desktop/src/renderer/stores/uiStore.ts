@@ -13,7 +13,7 @@ const DETAIL_MIN_WIDTH = 300
 /** Timeout for pending welcome turn to prevent permanent residue */
 const PENDING_WELCOME_TIMEOUT_MS = 30_000
 
-export type SystemDetailTab = 'changes' | 'plan' | 'terminal'
+export type SystemDetailTab = 'changes' | 'plan'
 
 /** @deprecated Use `ActiveDetailTab` instead. Kept for backwards compatibility. */
 export type DetailPanelTab = SystemDetailTab
@@ -117,7 +117,7 @@ interface UIStore extends UIState {
   setDetailPanelWidth(width: number): void
   /**
    * Sets the active detail tab to a system tab.
-   * Backwards-compatible: `'changes' | 'plan' | 'terminal'` still work.
+   * Allowed values: `'changes' | 'plan'`.
    */
   setActiveDetailTab(tab: SystemDetailTab): void
   /** Activates a viewer tab by its ID and makes the detail panel visible. */

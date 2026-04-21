@@ -1,75 +1,61 @@
 using System.Text.Json;
+using DotCraft.State;
 using Microsoft.Agents.AI;
 
 namespace DotCraft.Protocol;
 
 /// <summary>
-/// Manages all file I/O for Session Protocol data under the .craft directory.
-/// Handles Thread files and AgentSession files.
+/// Manages thread persistence under the .craft directory.
+/// Canonical thread history is stored as thread JSONL under threads/active|archived while metadata and agent sessions live in SQLite.
 /// </summary>
 public sealed class ThreadStore
 {
-    private readonly string _threadsDir;
+    private readonly ThreadMetadataStore _metadataStore;
+    private readonly ThreadRolloutStore _rolloutStore;
 
     public ThreadStore(string botPath)
+        : this(botPath, null)
     {
-        _threadsDir = Path.Combine(botPath, "threads");
-        Directory.CreateDirectory(_threadsDir);
     }
 
-    // -------------------------------------------------------------------------
-    // Thread files: .craft/threads/{threadId}.json
-    // -------------------------------------------------------------------------
+    internal ThreadStore(string botPath, StateRuntime? stateRuntime)
+    {
+        _metadataStore = new ThreadMetadataStore(stateRuntime ?? new StateRuntime(botPath));
+        _rolloutStore = new ThreadRolloutStore(botPath);
+    }
 
     /// <summary>
-    /// Persists a Thread to disk.
+    /// Persists a thread to canonical thread JSONL storage and upserts queryable metadata in SQLite.
     /// </summary>
     public async Task SaveThreadAsync(SessionThread thread, CancellationToken ct = default)
     {
-        var path = GetThreadPath(thread.Id);
-        var json = JsonSerializer.Serialize(thread, SessionJsonOptions.Default);
-        await File.WriteAllTextAsync(path, json, ct);
+        var previous = await _rolloutStore.LoadThreadAsync(thread.Id, ct);
+        var rolloutPath = await _rolloutStore.SaveThreadAsync(thread, previous, ct);
+        _metadataStore.UpsertThread(thread, rolloutPath);
     }
 
     /// <summary>
-    /// Loads a Thread from disk. Returns null if not found.
+    /// Loads a thread by replaying canonical thread history.
     /// </summary>
-    public async Task<SessionThread?> LoadThreadAsync(string threadId, CancellationToken ct = default)
-    {
-        var path = GetThreadPath(threadId);
-        if (!File.Exists(path))
-            return null;
-
-        var json = await File.ReadAllTextAsync(path, ct);
-        return JsonSerializer.Deserialize<SessionThread>(json, SessionJsonOptions.Default);
-    }
+    public Task<SessionThread?> LoadThreadAsync(string threadId, CancellationToken ct = default)
+        => _rolloutStore.LoadThreadAsync(threadId, ct);
 
     /// <summary>
-    /// Deletes a Thread file (does not delete the session file).
+    /// Deletes a thread JSONL history and metadata row.
     /// </summary>
     public void DeleteThread(string threadId)
     {
-        var path = GetThreadPath(threadId);
-        if (File.Exists(path))
-            File.Delete(path);
+        _rolloutStore.DeleteThread(threadId);
+        _metadataStore.DeleteThread(threadId);
     }
 
     /// <summary>
-    /// Deletes the agent session file (.session.json) for a Thread, if it exists.
+    /// Deletes the persisted agent session for a thread from SQLite.
     /// </summary>
-    public void DeleteSessionFile(string threadId)
-    {
-        var path = GetSessionPath(threadId);
-        if (File.Exists(path))
-            File.Delete(path);
-    }
-
-    // -------------------------------------------------------------------------
-    // AgentSession files: .craft/threads/{threadId}.session.json
-    // -------------------------------------------------------------------------
+    public void DeleteSessionFile(string threadId) => _metadataStore.DeleteSession(threadId);
 
     /// <summary>
-    /// Saves the AgentSession for a Thread, applying tool result compaction.
+    /// Saves the agent session JSON into SQLite.
     /// </summary>
     public async Task SaveSessionAsync(
         AIAgent agent,
@@ -77,25 +63,22 @@ public sealed class ThreadStore
         string threadId,
         CancellationToken ct = default)
     {
-        var path = GetSessionPath(threadId);
         var serialized = await agent.SerializeSessionAsync(session, SessionPersistenceJsonOptions.Default, ct);
-        await File.WriteAllTextAsync(path, serialized.GetRawText(), ct);
+        _metadataStore.SaveSessionJson(threadId, serialized.GetRawText());
     }
 
     /// <summary>
-    /// Loads an existing AgentSession for the Thread, or creates a new one.
+    /// Loads an existing agent session from SQLite, or creates a new session when none exists.
     /// </summary>
     public async Task<AgentSession> LoadOrCreateSessionAsync(
         AIAgent agent,
         string threadId,
         CancellationToken ct = default)
     {
-        var path = GetSessionPath(threadId);
-        if (File.Exists(path))
+        var sessionJson = _metadataStore.LoadSessionJson(threadId);
+        if (!string.IsNullOrWhiteSpace(sessionJson))
         {
-            await using var stream = File.OpenRead(path);
-            var element = await JsonSerializer.DeserializeAsync<JsonElement>(
-                stream, SessionPersistenceJsonOptions.Default, cancellationToken: ct);
+            var element = JsonSerializer.Deserialize<JsonElement>(sessionJson, SessionPersistenceJsonOptions.Default);
             return await agent.DeserializeSessionAsync(element, SessionPersistenceJsonOptions.Default, ct);
         }
 
@@ -103,62 +86,17 @@ public sealed class ThreadStore
     }
 
     /// <summary>
-    /// Returns true if a session file exists for this Thread (i.e. server-managed history).
+    /// Returns true when a thread has a persisted server-side session in SQLite.
     /// </summary>
-    public bool SessionFileExists(string threadId) => File.Exists(GetSessionPath(threadId));
-
-    // -------------------------------------------------------------------------
-    // Thread discovery: scan thread files on demand
-    // -------------------------------------------------------------------------
+    public bool SessionFileExists(string threadId)
+        => _metadataStore.SessionExists(threadId);
 
     /// <summary>
-    /// Scans the threads directory and returns a <see cref="ThreadSummary"/> for every
-    /// thread file found. Corrupt or unreadable files are silently skipped.
-    /// This replaces the old <c>thread-index.json</c> approach and is always in sync.
+    /// Returns all persisted thread summaries from SQLite metadata, ordered by activity.
     /// </summary>
-    public async Task<List<ThreadSummary>> LoadIndexAsync(CancellationToken ct = default)
+    public Task<List<ThreadSummary>> LoadIndexAsync(CancellationToken ct = default)
     {
-        var entries = new List<ThreadSummary>();
-
-        foreach (var file in Directory.GetFiles(_threadsDir, "*.json"))
-        {
-            if (file.EndsWith(".session.json", StringComparison.OrdinalIgnoreCase))
-                continue;
-            try
-            {
-                var json = await File.ReadAllTextAsync(file, ct);
-                var thread = JsonSerializer.Deserialize<SessionThread>(json, SessionJsonOptions.Default);
-                if (thread != null)
-                    entries.Add(ThreadSummary.FromThread(thread));
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-                // Skip corrupt files
-            }
-        }
-
-        return entries;
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(_metadataStore.LoadIndex());
     }
-
-    // -------------------------------------------------------------------------
-    // Private helpers
-    // -------------------------------------------------------------------------
-
-    private string GetThreadPath(string threadId)
-    {
-        var safe = MakeSafe(threadId);
-        return Path.Combine(_threadsDir, $"{safe}.json");
-    }
-
-    private string GetSessionPath(string threadId)
-    {
-        var safe = MakeSafe(threadId);
-        return Path.Combine(_threadsDir, $"{safe}.session.json");
-    }
-
-    private static string MakeSafe(string key) => string.Concat(key.Split(Path.GetInvalidFileNameChars()));
 }

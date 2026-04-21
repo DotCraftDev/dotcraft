@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotCraft.Configuration;
 using DotCraft.Hosting;
+using DotCraft.Protocol;
 using DotCraft.Tracing;
 using DotCraft.Tools;
 using Microsoft.AspNetCore.Builder;
@@ -37,6 +38,8 @@ public static class DashBoardMiddleware
         bool setupMode = false,
         IEnumerable<IOrchestratorSnapshotProvider>? orchestratorProviders = null,
         IEnumerable<Type>? configTypes = null,
+        SessionPersistenceService? persistence = null,
+        Func<string, CancellationToken, Task>? deleteThreadAsync = null,
         IDashBoardSessionHandler? sessionHandler = null,
         bool refreshTraceFromDiskBeforeRead = false)
     {
@@ -78,25 +81,34 @@ public static class DashBoardMiddleware
         {
             RefreshTraceFromDiskIfEnabled();
             var sessions = traceStore.GetSessions();
-            var result = sessions.Select(s => new
+            var descriptors = persistence?.DescribeSessionDeletions(sessions.Select(s => s.SessionKey))
+                              ?? new Dictionary<string, TraceSessionDeletionDescriptor>(StringComparer.Ordinal);
+            var result = sessions.Select(s =>
             {
-                s.SessionKey,
-                startedAt = s.StartedAt.ToString("o"),
-                lastActivityAt = s.LastActivityAt.ToString("o"),
-                s.TotalInputTokens,
-                s.TotalOutputTokens,
-                totalTokens = s.TotalInputTokens + s.TotalOutputTokens,
-                s.RequestCount,
-                s.ResponseCount,
-                s.ToolCallCount,
-                s.ErrorCount,
-                s.ContextCompactionCount,
-                totalToolDurationMs = s.TotalToolDurationMs,
-                avgToolDurationMs = s.AvgToolDurationMs,
-                maxToolDurationMs = s.MaxToolDurationMs,
-                finalSystemPrompt = s.FinalSystemPrompt,
-                toolNames = s.ToolNames,
-                lastFinishReason = s.LastFinishReason
+                descriptors.TryGetValue(s.SessionKey, out var descriptor);
+                return new
+                {
+                    s.SessionKey,
+                    startedAt = s.StartedAt.ToString("o"),
+                    lastActivityAt = s.LastActivityAt.ToString("o"),
+                    s.TotalInputTokens,
+                    s.TotalOutputTokens,
+                    totalTokens = s.TotalInputTokens + s.TotalOutputTokens,
+                    s.RequestCount,
+                    s.ResponseCount,
+                    s.ToolCallCount,
+                    s.ErrorCount,
+                    s.ContextCompactionCount,
+                    totalToolDurationMs = s.TotalToolDurationMs,
+                    avgToolDurationMs = s.AvgToolDurationMs,
+                    maxToolDurationMs = s.MaxToolDurationMs,
+                    finalSystemPrompt = s.FinalSystemPrompt,
+                    toolNames = s.ToolNames,
+                    lastFinishReason = s.LastFinishReason,
+                    rootThreadId = descriptor?.RootThreadId,
+                    bindingKind = descriptor?.BindingKind ?? "unbound",
+                    deletionScope = descriptor?.DeletionScope ?? SessionPersistenceDeletionScopes.TraceOnly
+                };
             });
             return Results.Json(result, JsonOptions);
         });
@@ -112,6 +124,14 @@ public static class DashBoardMiddleware
         endpoints.MapDelete("/dashboard/api/sessions/{sessionKey}", async (HttpContext http, string sessionKey) =>
         {
             RefreshTraceFromDiskIfEnabled();
+            if (persistence != null)
+            {
+                var cascadeDeleted = await persistence.DeleteTraceSessionAsync(sessionKey, deleteThreadAsync, http.RequestAborted);
+                return cascadeDeleted
+                    ? Results.Json(new { deleted = true, sessionKey }, JsonOptions)
+                    : Results.Json(new { deleted = false, sessionKey }, JsonOptions, statusCode: 404);
+            }
+
             var deleted = traceStore.ClearSession(sessionKey);
 
             if (capturedHandler != null)
@@ -141,6 +161,12 @@ public static class DashBoardMiddleware
             RefreshTraceFromDiskIfEnabled();
             // Capture keys before clearing so we can delete the underlying threads.
             var sessionKeys = traceStore.GetSessions().Select(s => s.SessionKey).ToList();
+            if (persistence != null)
+            {
+                await persistence.DeleteTraceSessionsAsync(sessionKeys, deleteThreadAsync, http.RequestAborted);
+                return Results.Json(new { cleared = true }, JsonOptions);
+            }
+
             traceStore.ClearAll();
 
             if (capturedHandler != null)

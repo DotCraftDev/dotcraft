@@ -29,7 +29,7 @@ The Session Protocol is the active execution model for:
 - WeCom
 - GitHubTracker
 
-These channels create and resume server-managed threads in `.craft/threads/`, submit turns through Session Core, and consume `SessionEvent` streams through thin adapters.
+These channels create and resume server-managed threads whose canonical JSONL history lives under `.craft/threads/active|archived/`, while queryable metadata and agent session blobs live in `.craft/state.db`. They submit turns through Session Core and consume `SessionEvent` streams through thin adapters.
 
 ### 1.2 Explicit Exemptions
 
@@ -78,7 +78,7 @@ This boundary is intentional. DotCraft does **not** attempt to force client-owne
    - Owns Thread/Turn/Item lifecycle and state machines.
    - Wraps the agent execution pipeline (`AgentFactory` + `RunStreamingAsync`).
    - Emits a structured event stream consumed by adapters.
-   - Persists thread state to `.craft/threads/`.
+- Persists canonical thread history to JSONL under `.craft/threads/active|archived/` and stores thread metadata plus agent session state in `.craft/state.db`.
    - Enforces per-thread mutual exclusion.
 
 2. **Channel adapters** (per in-scope channel, in module assemblies)
@@ -88,8 +88,8 @@ This boundary is intentional. DotCraft does **not** attempt to force client-owne
    - Implement approval routing by translating `ApprovalRequest` Items into channel UX.
 
 3. **Persistence Layer** (`DotCraft.Protocol`)
-   - Serializes thread state to `.craft/threads/{threadId}.json`.
-   - Serializes agent history to `.craft/threads/{threadId}.session.json`.
+- Appends thread history to `.craft/threads/{active|archived}/{threadId}.jsonl`.
+- Stores agent history in the SQLite `thread_sessions` table inside `.craft/state.db`.
    - Provides thread discovery and session reconstruction on resume.
 
 4. **Event stream** (in-process, `DotCraft.Protocol`)
@@ -125,8 +125,8 @@ The server-managed session protocol is organized into five layers, ordered from 
    - Unchanged by this spec. Session Core consumes its output.
 
 5. **Persistence Layer** (`DotCraft.Core`)
-   - Thread file storage in `.craft/threads/`
-   - Directory-scan-based thread discovery
+- Thread JSONL storage in `.craft/threads/active|archived/` plus metadata/session storage in `.craft/state.db`
+   - SQLite-backed thread discovery
    - Agent session reconstruction on resume
 
 ### 3.3 Layer Diagram
@@ -146,7 +146,7 @@ Server-managed channels
                  Agent Execution Layer
                          │
                   Persistence Layer
-              (.craft/threads/*.json, *.session.json)
+(`.craft/threads/**/*.jsonl`, `.craft/state.db`)
 
 
 Client-managed channels (outside Session Core)
@@ -619,7 +619,7 @@ SessionEvent
   - Hosts that multiplex **multiple Wire clients** onto the same Session Core process (e.g. DotCraft AppServer) **SHOULD** broadcast a `thread/renamed` notification on the AppServer Wire Protocol after the display name is updated, including when the change originates from another channel or from automatic titling, so clients such as DotCraft Desktop can refresh thread titles **without** relying on `turn/completed` (which may not be delivered to connections that did not subscribe to that thread). See [AppServer Protocol §4.11 `thread/rename`](appserver-protocol.md#411-threadrename) and [§6.1 `thread/renamed`](appserver-protocol.md#61-thread-notifications).
 
 - **`thread/deleted` (Wire Protocol only; not a `SessionEvent`)**
-  - Permanent removal is performed via `ISessionService.DeleteThreadPermanentlyAsync(threadId)`. Session Core removes in-memory state and thread/session files; it does **not** enqueue a `SessionEvent` on the turn/event stream (there is no active turn for deletion).
+  - Permanent removal is performed via `ISessionService.DeleteThreadPermanentlyAsync(threadId)`. Session Core removes in-memory state, persisted thread/session data, and all tracing sessions/events bound to that thread; it does **not** enqueue a `SessionEvent` on the turn/event stream (there is no active turn for deletion).
   - Hosts that multiplex **multiple Wire clients** onto the same Session Core process (e.g. DotCraft AppServer) **SHOULD** broadcast a `thread/deleted` notification on the AppServer Wire Protocol after deletion completes, including when deletion is initiated outside Wire (e.g. DashBoard HTTP `DELETE` on `/dashboard/api/sessions/{sessionKey}`), so UIs stay consistent. See [AppServer Protocol §4.9 `thread/delete`](appserver-protocol.md#49-threaddelete) and [§6.1 Thread Notifications](appserver-protocol.md#61-thread-notifications).
 
 #### Turn Events
@@ -840,68 +840,46 @@ Thread data is stored under the workspace's `.craft/` directory:
 
 ```
 .craft/
-├── sessions/                    # Legacy directory, ignored by Session Core
-│   ├── {legacyKey}.json
-│   └── ...
-├── threads/                     # Session Protocol persistence root
-│   ├── {threadId}.json          # Full thread state (Thread + Turns + Items)
-│   ├── {threadId}.session.json  # AgentSession serialization (conversation history for LLM)
-│   └── ...
+├── threads/
+│   ├── active/
+│   │   ├── {threadId}.jsonl     # Canonical rollout history for active threads
+│   │   └── ...
+│   ├── archived/
+│   │   ├── {threadId}.jsonl     # Canonical rollout history for archived threads
+│   │   └── ...
+├── state.db                     # SQLite metadata, agent sessions, tracing, token usage
 ```
 
 ### 9.2 Thread File Format
 
-Each thread is stored as a JSON file containing the full Thread object:
+Each thread is stored as an append-only JSONL rollout. Every line is a `ThreadRolloutRecord` describing one state transition:
 
 ```json
-{
-  "id": "thread_20260315_a3f2k9",
-  "workspacePath": "/path/to/workspace",
-  "userId": "user123",
-  "originChannel": "qq",
-  "displayName": "Help me fix the login bug",
-  "status": "Active",
-  "createdAt": "2026-03-15T10:00:00Z",
-  "lastActiveAt": "2026-03-15T10:05:00Z",
-  "metadata": {
-    "qqGroupId": "12345"
-  },
-  "turns": [
-    {
-      "id": "turn_001",
-      "threadId": "thread_20260315_a3f2k9",
-      "status": "Completed",
-      "input": { "id": "item_001", "type": "UserMessage", ... },
-      "items": [ ... ],
-      "startedAt": "2026-03-15T10:00:00Z",
-      "completedAt": "2026-03-15T10:02:30Z",
-      "tokenUsage": { "inputTokens": 1200, "outputTokens": 800, "totalTokens": 2000 }
-    }
-  ]
-}
+{ "kind": "thread_opened", "timestamp": "2026-03-15T10:00:00Z", "threadOpened": { ... } }
+{ "kind": "turn_started", "timestamp": "2026-03-15T10:00:01Z", "turnStarted": { ... } }
+{ "kind": "item_appended", "timestamp": "2026-03-15T10:00:01Z", "itemAppended": { ... } }
+{ "kind": "turn_completed", "timestamp": "2026-03-15T10:02:30Z", "turnCompleted": { ... } }
 ```
 
-### 9.3 Agent Session File
+Session Core reconstructs a `SessionThread` by replaying the rollout file in order.
 
-The `{threadId}.session.json` file stores the serialized `AgentSession` (Microsoft.Agents.AI conversation history). It contains the chat history needed by the LLM for context.
+### 9.3 Agent Session Storage
+
+Serialized `AgentSession` state is stored in the SQLite `thread_sessions` table inside `.craft/state.db`.
 
 Session Core manages the mapping:
-- **Save**: After each Turn completes, serialize the `AgentSession` to `{threadId}.session.json`. Apply the standard compaction rules for stored tool results.
-- **Load**: On Thread resume, deserialize `{threadId}.session.json` via `agent.DeserializeSessionAsync`.
+- **Save**: After each Turn completes, serialize the `AgentSession` and upsert `thread_sessions.session_json`.
+- **Load**: On Thread resume, deserialize `thread_sessions.session_json` via `agent.DeserializeSessionAsync`.
 
-The separation between the Thread file (domain model for UI/discovery) and the Session file (LLM conversation history) is intentional:
-- The Thread file is the source of truth for the Session Protocol — it contains all Items and can be used to reconstruct the UI.
-- The Session file is the source of truth for the LLM — it contains the optimized conversation history (with compaction, consolidation) needed by the agent.
+The separation between rollout history and agent session state is intentional:
+- The rollout JSONL files are the source of truth for the Session Protocol UI/domain model.
+- The `thread_sessions` table is the source of truth for optimized LLM conversation history.
 
 ### 9.4 Thread Discovery
 
-Thread discovery is implemented by scanning `*.json` files in `.craft/threads/` (excluding `*.session.json`). Each file is deserialized as a `SessionThread` and summarized into a `ThreadSummary` for the `FindThreadsAsync` response.
+Thread discovery is implemented by querying the SQLite `threads` metadata table in `.craft/state.db`. Rollout files remain the canonical conversation history, while `ThreadSummary` rows are derived metadata used by `FindThreadsAsync`.
 
-This scan-based approach was chosen over a separate `thread-index.json` file because:
-- It is always consistent with the thread files (no index corruption or staleness risk).
-- At typical workspace scales (tens to low hundreds of threads), directory scanning is fast enough.
-
-If thread count grows large enough that scanning becomes slow, a `thread-index.json` cache can be added as a future optimization. The interface contract (`FindThreadsAsync`) would remain unchanged.
+This database-backed approach avoids replaying every rollout file during discovery while keeping rollout files as the canonical history.
 
 `ThreadSummary` fields returned for each discovered thread:
 - `Id`, `Status`, `OriginChannel`, `ChannelContext`
@@ -944,20 +922,17 @@ This opt-in path exists so clients such as **DotCraft Desktop** (which uses a no
 1. **Discovery**: Adapter calls `FindThreadsAsync(identity, includeArchived, crossChannelOrigins)`. Returns threads matching the combined predicate when `crossChannelOrigins` is set, otherwise the default predicate only.
 2. **Selection**: The adapter presents the list to the user, or auto-selects the most recently active thread.
 3. **Resume**: Adapter calls `ResumeThreadAsync(threadId)`. Session Core sets status to `Active` and updates `LastActiveAt`.
-4. **Session Load**: Session Core loads the `{threadId}.session.json` file, reconstructing the LLM context.
+4. **Session Load**: Session Core loads `thread_sessions.session_json`, reconstructing the LLM context.
 5. **Ready**: Adapter calls `SubmitInputAsync` to start a new Turn. The Turn's `OriginChannel` records the resuming channel's name.
 
-### 9.6 Migration from Legacy Sessions
+### 9.6 Legacy Compatibility Policy
 
-The Session Protocol does **not** migrate legacy `.craft/sessions/{key}.json` files. The old `SessionStore` has been removed entirely. Existing session files are orphaned and ignored by Session Core.
+Session Core does not implement compatibility paths for older snapshot layouts such as `.craft/sessions/{key}.json`, `.craft/threads/{threadId}.json`, or `.craft/threads/{threadId}.session.json`.
 
-This is intentional and acceptable for the following reasons:
+The supported persistence contract is:
 
-- **Agent context is workspace-derived**: Memory, skills, workspace files, and tools are loaded fresh at the start of each Thread. Conversation history is supplementary context, not the primary source of agent knowledge.
-- **Operational simplicity**: Migration adds complexity and risk for limited value, since most users' conversations are ephemeral in nature.
-- **Clean slate**: Starting fresh with `.craft/threads/` avoids carrying forward inconsistencies from the old format.
-
-Users who upgrade from the legacy `SessionStore` will lose historical conversation threads. The workspace-level knowledge (memory files, skills, project context) is unaffected. Old `.craft/sessions/` files can be manually deleted.
+- Canonical thread history in `.craft/threads/active|archived/*.jsonl`
+- Queryable metadata and serialized agent sessions in `.craft/state.db`
 
 ### 9.7 Persistence Failure Handling
 
@@ -1000,7 +975,7 @@ The Session Protocol is now the active execution path for all **server-managed**
 - WeCom
 - GitHubTracker
 
-These channels create threads, submit turns through `ISessionService`, consume `SessionEvent`s, and persist state in `.craft/threads/`.
+These channels create threads, submit turns through `ISessionService`, consume `SessionEvent`s, and persist state via rollout files plus `.craft/state.db`.
 
 ### 11.2 Explicit Exemptions
 
@@ -1047,8 +1022,8 @@ Cross-channel resume works for channels that share the same identity shape:
 | Failure | Trigger | Behavior |
 |---------|---------|----------|
 | **Save Failed** | Disk write error after Turn completes | Log error. In-memory state preserved. Next operation retries save. Turn result is still delivered to adapter (events already emitted). |
-| **Index Corrupt** | Thread index file unreadable | Rebuild index from thread files on next access. Log warning. |
-| **Disk Full** | No space for new thread files | Return error on CreateThread/SubmitInput. Adapter informs user. |
+| **Metadata Corrupt** | `threads` metadata table unreadable or inconsistent | Return error for discovery operations and log warning. |
+| **Disk Full** | No space for new rollout records or SQLite writes | Return error on CreateThread/SubmitInput. Adapter informs user. |
 
 #### Channel Disconnect Failures
 

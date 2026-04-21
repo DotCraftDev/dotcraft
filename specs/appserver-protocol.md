@@ -683,7 +683,7 @@ The server emits a `thread/statusChanged` notification with `newStatus: "active"
 
 ### 4.10 `thread/delete`
 
-Permanently delete a thread and its associated session data.
+Permanently delete a thread, its associated session data, and all tracing sessions/events bound to that thread.
 
 **Direction**: client → server (request)
 
@@ -695,7 +695,7 @@ Permanently delete a thread and its associated session data.
 
 **Result**: `{}`
 
-After the thread is permanently removed, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent.
+After the thread is permanently removed, the server **broadcasts** a `thread/deleted` notification to **all** connected clients (see Section 6.1). Deletion is only considered successful after the persisted thread record and all bound tracing data have been removed. Clients that initiated `thread/delete` on this connection may remove the thread from local state when the RPC returns; receiving `thread/deleted` afterward is idempotent.
 
 ### 4.11 `thread/mode/set`
 

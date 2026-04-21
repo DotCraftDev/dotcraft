@@ -1328,7 +1328,7 @@ body {
           <div class="panel-title">Sessions</div>
           <button class="btn btn-danger" onclick="clearAllSessions()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Clear All Traces
+            Clear All
           </button>
         </div>
         <div class="panel-body">
@@ -1772,7 +1772,7 @@ async function refreshSessions() {
           <div class="session-stat"><div class="session-stat-value text-error">${s.errorCount || 0}</div><div class="session-stat-label">errors</div></div>
           <div class="session-stat"><div class="session-stat-value">${formatDurationMs(s.avgToolDurationMs || 0)}</div><div class="session-stat-label">avg tool</div></div>
           <div class="session-stat"><div class="session-stat-value text-success">${formatNumber(s.totalTokens)}</div><div class="session-stat-label">tokens</div></div>
-          <button type="button" class="btn btn-danger session-delete-btn" data-session-key="${encodeURIComponent(s.sessionKey)}" title="Delete traces">
+          <button type="button" class="btn btn-danger session-delete-btn" data-session-key="${encodeURIComponent(s.sessionKey)}" title="${s.deletionScope === 'threadCascade' ? 'Delete conversation and tracing' : 'Delete traces'}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
         </div>
@@ -1987,9 +1987,15 @@ function toggleAutoScroll() {
 }
 
 async function deleteSession(sessionKey) {
+  const session = getSessionByKey(sessionKey);
+  const isThreadCascade = session && session.deletionScope === 'threadCascade';
+  const title = isThreadCascade ? 'Delete Conversation' : 'Delete Session Traces';
+  const message = isThreadCascade
+    ? `Delete conversation "${session.rootThreadId || sessionKey}" and all tracing bound to this session? This cannot be undone.`
+    : `Delete trace data for session "${sessionKey}"? This cannot be undone.`;
   showConfirmModal(
-    'Delete Session Traces',
-    `Delete trace data for session "${sessionKey}"? This cannot be undone.`,
+    title,
+    message,
     async () => {
       const res = await fetch(API + '/sessions/' + encodeURIComponent(sessionKey), {
         method: 'DELETE',
@@ -2013,16 +2019,17 @@ async function deleteSession(sessionKey) {
         await refreshSessions();
         return;
       }
-      showToast('Session traces deleted.', 'success');
+      showToast(isThreadCascade ? 'Conversation and tracing deleted.' : 'Session traces deleted.', 'success');
       await refreshSessions();
+      await refreshDashboard();
     }
   );
 }
 
 async function clearAllSessions() {
   showConfirmModal(
-    'Clear All Trace Data',
-    'This will permanently delete all session traces. This cannot be undone.',
+    'Delete All Sessions and Traces',
+    'This will permanently delete all bound conversations and their tracing, then remove any remaining standalone traces. This cannot be undone.',
     async () => {
       const res = await fetch(API + '/sessions', {
         method: 'DELETE',
@@ -2041,12 +2048,12 @@ async function clearAllSessions() {
         showToast(body && body.error ? String(body.error) : `Clear failed (HTTP ${res.status})`, 'error');
         return;
       }
-      showToast('All session traces cleared.', 'success');
+      showToast('All conversations and traces deleted.', 'success');
       await refreshSessions();
       await refreshDashboard();
     },
     'btn-danger',
-    'Clear All'
+    'Delete All'
   );
 }
 

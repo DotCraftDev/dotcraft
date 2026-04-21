@@ -11,12 +11,12 @@ namespace DotCraft.Tools;
 /// Tool profile for ephemeral welcome-suggestion threads.
 /// </summary>
 public sealed class WelcomeSuggestionToolProvider(
-    ThreadStore threadStore,
+    SessionPersistenceService persistence,
     MemoryStore memoryStore,
     string workspaceRoot) : IAgentToolProvider
 {
     private readonly WelcomeSuggestionToolMethods _methods =
-        new(threadStore, memoryStore, workspaceRoot);
+        new(persistence, memoryStore, workspaceRoot);
 
     public IEnumerable<AITool> CreateTools(ToolProviderContext context)
     {
@@ -91,7 +91,7 @@ public sealed class WelcomeSuggestionToolItem
 }
 
 internal sealed class WelcomeSuggestionToolMethods(
-    ThreadStore threadStore,
+    SessionPersistenceService persistence,
     MemoryStore memoryStore,
     string workspaceRoot)
 {
@@ -111,7 +111,7 @@ internal sealed class WelcomeSuggestionToolMethods(
         [Description("Maximum number of recent threads to return. Defaults to 12.")] int limit = DefaultRecentThreadLimit)
     {
         var normalizedWorkspace = WelcomeSuggestionService.NormalizeWorkspacePath(workspaceRoot);
-        var recentThreads = (await threadStore.LoadIndexAsync(CancellationToken.None).ConfigureAwait(false))
+        var recentThreads = (await persistence.LoadIndexAsync(CancellationToken.None).ConfigureAwait(false))
             .Where(summary =>
                 string.Equals(
                     WelcomeSuggestionService.NormalizeWorkspacePath(summary.WorkspacePath),
@@ -126,7 +126,7 @@ internal sealed class WelcomeSuggestionToolMethods(
         var results = new List<WelcomeSuggestionThreadSummary>(recentThreads.Count);
         foreach (var summary in recentThreads)
         {
-            var thread = await threadStore.LoadThreadAsync(summary.Id, CancellationToken.None).ConfigureAwait(false);
+            var thread = await persistence.LoadThreadAsync(summary.Id, CancellationToken.None).ConfigureAwait(false);
             results.Add(new WelcomeSuggestionThreadSummary
             {
                 Id = summary.Id,
@@ -151,7 +151,7 @@ internal sealed class WelcomeSuggestionToolMethods(
         if (string.IsNullOrWhiteSpace(threadId))
             return new WelcomeThreadHistoryResult();
 
-        var thread = await threadStore.LoadThreadAsync(threadId.Trim(), CancellationToken.None).ConfigureAwait(false);
+        var thread = await persistence.LoadThreadAsync(threadId.Trim(), CancellationToken.None).ConfigureAwait(false);
         if (thread == null)
             return new WelcomeThreadHistoryResult { ThreadId = threadId.Trim() };
 

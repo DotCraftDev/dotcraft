@@ -276,9 +276,12 @@ public sealed class ChannelRunner : IAsyncDisposable, IChannelStatusProvider
             dashApp.MapDashBoardAuth(_config);
             dashApp.UseDashBoardAuth(_config);
             var capturedSvc = sessionService;
+            var persistence = _sp.GetRequiredService<SessionPersistenceService>();
             dashApp.MapDashBoard(traceStore, _paths, tokenUsageStore,
                 orchestratorProviders: capturedOrchestrators,
                 configTypes: ConfigSchemaRegistrations.GetAllConfigTypes(),
+                persistence: persistence,
+                deleteThreadAsync: (threadId, cancellationToken) => capturedSvc.DeleteThreadPermanentlyAsync(threadId, cancellationToken),
                 sessionHandler: new DelegateDashBoardSessionHandler(id => capturedSvc.DeleteThreadPermanentlyAsync(id)),
                 refreshTraceFromDiskBeforeRead: false);
 

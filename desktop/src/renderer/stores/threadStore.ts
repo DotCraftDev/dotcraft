@@ -110,6 +110,9 @@ export const useThreadStore = create<ThreadStore>((set, _get) => ({
     useViewerTabStore.getState().onThreadDeleted(threadId, {
       onBrowserTabRemoved: (tab) => {
         void window.api.workspace.viewer.browser.destroy({ tabId: tab.id })
+      },
+      onTerminalTabRemoved: (tab) => {
+        void window.api.workspace.viewer.terminal.dispose({ tabId: tab.id })
       }
     })
     set((state) => {

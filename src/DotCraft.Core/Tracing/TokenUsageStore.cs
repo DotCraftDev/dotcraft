@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using DotCraft.State;
 
 namespace DotCraft.Tracing;
 
@@ -119,9 +120,12 @@ public sealed class ChannelSummary
     public int GroupCount { get; init; }
 }
 
-public sealed class TokenUsageStore(string? storagePath = null)
+public sealed class TokenUsageStore
 {
+    private readonly string? _storagePath;
+    private readonly StateRuntime? _stateRuntime;
     private readonly ConcurrentDictionary<string, ChannelTokenUsage> _channels = new();
+    private readonly object _fileLock = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -129,32 +133,28 @@ public sealed class TokenUsageStore(string? storagePath = null)
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
+    public TokenUsageStore(string? storagePath = null)
+        : this(storagePath, null)
+    {
+    }
+
+    internal TokenUsageStore(string? storagePath, StateRuntime? stateRuntime)
+    {
+        _storagePath = storagePath;
+        _stateRuntime = stateRuntime;
+    }
+
     public void Record(TokenUsageRecord record)
     {
         if (string.IsNullOrEmpty(record.Channel))
             return;
 
-        var channel = _channels.GetOrAdd(record.Channel, ch => new ChannelTokenUsage { Channel = ch });
+        ApplyRecord(record);
 
-        if (record.GroupId.HasValue)
-        {
-            var group = channel.Groups.GetOrAdd(record.GroupId.Value, id => new GroupTokenUsage { GroupId = id });
-            if (!string.IsNullOrEmpty(record.GroupName))
-                group.GroupName = record.GroupName;
-
-            var groupUser = group.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-            groupUser.DisplayName = record.DisplayName;
-            groupUser.Add(record.InputTokens, record.OutputTokens);
-        }
-        else
-        {
-            var user = channel.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-            user.DisplayName = record.DisplayName;
-            user.Add(record.InputTokens, record.OutputTokens);
-        }
-
-        if (storagePath != null)
-            PersistRecord(record);
+        if (_stateRuntime != null)
+            PersistRecordToDb(record);
+        else if (_storagePath != null)
+            PersistRecordToFile(record);
     }
 
     public IReadOnlyList<ChannelTokenUsage> GetChannels()
@@ -220,10 +220,38 @@ public sealed class TokenUsageStore(string? storagePath = null)
 
     public void LoadFromDisk()
     {
-        if (storagePath == null)
+        if (_stateRuntime != null)
+        {
+            _channels.Clear();
+            using var connection = _stateRuntime.OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT timestamp, channel, user_id, display_name, group_id, group_name, input_tokens, output_tokens
+                FROM token_usage_records
+                ORDER BY timestamp, id
+                """;
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                ApplyRecord(new TokenUsageRecord
+                {
+                    Timestamp = DateTimeOffset.Parse(reader.GetString(0)),
+                    Channel = reader.GetString(1),
+                    UserId = reader.GetString(2),
+                    DisplayName = reader.GetString(3),
+                    GroupId = reader.IsDBNull(4) ? null : reader.GetInt64(4),
+                    GroupName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    InputTokens = reader.GetInt64(6),
+                    OutputTokens = reader.GetInt64(7)
+                });
+            }
+            return;
+        }
+
+        if (_storagePath == null)
             return;
 
-        var filePath = Path.Combine(storagePath, "token_usage.jsonl");
+        var filePath = Path.Combine(_storagePath, "token_usage.jsonl");
         if (!File.Exists(filePath))
             return;
 
@@ -238,27 +266,8 @@ public sealed class TokenUsageStore(string? storagePath = null)
                 try
                 {
                     var record = JsonSerializer.Deserialize<TokenUsageRecord>(line, JsonOptions);
-                    if (record == null || string.IsNullOrEmpty(record.Channel))
-                        continue;
-
-                    var channel = _channels.GetOrAdd(record.Channel, ch => new ChannelTokenUsage { Channel = ch });
-
-                    if (record.GroupId.HasValue)
-                    {
-                        var group = channel.Groups.GetOrAdd(record.GroupId.Value, id => new GroupTokenUsage { GroupId = id });
-                        if (!string.IsNullOrEmpty(record.GroupName))
-                            group.GroupName = record.GroupName;
-
-                        var groupUser = group.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-                        groupUser.DisplayName = record.DisplayName;
-                        groupUser.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
-                    }
-                    else
-                    {
-                        var user = channel.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
-                        user.DisplayName = record.DisplayName;
-                        user.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
-                    }
+                    if (record != null)
+                        ApplyRecord(record);
                 }
                 catch
                 {
@@ -272,14 +281,78 @@ public sealed class TokenUsageStore(string? storagePath = null)
         }
     }
 
-    private void PersistRecord(TokenUsageRecord record)
+    private void ApplyRecord(TokenUsageRecord record)
+    {
+        var channel = _channels.GetOrAdd(record.Channel, ch => new ChannelTokenUsage { Channel = ch });
+
+        if (record.GroupId.HasValue)
+        {
+            var group = channel.Groups.GetOrAdd(record.GroupId.Value, id => new GroupTokenUsage { GroupId = id });
+            if (!string.IsNullOrEmpty(record.GroupName))
+                group.GroupName = record.GroupName;
+
+            var groupUser = group.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
+            groupUser.DisplayName = record.DisplayName;
+            groupUser.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
+            return;
+        }
+
+        var user = channel.Users.GetOrAdd(record.UserId, _ => new UserTokenUsage { UserId = record.UserId });
+        user.DisplayName = record.DisplayName;
+        user.Load(record.InputTokens, record.OutputTokens, 1, record.Timestamp);
+    }
+
+    private void PersistRecordToDb(TokenUsageRecord record)
+    {
+        try
+        {
+            using var connection = _stateRuntime!.OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO token_usage_records (
+                    timestamp,
+                    channel,
+                    user_id,
+                    display_name,
+                    group_id,
+                    group_name,
+                    input_tokens,
+                    output_tokens
+                ) VALUES (
+                    $timestamp,
+                    $channel,
+                    $user_id,
+                    $display_name,
+                    $group_id,
+                    $group_name,
+                    $input_tokens,
+                    $output_tokens
+                )
+                """;
+            command.Parameters.AddWithValue("$timestamp", record.Timestamp.UtcDateTime.ToString("O"));
+            command.Parameters.AddWithValue("$channel", record.Channel);
+            command.Parameters.AddWithValue("$user_id", record.UserId);
+            command.Parameters.AddWithValue("$display_name", record.DisplayName);
+            command.Parameters.AddWithValue("$group_id", record.GroupId ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$group_name", (object?)record.GroupName ?? DBNull.Value);
+            command.Parameters.AddWithValue("$input_tokens", record.InputTokens);
+            command.Parameters.AddWithValue("$output_tokens", record.OutputTokens);
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            // Preserve current best-effort persistence semantics.
+        }
+    }
+
+    private void PersistRecordToFile(TokenUsageRecord record)
     {
         _ = Task.Run(() =>
         {
             try
             {
-                Directory.CreateDirectory(storagePath!);
-                var filePath = Path.Combine(storagePath!, "token_usage.jsonl");
+                Directory.CreateDirectory(_storagePath!);
+                var filePath = Path.Combine(_storagePath!, "token_usage.jsonl");
                 var json = JsonSerializer.Serialize(record, JsonOptions);
                 lock (_fileLock)
                 {
@@ -292,6 +365,4 @@ public sealed class TokenUsageStore(string? storagePath = null)
             }
         });
     }
-
-    private readonly object _fileLock = new();
 }

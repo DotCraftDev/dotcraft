@@ -3,8 +3,8 @@
  * Used by main process (IPC handlers) and renderer (store, components).
  */
 
-/** M1 + M2 viewer kinds. */
-export type ViewerKind = 'file' | 'browser'
+/** M1 + M2 + terminal viewer kinds. */
+export type ViewerKind = 'file' | 'browser' | 'terminal'
 
 /** Content class resolved for an opened file. */
 export type ViewerContentClass = 'text' | 'image' | 'pdf' | 'unsupported'
@@ -70,8 +70,23 @@ export interface BrowserViewerTab extends ViewerTabBase {
   downloadMessage?: string
 }
 
+export interface TerminalExitState {
+  code: number | null
+  signal: number | null
+}
+
+/** Interactive terminal tab descriptor. */
+export interface TerminalViewerTab extends ViewerTabBase {
+  kind: 'terminal'
+  cwd: string
+  shell?: string
+  pid?: number
+  exited?: TerminalExitState
+  hasStarted: boolean
+}
+
 /** A single viewer tab descriptor, owned by a specific thread. */
-export type ViewerTab = FileViewerTab | BrowserViewerTab
+export type ViewerTab = FileViewerTab | BrowserViewerTab | TerminalViewerTab
 
 /** Per-thread viewer tab state stored in viewerTabStore. */
 export interface PerThreadViewerState {
@@ -137,6 +152,49 @@ export interface BrowserBoundsParams {
   height: number
 }
 
+export interface TerminalCreateParams {
+  tabId: string
+  threadId: string
+  workspacePath: string
+  cols: number
+  rows: number
+}
+
+export interface TerminalWriteParams {
+  tabId: string
+  data: string
+}
+
+export interface TerminalResizeParams {
+  tabId: string
+  cols: number
+  rows: number
+}
+
+export interface TerminalAttachParams {
+  tabId: string
+}
+
+export interface TerminalDisposeParams {
+  tabId: string
+}
+
+export interface TerminalAttachResult {
+  tabId: string
+  pid: number
+  shell: string
+  cwd: string
+  buffer: string
+  exited?: TerminalExitState
+}
+
+export interface TerminalCreateResult {
+  tabId: string
+  pid: number
+  shell: string
+  cwd: string
+}
+
 export type BrowserEventType =
   | 'did-start-loading'
   | 'did-stop-loading'
@@ -161,3 +219,20 @@ export interface BrowserEventPayload {
   canGoForward?: boolean
   message?: string
 }
+
+export type TerminalEventType = 'data' | 'exit'
+
+export interface TerminalDataEventPayload {
+  tabId: string
+  type: 'data'
+  data: string
+}
+
+export interface TerminalExitEventPayload {
+  tabId: string
+  type: 'exit'
+  code: number | null
+  signal: number | null
+}
+
+export type TerminalEventPayload = TerminalDataEventPayload | TerminalExitEventPayload

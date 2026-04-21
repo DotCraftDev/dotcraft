@@ -654,7 +654,7 @@ class ChannelAdapter(ABC):
             if thread.status == "paused":
                 thread = await self._client.thread_resume(thread.id)
             else:
-                # Load thread into server in-process cache (thread/list is disk-scan only).
+                # thread/list returns persisted thread metadata but does not load per-thread runtime state.
                 # thread/read is read-only: it does not open MCP or rebuild the per-thread agent
                 # (see session-core.md). The server hydrates Configuration at turn/start before SubmitInput.
                 thread = await self._client.thread_read(thread.id)

@@ -37,6 +37,7 @@ public sealed class SessionServiceSetThreadModeTests : IDisposable
     public async Task SetThreadModeAsync_KeepsPerThreadChatClient_WhenModelOverrideIsSet()
     {
         var store = new ThreadStore(_tempDir);
+        var persistence = new SessionPersistenceService(store);
         var identity = new SessionIdentity
         {
             ChannelName = "test",
@@ -48,7 +49,7 @@ public sealed class SessionServiceSetThreadModeTests : IDisposable
 
         await using var agentFactory = CreateAgentFactory();
         var defaultAgent = agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var svc = new SessionService(agentFactory, defaultAgent, store, new SessionGate());
+        var svc = new SessionService(agentFactory, defaultAgent, persistence, new SessionGate());
 
         var config = new ThreadConfiguration
         {

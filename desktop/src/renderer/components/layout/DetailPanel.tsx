@@ -6,7 +6,6 @@ import { useConversationStore } from '../../stores/conversationStore'
 import { FilePlus2, ListChecks, SquareTerminal, Plus, FileText, Image, FileType2, X, Globe, PanelRightClose } from 'lucide-react'
 import { ChangesTab } from '../detail/ChangesTab'
 import { PlanTab } from '../detail/PlanTab'
-import { TerminalTab } from '../detail/TerminalTab'
 import { AddTabPopup } from '../detail/AddTabPopup'
 import type { ViewerContentClass } from '../../../shared/viewer/types'
 
@@ -41,10 +40,10 @@ function browserTabIcon(faviconDataUrl?: string): JSX.Element {
 }
 
 /**
- * Detail Panel — system tabs (Changes / Plan / Terminal) + dynamic viewer tabs.
+ * Detail Panel — system tabs (Changes / Plan) + dynamic viewer tabs.
  *
  * Tab bar layout:
- *   [changes] [plan] [terminal] │ [viewer1] [viewer2] … │ [+] [flex] [×]
+ *   [changes] [plan] │ [viewer1] [viewer2] … │ [+] [flex] [×]
  */
 export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Element {
   const t = useT()
@@ -62,13 +61,8 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
   const closeViewerTabInStore = useViewerTabStore((s) => s.closeTab)
 
   const changedFiles = useConversationStore((s) => s.changedFiles)
-  const turns = useConversationStore((s) => s.turns)
 
   const changedFileCount = changedFiles.size
-  const terminalCount = turns.reduce(
-    (acc, turn) => acc + turn.items.filter((i) => i.type === 'commandExecution').length,
-    0
-  )
 
   const [addPopupOpen, setAddPopupOpen] = useState(false)
   const addButtonRef = useRef<HTMLButtonElement>(null)
@@ -82,6 +76,8 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
     const closing = viewerTabs.find((t) => t.id === tabId)
     if (closing?.kind === 'browser') {
       void window.api.workspace.viewer.browser.destroy({ tabId: closing.id })
+    } else if (closing?.kind === 'terminal') {
+      void window.api.workspace.viewer.terminal.dispose({ tabId: closing.id })
     }
     closeViewerTabInStore(currentThreadId, tabId)
 
@@ -118,12 +114,6 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
       id: 'plan' as const,
       label: t('detailPanel.tabPlan'),
       icon: <ListChecks size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
-    },
-    {
-      id: 'terminal' as const,
-      label: t('detailPanel.tabTerminal'),
-      icon: <SquareTerminal size={16} strokeWidth={2} aria-hidden style={{ display: 'block' }} />,
-      badge: terminalCount > 0 ? terminalCount : undefined
     }
   ]
 
@@ -226,7 +216,13 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
               key={tab.id}
               role="tab"
               aria-selected={isActive}
-              title={tab.kind === 'browser' ? tab.currentUrl : tab.absolutePath}
+              title={
+                tab.kind === 'browser'
+                  ? tab.currentUrl
+                  : tab.kind === 'terminal'
+                    ? tab.cwd
+                    : tab.absolutePath
+              }
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -256,7 +252,9 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
             >
               {tab.kind === 'browser'
                 ? browserTabIcon(tab.faviconDataUrl)
-                : contentClassIcon(tab.contentClass)}
+                : tab.kind === 'terminal'
+                  ? <SquareTerminal size={14} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
+                  : contentClassIcon(tab.contentClass)}
               <span
                 style={{
                   overflow: 'hidden',
@@ -380,7 +378,6 @@ export function DetailPanel({ workspacePath = '' }: DetailPanelProps): JSX.Eleme
           <ChangesTab workspacePath={workspacePath} />
         )}
         {activeDetailTab.kind === 'system' && activeDetailTab.id === 'plan' && <PlanTab />}
-        {activeDetailTab.kind === 'system' && activeDetailTab.id === 'terminal' && <TerminalTab />}
         {activeDetailTab.kind === 'viewer' && (
           <ViewerTabContainer tabId={activeDetailTab.id} />
         )}

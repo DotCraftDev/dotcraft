@@ -216,7 +216,14 @@ export function App(): JSX.Element {
 
   // Notify viewerTabStore when workspace changes so all viewer tabs are cleared.
   useEffect(() => {
-    useViewerTabStore.getState().onWorkspaceSwitched(workspacePath)
+    useViewerTabStore.getState().onWorkspaceSwitched(workspacePath, {
+      onBrowserTabRemoved: (tab) => {
+        void window.api.workspace.viewer.browser.destroy({ tabId: tab.id })
+      },
+      onTerminalTabRemoved: (tab) => {
+        void window.api.workspace.viewer.terminal.dispose({ tabId: tab.id })
+      }
+    })
     useUIStore.getState().resetAutoShowReasons()
   }, [workspacePath])
 

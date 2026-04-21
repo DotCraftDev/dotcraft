@@ -1,4 +1,5 @@
 using DotCraft.Protocol;
+using Microsoft.Data.Sqlite;
 
 namespace DotCraft.Tests.Sessions.Protocol;
 
@@ -79,8 +80,43 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.Equal("test-value", v);
     }
 
+    [Fact]
+    public async Task SaveThread_WritesCanonicalJsonlUnderThreadsActive()
+    {
+        var thread = CreateThread();
+
+        await _store.SaveThreadAsync(thread);
+
+        Assert.True(File.Exists(GetCanonicalPath(thread.Id, archived: false)));
+    }
+
+    [Fact]
+    public async Task SaveThread_ArchiveAndUnarchive_MovesCanonicalJsonlBetweenDirectories()
+    {
+        var thread = CreateThread();
+        await _store.SaveThreadAsync(thread);
+
+        var activePath = GetCanonicalPath(thread.Id, archived: false);
+        var archivedPath = GetCanonicalPath(thread.Id, archived: true);
+        Assert.True(File.Exists(activePath));
+
+        thread.Status = ThreadStatus.Archived;
+        thread.LastActiveAt = thread.LastActiveAt.AddMinutes(1);
+        await _store.SaveThreadAsync(thread);
+
+        Assert.False(File.Exists(activePath));
+        Assert.True(File.Exists(archivedPath));
+
+        thread.Status = ThreadStatus.Active;
+        thread.LastActiveAt = thread.LastActiveAt.AddMinutes(1);
+        await _store.SaveThreadAsync(thread);
+
+        Assert.True(File.Exists(activePath));
+        Assert.False(File.Exists(archivedPath));
+    }
+
     // -------------------------------------------------------------------------
-    // Thread discovery (LoadIndexAsync scans thread files)
+    // Thread discovery (LoadIndexAsync reads persisted SQLite metadata)
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -120,14 +156,11 @@ public sealed class ThreadStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadIndex_IgnoresSessionFiles()
+    public async Task LoadIndex_IgnoresThreadSessionsStoredInDb()
     {
         var thread = CreateThread();
         await _store.SaveThreadAsync(thread);
-
-        // Create a fake session file that should be ignored
-        var sessionFile = Path.Combine(_root, "threads", $"{thread.Id}.session.json");
-        await File.WriteAllTextAsync(sessionFile, "{}");
+        InsertThreadSession(thread.Id, """{"chatHistory":[],"type":"chatHistory"}""");
 
         var index = await _store.LoadIndexAsync();
         Assert.Single(index);
@@ -149,4 +182,33 @@ public sealed class ThreadStoreTests : IDisposable
         LastActiveAt = DateTimeOffset.UtcNow,
         HistoryMode = HistoryMode.Server
     };
+
+    private string GetCanonicalPath(string threadId, bool archived)
+        => Path.Combine(_root, "threads", archived ? "archived" : "active", $"{threadId}.jsonl");
+
+    private void InsertThreadSession(string threadId, string sessionJson)
+    {
+        using var connection = OpenStateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_sessions(thread_id, session_json, updated_at)
+            VALUES ($thread_id, $session_json, $updated_at)
+            """;
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.Parameters.AddWithValue("$session_json", sessionJson);
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    private SqliteConnection OpenStateConnection()
+    {
+        var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(_root, "state.db"),
+                Mode = SqliteOpenMode.ReadWrite
+            }.ToString());
+        connection.Open();
+        return connection;
+    }
 }

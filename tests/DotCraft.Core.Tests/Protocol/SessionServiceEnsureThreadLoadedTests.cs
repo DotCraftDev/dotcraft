@@ -36,6 +36,7 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
     public async Task EnsureThreadLoadedAsync_BuildsPerThreadAgent_WhenThreadHadConfigurationOnDisk()
     {
         var store = new ThreadStore(_tempDir);
+        var persistence = new SessionPersistenceService(store);
         var identity = new SessionIdentity
         {
             ChannelName = "test",
@@ -46,13 +47,13 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
 
         await using var agentFactory = CreateAgentFactory();
         var defaultAgent = agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var svc1 = new SessionService(agentFactory, defaultAgent, store, new SessionGate());
+        var svc1 = new SessionService(agentFactory, defaultAgent, persistence, new SessionGate());
         var thread = await svc1.CreateThreadAsync(identity, config);
         await store.SaveThreadAsync(thread);
 
         Assert.True(ThreadAgentsContains(svc1, thread.Id));
 
-        var svc2 = new SessionService(agentFactory, defaultAgent, store, new SessionGate());
+        var svc2 = new SessionService(agentFactory, defaultAgent, persistence, new SessionGate());
         await svc2.GetThreadAsync(thread.Id);
         Assert.False(ThreadAgentsContains(svc2, thread.Id));
 
@@ -64,6 +65,7 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
     public async Task CreateThreadAsync_DoesNotMaterializeThreadFile_UntilTurnPersists()
     {
         var store = new ThreadStore(_tempDir);
+        var persistence = new SessionPersistenceService(store);
         var identity = new SessionIdentity
         {
             ChannelName = "test",
@@ -73,7 +75,7 @@ public sealed class SessionServiceEnsureThreadLoadedTests : IDisposable
 
         await using var agentFactory = CreateAgentFactory();
         var defaultAgent = agentFactory.CreateAgentForMode(AgentMode.Agent);
-        var svc = new SessionService(agentFactory, defaultAgent, store, new SessionGate());
+        var svc = new SessionService(agentFactory, defaultAgent, persistence, new SessionGate());
 
         var thread = await svc.CreateThreadAsync(identity);
         var fromDisk = await store.LoadThreadAsync(thread.Id);
