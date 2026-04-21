@@ -94,7 +94,7 @@ public sealed class SandboxFileTools
         }
     }
 
-    [Description("Write content to a file at the given path. Creates parent directories if needed.")]
+    [Description("Write content to a file at the given path. Creates parent directories if needed. Prefer this tool for creating new files or intentional full-file rewrites. When modifying an existing file, prefer EditFile for targeted changes.")]
     [Tool(Icon = "✏️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.WriteFile))]
     public async Task<string> WriteFile(
         [Description("Path inside the sandbox (absolute or relative to /workspace).")] string path,
@@ -131,7 +131,7 @@ public sealed class SandboxFileTools
         }
     }
 
-    [Description("Replace text in a file: oldText (snippet to find) and newText. When replaceAll is false, same fuzzy matching as workspace EditFile (exact, line trim, indentation, whitespace, Unicode). Set replaceAll to replace every exact occurrence at once.")]
+    [Description("Replace text in a file: oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 2-6 lines including nearby context) instead of large pasted blocks. For existing files, prefer targeted EditFile replacements over full-file rewrites, even when many changes are needed. Use WriteFile for new files or intentional full rewrites. When replaceAll is false, same fuzzy matching as workspace EditFile (exact, line trim, indentation, whitespace, Unicode). Use replaceAll only when you intentionally want to replace every exact occurrence at once.")]
     [Tool(Icon = "🔄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.EditFile))]
     public async Task<string> EditFile(
         [Description("Path inside the sandbox (absolute or relative to /workspace).")] string path,
