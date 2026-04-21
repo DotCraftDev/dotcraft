@@ -391,7 +391,14 @@ export const useViewerTabStore = create<ViewerTabStore>((set, get) => ({
 
     const current = threadState.tabs[idx] as TerminalViewerTab
     const patchEntries = Object.entries(patch) as Array<[keyof TerminalViewerTab, unknown]>
-    if (patchEntries.length && patchEntries.every(([key, value]) => Object.is(current[key], value))) {
+    if (patchEntries.length && patchEntries.every(([key, value]) => {
+      const existing = current[key]
+      if (Object.is(existing, value)) return true
+      if (typeof existing === 'object' && existing !== null && typeof value === 'object' && value !== null) {
+        return JSON.stringify(existing) === JSON.stringify(value)
+      }
+      return false
+    })) {
       return
     }
 
