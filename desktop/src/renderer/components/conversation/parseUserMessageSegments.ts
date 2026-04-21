@@ -153,13 +153,29 @@ export function segmentsFromNativeInputParts(parts: InputPart[]): UserMessageSeg
         out.push({ type: 'fileRef', relativePath: part.displayPath ?? part.path })
         break
       case 'commandRef':
-        out.push({
-          type: 'commandRef',
-          commandText: part.rawText
-            ?? (part.argsText != null && part.argsText.trim() !== ''
-              ? `/${part.name} ${part.argsText}`
-              : `/${part.name}`)
-        })
+        {
+          const name = typeof part.name === 'string' ? part.name.trim() : ''
+          if (!name) {
+            if (typeof part.rawText === 'string' && part.rawText.trim() !== '') {
+              out.push({ type: 'text', value: part.rawText })
+            }
+            break
+          }
+
+          out.push({ type: 'commandRef', commandText: `/${name}` })
+
+          let argsText = typeof part.argsText === 'string' ? part.argsText.trim() : ''
+          if (argsText.length === 0 && typeof part.rawText === 'string') {
+            const normalizedRaw = part.rawText.trim()
+            const firstWhitespace = normalizedRaw.search(/\s/)
+            if (firstWhitespace >= 0) {
+              argsText = normalizedRaw.slice(firstWhitespace + 1).trim()
+            }
+          }
+          if (argsText.length > 0) {
+            out.push({ type: 'text', value: ` ${argsText}` })
+          }
+        }
         break
       case 'skillRef':
         out.push({ type: 'skillRef', skillName: part.name })

@@ -296,6 +296,20 @@ export async function resolveDocxDocumentId(params: {
     throw new DocxToolError("MissingDocumentId", "Feishu docx tools require a documentIdOrUrl.");
   }
 
+  // Bare tokens are ambiguous because wiki node tokens and docx IDs share the same shape.
+  // Prefer wiki resolution first, then fall back to raw docx ID if lookup fails.
+  if (DOCX_ID_PATTERN.test(normalized) && !isAbsoluteUrl(normalized)) {
+    try {
+      const wikiNode = await params.client.getWikiNode(normalized);
+      return docxDocumentIdFromWikiNode(wikiNode);
+    } catch (error) {
+      if (error instanceof DocxToolError) {
+        throw error;
+      }
+      return normalized;
+    }
+  }
+
   try {
     return extractDocxDocumentId(normalized);
   } catch (error) {
@@ -317,6 +331,24 @@ export async function resolveDocxDocumentId(params: {
     );
   }
   const wikiNode = await params.client.getWikiNode(wikiNodeToken);
+  return docxDocumentIdFromWikiNode(wikiNode);
+}
+
+function isAbsoluteUrl(value: string): boolean {
+  try {
+    // Feishu IDs/tokens are not valid absolute URLs; URL parse success indicates URL-like input.
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function docxDocumentIdFromWikiNode(wikiNode: {
+  nodeToken: string;
+  objType: string;
+  objToken: string;
+}): string {
   if (wikiNode.objType !== "docx") {
     throw new DocxToolError(
       "UnsupportedDocxBacking",

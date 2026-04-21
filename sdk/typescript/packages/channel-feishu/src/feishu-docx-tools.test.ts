@@ -185,6 +185,65 @@ test("resolveDocxDocumentId rejects wiki nodes that are not backed by docx", asy
   );
 });
 
+test("resolveDocxDocumentId resolves bare ambiguous tokens via wiki first", async () => {
+  let calls = 0;
+  const client = {
+    async getWikiNode(nodeToken: string) {
+      calls += 1;
+      assert.equal(nodeToken, WIKI_NODE_ID);
+      return {
+        spaceId: WIKI_SPACE_ID,
+        nodeToken,
+        objToken: DOC_ID,
+        objType: "docx",
+        nodeType: "origin",
+      };
+    },
+  } as unknown as FeishuClient;
+
+  const resolved = await resolveDocxDocumentId({
+    client,
+    documentIdOrUrl: WIKI_NODE_ID,
+  });
+  assert.equal(resolved, DOC_ID);
+  assert.equal(calls, 1);
+});
+
+test("resolveDocxDocumentId falls back to bare docx ID when wiki lookup fails", async () => {
+  let calls = 0;
+  const client = {
+    async getWikiNode(nodeToken: string) {
+      calls += 1;
+      assert.equal(nodeToken, DOC_ID);
+      throw new Error("node not found");
+    },
+  } as unknown as FeishuClient;
+
+  const resolved = await resolveDocxDocumentId({
+    client,
+    documentIdOrUrl: DOC_ID,
+  });
+  assert.equal(resolved, DOC_ID);
+  assert.equal(calls, 1);
+});
+
+test("resolveDocxDocumentId keeps docx URL path and does not call wiki lookup", async () => {
+  let calls = 0;
+  const client = {
+    async getWikiNode() {
+      calls += 1;
+      throw new Error("unexpected call");
+    },
+  } as unknown as FeishuClient;
+
+  const resolved = await resolveDocxDocumentId({
+    client,
+    documentIdOrUrl: `https://feishu.cn/docx/${DOC_ID}`,
+  });
+  assert.equal(resolved, DOC_ID);
+  assert.equal(calls, 0);
+});
+
 test("FeishuReadDocxContent accepts docx URLs and returns raw content", async () => {
   const client = {
     async getDocxRawContent(documentId: string) {

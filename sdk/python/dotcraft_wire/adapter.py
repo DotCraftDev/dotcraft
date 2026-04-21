@@ -499,6 +499,7 @@ class ChannelAdapter(ABC):
             expanded_prompt = command_result.get("expandedPrompt")
             if expanded_prompt:
                 input_parts = [_command_ref_part(trimmed_text)]
+                skip_command = True
             elif command_result.get("handled"):
                 await self._apply_command_reset_result(
                     identity_key,
