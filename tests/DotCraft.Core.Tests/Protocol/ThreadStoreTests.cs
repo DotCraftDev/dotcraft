@@ -115,6 +115,121 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.False(File.Exists(archivedPath));
     }
 
+    [Fact]
+    public async Task SaveThread_UsesCachedSnapshot_ForIncrementalAppendOnRepeatedSaves()
+    {
+        var thread = CreateThread();
+        thread.DisplayName = "First title";
+        await _store.SaveThreadAsync(thread);
+        var path = GetCanonicalPath(thread.Id, archived: false);
+        var initialLineCount = File.ReadAllLines(path).Length;
+
+        thread.DisplayName = "Updated title";
+        await _store.SaveThreadAsync(thread);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal("Updated title", loaded.DisplayName);
+        Assert.Equal(initialLineCount + 1, File.ReadAllLines(path).Length);
+    }
+
+    [Fact]
+    public async Task LoadThenSave_ReusesLoadedSnapshot_ForSubsequentDiff()
+    {
+        var original = CreateThread();
+        original.DisplayName = "Initial";
+        await _store.SaveThreadAsync(original);
+        var path = GetCanonicalPath(original.Id, archived: false);
+        var initialLineCount = File.ReadAllLines(path).Length;
+
+        var secondStore = new ThreadStore(_root);
+        var loaded = await secondStore.LoadThreadAsync(original.Id);
+        Assert.NotNull(loaded);
+
+        loaded.DisplayName = "Renamed after load";
+        await secondStore.SaveThreadAsync(loaded);
+
+        var roundTrip = await secondStore.LoadThreadAsync(original.Id);
+        Assert.NotNull(roundTrip);
+        Assert.Equal("Renamed after load", roundTrip.DisplayName);
+        Assert.Equal(initialLineCount + 1, File.ReadAllLines(path).Length);
+    }
+
+    [Fact]
+    public async Task DeleteThread_ClearsCachedSnapshot_BeforeRecreatingSameId()
+    {
+        var thread = CreateThread();
+        thread.DisplayName = "Before delete";
+        await _store.SaveThreadAsync(thread);
+
+        _store.DeleteThread(thread.Id);
+
+        var recreated = CreateThread(thread.Id);
+        recreated.DisplayName = "After recreate";
+        recreated.LastActiveAt = recreated.LastActiveAt.AddMinutes(1);
+        await _store.SaveThreadAsync(recreated);
+        var path = GetCanonicalPath(thread.Id, archived: false);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal("After recreate", loaded.DisplayName);
+        Assert.Equal(3, File.ReadAllLines(path).Length);
+    }
+
+    [Fact]
+    public async Task SaveThread_MultipleSavesWithMutableObject_RoundTripsFinalState()
+    {
+        var thread = CreateThread();
+        await _store.SaveThreadAsync(thread);
+
+        var turn = new SessionTurn
+        {
+            Id = "turn_001",
+            ThreadId = thread.Id,
+            Status = TurnStatus.Running,
+            StartedAt = thread.CreatedAt.AddSeconds(1)
+        };
+        var userItem = new SessionItem
+        {
+            Id = "item_001",
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = turn.StartedAt,
+            CompletedAt = turn.StartedAt,
+            Payload = new UserMessagePayload { Text = "hello" }
+        };
+        turn.Input = userItem;
+        turn.Items.Add(userItem);
+        thread.Turns.Add(turn);
+        thread.LastActiveAt = turn.StartedAt;
+        await _store.SaveThreadAsync(thread);
+
+        var agentItem = new SessionItem
+        {
+            Id = "item_002",
+            TurnId = turn.Id,
+            Type = ItemType.AgentMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = turn.StartedAt.AddSeconds(1),
+            CompletedAt = turn.StartedAt.AddSeconds(1),
+            Payload = new AgentMessagePayload { Text = "world" }
+        };
+        turn.Items.Add(agentItem);
+        turn.Status = TurnStatus.Completed;
+        turn.CompletedAt = turn.StartedAt.AddSeconds(1);
+        thread.LastActiveAt = turn.CompletedAt.Value;
+        await _store.SaveThreadAsync(thread);
+
+        var loaded = await _store.LoadThreadAsync(thread.Id);
+        Assert.NotNull(loaded);
+        var loadedTurn = Assert.Single(loaded.Turns);
+        Assert.Equal(TurnStatus.Completed, loadedTurn.Status);
+        Assert.Equal(2, loadedTurn.Items.Count);
+        Assert.Equal("hello", loadedTurn.Input?.AsUserMessage?.Text);
+        Assert.Equal("world", loadedTurn.Items[1].AsAgentMessage?.Text);
+    }
+
     // -------------------------------------------------------------------------
     // Thread discovery (LoadIndexAsync reads persisted SQLite metadata)
     // -------------------------------------------------------------------------
@@ -171,9 +286,9 @@ public sealed class ThreadStoreTests : IDisposable
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static SessionThread CreateThread() => new()
+    private static SessionThread CreateThread(string? id = null) => new()
     {
-        Id = SessionIdGenerator.NewThreadId(),
+        Id = id ?? SessionIdGenerator.NewThreadId(),
         WorkspacePath = "/workspace",
         UserId = "user1",
         OriginChannel = "console",

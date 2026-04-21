@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using DotCraft.State;
 using Microsoft.Agents.AI;
@@ -12,6 +13,7 @@ public sealed class ThreadStore
 {
     private readonly ThreadMetadataStore _metadataStore;
     private readonly ThreadRolloutStore _rolloutStore;
+    private readonly ConcurrentDictionary<string, SessionThread> _threadSnapshotCache = new(StringComparer.Ordinal);
 
     public ThreadStore(string botPath)
         : this(botPath, null)
@@ -29,22 +31,40 @@ public sealed class ThreadStore
     /// </summary>
     public async Task SaveThreadAsync(SessionThread thread, CancellationToken ct = default)
     {
-        var previous = await _rolloutStore.LoadThreadAsync(thread.Id, ct);
+        if (!_threadSnapshotCache.TryGetValue(thread.Id, out var previous))
+        {
+            previous = await _rolloutStore.LoadThreadAsync(thread.Id, ct);
+            if (previous != null)
+                _threadSnapshotCache[thread.Id] = CloneThreadSnapshot(previous);
+        }
+
         var rolloutPath = await _rolloutStore.SaveThreadAsync(thread, previous, ct);
+        _threadSnapshotCache[thread.Id] = CloneThreadSnapshot(thread);
         _metadataStore.UpsertThread(thread, rolloutPath);
     }
 
     /// <summary>
     /// Loads a thread by replaying canonical thread history.
     /// </summary>
-    public Task<SessionThread?> LoadThreadAsync(string threadId, CancellationToken ct = default)
-        => _rolloutStore.LoadThreadAsync(threadId, ct);
+    public async Task<SessionThread?> LoadThreadAsync(string threadId, CancellationToken ct = default)
+    {
+        var thread = await _rolloutStore.LoadThreadAsync(threadId, ct);
+        if (thread == null)
+        {
+            _threadSnapshotCache.TryRemove(threadId, out _);
+            return null;
+        }
+
+        _threadSnapshotCache[threadId] = CloneThreadSnapshot(thread);
+        return thread;
+    }
 
     /// <summary>
     /// Deletes a thread JSONL history and metadata row.
     /// </summary>
     public void DeleteThread(string threadId)
     {
+        _threadSnapshotCache.TryRemove(threadId, out _);
         _rolloutStore.DeleteThread(threadId);
         _metadataStore.DeleteThread(threadId);
     }
@@ -98,5 +118,12 @@ public sealed class ThreadStore
     {
         ct.ThrowIfCancellationRequested();
         return Task.FromResult(_metadataStore.LoadIndex());
+    }
+
+    private static SessionThread CloneThreadSnapshot(SessionThread thread)
+    {
+        var json = JsonSerializer.Serialize(thread, SessionJsonOptions.Default);
+        return JsonSerializer.Deserialize<SessionThread>(json, SessionJsonOptions.Default)
+            ?? throw new InvalidOperationException($"Failed to clone thread snapshot for {thread.Id}.");
     }
 }
