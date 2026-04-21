@@ -148,8 +148,11 @@ export class ViewerTerminalManager {
   destroyThread(win: BrowserWindow, threadId: string): void {
     const runtime = this.byWindowId.get(win.id)
     if (!runtime) return
-    for (const tab of runtime.tabs.values()) {
-      if (tab.threadId === threadId) this.destroyTab(win, tab.tabId)
+    const tabIds = [...runtime.tabs.values()]
+      .filter((tab) => tab.threadId === threadId)
+      .map((tab) => tab.tabId)
+    for (const tabId of tabIds) {
+      this.destroyTab(win, tabId)
     }
   }
 

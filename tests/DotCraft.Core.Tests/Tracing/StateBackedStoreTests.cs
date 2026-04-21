@@ -97,6 +97,64 @@ public sealed class StateBackedStoreTests : IDisposable
     }
 
     [Fact]
+    public void TraceStore_Preserves_MaxToolDuration_When_Earlier_Event_Replaces_StartedAt()
+    {
+        var store = new TraceStore(_tracingPath, 5000, false, _stateRuntime);
+        var sessionKey = "session-with-earlier-event";
+        var later = new DateTimeOffset(2026, 4, 21, 10, 0, 0, TimeSpan.Zero);
+        var earlier = later.AddMinutes(-5);
+
+        store.Record(new TraceEvent
+        {
+            SessionKey = sessionKey,
+            Type = TraceEventType.TokenUsage,
+            Timestamp = later,
+            InputTokens = 11,
+            OutputTokens = 7
+        });
+        store.Record(new TraceEvent
+        {
+            SessionKey = sessionKey,
+            Type = TraceEventType.ToolCallCompleted,
+            Timestamp = later.AddSeconds(1),
+            ToolName = "ToolA",
+            DurationMs = 100
+        });
+        store.Record(new TraceEvent
+        {
+            SessionKey = sessionKey,
+            Type = TraceEventType.ToolCallCompleted,
+            Timestamp = later.AddSeconds(2),
+            ToolName = "ToolB",
+            DurationMs = 200
+        });
+        store.Record(new TraceEvent
+        {
+            SessionKey = sessionKey,
+            Type = TraceEventType.ToolCallCompleted,
+            Timestamp = later.AddSeconds(3),
+            ToolName = "ToolC",
+            DurationMs = 300
+        });
+        store.Record(new TraceEvent
+        {
+            SessionKey = sessionKey,
+            Type = TraceEventType.Request,
+            Timestamp = earlier,
+            Content = "trigger clone with earlier event"
+        });
+
+        var session = store.GetSession(sessionKey);
+        Assert.NotNull(session);
+        Assert.Equal(earlier, session.StartedAt);
+        Assert.Equal(11, session.TotalInputTokens);
+        Assert.Equal(7, session.TotalOutputTokens);
+        Assert.Equal(3, session.ToolCallCount);
+        Assert.Equal(600, session.TotalToolDurationMs);
+        Assert.Equal(300, session.MaxToolDurationMs);
+    }
+
+    [Fact]
     public void TokenUsageStore_RoundTrips_Records_Via_StateDb()
     {
         var writer = new TokenUsageStore(_tracingPath, stateRuntime: _stateRuntime);

@@ -19,6 +19,17 @@ interface MockPty {
   kill: () => void
 }
 
+function createMockPty(): MockPty {
+  return {
+    pid: 4321,
+    onData: vi.fn(),
+    onExit: vi.fn(),
+    write: vi.fn(),
+    resize: vi.fn(),
+    kill: vi.fn()
+  }
+}
+
 function createMockWindow() {
   const send = vi.fn()
   return {
@@ -39,17 +50,12 @@ describe('ViewerTerminalManager', () => {
   beforeEach(() => {
     onDataHandler = null
     onExitHandler = null
-    mockPty = {
-      pid: 4321,
-      onData: (cb) => {
-        onDataHandler = cb
-      },
-      onExit: (cb) => {
-        onExitHandler = cb
-      },
-      write: vi.fn(),
-      resize: vi.fn(),
-      kill: vi.fn()
+    mockPty = createMockPty()
+    mockPty.onData = (cb) => {
+      onDataHandler = cb
+    }
+    mockPty.onExit = (cb) => {
+      onExitHandler = cb
     }
     spawnMock.mockReset()
     spawnMock.mockReturnValue(mockPty)
@@ -121,5 +127,52 @@ describe('ViewerTerminalManager', () => {
     manager.destroyTab(win, 'tab-1')
     expect(mockPty.kill).toHaveBeenCalledTimes(1)
     expect(() => manager.attachTab(win, 'tab-1')).toThrow('Terminal tab not found')
+  })
+
+  it('destroys only tabs belonging to the requested thread', () => {
+    const manager = new ViewerTerminalManager()
+    const win = createMockWindow()
+    const threadOneTabA = createMockPty()
+    threadOneTabA.pid = 1001
+    const threadOneTabB = createMockPty()
+    threadOneTabB.pid = 1002
+    const threadTwoTab = createMockPty()
+    threadTwoTab.pid = 2001
+    spawnMock
+      .mockReset()
+      .mockReturnValueOnce(threadOneTabA)
+      .mockReturnValueOnce(threadOneTabB)
+      .mockReturnValueOnce(threadTwoTab)
+
+    manager.createTab(win, {
+      tabId: 'tab-1',
+      threadId: 'thread-1',
+      workspacePath: 'C:\\repo',
+      cols: 80,
+      rows: 24
+    })
+    manager.createTab(win, {
+      tabId: 'tab-2',
+      threadId: 'thread-1',
+      workspacePath: 'C:\\repo',
+      cols: 80,
+      rows: 24
+    })
+    manager.createTab(win, {
+      tabId: 'tab-3',
+      threadId: 'thread-2',
+      workspacePath: 'C:\\repo',
+      cols: 80,
+      rows: 24
+    })
+
+    manager.destroyThread(win, 'thread-1')
+
+    expect(threadOneTabA.kill).toHaveBeenCalledTimes(1)
+    expect(threadOneTabB.kill).toHaveBeenCalledTimes(1)
+    expect(threadTwoTab.kill).not.toHaveBeenCalled()
+    expect(() => manager.attachTab(win, 'tab-1')).toThrow('Terminal tab not found')
+    expect(() => manager.attachTab(win, 'tab-2')).toThrow('Terminal tab not found')
+    expect(manager.attachTab(win, 'tab-3').pid).toBe(2001)
   })
 })

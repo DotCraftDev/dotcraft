@@ -646,9 +646,11 @@ public sealed class TraceStore
             SessionMetadataCapturedAt = session.SessionMetadataCapturedAt
         };
         clone.SetToolNames(session.ToolNames);
-        clone.AddInputTokens(session.TotalInputTokens);
-        clone.AddOutputTokens(session.TotalOutputTokens);
-        clone.AddToolDuration(session.TotalToolDurationMs);
+        clone.LoadAggregateSnapshot(
+            session.TotalInputTokens,
+            session.TotalOutputTokens,
+            session.TotalToolDurationMs,
+            session.MaxToolDurationMs);
         foreach (var evt in session.Events)
             clone.Events.Add(evt);
         return clone;
