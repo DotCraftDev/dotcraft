@@ -97,6 +97,7 @@ Create `.craft/feishu.json` inside your target workspace:
     "appId": "cli_your_app_id",
     "appSecret": "your_app_secret",
     "brand": "feishu",
+    "cardTitle": "DotCraft",
     "approvalTimeoutMs": 120000,
     "groupMentionRequired": true,
     "ackReactionEmoji": "GLANCE",
@@ -118,6 +119,7 @@ Notes:
 
 - `feishu.debug.adapterStream`: verbose `ChannelAdapter` stream traces to stderr (`[dotcraft-wire:adapter-stream]`), only when `true`
 - `feishu.debug.textMerge`: traces merge decisions, only when `true`
+- `feishu.cardTitle`: brand text used in reply/progress/transcript card headers and approval prompt text; defaults to `DotCraft`
 - `ackReactionEmoji` must be a Feishu official `emoji_type` such as `GLANCE`, `SMILE`, `OnIt`
 - `downloadDir` is used for temporary image files before forwarding to DotCraft
 - `feishu.tools.docs.enabled`: registers Feishu docx + wiki channel tools as one group; changing it requires restarting the module because channel tools are declared during initialize

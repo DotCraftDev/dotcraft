@@ -97,6 +97,25 @@ export const configDescriptors: LocalizedConfigDescriptor[] = [
     enumValues: ["feishu", "lark"],
   },
   {
+    key: "feishu.cardTitle",
+    displayLabel: "Reply Card Title",
+    description: 'Brand text shown on card headers. Leave empty to use "DotCraft".',
+    localizedDisplayLabel: {
+      en: "Reply Card Title",
+      "zh-Hans": "回复卡片标题",
+    },
+    localizedDescription: {
+      en: 'Brand text shown on reply/progress/transcript card headers. Leave empty to use "DotCraft".',
+      "zh-Hans": '回复、进度与流式卡片头部显示的品牌文本。留空则回退为 "DotCraft"。',
+    },
+    required: false,
+    dataKind: "string",
+    masked: false,
+    interactiveSetupOnly: false,
+    advanced: true,
+    defaultValue: "DotCraft",
+  },
+  {
     key: "feishu.approvalTimeoutMs",
     displayLabel: "Approval Timeout (ms)",
     description: "Timeout before approval requests auto-cancel.",

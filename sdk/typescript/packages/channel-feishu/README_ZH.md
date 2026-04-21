@@ -97,6 +97,7 @@
     "appId": "cli_your_app_id",
     "appSecret": "your_app_secret",
     "brand": "feishu",
+    "cardTitle": "DotCraft",
     "approvalTimeoutMs": 120000,
     "groupMentionRequired": true,
     "ackReactionEmoji": "GLANCE",
@@ -118,6 +119,7 @@
 
 - `feishu.debug.adapterStream`：打印 `ChannelAdapter` 流式事件调试日志（stderr，前缀 `[dotcraft-wire:adapter-stream]`），仅 `true` 启用
 - `feishu.debug.textMerge`：打印文本合并分支日志，仅 `true` 启用
+- `feishu.cardTitle`：回复/进度/流式卡片头部与审批提示文案中的品牌文本，默认 `DotCraft`
 - `ackReactionEmoji` 必须为飞书官方 `emoji_type`，如 `GLANCE`、`SMILE`、`OnIt`
 - `downloadDir` 用于暂存图片文件，再转发给 DotCraft
 - `feishu.tools.docs.enabled`：作为整组开关注册飞书 docx + wiki channel tools；由于工具列表在 initialize 时声明，修改后需要重启模块才会生效

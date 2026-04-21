@@ -57,3 +57,12 @@ test("config descriptors expose the Feishu docx tool toggle", () => {
   assert.equal(descriptor?.required, false);
   assert.equal(descriptor?.advanced ?? false, false);
 });
+
+test("config descriptors expose the card title setting", () => {
+  const descriptor = configDescriptors.find((item) => item.key === "feishu.cardTitle");
+  assert.ok(descriptor);
+  assert.equal(descriptor?.dataKind, "string");
+  assert.equal(descriptor?.required, false);
+  assert.equal(descriptor?.advanced ?? false, true);
+  assert.equal(descriptor?.defaultValue, "DotCraft");
+});
