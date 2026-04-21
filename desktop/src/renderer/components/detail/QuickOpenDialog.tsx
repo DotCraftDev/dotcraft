@@ -185,8 +185,9 @@ export function QuickOpenDialog({ onClose, anchorRef }: QuickOpenDialogProps): J
     anchorRef?.current?.focus()
   }, [anchorRef, onClose, setQuickOpenVisible])
 
-  const openSelected = useCallback(async (): Promise<void> => {
-    const match = results[selectedIdx]
+  const openSelected = useCallback(async (overrideIdx?: number): Promise<void> => {
+    const idx = overrideIdx ?? selectedIdx
+    const match = results[idx]
     if (!match || !workspacePath || !currentThreadId) return
 
     const absolutePath = `${workspacePath.replace(/\\/g, '/')}/${match.entry.relativePath}`
@@ -361,7 +362,7 @@ export function QuickOpenDialog({ onClose, anchorRef }: QuickOpenDialogProps): J
                     aria-selected={isSelected}
                     onClick={() => {
                       setSelectedIdx(idx)
-                      void openSelected()
+                      void openSelected(idx)
                     }}
                     onMouseEnter={() => setSelectedIdx(idx)}
                     style={{
