@@ -72,10 +72,10 @@ export function MessageStream(): JSX.Element {
         style={{
           height: '100%',
           overflowY: 'auto',
-          padding: '16px 20px',
+          padding: '24px 28px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '16px'
+          gap: '20px'
         }}
       >
         {turns.map((turn, idx) => (
@@ -141,7 +141,7 @@ function TurnBlock({
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {/* User messages */}
       {userItems.map((item: ConversationItem) => (
         <UserMessageBlock

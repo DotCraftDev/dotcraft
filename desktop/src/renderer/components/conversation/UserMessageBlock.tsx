@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Sparkle, Terminal } from 'lucide-react'
+import { FileText, Sparkle, Terminal } from 'lucide-react'
 import { useT } from '../../contexts/LocaleContext'
 import { useConversationStore } from '../../stores/conversationStore'
 import { useThreadStore } from '../../stores/threadStore'
@@ -100,18 +100,19 @@ export function UserMessageBlock({ text, nativeInputParts, imageDataUrls, images
         onMouseLeave={() => setHovered(false)}
         style={{
           backgroundColor: 'var(--user-message-bg)',
-          borderRadius: '8px',
-          padding: '10px 14px',
-          fontSize: '14px',
-          lineHeight: 1.6,
+          borderRadius: '12px',
+          padding: '12px 16px',
+          fontFamily: 'var(--font-body)',
+          fontSize: 'var(--text-body-size)',
+          lineHeight: 'var(--text-body-line-height)',
           color: 'var(--text-primary)',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
           alignSelf: 'flex-end',
-          maxWidth: '85%',
+          maxWidth: 'min(82%, var(--conversation-reading-width))',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: '10px',
           userSelect: 'text',
           position: 'relative'
         }}
@@ -225,23 +226,25 @@ function SkillRefChip({ skillName }: { skillName: string }): JSX.Element {
   return (
     <span
       title={`$${skillName}`}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '4px',
-        verticalAlign: 'baseline',
-        margin: '0 1px',
-        padding: '1px 6px',
-        borderRadius: '6px',
-        border: '1px solid color-mix(in srgb, var(--success) 38%, transparent)',
-        background: 'color-mix(in srgb, var(--success) 16%, transparent)',
-        color: 'var(--success)',
-        fontSize: '13px',
-        whiteSpace: 'nowrap',
-        userSelect: 'none',
-        fontWeight: 600
-      }}
-    >
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          verticalAlign: 'baseline',
+          margin: '0 2px',
+          padding: '2px 8px',
+          borderRadius: '999px',
+          border: '1px solid color-mix(in srgb, var(--success) 38%, transparent)',
+          background: 'color-mix(in srgb, var(--success) 16%, transparent)',
+          color: 'var(--success)',
+          fontSize: '12px',
+          lineHeight: 1.25,
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          fontWeight: 600,
+          maxWidth: 'var(--inline-reference-max-width)'
+        }}
+      >
       <Sparkle size={12} strokeWidth={2.25} aria-hidden />
       <span>{skillName}</span>
     </span>
@@ -253,23 +256,25 @@ function CommandRefChip({ commandText }: { commandText: string }): JSX.Element {
   return (
     <span
       title={commandText}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '4px',
-        verticalAlign: 'baseline',
-        margin: '0 1px',
-        padding: '1px 6px',
-        borderRadius: '6px',
-        border: '1px solid color-mix(in srgb, var(--accent) 38%, transparent)',
-        background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
-        color: 'var(--accent)',
-        fontSize: '13px',
-        whiteSpace: 'nowrap',
-        userSelect: 'none',
-        fontWeight: 600
-      }}
-    >
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          verticalAlign: 'baseline',
+          margin: '0 2px',
+          padding: '2px 8px',
+          borderRadius: '999px',
+          border: '1px solid color-mix(in srgb, var(--accent) 38%, transparent)',
+          background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+          color: 'var(--accent)',
+          fontSize: '12px',
+          lineHeight: 1.25,
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          fontWeight: 600,
+          maxWidth: 'var(--inline-reference-max-width)'
+        }}
+      >
       <Terminal size={12} strokeWidth={2.25} aria-hidden />
       <span>{label}</span>
     </span>
@@ -292,21 +297,25 @@ function FileRefChip({
   return (
     <span
       title={title}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '4px',
-        verticalAlign: 'baseline',
-        margin: '0 1px',
-        padding: '1px 6px',
-        borderRadius: '4px',
-        background: 'var(--bg-tertiary)',
-        fontSize: '13px',
-        whiteSpace: 'nowrap',
-        userSelect: 'none'
-      }}
-    >
-      <span aria-hidden>📄</span>
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          verticalAlign: 'baseline',
+          margin: '0 2px',
+          padding: '2px 8px',
+          borderRadius: '999px',
+          border: '1px solid color-mix(in srgb, var(--border-active) 44%, transparent)',
+          background: 'color-mix(in srgb, var(--bg-tertiary) 88%, transparent)',
+          color: 'var(--text-primary)',
+          fontSize: '12px',
+          lineHeight: 1.25,
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          maxWidth: 'var(--inline-reference-max-width)'
+        }}
+      >
+      <FileText size={12} strokeWidth={2.1} aria-hidden />
       <span>{fileName}</span>
     </span>
   )
@@ -316,20 +325,22 @@ function AttachedFileChip({ path, fileName }: { path: string; fileName: string }
   return (
     <span
       title={path}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '4px',
-        padding: '4px 8px',
-        borderRadius: '8px',
-        border: '1px solid var(--border-default)',
-        background: 'color-mix(in srgb, var(--bg-tertiary) 78%, var(--bg-primary))',
-        fontSize: '12px',
-        whiteSpace: 'nowrap',
-        userSelect: 'none'
-      }}
-    >
-      <span aria-hidden>📄</span>
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '4px 8px',
+          borderRadius: '999px',
+          border: '1px solid color-mix(in srgb, var(--border-active) 40%, transparent)',
+          background: 'color-mix(in srgb, var(--bg-tertiary) 84%, var(--bg-primary))',
+          color: 'var(--text-primary)',
+          fontSize: '12px',
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+          lineHeight: 1.25
+        }}
+      >
+      <FileText size={12} strokeWidth={2.1} aria-hidden />
       <span>{fileName}</span>
     </span>
   )

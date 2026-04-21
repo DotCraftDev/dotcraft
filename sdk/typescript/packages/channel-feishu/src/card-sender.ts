@@ -6,8 +6,9 @@ export async function sendReplyCards(
   client: FeishuClient,
   target: string,
   replyText: string,
+  cardTitle?: string,
 ): Promise<void> {
-  const cards = buildReplyCards(replyText);
+  const cards = buildReplyCards(replyText, cardTitle);
   for (const card of cards) {
     await client.sendInteractiveCard(target, card);
   }

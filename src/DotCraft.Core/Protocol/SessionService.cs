@@ -59,6 +59,8 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
     private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
+    private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
+    private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
 
     /// <inheritdoc />
     public Action<SessionThread>? ThreadCreatedForBroadcast { get; set; }
@@ -212,6 +214,7 @@ public sealed class SessionService(
         // Release per-thread agent if any
         _threadAgents.TryRemove(threadId, out _);
         _threadModeManagers.TryRemove(threadId, out _);
+        _threadExternalChannelToolNames.TryRemove(threadId, out _);
         await PersistThreadStatusAsync(thread, ct);
         GetOrCreateBroker(threadId).PublishThreadStatusChanged(previousStatus, thread.Status);
     }
@@ -249,6 +252,7 @@ public sealed class SessionService(
         _threadModeManagers.TryRemove(threadId, out _);
         _threadEventBrokers.TryRemove(threadId, out _);
         _materializedThreads.TryRemove(threadId, out _);
+        _threadExternalChannelToolNames.TryRemove(threadId, out _);
         if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
             await mcpManager.DisposeAsync();
 
@@ -604,9 +608,12 @@ public sealed class SessionService(
                 var reasoningText = string.Empty;
                 var agentDeltaIndex = 0;
                 Dictionary<int, SessionItem>? streamingToolCallItemsByIndex = null;
+                Dictionary<int, string>? streamingToolNameByIndex = null;
                 Dictionary<string, SessionItem>? streamingToolCallItemsByCallId = null;
+                var externalChannelCallIds = new HashSet<string>(StringComparer.Ordinal);
                 long inputTokens = 0, outputTokens = 0;
                 long lastUsageInput = 0, lastUsageOutput = 0;
+                var externalChannelToolNames = GetExternalChannelToolNames(threadId);
 
                 // SubAgent progress aggregator: lazily created when SpawnSubagent tool calls appear
                 SubAgentProgressAggregator? progressAggregator = null;
@@ -654,6 +661,21 @@ public sealed class SessionService(
                         EmitItemCompleted = eventChannel.EmitItemCompleted,
                         SupportsCommandExecutionStreaming = supportsCommandExecutionStreaming
                     });
+                void FinalizeStreamingAgentMessage()
+                {
+                    // Finalize the current AgentMessage so any subsequent
+                    // text (post-tool response) starts a fresh item,
+                    // preserving the natural interleaving in stored turns.
+                    if (agentMessageItem == null)
+                        return;
+
+                    agentMessageItem.Payload = new AgentMessagePayload { Text = agentText };
+                    agentMessageItem.Status = ItemStatus.Completed;
+                    agentMessageItem.CompletedAt = DateTimeOffset.UtcNow;
+                    eventChannel.EmitItemCompleted(agentMessageItem);
+                    agentMessageItem = null;
+                    agentText = string.Empty;
+                }
 
                 try
                 {
@@ -730,8 +752,25 @@ public sealed class SessionService(
                                     if (string.IsNullOrEmpty(toolArgsDelta.ArgumentsDelta))
                                         break;
 
+                                    var toolCallIndex = toolArgsDelta.ToolCallIndex;
+                                    if (!string.IsNullOrWhiteSpace(toolArgsDelta.ToolName))
+                                    {
+                                        streamingToolNameByIndex ??= [];
+                                        streamingToolNameByIndex[toolCallIndex] = toolArgsDelta.ToolName;
+                                    }
+
+                                    var resolvedToolName =
+                                        streamingToolNameByIndex != null
+                                        && streamingToolNameByIndex.TryGetValue(toolCallIndex, out var cachedToolName)
+                                            ? cachedToolName
+                                            : null;
+                                    if (string.IsNullOrWhiteSpace(resolvedToolName))
+                                        break;
+                                    if (IsExternalChannelTool(externalChannelToolNames, resolvedToolName))
+                                        break;
+
                                     streamingToolCallItemsByIndex ??= [];
-                                    if (!streamingToolCallItemsByIndex.TryGetValue(toolArgsDelta.ToolCallIndex, out var streamingToolCallItem))
+                                    if (!streamingToolCallItemsByIndex.TryGetValue(toolCallIndex, out var streamingToolCallItem))
                                     {
                                         streamingToolCallItem = new SessionItem
                                         {
@@ -742,12 +781,12 @@ public sealed class SessionService(
                                             CreatedAt = DateTimeOffset.UtcNow,
                                             Payload = new ToolCallPayload
                                             {
-                                                ToolName = toolArgsDelta.ToolName ?? "unknown",
+                                                ToolName = resolvedToolName,
                                                 CallId = toolArgsDelta.CallId ?? string.Empty,
                                                 Arguments = null
                                             }
                                         };
-                                        streamingToolCallItemsByIndex[toolArgsDelta.ToolCallIndex] = streamingToolCallItem;
+                                        streamingToolCallItemsByIndex[toolCallIndex] = streamingToolCallItem;
                                         turn.Items.Add(streamingToolCallItem);
                                         eventChannel.EmitItemStarted(streamingToolCallItem);
                                     }
@@ -761,7 +800,7 @@ public sealed class SessionService(
 
                                     eventChannel.EmitItemDelta(streamingToolCallItem, new ToolCallArgumentsDelta
                                     {
-                                        ToolName = toolArgsDelta.ToolName,
+                                        ToolName = resolvedToolName,
                                         CallId = toolArgsDelta.CallId,
                                         Delta = toolArgsDelta.ArgumentsDelta
                                     });
@@ -770,6 +809,9 @@ public sealed class SessionService(
 
                                 case FunctionCallContent fc:
                                 {
+                                    var isExternalChannelTool = IsExternalChannelTool(externalChannelToolNames, fc.Name);
+                                    if (isExternalChannelTool && !string.IsNullOrWhiteSpace(fc.CallId))
+                                        externalChannelCallIds.Add(fc.CallId);
                                     RegisterCommandExecutionIfNeeded(
                                         fc,
                                         turn,
@@ -777,6 +819,8 @@ public sealed class SessionService(
                                         eventChannel,
                                         supportsCommandExecutionStreaming,
                                         effectiveWorkspacePath);
+                                    if (isExternalChannelTool)
+                                        break;
 
                                     SessionItem? toolCallItem = null;
                                     if (!string.IsNullOrWhiteSpace(fc.CallId)
@@ -853,6 +897,16 @@ public sealed class SessionService(
 
                                 case FunctionResultContent fr:
                                 {
+                                    if (!string.IsNullOrWhiteSpace(fr.CallId)
+                                        && externalChannelCallIds.Remove(fr.CallId))
+                                    {
+                                        // External channel tool calls are represented by
+                                        // externalChannelToolCall items emitted from the runtime adapter.
+                                        // Even when toolResult is suppressed, keep text segmentation aligned
+                                        // with normal tools so post-tool text starts a new agent message item.
+                                        FinalizeStreamingAgentMessage();
+                                        break;
+                                    }
                                     var resultText = ImageContentSanitizingChatClient.DescribeResult(fr.Result);
                                     var toolResultItem = new SessionItem
                                     {
@@ -872,19 +926,7 @@ public sealed class SessionService(
                                     turn.Items.Add(toolResultItem);
                                     eventChannel.EmitItemStarted(toolResultItem);
                                     eventChannel.EmitItemCompleted(toolResultItem);
-
-                                    // Finalize the current AgentMessage so any subsequent
-                                    // text (post-tool response) starts a fresh item,
-                                    // preserving the natural interleaving in stored turns.
-                                    if (agentMessageItem != null)
-                                    {
-                                        agentMessageItem.Payload = new AgentMessagePayload { Text = agentText };
-                                        agentMessageItem.Status = ItemStatus.Completed;
-                                        agentMessageItem.CompletedAt = DateTimeOffset.UtcNow;
-                                        eventChannel.EmitItemCompleted(agentMessageItem);
-                                        agentMessageItem = null;
-                                        agentText = string.Empty;
-                                    }
+                                    FinalizeStreamingAgentMessage();
                                     break;
                                 }
 
@@ -1507,15 +1549,33 @@ public sealed class SessionService(
     private void AppendChannelTools(List<AITool> tools, SessionThread thread)
     {
         if (channelRuntimeToolProvider == null)
+        {
+            _threadExternalChannelToolNames.TryRemove(thread.Id, out _);
             return;
+        }
 
         var reservedNames = new HashSet<string>(tools.Select(t => t.Name), StringComparer.Ordinal);
         var channelTools = channelRuntimeToolProvider.CreateToolsForThread(thread, reservedNames);
         if (channelTools.Count == 0)
+        {
+            _threadExternalChannelToolNames.TryRemove(thread.Id, out _);
             return;
+        }
 
+        _threadExternalChannelToolNames[thread.Id] = channelTools
+            .Select(tool => tool.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.Ordinal);
         tools.AddRange(channelTools);
     }
+
+    private IReadOnlySet<string> GetExternalChannelToolNames(string threadId)
+        => _threadExternalChannelToolNames.TryGetValue(threadId, out var names)
+            ? names
+            : EmptyExternalToolNames;
+
+    private static bool IsExternalChannelTool(IReadOnlySet<string> externalToolNames, string? toolName)
+        => !string.IsNullOrWhiteSpace(toolName) && externalToolNames.Contains(toolName);
 
     private static OpenAI.Chat.ChatClient ResolveThreadChatClient(ToolProviderContext baseContext, ThreadConfiguration config)
     {

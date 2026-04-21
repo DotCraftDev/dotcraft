@@ -9,6 +9,7 @@ export interface FeishuConfig {
     verificationToken?: string;
     encryptKey?: string;
     brand?: "feishu" | "lark";
+    cardTitle?: string;
     approvalTimeoutMs?: number;
     groupMentionRequired?: boolean;
     ackReactionEmoji?: string;
@@ -123,6 +124,68 @@ export interface FeishuDocxBlockCreateResult {
   documentId: string;
   revisionId?: number;
   blocks: FeishuDocxBlockInfo[];
+}
+
+export type FeishuWikiObjType =
+  | "wiki"
+  | "doc"
+  | "docx"
+  | "sheet"
+  | "bitable"
+  | "mindnote"
+  | "file"
+  | "slides";
+
+export interface FeishuWikiNodeInfo {
+  spaceId: string;
+  nodeToken: string;
+  objToken: string;
+  objType: string;
+  nodeType: string;
+  parentNodeToken?: string;
+  originNodeToken?: string;
+  originSpaceId?: string;
+  hasChild?: boolean;
+  title?: string;
+  objCreateTime?: string;
+  objEditTime?: string;
+  nodeCreateTime?: string;
+}
+
+export interface FeishuWikiNodeListPage {
+  items: FeishuWikiNodeInfo[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuWikiSpaceInfo {
+  spaceId: string;
+  name?: string;
+  description?: string;
+  visibility?: string;
+  spaceType?: string;
+  openSharing?: string;
+}
+
+export interface FeishuWikiSpaceListPage {
+  items: FeishuWikiSpaceInfo[];
+  nextPageToken?: string;
+  hasMore?: boolean;
+}
+
+export interface FeishuMoveDocxToWikiResult {
+  wikiToken?: string;
+  taskId?: string;
+  applied?: boolean;
+}
+
+export interface FeishuWikiMoveTaskStatus {
+  taskId: string;
+  status: number;
+  statusMessage?: string;
+  wikiToken?: string;
+  objToken?: string;
+  objType?: string;
 }
 
 export type FeishuBotDiagnosticTag =

@@ -20,11 +20,16 @@ public sealed class PromptBuilderTests : IDisposable
         Assert.Contains("## Working Style", prompt);
         Assert.Contains("Before the first tool call in a task", prompt);
         Assert.Contains("Before making file edits", prompt);
+        Assert.Contains("## File Editing Workflow", prompt);
+        Assert.Contains("Prefer `EditFile` when changing an existing file.", prompt);
         Assert.Contains("## File References", prompt);
         Assert.Contains("[label](target)", prompt);
 
         var workingStyleIndex = prompt.IndexOf("## Working Style", StringComparison.Ordinal);
+        var editingWorkflowIndex = prompt.IndexOf("## File Editing Workflow", StringComparison.Ordinal);
         var fileReferencesIndex = prompt.IndexOf("## File References", StringComparison.Ordinal);
+        Assert.True(editingWorkflowIndex > workingStyleIndex);
+        Assert.True(fileReferencesIndex > editingWorkflowIndex);
         Assert.True(fileReferencesIndex > workingStyleIndex);
     }
 

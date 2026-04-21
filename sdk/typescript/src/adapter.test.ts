@@ -597,6 +597,47 @@ test("processMessage uses inputParts when provided", async () => {
   assert.deepEqual(startedInput, [{ type: "text", text: "custom part" }]);
 });
 
+test("processMessage turns slash command into commandRef when command expands", async () => {
+  const adapter = new RecordingAdapter();
+  const client = (adapter as unknown as { client: Record<string, unknown> }).client;
+  let startedInput: unknown;
+
+  (adapter as unknown as {
+    getOrCreateThread: (...args: unknown[]) => Promise<Thread>;
+  }).getOrCreateThread = async () => new Thread("thread-1", "active");
+
+  client.commandExecute = async () => ({ expandedPrompt: "expanded prompt" });
+  client.turnStart = async (_threadId: string, input: unknown) => {
+    startedInput = input;
+    return new Turn("turn-1", "thread-1", "running");
+  };
+  client.streamEvents = () =>
+    (async function* () {
+      yield {
+        method: "turn/completed",
+        params: { threadId: "thread-1", turn: { items: [] } },
+      };
+    })();
+
+  await (adapter as unknown as {
+    processMessage: (identityKey: string, opts: import("./adapter.js").ChannelAdapterMessageOpts) => Promise<void>;
+  }).processMessage("u:c", {
+    userId: "u",
+    userName: "t",
+    text: "/summarize abc",
+    channelContext: "c",
+  });
+
+  assert.deepEqual(startedInput, [
+    {
+      type: "commandRef",
+      name: "summarize",
+      rawText: "/summarize abc",
+      argsText: "abc",
+    },
+  ]);
+});
+
 test("newThread archives all reusable threads for the identity", async () => {
   const adapter = new RecordingAdapter();
   const client = (adapter as unknown as { client: Record<string, unknown> }).client;

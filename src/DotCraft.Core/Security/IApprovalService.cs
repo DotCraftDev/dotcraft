@@ -40,4 +40,20 @@ public interface IApprovalService
     /// <param name="context">Optional approval context with user info</param>
     /// <returns>True if approved, false if rejected</returns>
     Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null);
+
+    /// <summary>
+    /// Request user approval for a generic remote-resource operation that is neither a
+    /// local-file nor a shell command (e.g. operations on third-party services such as
+    /// Feishu docx / wiki nodes, where the approval layer only needs a yes/no gate).
+    /// </summary>
+    /// <param name="kind">Approval category, e.g. "remoteResource"</param>
+    /// <param name="operation">Operation label shown to the user (e.g. "create", "append", "move")</param>
+    /// <param name="target">Primary target identifier (document id, node token, URL, etc.)</param>
+    /// <param name="context">Optional approval context with user info</param>
+    /// <returns>True if approved, false if rejected</returns>
+    Task<bool> RequestResourceApprovalAsync(
+        string kind,
+        string operation,
+        string target,
+        ApprovalContext? context = null);
 }

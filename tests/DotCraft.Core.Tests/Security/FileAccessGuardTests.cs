@@ -69,5 +69,8 @@ public sealed class FileAccessGuardTests : IDisposable
 
         public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null)
             => Task.FromResult(true);
+
+        public Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+            => Task.FromResult(true);
     }
 }

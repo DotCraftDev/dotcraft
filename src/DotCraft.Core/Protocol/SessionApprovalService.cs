@@ -96,6 +96,26 @@ internal sealed class SessionApprovalService : IApprovalService
         return RequestApprovalAsync(requestId, scopeKey, payload);
     }
 
+    public Task<bool> RequestResourceApprovalAsync(
+        string kind,
+        string operation,
+        string target,
+        ApprovalContext? context = null)
+    {
+        var requestId = Guid.NewGuid().ToString("N")[..12];
+        var scopeKey = BuildScopeKey(kind, operation, target);
+        var payload = new ApprovalRequestPayload
+        {
+            ApprovalType = kind,
+            Operation = operation,
+            Target = target,
+            RequestId = requestId,
+            ScopeKey = scopeKey,
+            Reason = $"Agent wants to perform '{operation}' on remote resource: {target}"
+        };
+        return RequestApprovalAsync(requestId, scopeKey, payload);
+    }
+
     // -------------------------------------------------------------------------
     // Called by SessionService.ResolveApprovalAsync
     // -------------------------------------------------------------------------

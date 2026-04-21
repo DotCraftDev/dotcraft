@@ -801,3 +801,462 @@ test("Feishu client appends docx blocks at the root with revision and client tok
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Feishu client creates wiki nodes and updates wiki titles", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (url.includes("/update_title")) {
+      return new Response(JSON.stringify({ code: 0, data: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          node: {
+            space_id: "6946843325487906839",
+            node_token: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+            obj_token: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+            obj_type: "docx",
+            node_type: "origin",
+            parent_node_token: "wikParentABCDEFGHIJKLMNOPQRST",
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const created = await client.createWikiNode({
+      spaceId: "6946843325487906839",
+      parentNodeToken: "wikParentABCDEFGHIJKLMNOPQRST",
+    });
+    assert.deepEqual(created, {
+      spaceId: "6946843325487906839",
+      nodeToken: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+      objToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      objType: "docx",
+      nodeType: "origin",
+      parentNodeToken: "wikParentABCDEFGHIJKLMNOPQRST",
+      originNodeToken: undefined,
+      originSpaceId: undefined,
+      hasChild: undefined,
+      title: undefined,
+      objCreateTime: undefined,
+      objEditTime: undefined,
+      nodeCreateTime: undefined,
+    });
+    await client.updateWikiNodeTitle("6946843325487906839", "wikABCDEFGHIJKLMNOPQRSTUVWX", "Release Notes");
+    assert.equal(calls.length, 3);
+    assert.match(calls[1]!.url, /\/wiki\/v2\/spaces\/6946843325487906839\/nodes$/);
+    assert.match(calls[2]!.url, /\/update_title$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client gets and lists wiki nodes", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (url.includes("/spaces/get_node")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            node: {
+              space_id: "6946843325487906839",
+              node_token: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+              obj_token: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+              obj_type: "docx",
+              node_type: "origin",
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [
+            {
+              space_id: "6946843325487906839",
+              node_token: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+              obj_token: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+              obj_type: "docx",
+              node_type: "origin",
+              title: "Release Notes",
+              has_child: true,
+            },
+          ],
+          has_more: true,
+          page_token: "next-page",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const node = await client.getWikiNode("wikABCDEFGHIJKLMNOPQRSTUVWX");
+    assert.equal(node.objToken, "doxABCDEFGHIJKLMNOPQRSTUVWX");
+    const page = await client.listWikiNodes({
+      spaceId: "6946843325487906839",
+      parentNodeToken: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+      pageSize: 20,
+      pageToken: "current-page",
+    });
+    assert.equal(page.items.length, 1);
+    assert.equal(page.nextPageToken, "next-page");
+    assert.equal(page.hasMore, true);
+    assert.match(calls[1]!.url, /\/spaces\/get_node\?/);
+    assert.match(calls[2]!.url, /parent_node_token=wikABCDEFGHIJKLMNOPQRSTUVWX/);
+    assert.match(calls[2]!.url, /page_size=20/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client moves docx into wiki and returns task fields", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          task_id: "7037044037068177428-abc",
+          applied: true,
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await client.moveDocxToWiki({
+      spaceId: "6946843325487906839",
+      objToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      parentWikiToken: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+      apply: true,
+    });
+    assert.deepEqual(result, {
+      wikiToken: undefined,
+      taskId: "7037044037068177428-abc",
+      applied: true,
+    });
+    assert.match(calls[1]!.url, /\/nodes\/move_docs_to_wiki$/);
+    const body = JSON.parse(String(calls[1]!.init?.body ?? "{}")) as Record<string, unknown>;
+    assert.deepEqual(body, {
+      obj_type: "docx",
+      obj_token: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      parent_wiki_token: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+      apply: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client queries wiki move task status", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          task: {
+            task_id: "7037044037068177428-abc",
+            move_result: {
+              status: 2,
+              status_msg: "success",
+              wiki_token: "wikNEWTOKENXXXXXXXXXXXXXXX",
+              obj_token: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+              obj_type: "docx",
+            },
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const status = await client.getWikiMoveTask("7037044037068177428-abc");
+    assert.deepEqual(status, {
+      taskId: "7037044037068177428-abc",
+      status: 2,
+      statusMessage: "success",
+      wikiToken: "wikNEWTOKENXXXXXXXXXXXXXXX",
+      objToken: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+      objType: "docx",
+    });
+    assert.match(calls[1]!.url, /\/wiki\/v2\/tasks\/7037044037068177428-abc\?/);
+    assert.match(calls[1]!.url, /task_type=move/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client moves wiki node and maps returned node info", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          node: {
+            space_id: "6946843325487906839",
+            node_token: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+            obj_token: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+            obj_type: "docx",
+            node_type: "origin",
+            parent_node_token: "wikPARENTXXXXXXXXXXXXXXXXXX",
+            title: "Relocated Page",
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const node = await client.moveWikiNode({
+      spaceId: "6946843325487906839",
+      nodeToken: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+      targetParentToken: "wikPARENTXXXXXXXXXXXXXXXXXX",
+    });
+    assert.equal(node.parentNodeToken, "wikPARENTXXXXXXXXXXXXXXXXXX");
+    assert.equal(node.title, "Relocated Page");
+    assert.match(
+      calls[1]!.url,
+      /\/spaces\/6946843325487906839\/nodes\/wikABCDEFGHIJKLMNOPQRSTUVWX\/move$/,
+    );
+    const body = JSON.parse(String(calls[1]!.init?.body ?? "{}")) as Record<string, unknown>;
+    assert.deepEqual(body, {
+      target_parent_token: "wikPARENTXXXXXXXXXXXXXXXXXX",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client lists wiki spaces with pagination", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [
+            {
+              space_id: "6946843325487906839",
+              name: "Team Wiki",
+              description: "Shared workspace",
+              visibility: "public",
+              space_type: "team",
+              open_sharing: "open",
+            },
+          ],
+          has_more: true,
+          page_token: "next-page",
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const page = await client.listWikiSpaces({ pageSize: 20, pageToken: "current-page" });
+    assert.equal(page.items.length, 1);
+    assert.equal(page.items[0]!.spaceId, "6946843325487906839");
+    assert.equal(page.items[0]!.name, "Team Wiki");
+    assert.equal(page.items[0]!.visibility, "public");
+    assert.equal(page.nextPageToken, "next-page");
+    assert.equal(page.hasMore, true);
+    assert.match(calls[1]!.url, /\/wiki\/v2\/spaces\?/);
+    assert.match(calls[1]!.url, /page_size=20/);
+    assert.match(calls[1]!.url, /page_token=current-page/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client gets wiki space metadata", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          space: {
+            space_id: "6946843325487906839",
+            name: "Team Wiki",
+            description: "Shared workspace",
+            visibility: "public",
+            space_type: "team",
+            open_sharing: "open",
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const space = await client.getWikiSpace("6946843325487906839");
+    assert.equal(space.spaceId, "6946843325487906839");
+    assert.equal(space.name, "Team Wiki");
+    assert.equal(space.visibility, "public");
+    assert.match(calls[1]!.url, /\/wiki\/v2\/spaces\/6946843325487906839$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Feishu client reverse-looks-up wiki node from docx obj_token", async () => {
+  const client = createClient();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.includes("/tenant_access_token/internal")) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: "tenant_token",
+          expire: 7200,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          node: {
+            space_id: "6946843325487906839",
+            node_token: "wikABCDEFGHIJKLMNOPQRSTUVWX",
+            obj_token: "doxABCDEFGHIJKLMNOPQRSTUVWX",
+            obj_type: "docx",
+            node_type: "origin",
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const node = await client.getWikiNode("doxABCDEFGHIJKLMNOPQRSTUVWX", "docx");
+    assert.equal(node.nodeToken, "wikABCDEFGHIJKLMNOPQRSTUVWX");
+    assert.equal(node.objType, "docx");
+    assert.match(calls[1]!.url, /\/spaces\/get_node\?/);
+    assert.match(calls[1]!.url, /obj_type=docx/);
+    assert.match(calls[1]!.url, /token=doxABCDEFGHIJKLMNOPQRSTUVWX/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

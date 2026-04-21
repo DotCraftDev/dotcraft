@@ -6,11 +6,19 @@ import {
 } from "dotcraft-wire";
 import { chunkMarkdown, normalizeMarkdownForFeishu, summarizeApprovalOperation } from "./formatting.js";
 
-export function buildReplyCards(replyText: string): Record<string, unknown>[] {
+export const DEFAULT_CARD_TITLE = "DotCraft";
+
+function resolveCardTitle(cardTitle?: string): string {
+  const trimmed = (cardTitle ?? "").trim();
+  return trimmed.length > 0 && trimmed.length <= 48 ? trimmed : DEFAULT_CARD_TITLE;
+}
+
+export function buildReplyCards(replyText: string, cardTitle?: string): Record<string, unknown>[] {
   const chunks = chunkMarkdown(replyText);
+  const title = resolveCardTitle(cardTitle);
   return chunks.map((chunk, index) =>
     buildV2Card(
-      chunks.length > 1 ? `DotCraft Reply (${index + 1}/${chunks.length})` : "DotCraft Reply",
+      chunks.length > 1 ? `${title} Reply (${index + 1}/${chunks.length})` : `${title} Reply`,
       "blue",
       [
         {
@@ -22,8 +30,8 @@ export function buildReplyCards(replyText: string): Record<string, unknown>[] {
   );
 }
 
-export function buildProgressCard(text: string): Record<string, unknown> {
-  return buildV2Card("DotCraft", "turquoise", [
+export function buildProgressCard(text: string, cardTitle?: string): Record<string, unknown> {
+  return buildV2Card(resolveCardTitle(cardTitle), "turquoise", [
     {
       tag: "markdown",
       content: normalizeMarkdownForFeishu(text),
@@ -31,8 +39,8 @@ export function buildProgressCard(text: string): Record<string, unknown> {
   ]);
 }
 
-export function buildTranscriptCard(text: string, isFinal: boolean): Record<string, unknown> {
-  return buildV2Card("DotCraft", isFinal ? "blue" : "turquoise", [
+export function buildTranscriptCard(text: string, isFinal: boolean, cardTitle?: string): Record<string, unknown> {
+  return buildV2Card(resolveCardTitle(cardTitle), isFinal ? "blue" : "turquoise", [
     {
       tag: "markdown",
       content: normalizeMarkdownForFeishu(text),
@@ -62,10 +70,12 @@ export function buildApprovalCard(params: {
   target: string;
   reason: string;
   timeoutSeconds: number;
+  cardTitle?: string;
 }): Record<string, unknown> {
   const summary = summarizeApprovalOperation(params.approvalType, params.operation, params.target);
   const reasonBlock = params.reason ? `\nReason: ${params.reason}` : "";
   const requestHint = params.requestId ? `\nRequest: ${params.requestId}` : "";
+  const cardTitle = resolveCardTitle(params.cardTitle);
   const buttons = [
     buildApprovalButton("Approve", "primary", `approval_accept_${params.requestId}`, params.requestId, DECISION_ACCEPT),
     buildApprovalButton(
@@ -83,7 +93,7 @@ export function buildApprovalCard(params: {
     {
       tag: "markdown",
       content:
-        `DotCraft needs approval before continuing.\n\n${summary}${reasonBlock}${requestHint}\n\n` +
+        `${cardTitle} needs approval before continuing.\n\n${summary}${reasonBlock}${requestHint}\n\n` +
         `Timeout: ${params.timeoutSeconds}s`,
     },
     ...buttons,

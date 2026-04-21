@@ -17,6 +17,9 @@ public sealed class ApiApprovalService(ApiApprovalMode mode = ApiApprovalMode.Au
     public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null)
         => Task.FromResult(mode == ApiApprovalMode.Auto);
 
+    public Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+        => Task.FromResult(mode == ApiApprovalMode.Auto);
+
     public static ApiApprovalMode ParseMode(bool autoApprove)
         => autoApprove ? ApiApprovalMode.Auto : ApiApprovalMode.Reject;
 }

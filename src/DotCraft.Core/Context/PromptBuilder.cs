@@ -45,6 +45,7 @@ public sealed class PromptBuilder(MemoryStore memoryStore, SkillsLoader skillsLo
             parts.Add(subAgentProfilesSection);
 
         parts.Add(GetWorkingStylePrompt());
+        parts.Add(GetEditingWorkflowPrompt());
         parts.Add(GetFileReferenceFormatPrompt());
 
         // Bootstrap files (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md)
@@ -219,6 +220,20 @@ This contains:
 - Keep these explanations concrete and forward-looking: focus on your current read of the task and the immediate next step.
 - During longer exploration, searching, testing, or editing stretches, send brief progress updates when they help the user follow your work.
 - Before making file edits, briefly explain what you are going to change and why.
+""";
+    }
+
+    private static string GetEditingWorkflowPrompt()
+    {
+        return
+"""
+## File Editing Workflow
+- Prefer `EditFile` when changing an existing file.
+- Use `WriteFile` for new files or intentional full rewrites.
+- Read the file before editing.
+- In `EditFile`, use the smallest unique `oldText` snippet that can identify the target.
+- If a large edit can be done as several precise replacements, prefer that over rewriting the whole file.
+- If an edit fails, re-read and retry instead of immediately switching to `WriteFile`.
 """;
     }
 

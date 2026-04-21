@@ -12,7 +12,9 @@ public sealed class ConsoleApprovalService(ApprovalStore? store = null) : IAppro
     private readonly HashSet<string> _sessionFileOperations = [];
     
     private readonly HashSet<string> _sessionShellCommands = [];
-    
+
+    private readonly HashSet<string> _sessionResourceScopes = [];
+
     private readonly Lock _sessionLock = new();
 
     // Static render control for coordinating with renderer.
@@ -109,6 +111,44 @@ public sealed class ConsoleApprovalService(ApprovalStore? store = null) : IAppro
                 lock (_sessionLock)
                 {
                     _sessionShellCommands.Add("*");
+                }
+                return true;
+
+            case ApprovalOption.Once:
+                return true;
+
+            case ApprovalOption.Reject:
+            default:
+                return false;
+        }
+    }
+
+    public async Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+    {
+        var scopeKey = $"{kind}:{operation}".ToLowerInvariant();
+        lock (_sessionLock)
+        {
+            if (_sessionResourceScopes.Contains(scopeKey))
+            {
+                return true;
+            }
+        }
+
+        // Reuse the file approval prompt to avoid adding new localization keys; the
+        // operation / target columns still convey the resource identity clearly.
+        var displayOperation = $"{kind}:{operation}";
+        var choice = _renderControl != null
+            ? await _renderControl.ExecuteWhilePausedAsync(
+                () => ApprovalPrompt.RequestFileApproval(displayOperation, target))
+            : ApprovalPrompt.RequestFileApproval(displayOperation, target);
+
+        switch (choice)
+        {
+            case ApprovalOption.Always:
+            case ApprovalOption.Session:
+                lock (_sessionLock)
+                {
+                    _sessionResourceScopes.Add(scopeKey);
                 }
                 return true;
 

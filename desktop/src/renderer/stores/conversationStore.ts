@@ -51,7 +51,7 @@ export interface PendingApproval {
   bridgeId: string
   /** Item ID in the current turn's items list */
   itemId: string
-  approvalType: 'shell' | 'file'
+  approvalType: 'shell' | 'file' | 'remoteResource'
   operation: string
   target: string
   reason: string
@@ -1340,7 +1340,7 @@ export const useConversationStore = create<ConversationStore>((set, get) => ({
     const turnId = state.activeTurnId
     if (!turnId) return
 
-    const approvalType = (params.approvalType as 'shell' | 'file') ?? 'shell'
+    const approvalType = (params.approvalType as 'shell' | 'file' | 'remoteResource') ?? 'shell'
     const operation = (params.operation as string) ?? ''
     const target = (params.target as string) ?? ''
     const reason = (params.reason as string) ?? ''

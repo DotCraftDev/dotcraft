@@ -78,6 +78,31 @@ public sealed class WeComApprovalService(
         return result != ApprovalResult.Rejected;
     }
 
+    public async Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+    {
+        if (context == null)
+            return false;
+
+        var role = permissionService.GetUserRole(context.UserId);
+        var tier = WeComPermissionService.ClassifyFileOperation("write", isWithinWorkspace: false);
+
+        if (!permissionService.IsOperationAllowed(role, tier))
+            return false;
+
+        if (!WeComPermissionService.RequiresApproval(role, tier))
+            return true;
+
+        var operationKey = $"{kind}:{operation}".ToLowerInvariant();
+        if (IsSessionApproved(context, operationKey))
+            return true;
+
+        var description = $"远端资源操作\n类型: {kind}\n操作: {operation}\n目标: {target}";
+        var result = await RequestApprovalViaWeComAsync(context, description, operationKey);
+        if (result == ApprovalResult.ApprovedForSession)
+            AddSessionApproval(context, operationKey);
+        return result != ApprovalResult.Rejected;
+    }
+
     public bool HasPendingApprovals => !_pendingApprovals.IsEmpty;
 
     public bool TryHandleApprovalReply(string plainText, string userId)

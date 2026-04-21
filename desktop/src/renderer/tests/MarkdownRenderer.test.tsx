@@ -82,6 +82,21 @@ describe('MarkdownRenderer', () => {
     const link = screen.getByRole('link', { name: /dotcraft/i })
     expect(link).toBeDefined()
     expect(link.getAttribute('href')).toBe('https://example.com')
+    expect(link).toHaveStyle({ textDecoration: 'none' })
+  })
+
+  it('renders file links as inline reference pills', () => {
+    renderWithLocale('[./docs/guide.md](./docs/guide.md)')
+    const link = screen.getByRole('link', { name: /guide\.md/i })
+    expect(link).toHaveAttribute('data-inline-reference-kind', 'file')
+    expect(link).toHaveAttribute('title', './docs/guide.md')
+  })
+
+  it('shortens raw browser links into readable labels', () => {
+    renderWithLocale('[https://docs.example.com/start](https://docs.example.com/start)')
+    const link = screen.getByRole('link', { name: /docs\.example\.com\/start/i })
+    expect(link).toHaveAttribute('data-inline-reference-kind', 'browser')
+    expect(link.getAttribute('href')).toBe('https://docs.example.com/start')
   })
 
   it('renders bold and italic text', () => {

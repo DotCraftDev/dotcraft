@@ -72,6 +72,33 @@ public sealed class QQApprovalService(QQBotClient client, QQPermissionService pe
         return result != ApprovalResult.Rejected;
     }
 
+    public async Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+    {
+        if (context == null)
+            return false;
+
+        var userId = long.Parse(context.UserId);
+        var role = permissionService.GetUserRole(userId, context.GroupId);
+        // Treat remote resource mutations conservatively as sensitive; require approval from admins/users.
+        var tier = QQPermissionService.ClassifyFileOperation("write", isWithinWorkspace: false);
+
+        if (!permissionService.IsOperationAllowed(role, tier))
+            return false;
+
+        if (!QQPermissionService.RequiresApproval(role, tier))
+            return true;
+
+        var operationKey = $"{kind}:{operation}".ToLowerInvariant();
+        if (IsSessionApproved(context, operationKey))
+            return true;
+
+        var description = $"远端资源操作\n类型: {kind}\n操作: {operation}\n目标: {target}";
+        var result = await RequestApprovalViaQQAsync(context, description, operationKey);
+        if (result == ApprovalResult.ApprovedForSession)
+            AddSessionApproval(context, operationKey);
+        return result != ApprovalResult.Rejected;
+    }
+
     public bool HasPendingApprovals => !_pendingApprovals.IsEmpty;
 
     public bool TryHandleApprovalReply(OneBotMessageEvent evt)

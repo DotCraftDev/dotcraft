@@ -157,7 +157,7 @@ public sealed class FileTools(
         return ImageExtensionToMediaType.TryGetValue(ext, out mediaType!);
     }
 
-    [Description("Write content to a file at the given path. Creates parent directories if needed.")]
+    [Description("Write content to a file at the given path. Creates parent directories if needed. Prefer this tool for creating new files or intentional full-file rewrites. When modifying an existing file, prefer EditFile for targeted changes.")]
     [Tool(Icon = "✏️", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.WriteFile))]
     public async Task<string> WriteFile(
         [Description("The workspace-relative or absolute file path to write to.")] string path,
@@ -199,7 +199,7 @@ public sealed class FileTools(
         }
     }
 
-    [Description("Replace text in a file: provide oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 3-8 lines including surrounding context) to save tokens; do not paste entire files unless rewriting. For new files or full rewrites use WriteFile. When replaceAll is false (default), matching tries exact text first, then fuzzy fallbacks (line trim, indentation, collapsed whitespace, Unicode punctuation); oldText must match exactly one location unless you set replaceAll to true. Use replaceAll to replace every exact occurrence at once (e.g. renaming a symbol across the file).")]
+    [Description("Replace text in a file: provide oldText (snippet to find) and newText. Prefer a minimal unique snippet (typically 2-6 lines including nearby context) instead of large pasted blocks. For existing files, prefer targeted EditFile replacements over full-file rewrites, even when many changes are needed. Use WriteFile for new files or intentional full rewrites. When replaceAll is false (default), matching tries exact text first, then fuzzy fallbacks (line trim, indentation, collapsed whitespace, Unicode punctuation); oldText must match exactly one location unless you set replaceAll to true. Use replaceAll only when you intentionally want to replace every exact occurrence at once.")]
     [Tool(Icon = "🔄", DisplayType = typeof(CoreToolDisplays), DisplayMethod = nameof(CoreToolDisplays.EditFile))]
     public async Task<string> EditFile(
         [Description("The workspace-relative or absolute file path to edit.")] string path,

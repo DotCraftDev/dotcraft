@@ -97,6 +97,25 @@ export const configDescriptors: LocalizedConfigDescriptor[] = [
     enumValues: ["feishu", "lark"],
   },
   {
+    key: "feishu.cardTitle",
+    displayLabel: "Reply Card Title",
+    description: 'Brand text shown on card headers. Leave empty to use "DotCraft".',
+    localizedDisplayLabel: {
+      en: "Reply Card Title",
+      "zh-Hans": "回复卡片标题",
+    },
+    localizedDescription: {
+      en: 'Brand text shown on reply/progress/transcript card headers. Leave empty to use "DotCraft".',
+      "zh-Hans": '回复、进度与流式卡片头部显示的品牌文本。留空则回退为 "DotCraft"。',
+    },
+    required: false,
+    dataKind: "string",
+    masked: false,
+    interactiveSetupOnly: false,
+    advanced: true,
+    defaultValue: "DotCraft",
+  },
+  {
     key: "feishu.approvalTimeoutMs",
     displayLabel: "Approval Timeout (ms)",
     description: "Timeout before approval requests auto-cancel.",
@@ -173,14 +192,15 @@ export const configDescriptors: LocalizedConfigDescriptor[] = [
   {
     key: "feishu.tools.docs.enabled",
     displayLabel: "Enable Feishu Docx Tools",
-    description: "Register Feishu docx create/read/append tools for this channel.",
+    description:
+      "Register Feishu docx and wiki tools (create/read/append/list-node/get-node/move-to-wiki) for this channel.",
     localizedDisplayLabel: {
       en: "Enable Feishu Docx Tools",
       "zh-Hans": "启用飞书文档工具",
     },
     localizedDescription: {
-      en: "Register Feishu docx create/read/append tools for this channel.",
-      "zh-Hans": "为当前飞书渠道注册新版文档（docx）的创建、读取和追加工具。",
+      en: "Register Feishu docx and wiki tools (create/read/append/list-node/get-node/move-to-wiki) for this channel.",
+      "zh-Hans": "为当前飞书渠道注册文档与知识库工具（创建、读取、追加、列节点、查节点、迁入知识库）。",
     },
     required: false,
     dataKind: "boolean",

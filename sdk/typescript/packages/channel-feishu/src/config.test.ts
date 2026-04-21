@@ -73,6 +73,12 @@ test("accepts optional docs tool toggle", () => {
   assert.doesNotThrow(() => validateFeishuConfig(config));
 });
 
+test("accepts optional feishu.cardTitle", () => {
+  const config = validConfig();
+  config.feishu.cardTitle = "Bot";
+  assert.doesNotThrow(() => validateFeishuConfig(config));
+});
+
 test("throws ConfigValidationError when feishu.brand is invalid", () => {
   const config = validConfig() as unknown as {
     dotcraft: Record<string, unknown>;

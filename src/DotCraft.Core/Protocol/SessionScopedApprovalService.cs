@@ -36,6 +36,13 @@ public sealed class SessionScopedApprovalService(IApprovalService inner) : IAppr
         ApprovalContext? context = null) =>
         GetEffectiveService().RequestShellApprovalAsync(command, workingDir, context);
 
+    public Task<bool> RequestResourceApprovalAsync(
+        string kind,
+        string operation,
+        string target,
+        ApprovalContext? context = null) =>
+        GetEffectiveService().RequestResourceApprovalAsync(kind, operation, target, context);
+
     internal IApprovalService GetEffectiveService()
         => Override.Value ?? _inner;
 

@@ -14,6 +14,9 @@ public sealed class PrefixedApprovalService(IApprovalService inner, string prefi
     public Task<bool> RequestShellApprovalAsync(string command, string? workingDir, ApprovalContext? context = null)
         => inner.RequestShellApprovalAsync(Prefix(command), workingDir, context);
 
+    public Task<bool> RequestResourceApprovalAsync(string kind, string operation, string target, ApprovalContext? context = null)
+        => inner.RequestResourceApprovalAsync(kind, operation, Prefix(target), context);
+
     private string Prefix(string value)
         => string.IsNullOrEmpty(_prefix) || string.IsNullOrEmpty(value)
             ? value

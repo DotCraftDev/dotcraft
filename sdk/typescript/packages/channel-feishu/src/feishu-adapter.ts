@@ -36,6 +36,7 @@ import {
   getFeishuDocxChannelTools,
   maybeExecuteFeishuDocxToolCall,
 } from "./feishu-docx-tools.js";
+import { getFeishuWikiChannelTools, maybeExecuteFeishuWikiToolCall } from "./feishu-wiki-tools.js";
 import type { FeishuCardActionEvent, FeishuConfig, ParsedInboundMessage } from "./feishu-types.js";
 import { FeishuClient } from "./feishu-client.js";
 import { errorMessage, logError, logInfo, logWarn, shortId } from "./logging.js";
@@ -83,6 +84,7 @@ export function validateFeishuConfig(rawConfig: unknown): asserts rawConfig is F
 
 export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
   private feishu: FeishuClient | undefined;
+  private cardTitle = "DotCraft";
   private approvalTimeoutMs = 120000;
   private eventAbortController: AbortController | undefined;
   private readonly threadContextMap = new Map<string, string>();
@@ -153,6 +155,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
     }
 
     const config = this.loadedConfig;
+    this.cardTitle = config.feishu.cardTitle ?? "DotCraft";
     this.approvalTimeoutMs = config.feishu.approvalTimeoutMs ?? 120000;
     configureTextMergeDebug(config.feishu.debug?.textMerge);
     this.feishu = new FeishuClient(config.feishu);
@@ -202,7 +205,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
       contentChars: content.length,
     });
     try {
-      await sendReplyCards(this.getFeishuClient(), target, content);
+      await sendReplyCards(this.getFeishuClient(), target, content, this.cardTitle);
       logInfo("outbound.deliver.success", {
         target: shortId(target),
       });
@@ -257,6 +260,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
         },
       },
       ...getFeishuDocxChannelTools(areFeishuDocxToolsEnabled(this.loadedConfig)),
+      ...getFeishuWikiChannelTools(areFeishuDocxToolsEnabled(this.loadedConfig)),
     ];
   }
 
@@ -302,6 +306,14 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
         });
         if (docxResult) {
           return docxResult;
+        }
+        const wikiResult = await maybeExecuteFeishuWikiToolCall({
+          toolName: tool,
+          args,
+          client: this.getFeishuClient(),
+        });
+        if (wikiResult) {
+          return wikiResult;
         }
       } catch (error) {
         return {
@@ -405,6 +417,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
       target,
       reason,
       timeoutSeconds,
+      cardTitle: this.cardTitle,
     });
     const sent = await sendSingleCard(this.getFeishuClient(), channelTarget, card);
     logInfo("approval.card_sent", {
@@ -512,7 +525,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
     state.isFinal = isFinal;
     this.activeTurnByThread.set(threadId, turnId);
     this.activeTurnByChannelTarget.set(channelTarget, turnId);
-    const card = buildTranscriptCard(state.accumulatedText, isFinal);
+    const card = buildTranscriptCard(state.accumulatedText, isFinal, this.cardTitle);
     const sent = await createOrUpdateCard(this.getFeishuClient(), channelTarget, card, state.messageId);
     state.messageId = sent.messageId;
     if (isFinal) {
@@ -594,7 +607,7 @@ export class FeishuAdapter extends ModuleChannelAdapter<FeishuConfig> {
       if (state && state.channelTarget === channelContext) {
         state.accumulatedText = this.reconcileFinalTranscriptText(state.accumulatedText, replyText);
         state.isFinal = true;
-        const card = buildTranscriptCard(state.accumulatedText, true);
+        const card = buildTranscriptCard(state.accumulatedText, true, this.cardTitle);
         const sent = await createOrUpdateCard(this.getFeishuClient(), channelContext, card, state.messageId);
         state.messageId = sent.messageId;
       }
