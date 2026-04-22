@@ -719,10 +719,11 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         });
 
         await using var agentFactory = CreateAgentFactoryForSessionTests();
+        var persistence = new SessionPersistenceService(new ThreadStore(_tempDir));
         var service = new SessionService(
             agentFactory,
             scriptedAgent,
-            new ThreadStore(_tempDir),
+            persistence,
             new SessionGate());
         var thread = await service.CreateThreadAsync(new SessionIdentity
         {
@@ -824,10 +825,11 @@ public sealed class ExternalChannelDeliveryTests : IDisposable
         });
 
         await using var agentFactory = CreateAgentFactoryForSessionTests();
+        var persistence = new SessionPersistenceService(new ThreadStore(_tempDir));
         var service = new SessionService(
             agentFactory,
             scriptedAgent,
-            new ThreadStore(_tempDir),
+            persistence,
             new SessionGate());
         var thread = await service.CreateThreadAsync(new SessionIdentity
         {

@@ -404,6 +404,75 @@ public sealed class SubAgentCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_WhenExternalCliResumeDisabled_DoesNotPassStoredSessionId()
+    {
+        var runtime = new FakeRuntime(CliOneshotRuntime.RuntimeTypeName, "cli ok");
+        var store = new FakeExternalCliSessionStore(
+            new ExternalCliStoredSession("cli-run", "same", _workspacePath, "sess-123"));
+        var coordinator = new SubAgentCoordinator(
+            _workspacePath,
+            [runtime],
+            [
+                new SubAgentProfile
+                {
+                    Name = "cli-run",
+                    Runtime = CliOneshotRuntime.RuntimeTypeName,
+                    WorkingDirectoryMode = "workspace",
+                    Bin = "test-cli",
+                    SupportsResume = true,
+                    ResumeArgTemplate = "--resume {sessionId}",
+                    ResumeSessionIdJsonPath = "session_id"
+                }
+            ],
+            externalCliSessionStore: store,
+            enableExternalCliSessionResume: false);
+
+        var result = await coordinator.RunAsync(
+            new SubAgentTaskRequest { Task = "inspect code", Label = "same" },
+            "cli-run");
+
+        Assert.Equal("cli ok", result);
+        Assert.Null(runtime.LastLaunchContext?.ResumeSessionId);
+        Assert.Empty(store.RecordedSessionIds);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenExternalCliResumeEnabled_PassesAndUpdatesSessionId()
+    {
+        var runtime = new FakeRuntime(
+            CliOneshotRuntime.RuntimeTypeName,
+            "cli ok",
+            resultSessionId: "sess-456");
+        var store = new FakeExternalCliSessionStore(
+            new ExternalCliStoredSession("cli-run", "same", _workspacePath, "sess-123"));
+        var coordinator = new SubAgentCoordinator(
+            _workspacePath,
+            [runtime],
+            [
+                new SubAgentProfile
+                {
+                    Name = "cli-run",
+                    Runtime = CliOneshotRuntime.RuntimeTypeName,
+                    WorkingDirectoryMode = "workspace",
+                    Bin = "test-cli",
+                    SupportsResume = true,
+                    ResumeArgTemplate = "--resume {sessionId}",
+                    ResumeSessionIdJsonPath = "session_id"
+                }
+            ],
+            externalCliSessionStore: store,
+            enableExternalCliSessionResume: true);
+
+        var result = await coordinator.RunAsync(
+            new SubAgentTaskRequest { Task = "inspect code", Label = "same" },
+            "cli-run");
+
+        Assert.Equal("cli ok", result);
+        Assert.Equal("sess-123", runtime.LastLaunchContext?.ResumeSessionId);
+        Assert.Equal(["sess-456"], store.RecordedSessionIds);
+    }
+
+    [Fact]
     public void GetProfileDiagnostics_IncludesWarningsAndBuiltInMetadata()
     {
         var runtime = new FakeRuntime(NativeSubAgentRuntime.RuntimeTypeName, "unused");
@@ -517,7 +586,8 @@ public sealed class SubAgentCoordinatorTests : IDisposable
     private sealed class FakeRuntime(
         string runtimeType,
         string resultText,
-        Action<ISubAgentEventSink>? onRun = null) : ISubAgentRuntime
+        Action<ISubAgentEventSink>? onRun = null,
+        string? resultSessionId = null) : ISubAgentRuntime
     {
         public string RuntimeType { get; } = runtimeType;
 
@@ -553,7 +623,8 @@ public sealed class SubAgentCoordinatorTests : IDisposable
             return Task.FromResult(new SubAgentRunResult
             {
                 Text = resultText,
-                IsError = false
+                IsError = false,
+                SessionId = resultSessionId
             });
         }
 
@@ -564,6 +635,36 @@ public sealed class SubAgentCoordinatorTests : IDisposable
         {
             DisposeCalls++;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeExternalCliSessionStore(params ExternalCliStoredSession[] sessions) : IExternalCliSessionStore
+    {
+        private readonly List<ExternalCliStoredSession> _sessions = [.. sessions];
+
+        public List<string> RecordedSessionIds { get; } = [];
+
+        public bool TryGetResumeSession(
+            string profileName,
+            string? label,
+            string workingDirectory,
+            out ExternalCliStoredSession session)
+        {
+            session = _sessions.FirstOrDefault(s =>
+                string.Equals(s.ProfileName, profileName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(s.Label, label, StringComparison.Ordinal)
+                && string.Equals(s.WorkingDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase))
+                ?? new ExternalCliStoredSession(string.Empty, null, string.Empty, string.Empty);
+            return !string.IsNullOrWhiteSpace(session.SessionId);
+        }
+
+        public void RecordSuccessfulRun(
+            string profileName,
+            string? label,
+            string workingDirectory,
+            string sessionId)
+        {
+            RecordedSessionIds.Add(sessionId);
         }
     }
 }

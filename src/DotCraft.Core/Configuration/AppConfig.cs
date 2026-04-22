@@ -671,6 +671,13 @@ public sealed class AppConfig
         /// </summary>
         [ConfigField(Hint = "JSON array of SubAgent profile names to disable for this workspace", Reload = ReloadBehavior.Hot, HasReload = true)]
         public List<string> DisabledProfiles { get; set; } = [];
+
+        /// <summary>
+        /// Whether external CLI subagents may resume previously saved external sessions for this workspace.
+        /// When disabled, DotCraft always launches a fresh external CLI session.
+        /// </summary>
+        [ConfigField(Hint = "Reuse saved external CLI sessions for supported SubAgent profiles in this workspace", Reload = ReloadBehavior.Hot, HasReload = true)]
+        public bool EnableExternalCliSessionResume { get; set; }
     }
 
     [ConfigSection("WelcomeSuggestions", DisplayName = "Welcome Suggestions", Order = 59)]

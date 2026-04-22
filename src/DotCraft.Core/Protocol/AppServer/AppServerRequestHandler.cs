@@ -141,6 +141,7 @@ public sealed class AppServerRequestHandler(
         AppServerMethods.ExternalChannelUpsert,
         AppServerMethods.ExternalChannelRemove,
         AppServerMethods.SubAgentProfileList,
+        AppServerMethods.SubAgentSettingsUpdate,
         AppServerMethods.SubAgentProfileSetEnabled,
         AppServerMethods.SubAgentProfileUpsert,
         AppServerMethods.SubAgentProfileRemove
@@ -189,6 +190,7 @@ public sealed class AppServerRequestHandler(
                 AppServerMethods.ExternalChannelUpsert => HandleExternalChannelUpsertAsync(msg, ct),
                 AppServerMethods.ExternalChannelRemove => HandleExternalChannelRemoveAsync(msg, ct),
                 AppServerMethods.SubAgentProfileList => HandleSubAgentProfileListAsync(msg, ct),
+                AppServerMethods.SubAgentSettingsUpdate => HandleSubAgentSettingsUpdateAsync(msg, ct),
                 AppServerMethods.SubAgentProfileSetEnabled => HandleSubAgentProfileSetEnabledAsync(msg, ct),
                 AppServerMethods.SubAgentProfileUpsert => HandleSubAgentProfileUpsertAsync(msg, ct),
                 AppServerMethods.SubAgentProfileRemove => HandleSubAgentProfileRemoveAsync(msg, ct),
@@ -651,6 +653,34 @@ public sealed class AppServerRequestHandler(
         return Task.FromResult<object?>(listResult);
     }
 
+    private Task<object?> HandleSubAgentSettingsUpdateAsync(AppServerIncomingMessage msg, CancellationToken ct)
+    {
+        _ = ct;
+        EnsureSubAgentManagementAvailable();
+        var p = GetParams<SubAgentSettingsUpdateParams>(msg);
+        if (!p.ExternalCliSessionResumeEnabled.HasValue)
+            throw AppServerErrors.InvalidParams("'externalCliSessionResumeEnabled' is required.");
+
+        var state = SubAgentProfilesPersistence.LoadWorkspaceState(workspaceCraftPath!);
+        SubAgentProfilesPersistence.SaveWorkspaceState(
+            workspaceCraftPath!,
+            state.DisabledProfiles,
+            p.ExternalCliSessionResumeEnabled.Value,
+            state.Profiles);
+        RefreshCurrentSubAgentConfig();
+        _appConfigMonitor?.NotifyChanged(
+            AppServerMethods.SubAgentSettingsUpdate,
+            [ConfigChangeRegions.SubAgent]);
+
+        return Task.FromResult<object?>(new SubAgentSettingsUpdateResult
+        {
+            Settings = new SubAgentSettingsWire
+            {
+                ExternalCliSessionResumeEnabled = p.ExternalCliSessionResumeEnabled.Value
+            }
+        });
+    }
+
     private Task<object?> HandleSubAgentProfileSetEnabledAsync(AppServerIncomingMessage msg, CancellationToken ct)
     {
         _ = ct;
@@ -678,7 +708,11 @@ public sealed class AppServerRequestHandler(
         else if (!disabled.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
             disabled.Add(p.Name);
 
-        SubAgentProfilesPersistence.SaveWorkspaceState(workspaceCraftPath!, disabled, state.Profiles);
+        SubAgentProfilesPersistence.SaveWorkspaceState(
+            workspaceCraftPath!,
+            disabled,
+            state.EnableExternalCliSessionResume,
+            state.Profiles);
         RefreshCurrentSubAgentConfig();
         _appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileSetEnabled,
@@ -708,7 +742,11 @@ public sealed class AppServerRequestHandler(
         else
             profiles.Add(profile);
 
-        SubAgentProfilesPersistence.SaveWorkspaceState(workspaceCraftPath!, state.DisabledProfiles, profiles);
+        SubAgentProfilesPersistence.SaveWorkspaceState(
+            workspaceCraftPath!,
+            state.DisabledProfiles,
+            state.EnableExternalCliSessionResume,
+            profiles);
         RefreshCurrentSubAgentConfig();
         _appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileUpsert,
@@ -740,7 +778,11 @@ public sealed class AppServerRequestHandler(
         if (!isBuiltIn)
             disabled.RemoveAll(name => string.Equals(name, p.Name, StringComparison.OrdinalIgnoreCase));
 
-        SubAgentProfilesPersistence.SaveWorkspaceState(workspaceCraftPath!, disabled, workspaceProfiles);
+        SubAgentProfilesPersistence.SaveWorkspaceState(
+            workspaceCraftPath!,
+            disabled,
+            state.EnableExternalCliSessionResume,
+            workspaceProfiles);
         RefreshCurrentSubAgentConfig();
         _appConfigMonitor?.NotifyChanged(
             AppServerMethods.SubAgentProfileRemove,
@@ -1255,6 +1297,9 @@ public sealed class AppServerRequestHandler(
         InputMode = profile.InputMode,
         InputArgTemplate = profile.InputArgTemplate,
         InputEnvKey = profile.InputEnvKey,
+        ResumeArgTemplate = profile.ResumeArgTemplate,
+        ResumeSessionIdJsonPath = profile.ResumeSessionIdJsonPath,
+        ResumeSessionIdRegex = profile.ResumeSessionIdRegex,
         OutputJsonPath = profile.OutputJsonPath,
         OutputInputTokensJsonPath = profile.OutputInputTokensJsonPath,
         OutputOutputTokensJsonPath = profile.OutputOutputTokensJsonPath,
@@ -1290,6 +1335,9 @@ public sealed class AppServerRequestHandler(
         InputMode = string.IsNullOrWhiteSpace(wire.InputMode) ? null : wire.InputMode.Trim(),
         InputArgTemplate = string.IsNullOrWhiteSpace(wire.InputArgTemplate) ? null : wire.InputArgTemplate,
         InputEnvKey = string.IsNullOrWhiteSpace(wire.InputEnvKey) ? null : wire.InputEnvKey.Trim(),
+        ResumeArgTemplate = string.IsNullOrWhiteSpace(wire.ResumeArgTemplate) ? null : wire.ResumeArgTemplate,
+        ResumeSessionIdJsonPath = string.IsNullOrWhiteSpace(wire.ResumeSessionIdJsonPath) ? null : wire.ResumeSessionIdJsonPath.Trim(),
+        ResumeSessionIdRegex = string.IsNullOrWhiteSpace(wire.ResumeSessionIdRegex) ? null : wire.ResumeSessionIdRegex,
         OutputJsonPath = string.IsNullOrWhiteSpace(wire.OutputJsonPath) ? null : wire.OutputJsonPath.Trim(),
         OutputInputTokensJsonPath = string.IsNullOrWhiteSpace(wire.OutputInputTokensJsonPath) ? null : wire.OutputInputTokensJsonPath.Trim(),
         OutputOutputTokensJsonPath = string.IsNullOrWhiteSpace(wire.OutputOutputTokensJsonPath) ? null : wire.OutputOutputTokensJsonPath.Trim(),
@@ -1374,6 +1422,22 @@ public sealed class AppServerRequestHandler(
     {
         if (string.IsNullOrWhiteSpace(profile.Name))
             throw AppServerErrors.SubAgentProfileValidationFailed("'name' is required.");
+
+        if (profile.SupportsResume == true)
+        {
+            if (string.IsNullOrWhiteSpace(profile.ResumeArgTemplate))
+            {
+                throw AppServerErrors.SubAgentProfileValidationFailed(
+                    "resumeArgTemplate is required when supportsResume is true.");
+            }
+
+            if (string.IsNullOrWhiteSpace(profile.ResumeSessionIdJsonPath)
+                && string.IsNullOrWhiteSpace(profile.ResumeSessionIdRegex))
+            {
+                throw AppServerErrors.SubAgentProfileValidationFailed(
+                    "resumeSessionIdJsonPath or resumeSessionIdRegex is required when supportsResume is true.");
+            }
+        }
 
         var warnings = SubAgentProfileRegistry.ValidateProfiles(
             [profile],
@@ -1466,7 +1530,11 @@ public sealed class AppServerRequestHandler(
         return new SubAgentProfileListResult
         {
             DefaultName = SubAgentCoordinator.DefaultProfileName,
-            Profiles = profiles
+            Profiles = profiles,
+            Settings = new SubAgentSettingsWire
+            {
+                ExternalCliSessionResumeEnabled = state.EnableExternalCliSessionResume
+            }
         };
     }
 
@@ -1539,7 +1607,8 @@ public sealed class AppServerRequestHandler(
         var mergedConfig = AppConfig.LoadWithGlobalFallback(configPath);
         _appConfigMonitor.Current.SubAgent = new AppConfig.SubAgentConfig
         {
-            DisabledProfiles = [.. mergedConfig.SubAgent.DisabledProfiles]
+            DisabledProfiles = [.. mergedConfig.SubAgent.DisabledProfiles],
+            EnableExternalCliSessionResume = mergedConfig.SubAgent.EnableExternalCliSessionResume
         };
         _appConfigMonitor.Current.SubAgentProfiles = mergedConfig.SubAgentProfiles
             .Where(profile => !string.IsNullOrWhiteSpace(profile.Name))

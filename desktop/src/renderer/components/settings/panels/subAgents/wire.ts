@@ -22,6 +22,9 @@ export interface SubAgentProfileWriteWire {
   inputMode?: string | null
   inputArgTemplate?: string | null
   inputEnvKey?: string | null
+  resumeArgTemplate?: string | null
+  resumeSessionIdJsonPath?: string | null
+  resumeSessionIdRegex?: string | null
   outputJsonPath?: string | null
   outputInputTokensJsonPath?: string | null
   outputOutputTokensJsonPath?: string | null
@@ -59,6 +62,11 @@ export interface SubAgentProfileEntryWire {
 export interface SubAgentProfileListResult {
   profiles: SubAgentProfileEntryWire[]
   defaultName: string
+  settings: SubAgentSettingsWire
+}
+
+export interface SubAgentSettingsWire {
+  externalCliSessionResumeEnabled: boolean
 }
 
 export const DEFAULT_CUSTOM_TIMEOUT_SECONDS = 300
@@ -80,6 +88,9 @@ export function createDefaultWriteWire(): SubAgentProfileWriteWire {
     inputMode: 'arg',
     inputArgTemplate: null,
     inputEnvKey: null,
+    resumeArgTemplate: null,
+    resumeSessionIdJsonPath: null,
+    resumeSessionIdRegex: null,
     outputJsonPath: null,
     outputInputTokensJsonPath: null,
     outputOutputTokensJsonPath: null,
@@ -103,6 +114,9 @@ export interface CustomEditorState {
   inputMode: string
   inputArgTemplate: string
   inputEnvKey: string
+  resumeArgTemplate: string
+  resumeSessionIdJsonPath: string
+  resumeSessionIdRegex: string
   inputFormat: string
   outputFormat: string
   outputJsonPath: string
@@ -135,6 +149,9 @@ export function createCustomEditorState(
     inputMode: source.inputMode ?? 'arg',
     inputArgTemplate: source.inputArgTemplate ?? '',
     inputEnvKey: source.inputEnvKey ?? '',
+    resumeArgTemplate: source.resumeArgTemplate ?? '',
+    resumeSessionIdJsonPath: source.resumeSessionIdJsonPath ?? '',
+    resumeSessionIdRegex: source.resumeSessionIdRegex ?? '',
     inputFormat: source.inputFormat ?? '',
     outputFormat: source.outputFormat ?? 'text',
     outputJsonPath: source.outputJsonPath ?? '',
@@ -225,6 +242,9 @@ export function buildCustomWriteWire(
       inputMode: nullableString(draft.inputMode),
       inputArgTemplate: nullableString(draft.inputArgTemplate),
       inputEnvKey: nullableString(draft.inputEnvKey),
+      resumeArgTemplate: nullableString(draft.resumeArgTemplate),
+      resumeSessionIdJsonPath: nullableString(draft.resumeSessionIdJsonPath),
+      resumeSessionIdRegex: nullableString(draft.resumeSessionIdRegex),
       outputJsonPath: nullableString(draft.outputJsonPath),
       outputInputTokensJsonPath: nullableString(draft.outputInputTokensJsonPath),
       outputOutputTokensJsonPath: nullableString(draft.outputOutputTokensJsonPath),
@@ -259,6 +279,16 @@ export function validateCustomEditorState(
   }
   if (draft.outputFormat === 'json' && draft.outputJsonPath.trim().length === 0) {
     return t('settings.subAgents.validation.outputJsonPathRequired')
+  }
+  if (draft.supportsResume && draft.resumeArgTemplate.trim().length === 0) {
+    return t('settings.subAgents.validation.resumeArgTemplateRequired')
+  }
+  if (
+    draft.supportsResume &&
+    draft.resumeSessionIdJsonPath.trim().length === 0 &&
+    draft.resumeSessionIdRegex.trim().length === 0
+  ) {
+    return t('settings.subAgents.validation.resumeSessionExtractorRequired')
   }
   return null
 }

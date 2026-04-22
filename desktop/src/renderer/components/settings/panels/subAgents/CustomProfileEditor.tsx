@@ -113,6 +113,7 @@ const PERMISSION_LABEL_KEYS: Record<PermissionModeKey, MessageKey> = {
 interface CustomProfileEditorProps {
   mode: 'create' | 'edit'
   profile: SubAgentProfileEntryWire | null
+  externalCliSessionResumeEnabled: boolean
   saving: boolean
   deleting: boolean
   onBack: () => void
@@ -123,6 +124,7 @@ interface CustomProfileEditorProps {
 export function CustomProfileEditor({
   mode,
   profile,
+  externalCliSessionResumeEnabled,
   saving,
   deleting,
   onBack,
@@ -566,6 +568,64 @@ export function CustomProfileEditor({
                 ))}
               </div>
             </SettingsRow>
+            <SettingsRow
+              control={
+                <ToggleSwitch
+                  label={t('settings.subAgents.custom.supportsResumeLabel')}
+                  description={t('settings.subAgents.custom.supportsResumeHint')}
+                  checked={state.supportsResume}
+                  onChange={(value) => updateState('supportsResume', value)}
+                />
+              }
+            />
+            {state.supportsResume && (
+              <>
+                <SettingsRow
+                  label={t('settings.subAgents.custom.resumeArgTemplateLabel')}
+                  description={t('settings.subAgents.custom.resumeArgTemplateHint')}
+                  orientation="block"
+                >
+                  <input
+                    type="text"
+                    value={state.resumeArgTemplate}
+                    onChange={(event) => updateState('resumeArgTemplate', event.target.value)}
+                    placeholder={t('settings.subAgents.custom.resumeArgTemplatePlaceholder')}
+                    style={inputStyle(true)}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  label={t('settings.subAgents.custom.resumeSessionIdJsonPathLabel')}
+                  description={t('settings.subAgents.custom.resumeSessionIdJsonPathHint')}
+                  orientation="block"
+                >
+                  <input
+                    type="text"
+                    value={state.resumeSessionIdJsonPath}
+                    onChange={(event) => updateState('resumeSessionIdJsonPath', event.target.value)}
+                    placeholder={t('settings.subAgents.custom.resumeSessionIdJsonPathPlaceholder')}
+                    style={inputStyle(true)}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  label={t('settings.subAgents.custom.resumeSessionIdRegexLabel')}
+                  description={t('settings.subAgents.custom.resumeSessionIdRegexHint')}
+                  orientation="block"
+                >
+                  <input
+                    type="text"
+                    value={state.resumeSessionIdRegex}
+                    onChange={(event) => updateState('resumeSessionIdRegex', event.target.value)}
+                    placeholder={t('settings.subAgents.custom.resumeSessionIdRegexPlaceholder')}
+                    style={inputStyle(true)}
+                  />
+                </SettingsRow>
+                {!externalCliSessionResumeEnabled && (
+                  <div style={noticeStyle('warning')}>
+                    {t('settings.subAgents.custom.resumeWorkspaceToggleOff')}
+                  </div>
+                )}
+              </>
+            )}
             <SettingsRow
               label={t('settings.subAgents.custom.sanitizationRulesLabel')}
               description={t('settings.subAgents.custom.sanitizationRulesHint')}

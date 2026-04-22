@@ -1,17 +1,46 @@
 # External CLI 子代理指南
 
-External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入 DotCraft。相比 `native`，外部 CLI 通常只提供阶段级进度，不提供逐工具调用细节。
+External CLI 子代理用于把已有 coding agent CLI 以短进程方式接入 DotCraft。相比 `native`，外部 CLI 通常只提供阶段级进度，不提供逐工具调用细节。
+
+在 2026-04-22 的更新后，DotCraft 还可以在同一线程里保存外部 CLI 的 session/chat/thread id，并在后续用户反馈时继续同一个外部会话。这个能力默认关闭，需要在 Desktop 的 SubAgents 设置里手动打开。
 
 ## 内置 Profile
 
-| 名称 | runtime | 默认 `bin` | headless 入口 |
-|------|---------|------------|---------------|
-| `native` | `native` | - | DotCraft 原生运行时 |
-| `codex-cli` | `cli-oneshot` | `codex` | `codex exec` |
-| `cursor-cli` | `cli-oneshot` | `cursor-agent` | `cursor-agent --print --output-format json --mode ask` |
-| `custom-cli-oneshot` | `cli-oneshot` | - | 模板 profile，需同名覆盖并补齐 `bin` 后才可用 |
+| 名称 | runtime | 默认 `bin` | headless 入口 | 是否支持 resume |
+|------|---------|------------|---------------|-----------------|
+| `native` | `native` | - | DotCraft 原生运行时 | 不适用 |
+| `codex-cli` | `cli-oneshot` | `codex` | `codex exec` / `codex exec resume` | 支持 |
+| `cursor-cli` | `cli-oneshot` | `cursor-agent` | `cursor-agent -p --output-format json --resume ...` | 支持 |
+| `custom-cli-oneshot` | `cli-oneshot` | - | 模板 profile，需同名覆盖并补齐 `bin` 后才可用 | 可选 |
 
-当某个 `cli-oneshot` profile 的 `bin` 在本机不可解析时，DotCraft 会自动将其从系统提示词隐藏，并在启动时于日志中打印隐藏原因（例如 `binary 'cursor-agent' was not found on PATH`）。
+当某个 `cli-oneshot` profile 的 `bin` 在本机不可解析时，DotCraft 会自动将其从系统提示词隐藏。
+
+## Desktop 开关
+
+Desktop 的 `Settings > Sub Agents` 页面提供一个工作区级开关：
+
+- `复用外部 CLI 会话`
+
+默认关闭。开启后，DotCraft 才会尝试为支持 resume 的 external CLI profile 复用之前保存的外部会话。
+
+关闭时：
+
+- 每次委派任务都会新建外部 CLI 会话
+- 已保存的 session id 不会被删除，只是暂时不使用
+
+## 何时会续接之前的会话
+
+DotCraft 不会盲目复用任何旧会话。匹配规则是：
+
+- 优先按 `profile + label + workingDirectory` 精确匹配
+- 如果这次没有 `label`，只有在同一 `profile + workingDirectory` 下仅存在一个候选时才自动续接
+- 其余情况一律新建会话
+
+因此，如果你希望主 Agent 在“第一次委派 -> 用户反馈 -> 再次委派”之间继续同一个外部 CLI 会话，最稳妥的方式是：
+
+- 复用同一个 profile
+- 复用同一个 label
+- 保持相同工作目录
 
 ## 快速配置
 
@@ -24,13 +53,19 @@ External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入
 
 ```json
 {
+  "SubAgent": {
+    "EnableExternalCliSessionResume": true
+  },
   "SubAgentProfiles": {
     "my-cli": {
       "runtime": "cli-oneshot",
       "bin": "my-cli",
       "workingDirectoryMode": "workspace",
       "inputMode": "arg",
-      "outputFormat": "text"
+      "outputFormat": "text",
+      "supportsResume": true,
+      "resumeArgTemplate": "--resume {sessionId}",
+      "resumeSessionIdJsonPath": "session_id"
     }
   }
 }
@@ -40,7 +75,7 @@ External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入
 
 | 字段 | 说明 |
 |------|------|
-| `runtime` | 运行时类型。外部 one-shot CLI 使用 `cli-oneshot` |
+| `runtime` | 运行时类型。外部短进程 CLI 使用 `cli-oneshot` |
 | `bin` | CLI 可执行文件名或绝对路径 |
 | `args` | 固定参数列表 |
 | `workingDirectoryMode` | `workspace` / `specified` |
@@ -53,65 +88,42 @@ External CLI 子代理用于把已有 coding agent CLI 以 one-shot 方式接入
 | `outputJsonPath` | `json` 模式下提取最终结果的路径 |
 | `readOutputFile` | 是否优先读取输出文件作为最终结果 |
 | `outputFileArgTemplate` | 输出文件参数模板，支持 `{path}` |
+| `supportsResume` | 是否允许 DotCraft 保存并复用外部 session id |
+| `resumeArgTemplate` | resume 参数模板，支持 `{sessionId}` |
+| `resumeSessionIdJsonPath` | 从 stdout JSON 提取 session id 的路径 |
+| `resumeSessionIdRegex` | 当 stdout 不是单个 JSON 对象时，用正则提取 session id |
 | `timeout` | 单次运行超时秒数 |
 | `maxOutputBytes` | 最大捕获输出字节数 |
-| `trustLevel` | 信任等级：`trusted` / `prompt` / `restricted`（用于描述 profile 默认策略） |
-| `permissionModeMapping` | DotCraft 审批模式到 CLI 参数的映射（键：`interactive` / `auto-approve` / `restricted`） |
+| `trustLevel` | 信任等级：`trusted` / `prompt` / `restricted` |
+| `permissionModeMapping` | DotCraft 审批模式到 CLI 参数的映射 |
+
+当 `supportsResume=true` 时，必须配置：
+
+- `resumeArgTemplate`
+- `resumeSessionIdJsonPath` 或 `resumeSessionIdRegex` 至少一个
 
 ## 审批与权限穿透
 
-M6 后，DotCraft 关注的是“审批策略是否穿透到子代理执行”，而不是“启动外部 CLI 前是否弹一次确认”。
-
 ### Native 子代理
 
-- Native 子代理内部的 `ReadFile/WriteFile/Exec` 会复用当前会话的 `IApprovalService`。
-- 审批请求会在 command/path 前自动加上前缀：`[subagent:<label>] ...`，便于区分来源。
-- 交互式会话会看到真实审批；自动审批频道会自动放行；`InterruptOnApproval` 频道会直接中断当前 turn。
+- Native 子代理内部的 `ReadFile/WriteFile/Exec` 会复用当前会话的 `IApprovalService`
+- 审批请求会在 command/path 前自动加上前缀：`[subagent:<label>] ...`
 
 ### External CLI 子代理
 
-- DotCraft 不拦截外部 CLI 内部工具调用，而是把当前审批模式翻译为启动参数。
-- 映射入口是 profile 的 `permissionModeMapping`，典型模式：
-  - `interactive`：保守参数（例如 codex 的 `--sandbox read-only`）。
-  - `auto-approve`：自动化参数（例如 codex 的 bypass 组合）。
-  - `restricted`：最保守参数，避免隐式写入。
-
-内置 `codex-cli` 默认映射：
-
-```json
-{
-  "permissionModeMapping": {
-    "interactive": "--sandbox read-only --ask-for-approval on-request",
-    "auto-approve": "--dangerously-bypass-approvals-and-sandbox",
-    "restricted": "--sandbox read-only"
-  }
-}
-```
-
-### 取消行为
-
-- 用户取消当前 turn（如 Ctrl+C）时，DotCraft 会向运行中的 external CLI 传播取消。
-- Windows 下通过 JobObject 终止子进程树，避免 CLI 及其孙进程残留。
+- DotCraft 不拦截外部 CLI 内部工具调用，而是把当前审批模式翻译为启动参数
+- 映射入口是 profile 的 `permissionModeMapping`
+- resume 参数会插在审批参数之前，但仍然由 DotCraft 决定是否允许 resume
 
 ## 厂商 Headless 参考
 
 ### `cursor-cli`
 
-厂商文档：[CLI Parameters](https://cursor.com/docs/cli/reference/parameters)、[Headless CLI](https://cursor.com/docs/cli/headless)。
-
-DotCraft 内置基础参数：`--print --output-format json`，再由 `permissionModeMapping` 按当前审批模式补充 `--mode`/`--trust` 相关参数。无交互认证建议设置 `CURSOR_API_KEY`；当该变量存在时，DotCraft 会自动复制到子进程。
+DotCraft 内置基础参数：`-p --output-format json`，并在需要续接时追加 `--resume {sessionId}`。
 
 ### `codex-cli`
 
-厂商文档：[Codex CLI](https://github.com/openai/codex)、[`codex exec` reference](https://github.com/openai/codex/blob/main/docs/cli.md#codex-exec)。
-
-DotCraft 内置调用为：`codex exec --skip-git-repo-check --output-last-message {path} "<task>"`（task 作为 positional prompt），并根据审批模式追加 permission mapping 参数。返回结果默认走 `--output-last-message {path}` 输出文件契约，再由 DotCraft 读取最终文本。
-
-鉴权方面，DotCraft 会自动向子进程透传 `CODEX_API_KEY` 与 `OPENAI_API_KEY`。如果你使用 `codex login`，其登录态也可通过 `HOME`/`USERPROFILE` 下的 `~/.codex` 目录被复用。
-
-## 在你的机器上检查 Profile
-
-DotCraft 在启动时会校验所有 profile，并把被自动隐藏的内置 profile 以日志形式输出，便于定位是缺 `bin`、binary 不在 PATH、还是字段配置有误。检查启动日志即可确认当前哪些 profile 可被模型使用。
+DotCraft 内置基础参数：`exec`，并通过输出文件参数补上 `--skip-git-repo-check --json --output-last-message {path}`。需要续接时会改为 `exec resume {sessionId}` 的形态；interactive / restricted 模式默认附加 `--sandbox read-only`，auto-approve 模式默认附加 `--dangerously-bypass-approvals-and-sandbox`。session id 从 stdout 中的 `thread_id` 提取。
 
 ## 相关文档
 

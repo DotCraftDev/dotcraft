@@ -39,6 +39,9 @@ public class SubAgentProfileConfigTests
         Assert.Contains("stdin", byKey["InputMode"].Options!);
         Assert.Equal("text", byKey["InputArgTemplate"].Type);
         Assert.Equal("text", byKey["InputEnvKey"].Type);
+        Assert.Equal("text", byKey["ResumeArgTemplate"].Type);
+        Assert.Equal("text", byKey["ResumeSessionIdJsonPath"].Type);
+        Assert.Equal("text", byKey["ResumeSessionIdRegex"].Type);
         Assert.Equal("text", byKey["OutputJsonPath"].Type);
         Assert.Equal("text", byKey["OutputInputTokensJsonPath"].Type);
         Assert.Equal("text", byKey["OutputOutputTokensJsonPath"].Type);
@@ -68,6 +71,9 @@ public class SubAgentProfileConfigTests
               "workingDirectoryMode": "specified",
               "supportsStreaming": true,
               "inputMode": "stdin",
+              "supportsResume": true,
+              "resumeArgTemplate": "resume {sessionId}",
+              "resumeSessionIdRegex": "thread_id=(.+)",
               "outputFormat": "json",
               "outputJsonPath": "result.message",
               "outputInputTokensJsonPath": "usage.input",
@@ -99,6 +105,9 @@ public class SubAgentProfileConfigTests
         Assert.Equal(["CURSOR_API_KEY", "HTTPS_PROXY"], codex.EnvPassthrough);
         Assert.Equal("specified", codex.WorkingDirectoryMode);
         Assert.True(codex.SupportsStreaming);
+        Assert.True(codex.SupportsResume);
+        Assert.Equal("resume {sessionId}", codex.ResumeArgTemplate);
+        Assert.Equal("thread_id=(.+)", codex.ResumeSessionIdRegex);
         Assert.Equal("stdin", codex.InputMode);
         Assert.Equal("json", codex.OutputFormat);
         Assert.Equal("result.message", codex.OutputJsonPath);
@@ -127,6 +136,9 @@ public class SubAgentProfileConfigTests
                     EnvPassthrough = ["CURSOR_API_KEY", "HTTPS_PROXY"],
                     WorkingDirectoryMode = "workspace",
                     InputMode = "stdin",
+                    SupportsResume = true,
+                    ResumeArgTemplate = "resume {sessionId}",
+                    ResumeSessionIdJsonPath = "session_id",
                     OutputJsonPath = "result",
                     OutputInputTokensJsonPath = "usage.input",
                     OutputOutputTokensJsonPath = "usage.output",
@@ -157,6 +169,9 @@ public class SubAgentProfileConfigTests
         Assert.False(codex.ContainsKey("Name"));
         Assert.Equal("codex", codex["Bin"]?.GetValue<string>());
         Assert.Equal("stdin", codex["InputMode"]?.GetValue<string>());
+        Assert.True(codex["SupportsResume"]?.GetValue<bool>());
+        Assert.Equal("resume {sessionId}", codex["ResumeArgTemplate"]?.GetValue<string>());
+        Assert.Equal("session_id", codex["ResumeSessionIdJsonPath"]?.GetValue<string>());
         var envPassthrough = Assert.IsType<JsonArray>(codex["EnvPassthrough"]);
         Assert.Equal("CURSOR_API_KEY", envPassthrough[0]?.GetValue<string>());
         Assert.Equal("HTTPS_PROXY", envPassthrough[1]?.GetValue<string>());
@@ -212,9 +227,12 @@ public class SubAgentProfileConfigTests
         Assert.Equal("arg", codex.InputMode);
         Assert.Equal("prompt", codex.TrustLevel);
         Assert.True(codex.ReadOutputFile);
-        Assert.Equal("--output-last-message {path}", codex.OutputFileArgTemplate);
+        Assert.True(codex.SupportsResume);
+        Assert.Equal("resume {sessionId}", codex.ResumeArgTemplate);
+        Assert.Equal("\"thread_id\"\\s*:\\s*\"(?<sessionId>[^\"]+)\"", codex.ResumeSessionIdRegex);
+        Assert.Equal("--skip-git-repo-check --json --output-last-message {path}", codex.OutputFileArgTemplate);
         Assert.Equal(
-            "--sandbox read-only --ask-for-approval on-request",
+            "--sandbox read-only",
             codex.PermissionModeMapping![SubAgentApprovalModeResolver.InteractiveMode]);
         Assert.Equal(
             "--dangerously-bypass-approvals-and-sandbox",
@@ -225,6 +243,9 @@ public class SubAgentProfileConfigTests
         Assert.Equal("cursor-agent", cursor.Bin);
         Assert.Equal("json", cursor.OutputFormat);
         Assert.Equal("result", cursor.OutputJsonPath);
+        Assert.True(cursor.SupportsResume);
+        Assert.Equal("--resume {sessionId}", cursor.ResumeArgTemplate);
+        Assert.Equal("session_id", cursor.ResumeSessionIdJsonPath);
         Assert.Equal("prompt", cursor.TrustLevel);
         Assert.Equal("--mode ask --trust --approve-mcps", cursor.PermissionModeMapping![SubAgentApprovalModeResolver.InteractiveMode]);
 
@@ -251,6 +272,7 @@ public class SubAgentProfileConfigTests
                     WorkingDirectoryMode = "workspace",
                     InputMode = "arg-template",
                     OutputFormat = "json",
+                    SupportsResume = true,
                     ReadOutputFile = true
                 }
             ],
@@ -260,6 +282,8 @@ public class SubAgentProfileConfigTests
         Assert.Contains(warnings, w => w.Contains("inputArgTemplate", StringComparison.Ordinal));
         Assert.Contains(warnings, w => w.Contains("outputJsonPath", StringComparison.Ordinal));
         Assert.Contains(warnings, w => w.Contains("outputFileArgTemplate", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.Contains("resumeArgTemplate", StringComparison.Ordinal));
+        Assert.Contains(warnings, w => w.Contains("resumeSessionIdJsonPath", StringComparison.Ordinal));
     }
 
     [Fact]

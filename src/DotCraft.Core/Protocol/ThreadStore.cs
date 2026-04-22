@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using DotCraft.State;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Protocol;
 
@@ -98,11 +100,23 @@ public sealed class ThreadStore
         var sessionJson = _metadataStore.LoadSessionJson(threadId);
         if (!string.IsNullOrWhiteSpace(sessionJson))
         {
-            var element = JsonSerializer.Deserialize<JsonElement>(sessionJson, SessionPersistenceJsonOptions.Default);
-            return await agent.DeserializeSessionAsync(element, SessionPersistenceJsonOptions.Default, ct);
+            try
+            {
+                var element = JsonSerializer.Deserialize<JsonElement>(sessionJson, SessionPersistenceJsonOptions.Default);
+                return await agent.DeserializeSessionAsync(element, SessionPersistenceJsonOptions.Default, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Fall back to canonical rollout history when the SQLite session is
+                // missing, malformed, or cannot be deserialized by the current agent.
+            }
         }
 
-        return await agent.CreateSessionAsync(ct);
+        return await RebuildSessionFromRolloutAsync(agent, threadId, ct);
     }
 
     /// <summary>
@@ -126,4 +140,80 @@ public sealed class ThreadStore
         return JsonSerializer.Deserialize<SessionThread>(json, SessionJsonOptions.Default)
             ?? throw new InvalidOperationException($"Failed to clone thread snapshot for {thread.Id}.");
     }
+
+    private async Task<AgentSession> RebuildSessionFromRolloutAsync(
+        AIAgent agent,
+        string threadId,
+        CancellationToken ct)
+    {
+        var thread = await _rolloutStore.LoadThreadAsync(threadId, ct);
+        if (thread == null)
+            return await agent.CreateSessionAsync(ct);
+
+        var history = new List<ChatMessage>();
+
+        foreach (var turn in thread.Turns.OrderBy(t => t.StartedAt).ThenBy(t => t.Id, StringComparer.Ordinal))
+        {
+            foreach (var item in turn.Items)
+            {
+                if (item.Status != ItemStatus.Completed)
+                    continue;
+
+                if (item.Type == ItemType.UserMessage && item.AsUserMessage is { Text: { } userText } &&
+                    !string.IsNullOrWhiteSpace(userText))
+                {
+                    history.Add(new ChatMessage(ChatRole.User, userText.Trim()));
+                }
+                else if (item.Type == ItemType.AgentMessage && item.AsAgentMessage is { Text: { } agentText } &&
+                         !string.IsNullOrWhiteSpace(agentText))
+                {
+                    history.Add(new ChatMessage(ChatRole.Assistant, agentText.Trim()));
+                }
+            }
+        }
+
+        if (history.Count == 0)
+            return await agent.CreateSessionAsync(ct);
+
+        var element = JsonSerializer.SerializeToElement(
+            new PersistedAgentSessionEnvelope
+            {
+                ChatHistoryProviderState = new PersistedChatHistoryProviderState { Messages = history },
+                AiContextProviderState = new PersistedAiContextProviderState { Timestamp = DateTimeOffset.UtcNow }
+            },
+            SessionPersistenceJsonOptions.Default);
+        try
+        {
+            return await agent.DeserializeSessionAsync(element, SessionPersistenceJsonOptions.Default, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return await agent.CreateSessionAsync(ct);
+        }
+    }
+}
+
+internal sealed class PersistedAgentSessionEnvelope
+{
+    [JsonPropertyName("chatHistoryProviderState")]
+    public PersistedChatHistoryProviderState ChatHistoryProviderState { get; init; } = new();
+
+    [JsonPropertyName("aiContextProviderState")]
+    public PersistedAiContextProviderState AiContextProviderState { get; init; } = new();
+}
+
+internal sealed class PersistedChatHistoryProviderState
+{
+    [JsonPropertyName("messages")]
+    public List<ChatMessage> Messages { get; init; } = [];
+}
+
+internal sealed class PersistedAiContextProviderState
+{
+    [JsonPropertyName("timestamp")]
+    public DateTimeOffset Timestamp { get; init; }
 }

@@ -1,5 +1,8 @@
+using System.Text.Json;
 using DotCraft.Protocol;
+using Microsoft.Agents.AI;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.AI;
 
 namespace DotCraft.Tests.Sessions.Protocol;
 
@@ -282,6 +285,58 @@ public sealed class ThreadStoreTests : IDisposable
         Assert.Equal(thread.Id, index[0].Id);
     }
 
+    [Fact]
+    public async Task LoadOrCreateSessionAsync_WhenSessionRowMissing_RebuildsChatHistoryFromRollout()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "hello", "world");
+        await _store.SaveThreadAsync(thread);
+
+        var store = new ThreadStore(_root);
+        var agent = CreateAgent();
+
+        var session = await store.LoadOrCreateSessionAsync(agent, thread.Id);
+
+        Assert.Equal(
+            ["user:hello", "assistant:world"],
+            await ExtractHistoryAsync(agent, session));
+    }
+
+    [Fact]
+    public async Task LoadOrCreateSessionAsync_WhenSessionRowIsInvalid_FallsBackToRolloutHistory()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "Need context", "Here is the context.");
+        await _store.SaveThreadAsync(thread);
+        InsertInvalidThreadSession(thread.Id, "{not valid json");
+
+        var store = new ThreadStore(_root);
+        var agent = CreateAgent();
+
+        var session = await store.LoadOrCreateSessionAsync(agent, thread.Id);
+
+        Assert.Equal(
+            ["user:Need context", "assistant:Here is the context."],
+            await ExtractHistoryAsync(agent, session));
+    }
+
+    [Fact]
+    public async Task LoadOrCreateSessionAsync_WhenOnlyCancelledTurnExists_ReplaysCompletedTextItems()
+    {
+        var thread = CreateThread();
+        AddTurnWithMessages(thread, "Partial request", "Partial answer", TurnStatus.Cancelled);
+        await _store.SaveThreadAsync(thread);
+
+        var store = new ThreadStore(_root);
+        var agent = CreateAgent();
+
+        var session = await store.LoadOrCreateSessionAsync(agent, thread.Id);
+
+        Assert.Equal(
+            ["user:Partial request", "assistant:Partial answer"],
+            await ExtractHistoryAsync(agent, session));
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -297,6 +352,80 @@ public sealed class ThreadStoreTests : IDisposable
         LastActiveAt = DateTimeOffset.UtcNow,
         HistoryMode = HistoryMode.Server
     };
+
+    private static AIAgent CreateAgent()
+        => new TestChatClient().AsAIAgent(new ChatClientAgentOptions());
+
+    private static async Task<List<string>> ExtractHistoryAsync(AIAgent agent, AgentSession session)
+    {
+        var serialized = await agent.SerializeSessionAsync(session, SessionPersistenceJsonOptions.Default, CancellationToken.None);
+        Assert.True(serialized.TryGetProperty("chatHistoryProviderState", out var providerState));
+        Assert.True(providerState.TryGetProperty("messages", out var chatHistory));
+        var history = new List<string>();
+        foreach (var message in chatHistory.EnumerateArray())
+        {
+            var role = message.GetProperty("role").GetString() ?? string.Empty;
+            history.Add($"{role}:{ExtractMessageText(message)}");
+        }
+
+        return history;
+    }
+
+    private static string ExtractMessageText(JsonElement message)
+    {
+        if (!message.TryGetProperty("contents", out var contents) || contents.ValueKind != JsonValueKind.Array)
+            return string.Empty;
+
+        return string.Concat(
+            contents.EnumerateArray()
+                .Where(content => content.TryGetProperty("$type", out var type) && type.GetString() == "text")
+                .Select(content => content.TryGetProperty("text", out var text) ? text.GetString() : null)
+                .Where(text => !string.IsNullOrEmpty(text)));
+    }
+
+    private static void AddTurnWithMessages(
+        SessionThread thread,
+        string userText,
+        string agentText,
+        TurnStatus status = TurnStatus.Completed)
+    {
+        var turn = new SessionTurn
+        {
+            Id = SessionIdGenerator.NewTurnId(thread.Turns.Count + 1),
+            ThreadId = thread.Id,
+            Status = status,
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+
+        var userItem = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(1),
+            TurnId = turn.Id,
+            Type = ItemType.UserMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new UserMessagePayload { Text = userText }
+        };
+        turn.Input = userItem;
+        turn.Items.Add(userItem);
+
+        var agentItem = new SessionItem
+        {
+            Id = SessionIdGenerator.NewItemId(2),
+            TurnId = turn.Id,
+            Type = ItemType.AgentMessage,
+            Status = ItemStatus.Completed,
+            CreatedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Payload = new AgentMessagePayload { Text = agentText }
+        };
+        turn.Items.Add(agentItem);
+
+        thread.Turns.Add(turn);
+        thread.LastActiveAt = DateTimeOffset.UtcNow;
+    }
 
     private string GetCanonicalPath(string threadId, bool archived)
         => Path.Combine(_root, "threads", archived ? "archived" : "active", $"{threadId}.jsonl");
@@ -315,6 +444,23 @@ public sealed class ThreadStoreTests : IDisposable
         command.ExecuteNonQuery();
     }
 
+    private void InsertInvalidThreadSession(string threadId, string sessionJson)
+    {
+        using var connection = OpenStateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO thread_sessions(thread_id, session_json, updated_at)
+            VALUES ($thread_id, $session_json, $updated_at)
+            ON CONFLICT(thread_id) DO UPDATE SET
+                session_json = excluded.session_json,
+                updated_at = excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("$thread_id", threadId);
+        command.Parameters.AddWithValue("$session_json", sessionJson);
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.UtcDateTime.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
     private SqliteConnection OpenStateConnection()
     {
         var connection = new SqliteConnection(
@@ -325,5 +471,29 @@ public sealed class ThreadStoreTests : IDisposable
             }.ToString());
         connection.Open();
         return connection;
+    }
+
+    private sealed class TestChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, [new TextContent("ok")])]));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            yield return new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("ok")]);
+            await Task.CompletedTask;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
     }
 }

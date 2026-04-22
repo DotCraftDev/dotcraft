@@ -42,7 +42,9 @@ public sealed class CoreToolProvider : IAgentToolProvider
             [new NativeSubAgentRuntime(subAgentManager), new CliOneshotRuntime()],
             context.Config.SubAgentProfiles,
             context.ApprovalService,
-            context.Config.SubAgent.DisabledProfiles);
+            context.Config.SubAgent.DisabledProfiles,
+            context.ExternalCliSessionStore,
+            context.Config.SubAgent.EnableExternalCliSessionResume);
         var agentTools = new AgentTools(subAgentCoordinator);
         tools.Add(AIFunctionFactory.Create(agentTools.SpawnSubagent));
 
