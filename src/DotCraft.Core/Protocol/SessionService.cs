@@ -59,6 +59,7 @@ public sealed class SessionService(
     private readonly ConcurrentDictionary<string, AgentModeManager> _threadModeManagers = new();
     private readonly ConcurrentDictionary<string, ThreadEventBroker> _threadEventBrokers = new();
     private readonly ConcurrentDictionary<string, byte> _materializedThreads = new();
+    private readonly ConcurrentDictionary<string, byte> _threadsPendingPermanentDeletion = new();
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _threadExternalChannelToolNames = new();
     private static readonly IReadOnlySet<string> EmptyExternalToolNames = new HashSet<string>(StringComparer.Ordinal);
 
@@ -107,6 +108,7 @@ public sealed class SessionService(
             thread.Metadata["channelContext"] = identity.ChannelContext;
         }
 
+        _threadsPendingPermanentDeletion.TryRemove(thread.Id, out _);
         _threads[thread.Id] = thread;
         var broker = GetOrCreateBroker(thread.Id);
 
@@ -234,31 +236,45 @@ public sealed class SessionService(
     /// <inheritdoc/>
     public async Task DeleteThreadPermanentlyAsync(string threadId, CancellationToken ct = default)
     {
-        // Cancel any running or approval-pending turns for this thread
-        if (_threads.TryGetValue(threadId, out var thread))
+        var normalizedThreadId = threadId.Trim();
+        if (normalizedThreadId.Length == 0)
+            throw new ArgumentException("threadId is required.", nameof(threadId));
+
+        _threadsPendingPermanentDeletion[normalizedThreadId] = 0;
+
+        try
         {
-            foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+            // Cancel any running or approval-pending turns for this thread
+            if (_threads.TryGetValue(normalizedThreadId, out var thread))
             {
-                var key = new TurnKey(threadId, turn.Id);
-                if (_runningTurns.TryRemove(key, out var turnCts))
-                    await turnCts.CancelAsync();
-                _pendingApprovals.TryRemove(key, out _);
+                foreach (var turn in thread.Turns.Where(t => t.Status is TurnStatus.Running or TurnStatus.WaitingApproval))
+                {
+                    var key = new TurnKey(normalizedThreadId, turn.Id);
+                    if (_runningTurns.TryRemove(key, out var turnCts))
+                        await turnCts.CancelAsync();
+                    _pendingApprovals.TryRemove(key, out _);
+                }
             }
+
+            await persistence.DeleteThreadCascadeAsync(normalizedThreadId, ct);
+
+            // Remove all in-memory state only after persistence succeeds.
+            _threads.TryRemove(normalizedThreadId, out _);
+            _threadAgents.TryRemove(normalizedThreadId, out _);
+            _threadModeManagers.TryRemove(normalizedThreadId, out _);
+            _threadEventBrokers.TryRemove(normalizedThreadId, out _);
+            _materializedThreads.TryRemove(normalizedThreadId, out _);
+            _threadExternalChannelToolNames.TryRemove(normalizedThreadId, out _);
+            if (_threadMcpManagers.TryRemove(normalizedThreadId, out var mcpManager))
+                await mcpManager.DisposeAsync();
+
+            ThreadDeletedForBroadcast?.Invoke(normalizedThreadId);
         }
-
-        await persistence.DeleteThreadCascadeAsync(threadId, ct);
-
-        // Remove all in-memory state only after persistence succeeds.
-        _threads.TryRemove(threadId, out _);
-        _threadAgents.TryRemove(threadId, out _);
-        _threadModeManagers.TryRemove(threadId, out _);
-        _threadEventBrokers.TryRemove(threadId, out _);
-        _materializedThreads.TryRemove(threadId, out _);
-        _threadExternalChannelToolNames.TryRemove(threadId, out _);
-        if (_threadMcpManagers.TryRemove(threadId, out var mcpManager))
-            await mcpManager.DisposeAsync();
-
-        ThreadDeletedForBroadcast?.Invoke(threadId);
+        catch
+        {
+            _threadsPendingPermanentDeletion.TryRemove(normalizedThreadId, out _);
+            throw;
+        }
     }
 
     /// <inheritdoc/>
@@ -1374,6 +1390,9 @@ public sealed class SessionService(
 
     private async Task TrySaveThreadAsync(SessionThread thread)
     {
+        if (IsPendingPermanentDeletion(thread.Id))
+            return;
+
         try
         {
             await PersistThreadWithMaterializationAsync(thread, CancellationToken.None);
@@ -1386,14 +1405,21 @@ public sealed class SessionService(
 
     private bool IsMaterialized(string threadId) => _materializedThreads.ContainsKey(threadId);
 
+    private bool IsPendingPermanentDeletion(string threadId) => _threadsPendingPermanentDeletion.ContainsKey(threadId);
+
     private async Task PersistThreadWithMaterializationAsync(SessionThread thread, CancellationToken ct)
     {
-            await persistence.SaveThreadAsync(thread, ct);
+        if (IsPendingPermanentDeletion(thread.Id))
+            return;
+
+        await persistence.SaveThreadAsync(thread, ct);
         _materializedThreads[thread.Id] = 0;
     }
 
     private async Task PersistThreadIfMaterializedAsync(SessionThread thread, CancellationToken ct)
     {
+        if (IsPendingPermanentDeletion(thread.Id))
+            return;
         if (!IsMaterialized(thread.Id))
             return;
         await PersistThreadWithMaterializationAsync(thread, ct);

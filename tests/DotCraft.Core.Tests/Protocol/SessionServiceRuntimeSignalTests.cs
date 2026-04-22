@@ -96,6 +96,27 @@ public sealed class SessionServiceRuntimeSignalTests : IDisposable
             seen);
     }
 
+    [Fact]
+    public async Task DeleteThreadPermanentlyAsync_DuringRunningTurn_DoesNotRecreateThreadArtifacts()
+    {
+        IChatClient chatClient = new BlockingChatClient();
+        await using var agentFactory = CreateAgentFactory(chatClient);
+        var svc = CreateService(agentFactory, chatClient);
+        var thread = await svc.CreateThreadAsync(MakeIdentity());
+
+        var drainTask = DrainAsync(svc.SubmitInputAsync(thread.Id, [new TextContent("hello")]));
+        await Task.Delay(50);
+
+        await svc.DeleteThreadPermanentlyAsync(thread.Id);
+        await drainTask;
+
+        var store = new ThreadStore(_tempDir);
+        Assert.Null(await store.LoadThreadAsync(thread.Id));
+        Assert.DoesNotContain(await store.LoadIndexAsync(), summary => summary.Id == thread.Id);
+        Assert.False(File.Exists(Path.Combine(_tempDir, "threads", "active", $"{thread.Id}.jsonl")));
+        Assert.False(File.Exists(Path.Combine(_tempDir, "threads", "archived", $"{thread.Id}.jsonl")));
+    }
+
     private SessionService CreateService(AgentFactory agentFactory, IChatClient chatClient)
     {
         var defaultAgent = chatClient.AsAIAgent(new ChatClientAgentOptions());
