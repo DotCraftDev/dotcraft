@@ -1246,6 +1246,8 @@ public sealed class SessionService(
                 FailTurn(turn, eventChannel, reactiveMessage);
                 ThreadRuntimeSignalForBroadcast?.Invoke(threadId, SessionThreadRuntimeSignal.TurnFailed);
                 await TrySaveThreadAsync(thread);
+                if (session is not null)
+                    await TrySaveSessionAsync(agent, session, threadId);
             }
             finally
             {
